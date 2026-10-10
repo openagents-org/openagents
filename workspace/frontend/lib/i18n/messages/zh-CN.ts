@@ -2785,6 +2785,17 @@ export const messages: Messages = {
     sentYouMessage: '给你发了一条私信',
     dmPersonHint: '只有你和 {name} 能看到这段对话。',
   },
+
+  // Slack 式私信 / @提及提醒：线程列表中的未读高亮与桌面通知（不进入收件箱）。
+  slackSignals: {
+    mentionCount: '{count} 条未读提及',
+    dmUnreadCount: '{count} 条未读消息',
+    promptText: '开启桌面通知，及时收到私信和 @提及',
+    promptEnable: '开启',
+    promptDismiss: '关闭',
+    soundLabel: '私信和提及提示音',
+    soundHint: '有人给你发私信或 @提及你时播放提示音。',
+  },
 };
 
 export default messages;

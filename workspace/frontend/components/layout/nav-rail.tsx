@@ -196,7 +196,7 @@ export function NavRail() {
     viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
   } = useLayout();
   const {
-    workspace, agents, sessions, unreadSessionIds, unreadNotificationCount, pendingApprovalsByAgent,
+    workspace, agents, hasUnreadInThreads, unreadNotificationCount, pendingApprovalsByAgent,
     onlineUsers, currentUser, tasks, setCurrentSessionId,
   } = useWorkspace();
   const t = useT();
@@ -208,15 +208,8 @@ export function NavRail() {
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
   const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
 
-  // Only threads the list actually shows may light the rail. Counting archived
-  // and routine sessions too — as `unreadSessionIds` does on its own — leaves
-  // the dot stuck on with nothing unread anywhere the user can see.
-  const hasUnreadThreads = sessions.some(
-    (s) =>
-      s.status === 'active' &&
-      !s.sessionId.startsWith('routine:') &&
-      unreadSessionIds.has(s.sessionId),
-  );
+  // Unread threads, @mentions and DMs — only what the Threads view lists.
+  const hasUnreadThreads = hasUnreadInThreads;
 
   const items: RailItem[] = [
     {

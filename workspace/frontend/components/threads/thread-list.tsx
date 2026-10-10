@@ -120,6 +120,35 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
+// ── Unread markers ──
+
+/** Slack's "@" badge: unread mentions of the viewer, in the accent colour. */
+function MentionPill({ count }: { count: number }) {
+  const t = useT();
+  return (
+    <span
+      className="inline-flex h-4 shrink-0 items-center gap-px rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1.5 text-[10px] leading-none font-semibold text-white tabular-nums"
+      aria-label={t('slackSignals.mentionCount', { count })}
+      title={t('slackSignals.mentionCount', { count })}
+    >
+      @{count > 1 ? <span>{count > 99 ? '99+' : count}</span> : null}
+    </span>
+  );
+}
+
+/** Unread DM-signal count on a DM row (the dot covers the timestamp rule). */
+function DmUnreadMarker({ count }: { count: number }) {
+  const t = useT();
+  return (
+    <span
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1 text-[10px] leading-none font-semibold text-white tabular-nums"
+      aria-label={t('slackSignals.dmUnreadCount', { count })}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 // ── Thread row ──
 
 interface ThreadRowProps {
@@ -127,6 +156,8 @@ interface ThreadRowProps {
   agents: WorkspaceAgent[];
   isSelected: boolean;
   isUnread: boolean;
+  /** Unread @mentions of the viewer in this thread (Slack's "@" pill). */
+  mentionCount?: number;
   isRunning: boolean;
   isCompleted: boolean;
   preview: React.ReactNode;
@@ -140,7 +171,7 @@ interface ThreadRowProps {
 }
 
 function ThreadRow({
-  session, agents, isSelected, isUnread, isRunning, isCompleted, preview, previewIsStatus,
+  session, agents, isSelected, isUnread, mentionCount = 0, isRunning, isCompleted, preview, previewIsStatus,
   displayTime, shortcutKey, title, muted, onSelect, actions,
 }: ThreadRowProps) {
   const t = useT();
@@ -221,6 +252,9 @@ function ThreadRow({
           <div className="flex shrink-0 items-center gap-1">
             {/* Sits beside the timestamp rather than replacing it — the time is
                 what the user scans the list by. */}
+            {mentionCount > 0 && (
+              <MentionPill count={mentionCount} />
+            )}
             {isCompleted && !isSelected && (
               <CheckCircle2 className="size-3 shrink-0 text-amber-500" aria-label={t('threads.finished')} />
             )}
@@ -268,7 +302,7 @@ export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
     activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
-    unreadSessionIds, refreshAgents, refreshDMConversations, currentUser,
+    unreadSessionIds, unreadDmSessionIds, unreadSignals, refreshAgents, refreshDMConversations, currentUser,
   } = useWorkspace();
   const me = myAddress(currentUser);
   const humanNames = useHumanNames();
@@ -392,14 +426,18 @@ export function ThreadList() {
         ? archivedSessions
         : activeSessions;
 
+  const unreadCount = activeSessions.filter((s) => unreadSessionIds.has(s.sessionId)).length;
+  const dmRowId = (agents: readonly string[]) => `dm:${agents[0]},${agents[1]}`;
+  const unreadDmCount = visibleDMs.filter((c) => unreadDmSessionIds.has(dmRowId(c.agents))).length;
+
+  // All and DMs count what's unread (Slack-style), hidden at zero; Starred and
+  // Archived keep their totals.
   const tabCount: Record<FilterTab, number | undefined> = {
-    all: activeSessions.length,
+    all: unreadCount,
     starred: starredSessions.length,
     archived: archivedSessions.length,
-    dms: visibleDMs.length,
+    dms: unreadDmCount,
   };
-
-  const unreadCount = activeSessions.filter((s) => unreadSessionIds.has(s.sessionId)).length;
 
   // Deleted threads are filtered out of the list with no way back, so confirm first.
   const deleteThread = async (sessionId: string, title?: string) => {
@@ -587,6 +625,7 @@ export function ThreadList() {
           agents={agents}
           isSelected={session.sessionId === currentSessionId}
           isUnread={unreadSessionIds.has(session.sessionId)}
+          mentionCount={session.sessionId === currentSessionId ? 0 : unreadSignals[session.sessionId]?.mentions ?? 0}
           isRunning={activeSessionIds.has(session.sessionId)}
           isCompleted={
             completedSessionIds.has(session.sessionId) &&
@@ -687,7 +726,9 @@ export function ThreadList() {
 
   const renderDMRows = () =>
     visibleDMs.map((convo) => {
-      const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      const dmId = dmRowId(convo.agents);
+      const isUnread = unreadDmSessionIds.has(dmId);
+      const signalCount = unreadSignals[dmId]?.dms ?? 0;
       // rawTitle stays address-derived (stable avatar seed and dedup); the
       // rendered title maps each agent name to its display label.
       const rawTitle = dmDisplayTitle(convo.agents, me);
@@ -722,7 +763,11 @@ export function ThreadList() {
               : 'hover:bg-black/3 dark:hover:bg-white/5',
           )}
         >
-          <div className="w-2 shrink-0" />
+          <div className="flex w-2 shrink-0 justify-center pt-3">
+            {isUnread && signalCount === 0 && (
+              <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('threads.unread')} />
+            )}
+          </div>
           {isAgentPair ? (
             <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background">
               <MessageCircle className="size-3.5 text-muted-foreground" />
@@ -741,16 +786,19 @@ export function ThreadList() {
           )}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-0.5 flex items-center justify-between gap-1">
-              <span className="truncate text-sm leading-tight font-medium text-foreground">
+              <span className={cn('truncate text-sm leading-tight text-foreground', isUnread ? 'font-semibold' : 'font-medium')}>
                 {title}
               </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
-                {convo.lastMessage.timestamp
-                  ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
-                  : ''}
-              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <span className={cn('text-[11px] tabular-nums', isUnread ? 'font-medium text-foreground/70' : 'text-muted-foreground/70')}>
+                  {convo.lastMessage.timestamp
+                    ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
+                    : ''}
+                </span>
+                {isUnread && signalCount > 0 && <DmUnreadMarker count={signalCount} />}
+              </div>
             </div>
-            <p className="truncate text-xs leading-snug text-muted-foreground">
+            <p className={cn('truncate text-xs leading-snug', isUnread ? 'text-foreground/80' : 'text-muted-foreground')}>
               {sender}: {convo.lastMessage.content}
             </p>
           </div>

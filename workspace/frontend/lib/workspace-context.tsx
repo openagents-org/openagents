@@ -10,6 +10,7 @@ import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
+import { dmCounterpart, isMyAddress, myAddress } from './dm';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
@@ -253,8 +254,14 @@ interface WorkspaceContextValue {
   deleteKnowledge: (entryId: string) => Promise<void>;
   notifications: NotificationItem[];
   unreadNotificationCount: number;
-  /** Threads with activity the user hasn't opened since */
+  /** Threads with activity the user hasn't opened since, or an unread @mention */
   unreadSessionIds: Set<string>;
+  /** The viewer's DMs (keyed `dm:a,b` as listed) with an unread DM signal or a
+   *  last message from the other side newer than the DM's read marker. */
+  unreadDmSessionIds: Set<string>;
+  /** Anything unread the Threads view shows (listed threads or DMs) — the
+   *  nav item's attention dot. */
+  hasUnreadInThreads: boolean;
   markSessionRead: (sessionId: string) => void;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -1521,8 +1528,61 @@ export function WorkspaceProvider({
       if (readAt === undefined) continue; // baselined below, not unread yet
       if (activityAt(session) > readAt) unread.add(session.sessionId);
     }
+    // An unread @mention keeps a thread unread whatever its read marker says.
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.mentions > 0 && channel !== currentSessionId && sessions.some((s) => s.sessionId === channel)) {
+        unread.add(channel);
+      }
+    }
     return unread;
-  }, [sessions, lastReadBySession, currentSessionId, activityAt]);
+  }, [sessions, lastReadBySession, currentSessionId, activityAt, unreadSignals]);
+
+  // DM unread: a DM signal (person DMs), or — for agent DMs, which raise no
+  // signals — a last message from the other side newer than the read marker.
+  const myDmAddress = myAddress(currentUser);
+  const unreadDmSessionIds = useMemo(() => {
+    const unread = new Set<string>();
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      if (id === currentSessionId) continue;
+      if (!dmCounterpart(convo.agents, myDmAddress)) continue; // not the viewer's DM
+      if (unreadSignals[id]?.dms) { unread.add(id); continue; }
+      const readAt = lastReadBySession[id];
+      if (readAt === undefined) continue; // baselined below
+      const { timestamp, sender } = convo.lastMessage;
+      if (timestamp > readAt && !isMyAddress(sender, myDmAddress)) unread.add(id);
+    }
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.dms > 0 && channel.startsWith('dm:') && channel !== currentSessionId) unread.add(channel);
+    }
+    return unread;
+  }, [dmConversations, currentSessionId, myDmAddress, unreadSignals, lastReadBySession]);
+
+  // Only threads the list actually shows may light the nav: counting archived,
+  // routine or task sessions would leave the dot stuck on with nothing visible.
+  const hasUnreadInThreads = useMemo(
+    () => unreadDmSessionIds.size > 0 || sessions.some((s) =>
+      s.status === 'active' &&
+      !s.sessionId.startsWith('routine:') &&
+      !s.sessionId.startsWith('task:') &&
+      unreadSessionIds.has(s.sessionId)),
+    [sessions, unreadSessionIds, unreadDmSessionIds],
+  );
+
+  // Baseline DMs first seen in this browser at their last message, and keep the
+  // open DM read as messages arrive (server time can run ahead of ours).
+  useEffect(() => {
+    const known = lastReadRef.current;
+    const additions: Record<string, number> = {};
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      const at = convo.lastMessage.timestamp || 0;
+      if (known[id] === undefined || (id === currentSessionId && known[id] < at)) {
+        additions[id] = Math.max(at, id === currentSessionId ? Date.now() : 0);
+      }
+    }
+    if (Object.keys(additions).length > 0) persistRead({ ...known, ...additions });
+  }, [dmConversations, currentSessionId, persistRead]);
 
   // Baseline threads we've never seen a read marker for, and keep the open
   // thread marked read as messages stream into it.
@@ -1971,6 +2031,8 @@ export function WorkspaceProvider({
         notifications,
         unreadNotificationCount,
         unreadSessionIds,
+        unreadDmSessionIds,
+        hasUnreadInThreads,
         markSessionRead,
         refreshNotifications,
         markNotificationRead,
