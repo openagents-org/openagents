@@ -52,6 +52,11 @@ export function withoutLocallyRead(
   return signals.filter((n) => !readIds.has(n.id));
 }
 
+/** Identity of one version of a signal row (id + last update time). */
+export function signalVersionKey(n: Pick<NotificationItem, 'id' | 'createdAt'>): string {
+  return `${n.id}@${n.createdAt ?? ''}`;
+}
+
 /**
  * Which signals are new since the last poll.
  *
@@ -66,8 +71,12 @@ export function diffNewSignals(
   const next = new Set(seen ?? []);
   const fresh: NotificationItem[] = [];
   for (const n of signals) {
-    if (next.has(n.id)) continue;
-    next.add(n.id);
+    // The server folds a burst of DMs from one sender into the same unread
+    // row and refreshes its created_at, so "new" is the row *version*, not
+    // just its id — otherwise the second message of a burst never notifies.
+    const key = signalVersionKey(n);
+    if (next.has(key)) continue;
+    next.add(key);
     if (seen) fresh.push(n);
   }
   return { fresh, seen: next };

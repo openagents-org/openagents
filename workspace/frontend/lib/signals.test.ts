@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  signalVersionKey,
   diffNewSignals,
   groupSignals,
   shouldNotify,
@@ -74,7 +75,7 @@ describe('diffNewSignals', () => {
     const a = sig();
     const { fresh, seen } = diffNewSignals(null, [a]);
     expect(fresh).toEqual([]);
-    expect(seen.has(a.id)).toBe(true);
+    expect(seen.has(signalVersionKey(a))).toBe(true);
   });
 
   it('reports only ids not seen before, and does not mutate its input', () => {
@@ -83,7 +84,7 @@ describe('diffNewSignals', () => {
     const first = diffNewSignals(null, [a]);
     const second = diffNewSignals(first.seen, [a, b]);
     expect(second.fresh).toEqual([b]);
-    expect(first.seen.has(b.id)).toBe(false);
+    expect(first.seen.has(signalVersionKey(b))).toBe(false);
     expect(diffNewSignals(second.seen, [a, b]).fresh).toEqual([]);
   });
 
@@ -120,5 +121,19 @@ describe('shouldShowNotificationPrompt', () => {
     expect(shouldShowNotificationPrompt({ ...base, permission: 'denied' })).toBe(false);
     expect(shouldShowNotificationPrompt({ ...base, dismissed: true })).toBe(false);
     expect(shouldShowNotificationPrompt({ ...base, triggered: false })).toBe(false);
+  });
+});
+
+
+describe('diffNewSignals — burst collapse', () => {
+  it('treats a refreshed row (same id, newer createdAt) as new', () => {
+    const base = { id: 'n1', kind: 'dm', channelName: 'dm:a,b', title: 'x', message: 'one', createdAt: '2026-10-10T10:00:00Z' } as any;
+    const first = diffNewSignals(null, [base]);
+    expect(first.fresh).toHaveLength(0);
+    const again = diffNewSignals(first.seen, [base]);
+    expect(again.fresh).toHaveLength(0);
+    const refreshed = { ...base, message: 'two', createdAt: '2026-10-10T10:01:00Z' };
+    const third = diffNewSignals(again.seen, [refreshed]);
+    expect(third.fresh.map((n: any) => n.message)).toEqual(['two']);
   });
 });
