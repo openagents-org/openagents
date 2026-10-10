@@ -485,3 +485,62 @@ def test_existing_key_on_uncommon_mailbox_stays_visible_but_stops_earning(db, ca
 def test_unverified_common_mailbox_keeps_the_verify_flow(db, campaign_on, mailbox_on, gateway):
     user = _mk_user(db, "new@gmail.com", verified=False)
     assert campaign.ineligible_reason(user) == "unverified"
+
+
+# --- One credit account per mailbox (decision 2026-10-10) --------------------
+
+@pytest.mark.parametrize("email,canon", [
+    ("andreaswegerer72344+oamuz3jdg3@outlook.com", "andreaswegerer72344@outlook.com"),
+    ("Andreas+X@Outlook.com", "andreas@outlook.com"),
+    ("s.s.bv.c.sja.wh.ga.kav.f@gmail.com", "ssbvcsjawhgakavf@gmail.com"),
+    ("first.last+promo@googlemail.com", "firstlast@gmail.com"),
+    ("first.last@outlook.com", "first.last@outlook.com"),   # dots only matter on Gmail
+    ("plain@qq.com", "plain@qq.com"),
+    ("+onlytag@gmail.com", None),
+    ("no-at-sign", None),
+])
+def test_canonical_mailbox(email, canon):
+    assert campaign.canonical_mailbox(email) == canon
+
+
+def test_plus_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gateway):
+    first = _mk_user(db, "andreaswegerer72344@outlook.com")
+    assert campaign.ensure_account(db, first) is not None
+    alias = _mk_user(db, "andreaswegerer72344+oa77@outlook.com")
+    assert campaign.mailbox_taken(db, alias) is True
+    assert campaign.ensure_account(db, alias) is None
+    assert campaign.grant(db, alias.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, alias) == {"enabled": False}
+
+
+def test_gmail_dot_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gateway):
+    first = _mk_user(db, "ssbvcsjawhgakavf@gmail.com")
+    assert campaign.ensure_account(db, first) is not None
+    alias = _mk_user(db, "s.s.bv.c.sja.wh.ga.kav.f@googlemail.com")
+    assert campaign.ensure_account(db, alias) is None
+
+
+def test_first_alias_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
+    alias = _mk_user(db, "someone+work@outlook.com")
+    assert campaign.mailbox_taken(db, alias) is False
+    assert campaign.ensure_account(db, alias) is not None
+
+
+def test_different_mailboxes_are_independent(db, campaign_on, gateway):
+    a = _mk_user(db, "alice@outlook.com")
+    assert campaign.ensure_account(db, a) is not None
+    for other in ("alice@gmail.com", "alicia@outlook.com", "a.lice@outlook.com"):
+        u = _mk_user(db, other)
+        assert campaign.mailbox_taken(db, u) is False, other
+
+
+def test_an_existing_key_is_never_taken_away(db, campaign_on, gateway):
+    # Two aliases that both already hold keys (minted before this rule):
+    # neither loses its key or its view.
+    a = _mk_user(db, "dup@outlook.com")
+    b = _mk_user(db, "dup+2@outlook.com")
+    db.add(CampaignAccount(user_id=a.id, gateway_key_id=1, api_key="sk-a"))
+    db.add(CampaignAccount(user_id=b.id, gateway_key_id=2, api_key="sk-b"))
+    db.commit()
+    assert campaign.ensure_account(db, b).api_key == "sk-b"
+    assert campaign.status_payload(db, b)["apiKey"] == "sk-b"
