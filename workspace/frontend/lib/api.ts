@@ -1993,25 +1993,55 @@ class WorkspaceApi {
     if (opts?.limit) params.set('limit', String(opts.limit));
     const raw = await this.request<{ notifications: Record<string, unknown>[]; unread_count: number }>(`/v1/notifications?${params}`);
     return {
-      notifications: (raw.notifications || []).map((n): NotificationItem => ({
-        id: n.id as string,
-        title: n.title as string,
-        message: n.message as string,
-        priority: (n.priority || 'normal') as NotificationItem['priority'],
-        isRead: !!(n.is_read),
-        createdBy: (n.created_by || '') as string,
-        channelName: (n.channel_name ?? null) as string | null,
-        threadId: (n.thread_id ?? null) as string | null,
-        linkUrl: (n.link_url ?? null) as string | null,
-        status: (n.status || 'active') as string,
-        kind: (n.kind ?? null) as string | null,
-        actionRef: (n.action_ref ?? null) as string | null,
-        recipientEmail: (n.recipient_email ?? null) as string | null,
-        createdAt: (n.created_at || null) as string | null,
-        readAt: (n.read_at || null) as string | null,
-      })),
+      notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
       unreadCount: raw.unread_count || 0,
     };
+  }
+
+  private mapNotification(n: Record<string, unknown>): NotificationItem {
+    return {
+      id: n.id as string,
+      title: n.title as string,
+      message: n.message as string,
+      priority: (n.priority || 'normal') as NotificationItem['priority'],
+      isRead: !!(n.is_read),
+      createdBy: (n.created_by || '') as string,
+      channelName: (n.channel_name ?? null) as string | null,
+      threadId: (n.thread_id ?? null) as string | null,
+      linkUrl: (n.link_url ?? null) as string | null,
+      status: (n.status || 'active') as string,
+      kind: (n.kind ?? null) as string | null,
+      actionRef: (n.action_ref ?? null) as string | null,
+      recipientEmail: (n.recipient_email ?? null) as string | null,
+      createdAt: (n.created_at || null) as string | null,
+      readAt: (n.read_at || null) as string | null,
+    };
+  }
+
+  /**
+   * Slack-style signals: the caller's unread DM / @mention rows. The inbox list
+   * excludes these kinds server-side; they drive unread highlights and desktop
+   * notifications instead. Same response shape as the inbox list.
+   */
+  async listSignals(opts?: { limit?: number }): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
+    const params = new URLSearchParams({
+      network: this.workspaceId,
+      kinds: 'dm,mention',
+      is_read: 'false',
+      limit: String(opts?.limit ?? 100),
+    });
+    const raw = await this.request<{ notifications: Record<string, unknown>[]; unread_count: number }>(`/v1/notifications?${params}`);
+    return {
+      notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
+      unreadCount: raw.unread_count || 0,
+    };
+  }
+
+  /** Mark the caller's unread DM / mention rows for one thread or DM read. */
+  async markChannelSignalsRead(channel: string): Promise<number> {
+    const params = new URLSearchParams({ network: this.workspaceId, channel });
+    const raw = await this.request<{ marked?: number }>(`/v1/notifications/read-channel?${params}`, { method: 'PATCH' });
+    return raw?.marked ?? 0;
   }
 
   async markNotificationRead(notificationId: string): Promise<void> {

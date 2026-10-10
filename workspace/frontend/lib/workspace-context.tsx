@@ -10,6 +10,7 @@ import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { desktopHost, requestedDesktopThread } from './desktop-host';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
+import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 import type { ChannelVisibility } from './types'; // v1.1 M1
@@ -261,6 +262,13 @@ interface WorkspaceContextValue {
   dismissNotification: (id: string) => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
+  /** Unread DM / @mention signals (never shown in the inbox), newest poll. */
+  signals: NotificationItem[];
+  /** The same signals grouped by thread name / `dm:` session id. */
+  unreadSignals: UnreadSignals;
+  refreshSignals: () => Promise<void>;
+  /** Mark a thread's / DM's signals read (optimistic). */
+  markChannelSignalsRead: (channel: string) => void;
   /** Approval requests currently waiting on a person (any thread). */
   pendingApprovals: ApprovalRequest[];
   /** agent name → number of its pending requests; drives the amber "waiting" dot. */
@@ -403,6 +411,10 @@ export function WorkspaceProvider({
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  // DM / mention signals. Ids marked read locally are remembered so a poll
+  // that raced the PATCH can't bring them back.
+  const [signals, setSignals] = useState<NotificationItem[]>([]);
+  const locallyReadSignalIdsRef = useRef<Set<string>>(new Set());
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [pendingApprovalsByAgent, setPendingApprovalsByAgent] = useState<Record<string, number>>({});
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
@@ -656,6 +668,9 @@ export function WorkspaceProvider({
   // keeps the user's current thread.
   const prevSelectedWorkspaceRef = React.useRef<string | null>(null);
 
+  // Declared before refreshDiscovery (which polls it) and filled in below.
+  const refreshSignalsRef = useRef<() => Promise<void>>(async () => {});
+
   /** Refresh agents and channels from the discover endpoint. */
   const refreshDiscovery = useCallback(async () => {
     try {
@@ -868,6 +883,7 @@ export function WorkspaceProvider({
         setPendingApprovals(r.approvals);
         setPendingApprovalsByAgent(r.pendingByAgent);
       }).catch(() => {});
+      void refreshSignalsRef.current();
     } catch {
       // Non-critical — keep existing state
     }
@@ -1020,6 +1036,31 @@ export function WorkspaceProvider({
       // Non-critical
     }
   }, []);
+
+  const refreshSignals = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listSignals();
+      setSignals(withoutLocallyRead(result.notifications, locallyReadSignalIdsRef.current));
+    } catch {
+      // Non-critical — keep the last known signals
+    }
+  }, []);
+  refreshSignalsRef.current = refreshSignals;
+
+  const signalsRef = useRef(signals);
+  signalsRef.current = signals;
+  const markChannelSignalsRead = useCallback((channel: string) => {
+    const dropped = signalsRef.current.filter((n) => n.channelName === channel);
+    if (dropped.length === 0) return;
+    for (const n of dropped) locallyReadSignalIdsRef.current.add(n.id);
+    setSignals((prev) => prev.filter((n) => n.channelName !== channel));
+    workspaceApi.markChannelSignalsRead(channel).catch(() => {
+      // Let the next poll show them again rather than hiding them for good.
+      for (const n of dropped) locallyReadSignalIdsRef.current.delete(n.id);
+    });
+  }, []);
+
+  const unreadSignals = useMemo(() => groupSignals(signals), [signals]);
 
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, isRead: true } : n));
@@ -1316,6 +1357,8 @@ export function WorkspaceProvider({
       setKnowledge([]);
       setNotifications([]);
       setUnreadNotificationCount(0);
+      setSignals([]);
+      locallyReadSignalIdsRef.current = new Set();
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
       lastKnownLatestRef.current = {};
@@ -1412,6 +1455,7 @@ export function WorkspaceProvider({
           setUnreadNotificationCount(r.unreadCount);
         });
         loadOptional(workspaceApi.listConversations(), setDMConversations);
+        void refreshSignals();
 
         // Bulk fetch latest message per channel (1 request instead of N).
         loadOptional(workspaceApi.latestPerChannel(), (bulk) => {
@@ -1498,6 +1542,36 @@ export function WorkspaceProvider({
       persistRead({ ...known, ...additions });
     }
   }, [sessions, currentSessionId, persistRead, activityAt]);
+
+  // Opening a thread / DM reads its signals. New signals for the open one are
+  // read on arrival only while the window is focused — otherwise they stay
+  // unread (and notify) until the user comes back to it.
+  const prevSignalSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) {
+      prevSignalSessionRef.current = null;
+      return;
+    }
+    const justOpened = prevSignalSessionRef.current !== currentSessionId;
+    prevSignalSessionRef.current = currentSessionId;
+    if (!unreadSignals[currentSessionId]) return;
+    const focused = typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+    if (justOpened || focused) markChannelSignalsRead(currentSessionId);
+  }, [currentSessionId, unreadSignals, markChannelSignalsRead]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onFocus = () => {
+      const sid = currentSessionIdRef.current;
+      if (sid && document.visibilityState === 'visible') markChannelSignalsRead(sid);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [markChannelSignalsRead]);
 
   // Persist previews to localStorage for instant rendering on reload
   useEffect(() => {
@@ -1904,6 +1978,10 @@ export function WorkspaceProvider({
         dismissNotification,
         notificationSound,
         setNotificationSound,
+        signals,
+        unreadSignals,
+        refreshSignals,
+        markChannelSignalsRead,
         pendingApprovals,
         pendingApprovalsByAgent,
         refreshApprovals,
