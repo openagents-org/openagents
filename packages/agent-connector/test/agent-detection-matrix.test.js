@@ -116,11 +116,16 @@ const uv = (dist) =>
  * checks against: a case is not enough on its own if it tests a route the user
  * was never told to take.
  */
+const pyScripts = IS_WINDOWS ? 'AppData/Roaming/Python/Scripts' : null;
+const uvBin = IS_WINDOWS ? 'AppData/Local/Programs/uv/bin' : null;
+
 const WHERE = {
   aider: [
     [LOC.localBin, 'aider.chat/install.sh (uv tool, shim linked)', 'installer'],
     [uv('aider-chat'), 'aider.chat/install.sh (uv venv copy, shim not linked)', 'uv'],
     [pipx('aider-chat'), 'pipx install aider-chat (venv copy, shim not linked)', 'pip'],
+    [pyScripts, 'pip install --user (Windows Python Scripts dir)', 'pip'],
+    [uvBin, 'uv standalone bin (Windows Programs/uv/bin dir)', 'uv'],
   ],
   amp: [[LOC.amp, 'ampcode.com/install.sh', 'installer']],
   antigravity: [
