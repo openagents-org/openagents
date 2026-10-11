@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, exec, spawnSync } = require('child_process');
+const { execSync, exec, execFile, spawnSync } = require('child_process');
 const {
   whichBinary,
   getEnhancedEnv,
@@ -25,6 +25,16 @@ const { resolveCursorNodeEntry } = require('./adapters/cursor-node-entry');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
+const { isPostinstallStub } = require('./postinstall-stub');
+
+/**
+ * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
+ * because of ignore-scripts — fail the install with the explanation instead.
+ */
+function scriptRepairDisabled() {
+  const v = String(process.env.OPENAGENTS_NO_SCRIPT_REPAIR || '').trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false' && v !== 'no';
+}
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
@@ -1290,8 +1300,15 @@ class Installer {
       };
     }
 
+    // An npm package whose postinstall was skipped exits 0 with a placeholder
+    // where its CLI should be. See _findPostinstallStub.
+    // No live log here, so what the repair says goes into the returned output.
+    let repairLog = '';
+    const problem = await this.finishNpmInstall(agentType, (d) => { repairLog += d; });
+    if (problem) throw new Error(problem);
+
     this._markInstalled(agentType);
-    return { success: true, output };
+    return { success: true, output: repairLog ? `${output}\n${repairLog.trim()}` : output };
   }
 
   /**
@@ -1544,9 +1561,23 @@ class Installer {
             const fixed = fixSpawnHelpers(installCwd);
             if (fixed.length && onData) onData(`\nMade ${fixed.length} node-pty spawn-helper(s) executable.\n`);
           }
-          this._markInstalled(agentType);
-          if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
-          resolve({ success: true, command: displayCmd });
+          const markDone = () => {
+            this._markInstalled(agentType);
+            if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
+            resolve({ success: true, command: displayCmd });
+          };
+          // An npm package whose postinstall was skipped exits 0 with a
+          // placeholder where its CLI should be. See _findPostinstallStub.
+          const stub = this._findPostinstallStub(agentType);
+          if (stub) {
+            this._repairPostinstallStub(agentType, stub, onData).then((problem) => {
+              if (!problem) return markDone();
+              if (onData) onData(`\n${problem}\n`);
+              reject(new Error(problem));
+            }, reject);
+            return;
+          }
+          markDone();
         } else {
           // A partial install can leave a placeholder stub at
           // bin/<binary>.exe and npm-generated cmd-shims under
@@ -1597,6 +1628,166 @@ class Installer {
         if (fs.existsSync(f) && fs.statSync(f).size < 4096) fs.unlinkSync(f);
       } catch {}
     }
+  }
+
+  /** The npm package an agent installs from, or null when it isn't an npm install. */
+  _npmPackageFor(install) {
+    if (!install) return null;
+    if (install.npm_package) return install.npm_package;
+    const cmd = this._getInstallCommand(install);
+    if (!cmd || !cmd.includes('npm install')) return null;
+    const m = cmd.match(/npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/);
+    return m ? m[1] : null;
+  }
+
+  /**
+   * The managed copy of an agent whose executable is still the placeholder its
+   * npm package ships, or null.
+   *
+   * opencode-ai (and @anthropic-ai/claude-code) publish a few hundred bytes of
+   * shell as their `bin` and have their postinstall script swap the real
+   * native binary in. With `ignore-scripts=true` in the user's npmrc — a
+   * common hardening setting — npm skips that script and still exits 0, so
+   * "exit 0 → mark installed" recorded an agent that cannot start: the
+   * marketplace said installed, the model list would not load, and every
+   * message failed. An install is not done until the placeholder is gone.
+   *
+   * @returns {{ pkgName: string, bin: string, prefix: string } | null}
+   */
+  _findPostinstallStub(agentType) {
+    const entry = this.registry.getEntry(agentType);
+    const install = entry && entry.install;
+    const pkgName = this._npmPackageFor(install);
+    if (!pkgName) return null;
+    const bin = resolveManagedNpmPackageBin(agentType, pkgName, install.binary || agentType);
+    if (!bin || !isPostinstallStub(bin)) return null;
+    const prefixes = [getRuntimePrefix(agentType), path.join(os.homedir(), '.openagents', 'nodejs')];
+    const prefix = prefixes.find((p) => bin.startsWith(path.join(p, 'node_modules') + path.sep));
+    return prefix ? { pkgName, bin, prefix } : null;
+  }
+
+  /**
+   * Run the install scripts npm skipped, for this one package. `npm rebuild
+   * <pkg>` is npm's own way of doing that, and a flag on the command line
+   * outranks the `ignore-scripts=true` in an npmrc — which stays in force for
+   * every other package and every other install.
+   */
+  _rebuildWithScripts(pkgName, prefix) {
+    const args = ['rebuild', pkgName, '--prefix', prefix, '--ignore-scripts=false', '--foreground-scripts'];
+    const env = this._buildShellEnv();
+    const run = this._execFileForTest || execFile;
+    const runNpm = (file, argv, extra = {}) => new Promise((resolve, reject) => {
+      run(file, argv, {
+        encoding: 'utf-8',
+        timeout: 300000,
+        maxBuffer: 16 * 1024 * 1024,
+        env,
+        cwd: prefix,
+        windowsHide: true,
+        ...extra,
+      }, (error, stdout, stderr) => {
+        const output = `${stdout || ''}\n${stderr || ''}`.trim();
+        if (error) reject(new Error(output || error.message));
+        else resolve(output);
+      });
+    });
+    const direct = this._resolveNodeNpmCli();
+    if (!direct) {
+      const win = process.platform === 'win32';
+      const npm = whichBinary('npm') || (win ? 'npm.cmd' : 'npm');
+      // npm.cmd is a batch file and only runs through cmd.exe. With shell:true
+      // Node joins the argv with spaces, so quote the ones that contain any.
+      if (win && /\.(cmd|bat)$/i.test(npm)) {
+        const q = (a) => (/\s/.test(a) ? `"${a}"` : a);
+        return runNpm(q(npm), args.map(q), { shell: true });
+      }
+      return runNpm(npm, args);
+    }
+    // As for the install itself: the script's own `node` has to resolve to the
+    // runtime npm is running on.
+    const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
+    const nodeDir = path.dirname(direct.node);
+    if (!(env[pathKey] || '').includes(nodeDir)) {
+      env[pathKey] = nodeDir + path.delimiter + (env[pathKey] || '');
+    }
+    return runNpm(direct.node, [direct.npmCli, ...args]);
+  }
+
+  /**
+   * The check install() and installStreaming() make once npm has exited 0, for
+   * a caller that ran npm itself — the launcher installs a version-pinned agent
+   * (opencode among them) with its own npm call. Resolves null when the CLI is
+   * real, repaired if it had to be; otherwise the message to show, with the
+   * package already taken back out.
+   */
+  async finishNpmInstall(agentType, onData) {
+    const stub = this._findPostinstallStub(agentType);
+    return stub ? this._repairPostinstallStub(agentType, stub, onData) : null;
+  }
+
+  /**
+   * Whether the CLI at `binPath` (a symlink or npm shim is followed) is the
+   * placeholder of a package whose postinstall was skipped. Check only — for
+   * a caller that updated a copy we do not manage and must not repair.
+   */
+  isPostinstallStubAt(binPath) {
+    return isPostinstallStub(binPath);
+  }
+
+  /**
+   * Finish an install that left a placeholder (see _findPostinstallStub).
+   * Resolves null once the real binary is in place, otherwise the message the
+   * user should see.
+   *
+   * When the script cannot be made to run, the package comes back out — which
+   * is what npm does itself when a postinstall fails. Left in place it reads
+   * as installed (its package.json is there), and deleting only the
+   * placeholder is worse: the next `npm install` finds the package up to date,
+   * restores nothing, and with no placeholder left to notice the install gets
+   * recorded as good.
+   */
+  async _repairPostinstallStub(agentType, stub, onData) {
+    const entry = this.registry.getEntry(agentType);
+    const label = (entry && entry.label) || agentType;
+    // The user asked npm to skip install scripts; this lets them say the
+    // repair must not run one either.
+    const optedOut = scriptRepairDisabled();
+    let output = '';
+    if (optedOut) {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. OPENAGENTS_NO_SCRIPT_REPAIR=1 is set, so it is not being run.\n');
+      }
+    } else {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. Running it for this one package now — set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse.\n');
+      }
+      try {
+        output = await this._rebuildWithScripts(stub.pkgName, stub.prefix);
+      } catch (e) {
+        output = (e && e.message) || '';
+      }
+    }
+    if (!optedOut && !isPostinstallStub(stub.bin) && fs.existsSync(stub.bin)) {
+      try { clearBinaryLookupCache(); } catch {}
+      if (onData) onData(`${label} CLI is in place: ${stub.bin}\n`);
+      return null;
+    }
+    try {
+      this._cleanStaleShims(agentType);
+      fs.rmSync(path.join(stub.prefix, 'node_modules', stub.pkgName), { recursive: true, force: true });
+    } catch {}
+    const tail = output.trim().slice(-2000);
+    return `${label} was downloaded, but its setup could not be finished: ${stub.pkgName}'s `
+      + 'postinstall script did not run, so its CLI is only a placeholder. npm is set to skip '
+      + 'install scripts (ignore-scripts=true in an npmrc), and '
+      + (optedOut
+        ? 'OPENAGENTS_NO_SCRIPT_REPAIR=1 stops OpenAgents from running the script for this one package. '
+        : 'running the script for this one package did not produce the binary either '
+          + '(set OPENAGENTS_NO_SCRIPT_REPAIR=1 if you do not want OpenAgents to try). ')
+      + `Allow install scripts for npm, then install ${label} again.`
+      + (tail ? `\n\nnpm output:\n${tail}` : '');
   }
 
   /**
