@@ -130,6 +130,7 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 `cli.test.js`, `config.test.js`, `daemon.test.js`, `env.test.js`, `index.test.js`, `installer.test.js`, `paths.test.js`, `registry.test.js`, `stop-control.test.js`, `workspace-client.test.js`
 
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
+The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
 
 Detection specifically: `agent-detection-matrix.test.js` (every agent, every
 install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir

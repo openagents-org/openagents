@@ -26,6 +26,15 @@ const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims')
 const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
 
+/**
+ * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
+ * because of ignore-scripts — fail the install with the explanation instead.
+ */
+function scriptRepairDisabled() {
+  const v = String(process.env.OPENAGENTS_NO_SCRIPT_REPAIR || '').trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false' && v !== 'no';
+}
+
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
 
@@ -1175,11 +1184,13 @@ class Installer {
 
     // An npm package whose postinstall was skipped exits 0 with a placeholder
     // where its CLI should be. See _findPostinstallStub.
-    const problem = await this.finishNpmInstall(agentType);
+    // No live log here, so what the repair says goes into the returned output.
+    let repairLog = '';
+    const problem = await this.finishNpmInstall(agentType, (d) => { repairLog += d; });
     if (problem) throw new Error(problem);
 
     this._markInstalled(agentType);
-    return { success: true, output };
+    return { success: true, output: repairLog ? `${output}\n${repairLog.trim()}` : output };
   }
 
   /**
@@ -1546,11 +1557,33 @@ class Installer {
   _rebuildWithScripts(pkgName, prefix) {
     const args = ['rebuild', pkgName, '--prefix', prefix, '--ignore-scripts=false', '--foreground-scripts'];
     const env = this._buildShellEnv();
+    const run = this._execFileForTest || execFile;
+    const runNpm = (file, argv, extra = {}) => new Promise((resolve, reject) => {
+      run(file, argv, {
+        encoding: 'utf-8',
+        timeout: 300000,
+        maxBuffer: 16 * 1024 * 1024,
+        env,
+        cwd: prefix,
+        windowsHide: true,
+        ...extra,
+      }, (error, stdout, stderr) => {
+        const output = `${stdout || ''}\n${stderr || ''}`.trim();
+        if (error) reject(new Error(output || error.message));
+        else resolve(output);
+      });
+    });
     const direct = this._resolveNodeNpmCli();
     if (!direct) {
-      const npm = whichBinary('npm');
-      const quoted = args.map((a) => (a === prefix ? `"${a}"` : a)).join(' ');
-      return this._execShell(`${npm ? `"${npm}"` : 'npm'} ${quoted}`, 300000, env);
+      const win = process.platform === 'win32';
+      const npm = whichBinary('npm') || (win ? 'npm.cmd' : 'npm');
+      // npm.cmd is a batch file and only runs through cmd.exe. With shell:true
+      // Node joins the argv with spaces, so quote the ones that contain any.
+      if (win && /\.(cmd|bat)$/i.test(npm)) {
+        const q = (a) => (/\s/.test(a) ? `"${a}"` : a);
+        return runNpm(q(npm), args.map(q), { shell: true });
+      }
+      return runNpm(npm, args);
     }
     // As for the install itself: the script's own `node` has to resolve to the
     // runtime npm is running on.
@@ -1559,20 +1592,7 @@ class Installer {
     if (!(env[pathKey] || '').includes(nodeDir)) {
       env[pathKey] = nodeDir + path.delimiter + (env[pathKey] || '');
     }
-    return new Promise((resolve, reject) => {
-      execFile(direct.node, [direct.npmCli, ...args], {
-        encoding: 'utf-8',
-        timeout: 300000,
-        maxBuffer: 16 * 1024 * 1024,
-        env,
-        cwd: prefix,
-        windowsHide: true,
-      }, (error, stdout, stderr) => {
-        const output = `${stdout || ''}\n${stderr || ''}`.trim();
-        if (error) reject(new Error(output || error.message));
-        else resolve(output);
-      });
-    });
+    return runNpm(direct.node, [direct.npmCli, ...args]);
   }
 
   /**
@@ -1585,6 +1605,15 @@ class Installer {
   async finishNpmInstall(agentType, onData) {
     const stub = this._findPostinstallStub(agentType);
     return stub ? this._repairPostinstallStub(agentType, stub, onData) : null;
+  }
+
+  /**
+   * Whether the CLI at `binPath` (a symlink or npm shim is followed) is the
+   * placeholder of a package whose postinstall was skipped. Check only — for
+   * a caller that updated a copy we do not manage and must not repair.
+   */
+  isPostinstallStubAt(binPath) {
+    return isPostinstallStub(binPath);
   }
 
   /**
@@ -1602,17 +1631,27 @@ class Installer {
   async _repairPostinstallStub(agentType, stub, onData) {
     const entry = this.registry.getEntry(agentType);
     const label = (entry && entry.label) || agentType;
-    if (onData) {
-      onData(`\n${stub.pkgName}'s postinstall script did not run (npm is set to skip install scripts), `
-        + `so the ${label} CLI is only a placeholder. Running it for this package now...\n`);
-    }
+    // The user asked npm to skip install scripts; this lets them say the
+    // repair must not run one either.
+    const optedOut = scriptRepairDisabled();
     let output = '';
-    try {
-      output = await this._rebuildWithScripts(stub.pkgName, stub.prefix);
-    } catch (e) {
-      output = (e && e.message) || '';
+    if (optedOut) {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. OPENAGENTS_NO_SCRIPT_REPAIR=1 is set, so it is not being run.\n');
+      }
+    } else {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. Running it for this one package now — set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse.\n');
+      }
+      try {
+        output = await this._rebuildWithScripts(stub.pkgName, stub.prefix);
+      } catch (e) {
+        output = (e && e.message) || '';
+      }
     }
-    if (!isPostinstallStub(stub.bin) && fs.existsSync(stub.bin)) {
+    if (!optedOut && !isPostinstallStub(stub.bin) && fs.existsSync(stub.bin)) {
       try { clearBinaryLookupCache(); } catch {}
       if (onData) onData(`${label} CLI is in place: ${stub.bin}\n`);
       return null;
@@ -1624,9 +1663,12 @@ class Installer {
     const tail = output.trim().slice(-2000);
     return `${label} was downloaded, but its setup could not be finished: ${stub.pkgName}'s `
       + 'postinstall script did not run, so its CLI is only a placeholder. npm is set to skip '
-      + 'install scripts (ignore-scripts=true in an npmrc), and running the script for this one '
-      + 'package did not produce the binary either. Allow install scripts for npm, then install '
-      + `${label} again.`
+      + 'install scripts (ignore-scripts=true in an npmrc), and '
+      + (optedOut
+        ? 'OPENAGENTS_NO_SCRIPT_REPAIR=1 stops OpenAgents from running the script for this one package. '
+        : 'running the script for this one package did not produce the binary either '
+          + '(set OPENAGENTS_NO_SCRIPT_REPAIR=1 if you do not want OpenAgents to try). ')
+      + `Allow install scripts for npm, then install ${label} again.`
       + (tail ? `\n\nnpm output:\n${tail}` : '');
   }
 

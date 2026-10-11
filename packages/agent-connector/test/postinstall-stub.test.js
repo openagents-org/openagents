@@ -131,7 +131,7 @@ const INSTALLER = path.join(__dirname, '..', 'src', 'installer.js');
  * pkgDir, plant(content) — writes the package as npm would have — and STUB /
  * REAL contents; it must return a JSON-able value.
  */
-function scenario(body) {
+function scenario(body, extraEnv = {}) {
   const script = `
     const fs = require('fs'), path = require('path'), cp = require('child_process');
     const { EventEmitter } = require('events');
@@ -177,7 +177,7 @@ function scenario(body) {
   `;
   const out = execFileSync(process.execPath, ['-e', script], {
     encoding: 'utf-8',
-    env: { ...process.env, HOME: tmp, USERPROFILE: tmp },
+    env: { ...process.env, OPENAGENTS_NO_SCRIPT_REPAIR: '', HOME: tmp, USERPROFILE: tmp, ...extraEnv },
   });
   return JSON.parse(out);
 }
@@ -194,6 +194,39 @@ describe('postinstall placeholder — install()', () => {
     assert.deepEqual(r.calls, [['opencode-ai', r.prefix]]);
     assert.equal(r.marked, true);
     assert.equal(r.size, 8192, 'the real binary replaced the placeholder');
+  });
+
+  it('says in its output that it ran the skipped script, and how to refuse that', () => {
+    const r = scenario(`
+      npmLeaves(STUB);
+      rebuild(() => { fs.writeFileSync(bin, REAL); return 'rebuilt dependencies successfully'; });
+      const res = await inst.install('opencode');
+      return { output: res.output };
+    `);
+    assert.match(r.output, /added 3 packages/);
+    assert.match(r.output, /npm skipped opencode-ai's install script \(ignore-scripts\).*Running it for this one package now/);
+    assert.match(r.output, /set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse/);
+    assert.match(r.output, /OpenCode CLI is in place/);
+  });
+
+  it('with OPENAGENTS_NO_SCRIPT_REPAIR=1, never runs the script and fails with the explanation', () => {
+    const r = scenario(`
+      npmLeaves(STUB);
+      rebuild(() => { fs.writeFileSync(bin, REAL); return 'must not be called'; });
+      let message = null;
+      try { await inst.install('opencode'); } catch (e) { message = e.message; }
+      let out = '';
+      const finished = await (async () => { plant(STUB); return inst.finishNpmInstall('opencode', (d) => { out += d; }); })();
+      return { message, finished, out, calls: calls.length, marked: marked(), pkgLeft: fs.existsSync(pkgDir) };
+    `, { OPENAGENTS_NO_SCRIPT_REPAIR: '1' });
+    assert.equal(r.calls, 0, 'npm rebuild is never run');
+    assert.match(r.message, /could not be finished/);
+    assert.match(r.message, /OPENAGENTS_NO_SCRIPT_REPAIR=1 stops OpenAgents from running the script/);
+    assert.match(r.message, /Allow install scripts for npm/);
+    assert.match(r.finished, /OPENAGENTS_NO_SCRIPT_REPAIR=1/);
+    assert.match(r.out, /it is not being run/);
+    assert.equal(r.marked, false);
+    assert.equal(r.pkgLeft, false);
   });
 
   it('fails the install, and takes the package back out, when the script cannot be run', () => {
@@ -223,6 +256,16 @@ describe('postinstall placeholder — install()', () => {
     assert.equal(r.marked, false);
   });
 
+  it('exposes a check-only test for a CLI it does not manage', () => {
+    const r = scenario(`
+      plant(STUB);
+      const stub = inst.isPostinstallStubAt(bin);
+      plant(REAL);
+      return { stub, real: inst.isPostinstallStubAt(bin), calls: calls.length };
+    `);
+    assert.deepEqual(r, { stub: true, real: false, calls: 0 });
+  });
+
   it('leaves an install whose postinstall did run alone', () => {
     const r = scenario(`
       npmLeaves(REAL);
@@ -248,7 +291,8 @@ describe('postinstall placeholder — installStreaming()', () => {
     assert.equal(r.success, true);
     assert.equal(r.calls, 1);
     assert.equal(r.marked, true);
-    assert.match(r.out, /opencode-ai's postinstall script did not run/);
+    assert.match(r.out, /npm skipped opencode-ai's install script \(ignore-scripts\)/);
+    assert.match(r.out, /OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse/);
     assert.ok(
       r.out.indexOf('OpenCode CLI is in place') < r.out.indexOf('Done! opencode is now installed.'),
       'Done is only said once the real binary is there',
@@ -312,14 +356,19 @@ describe('postinstall placeholder — finishNpmInstall(), for a caller that ran 
 });
 
 describe('postinstall placeholder — the rebuild command', () => {
-  it('names the one package and re-enables scripts on the command line only', () => {
+  it('names the one package and re-enables scripts on the command line only — an argv, not a shell string', () => {
     const r = scenario(`
-      let cmd = null;
-      inst._resolveNodeNpmCli = () => null; // the shell-string fallback shows the argv
-      inst._execShell = async (c) => { cmd = c; return ''; };
-      await inst._rebuildWithScripts('opencode-ai', prefix);
-      return { cmd, prefix };
+      let call = null;
+      inst._resolveNodeNpmCli = () => null; // no bundled npm: falls back to the npm on PATH
+      inst._execShell = async () => { throw new Error('must not build a shell string'); };
+      inst._execFileForTest = (file, args, opts, cb) => { call = { file, args, opts }; cb(null, 'ok', ''); };
+      const out = await inst._rebuildWithScripts('opencode-ai', prefix);
+      return { call, prefix, out };
     `);
-    assert.ok(r.cmd.includes(`rebuild opencode-ai --prefix "${r.prefix}" --ignore-scripts=false`), r.cmd);
+    assert.equal(r.out, 'ok');
+    assert.deepEqual(r.call.args.slice(0, 5), ['rebuild', 'opencode-ai', '--prefix', r.prefix, '--ignore-scripts=false']);
+    assert.equal(r.call.opts.windowsHide, true);
+    assert.equal(r.call.opts.timeout, 300000);
+    if (process.platform !== 'win32') assert.ok(!r.call.opts.shell, 'no shell off Windows');
   });
 });

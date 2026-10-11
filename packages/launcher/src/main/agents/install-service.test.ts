@@ -483,6 +483,43 @@ describe.skipIf(process.platform === "win32")("updating the user's own npm insta
     expect(spawned).toHaveLength(0)
   })
 
+  it("warns, without repairing, when the update left a placeholder CLI", async () => {
+    const isPostinstallStubAt = vi.fn(() => true)
+    const finishNpmInstall = vi.fn(async () => null)
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, isPostinstallStubAt, finishNpmInstall },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+    const log: string[] = []
+    const result = await svc.updateAgentTypeStreaming("codex", (d) => log.push(d))
+    expect(result).toMatchObject({ success: true })
+    expect(isPostinstallStubAt).toHaveBeenCalledWith(globalBin)
+    expect(finishNpmInstall).not.toHaveBeenCalled()
+    expect(log.join("")).toContain("is only a placeholder")
+  })
+
+  it("says nothing extra when the updated CLI is real", async () => {
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, isPostinstallStubAt: () => false },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+    const log: string[] = []
+    await svc.updateAgentTypeStreaming("codex", (d) => log.push(d))
+    expect(log.join("")).not.toContain("placeholder")
+  })
+
   it("leaves a Homebrew install to Homebrew", () => {
     const cellar = "/opt/homebrew/Cellar/codex/1.0/libexec"
     const brewBin = "/opt/homebrew/bin/codex"
@@ -577,11 +614,13 @@ describe("an npm install that exits 0 without a runnable CLI", () => {
     ],
   ])("installs as before on %s", async (_name, installer) => {
     const { svc, markInstalled } = service(installer)
-    const result = await svc.updateAgentTypeStreaming(
-      "opencode",
-      () => undefined,
+    const log: string[] = []
+    const result = await svc.updateAgentTypeStreaming("opencode", (d) =>
+      log.push(d),
     )
     expect(result).toMatchObject({ success: true })
     expect(markInstalled).toHaveBeenCalledWith("opencode")
+    if ("finishNpmInstall" in installer)
+      expect(log.join("")).toContain("Could not check the installed CLI: boom")
   })
 })

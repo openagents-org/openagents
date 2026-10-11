@@ -756,7 +756,36 @@ export class InstallService {
       run = await this._runNpm(args, install.prefix, onData)
     }
     if (!run.success) return { success: false, version: null, error: run.error }
+    this._warnIfPlaceholder(agentType, npmPkg, onData)
     return this._finishInstall(agentType, npmPkg, spec, onData)
+  }
+
+  /**
+   * npm exits 0 with `ignore-scripts=true` and leaves a package's placeholder
+   * as its CLI (see _finishNpmInstall). On the user's own global install that
+   * is only reported: running scripts in a prefix we do not manage is theirs
+   * to decide. Silent on a core too old to have the check.
+   */
+  private _warnIfPlaceholder(
+    agentType: string,
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): void {
+    const installer = this._connector.installer as {
+      isPostinstallStubAt?: (bin: string) => boolean
+    }
+    try {
+      if (typeof installer?.isPostinstallStubAt !== "function") return
+      const bin = this.deps.resolveBinary(agentType)
+      if (!bin || !installer.isPostinstallStubAt(bin)) return
+      onData(
+        `\nWarning: npm skipped ${npmPkg}'s install script (ignore-scripts), so ${bin} ` +
+          "is only a placeholder and will not run. Reinstall it with " +
+          `\`npm install -g ${npmPkg} --ignore-scripts=false\`, or allow install scripts for npm.\n`,
+      )
+    } catch (e) {
+      onData(`\nCould not check ${npmPkg}'s CLI after the update: ${(e as Error)?.message || e}\n`)
+    }
   }
 
   /**
@@ -780,7 +809,9 @@ export class InstallService {
       return typeof installer?.finishNpmInstall === "function"
         ? await installer.finishNpmInstall(agentType, onData)
         : null
-    } catch {
+    } catch (e) {
+      if (onData)
+        onData(`\nCould not check the installed CLI: ${(e as Error)?.message || e}\n`)
       return null
     }
   }
