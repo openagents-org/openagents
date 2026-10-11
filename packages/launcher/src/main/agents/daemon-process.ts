@@ -25,7 +25,9 @@ export function appendDaemonLog(message: string): void {
     fs.mkdirSync(CONFIG_DIR, { recursive: true })
     fs.appendFileSync(
       DAEMON_LOG_FILE,
-      `[${new Date().toISOString()}] launcher: ${message}\n`,
+      // Same shape as the daemon's own lines. Without a level the Logs page
+      // files these as "unknown", which its default level filter hides.
+      `${new Date().toISOString()} INFO launcher: ${message}\n`,
       "utf-8",
     )
   } catch {}
@@ -125,6 +127,35 @@ export function getLiveDaemonPid(
     return null
   } catch {
     return null
+  }
+}
+
+/**
+ * Stop a daemon left running by an earlier session, before the core is loaded
+ * and so without its stopDaemon. Used ahead of replacing the Node runtime the
+ * daemon runs on. Resolves once it has exited, or after about five seconds.
+ */
+export async function stopLeftoverDaemon(): Promise<void> {
+  const pidFromFile = (): number | null => {
+    try {
+      const pid = parseInt(fs.readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10)
+      return Number.isFinite(pid) ? pid : null
+    } catch {
+      return null
+    }
+  }
+  const pid = getLiveDaemonPid({ getDaemonPid: pidFromFile })
+  if (!pid) return
+  appendDaemonLog(`stopping daemon ${pid} to replace the Node runtime`)
+  try {
+    process.kill(pid)
+  } catch {}
+  for (let i = 0; i < 10 && isPidAlive(pid); i++)
+    await new Promise((r) => setTimeout(r, 500))
+  if (isPidAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {}
   }
 }
 

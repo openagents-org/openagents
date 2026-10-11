@@ -1,6 +1,9 @@
 {
   "name": "together",
   "label": "Together AI",
+  "description": "Open models at scale",
+  "description_zh": "大规模开源模型",
+  "key_url": "https://api.together.ai/settings/api-keys",
   "base_url": "https://api.together.ai/v1",
   "order": 110,
   "models": [

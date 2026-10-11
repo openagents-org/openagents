@@ -68,6 +68,14 @@ class _NoCloseSession:
 def campaign_on(monkeypatch):
     monkeypatch.setattr(config, "CAMPAIGN_ENABLED", True)
     monkeypatch.setattr(config, "CAMPAIGN_GATEWAY_MASTER_KEY", "test-master")
+    # Most tests here use @example.com; the common-mailbox restriction has its
+    # own tests below (mailbox_on) and is off for everything else.
+    monkeypatch.setattr(config, "CAMPAIGN_ALLOWED_EMAIL_DOMAINS", "")
+
+
+@pytest.fixture
+def mailbox_on(monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_ALLOWED_EMAIL_DOMAINS", "gmail.com,qq.com,163.com,outlook.com")
 
 
 @pytest.fixture
@@ -413,3 +421,126 @@ def test_email_blocked_catches_hyphenated_tempmail_and_dedyn():
     assert email_blocked("x@anything.dedyn.io")
     assert not email_blocked("someone@gmail.com")
     assert not email_blocked("dev@template-mail.co")  # "template" must not trip the temp-mail rule
+
+
+# --- Common-mailbox restriction (decision 2026-10-08) ------------------------
+
+def test_default_allowlist_covers_the_big_providers():
+    # No fixture: this is the shipped default (tests run without the env var).
+    default = {d.strip() for d in config.CAMPAIGN_ALLOWED_EMAIL_DOMAINS.split(",")}
+    for d in ("gmail.com", "qq.com", "163.com", "outlook.com", "icloud.com", "privaterelay.appleid.com"):
+        assert d in default
+
+
+@pytest.mark.parametrize("email", ["a@gmail.com", "B@QQ.COM", "c@163.com", "d@outlook.com"])
+def test_common_mailboxes_are_allowed(mailbox_on, email):
+    assert campaign.mailbox_allowed(email) is True
+
+
+@pytest.mark.parametrize("email", [
+    "x8k2m1q9zt@sportcornwall.org",   # catch-all farm domain (sweep 2026-10-08)
+    "jane@company.co.uk",              # real company address: product yes, credits no
+    "a@mail.gmail.com.evil.io",        # look-alike is not an exact match
+    "a@sub.gmail.com",                 # subdomains do not inherit
+    "no-at-sign",
+])
+def test_other_mailboxes_are_not_allowed(mailbox_on, email):
+    assert campaign.mailbox_allowed(email) is False
+
+
+def test_empty_allowlist_turns_the_restriction_off(monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_ALLOWED_EMAIL_DOMAINS", "")
+    assert campaign.mailbox_allowed("anyone@company.co.uk") is True
+
+
+def test_uncommon_mailbox_gets_no_key_no_grants_and_no_campaign(db, campaign_on, mailbox_on, gateway):
+    user = _mk_user(db, "farm1@sportcornwall.org")  # verified, not blocklisted
+    assert campaign.email_blocked(user.email) is False
+    assert campaign.ineligible_reason(user) == "uncommon_mailbox"
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, user) == {"enabled": False}
+    assert gateway == []
+
+
+def test_common_mailbox_still_earns(db, campaign_on, mailbox_on, gateway):
+    user = _mk_user(db, "real.person@gmail.com")
+    assert campaign.ineligible_reason(user) is None
+    assert campaign.ensure_account(db, user) is not None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True
+
+
+def test_existing_key_on_uncommon_mailbox_stays_visible_but_stops_earning(db, campaign_on, mailbox_on, gateway):
+    user = _mk_user(db, "dev@company.co.uk")
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-existing"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["apiKey"] == "sk-existing"
+    assert payload["totalGrantedUsd"] == 5.0
+    assert gateway == []
+
+
+def test_unverified_common_mailbox_keeps_the_verify_flow(db, campaign_on, mailbox_on, gateway):
+    user = _mk_user(db, "new@gmail.com", verified=False)
+    assert campaign.ineligible_reason(user) == "unverified"
+
+
+# --- One credit account per mailbox (decision 2026-10-10) --------------------
+
+@pytest.mark.parametrize("email,canon", [
+    ("andreaswegerer72344+oamuz3jdg3@outlook.com", "andreaswegerer72344@outlook.com"),
+    ("Andreas+X@Outlook.com", "andreas@outlook.com"),
+    ("s.s.bv.c.sja.wh.ga.kav.f@gmail.com", "ssbvcsjawhgakavf@gmail.com"),
+    ("first.last+promo@googlemail.com", "firstlast@gmail.com"),
+    ("first.last@outlook.com", "first.last@outlook.com"),   # dots only matter on Gmail
+    ("plain@qq.com", "plain@qq.com"),
+    ("+onlytag@gmail.com", None),
+    ("no-at-sign", None),
+])
+def test_canonical_mailbox(email, canon):
+    assert campaign.canonical_mailbox(email) == canon
+
+
+def test_plus_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gateway):
+    first = _mk_user(db, "andreaswegerer72344@outlook.com")
+    assert campaign.ensure_account(db, first) is not None
+    alias = _mk_user(db, "andreaswegerer72344+oa77@outlook.com")
+    assert campaign.mailbox_taken(db, alias) is True
+    assert campaign.ensure_account(db, alias) is None
+    assert campaign.grant(db, alias.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, alias) == {"enabled": False}
+
+
+def test_gmail_dot_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gateway):
+    first = _mk_user(db, "ssbvcsjawhgakavf@gmail.com")
+    assert campaign.ensure_account(db, first) is not None
+    alias = _mk_user(db, "s.s.bv.c.sja.wh.ga.kav.f@googlemail.com")
+    assert campaign.ensure_account(db, alias) is None
+
+
+def test_first_alias_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
+    alias = _mk_user(db, "someone+work@outlook.com")
+    assert campaign.mailbox_taken(db, alias) is False
+    assert campaign.ensure_account(db, alias) is not None
+
+
+def test_different_mailboxes_are_independent(db, campaign_on, gateway):
+    a = _mk_user(db, "alice@outlook.com")
+    assert campaign.ensure_account(db, a) is not None
+    for other in ("alice@gmail.com", "alicia@outlook.com", "a.lice@outlook.com"):
+        u = _mk_user(db, other)
+        assert campaign.mailbox_taken(db, u) is False, other
+
+
+def test_an_existing_key_is_never_taken_away(db, campaign_on, gateway):
+    # Two aliases that both already hold keys (minted before this rule):
+    # neither loses its key or its view.
+    a = _mk_user(db, "dup@outlook.com")
+    b = _mk_user(db, "dup+2@outlook.com")
+    db.add(CampaignAccount(user_id=a.id, gateway_key_id=1, api_key="sk-a"))
+    db.add(CampaignAccount(user_id=b.id, gateway_key_id=2, api_key="sk-b"))
+    db.commit()
+    assert campaign.ensure_account(db, b).api_key == "sk-b"
+    assert campaign.status_payload(db, b)["apiKey"] == "sk-b"

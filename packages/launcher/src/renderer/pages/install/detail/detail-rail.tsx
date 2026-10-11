@@ -1,7 +1,11 @@
 import React from "react"
 
 import { cn } from "@renderer/lib/utils"
-import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
+import type {
+  AgentUpdateTarget,
+  CatalogEntry,
+  InstalledAgentRecord,
+} from "@renderer/types"
 import type { InstallJob } from "@renderer/store/install"
 
 import { DetailActions } from "./detail-actions"
@@ -19,6 +23,8 @@ interface Props {
   latestVersion: string | null
   /** Where the CLI actually resolved to, for an install we do not manage. */
   binaryPath: string | null
+  /** Where Update goes, for an install we do not manage; see useUpdateTarget. */
+  updateTarget: AgentUpdateTarget | null
   onInstall: () => void
   onUpdate: () => void
   onUninstall: () => void
@@ -40,6 +46,7 @@ export function DetailRail({
   currentVersion,
   latestVersion,
   binaryPath,
+  updateTarget,
   className,
   ...actions
 }: Props): React.JSX.Element {
@@ -57,9 +64,19 @@ export function DetailRail({
           job={job}
           currentVersion={currentVersion}
           latestVersion={latestVersion}
+          updateBlocked={
+            updateTarget?.kind === "original" &&
+            updateTarget.elevation === "manual"
+          }
           {...actions}
         />
-        {unmanaged && <UnmanagedNotice entry={entry} binaryPath={binaryPath} />}
+        {unmanaged && (
+          <UnmanagedNotice
+            entry={entry}
+            binaryPath={binaryPath}
+            target={updateTarget}
+          />
+        )}
       </RailCard>
 
       <SystemRequirementsCard entry={entry} updatedAt={installed?.installedAt} />

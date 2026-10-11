@@ -100,6 +100,9 @@ function settingsRoute(
 ): RouteTable[number] {
   return {
     pattern,
+    // One mounted layout across every section, opened over the workspace.
+    mountKey: (params) => `settings/${params.workspaceId}`,
+    parentKey: workspaceKey,
     render: (params) => (
       <Page params={params}>
         {(promise) => {
@@ -113,6 +116,11 @@ function settingsRoute(
       </Page>
     ),
   };
+}
+
+/** The workspace view's mount key — shared with its settings, which open over it. */
+function workspaceKey(params: Record<string, string>): string {
+  return `workspace/${params.workspaceId}`;
 }
 
 /**
@@ -150,6 +158,7 @@ const ROUTES: RouteTable = [
   settingsRoute('/:workspaceId/settings/security', SettingsSecurity),
   {
     pattern: '/:workspaceId',
+    mountKey: workspaceKey,
     render: (params) => (
       <Page params={params}>
         {(promise) => (

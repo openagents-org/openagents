@@ -172,9 +172,39 @@ describe('WorkspaceClient request deadlines', () => {
     const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
     const start = Date.now();
     try {
-      await assert.rejects(() => client._get('/v1/events', {}, 400));
+      // Says what happened. The deadline used to surface as a bare
+      // "AbortError: The operation was aborted", which reads like a cancel.
+      await assert.rejects(() => client._get('/v1/events', {}, 400), (err) => {
+        assert.equal(err.message, 'Request timed out after 400ms');
+        assert.equal(err.code, 'ETIMEDOUT');
+        return true;
+      });
       const elapsed = Date.now() - start;
       assert.ok(elapsed < 5000, `expected reject within 5s, took ${elapsed}ms`);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('_get errors carry the HTTP status, including a proxy\'s HTML error page', async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/json') {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'database unavailable' }));
+      } else {
+        res.writeHead(502, { 'Content-Type': 'text/html' });
+        res.end('<html>Bad Gateway</html>');
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+    try {
+      await assert.rejects(() => client._get('/json'), { message: 'database unavailable', status: 503 });
+      await assert.rejects(() => client._get('/html'), (err) => {
+        assert.equal(err.status, 502);
+        assert.match(err.message, /^Invalid response: <html>/);
+        return true;
+      });
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

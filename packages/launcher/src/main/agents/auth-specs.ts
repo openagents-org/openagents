@@ -900,9 +900,10 @@ export const CORE_AGENTS: readonly string[] = [
   // adapter map, so a core older than the first one shipping the commandcode
   // adapter degrades to "unsupported" rather than a broken install.
   //
-  // NOTE: the CLI needs Node.js 22+. The launcher ships v22.x for its managed
-  // runtimes, so an agent created here is fine; a hand-installed CLI on an
-  // older Node is not, and the adapter reports that rather than guessing.
+  // NOTE: the CLI needs Node.js 22+. The launcher ships v24 (v22 on macOS
+  // before 13.5) for its managed runtimes, so an agent created here is fine;
+  // a hand-installed CLI on an older Node is not, and the adapter reports
+  // that rather than guessing.
   "commandcode",
   // OpenWorker (andrewyng/openworker): the first entry here that is not a CLI
   // at all. `uv tool install git+…` puts `openworker-server` on PATH and the
