@@ -150,7 +150,7 @@
     },
     "logFile": {
       "label": "Full log saved to disk",
-      "reveal": "Show in Finder"
+      "reveal": "Show in folder"
     }
   }
 }

@@ -1,6 +1,9 @@
 {
   "name": "groq",
   "label": "Groq",
+  "description": "Very fast open models",
+  "description_zh": "极速开源模型",
+  "key_url": "https://console.groq.com/keys",
   "base_url": "https://api.groq.com/openai/v1",
   "order": 100,
   "models": [

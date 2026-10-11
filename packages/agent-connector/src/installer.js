@@ -23,6 +23,7 @@ const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
+const { fixSpawnHelpers } = require('./node-pty-perms');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
@@ -1130,14 +1131,16 @@ class Installer {
     await this._bootstrapManagedUv(agentType, bootstrapEnv, null);
 
     // Use bundled node/npm if system npm not available
-    if (cmd.startsWith('npm install')) {
-      const prefixDir = getRuntimePrefix(agentType);
+    const npmPrefix = cmd.startsWith('npm install') ? getRuntimePrefix(agentType) : null;
+    if (npmPrefix) {
+      const prefixDir = npmPrefix;
       fs.mkdirSync(prefixDir, { recursive: true });
       const args = cmd.replace('npm install', 'install --save').replace(' -g ', ` --prefix "${prefixDir}" `);
       cmd = this._resolveNpmCommand(args);
     }
 
     const output = await this._execShell(cmd, 300000, installEnv);
+    if (npmPrefix) fixSpawnHelpers(npmPrefix);
 
     // Aider-only: the curl/uv/pipx installer can exit 0 without landing a
     // runnable (or genuine) binary, so verify the real CLI exists BEFORE
@@ -1418,6 +1421,10 @@ class Installer {
               return;
             }
             if (onData) onData(`\nCursor CLI resolved: ${cursor.path}\n`);
+          }
+          if (rawCmd.startsWith('npm install')) {
+            const fixed = fixSpawnHelpers(installCwd);
+            if (fixed.length && onData) onData(`\nMade ${fixed.length} node-pty spawn-helper(s) executable.\n`);
           }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
@@ -2154,6 +2161,20 @@ class Installer {
   }
 
   /**
+   * The Node.js the portable runtime gets — the same pin as the launcher's
+   * bootstrap/node-version.ts, which owns upgrading an existing runtime; this
+   * copy only ever installs onto a machine with no Node at all. Node 24 needs
+   * macOS 13.5 (Darwin 22.6), so older Macs get the last Node 22 instead.
+   */
+  static portableNodeVersion(platform = process.platform, release = require('os').release()) {
+    if (platform === 'darwin') {
+      const [major, minor] = String(release).split('.').map(Number);
+      if (major < 22 || (major === 22 && minor < 6)) return 'v22.22.3';
+    }
+    return 'v24.21.0';
+  }
+
+  /**
    * Download and install Node.js LTS. Streams progress via onData callback.
    * After install, updates PATH so npm is available for subsequent commands.
    * @param {function(string)} onData
@@ -2163,14 +2184,15 @@ class Installer {
     const { spawn: spawnProc } = require('child_process');
     const https = require('https');
     const os = require('os');
-    const nodeVersion = 'v22.22.3';
     const plat = Installer.platform();
+    const nodeVersion = Installer.portableNodeVersion();
 
     if (onData) onData(`Node.js not found. Installing Node.js ${nodeVersion}...\n\n`);
 
     if (plat === 'windows') {
       // Download portable zip — no admin required
-      const arch = os.arch() === 'x64' ? 'x64' : 'x86';
+      // No 32-bit Windows build exists past Node 22.
+      const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
       const zipPath = path.join(os.tmpdir(), `node-${nodeVersion}.zip`);
 
       await this._downloadFirst(

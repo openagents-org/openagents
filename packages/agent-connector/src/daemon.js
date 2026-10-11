@@ -14,6 +14,7 @@ const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
 const { AUTH_MODE_KEY, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
+const { LogWriter } = require('./log-writer');
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -345,7 +346,7 @@ class Daemon {
       this._log(`${name}: workspace credential for '${info.networkRef}' rotated (device re-paired) — restarting to pick up the new token`);
       this.restartAgent(name).catch((e) => {
         info._credRestartPending = false;
-        this._log(`${name}: credential-rotation restart failed: ${e.message}`);
+        this._log(`${name}: credential-rotation restart failed: ${e.message}`, 'warn');
       });
     }
   }
@@ -685,7 +686,7 @@ class Daemon {
     }
     for (const [key, value] of Object.entries(config)) {
       if (!allowed.has(key)) {
-        this._log(`config for '${type}': refused non-env_config key '${key}'`);
+        this._log(`config for '${type}': refused non-env_config key '${key}'`, 'warn');
         continue;
       }
       if (value === null || value === undefined) continue;
@@ -909,11 +910,11 @@ async _runNodeCommand(n, cmd) {
       this._crashGuardsInstalled = true;
       process.on('unhandledRejection', (reason) => {
         const msg = reason && reason.stack ? reason.stack : String(reason);
-        this._log(`UNHANDLED REJECTION (daemon kept alive): ${msg}`);
+        this._log(`UNHANDLED REJECTION (daemon kept alive): ${msg}`, 'error');
       });
       process.on('uncaughtException', (err) => {
         const msg = err && err.stack ? err.stack : String(err);
-        this._log(`UNCAUGHT EXCEPTION (daemon kept alive): ${msg}`);
+        this._log(`UNCAUGHT EXCEPTION (daemon kept alive): ${msg}`, 'error');
       });
     }
 
@@ -1038,6 +1039,7 @@ async _runNodeCommand(n, cmd) {
     this._writeStatus();
     this._cleanupPid();
     this._log('Daemon stopped');
+    if (this._logWriter) await this._logWriter.flush();
 
     if (this._shutdownResolve) this._shutdownResolve();
   }
@@ -1066,7 +1068,7 @@ async _runNodeCommand(n, cmd) {
     // a hung adapter.run() promise prevents the slot from ever being
     // released, and subsequent start/restart commands see "already running".
     if (this._adapters && this._adapters[agentName]) {
-      this._log(`WARNING: ${agentName} adapter did not exit after stop — force-releasing slot`);
+      this._log(`WARNING: ${agentName} adapter did not exit after stop — force-releasing slot`, 'warn');
       try { this._adapters[agentName].stop(); } catch {}
       delete this._adapters[agentName];
     }
@@ -1401,7 +1403,7 @@ async _runNodeCommand(n, cmd) {
         const exitCode = await new Promise((resolve) => {
           proc.on('exit', (code) => resolve(code));
           proc.on('error', (err) => {
-            this._log(`${name} spawn error: ${err.message}`);
+            this._log(`${name} spawn error: ${err.message}`, 'error');
             resolve(1);
           });
         });
@@ -1428,13 +1430,13 @@ async _runNodeCommand(n, cmd) {
         this._writeStatus();
 
         if (info.restarts >= 10) {
-          this._log(`${name} crashed ${info.restarts} times, giving up. Fix the issue and restart manually.`);
+          this._log(`${name} crashed ${info.restarts} times, giving up. Fix the issue and restart manually.`, 'error');
           info.state = 'stopped';
           this._writeStatus();
           break;
         }
 
-        this._log(`${name} crashed: ${info.lastError}, restarting in ${info._backoff}s (attempt ${info.restarts})`);
+        this._log(`${name} crashed: ${info.lastError}, restarting in ${info._backoff}s (attempt ${info.restarts})`, 'warn');
         await this._sleep(info._backoff * 1000);
         info._backoff = Math.min(info._backoff * 2, 60);
       }
@@ -1503,6 +1505,7 @@ async _runNodeCommand(n, cmd) {
         toolMode: agentCfg.tool_mode || 'skills',
         // Live runtime/connectivity status → daemon.status.json (Agents list/TUI).
         onStatus: (update) => this._applyAdapterStatus(name, info, update),
+        logSink: (level, msg) => this._logAs(`adapter [${name}]`, level, msg),
       });
     } catch (e) {
       // A construction failure (e.g. unknown agent type in this core) is a hard
@@ -1510,7 +1513,7 @@ async _runNodeCommand(n, cmd) {
       info.state = 'error';
       info.errorReason = 'adapter_crashed';
       info.lastError = redactDiagnostic(e.message || String(e));
-      this._log(`${name} failed to create ${agentType} adapter: ${info.lastError}`);
+      this._log(`${name} failed to create ${agentType} adapter: ${info.lastError}`, 'error');
       this._writeStatus();
       return;
     }
@@ -1527,11 +1530,11 @@ async _runNodeCommand(n, cmd) {
         info.errorReason = pf.reason || 'runtime_missing';
         info.lastError = redactDiagnostic(pf.message || 'runtime not available');
         this._writeStatus();
-        this._log(`${name} preflight failed (${info.errorReason}): ${info.lastError}`);
+        this._log(`${name} preflight failed (${info.errorReason}): ${info.lastError}`, 'warn');
         return;
       }
     } catch (e) {
-      this._log(`${name} preflight error (ignored, continuing): ${e.message}`);
+      this._log(`${name} preflight error (ignored, continuing): ${e.message}`, 'warn');
     }
 
     // Store adapter reference for stop and duplicate detection
@@ -1559,7 +1562,7 @@ async _runNodeCommand(n, cmd) {
     } catch (e) {
       info.errorReason = info.errorReason || 'adapter_crashed';
       info.lastError = redactDiagnostic((e.message || String(e)).slice(0, 200));
-      this._log(`${name} adapter error: ${info.lastError}`);
+      this._log(`${name} adapter error: ${info.lastError}`, 'error');
     }
 
     delete this._adapters[name];
@@ -1875,7 +1878,7 @@ async _runNodeCommand(n, cmd) {
     // The old adapter will exit on its next poll iteration since its
     // entry in _stoppedAgents triggers adapter.stop() via checkStop.
     if (this._adapters && this._adapters[name]) {
-      this._log(`WARNING: adapter '${name}' did not clear after 10s — force-releasing slot to avoid duplicate`);
+      this._log(`WARNING: adapter '${name}' did not clear after 10s — force-releasing slot to avoid duplicate`, 'warn');
       try { this._adapters[name].stop(); } catch {}
       delete this._adapters[name];
     }
@@ -1892,31 +1895,23 @@ async _runNodeCommand(n, cmd) {
     try { fs.unlinkSync(this.config.statusFile); } catch {}
   }
 
-  _log(msg) {
-    const ts = new Date().toISOString();
-    const line = `${ts} INFO daemon: ${msg}`;
-    try {
-      fs.appendFileSync(this.config.logFile, line + '\n', 'utf-8');
-      this._maybeRotateLog();
-    } catch {}
-    // Only log to console if stdout is a TTY (not redirected to log file)
-    // to avoid duplicate lines when daemonized
-    if (!this._shuttingDown && process.stdout.isTTY) {
-      console.log(line);
-    }
+  _log(msg, level = 'info') {
+    this._logAs('daemon', level, msg);
   }
 
-  _maybeRotateLog() {
-    // Rotate at 10MB, keep 1 backup
-    const MAX_SIZE = 10 * 1024 * 1024;
-    try {
-      const stat = fs.statSync(this.config.logFile);
-      if (stat.size > MAX_SIZE) {
-        const backup = this.config.logFile + '.1';
-        try { fs.unlinkSync(backup); } catch {}
-        fs.renameSync(this.config.logFile, backup);
-      }
-    } catch {}
+  /**
+   * One entry in daemon.log. Adapters log through here too (see the `logSink`
+   * passed in _adapterLoop), so batching, repeat suppression and rotation cover
+   * their lines as well — they used to bypass all of it via console.log.
+   */
+  _logAs(scope, level, msg) {
+    if (!this._logWriter) this._logWriter = new LogWriter(this.config.logFile);
+    const written = this._logWriter.write(level, scope, msg);
+    // Only log to console if stdout is a TTY (not redirected to log file)
+    // to avoid duplicate lines when daemonized
+    if (written && !this._shuttingDown && process.stdout.isTTY) {
+      console.log(`${new Date().toISOString()} ${String(level).toUpperCase()} ${scope}: ${msg}`);
+    }
   }
 
   _sleep(ms) {

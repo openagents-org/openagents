@@ -19,6 +19,11 @@ interface Props {
   job: InstallJob | undefined
   latestVersion: string | null
   currentVersion: string | null
+  /**
+   * The update can only be run by the user, as administrator — the rail's
+   * notice hands them the command, so no button here pretends otherwise.
+   */
+  updateBlocked?: boolean
   onInstall: () => void
   onUpdate: () => void
   onUninstall: () => void
@@ -44,7 +49,9 @@ const BUSY_LABEL: Record<InstallJob["verb"], string> = {
  *   managed, up to date        → [Reinstall] [Setup?] [Roll back?] [Uninstall]
  *   global (unmanaged), old    → [Update to v…] [Setup?]
  *   global (unmanaged), latest → [Reinstall] [Setup?]
- *   Updates create a managed runtime; uninstall never removes the system copy.
+ *   An npm global install updates at its original install path; any other
+ *   global install gets a managed copy. Uninstall never removes the user's copy.
+ *   A user's copy that needs admin rights we cannot ask for: no update button.
  */
 export function DetailActions({
   entry,
@@ -53,6 +60,7 @@ export function DetailActions({
   job,
   latestVersion,
   currentVersion,
+  updateBlocked = false,
   onInstall,
   onUpdate,
   onUninstall,
@@ -107,14 +115,14 @@ export function DetailActions({
         </Button>
       )}
 
-      {isInstalled && hasUpdate && (
+      {isInstalled && hasUpdate && !updateBlocked && (
         <Button className="w-full" onClick={onUpdate}>
           <RefreshCw />
           {t("agents.actions.updateToVersion", { version: latestVersion })}
         </Button>
       )}
 
-      {isInstalled && !hasUpdate && (
+      {isInstalled && !hasUpdate && !updateBlocked && (
         <Button variant="outline" className="w-full" onClick={onInstall}>
           <RefreshCw />
           {t("agents.actions.reinstall")}
