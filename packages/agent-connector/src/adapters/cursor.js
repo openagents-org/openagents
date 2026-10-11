@@ -22,45 +22,9 @@ const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const { resolveCursorNodeEntry } = require('./cursor-node-entry');
 
 const IS_WINDOWS = process.platform === 'win32';
-
-/** A Cursor version directory: YYYY.MM.DD-commit, or YYYY.MM.DD-HH-MM-SS-commit. */
-const CURSOR_VERSION_DIR = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/;
-
-/**
- * The `node.exe` + `index.js` pair behind Cursor's Windows launcher, or null.
- *
- * The Windows install is not an npm shim. cursor-agent.cmd hands its arguments
- * to PowerShell, and cursor-agent.ps1 runs the node.exe shipped in the newest
- * `versions\<version>` directory (or beside the script) on that directory's
- * index.js. This is the same lookup, so the adapter can start node itself.
- */
-function resolveCursorNodeEntry(binPath) {
-  const dir = path.dirname(path.resolve(binPath));
-  const pair = (d) => {
-    const node = path.join(d, 'node.exe');
-    const entry = path.join(d, 'index.js');
-    return fs.existsSync(node) && fs.existsSync(entry) ? [node, entry] : null;
-  };
-  const beside = pair(dir);
-  if (beside) return beside;
-
-  let names;
-  try { names = fs.readdirSync(path.join(dir, 'versions')); } catch { return null; }
-  const day = (name) => {
-    const m = name.match(CURSOR_VERSION_DIR);
-    return Number(m[1] + m[2].padStart(2, '0') + m[3].padStart(2, '0'));
-  };
-  const newestFirst = names
-    .filter((name) => CURSOR_VERSION_DIR.test(name))
-    .sort((a, b) => day(b) - day(a) || (a < b ? 1 : -1));
-  for (const name of newestFirst) {
-    const found = pair(path.join(dir, 'versions', name));
-    if (found) return found;
-  }
-  return null;
-}
 
 class CursorAdapter extends BaseAdapter {
   constructor(opts) {
@@ -494,6 +458,13 @@ class CursorAdapter extends BaseAdapter {
       if (resolved) {
         cmd = [...resolved, ...cmd.slice(1)];
       } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
+        if (cmd.some((a) => typeof a === 'string' && a.includes('\n'))) {
+          this._log(
+            `Could not find Cursor's node.exe for ${launcher}; starting it through cmd.exe, `
+            + 'which stops reading at the first newline, so the prompt and the flags after it may be truncated',
+            'warn',
+          );
+        }
         cmd = ['cmd.exe', '/c', ...cmd];
       }
 

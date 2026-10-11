@@ -101,11 +101,32 @@ describe('resolveCursorNodeEntry', () => {
     );
   });
 
+  it('finds the install under %LOCALAPPDATA%\\cursor-agent when the launcher is elsewhere', () => {
+    // e.g. a copy of cursor-agent.cmd in ~/.local/bin, on PATH ahead of the install.
+    const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cursor-lad-'));
+    try {
+      const installRoot = path.join(localAppData, 'cursor-agent');
+      const version = path.join(installRoot, 'versions', '2026.10.01-e373342');
+      fs.mkdirSync(version, { recursive: true });
+      fs.writeFileSync(path.join(version, 'node.exe'), '');
+      fs.writeFileSync(path.join(version, 'index.js'), '');
+      const elsewhere = path.join(root, 'cursor-agent.cmd');
+      fs.writeFileSync(elsewhere, CURSOR_AGENT_CMD);
+      assert.deepEqual(
+        resolveCursorNodeEntry(elsewhere, { LOCALAPPDATA: localAppData }),
+        [path.join(version, 'node.exe'), path.join(version, 'index.js')],
+      );
+      assert.equal(resolveCursorNodeEntry(elsewhere, {}), null);
+    } finally {
+      fs.rmSync(localAppData, { recursive: true, force: true });
+    }
+  });
+
   it('answers null for anything that is not that layout', () => {
     fs.writeFileSync(path.join(root, 'cursor-agent.cmd'), CURSOR_AGENT_CMD);
-    assert.equal(resolveCursorNodeEntry(path.join(root, 'cursor-agent.cmd')), null);
+    assert.equal(resolveCursorNodeEntry(path.join(root, 'cursor-agent.cmd'), {}), null);
     fs.mkdirSync(path.join(root, 'versions', 'notes'), { recursive: true });
-    assert.equal(resolveCursorNodeEntry(path.join(root, 'cursor-agent.cmd')), null);
+    assert.equal(resolveCursorNodeEntry(path.join(root, 'cursor-agent.cmd'), {}), null);
   });
 });
 

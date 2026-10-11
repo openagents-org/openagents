@@ -21,6 +21,7 @@ const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
 const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
+const { resolveCursorNodeEntry } = require('./adapters/cursor-node-entry');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
@@ -1138,8 +1139,8 @@ class Installer {
     const args = checkReady.status_args;
     if (!binary || !Array.isArray(args) || !args.length) return null;
     if (!checkReady.logged_out_pattern && !checkReady.logged_in_pattern) return null;
-    // These land on a shell command line; a flag or a subcommand is all a
-    // status check needs.
+    // These can still land on a shell command line (a WSL binary, a Windows
+    // .cmd launcher); a flag or a subcommand is all a status check needs.
     if (!args.every((a) => typeof a === 'string' && /^[\w.=:-]+$/.test(a))) return null;
 
     const command = this._cliCommand(binary, args);
@@ -1150,15 +1151,7 @@ class Installer {
 
     let verdict = null;
     try {
-      const run = spawnSync(command, {
-        shell: true,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: getEnhancedEnv(),
-        cwd: os.homedir(),
-        timeout: LOGIN_STATUS_TIMEOUT_MS,
-        windowsHide: true,
-      });
+      const run = this._spawnLoginStatus(binary, args, command);
       if (!run.error) {
         verdict = loginVerdict(checkReady, `${run.stdout || ''}\n${run.stderr || ''}`, run.status);
       }
@@ -1166,6 +1159,38 @@ class Installer {
 
     loginStatusCache.set(command, { verdict, ts: Date.now() });
     return verdict;
+  }
+
+  /**
+   * Run a status check without a shell wherever one is not needed. On Windows
+   * Cursor's launcher is cursor-agent.cmd → PowerShell → node.exe, the chain
+   * the adapter no longer starts a turn through; when its node.exe + index.js
+   * can be found, node is started directly here too. A WSL binary, or any
+   * other Windows launcher (.cmd shims need cmd.exe), keeps the command line.
+   */
+  _spawnLoginStatus(binary, args, command) {
+    const run = this._spawnSyncForTest || spawnSync;
+    const opts = {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: getEnhancedEnv(),
+      cwd: os.homedir(),
+      timeout: LOGIN_STATUS_TIMEOUT_MS,
+      windowsHide: true,
+    };
+    if (bridgedCommandString(binary, args)) return run(command, { ...opts, shell: true });
+    if (process.platform === 'win32') {
+      const own = resolveCursorNodeEntry(binary, opts.env);
+      if (!own) return run(command, { ...opts, shell: true });
+      const [node, entry] = own;
+      // What cursor-agent.cmd would have set before handing over to node.
+      if (!opts.env.CURSOR_INVOKED_AS) opts.env = { ...opts.env, CURSOR_INVOKED_AS: path.basename(binary) };
+      return run(node, [entry, ...args], { ...opts, shell: false });
+    }
+    if (/\.(mjs|cjs|js)$/i.test(binary) || isNodeShebangScript(binary)) {
+      return run(this._nodeBinary(), [binary, ...args], { ...opts, shell: false });
+    }
+    return run(binary, args, { ...opts, shell: false });
   }
 
   _checkStatusCommand(command) {

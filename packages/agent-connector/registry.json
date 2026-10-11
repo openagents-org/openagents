@@ -341,7 +341,7 @@
       "status_args": [
         "status"
       ],
-      "logged_out_pattern": "not logged in|logged out|signed out|partially authenticated"
+      "logged_out_pattern": "not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated"
     },
     "env_config": [
       {

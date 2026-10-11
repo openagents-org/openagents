@@ -135,6 +135,21 @@ describe('Cursor readiness — asking the CLI', () => {
     assert.equal(r.auth_status, 'no_credentials');
   });
 
+  for (const line of [
+    'Not signed in',
+    'Not authenticated',
+    'Unauthenticated: run cursor-agent login',
+    'Login required',
+    'You are logged out',
+    'Signed out',
+  ]) {
+    it(`CLI says "${line}" → not signed in`, () => {
+      const r = evaluate(configWithoutAuthInfo(), fakeCli(line));
+      assert.equal(r.ready, false);
+      assert.equal(r.auth_status, 'no_credentials');
+    });
+  }
+
   it('the status command fails → unknown, never a verdict either way', () => {
     const r = evaluate(configWithoutAuthInfo(), fakeCli('Status check error: keychain is locked', 1));
     assert.equal(r.ready, false);
@@ -168,6 +183,60 @@ describe('Cursor readiness — asking the CLI', () => {
       inst._checkLoginStatus({ status_args: ['status; rm -rf /'], logged_out_pattern: 'x' }, bin),
       null,
     );
+  });
+});
+
+describe('Cursor readiness — how the status check is started', () => {
+  /** _spawnLoginStatus as it runs on `platform`, recording each spawnSync call. */
+  function spawnAs(platform, binary, env = {}) {
+    const calls = [];
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._spawnSyncForTest = (...a) => { calls.push(a); return { status: 0, stdout: 'Not logged in', stderr: '' }; };
+    const saved = Object.getOwnPropertyDescriptor(process, 'platform');
+    const savedLocal = process.env.LOCALAPPDATA;
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    if (env.LOCALAPPDATA === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = env.LOCALAPPDATA;
+    try {
+      inst._spawnLoginStatus(binary, ['status'], `"${binary}" status`);
+    } finally {
+      Object.defineProperty(process, 'platform', saved);
+      if (savedLocal === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = savedLocal;
+    }
+    return calls;
+  }
+
+  it('Windows: starts Cursor\'s node.exe on index.js, no shell, window hidden', () => {
+    const version = path.join(tmpDir, 'versions', '2026.10.01-e373342');
+    fs.mkdirSync(version, { recursive: true });
+    fs.writeFileSync(path.join(version, 'node.exe'), '');
+    fs.writeFileSync(path.join(version, 'index.js'), '');
+    const bin = path.join(tmpDir, 'cursor-agent.cmd');
+    fs.writeFileSync(bin, '@echo off\r\n');
+    const [call, ...rest] = spawnAs('win32', bin);
+    assert.equal(rest.length, 0);
+    assert.equal(call[0], path.join(version, 'node.exe'));
+    assert.deepEqual(call[1], [path.join(version, 'index.js'), 'status']);
+    assert.equal(call[2].shell, false);
+    assert.equal(call[2].windowsHide, true);
+    assert.equal(call[2].env.CURSOR_INVOKED_AS, 'cursor-agent.cmd');
+  });
+
+  it('Windows: a launcher with no node.exe to find keeps today\'s command line', () => {
+    const bin = path.join(tmpDir, 'cursor-agent.cmd');
+    fs.writeFileSync(bin, '@echo off\r\n');
+    const [call] = spawnAs('win32', bin);
+    assert.equal(call[0], `"${bin}" status`);
+    assert.equal(call[1].shell, true);
+  });
+
+  it('elsewhere: runs the binary with its args, no shell', () => {
+    const bin = fakeCli('Not logged in');
+    const [call] = spawnAs('linux', bin);
+    assert.equal(call[0], bin);
+    assert.deepEqual(call[1], ['status']);
+    assert.equal(call[2].shell, false);
   });
 });
 
