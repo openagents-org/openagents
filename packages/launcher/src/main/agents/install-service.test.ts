@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // make are modelled: existsSync and readFileSync.
 const files = new Map<string, string>()
 const links = new Map<string, string>()
+/** Directories a write into fails, as one owned by root would. */
+const readonlyDirs = new Set<string>()
 vi.mock("fs", () => {
   const api = {
     existsSync: (p: string) => files.has(String(p)),
@@ -15,7 +17,11 @@ vi.mock("fs", () => {
     },
     mkdirSync: () => undefined,
     writeFileSync: (p: string, data: string) => {
+      if (readonlyDirs.has(path.dirname(String(p)))) throw new Error(`EACCES: ${p}`)
       files.set(String(p), String(data))
+    },
+    unlinkSync: (p: string) => {
+      files.delete(String(p))
     },
     // installVanished logs its verdict through appendDaemonLog.
     appendFileSync: () => undefined,
@@ -133,6 +139,7 @@ const none = (): null => null
 beforeEach(() => {
   files.clear()
   links.clear()
+  readonlyDirs.clear()
 })
 
 /**
@@ -400,5 +407,96 @@ describe("agent-specific npm resolver workarounds", () => {
 
     await service().installAtVersionTag("codex", "latest", () => undefined)
     expect(spawned[1]).not.toContain("--legacy-peer-deps")
+  })
+})
+
+/**
+ * An agent the user installed with `npm i -g` is updated in that npm prefix.
+ * It used to get a second, managed copy under ~/.openagents/ instead, leaving
+ * the user's own install behind and two copies of one CLI on the machine.
+ */
+describe.skipIf(process.platform === "win32")("updating the user's own npm install", () => {
+  const prefix = "/usr/local"
+  const globalBin = path.join(prefix, "bin", "codex")
+  const realBin = path.join(prefix, "lib", "node_modules", "@openai", "codex", "bin", "codex.js")
+  const globalPkg = path.join(prefix, "lib", "node_modules", "@openai", "codex", "package.json")
+
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+  })
+
+  function service() {
+    return new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+  }
+
+  it("runs npm against the prefix the copy lives in", async () => {
+    expect(service().updateTarget("codex")).toMatchObject({
+      kind: "original",
+      prefix,
+      elevation: "none",
+    })
+    await service().updateAgentTypeStreaming("codex", () => undefined)
+    expect(spawned[0]).toEqual(
+      expect.arrayContaining(["install", "-g", "--prefix", prefix, "@openai/codex@latest"]),
+    )
+    expect(spawned[0].join(" ")).not.toContain("runtimes")
+  })
+
+  it("keeps updating the managed copy once there is one", async () => {
+    files.set(pkgJson("codex", "@openai/codex"), JSON.stringify({ version: "0.160.0" }))
+    expect(service().updateTarget("codex")).toEqual({ kind: "managed" })
+    await service().updateAgentTypeStreaming("codex", () => undefined)
+    expect(spawned[0]).toContain(path.join(CONFIG_DIR, "runtimes", "codex"))
+  })
+
+  it("asks for admin rights when the prefix is not the user's to write", () => {
+    readonlyDirs.add(path.join(prefix, "lib", "node_modules"))
+    const target = service().updateTarget("codex")
+    expect(target).toMatchObject({
+      kind: "original",
+      elevation: process.platform === "darwin" ? "prompt" : "manual",
+      command: "sudo npm install -g --prefix /usr/local @openai/codex@latest",
+    })
+  })
+
+  it("does not run npm when only the user can grant those rights", async () => {
+    if (process.platform === "darwin") return
+    readonlyDirs.add(path.join(prefix, "lib", "node_modules"))
+    const result = (await service().updateAgentTypeStreaming("codex", () => undefined)) as {
+      success: boolean
+      error: string
+    }
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("sudo npm install -g")
+    expect(spawned).toHaveLength(0)
+  })
+
+  it("leaves a Homebrew install to Homebrew", () => {
+    const cellar = "/opt/homebrew/Cellar/codex/1.0/libexec"
+    const brewBin = "/opt/homebrew/bin/codex"
+    links.set(brewBin, path.join(cellar, "lib", "node_modules", "@openai", "codex", "bin", "codex.js"))
+    files.set(
+      path.join(cellar, "lib", "node_modules", "@openai", "codex", "package.json"),
+      JSON.stringify({ name: "@openai/codex", version: "0.150.0" }),
+    )
+    const svc = new InstallService({
+      connector: () => ({ registry: { getEntry: (t: string) => REGISTRY[t] || null } }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: () => brewBin,
+    })
+    expect(svc.updateTarget("codex")).toEqual({ kind: "managed" })
   })
 })

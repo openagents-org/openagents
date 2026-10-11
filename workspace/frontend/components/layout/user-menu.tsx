@@ -25,6 +25,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
+import { currentRouteSearch } from '@/lib/route-search';
 import { LanguageMenuSub } from './language-menu';
 import { FeedbackDialog } from '@/components/feedback/feedback-dialog';
 
@@ -187,7 +188,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           <DropdownMenuItem
             onClick={() => {
               if (!workspace) return;
-              router.push(`/${workspace.slug}/settings/members${window.location.search}`);
+              router.push(`/${workspace.slug}/settings/members${currentRouteSearch()}`);
             }}
           >
             <UserPlus />
@@ -202,12 +203,12 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           </DropdownMenuItem>
 
           {/* Full-page admin dashboard (general / members / security / devices /
-              integrations / preferences). window.location.search carries an
+              integrations / preferences). currentRouteSearch() carries an
               incoming ?token= through so token-link visitors keep access. */}
           <DropdownMenuItem
             onClick={() => {
               if (!workspace) return;
-              router.push(`/${workspace.slug}/settings${window.location.search}`);
+              router.push(`/${workspace.slug}/settings/general${currentRouteSearch()}`);
             }}
           >
             <Settings />

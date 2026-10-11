@@ -180,6 +180,10 @@ export function installStepLabel(
   return "finishing the installation"
 }
 
+const GENERIC_REASON = "The installer stopped before it could finish."
+const NO_COMMAND_REASON =
+  "The installer finished, but left no working command behind."
+
 export function userFacingInstallError(
   err: unknown,
   phase: InstallPhase,
@@ -187,9 +191,9 @@ export function userFacingInstallError(
 ): string {
   const raw = err instanceof Error ? err.message : String(err || "")
   const text = raw.toLowerCase()
-  const step = installStepLabel(phase, verb)
+  let step = installStepLabel(phase, verb)
 
-  let reason = "The installer stopped before it could finish."
+  let reason = GENERIC_REASON
   let hint = "Open the log for details, then try again."
 
   // Git failures are checked FIRST, ahead of the generic network and
@@ -293,11 +297,42 @@ export function userFacingInstallError(
     // exited 0 and left no command got the generic shrug.
     text.includes("could not be found")
   ) {
-    reason = "The installer finished, but left no working command behind."
+    reason = NO_COMMAND_REASON
     hint = "Open the log to see what the installer reported before it stopped."
+    // This is the verify-before-mark check that runs after the installer
+    // exits, so whatever phase the output last suggested is not where it
+    // failed. A quiet install.ps1 never leaves "preparing", which is how a
+    // Windows hermes failure came to read "Failed while preparing the
+    // installer".
+    if (text.includes("could not be found")) step = installStepLabel("verifying", verb)
   }
 
-  return `Failed while ${step}. ${reason} ${hint}`
+  // Neither bucket above knows this failure, so the generic copy is all the
+  // user would see. Quote the installer's own last line: it is usually the
+  // actual error, and it is what we need from a screenshot.
+  const fellThrough = reason === GENERIC_REASON || reason === NO_COMMAND_REASON
+  const last = fellThrough ? lastInstallerLine(raw) : ""
+  const quoted = last ? ` Installer said: "${last}"` : ""
+
+  return `Failed while ${step}. ${reason}${quoted} ${hint}`
+}
+
+/**
+ * Last non-empty line of the installer output the connector appends to a
+ * failed install ("…\n\nInstaller output:\n<tail>"), capped for a toast.
+ */
+export function lastInstallerLine(raw: string): string {
+  const marker = "Installer output:"
+  const at = raw.lastIndexOf(marker)
+  if (at < 0) return ""
+  const lines = raw
+    .slice(at + marker.length)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    // Skip banner rules and box-drawing; a line worth quoting has words.
+    .filter((l) => /[a-z]/i.test(l))
+  const last = lines[lines.length - 1] || ""
+  return last.length > 160 ? `${last.slice(0, 157)}...` : last
 }
 
 export function classifyInstallChunk(

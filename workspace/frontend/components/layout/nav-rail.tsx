@@ -278,19 +278,19 @@ export function NavRail() {
           )}
         >
           <span
-            className="flex size-8 shrink-0 items-center justify-center"
+            className="flex size-8 shrink-0 items-center justify-center overflow-hidden"
             title={workspaceLabel}
           >
             <Image
               src="/logo-black.png"
-              alt="OpenAgents"
+              alt=""
               width={32}
               height={32}
               className="size-full object-contain dark:hidden"
             />
             <Image
               src="/logo-white.png"
-              alt="OpenAgents"
+              alt=""
               width={32}
               height={32}
               className="hidden size-full object-contain dark:block"

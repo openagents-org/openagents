@@ -940,7 +940,7 @@ def _set_skill_status(skills_data: dict, skill_id: str, state: str,
 
 
 @router.post("/{workspace_id}/members/{agent_name}/skills/install")
-async def install_skill(
+def install_skill(
     workspace_id: str,
     agent_name: str,
     body: SkillInstallRequest,
@@ -1046,7 +1046,7 @@ async def install_skill(
 
 
 @router.post("/{workspace_id}/members/{agent_name}/skills/status")
-async def report_skill_status(
+def report_skill_status(
     workspace_id: str,
     agent_name: str,
     body: SkillStatusRequest,
@@ -1145,7 +1145,7 @@ async def report_skill_status(
 
 
 @router.post("/{workspace_id}/members/{agent_name}/skills/uninstall")
-async def uninstall_skill(
+def uninstall_skill(
     workspace_id: str,
     agent_name: str,
     body: SkillInstallRequest,
@@ -1211,7 +1211,7 @@ async def uninstall_skill(
 # ---------------------------------------------------------------------------
 
 @router.get("/{workspace_id}/skills/custom")
-async def list_custom_skills(
+def list_custom_skills(
     workspace_id: str,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -1230,7 +1230,7 @@ async def list_custom_skills(
 
 
 @router.post("/{workspace_id}/skills/custom")
-async def register_custom_skill(
+def register_custom_skill(
     workspace_id: str,
     body: CustomSkillRegisterRequest,
     db: Session = Depends(get_db),
@@ -1549,7 +1549,7 @@ def list_collaborators(
 
 
 @router.post("/{workspace_id}/presence")
-async def record_presence(
+def record_presence(
     workspace_id: str,
     body: PresencePingRequest,
     db: Session = Depends(get_db),

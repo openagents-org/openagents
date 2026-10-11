@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import and_, case, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app import cache
 from app.database import SessionLocal, get_db
@@ -877,6 +878,22 @@ def latest_per_channel(
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 
+def _authorize_event_stream(network, effective_token, authorization):
+    """Keep pool checkout, auth queries, and cleanup off the event loop."""
+    db = SessionLocal()
+    try:
+        workspace = db.execute(
+            select(Workspace).where(_workspace_filter(network))
+        ).scalar_one_or_none()
+        if not workspace:
+            return None, json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, effective_token, authorization):
+            return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+        return str(workspace.id), None
+    finally:
+        db.close()
+
+
 @router.get("/events/stream")
 async def stream_events(
     request: Request,
@@ -894,24 +911,11 @@ async def stream_events(
     """
     effective_token = x_workspace_token or token
 
-    # Verify access with a SHORT-LIVED session that is closed BEFORE we start
-    # streaming. SSE streams live for minutes/hours; a Depends(get_db) session
-    # would stay checked out — and idle-in-transaction, from the verify query
-    # below — for the whole stream, pinning a pooled connection per client and
-    # exhausting the pool. The generator below reads only from Redis, so no DB
-    # session is needed once access is verified.
-    db = SessionLocal()
-    try:
-        workspace = db.execute(
-            select(Workspace).where(_workspace_filter(network))
-        ).scalar_one_or_none()
-        if not workspace:
-            return json_response(ResponseCode.NOT_FOUND, "Network not found")
-        if not _verify_workspace_access(workspace, effective_token, authorization):
-            return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
-        workspace_id = str(workspace.id)
-    finally:
-        db.close()
+    workspace_id, error = await run_in_threadpool(
+        _authorize_event_stream, network, effective_token, authorization,
+    )
+    if error is not None:
+        return error
     target_prefix = f"channel/{channel}" if channel else None
 
     async def event_generator():

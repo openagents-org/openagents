@@ -259,6 +259,21 @@ export interface AgentUpdateInfo {
   changelog?: Array<{ version: string; date?: string }>
 }
 
+/**
+ * Where "Update" puts the new version. `original`: the user's own npm install,
+ * updated in its own prefix — `elevation` says whether that needs the macOS
+ * admin prompt or a command the user runs themselves. `managed`: a copy under
+ * ~/.openagents/.
+ */
+export type AgentUpdateTarget =
+  | { kind: "managed" }
+  | {
+      kind: "original"
+      prefix: string
+      elevation: "none" | "prompt" | "manual"
+      command: string
+    }
+
 export type InstallPhase = 'idle' | 'preparing' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
 
 /**
@@ -613,7 +628,7 @@ declare global {
       stopAll(): Promise<unknown>
       agentStatus(): Promise<Record<string, { state: AgentState; last_error?: string; restarts?: number }>>
       agentLogs(name: string, lines: number): Promise<{ lines: string[] }>
-      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number }>
+      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number; reset?: boolean }>
       clearLogsInRange(start: string, end: string): Promise<{ removed: number; remaining: number }>
       installAgentType(type: string): Promise<unknown>
       installAgentTypeStreaming(type: string): Promise<unknown>
@@ -626,6 +641,7 @@ declare global {
       checkAgentType(type: string): Promise<{ installed: boolean; binary: string | null }>
       getCatalog(force?: boolean): Promise<CatalogEntry[]>
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
+      getAgentUpdateTarget(type: string): Promise<AgentUpdateTarget>
       checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
       getAgentChangelog(type: string): Promise<{ versions: Array<{ version: string; date?: string }>; homepage?: string; latest?: string | null; error?: string }>
