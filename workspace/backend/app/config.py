@@ -53,6 +53,12 @@ class Config:
     # has to talk to Google. Unset = the endpoint is disabled (503).
     WORKSPACE_SESSION_SECRET: str = os.environ.get("WORKSPACE_SESSION_SECRET", "")
     WORKSPACE_SESSION_TTL_DAYS: int = int(os.environ.get("WORKSPACE_SESSION_TTL_DAYS", "30"))
+    # A session can be renewed (POST /v1/auth/session/renew) for this long after
+    # the sign-in that started it; past that the user signs in again. Bounds how
+    # long a leaked session could be kept alive by renewing it.
+    WORKSPACE_SESSION_MAX_AGE_DAYS: int = int(
+        os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "365")
+    )
 
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use

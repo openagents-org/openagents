@@ -242,3 +242,70 @@ class TestExchange:
         with patch("httpx.post") as post:
             assert firebase_auth.exchange_custom_token("") is None
         post.assert_not_called()
+
+
+class TestSessionRenewal:
+    def _session(self, **overrides):
+        now = int(time.time())
+        payload = {
+            "iss": "openagents-workspace", "sub": "uid-123",
+            "email": "wei@example.com", "firebase_uid": "uid-123", "name": "Wei",
+            "iat": now - 86400, "exp": now + 86400, "auth_time": now - 86400,
+        }
+        payload.update(overrides)
+        payload = {k: v for k, v in payload.items() if v is not None}
+        return jwt.encode(payload, SECRET, algorithm="HS256")
+
+    def _renew(self, client, token):
+        return client.post(
+            "/v1/auth/session/renew", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    def test_disabled_returns_503(self, client, monkeypatch):
+        monkeypatch.setattr(firebase_auth.config, "WORKSPACE_SESSION_SECRET", "")
+        assert self._renew(client, "anything").status_code == 503
+
+    def test_missing_bearer_401(self, client, session_secret):
+        assert client.post("/v1/auth/session/renew").status_code == 401
+
+    def test_non_session_bearer_401(self, client, session_secret):
+        assert self._renew(client, "opaque-firebase-token").status_code == 401
+
+    def test_expired_session_401(self, client, session_secret):
+        now = int(time.time())
+        resp = self._renew(client, self._session(iat=now - 100, exp=now - 10))
+        assert resp.status_code == 401
+
+    def test_renewal_extends_expiry_and_keeps_identity(self, client, session_secret):
+        old = self._session()
+        resp = self._renew(client, old)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["email"] == "wei@example.com"
+        assert data["display_name"] == "Wei"
+
+        before = jwt.decode(old, options={"verify_signature": False})
+        after = jwt.decode(data["session_token"], options={"verify_signature": False})
+        assert after["exp"] > before["exp"]
+        assert after["email"] == before["email"]
+        assert after["firebase_uid"] == before["firebase_uid"]
+        # The original sign-in time survives, so the maximum age still counts
+        # from the sign-in and not from the latest renewal.
+        assert after["auth_time"] == before["auth_time"]
+        assert firebase_auth.verify_identity_token(data["session_token"]) == "wei@example.com"
+
+    def test_session_without_auth_time_counts_from_iat(self, client, session_secret):
+        old = self._session(auth_time=None)
+        resp = self._renew(client, old)
+        assert resp.status_code == 200, resp.text
+        before = jwt.decode(old, options={"verify_signature": False})
+        after = jwt.decode(
+            resp.json()["data"]["session_token"], options={"verify_signature": False}
+        )
+        assert after["auth_time"] == before["iat"]
+
+    def test_past_maximum_age_401(self, client, session_secret, monkeypatch):
+        monkeypatch.setattr(firebase_auth.config, "WORKSPACE_SESSION_MAX_AGE_DAYS", 10)
+        now = int(time.time())
+        resp = self._renew(client, self._session(auth_time=now - 11 * 86400))
+        assert resp.status_code == 401
