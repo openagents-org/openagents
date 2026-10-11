@@ -23,6 +23,17 @@
         "en": "Many gateways and relays work fine but don't provide a model list. Setting up an agent with one of them used to hide the model field, so the agent could not be created. You can now enter a model name and test it; only a key the endpoint rejects stops setup. Model access also shows a note that the key couldn't be confirmed, instead of a red error.",
         "zh": "许多网关和中转服务可以正常使用，但不提供模型列表。以往用这类地址配置智能体时，模型选择框会被隐藏，导致无法创建。现在可以直接填写模型名并测试，只有 Key 被拒绝时才会阻止配置。「模型访问」中也改为提示暂无法确认 Key，不再显示红色错误。"
       }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace menu no longer stays over the settings page",
+        "zh": "工作区菜单不再残留在设置页上"
+      },
+      "description": {
+        "en": "Opening workspace settings or inviting members from the account menu could leave the menu stuck in the top-left corner of the settings page, covering its navigation. Menus and dialogs from the workspace now close properly when you move to settings.",
+        "zh": "从账号菜单进入工作区设置或邀请成员后，菜单可能会残留在设置页左上角，遮挡左侧导航。现在进入设置时，工作区中的菜单和弹窗都会正常收起。"
+      }
     }
   ]
 }

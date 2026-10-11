@@ -10,6 +10,7 @@ import React, {
   useState,
 } from 'react';
 
+import { PortalContainerContext } from '@/components/ui/portal-container';
 import { loadWorkspaceSession } from '@/lib/workspace-session';
 import { restorableRoute } from './navigation-state';
 
@@ -220,10 +221,31 @@ export function DesktopRouter({
     <>
       {trees.map((tree) => (
         <Activity key={tree.key} mode={tree.mode}>
-          <RouterContext.Provider value={tree.value}>{tree.node}</RouterContext.Provider>
+          <RouterContext.Provider value={tree.value}>
+            <RoutePortals>{tree.node}</RoutePortals>
+          </RouterContext.Provider>
         </Activity>
       ))}
     </>
+  );
+}
+
+/**
+ * A portal target inside the route's own tree, so <Activity> hides the route's
+ * overlays along with the route. See PortalContainerContext for why.
+ * `display: contents` keeps it out of layout: overlays position against the
+ * viewport exactly as they would from document.body.
+ */
+function RoutePortals({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  // Hiding a tree detaches its refs. Forgetting the element then would send
+  // every overlay back to document.body — the very thing this is here to stop.
+  const keep = useCallback((el: HTMLElement | null) => { if (el) setContainer(el); }, []);
+  return (
+    <PortalContainerContext.Provider value={container ?? undefined}>
+      {children}
+      <div ref={keep} data-route-portals="" className="contents" />
+    </PortalContainerContext.Provider>
   );
 }
 

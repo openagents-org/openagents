@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Drawer as DrawerPrimitive } from 'vaul';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from '@/components/ui/portal-container';
 
 function Drawer({
   ...props
@@ -19,7 +20,7 @@ function DrawerTrigger({
 function DrawerPortal({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Portal>) {
-  return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />;
+  return <DrawerPrimitive.Portal data-slot="drawer-portal" container={usePortalContainer()} {...props} />;
 }
 
 function DrawerClose({
