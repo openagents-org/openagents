@@ -614,7 +614,10 @@ export function AgentSetup({
     setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
     try {
       const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
-      if (r.keyOk === false || (r.error && !r.models?.length)) {
+      // Only a rejected key blocks. Many relays/gateways don't implement a
+      // models listing at all — they still work, so fall through to manual
+      // model entry instead of hiding the model field.
+      if (r.keyOk === false) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
       } else {
@@ -627,6 +630,7 @@ export function AgentSetup({
           .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
         setByokModels(models);
         setByokModelsSource(r.source || 'live');
+        if (!models.length) setByokCustomModel(true);
       }
     } catch (err) {
       setByokKeyError(err instanceof Error ? err.message : String(err));
@@ -982,7 +986,9 @@ export function AgentSetup({
                       <p className="text-[11px] text-muted-foreground">
                         {byokModelsSource === 'live'
                           ? t('connect.byokModelsLive', { count: byokModels.length })
-                          : t('connect.byokModelsCatalog')}
+                          : byokModels.length
+                            ? t('connect.byokModelsCatalog')
+                            : t('connect.byokModelsUnavailable')}
                       </p>
                     </div>
                   )}

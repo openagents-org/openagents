@@ -85,7 +85,7 @@ export function AddModelAccessDialog({
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [saving, setSaving] = useState(false);
-  const [check, setCheck] = useState<{ state: 'idle' | 'checking' | 'ok' | 'fail'; detail?: string }>({ state: 'idle' });
+  const [check, setCheck] = useState<{ state: 'idle' | 'checking' | 'ok' | 'warn' | 'fail'; detail?: string }>({ state: 'idle' });
 
   const custom = isCustomKind(provider);
   const info = custom ? undefined : options.find((p) => p.name === provider);
@@ -121,7 +121,10 @@ export function AddModelAccessDialog({
         apiKey: apiKey.trim(),
         ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
       });
-      if (r.keyOk === false || (r.error && r.keyOk !== true)) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
+      if (r.keyOk === false) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
+      // The endpoint answered but couldn't list models (common for gateways):
+      // the key is unconfirmed, not wrong — it can still be tested with a model.
+      else if (r.error && r.keyOk !== true) setCheck({ state: 'warn', detail: t('admin.modelAccessKeyUnverified') });
       else setCheck({ state: 'ok', detail: t('admin.modelAccessKeyOk', { count: (r.models || []).length }) });
     } catch (err) {
       setCheck({ state: 'fail', detail: err instanceof Error ? err.message : String(err) });
@@ -277,6 +280,9 @@ export function AddModelAccessDialog({
                 <span className="inline-flex items-center gap-1 pt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="size-3.5" />{check.detail}
                 </span>
+              )}
+              {check.state === 'warn' && (
+                <span className="pt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{check.detail}</span>
               )}
               {check.state === 'fail' && (
                 <span className="pt-1.5 text-[11px] text-red-600 dark:text-red-400">{check.detail}</span>

@@ -110,16 +110,20 @@ def _authorize_model_probe(
 @router.post("/model-probe")
 async def model_probe(body: ModelProbeRequest, error=Depends(_authorize_model_probe)):
     """Validate against the provider after releasing the authorization session."""
-    from app.services.cloud_providers import PROVIDERS
+    from app.services.cloud_providers import ANTHROPIC_COMPAT, PROVIDERS
     from app.services.model_probe import probe
 
     if error is not None:
         return error
 
     provider = body.provider.strip()
-    if provider != "custom" and provider not in PROVIDERS:
+    # Same credential kinds Model access accepts: "custom" (OpenAI-compatible
+    # URL) and "custom-anthropic" (Anthropic-compatible URL) live outside the
+    # catalog, so the Verify button must not reject them.
+    custom_kinds = ("custom", ANTHROPIC_COMPAT)
+    if provider not in custom_kinds and provider not in PROVIDERS:
         return json_response(ResponseCode.BAD_REQUEST, f"Unknown provider '{provider}'")
-    if provider == "custom" and not (body.base_url or "").strip():
+    if provider in custom_kinds and not (body.base_url or "").strip():
         return json_response(ResponseCode.BAD_REQUEST, "base_url is required for a custom provider")
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
