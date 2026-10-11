@@ -20,6 +20,10 @@ const { LogWriter } = require('./log-writer');
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
 // back from old versions), so the upgrade should show within the hour.
 const CLI_MODELS_MAX_AGE_MS = 3600 * 1000;
+// A sign-in whose CLI has never answered is asked again sooner: the first ask
+// may have failed for a passing reason (a slow start, an update mid-way). A
+// little under the 10-minute sweep, so the next pass retries it.
+const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -247,10 +251,11 @@ class Daemon {
   /**
    * Ask an agent's CLI for its models via a child `agn models <name> --json`
    * (off the event loop, and on that agent's own env, like a probe).
+   * Resolves true when the list it keeps for that sign-in changed.
    */
   async _listCliModels(a) {
     const key = this._cliModelsKey(a);
-    if (this._cliModelsInFlight.has(key)) return;
+    if (this._cliModelsInFlight.has(key)) return false;
     this._cliModelsInFlight.add(key);
     try {
       const r = await this._runAgn(['models', a.name, '--json']);
@@ -260,10 +265,9 @@ class Daemon {
       const last = this._cliModels[key];
       // A CLI that would not answer keeps the list it last gave: that is
       // still the best answer there is.
-      this._cliModels[key] = {
-        models: models.length ? models : ((last && last.models) || null),
-        askedAt: Date.now(),
-      };
+      const kept = models.length ? models : ((last && last.models) || null);
+      this._cliModels[key] = { models: kept, askedAt: Date.now() };
+      return JSON.stringify(kept) !== JSON.stringify((last && last.models) || null);
     } finally {
       this._cliModelsInFlight.delete(key);
     }
@@ -273,7 +277,11 @@ class Daemon {
   _askCliModels(name) {
     let agent = null;
     try { agent = this.config.getAgent(name); } catch {}
-    if (agent && this._onCliSignIn(agent)) this._listCliModels(agent).catch(() => {});
+    if (!agent || !this._onCliSignIn(agent)) return;
+    // A changed list goes out on a heartbeat now, not on the next tick.
+    this._listCliModels(agent)
+      .then((changed) => (changed ? this._nodeHeartbeat() : undefined))
+      .catch(() => {});
   }
 
   /**
@@ -289,7 +297,8 @@ class Daemon {
       if (signIns.has(key)) continue;
       signIns.add(key);
       const last = this._cliModels[key];
-      if (last && Date.now() - last.askedAt < CLI_MODELS_MAX_AGE_MS) continue;
+      const maxAge = last && last.models ? CLI_MODELS_MAX_AGE_MS : CLI_MODELS_RETRY_MS;
+      if (last && Date.now() - last.askedAt < maxAge) continue;
       try { await this._listCliModels(a); } catch {}
     }
     for (const key of Object.keys(this._cliModels)) {

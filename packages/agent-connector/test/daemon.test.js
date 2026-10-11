@@ -478,6 +478,36 @@ describe('Daemon', () => {
     assert.equal(roster[0].cliModels, null);
   });
 
+  it('_refreshCliModels retries a CLI that never answered after ten minutes, not an hour', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    seedCliModels(daemon, 'signed', { models: null, askedAt: Date.now() - 5 * 60 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 0);
+
+    seedCliModels(daemon, 'signed', { models: null, askedAt: Date.now() - 10 * 60 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A list that was read keeps the hour.
+    cliModelsOf(daemon, 'signed').askedAt = Date.now() - 30 * 60 * 1000;
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_askCliModels heartbeats when the list changed, and not when it did not', async () => {
+    const { daemon } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    let beats = 0;
+    daemon._nodeHeartbeat = async () => { beats += 1; };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+    withProcessEnv(NO_CREDENTIALS, () => daemon._askCliModels('signed'));
+    await settle();
+    assert.equal(beats, 1);
+    withProcessEnv(NO_CREDENTIALS, () => daemon._askCliModels('signed'));
+    await settle();
+    assert.equal(beats, 1);
+  });
+
   it('_askCliModels asks right away for a signed-in agent, and for no other', async () => {
     const { daemon, asked } = daemonListingModels([
       { name: 'signed', type: 'codex' },

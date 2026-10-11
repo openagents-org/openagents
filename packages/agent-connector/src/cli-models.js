@@ -25,6 +25,22 @@ const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { stripForCliLogin, typeEnvFor } = require('./env');
 
 const MAX_MODELS = 100;
+const MAX_LABEL_LENGTH = 80;
+// What the CLI prints is not trusted to be short or tame: ids go into the
+// heartbeat and later into `agn env --set LLM_MODEL=...`.
+const MODEL_ID_RE = /^[\w.:@/[\]-]{1,128}$/;
+
+/** A model id the workspace can safely carry and hand back, or null. */
+function cleanId(value) {
+  const id = String(value == null ? '' : value).trim();
+  return MODEL_ID_RE.test(id) ? id : null;
+}
+
+/** A label cut to a length the picker can show; falls back to the id. */
+function cleanLabel(label, id) {
+  const text = typeof label === 'string' ? label.trim() : '';
+  return (text.slice(0, MAX_LABEL_LENGTH).trim()) || id;
+}
 
 /**
  * `codex debug models`: the catalog the CLI was served for this account and
@@ -42,10 +58,9 @@ function parseCodexModels(text) {
     .map((m, index) => ({ m, index }))
     .sort((a, b) => (priority(a.m) - priority(b.m)) || (a.index - b.index))
     .forEach(({ m }) => {
-      const id = m.slug.trim();
-      if (seen.has(id)) return;
-      const label = typeof m.display_name === 'string' ? m.display_name.trim() : '';
-      seen.set(id, { id, label: label || id });
+      const id = cleanId(m.slug);
+      if (!id || seen.has(id)) return;
+      seen.set(id, { id, label: cleanLabel(m.display_name, id) });
     });
   return [...seen.values()].slice(0, MAX_MODELS);
 }
@@ -82,11 +97,11 @@ function parseClaudeModels(text) {
   }
   const seen = new Map();
   for (const m of models || []) {
-    const id = String((m && m.value) || '').trim();
+    const id = cleanId(m && m.value);
     // "default" is the picker's "let the CLI decide", which the workspace
     // picker already offers as its own first entry.
     if (!id || id === 'default' || seen.has(id)) continue;
-    seen.set(id, { id, label: claudeLabel(m) || id });
+    seen.set(id, { id, label: cleanLabel(claudeLabel(m), id) });
   }
   return [...seen.values()].slice(0, MAX_MODELS);
 }
@@ -115,6 +130,21 @@ function supportsCliModels(agentType) {
   return Object.prototype.hasOwnProperty.call(LISTERS, agentType);
 }
 
+/**
+ * Stop a CLI that ran too long. On Windows the npm shim runs under cmd.exe
+ * (shell: true), and killing that leaves the node process it started alive,
+ * so the whole tree is taken down.
+ */
+function killTree(child, spawnImpl) {
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      const killer = spawnImpl('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' });
+      if (killer && typeof killer.on === 'function') killer.on('error', () => {});
+    } catch {}
+  }
+  try { child.kill('SIGKILL'); } catch {}
+}
+
 /** Run a CLI to completion, optionally feeding it `input`. Never rejects. */
 function runCli(binary, args, { env, timeoutMs, input, spawnImpl = spawn }) {
   return new Promise((resolve) => {
@@ -137,16 +167,26 @@ function runCli(binary, args, { env, timeoutMs, input, spawnImpl = spawn }) {
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    // Settles here and not on 'close' alone: a grandchild that survives the
+    // kill can hold stdout open, and 'close' then never comes.
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill('SIGKILL'); } catch {}
+      killTree(child, spawnImpl);
+      finish();
+      // Let go of the pipes too, or a survivor holding them keeps this
+      // process (the daemon's `agn models` child) from ever exiting.
+      for (const stream of [child.stdout, child.stderr, child.stdin]) {
+        try { if (stream && typeof stream.destroy === 'function') stream.destroy(); } catch {}
+      }
+      try { if (typeof child.unref === 'function') child.unref(); } catch {}
     }, timeoutMs);
-    const finish = (error) => {
+    // Idempotent: 'close', 'error' and the timeout may all call it.
+    function finish(error) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve({ stdout, stderr, error: error || (timedOut ? 'the CLI did not answer in time' : null) });
-    };
+    }
     child.stdout.on('data', (d) => { stdout += d.toString(); });
     child.stderr.on('data', (d) => { stderr += d.toString(); });
     child.on('error', (e) => finish(e.message));

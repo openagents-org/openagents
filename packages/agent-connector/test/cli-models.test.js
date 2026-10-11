@@ -91,6 +91,37 @@ describe('parseCodexModels', () => {
   });
 });
 
+describe('model id and label bounds', () => {
+  it('drops ids that are not plain model names and caps long labels', () => {
+    const long = 'L'.repeat(200);
+    const catalog = JSON.stringify({
+      models: [
+        { slug: 'gpt-5.5', display_name: `  ${long}  `, visibility: 'list', priority: 1 },
+        { slug: 'bad id; rm -rf /', visibility: 'list', priority: 2 },
+        { slug: 'x'.repeat(129), visibility: 'list', priority: 3 },
+        { slug: 'line\nbreak', visibility: 'list', priority: 4 },
+        { slug: 'org/model:tag@v1', display_name: 'Ok', visibility: 'list', priority: 5 },
+      ],
+    });
+    const codex = parseCodexModels(catalog);
+    assert.deepEqual(codex.map((m) => m.id), ['gpt-5.5', 'org/model:tag@v1']);
+    assert.equal(codex[0].label, 'L'.repeat(80));
+
+    const claude = parseClaudeModels(claudeOutput([
+      { value: 'opus[1m]', displayName: long },
+      { value: '$(whoami)', displayName: 'Bad' },
+      { value: 'a=b', displayName: 'Bad' },
+    ]));
+    assert.deepEqual(claude.map((m) => m.id), ['opus[1m]']);
+    assert.equal(claude[0].label.length, 80);
+  });
+
+  it('still caps the list at 100 models', () => {
+    const models = Array.from({ length: 150 }, (_, i) => ({ slug: `m-${i}`, visibility: 'list', priority: i }));
+    assert.equal(parseCodexModels(JSON.stringify({ models })).length, 100);
+  });
+});
+
 describe('parseClaudeModels', () => {
   it('reads the picker from the initialize reply, as the values --model takes', () => {
     assert.deepEqual(parseClaudeModels(claudeOutput(CLAUDE_PICKER)), [
@@ -195,6 +226,27 @@ describe('listCliModels', () => {
     const { calls, spawnImpl } = fakeSpawn(() => {});
     const res = await listCliModels(connector(), 'codex', { spawnImpl, timeoutMs: 20 });
     assert.equal(calls[0].killed, true);
+    assert.deepEqual(res, { type: 'codex', ok: false, models: [], error: 'the CLI did not answer in time' });
+  });
+
+  it('gives up on time even when the killed CLI never closes its pipes', async () => {
+    // Windows: killing the cmd.exe shim leaves its node child holding stdout,
+    // so 'close' never fires.
+    let killed = false;
+    let destroyed = 0;
+    const spawnImpl = (binary, args, options) => {
+      const child = new EventEmitter();
+      const stream = () => Object.assign(new EventEmitter(), { destroy() { destroyed += 1; } });
+      child.stdout = stream();
+      child.stderr = stream();
+      child.stdin = options.stdio[0] === 'pipe' ? Object.assign(stream(), { end() {} }) : null;
+      child.kill = () => { killed = true; };
+      child.unref = () => {};
+      return child;
+    };
+    const res = await listCliModels(connector(), 'codex', { spawnImpl, timeoutMs: 20 });
+    assert.equal(killed, true);
+    assert.ok(destroyed >= 2);
     assert.deepEqual(res, { type: 'codex', ok: false, models: [], error: 'the CLI did not answer in time' });
   });
 
