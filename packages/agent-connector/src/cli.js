@@ -1024,6 +1024,37 @@ async function cmdProbe(connector, flags, positional) {
   }
 }
 
+async function cmdModels(connector, flags, positional) {
+  const target = positional[0];
+  if (!target) { print('Usage: agn models <type|agent> [--json]'); return; }
+
+  // Accept an agent name, as `agn probe` does: its CLI is asked on that
+  // agent's own env, so a signed-in agent answers for its sign-in.
+  let type = target;
+  let agentEnv;
+  try {
+    const agent = connector.config.getAgent(target);
+    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+  } catch {}
+
+  const result = await connector.listCliModels(type, { agentEnv });
+
+  if (flags && flags.json) {
+    // Machine consumers (the daemon's model sweep) read ONLY stdout JSON —
+    // same contract as `agn probe --json`.
+    process.stdout.write(JSON.stringify(result));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (!result.ok) {
+    print(`FAILED ${result.error || ''}`.trim());
+    process.exitCode = 1;
+    return;
+  }
+  for (const m of result.models) print(m.label === m.id ? m.id : `${m.id}  ${m.label}`);
+}
+
 async function cmdVersion() {
   const pkg = require('../package.json');
   print(`${pkg.name} v${pkg.version}`);
@@ -1094,6 +1125,7 @@ Commands:
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
   probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
+  models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token
@@ -1183,6 +1215,7 @@ async function main() {
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),
+    models: () => cmdModels(connector, flags, positional),
     update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
