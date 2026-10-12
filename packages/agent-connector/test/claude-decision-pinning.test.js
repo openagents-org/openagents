@@ -202,21 +202,20 @@ describe('_fetchDecisionLog', () => {
 });
 
 describe('fast-path pinned hash check', () => {
-  it('respawns with resume when the decision log changed since spawn', async () => {
+  it('hands a changed decision log to the running session instead of restarting it', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
     adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
 
-    const stalePP = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
-    adapter._persistentProcs.general = stalePP;
+    const livePP = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
+    adapter._persistentProcs.general = livePP;
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
-
-    let builtOpts = null;
-    adapter._buildClaudeCmd = (prompt, ch, opts) => { builtOpts = opts; return { cmd: ['claude'], mcpConfigFile: null }; };
-    const freshPP = mkPP();
-    adapter._spawnPersistentProc = () => freshPP;
-    adapter._sendToPersistentProc = async (pp) => {
+    let spawned = 0;
+    adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
+    let sent = null;
+    adapter._sendToPersistentProc = async (pp, content) => {
+      sent = { pp, content };
       pp.lastResponseText = ['done with new pin'];
       pp.everPostedAnything = true;
       return { resultEvent: {} };
@@ -224,31 +223,50 @@ describe('fast-path pinned hash check', () => {
 
     await adapter._handleMessage({ content: 'next task', sessionId: 'general' });
 
-    assert.deepEqual(killed, ['general']);
-    // Session kept → the fresh spawn resumes instead of starting blank.
-    assert.equal(builtOpts.skipResume, false);
-    assert.equal(builtOpts.decisionLog.content, '- NEW decision');
-    assert.equal(builtOpts.decisionLog.entryId, 'e-1');
-    // The new process records the state it was spawned with.
-    assert.equal(freshPP.pinnedHash, pinHash('e-1', '- NEW decision'));
+    // No restart: a restart kills background sub-agents mid-work.
+    assert.deepEqual(killed, []);
+    assert.equal(spawned, 0);
+    assert.equal(sent.pp, livePP);
+    // The new version rides in ahead of the message and supersedes the old pin.
+    assert.match(sent.content, /Pinned knowledge was updated/);
+    assert.match(sent.content, /- NEW decision/);
+    assert.ok(sent.content.endsWith('next task'));
+    // Recorded as pinned, so the next message does not repeat the update.
+    assert.equal(livePP.pinnedHash, pinHash('e-1', '- NEW decision'));
     assert.deepEqual(adapter.responses, ['done with new pin']);
   });
 
-  it('respawns with resume when the glossary changed since spawn', async () => {
+  it('sends the pinned update only once', async () => {
+    const adapter = mkAdapter();
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
+    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
+    const contents = [];
+    adapter._sendToPersistentProc = async (pp, content) => {
+      contents.push(content);
+      pp.lastResponseText = ['ok'];
+      pp.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+
+    await adapter._handleMessage({ content: 'first', sessionId: 'general' });
+    await adapter._handleMessage({ content: 'second', sessionId: 'general' });
+
+    assert.match(contents[0], /Pinned knowledge was updated/);
+    assert.equal(contents[1], 'second');
+  });
+
+  it('still respawns with resume when the mode changed', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
-    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'g-1', content: '- field means NEW thing', error: false });
-
-    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash(null, null, 'g-1', '- field meant old thing') });
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
+    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-1', '- same'), spawnMode: 'plan' });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
     let builtOpts = null;
     adapter._buildClaudeCmd = (prompt, ch, opts) => { builtOpts = opts; return { cmd: ['claude'], mcpConfigFile: null }; };
-    const freshPP = mkPP();
-    adapter._spawnPersistentProc = () => freshPP;
+    adapter._spawnPersistentProc = () => mkPP();
     adapter._sendToPersistentProc = async (pp) => {
-      pp.lastResponseText = ['glossary re-pinned'];
+      pp.lastResponseText = ['respawned'];
       pp.everPostedAnything = true;
       return { resultEvent: {} };
     };
@@ -256,13 +274,36 @@ describe('fast-path pinned hash check', () => {
     await adapter._handleMessage({ content: 'go', sessionId: 'general' });
 
     assert.deepEqual(killed, ['general']);
-    assert.equal(builtOpts.glossary.content, '- field means NEW thing');
-    assert.equal(builtOpts.glossary.entryId, 'g-1');
-    assert.equal(freshPP.pinnedHash, pinHash(null, null, 'g-1', '- field means NEW thing'));
+    assert.equal(builtOpts.skipResume, false);
+  });
+
+  it('hands a changed glossary to the running session instead of restarting it', async () => {
+    const adapter = mkAdapter();
+    adapter._channelSessions.general = 'sess-1';
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'g-1', content: '- field means NEW thing', error: false });
+
+    const livePP = mkPP({ pinnedHash: pinHash(null, null, 'g-1', '- field meant old thing') });
+    adapter._persistentProcs.general = livePP;
+    const killed = [];
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    let sent = '';
+    adapter._sendToPersistentProc = async (pp, content) => {
+      sent = content;
+      pp.lastResponseText = ['glossary re-pinned'];
+      pp.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+
+    await adapter._handleMessage({ content: 'go', sessionId: 'general' });
+
+    assert.deepEqual(killed, []);
+    assert.match(sent, /- field means NEW thing/);
+    assert.equal(livePP.pinnedHash, pinHash(null, null, 'g-1', '- field means NEW thing'));
     assert.deepEqual(adapter.responses, ['glossary re-pinned']);
   });
 
-  it('respawns when the entry id changed even though content is identical', async () => {
+  it('passes a recreated entry (new id, same content) to the running session', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
     // Same content, but the log was deleted and recreated under a new id —
@@ -271,9 +312,9 @@ describe('fast-path pinned hash check', () => {
     adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-original', '- same content') });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
-    adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
-    adapter._spawnPersistentProc = () => mkPP();
-    adapter._sendToPersistentProc = async (p) => {
+    let sent = '';
+    adapter._sendToPersistentProc = async (p, content) => {
+      sent = content;
       p.lastResponseText = ['ok'];
       p.everPostedAnything = true;
       return { resultEvent: {} };
@@ -281,7 +322,9 @@ describe('fast-path pinned hash check', () => {
 
     await adapter._handleMessage({ content: 'go', sessionId: 'general' });
 
-    assert.deepEqual(killed, ['general']);
+    assert.deepEqual(killed, []);
+    // The update names the new entry id, so later edits target the right entry.
+    assert.match(sent, /e-recreated/);
   });
 
   it('reuses the process when the log is unchanged', async () => {
