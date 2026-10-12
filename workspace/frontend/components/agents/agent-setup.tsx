@@ -598,6 +598,9 @@ export function AgentSetup({
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
+  // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
+  // itself wasn't rejected — shown under the manual-entry hint.
+  const [byokProbeError, setByokProbeError] = useState<string | null>(null);
   const [byokTest, setByokTest] = useState<{ state: 'idle' | 'testing' | 'ok' | 'fail'; ms?: number; error?: string }>({ state: 'idle' });
 
   useEffect(() => {
@@ -606,12 +609,12 @@ export function AgentSetup({
   }, [byok, accesses]);
 
   const resetByokChecks = () => {
-    setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokTest({ state: 'idle' });
+    setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
   };
 
   const loadByokModels = async (accessId: string) => {
     if (!accessId) return;
-    setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
+    setByokLoading(true); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
     try {
       const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
       // Only a rejected key blocks. Many relays/gateways don't implement a
@@ -630,6 +633,7 @@ export function AgentSetup({
           .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
         setByokModels(models);
         setByokModelsSource(r.source || 'live');
+        setByokProbeError(!models.length && r.error ? r.error : null);
         if (!models.length) setByokCustomModel(true);
       }
     } catch (err) {
@@ -984,12 +988,15 @@ export function AgentSetup({
                         />
                       )}
                       <p className="text-[11px] text-muted-foreground">
-                        {byokModelsSource === 'live'
-                          ? t('connect.byokModelsLive', { count: byokModels.length })
-                          : byokModels.length
-                            ? t('connect.byokModelsCatalog')
-                            : t('connect.byokModelsUnavailable')}
+                        {!byokModels.length
+                          ? t('connect.byokModelsUnavailable')
+                          : byokModelsSource === 'live'
+                            ? t('connect.byokModelsLive', { count: byokModels.length })
+                            : t('connect.byokModelsCatalog')}
                       </p>
+                      {byokProbeError && (
+                        <p className="text-[11px] text-muted-foreground break-words">{byokProbeError}</p>
+                      )}
                     </div>
                   )}
 

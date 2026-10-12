@@ -81,10 +81,16 @@ async def list_providers():
 # ---------------------------------------------------------------------------
 
 class ModelProbeRequest(BaseModel):
+    """Probe a credential (and optionally a model) before saving it.
+
+    ``provider`` is a PROVIDERS name, ``custom`` (OpenAI-compatible URL) or
+    ``custom-anthropic`` (Anthropic-compatible URL); both custom kinds
+    require ``base_url``.
+    """
     network: str
-    provider: str                    # a PROVIDERS name, or "custom"
+    provider: str                    # a PROVIDERS name, "custom", or "custom-anthropic"
     api_key: str
-    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI-compatible)
+    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI- or Anthropic-compatible)
     model: Optional[str] = None      # when set, run a live completion check
     protocol: Optional[Literal["openai", "anthropic"]] = None
 

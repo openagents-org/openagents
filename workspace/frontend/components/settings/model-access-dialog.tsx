@@ -124,7 +124,7 @@ export function AddModelAccessDialog({
       if (r.keyOk === false) setCheck({ state: 'fail', detail: r.error || t('connect.byokKeyInvalid') });
       // The endpoint answered but couldn't list models (common for gateways):
       // the key is unconfirmed, not wrong — it can still be tested with a model.
-      else if (r.error && r.keyOk !== true) setCheck({ state: 'warn', detail: t('admin.modelAccessKeyUnverified') });
+      else if (r.error && r.keyOk !== true) setCheck({ state: 'warn', detail: `${t('admin.modelAccessKeyUnverified')} (${r.error})` });
       else setCheck({ state: 'ok', detail: t('admin.modelAccessKeyOk', { count: (r.models || []).length }) });
     } catch (err) {
       setCheck({ state: 'fail', detail: err instanceof Error ? err.message : String(err) });
