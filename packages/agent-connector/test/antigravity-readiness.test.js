@@ -100,6 +100,16 @@ describe('credentialListHasTarget', () => {
     assert.equal(credentialListHasTarget(CMDKEY_ZH, 'Gemini:Antigravity'), true);
   });
 
+  it('does not match a longer name that merely starts with the target', () => {
+    const staging = '    目标: LegacyGeneric:target=gemini:antigravity-staging\r\n    用户: antigravity\r\n';
+    assert.equal(credentialListHasTarget(staging, 'gemini:antigravity'), false);
+    assert.equal(credentialListHasTarget(staging, 'gemini:antigravity-staging'), true);
+  });
+
+  it('treats the target as a literal name, not a pattern', () => {
+    assert.equal(credentialListHasTarget('target=geminiXantigravity\n', 'gemini.antigravity'), false);
+  });
+
   it('does not match a different agent-s credential', () => {
     assert.equal(credentialListHasTarget(CMDKEY_ZH, 'gemini:cli'), false);
     assert.equal(

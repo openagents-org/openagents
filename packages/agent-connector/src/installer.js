@@ -43,6 +43,8 @@ const loginStatusCache = new Map();
 const LOGIN_STATUS_TIMEOUT_MS = 8000;
 /** Last `cmdkey /list` dump (Windows Credential Manager targets, no secrets). */
 let credentialListCache = null;
+/** True while a background (non-blocking) `cmdkey /list` refresh is running. */
+let credentialListRefreshing = false;
 
 /**
  * Read a CLI's status output for its sign-in state: true (signed in), false
@@ -868,9 +870,6 @@ class Installer {
     // A registry entry may require a non-empty JSON object rather than mere
     // parseability. In that mode the stricter _evaluateCredsFile path below is
     // authoritative; the legacy parser treats an empty {} as ready.
-    const credsReady = checkReady.creds_json_has_entries
-      ? false
-      : this._checkCredsReady(checkReady, agentType);
     // Content-free credential probes (opt-in via check_ready). Detect agents
     // whose sign-in is a local OAuth/credential FILE (e.g. Gemini's
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
@@ -917,6 +916,12 @@ class Installer {
       };
     }
 
+    // Evaluated only after every key/env path above has had its say: it may
+    // shell out (macOS keychain, Windows `cmdkey`), which a key-configured
+    // agent never needs.
+    const credsReady = checkReady.creds_json_has_entries
+      ? false
+      : this._checkCredsReady(checkReady, agentType);
     if (credsReady || credsFile.ready || credsPathReady) {
       return {
         ready: true,
@@ -1250,10 +1255,17 @@ class Installer {
         if (!run.error && run.status === 0) out = run.stdout || '';
       } catch {}
       credentialListCache = { out, ts: Date.now() };
-    } else if (!fresh) {
-      execFile('cmdkey', ['/list'], { timeout: 5000, windowsHide: true, encoding: 'latin1' }, (err, stdout) => {
-        credentialListCache = { out: err ? null : String(stdout || ''), ts: Date.now() };
-      });
+    } else if (!fresh && !credentialListRefreshing) {
+      // Answer from the last dump now; the refresh lands for the next call.
+      credentialListRefreshing = true;
+      try {
+        execFile('cmdkey', ['/list'], { timeout: 5000, windowsHide: true, encoding: 'latin1' }, (err, stdout) => {
+          credentialListRefreshing = false;
+          credentialListCache = { out: err ? null : String(stdout || ''), ts: Date.now() };
+        });
+      } catch {
+        credentialListRefreshing = false;
+      }
     }
     return !!(credentialListCache && credentialListCache.out != null
       && credentialListHasTarget(credentialListCache.out, target));
@@ -2882,11 +2894,17 @@ class Installer {
  * case-insensitively because the stored casing is the CLI's choice, not the
  * user's, and matched on the `target=` fragment rather than a whole line so the
  * `LegacyGeneric:` / `Domain:` prefix Windows puts in front of it is irrelevant.
+ * The name must end the line, so `gemini:antigravity` does not match a
+ * `gemini:antigravity-staging` entry.
  */
 function credentialListHasTarget(output, target) {
-  const name = String(target || '').trim().toLowerCase();
+  const name = String(target || '').trim();
   if (!name) return false;
-  return String(output || '').toLowerCase().includes(`target=${name}`);
+  return new RegExp(`target=${escapeRegExp(name)}[ \\t]*\\r?$`, 'im').test(String(output || ''));
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict, credentialListHasTarget };

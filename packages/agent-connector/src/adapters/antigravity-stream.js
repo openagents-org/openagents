@@ -172,7 +172,7 @@ const AUTH_RE =
 // sign-in cannot fix — the account is signed in, which is exactly why telling
 // the user to sign in again is the wrong answer.
 const ELIGIBILITY_RE =
-  /eligibility check failed|not eligible|not (currently )?available in your (location|country|region)/i;
+  /eligibility check failed|not (currently )?available in your (location|country|region)/i;
 const PROVIDER_RE = /modelProvider|model provider/i;
 const MODEL_RE = /unknown model|invalid model/i;
 const TIMEOUT_RE = /print-timeout|timed? ?out/i;

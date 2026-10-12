@@ -188,6 +188,14 @@ describe('classifyAgyFailure', () => {
     assert.ok(!/Run `agy` once in a terminal/.test(message));
   });
 
+  it('does not blame the location for an unrelated "not eligible"', () => {
+    const { kind } = classifyAgyFailure({
+      code: 1,
+      stderr: 'tool call skipped: file is not eligible for indexing',
+    });
+    assert.notEqual(kind, 'eligibility');
+  });
+
   it('reads the auth phrasings the Gemini API puts in front of agy', () => {
     for (const text of [
       'request failed: UNAUTHENTICATED',
