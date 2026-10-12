@@ -42,6 +42,30 @@ class SessionRevokedError extends Error {
 }
 
 /**
+ * Reject when a response is cut off after its headers arrived.
+ *
+ * Node reports that on the RESPONSE, and nowhere else: once a response
+ * exists the request emits no 'error' for a connection that closes early,
+ * 'end' only fires for a complete body, and the request's abort signal is a
+ * no-op by then because the socket is already gone. A request helper that
+ * listens for 'end' alone therefore never settles — and each poll loop is a
+ * single await, so one truncated response (a backend restart mid-reply is
+ * enough) silences that loop for the life of the daemon. When it is the
+ * control poller the agent keeps working and answering, and ignores Stop.
+ */
+function rejectOnTruncatedResponse(res, reject) {
+  res.on('error', reject);
+  res.on('close', () => {
+    if (res.complete) return;
+    // Same code Node puts on the 'error' above, so callers count either as
+    // the network blip it is.
+    const err = new Error('Response ended before it was complete');
+    err.code = 'ECONNRESET';
+    reject(err);
+  });
+}
+
+/**
  * HTTP client for workspace API operations.
  *
  * Mirrors the Python SDK's WorkspaceClient — same endpoints, same
@@ -985,6 +1009,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout),
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1027,6 +1052,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         const chunks = [];
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { chunks.push(chunk); });
         res.on('end', () => {
           const buf = Buffer.concat(chunks);
@@ -1060,6 +1086,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1111,6 +1138,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1154,6 +1182,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1190,6 +1219,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(15000), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {

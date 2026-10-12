@@ -209,4 +209,50 @@ describe('WorkspaceClient request deadlines', () => {
       await new Promise((resolve) => server.close(resolve));
     }
   });
+
+  // The other way a request never settles, and the one that silenced a
+  // daemon's control poller for days: the response STARTS, then the
+  // connection closes before the body is complete (a backend restarting
+  // mid-reply, a proxy losing its upstream). Node raises that on the response
+  // only, so a helper that waits for 'end' hangs — past its own deadline,
+  // because by then the abort signal has nothing left to destroy.
+  const cutOff = {
+    'closes cleanly mid-body': (res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '500' });
+      res.write('{"data":{"events":[');
+      setTimeout(() => res.socket.end(), 20);
+    },
+    'is reset mid-body': (res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"data":{"events":[');
+      setTimeout(() => res.socket.destroy(), 20);
+    },
+  };
+  const requests = {
+    _get: (client) => client._get('/v1/events', {}, 400),
+    _getRaw: (client) => client._getRaw('/v1/files/x', {}, 400),
+    _post: (client) => client._post('/v1/events', { a: 1 }, {}, 400),
+    _put: (client) => client._put('/v1/todos', { a: 1 }, {}, 400),
+    _patch: (client) => client._patch('/v1/members/x', { a: 1 }, {}, 400),
+    _delete: (client) => client._delete('/v1/workspaces/x', {}),
+  };
+  for (const [how, respond] of Object.entries(cutOff)) {
+    for (const [method, send] of Object.entries(requests)) {
+      it(`${method} rejects when the response ${how}`, { timeout: 10000 }, async () => {
+        const server = http.createServer((_req, res) => respond(res));
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+        try {
+          const outcome = await Promise.race([
+            send(client).then(() => 'resolved', () => 'rejected'),
+            new Promise((resolve) => setTimeout(() => resolve('never settled'), 3000)),
+          ]);
+          assert.equal(outcome, 'rejected');
+        } finally {
+          server.closeAllConnections();
+          await new Promise((resolve) => server.close(resolve));
+        }
+      });
+    }
+  }
 });
