@@ -224,6 +224,9 @@ class BaseAdapter {
     // Runs of identical background failures (see failure-streak.js).
     this._pollFailures = new FailureStreak();
     this._heartbeatFailures = new FailureStreak();
+    // The control poller (Stop, mode changes) fails silently otherwise: its
+    // errors are caught so the loop keeps going, and nothing else logs them.
+    this._controlFailures = new FailureStreak();
   }
 
   // ------------------------------------------------------------------
@@ -568,7 +571,19 @@ class BaseAdapter {
           );
         }
       }
-    } catch {}
+      const recovered = this._controlFailures.succeed();
+      if (recovered) {
+        this._log(`Control poll recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+      }
+    } catch (e) {
+      // Keep polling, but leave a trace: a control channel that keeps failing
+      // means Stop and mode changes are not reaching this agent.
+      if (this._controlFailures.fail()) {
+        const count = this._controlFailures.count;
+        const streak = count > 1 ? ` (consecutive failures: ${count})` : '';
+        this._log(`Control poll failed: ${e && e.message}${streak}`, isTransientNetworkError(e) ? 'warn' : 'error');
+      }
+    }
   }
 
   /**

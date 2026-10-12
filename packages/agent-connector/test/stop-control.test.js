@@ -1193,6 +1193,25 @@ describe('the control poller cannot be silenced by one await', () => {
     return { adapter, stopped, logged };
   }
 
+  it('a control poll that keeps failing is logged as a streak, and its recovery too', async () => {
+    let polls = 0;
+    const { adapter, logged } = polledAdapter(async () => {
+      polls++;
+      if (polls <= 3) {
+        const err = new Error('socket hang up');
+        err.code = 'ECONNRESET';
+        throw err;
+      }
+      return [];
+    });
+    for (let i = 0; i < 4; i++) await adapter._pollControl();
+    const failures = logged.filter((m) => /^Control poll failed/.test(m));
+    // The streak logs the 1st and 3rd failure, not every one.
+    assert.equal(failures.length, 2);
+    assert.match(failures[1], /consecutive failures: 3/);
+    assert.ok(logged.some((m) => /^Control poll recovered after 3 unsuccessful attempt/.test(m)));
+  });
+
   it('a control poll that never returns is abandoned, and the next one delivers the stop', async () => {
     let polls = 0;
     const { adapter, stopped, logged } = polledAdapter(async () => {
