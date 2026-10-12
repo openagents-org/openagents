@@ -1,6 +1,8 @@
 {
   "name": "sensenova",
   "label": "SenseNova",
+  "description": "SenseTime's SenseNova models",
+  "description_zh": "商汤日日新大模型",
   "base_url": "https://token.sensenova.cn/v1",
   "order": 210,
   "models": [

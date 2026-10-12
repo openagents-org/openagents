@@ -38,6 +38,7 @@ const { spawn } = require('../wsl');
 const LlmDirectAdapter = require('./llm-direct');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const { fixSpawnHelpersFor } = require('../node-pty-perms');
 const {
   KimiStreamParser,
   interpretKimiMessage,
@@ -70,6 +71,7 @@ const WATCHDOG_MAX = 20;         // ~5 min of silence → kill
 // don't re-spawn `kimi --version`, yet an install/upgrade is re-detected.
 const VERSION_CACHE_TTL_MS = 5 * 60 * 1000;
 const _kimiVersionCache = new Map(); // binPath -> { version, product, at }
+const _ptyFixedBins = new Set(); // binPaths whose node-pty spawn-helper was checked
 
 /** Newest mtime (ms) of a directory and everything under it, `depth` levels deep. */
 function newestMtimeMs(dir, depth) {
@@ -520,6 +522,15 @@ class KimiAdapter extends LlmDirectAdapter {
         `Found the legacy Python kimi-cli (${ver.version}), which is not supported. ` +
         'Install the real Kimi Code CLI with: npm install -g @moonshot-ai/kimi-code');
       return;
+    }
+
+    // An install from before the installer restored node-pty's spawn-helper
+    // (or one the user made) still has it at 0644, and every terminal Kimi
+    // opens fails with "posix_spawnp failed." Once per binary per daemon.
+    if (!_ptyFixedBins.has(kimiBin)) {
+      _ptyFixedBins.add(kimiBin);
+      const fixed = fixSpawnHelpersFor(kimiBin);
+      if (fixed.length) this._log(`Made node-pty spawn-helper executable: ${fixed.join(', ')}`);
     }
 
     await this._handleMessageCli(msg, kimiBin);

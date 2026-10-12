@@ -20,6 +20,7 @@ import { DetailVersions, MAX_VERSIONS } from "./detail-versions"
 import { InstallConfirmDialog } from "./install-confirm-dialog"
 import { UninstallDialog } from "./uninstall-dialog"
 import { useAgentDetail } from "./use-agent-detail"
+import { useUpdateTarget } from "./use-update-target"
 
 interface Props {
   entry: CatalogEntry
@@ -46,6 +47,8 @@ export default function AgentDetail({
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const detail = useAgentDetail({ entry, onAfterInstall, showToast })
+  const updateTarget = useUpdateTarget(entry, detail.job?.phase)
+  const original = updateTarget?.kind === "original" ? updateTarget : null
   const [confirmInstall, setConfirmInstall] = useState<"install" | "update" | null>(
     null,
   )
@@ -203,6 +206,7 @@ export default function AgentDetail({
           currentVersion={detail.currentVersion}
           latestVersion={detail.latestVersion}
           binaryPath={detail.binaryPath}
+          updateTarget={updateTarget}
           onInstall={() => setConfirmInstall("install")}
           onUpdate={() => setConfirmInstall("update")}
           onUninstall={() => setConfirmUninstall(true)}
@@ -221,6 +225,12 @@ export default function AgentDetail({
         open={!!confirmInstall}
         verb={confirmInstall || "install"}
         entry={entry}
+        command={original?.command}
+        note={
+          original?.elevation === "prompt"
+            ? t("agents.unmanaged.adminPrompt")
+            : undefined
+        }
         onConfirm={() => {
           const verb = confirmInstall
           setConfirmInstall(null)

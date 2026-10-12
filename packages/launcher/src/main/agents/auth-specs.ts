@@ -509,7 +509,7 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   cursor: {
     loginCommand: "cursor-agent login",
     statusArgs: ["status"],
-    loggedOutPattern: /not logged in|logged out|signed out/i,
+    loggedOutPattern: /not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated/i,
     apiKeyEnv: "CURSOR_API_KEY",
     // Only the KEY. CURSOR_MODEL used to be wiped alongside it, from back when
     // the setup wizard could save a model Cursor no longer served and the CLI
@@ -900,9 +900,10 @@ export const CORE_AGENTS: readonly string[] = [
   // adapter map, so a core older than the first one shipping the commandcode
   // adapter degrades to "unsupported" rather than a broken install.
   //
-  // NOTE: the CLI needs Node.js 22+. The launcher ships v22.x for its managed
-  // runtimes, so an agent created here is fine; a hand-installed CLI on an
-  // older Node is not, and the adapter reports that rather than guessing.
+  // NOTE: the CLI needs Node.js 22+. The launcher ships v24 (v22 on macOS
+  // before 13.5) for its managed runtimes, so an agent created here is fine;
+  // a hand-installed CLI on an older Node is not, and the adapter reports
+  // that rather than guessing.
   "commandcode",
   // OpenWorker (andrewyng/openworker): the first entry here that is not a CLI
   // at all. `uv tool install git+…` puts `openworker-server` on PATH and the

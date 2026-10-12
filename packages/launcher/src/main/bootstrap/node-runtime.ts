@@ -17,6 +17,7 @@ import { nodeDistUrls, npmUrls } from "../mirror"
 import { downloadToFile, fetchTextRacing } from "../download"
 import { PORTABLE_NODE_DIR } from "../agents/paths"
 import { slog } from "./startup-log"
+import { NPM_VERSION, pinnedNodeVersion } from "./node-version"
 
 /**
  * Belt-and-braces guard for the install pipeline. The agent-launcher core
@@ -101,21 +102,33 @@ export function ensureUserBinDirsOnPath(): void {
   slog(`PATH: added user bin dirs [${missing.join(", ")}]`)
 }
 
-// Smoke-test a node binary. Returns true only if `--version` exits cleanly.
-// Used at startup to detect a corrupt bundled node.exe (e.g. from an
+// Smoke-test a node binary: its `--version` output, or null unless it exits
+// cleanly. Used at startup to detect a corrupt bundled node.exe (e.g. from an
 // interrupted download) that Windows would refuse to spawn with
-// "此应用无法在你的电脑上运行".
-export function canExecuteNodeBinary(binaryPath: string): boolean {
+// "此应用无法在你的电脑上运行", and to tell an outdated runtime from a current one.
+export function nodeBinaryVersion(binaryPath: string): string | null {
   try {
     const r = spawnSync(binaryPath, ["--version"], {
       timeout: 5000,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     })
-    return r.status === 0 && !r.error
+    if (r.status !== 0 || r.error) return null
+    return String(r.stdout || "").trim() || null
   } catch {
-    return false
+    return null
   }
+}
+
+export function canExecuteNodeBinary(binaryPath: string): boolean {
+  return nodeBinaryVersion(binaryPath) !== null
+}
+
+/** Where a runtime laid out by downloadNodejs keeps its node binary. */
+export function nodeBinaryIn(nodejsDir: string): string {
+  return process.platform === "win32"
+    ? path.join(nodejsDir, "node.exe")
+    : path.join(nodejsDir, "bin", "node")
 }
 
 // Node dist publishes SHASUMS256.txt beside the binaries and every mirror
@@ -137,9 +150,8 @@ async function fetchNodeShasum(
   return null
 }
 
-// Map process.arch to Node.js distribution arch. Falls back to x64 — Windows
-// ia32 is not produced for v22+ and Node.js does not publish 32-bit Windows
-// binaries anymore.
+// Map process.arch to Node.js distribution arch. Falls back to x64 — Node.js
+// no longer publishes 32-bit Windows binaries.
 function nodeDistArch(): string {
   if (process.arch === "arm64") return "arm64"
   return "x64"
@@ -173,7 +185,7 @@ export async function downloadNodejs(
   nodejsDir: string,
   onProgress: (pct: number, detail: string) => void,
 ): Promise<void> {
-  const nodeVersion = "v22.22.3"
+  const nodeVersion = pinnedNodeVersion()
   const arch = nodeDistArch()
 
   try {
@@ -181,7 +193,7 @@ export async function downloadNodejs(
   } catch {}
   fs.mkdirSync(nodejsDir, { recursive: true })
   slog(
-    `downloadNodejs: platform=${process.platform} arch=${arch} dir=${nodejsDir}`,
+    `downloadNodejs: ${nodeVersion} platform=${process.platform} arch=${arch} dir=${nodejsDir}`,
   )
 
   if (process.platform === "win32") {
@@ -204,11 +216,10 @@ export async function downloadNodejs(
       )
     }
 
-    const npmVersion = "10.9.8"
-    const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
+    const npmTgz = path.join(os.tmpdir(), `npm-${NPM_VERSION}.tgz`)
     const npmModDir = path.join(nodejsDir, "node_modules", "npm")
     if (onProgress) onProgress(85, "Installing npm...")
-    await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+    await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
       log: slog,
     })
 
@@ -262,13 +273,17 @@ export async function downloadNodejs(
       fs.unlinkSync(tarPath)
     } catch {}
 
-    const binDir = path.join(nodejsDir, "bin")
+    // Relative targets: an upgrade builds the runtime in a staging directory
+    // and renames it into place, which would leave absolute links pointing
+    // at the staging path.
     for (const name of ["node", "npm", "npx"]) {
-      const src = path.join(binDir, name)
       const dest = path.join(nodejsDir, name)
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+      if (
+        fs.existsSync(path.join(nodejsDir, "bin", name)) &&
+        !fs.existsSync(dest)
+      ) {
         try {
-          fs.symlinkSync(src, dest)
+          fs.symlinkSync(path.join("bin", name), dest)
         } catch {}
       }
     }
