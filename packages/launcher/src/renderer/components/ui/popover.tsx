@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 import { cn } from "@renderer/lib/utils"
 
 function Popover({
@@ -21,6 +22,9 @@ function PopoverContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  // A popover's page can be hidden in the middle of its closing animation.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content

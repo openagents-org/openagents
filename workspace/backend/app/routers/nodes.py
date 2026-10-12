@@ -246,7 +246,7 @@ def node_heartbeat(
     workspace = db.execute(
         select(Workspace).where(Workspace.id == node.workspace_id)
     ).scalar_one_or_none()
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
     # Machine credential: the shared workspace token, or this node's own.
@@ -418,7 +418,10 @@ def enqueue_command(
         if protocol == "anthropic":
             # Native Anthropic key → no override (the CLI's default endpoint);
             # a relay entry carries its own base_url and passes through as-is.
-            if entry.provider not in ("anthropic", "custom", "custom-anthropic"):
+            if entry.provider == "tokenpay":
+                from app.services.tokenpay import ANTHROPIC_BASE_URL
+                base_url = ANTHROPIC_BASE_URL
+            elif entry.provider not in ("anthropic", "custom", "custom-anthropic"):
                 return json_response(
                     ResponseCode.BAD_REQUEST,
                     f"'{entry.label}' ({entry.provider}) can't drive a {agent_type} agent — "
@@ -498,7 +501,7 @@ def post_command_result(
     workspace = db.execute(
         select(Workspace).where(Workspace.id == cmd.workspace_id)
     ).scalar_one_or_none()
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
     node = db.execute(select(Node).where(Node.id == cmd.node_id)).scalar_one_or_none()
     if not _machine_token_ok(x_workspace_token, workspace, node):

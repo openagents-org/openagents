@@ -1,6 +1,9 @@
 {
   "name": "mistral",
   "label": "Mistral AI",
+  "description": "Mistral Large and Codestral",
+  "description_zh": "Mistral Large 与 Codestral",
+  "key_url": "https://console.mistral.ai/api-keys",
   "base_url": "https://api.mistral.ai/v1",
   "order": 70,
   "models": [

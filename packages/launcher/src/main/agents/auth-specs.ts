@@ -509,7 +509,7 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   cursor: {
     loginCommand: "cursor-agent login",
     statusArgs: ["status"],
-    loggedOutPattern: /not logged in|logged out|signed out/i,
+    loggedOutPattern: /not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated/i,
     apiKeyEnv: "CURSOR_API_KEY",
     // Only the KEY. CURSOR_MODEL used to be wiped alongside it, from back when
     // the setup wizard could save a model Cursor no longer served and the CLI
@@ -797,10 +797,20 @@ export function launcherAuthFields(
  */
 export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   "gemini",
-  // Antigravity (agy) mirrors gemini's dual auth: Google sign-in (token in
-  // the OS keyring — nothing on disk to probe, so readiness leans on the
-  // core's check_ready) OR a GEMINI_API_KEY, which the core adapter pairs
-  // with the required modelProvider entry automatically.
+  // Antigravity (agy) mirrors gemini's dual auth — Google sign-in OR a
+  // GEMINI_API_KEY, which the core adapter pairs with the required
+  // modelProvider entry automatically — but not gemini's evidence. agy has no
+  // auth/login/status subcommand to probe (1.2.2 has none), and its sign-in
+  // writes nothing to disk that names the account: ~/.gemini/antigravity-cli
+  // holds settings, logs and conversations only. This entry used to say the
+  // keyring made it unprobeable and leave it at that, which is why a user
+  // looking at their own address in agy's header was told "not signed in" here
+  // forever. The credential IS reachable on Windows — Credential Manager,
+  // generic target `gemini:antigravity` — so the registry declares
+  // `credential_target` and the core reads it (installer.js
+  // _checkWindowsCredential). Elsewhere it stays out of reach, hence
+  // `unverifiable` on the same entry so the verdict is "unknown" and the run is
+  // still attempted.
   "antigravity",
   // Kimi Code CLI: `kimi login` device-code flow (credentials under
   // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
@@ -900,9 +910,10 @@ export const CORE_AGENTS: readonly string[] = [
   // adapter map, so a core older than the first one shipping the commandcode
   // adapter degrades to "unsupported" rather than a broken install.
   //
-  // NOTE: the CLI needs Node.js 22+. The launcher ships v22.x for its managed
-  // runtimes, so an agent created here is fine; a hand-installed CLI on an
-  // older Node is not, and the adapter reports that rather than guessing.
+  // NOTE: the CLI needs Node.js 22+. The launcher ships v24 (v22 on macOS
+  // before 13.5) for its managed runtimes, so an agent created here is fine;
+  // a hand-installed CLI on an older Node is not, and the adapter reports
+  // that rather than guessing.
   "commandcode",
   // OpenWorker (andrewyng/openworker): the first entry here that is not a CLI
   // at all. `uv tool install git+…` puts `openworker-server` on PATH and the

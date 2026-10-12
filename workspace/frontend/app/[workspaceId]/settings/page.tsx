@@ -2,6 +2,7 @@
 
 import { use, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { currentRouteSearch } from '@/lib/route-search';
 
 /** /settings has no content of its own — land on the General section,
  * preserving any ?token= so token-link visitors keep access. */
@@ -14,8 +15,7 @@ export default function SettingsIndexPage({
   const router = useRouter();
 
   useEffect(() => {
-    const search = typeof window !== 'undefined' ? window.location.search : '';
-    router.replace(`/${workspaceId}/settings/general${search}`);
+    router.replace(`/${workspaceId}/settings/general${currentRouteSearch()}`);
   }, [router, workspaceId]);
 
   return null;

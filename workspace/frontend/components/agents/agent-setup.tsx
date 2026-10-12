@@ -18,7 +18,7 @@ export interface AgentSetupApi {
   enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string }>;
   listNodeCommands(nodeId: string): Promise<NodeCommand[]>;
   listModelAccess(): Promise<ModelAccessEntry[]>;
-  probeModelAccess(id: string, model?: string): Promise<ModelProbeResult>;
+  probeModelAccess(id: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult>;
 }
 
 export interface AgentSetupExtensions {
@@ -35,6 +35,37 @@ export interface AgentSetupExtensions {
   /** Put Back and Save beside the agent hero instead of in a footer band, which
    *  leaves the bottom-right corner to the host's toasts. */
   headerActions?: boolean;
+}
+
+/** Where the host's agent catalog load stands — the gallery is empty until it lands. */
+export interface CatalogState {
+  status: 'loading' | 'ready' | 'error';
+  retry: () => void;
+}
+
+/**
+ * What to show while the catalog is empty because it has not loaded: a
+ * spinner, or the failure with a retry. Nothing once it has loaded.
+ */
+export function CatalogStateNotice({ state }: { state?: CatalogState }) {
+  const t = useT();
+  if (!state || state.status === 'ready') return null;
+  if (state.status === 'loading') {
+    return (
+      <div className="flex items-center justify-center rounded-2xl border border-dashed py-14 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin mr-2" />
+        {t('connect.marketLoading')}
+      </div>
+    );
+  }
+  return (
+    <div role="alert" className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
+      {t('connect.marketLoadFailed')}{' '}
+      <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={state.retry}>
+        {t('connect.marketRetry')}
+      </button>
+    </div>
+  );
 }
 
 const NO_ACCESS = '__none__';
@@ -403,6 +434,7 @@ function FolderPicker({
 export function AgentSetup({
   node,
   catalog,
+  catalogState,
   api,
   extensions,
   contextLabel,
@@ -414,6 +446,9 @@ export function AgentSetup({
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
+  /** How the host's catalog load is going. Hosts that hand over a catalog they
+   *  already have leave it out. */
+  catalogState?: CatalogState;
   api: AgentSetupApi;
   extensions?: AgentSetupExtensions;
   contextLabel?: React.ReactNode;
@@ -553,7 +588,7 @@ export function AgentSetup({
   const [accesses, setAccesses] = useState<import('@/lib/types').ModelAccessEntry[] | null>(null);
   const byokAccessOptions = (accesses || []).filter((a) =>
     byokProtocol === 'anthropic'
-      ? ['anthropic', 'custom-anthropic'].includes(a.provider)
+      ? ['anthropic', 'custom-anthropic', 'tokenpay'].includes(a.provider)
       : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState('');
@@ -563,6 +598,9 @@ export function AgentSetup({
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
+  // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
+  // itself wasn't rejected — shown under the manual-entry hint.
+  const [byokProbeError, setByokProbeError] = useState<string | null>(null);
   const [byokTest, setByokTest] = useState<{ state: 'idle' | 'testing' | 'ok' | 'fail'; ms?: number; error?: string }>({ state: 'idle' });
 
   useEffect(() => {
@@ -571,14 +609,17 @@ export function AgentSetup({
   }, [byok, accesses]);
 
   const resetByokChecks = () => {
-    setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokTest({ state: 'idle' });
+    setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
   };
 
   const loadByokModels = async (accessId: string) => {
     if (!accessId) return;
-    setByokLoading(true); setByokKeyError(null); setByokTest({ state: 'idle' });
+    setByokLoading(true); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
     try {
-      const r = await api.probeModelAccess(accessId);
+      const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
+      // Only a rejected key blocks. Many relays/gateways don't implement a
+      // models listing at all — they still work, so fall through to manual
+      // model entry instead of hiding the model field.
       if (r.keyOk === false) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
@@ -592,6 +633,8 @@ export function AgentSetup({
           .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
         setByokModels(models);
         setByokModelsSource(r.source || 'live');
+        setByokProbeError(!models.length && r.error ? r.error : null);
+        if (!models.length) setByokCustomModel(true);
       }
     } catch (err) {
       setByokKeyError(err instanceof Error ? err.message : String(err));
@@ -612,7 +655,7 @@ export function AgentSetup({
     if (!byokAccessId || !model.trim()) return;
     setByokTest({ state: 'testing' });
     try {
-      const r = await api.probeModelAccess(byokAccessId, model.trim());
+      const r = await api.probeModelAccess(byokAccessId, model.trim(), byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
       if (r.ok) setByokTest({ state: 'ok', ms: r.latencyMs });
       else setByokTest({ state: 'fail', error: r.error });
     } catch (err) {
@@ -945,10 +988,15 @@ export function AgentSetup({
                         />
                       )}
                       <p className="text-[11px] text-muted-foreground">
-                        {byokModelsSource === 'live'
-                          ? t('connect.byokModelsLive', { count: byokModels.length })
-                          : t('connect.byokModelsCatalog')}
+                        {!byokModels.length
+                          ? t('connect.byokModelsUnavailable')
+                          : byokModelsSource === 'live'
+                            ? t('connect.byokModelsLive', { count: byokModels.length })
+                            : t('connect.byokModelsCatalog')}
                       </p>
+                      {byokProbeError && (
+                        <p className="text-[11px] text-muted-foreground break-words">{byokProbeError}</p>
+                      )}
                     </div>
                   )}
 
@@ -1237,10 +1285,17 @@ export function AgentSetup({
           </button>
         );
 
+        // An empty catalog is a load that has not landed (or failed), never a
+        // search result — say so instead of "nothing matches".
+        if (catalog.length === 0 && catalogState && catalogState.status !== 'ready') {
+          return <CatalogStateNotice state={catalogState} />;
+        }
         if (visible.length === 0) {
           return (
             <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-              {t('connect.marketNoMatch', { query: marketQuery })}{' '}
+              {q
+                ? t('connect.marketNoMatch', { query: marketQuery.trim() })
+                : t('connect.marketNoneInCategory')}{' '}
               <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
                 {t('connect.marketReset')}
               </button>

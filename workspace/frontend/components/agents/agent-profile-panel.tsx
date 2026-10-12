@@ -163,6 +163,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [liveModels, setLiveModels] = useState<AgentCatalogModel[] | null>(null);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  // A node agent on its CLI's own sign-in (a ChatGPT or Claude subscription)
+  // has no endpoint to list. Its node asks the CLI what that account is
+  // offered and reports it on the roster; the catalog's list, kept by hand,
+  // stays the fallback for a launcher that does not report one.
+  const [accountModels, setAccountModels] = useState<AgentCatalogModel[] | null>(null);
   const [manualEntry, setManualEntry] = useState(false);
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const [modelReload, setModelReload] = useState(0);
@@ -174,6 +179,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     setLiveModels(null);
     setLiveLoading(false);
     setLiveError(null);
+    setAccountModels(null);
     setManualEntry(false);
     setModelLoadError(null);
     if (!agentType || !agentName) return;
@@ -201,8 +207,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         setModelApplies(detail?.workspace_model === true);
         if (detail?.workspace_model !== true) return;
         const node = nodes.find((n) => (n.agents || []).some((a) => a.name === agentName));
-        const host = node?.agents.find((a) => a.name === agentName)?.baseUrlHost || null;
-        if (!node || !host) return;
+        const hosted = node?.agents.find((a) => a.name === agentName);
+        const host = hosted?.baseUrlHost || null;
+        if (!node || !host) {
+          setAccountModels(hosted?.cliModels?.length ? hosted.cliModels : null);
+          return;
+        }
         const providers = detail?.models_provider
           ? await workspaceApi.getCloudProviders().catch(() => [])
           : [];
@@ -253,7 +263,9 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   useEffect(() => { setModelDraft(currentModel); }, [currentModel]);
   const pickerOptions = isCloud
     ? (cloudLiveModels?.length ? cloudLiveModels : modelOptions)
-    : (catalogFits ? modelOptions : liveModels);
+    : catalogFits
+      ? (accountModels?.length ? accountModels : modelOptions)
+      : liveModels;
   const modelLoading = modelOptions === null || liveLoading;
   const typeModel = modelApplies && !modelLoading && (
     manualEntry
@@ -563,7 +575,8 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             </div>
           </div>
 
-          {/* Model — picker fed by the agent/provider catalog, or by the
+          {/* Model — picker fed by the agent/provider catalog, by the list a
+              signed-in agent's CLI reports for its account, or by the
               endpoint's own list when the catalog isn't for that endpoint;
               free-form ids stay selectable (prepended when not listed).
               The built-in assistant shows its server-set model read-only. */}
@@ -679,6 +692,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                         : t('agents.modelLiveHint', { host: endpointHost })}
                   </p>
                 )}
+                {modelApplies && !typeModel && !modelLoading && catalogFits && accountModels?.length ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t('agents.modelAccountHint')}
+                  </p>
+                ) : null}
                 {modelApplies && typeModel && !liveLoading && liveError && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
                     {t('agents.modelLiveFailed', { error: liveError })}

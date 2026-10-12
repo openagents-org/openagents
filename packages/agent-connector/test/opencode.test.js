@@ -11,6 +11,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const OpenCodeAdapter = require('../src/adapters/opencode');
@@ -149,6 +150,61 @@ describe('OpenCode — preflight (8.2)', () => {
     assert.equal(r.versionClass, 'ok');
   });
 
+  // An npm install with ignore-scripts on leaves opencode-ai's placeholder
+  // where the CLI should be. It used to get as far as the model check — so an
+  // agent that had no working CLI at all was told "No model is configured",
+  // and once a model was set, failed every message with an unexplained exit 1.
+  describe('a CLI that is only its package\'s postinstall placeholder', () => {
+    const STUB = 'echo "Error: opencode-ai\'s postinstall script was not run." >&2\nexit 1\n';
+    let dir;
+    const plant = (name, content, mode) => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-stub-'));
+      const p = path.join(dir, name);
+      fs.writeFileSync(p, content);
+      if (mode) fs.chmodSync(p, mode);
+      return p;
+    };
+    const cleanup = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
+
+    it('install_incomplete, ahead of the model check and without running it', () => {
+      const binary = plant('opencode.exe', STUB);
+      try {
+        const adapter = makeAdapter();
+        adapter._opencodeBinary = binary;
+        adapter._detectCliVersion = () => { throw new Error('the placeholder must not be run'); };
+        adapter.agentEnv = { OPENAI_API_KEY: 'x' }; // no model — the old first complaint
+        const r = adapter._preflight('thread');
+        assert.equal(r.ok, false);
+        assert.equal(r.category, 'install_incomplete');
+      } finally { cleanup(); }
+    });
+
+    it('install_incomplete when a wrapper in front of it hides the file', () => {
+      const r = preflightWith({ probe: { version: null, executable: true, stub: true }, env: {} });
+      assert.equal(r.ok, false);
+      assert.equal(r.category, 'install_incomplete');
+    });
+
+    it('_detectCliVersion hears the placeholder through a wrapper, and does not cache it', { skip: process.platform === 'win32' }, () => {
+      // pnpm and bun put their own launcher script on PATH; the placeholder is
+      // what it ends up running.
+      const wrapper = plant('opencode', `#!/bin/sh\n${STUB}`, 0o755);
+      try {
+        const adapter = Object.create(OpenCodeAdapter.prototype);
+        adapter._log = () => {};
+        const probe = adapter._detectCliVersion(wrapper);
+        assert.equal(probe.stub, true);
+        assert.equal(adapter._versionProbe, undefined, 'the next message re-checks — the fix is a reinstall');
+      } finally { cleanup(); }
+    });
+
+    it('a real CLI is not flagged', () => {
+      const adapter = Object.create(OpenCodeAdapter.prototype);
+      adapter._log = () => {};
+      assert.equal(adapter._detectCliVersion(process.execPath).stub, false);
+    });
+  });
+
   it('_runOpencode rejects (without spawning) when preflight fails', async () => {
     const adapter = makeAdapter();
     adapter._preflight = () => ({ ok: false, category: 'model_missing' });
@@ -193,6 +249,15 @@ describe('OpenCode — failure classification (8.3)', () => {
   it('code=1 + 429 → rate_limited', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '{"type":"error","error":{"message":"rate limit exceeded","status":429}}', stderr: '' });
     assert.equal(cls.category, 'rate_limited');
+  });
+
+  it('code=1 + the postinstall placeholder\'s stderr → install_incomplete', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1,
+      stdout: '',
+      stderr: "Error: opencode-ai's postinstall script was not run.\n\nThis occurs when using --ignore-scripts during installation",
+    });
+    assert.equal(cls.category, 'install_incomplete');
   });
 
   it('code=1 + nothing usable → process_crashed (with exit diagnostic)', () => {
@@ -337,6 +402,14 @@ describe('OpenCode — message routing (8.5)', () => {
       const cap = await renderClassified(cat);
       assert.ok(!/auth login/i.test(cap.content), `${cat} must not mention auth login`);
     }
+  });
+
+  it('an incomplete install says so — reinstall, not "set a model"', async () => {
+    const cap = await renderClassified('install_incomplete');
+    assert.equal(cap.opts.metadata.error_category, 'install_incomplete');
+    assert.match(cap.content, /postinstall script did not run/);
+    assert.match(cap.content, /Reinstall OpenCode/);
+    assert.ok(!/No model is configured|undetermined reason/i.test(cap.content));
   });
 
   it('DOES guide auth only for auth/credential failures', async () => {

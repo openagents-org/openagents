@@ -6,6 +6,29 @@ const http = require('http');
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
 /**
+ * The error a request deadline produces. Every request carries a hard
+ * AbortSignal.timeout deadline (see _get), and when it fires Node rejects with
+ * a bare "AbortError: The operation was aborted" — which reads like somebody
+ * cancelled the call and names no cause. The socket-inactivity timeout said
+ * "Request timed out". Both now say the same thing, with the deadline, and
+ * carry ETIMEDOUT so callers can tell a slow network from a bug.
+ */
+function requestTimeoutError(timeout) {
+  const after = timeout >= 1000 ? `${Math.round(timeout / 1000)}s` : `${timeout}ms`;
+  const err = new Error(`Request timed out after ${after}`);
+  err.code = 'ETIMEDOUT';
+  return err;
+}
+
+/** A request 'error' handler that reports a fired deadline as a timeout. */
+function rejectWithDeadline(reject, timeout) {
+  return (err) => {
+    const aborted = err && (err.name === 'AbortError' || err.code === 'ABORT_ERR');
+    reject(aborted ? requestTimeoutError(timeout) : err);
+  };
+}
+
+/**
  * Thrown when the workspace rejects a request because our session_id has
  * been revoked by a newer /v1/join as the same agent. Callers should
  * stop the adapter rather than retry.
@@ -16,6 +39,30 @@ class SessionRevokedError extends Error {
     this.name = 'SessionRevokedError';
     this.code = 'session_revoked';
   }
+}
+
+/**
+ * Reject when a response is cut off after its headers arrived.
+ *
+ * Node reports that on the RESPONSE, and nowhere else: once a response
+ * exists the request emits no 'error' for a connection that closes early,
+ * 'end' only fires for a complete body, and the request's abort signal is a
+ * no-op by then because the socket is already gone. A request helper that
+ * listens for 'end' alone therefore never settles — and each poll loop is a
+ * single await, so one truncated response (a backend restart mid-reply is
+ * enough) silences that loop for the life of the daemon. When it is the
+ * control poller the agent keeps working and answering, and ignores Stop.
+ */
+function rejectOnTruncatedResponse(res, reject) {
+  res.on('error', reject);
+  res.on('close', () => {
+    if (res.complete) return;
+    // Same code Node puts on the 'error' above, so callers count either as
+    // the network blip it is.
+    const err = new Error('Response ended before it was complete');
+    err.code = 'ECONNRESET';
+    reject(err);
+  });
 }
 
 /**
@@ -962,23 +1009,31 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout),
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
+              // Lets the poll loop tell a rejected credential (401/403) and an
+              // overloaded server (5xx) apart from a bug.
+              err.status = res.statusCode;
+              reject(err);
             } else {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            // A proxy's HTML error page (502/504) lands here.
+            const err = new Error(`Invalid response: ${data.slice(0, 200)}`);
+            if (res.statusCode >= 400) err.status = res.statusCode;
+            reject(err);
           }
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.end();
     });
   }
@@ -997,6 +1052,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         const chunks = [];
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { chunks.push(chunk); });
         res.on('end', () => {
           const buf = Buffer.concat(chunks);
@@ -1008,8 +1064,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.end();
     });
   }
@@ -1030,6 +1086,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1058,8 +1115,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1081,6 +1138,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1101,8 +1159,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1124,6 +1182,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1139,8 +1198,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, timeout));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(timeout)); });
       req.write(jsonBody);
       req.end();
     });
@@ -1160,6 +1219,7 @@ class WorkspaceClient {
         signal: AbortSignal.timeout(15000), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
+        rejectOnTruncatedResponse(res, reject);
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
@@ -1175,8 +1235,8 @@ class WorkspaceClient {
         });
       });
 
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('error', rejectWithDeadline(reject, 15000));
+      req.on('timeout', () => { req.destroy(); reject(requestTimeoutError(15000)); });
       req.end();
     });
   }

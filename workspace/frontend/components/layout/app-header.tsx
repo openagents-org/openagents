@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { MessageSquare, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,16 +27,35 @@ function HeaderSlot({
   id: string
   children: React.ReactNode
 }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  // Portal into a node of our own rather than the slot itself, so the view's
+  // header content can be detached as a whole. Views are kept mounted behind
+  // <Activity mode="hidden"> (see Wrapper), which only hides the view's own
+  // DOM — anything portalled into the shared header would stay on screen, and
+  // be dead to clicks. Hiding tears down layout effects in the same commit, so
+  // detaching here takes the content out of the header immediately.
+  const nodeRef = useRef<HTMLElement | null>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (!nodeRef.current) {
+      nodeRef.current = document.createElement("div")
+      nodeRef.current.className = "contents"
+    }
+    setContainer(nodeRef.current)
+    return () => nodeRef.current?.remove()
+  }, [])
 
   // The header renders before any detail view, so the slot exists by the time
   // this effect runs; re-checking on every render keeps it correct across
   // view switches that remount the header.
-  useEffect(() => {
-    setSlot(document.getElementById(id))
+  useLayoutEffect(() => {
+    const slot = document.getElementById(id)
+    if (container && slot && container.parentElement !== slot) {
+      slot.appendChild(container)
+    }
   })
 
-  return slot ? createPortal(children, slot) : null
+  return container ? createPortal(children, container) : null
 }
 
 /**

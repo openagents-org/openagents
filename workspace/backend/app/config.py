@@ -53,6 +53,12 @@ class Config:
     # has to talk to Google. Unset = the endpoint is disabled (503).
     WORKSPACE_SESSION_SECRET: str = os.environ.get("WORKSPACE_SESSION_SECRET", "")
     WORKSPACE_SESSION_TTL_DAYS: int = int(os.environ.get("WORKSPACE_SESSION_TTL_DAYS", "30"))
+    # A session can be renewed (POST /v1/auth/session/renew) for this long after
+    # the sign-in that started it; past that the user signs in again. Bounds how
+    # long a leaked session could be kept alive by renewing it.
+    WORKSPACE_SESSION_MAX_AGE_DAYS: int = int(
+        os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "90")
+    )
 
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use
@@ -209,6 +215,21 @@ class Config:
     # there (covers sessions established before the handoff carried the claim).
     ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
     CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de,temp-mail-free.dedyn.io")
+    # Only addresses at these common mailbox providers earn credits (decision
+    # 2026-10-08): every farm since 09-18 used catch-all domains on email
+    # sign-up, solving the captcha and rotating proxies past the per-IP cap.
+    # Exact domain match. Other domains can sign up and use the product but
+    # get no key and no grants. Empty string turns the restriction off.
+    CAMPAIGN_ALLOWED_EMAIL_DOMAINS: str = os.environ.get(
+        "CAMPAIGN_ALLOWED_EMAIL_DOMAINS",
+        "gmail.com,googlemail.com,"
+        "qq.com,vip.qq.com,foxmail.com,163.com,vip.163.com,126.com,yeah.net,"
+        "sina.com,sina.cn,aliyun.com,139.com,"
+        "outlook.com,hotmail.com,live.com,msn.com,"
+        "icloud.com,me.com,mac.com,privaterelay.appleid.com,"
+        "yahoo.com,aol.com,proton.me,protonmail.com,pm.me,"
+        "naver.com,mail.ru,yandex.ru,yandex.com,gmx.de,gmx.com,web.de",
+    )
 
     # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
     # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
