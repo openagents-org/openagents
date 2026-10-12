@@ -226,6 +226,44 @@ def test_post_response_routes_dm_and_channel_separately(
     assert row.visibility == expected_visibility
 
 
+@pytest.mark.parametrize(
+    "source, expected_targets",
+    [
+        # A DM reply to another agent is stored but must not wake it, or the
+        # two agents answer each other forever (node agents don't carry
+        # cloud_agent_depth, so the depth cap never fires).
+        ("openagents:peer-agent", ["__no_response__"]),
+        # A DM reply to a human is unaffected: routing gives it the sentinel.
+        (HUMAN, ["__no_response__"]),
+    ],
+)
+def test_dm_reply_never_wakes_the_counterpart_agent(db, workspace, monkeypatch, source, expected_targets):
+    _quiet_cloud_side_effects(monkeypatch)
+
+    asyncio.run(
+        cloud_agent._post_response(
+            db,
+            workspace["id"],
+            AGENT,
+            "test1",
+            "loop guard",
+            depth=0,
+            trigger_source=source,
+        )
+    )
+
+    row = db.execute(
+        select(EventRecord).where(
+            EventRecord.network_id == workspace["id"],
+            EventRecord.source == AGENT,
+            EventRecord.payload["content"].as_string() == "loop guard",
+        )
+    ).scalar_one()
+    assert row.target == source
+    assert row.visibility == "direct"
+    assert (row.metadata_ or {}).get("target_agents") == expected_targets
+
+
 def test_error_response_uses_dm_counterpart(db, workspace, monkeypatch):
     _quiet_cloud_side_effects(monkeypatch)
     monkeypatch.setattr(cloud_agent, "SessionLocal", sessionmaker(bind=db.get_bind()))

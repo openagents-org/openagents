@@ -906,6 +906,13 @@ async def _post_response(
     metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
     if explicit_targets is not None:
         metadata["explicit_targets"] = list(explicit_targets)
+    if reply_visibility == "direct" and reply_target.startswith("openagents:"):
+        # A DM reply to another agent must not wake it. The DM routing branch
+        # would otherwise target the recipient, whose own reply comes straight
+        # back here at depth 0 (node agents don't carry cloud_agent_depth), so
+        # CLOUD_AGENT_MAX_DEPTH never stops the ping-pong. The reply is still
+        # stored and visible in the DM; it just doesn't trigger another turn.
+        metadata["target_agents"] = ["__no_response__"]
 
     event = Event(
         type="workspace.message.posted",
