@@ -5,6 +5,7 @@ import { cva, VariantProps } from 'class-variance-authority';
 import { X } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from '@/components/ui/portal-container';
 
 const dialogContentVariants = cva(
   // Standard dialog layout: the content box itself never scrolls (overflow-hidden) —
@@ -41,7 +42,7 @@ function DialogTrigger({
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+  return <DialogPrimitive.Portal data-slot="dialog-portal" container={usePortalContainer()} {...props} />;
 }
 
 function DialogClose({

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import React, { act, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { usePortalContainer } from '@/components/ui/portal-container';
 import { DesktopRouter, usePathname, type RouteTable } from './router';
 
 vi.mock('@/lib/workspace-session', () => ({ loadWorkspaceSession: () => null }));
@@ -76,4 +78,29 @@ it('drops the kept workspace when another workspace opens', async () => {
   expect(view('workspace')).toBeNull();
   await go('#/beta');
   expect(mounts).toEqual(['workspace', 'settings', 'workspace']);
+});
+
+/** An overlay as the UI primitives render one: portaled to the route's container. */
+function Overlay() {
+  const target = usePortalContainer();
+  return target ? createPortal(e('div', { 'data-overlay': '' }, 'menu'), target) : null;
+}
+
+it("hides a kept route's overlays along with it", async () => {
+  const routes: RouteTable = ROUTES.map((route) =>
+    route.pattern === '/:workspaceId'
+      ? { ...route, render: () => e(React.Fragment, null, e(View, { name: 'workspace' }), e(Overlay)) }
+      : route,
+  );
+  await act(async () => root.render(e(DesktopRouter, { routes, notFound: null })));
+  const overlay = () => container.querySelector('[data-overlay]')!.parentElement as HTMLElement;
+  expect(overlay().style.display).toBe('');
+
+  // A menu still open (or mid-close) when its item navigates must not stay
+  // painted over the settings page.
+  await go('#/acme/settings/general');
+  expect(overlay().style.display).toBe('none');
+
+  await go('#/acme');
+  expect(overlay().style.display).toBe('');
 });

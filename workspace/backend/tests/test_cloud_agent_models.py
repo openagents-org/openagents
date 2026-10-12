@@ -62,3 +62,28 @@ def test_unknown_agent_and_bad_token(client, workspace):
     assert _models(client, workspace, name="nobody").status_code == 404
     _add(client, workspace)
     assert _models(client, workspace, token="wrong").status_code == 401
+
+
+def _probe(client, workspace, **extra):
+    body = {"network": workspace["id"], "api_key": "sk-relay-secret-1", **extra}
+    return client.post("/v1/model-probe", json=body, headers={"X-Workspace-Token": workspace["token"]})
+
+
+def test_probe_accepts_an_anthropic_compatible_endpoint(client, workspace, monkeypatch):
+    seen = {}
+
+    async def fake_live(provider, api_key, base_url=None):
+        seen.update(provider=provider, base_url=base_url)
+        return [{"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "category": "chat"}]
+
+    monkeypatch.setattr(model_probe, "list_models_live", fake_live)
+    r = _probe(client, workspace, provider="custom-anthropic", base_url="https://gw.example.com")
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["keyOk"] is True
+    assert seen == {"provider": "custom-anthropic", "base_url": "https://gw.example.com"}
+
+
+def test_probe_requires_an_endpoint_for_custom_kinds(client, workspace):
+    for provider in ("custom", "custom-anthropic"):
+        assert _probe(client, workspace, provider=provider).status_code == 400
+    assert _probe(client, workspace, provider="no-such-provider").status_code == 400

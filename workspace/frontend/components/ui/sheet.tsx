@@ -5,6 +5,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { X } from 'lucide-react';
 import { Dialog as SheetPrimitive } from 'radix-ui';
 import { cn } from '@/lib/utils';
+import { usePortalContainer } from '@/components/ui/portal-container';
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -25,7 +26,7 @@ function SheetClose({
 function SheetPortal({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Portal>) {
-  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+  return <SheetPrimitive.Portal data-slot="sheet-portal" container={usePortalContainer()} {...props} />;
 }
 
 function SheetOverlay({
