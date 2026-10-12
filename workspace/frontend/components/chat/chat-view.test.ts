@@ -64,7 +64,7 @@ vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
 vi.mock('@/components/agents/agent-avatar', () => ({ AgentAvatar: () => null }));
 vi.mock('@/components/routines/create-routine-dialog', () => ({ CreateRoutineDialog: () => null }));
 
-import { ChatView } from './chat-view';
+import { ChatView, resetOptimisticStoreForTests } from './chat-view';
 
 function msg(messageId: string, sessionId: string, overrides: Partial<WorkspaceMessage> = {}): WorkspaceMessage {
   return {
@@ -105,12 +105,14 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
+  resetOptimisticStoreForTests();
   h.seen = [];
   h.threads = {
     'thread-a': [msg('a1', 'thread-a'), step('a2', 'thread-a')],
     'thread-b': [msg('b1', 'thread-b'), step('b2', 'thread-b')],
   };
   h.ws = {
+    workspace: { workspaceId: 'ws-1' },
     agents: [{ agentName: 'bot', status: 'online', role: 'worker', description: 'helper' }],
     currentUser: { id: 'user-1', name: 'User' },
     currentSessionId: null,
@@ -163,4 +165,34 @@ it('shows no stale bubble when the agent answered while the thread was not open'
   await open('thread-a');
   expect(shown()).toEqual(['chat', 'status', 'chat', 'status']);
   expect(h.seen.flat().some((m) => (m as WorkspaceMessage).messageType === 'loading')).toBe(false);
+});
+
+it('still shows the waiting bubble after ChatView unmounts and remounts', async () => {
+  // Mobile: going to the thread list pane unmounts ChatView; so does a detour
+  // through Files or the shared browser on desktop.
+  await open('thread-a');
+  await act(async () => { await h.send!('hurry up'); });
+  await act(async () => deliver('thread-a', msg('a3', 'thread-a', { content: 'hurry up' })));
+  expect(shown()).toEqual(['chat', 'status', 'chat', 'loading']);
+
+  act(() => root.unmount());
+  root = createRoot(container);
+  h.seen = [];
+  await open('thread-a');
+  expect(shown()).toEqual(['chat', 'status', 'chat', 'loading']);
+  // Still lands together with the thread's own messages, never ahead of them.
+  expect(h.seen.map((msgs) => (msgs[0] as WorkspaceMessage).messageId)).toEqual(h.seen.map(() => 'a1'));
+
+  await act(async () => deliver('thread-a', step('a4', 'thread-a')));
+  expect(shown()).toEqual(['chat', 'status', 'chat', 'status']);
+});
+
+it('keeps pending messages of one workspace out of another with the same thread id', async () => {
+  await open('thread-a');
+  await act(async () => { await h.send!('hurry up'); });
+  act(() => root.unmount());
+  root = createRoot(container);
+  h.ws = { ...h.ws, workspace: { workspaceId: 'ws-2' } };
+  await open('thread-a');
+  expect(shown()).toEqual(['chat', 'status']);
 });
