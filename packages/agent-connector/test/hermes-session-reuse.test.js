@@ -48,14 +48,22 @@ const ran = (over) => ({ stopped: false, exitCode: 0, text: '', sessionId: null,
  * successive `_runHermes` calls resolve with; pass `script: null` to keep the
  * real `_runHermes` (the caller then points it at a stub CLI).
  */
-function makeHermes({ script = [], session = null, transcript = [], version = CURRENT_HERMES } = {}) {
+function makeHermes({ script = [], session = null, transcript = [], version = CURRENT_HERMES, env = {} } = {}) {
+  // A Hermes home of its own, so the machine's ~/.hermes/config.yaml never
+  // decides whether the prefill is used.
+  const hermesHome = fs.mkdtempSync(path.join(tmp, 'hermes-home-'));
+  const agentEnv = { ...process.env, HERMES_HOME: hermesHome, ...env };
+  delete agentEnv.HERMES_PREFILL_MESSAGES_FILE;
+  if (env.HERMES_PREFILL_MESSAGES_FILE) agentEnv.HERMES_PREFILL_MESSAGES_FILE = env.HERMES_PREFILL_MESSAGES_FILE;
   const a = createAdapter('hermes', {
     workspaceId: 'w',
     channelName: 'general',
     token: 'tok-secret',
     agentName: 'hermes-test',
     endpoint: 'http://127.0.0.1:0',
+    agentEnv,
   });
+  a._hermesHome = hermesHome;
   a._log = () => {};
   a._hermesBin = '/fake/hermes';
   a._findHermesBinary = () => a._hermesBin;
@@ -260,7 +268,8 @@ describe('Hermes: workspace instructions travel as a prefill', () => {
     const { a } = makeHermes();
     const cases = {
       'Hermes Agent v0.10.0 (2026.4.16)': false,
-      'Hermes Agent v0.16.0 (2026.6.5)': false,
+      'Hermes Agent v0.15.1 (2026.5.29)': false,
+      'Hermes Agent v0.16.0 (2026.6.5)': true,
       'Hermes Agent v0.16.1 (2026.6.15)': true,
       'Hermes Agent vgit.7951ddd (2026.9.24) · upstream 7951ddd7': true,
       'Hermes Agent v1.0.0 (2027.1.2)': true,
@@ -270,6 +279,111 @@ describe('Hermes: workspace instructions travel as a prefill', () => {
     for (const [text, expected] of Object.entries(cases)) {
       assert.equal(a._readsPrefillEnv(text), expected, text);
     }
+  });
+
+  it('reads the version when the desktop app prints no release date', () => {
+    const { a } = makeHermes();
+    const cases = {
+      'Hermes Agent v0.21.6 · stable': true,
+      'Hermes Agent v0.16.0 · stable': true,
+      'Hermes Agent v1.0.0 · beta': true,
+      'Hermes Agent v0.15.1 · stable': false,
+      'Hermes Agent v0.10.0': false,
+      'Hermes Agent v2026.4.16': false,
+    };
+    for (const [text, expected] of Object.entries(cases)) {
+      assert.equal(a._readsPrefillEnv(text), expected, text);
+    }
+  });
+
+  it("keeps a user's own prefill file and sends the instructions in the message", async () => {
+    const setups = [
+      { env: { HERMES_PREFILL_MESSAGES_FILE: '/home/u/mine.json' } },
+      { config: 'model:\n  default: x\nprefill_messages_file: ~/prefill.json\n' },
+      { config: 'agent:\n  max_turns: 9\n  prefill_messages_file: "/home/u/godmode.json"  # jailbreak\n' },
+    ];
+    for (const { env, config } of setups) {
+      const { a, seen } = makeHermes({ session: 'S1', env, script: [ran({ text: 'ok', sessionId: 'S1' })] });
+      const logs = [];
+      a._log = (line) => logs.push(line);
+      if (config) fs.writeFileSync(path.join(a._hermesHome, 'config.yaml'), config);
+
+      await say(a, 'hello');
+
+      assert.equal(seen.runs[0].prefillFile, null, JSON.stringify({ env, config }));
+      assert.match(seen.runs[0].prompt, /^You are agent 'hermes-test' connected to an OpenAgents workspace\./);
+      assert.equal(logs.filter((l) => /already has a prefill_messages_file/.test(l)).length, 1);
+    }
+  });
+
+  it('an empty prefill_messages_file in config.yaml does not count', async () => {
+    for (const config of [
+      'prefill_messages_file: ""\n',
+      "agent:\n  prefill_messages_file: ''\n",
+      'prefill_messages_file:\n',
+      'prefill_messages_file: null  # off\n',
+      '# prefill_messages_file: /x.json\n',
+    ]) {
+      const { a, seen } = makeHermes({ script: [ran({ text: 'ok', sessionId: 'S1' })] });
+      fs.writeFileSync(path.join(a._hermesHome, 'config.yaml'), config);
+
+      await say(a, 'hello');
+
+      assert.notEqual(seen.runs[0].prefillFile, null, config);
+    }
+  });
+
+  it("a profile's own config.yaml is consulted too", async () => {
+    const { a, seen } = makeHermes({ script: [ran({ text: 'ok', sessionId: 'S1' })] });
+    a.hermesProfile = 'coder';
+    fs.mkdirSync(path.join(a._hermesHome, 'profiles', 'coder'), { recursive: true });
+    fs.writeFileSync(path.join(a._hermesHome, 'profiles', 'coder', 'config.yaml'), 'prefill_messages_file: /p.json\n');
+
+    await say(a, 'hello');
+
+    assert.equal(seen.runs[0].prefillFile, null);
+  });
+});
+
+describe('Hermes: prefill files left by a killed daemon', () => {
+  it('removes only our own files, and only once they are over an hour old', () => {
+    const HermesAdapter = require('../src/adapters/hermes');
+    const dir = fs.mkdtempSync(path.join(tmp, 'sweep-'));
+    const old = Date.now() / 1000 - 2 * 3600;
+    const files = {
+      'openagents-hermes-0123456789abcdef.json': { age: old, gone: true },
+      'openagents-hermes-fedcba9876543210.json': { age: null, gone: false },
+      'openagents-hermes-notes.txt': { age: old, gone: false },
+      'someone-else.json': { age: old, gone: false },
+    };
+    for (const [name, { age }] of Object.entries(files)) {
+      const file = path.join(dir, name);
+      fs.writeFileSync(file, '[]');
+      if (age) fs.utimesSync(file, age, age);
+    }
+    fs.mkdirSync(path.join(dir, 'openagents-hermes-aaaa.json'));
+    fs.utimesSync(path.join(dir, 'openagents-hermes-aaaa.json'), old, old);
+
+    assert.equal(HermesAdapter.sweepStalePrefillFiles(dir), 1);
+
+    for (const [name, { gone }] of Object.entries(files)) {
+      assert.equal(fs.existsSync(path.join(dir, name)), !gone, name);
+    }
+    assert.ok(fs.existsSync(path.join(dir, 'openagents-hermes-aaaa.json')), 'directories are left alone');
+    assert.equal(HermesAdapter.sweepStalePrefillFiles(path.join(dir, 'missing')), 0, 'a missing dir is not an error');
+  });
+
+  it('runs when the adapter starts', () => {
+    const HermesAdapter = require('../src/adapters/hermes');
+    const original = HermesAdapter.sweepStalePrefillFiles;
+    let calls = 0;
+    HermesAdapter.sweepStalePrefillFiles = () => { calls++; return 0; };
+    try {
+      makeHermes();
+    } finally {
+      HermesAdapter.sweepStalePrefillFiles = original;
+    }
+    assert.equal(calls, 1);
   });
 });
 

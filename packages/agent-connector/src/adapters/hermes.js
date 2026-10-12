@@ -45,7 +45,9 @@ const HERMES_INSTALL_HINT = IS_WINDOWS
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
 const SESSION_LINE_RE = /^session_id:\s*\S+$/;
 // What Hermes prints, in place of a session_id, when `--resume` names a
-// session it no longer has.
+// session it no longer has. Upstream localises that line
+// (t("cli.resume.session_not_found")), so this only matches the English text;
+// under another locale a lost session is not recognised as lost.
 const SESSION_NOT_FOUND_RE = /session not found/i;
 const MAX_HISTORY_ENTRIES = 12;
 const OPENAGENTS_RULES = [
@@ -58,11 +60,20 @@ const OPENAGENTS_RULES = [
 // Hermes sends the messages in this file at the head of every model request
 // without storing them in the session.
 const PREFILL_ENV = 'HERMES_PREFILL_MESSAGES_FILE';
-// The CLI has read that variable since June 2026 (it is in the tree by the
-// 14th); the 2026.4.16 release still took the path from config.yaml only.
-// `hermes --version` prints the release date as "(YYYY.M.D)".
-const PREFILL_ENV_SINCE = [2026, 6, 15];
+// The CLI has read that variable since release 0.16.0 of 2026.6.5; 0.15.1
+// (2026.5.29) still took the path from config.yaml only. `hermes --version`
+// prints the release date as "(YYYY.M.D)"; desktop-app installs print only the
+// version ("Hermes Agent v0.21.6 · stable").
+const PREFILL_ENV_SINCE = [2026, 6, 5];
+const PREFILL_ENV_SINCE_VERSION = [0, 16, 0];
 const RELEASE_DATE_RE = /\((\d{4})\.(\d{1,2})\.(\d{1,2})\)/;
+const SEMVER_RE = /\bv(\d+)\.(\d+)\.(\d+)\b/;
+// Our prefill files, in os.tmpdir(); they carry the workspace token. One left
+// behind by a killed daemon is removed at the next start once this old.
+const PREFILL_FILE_RE = /^openagents-hermes-[0-9a-f]+\.json$/;
+const STALE_PREFILL_MS = 60 * 60 * 1000;
+// `prefill_messages_file:` in config.yaml, at top level or under `agent:`.
+const CONFIG_PREFILL_RE = /^[ \t]*prefill_messages_file[ \t]*:(.*)$/gm;
 const PREFILL_CLOSING = [
   '',
   '---',
@@ -98,6 +109,7 @@ class HermesAdapter extends BaseAdapter {
       `${this.workspaceId}_${this.agentName}_hermes.json`,
     );
     this._loadSessions();
+    HermesAdapter.sweepStalePrefillFiles();
 
     this._hermesBin = this._findHermesBinary();
     if (this._hermesBin) {
@@ -344,11 +356,49 @@ class HermesAdapter extends BaseAdapter {
 
   /** True when a `hermes --version` output names a release that reads PREFILL_ENV. */
   _readsPrefillEnv(versionText) {
-    const m = RELEASE_DATE_RE.exec(String(versionText || ''));
-    if (!m) return false;
-    const released = m.slice(1, 4).map(Number);
-    const i = released.findIndex((n, k) => n !== PREFILL_ENV_SINCE[k]);
-    return i === -1 || released[i] > PREFILL_ENV_SINCE[i];
+    const text = String(versionText || '');
+    const atLeast = (have, want) => {
+      const i = have.findIndex((n, k) => n !== want[k]);
+      return i === -1 || have[i] > want[i];
+    };
+    const date = RELEASE_DATE_RE.exec(text);
+    if (date) return atLeast(date.slice(1, 4).map(Number), PREFILL_ENV_SINCE);
+    const ver = SEMVER_RE.exec(text);
+    // The old calendar tags (v2026.3.12) are dates, not versions.
+    if (ver && Number(ver[1]) < 1000) return atLeast(ver.slice(1, 4).map(Number), PREFILL_ENV_SINCE_VERSION);
+    return false;
+  }
+
+  /**
+   * True when the user already points Hermes at a prefill file of their own,
+   * through the variable or `prefill_messages_file` in config.yaml. Setting
+   * the variable would replace theirs, so the instructions go in the message.
+   */
+  _userHasPrefill() {
+    const env = this.agentEnv || process.env;
+    if (String(env[PREFILL_ENV] || '').trim()) return true;
+    const homeEnv = String(env.HERMES_HOME || '').trim();
+    const home = homeEnv || (IS_WINDOWS
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
+      : path.join(os.homedir(), '.hermes'));
+    const configs = [path.join(home, 'config.yaml')];
+    if (this.hermesProfile && this.hermesProfile !== 'default') {
+      configs.push(path.join(home, 'profiles', this.hermesProfile, 'config.yaml'));
+    }
+    return configs.some((file) => {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { return false; }
+      return HermesAdapter.configHasPrefill(text);
+    });
+  }
+
+  /** True when a config.yaml text sets `prefill_messages_file` to something. */
+  static configHasPrefill(text) {
+    for (const m of String(text || '').matchAll(CONFIG_PREFILL_RE)) {
+      const value = m[1].replace(/\s#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+      if (value && value !== '~' && value.toLowerCase() !== 'null') return true;
+    }
+    return false;
   }
 
   /**
@@ -385,6 +435,13 @@ class HermesAdapter extends BaseAdapter {
    */
   async _writePrefill(instructions) {
     if (!(await this._supportsPrefillEnv())) return null;
+    if (this._userHasPrefill()) {
+      if (!this._userPrefillLogged) {
+        this._userPrefillLogged = true;
+        this._log('Hermes already has a prefill_messages_file; keeping it and sending the workspace instructions with each message');
+      }
+      return null;
+    }
     const file = path.join(os.tmpdir(), `openagents-hermes-${crypto.randomBytes(8).toString('hex')}.json`);
     const content = [instructions, ...PREFILL_CLOSING].join('\n');
     try {
@@ -663,6 +720,27 @@ class HermesAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
   // Static: configure Hermes's native model config from LLM env vars
   // ------------------------------------------------------------------
+
+  /**
+   * Remove prefill files a killed daemon left in `dir`: only ours, only once
+   * older than `maxAgeMs`. Best effort. Returns how many were removed.
+   */
+  static sweepStalePrefillFiles(dir = os.tmpdir(), maxAgeMs = STALE_PREFILL_MS, now = Date.now()) {
+    let removed = 0;
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return 0; }
+    for (const name of names) {
+      if (!PREFILL_FILE_RE.test(name)) continue;
+      const file = path.join(dir, name);
+      try {
+        const st = fs.lstatSync(file);
+        if (!st.isFile() || now - st.mtimeMs <= maxAgeMs) continue;
+        fs.unlinkSync(file);
+        removed++;
+      } catch {}
+    }
+    return removed;
+  }
 
   /**
    * Point Hermes at a custom OpenAI-compatible endpoint from user-provided
