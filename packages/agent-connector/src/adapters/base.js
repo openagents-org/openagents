@@ -35,6 +35,7 @@ const {
   classifyHeartbeatError,
   httpStatusOf,
 } = require('./health-status');
+const { FailureStreak, isTransientNetworkError, formatDuration } = require('./failure-streak');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
@@ -104,7 +105,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -198,10 +199,17 @@ class BaseAdapter {
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
     // restart" rather than the long-running daemon's process uptime.
     this._startedAt = Date.now();
-    this._log = (msg) => {
+    // Inside the daemon, `logSink` routes lines through its daemon.log writer
+    // (batching, repeat suppression, rotation). Standalone, they go to stdout.
+    const sink = typeof logSink === 'function' ? logSink : null;
+    this._log = (msg, level = 'info') => {
+      if (sink) return sink(level, msg);
       const ts = new Date().toISOString();
-      console.log(`${ts} INFO adapter [${this.agentName}]: ${msg}`);
+      console.log(`${ts} ${String(level).toUpperCase()} adapter [${this.agentName}]: ${msg}`);
     };
+    // Runs of identical background failures (see failure-streak.js).
+    this._pollFailures = new FailureStreak();
+    this._heartbeatFailures = new FailureStreak();
   }
 
   // ------------------------------------------------------------------
@@ -337,7 +345,7 @@ class BaseAdapter {
         this._log(`Synced model from workspace: ${this.workspaceModel}`);
       }
     } catch (e) {
-      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
+      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`, 'warn');
     }
 
     // Fast-path operations (control-event cursor + heartbeat + control poll)
@@ -352,7 +360,7 @@ class BaseAdapter {
     try {
       // Send initial heartbeat
       try { await this._heartbeat(); } catch (e) {
-        this._log(`Heartbeat failed (non-fatal): ${e.message}`);
+        this._log(`Heartbeat failed (non-fatal): ${e.message}`, 'warn');
       }
       // Slow path: only the message-poll loop waits for this.
       await this._skipExistingEvents();
@@ -412,7 +420,7 @@ class BaseAdapter {
     } catch (e) {
       if (!this._warnedCursorPersist) {
         this._warnedCursorPersist = true;
-        this._log(`Could not persist poll cursor (${e.message}) — a restart will skip messages that arrive while offline`);
+        this._log(`Could not persist poll cursor (${e.message}) — a restart will skip messages that arrive while offline`, 'warn');
       }
     }
   }
@@ -457,10 +465,14 @@ class BaseAdapter {
     try {
       await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
       this._heartbeatFailStreak = 0;
+      const recovered = this._heartbeatFailures.succeed();
+      if (recovered) {
+        this._log(`Workspace heartbeat recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+      }
       this._reportStatus(null); // alive → clear any prior connectivity error
     } catch (e) {
       if (e instanceof SessionRevokedError) {
-        this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+        this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`, 'warn');
         // Terminal (not a user stop): record so the daemon can show why it ended.
         this._setExitInfo(REASON.SESSION_REVOKED, 'Workspace session revoked — another client joined with the same agent name');
         this._reportStatus(REASON.SESSION_REVOKED, 'Workspace session revoked');
@@ -471,7 +483,9 @@ class BaseAdapter {
       // single transient blip (or an expected brief reconnect) isn't mislabeled.
       this._heartbeatFailStreak++;
       const { reason, message } = classifyHeartbeatError(e);
-      this._log(`${message} (consecutive failures: ${this._heartbeatFailStreak})`);
+      if (this._heartbeatFailures.fail()) {
+        this._log(`${message} (consecutive failures: ${this._heartbeatFailStreak})`, 'warn');
+      }
       if (this._heartbeatFailStreak >= HEARTBEAT_ERROR_THRESHOLD) {
         this._reportStatus(reason, message);
       }
@@ -593,7 +607,7 @@ class BaseAdapter {
     }
     if (!channel) {
       try { await this._stopSharedWork(); } catch (e) {
-        this._log(`Stop: shared work did not stop cleanly: ${e && e.message ? e.message : e}`);
+        this._log(`Stop: shared work did not stop cleanly: ${e && e.message ? e.message : e}`, 'warn');
       }
     }
     for (const ch of channels) {
@@ -601,7 +615,7 @@ class BaseAdapter {
       try {
         outcome = await this._stopChannelWork(ch);
       } catch (e) {
-        this._log(`Stop: ${ch} did not stop cleanly: ${e && e.message ? e.message : e}`);
+        this._log(`Stop: ${ch} did not stop cleanly: ${e && e.message ? e.message : e}`, 'warn');
         outcome = 'failed';
       }
       // The pressed channel is always answered, so its UI settles even when
@@ -788,7 +802,7 @@ class BaseAdapter {
         skillId, state: 'installing',
       });
     } catch (e) {
-      this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`);
+      this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`, 'warn');
     }
 
     try {
@@ -822,19 +836,19 @@ class BaseAdapter {
           skillId, state: 'installed', path: result.path, partial: result.partial === true,
         });
       } catch (e) {
-        this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`);
+        this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`, 'warn');
       }
       this._log(`skill.install: SUCCESS "${skillId}" → ${result.path}${result.partial ? ' (partial)' : ''}`);
       await this._onSkillsChanged();
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      this._log(`skill.install: FAILED "${skillId}": ${msg}`);
+      this._log(`skill.install: FAILED "${skillId}": ${msg}`, 'error');
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
           skillId, state: 'failed', error: msg,
         });
       } catch (e2) {
-        this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`);
+        this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`, 'warn');
       }
     }
   }
@@ -863,12 +877,12 @@ class BaseAdapter {
           skillId, state: 'uninstalled',
         });
       } catch (e) {
-        this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`);
+        this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`, 'warn');
       }
       await this._onSkillsChanged();
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      this._log(`skill.uninstall: FAILED "${skillId}": ${msg}`);
+      this._log(`skill.uninstall: FAILED "${skillId}": ${msg}`, 'error');
     }
   }
 
@@ -923,7 +937,7 @@ class BaseAdapter {
         sessionId: this._sessionId,
       });
     } catch (e) {
-      this._log(`Status: failed to post: ${e && e.message ? e.message : e}`);
+      this._log(`Status: failed to post: ${e && e.message ? e.message : e}`, 'warn');
     }
   }
 
@@ -950,7 +964,7 @@ class BaseAdapter {
         (r) => r.created_by === prefixed || r.created_by === this.agentName,
       );
     } catch (e) {
-      this._log(`Routines: failed to list: ${e && e.message ? e.message : e}`);
+      this._log(`Routines: failed to list: ${e && e.message ? e.message : e}`, 'warn');
       try {
         await this.client.sendMessage(
           this.workspaceId, channel, this.token,
@@ -991,7 +1005,7 @@ class BaseAdapter {
         sessionId: this._sessionId,
       });
     } catch (e) {
-      this._log(`Routines: failed to post: ${e && e.message ? e.message : e}`);
+      this._log(`Routines: failed to post: ${e && e.message ? e.message : e}`, 'warn');
     }
   }
 
@@ -1049,11 +1063,26 @@ class BaseAdapter {
         rawCursor = result.cursor;
         composingActive = !!result.composing;
         this._pollAuthFailStreak = 0;
+        const recovered = this._pollFailures.succeed();
+        if (recovered) {
+          this._log(`Poll recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+        }
         if (pollCount <= 3 || pollCount % 20 === 0) {
           this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}${composingActive ? ' composing' : ''}`);
         }
       } catch (e) {
-        this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
+        // A workspace that is down or slow fails every poll until it is back;
+        // log the streak, not every attempt (see failure-streak.js).
+        if (this._pollFailures.fail()) {
+          const count = this._pollFailures.count;
+          const streak = count > 1 ? ` (consecutive failures: ${count})` : '';
+          if (isTransientNetworkError(e)) {
+            this._log(`Poll #${pollCount} failed: ${e.message}${streak} — retrying every 5s`, 'warn');
+          } else {
+            const stack = count === 1 && e && e.stack ? `\nStack: ${e.stack}` : '';
+            this._log(`Poll #${pollCount} failed: ${e && e.message}${streak}${stack}`, 'error');
+          }
+        }
         // A rejected credential never heals by retrying with the same token —
         // it means the device was re-paired/unpaired and this adapter is
         // running on a revoked one. After a few consecutive rejections (not
@@ -1249,7 +1278,7 @@ class BaseAdapter {
           await this._handleMessage(current);
         }
       } catch (e) {
-        this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`);
+        this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
@@ -1333,7 +1362,7 @@ class BaseAdapter {
           delete cache[channel];
           // Entry is gone — fall through to list+match below.
         } else {
-          this._log(`${label} read failed (${e.message}) — reusing last known state`);
+          this._log(`${label} read failed (${e.message}) — reusing last known state`, 'warn');
           return { available: true, state: 'found', entryId: cachedId, title: titles[0], content: null, error: true };
         }
       }
@@ -1369,7 +1398,7 @@ class BaseAdapter {
       }
       return { available: true, state: 'found', entryId: entry.id, title: matchedTitle, content: (full && full.content) || '', error: false };
     } catch (e) {
-      this._log(`${label} fetch failed (${e.message}) — reusing last known state`);
+      this._log(`${label} fetch failed (${e.message}) — reusing last known state`, 'warn');
       const knownId = cache[channel] || null;
       return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, title: knownId ? titles[0] : null, content: null, error: true };
     }
@@ -1427,7 +1456,7 @@ class BaseAdapter {
       }
       this._pinnedContext[channel] = fresh;
     } catch (e) {
-      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — reusing the last pinned context`);
+      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — reusing the last pinned context`, 'warn');
     }
   }
 
@@ -1475,7 +1504,7 @@ class BaseAdapter {
         this._log(`Auto-titled channel: ${title}`);
       }
     } catch (e) {
-      this._log(`Failed to auto-title channel: ${e.message}`);
+      this._log(`Failed to auto-title channel: ${e.message}`, 'warn');
     }
   }
 
@@ -1625,7 +1654,7 @@ class BaseAdapter {
   }
 
   _onSessionRevoked() {
-    this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+    this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`, 'warn');
     this._running = false;
   }
 

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, exec } = require('child_process');
+const { execSync, exec, execFile, spawnSync } = require('child_process');
 const {
   whichBinary,
   getEnhancedEnv,
@@ -21,12 +21,50 @@ const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
 const { nodeDistUrls, installRegistry } = require('./mirrors');
 const { readinessReason, REASON } = require('./adapters/health-status');
+const { resolveCursorNodeEntry } = require('./adapters/cursor-node-entry');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
+const { isPostinstallStub } = require('./postinstall-stub');
+
+/**
+ * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
+ * because of ignore-scripts — fail the install with the explanation instead.
+ */
+function scriptRepairDisabled() {
+  const v = String(process.env.OPENAGENTS_NO_SCRIPT_REPAIR || '').trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false' && v !== 'no';
+}
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
+/** Sign-in verdicts from a CLI's own status command, by command line. */
+const loginStatusCache = new Map();
+const LOGIN_STATUS_TIMEOUT_MS = 8000;
+
+/**
+ * Read a CLI's status output for its sign-in state: true (signed in), false
+ * (signed out), or null when the output does not say.
+ *
+ * `check_ready.logged_out_pattern` / `logged_in_pattern` are the desktop app's
+ * loggedOutPattern / loggedInPattern, and this is its loginVerdict: one is
+ * enough for a CLI that exits 0 either way, because a clean run that matched
+ * nothing then stands for the pattern's opposite.
+ */
+function loginVerdict(checkReady, out, code) {
+  const compile = (source) => {
+    try { return source ? new RegExp(source, 'i') : null; } catch { return null; }
+  };
+  const signedIn = compile(checkReady && checkReady.logged_in_pattern);
+  const signedOut = compile(checkReady && checkReady.logged_out_pattern);
+  const text = String(out || '');
+  if (signedIn && signedIn.test(text)) return true;
+  if (signedOut && signedOut.test(text)) return false;
+  if (!text.trim() || code !== 0) return null;
+  if (signedIn) return false;
+  if (signedOut) return true;
+  return null;
+}
 
 /**
  * How long a streaming install may produce NO output before it is treated as
@@ -89,9 +127,10 @@ function compareVersions(a, b) {
   return 0;
 }
 
-/** Drop the version cache (called on install/uninstall). */
+/** Drop the version and sign-in caches (called on install/uninstall). */
 function clearVersionCache() {
   versionCache.clear();
+  loginStatusCache.clear();
 }
 
 /**
@@ -622,13 +661,19 @@ class Installer {
    * shebang), so it's applied on every platform for consistency.
    */
   _versionProbeCommand(binary) {
+    return this._cliCommand(binary, ['--version']);
+  }
+
+  /** `<binary> <args>` as a command line, for any short probe of a resolved CLI. */
+  _cliCommand(binary, args) {
+    const tail = args.join(' ');
     // A binary inside WSL has to be asked through wsl.exe; running the Linux
     // path as a Windows command yields "not recognized" and the marketplace
     // then shows an installed agent with no version at all.
-    const bridged = bridgedCommandString(binary, ['--version']);
+    const bridged = bridgedCommandString(binary, args);
     if (bridged) return bridged;
     if (/\.(mjs|cjs|js)$/i.test(binary)) {
-      return `"${this._nodeBinary()}" "${binary}" --version`;
+      return `"${this._nodeBinary()}" "${binary}" ${tail}`;
     }
     // Same problem, no extension to spot it by: npm's package bin is often an
     // extensionless `#!/usr/bin/env node` script (node_modules/cline/bin/cline),
@@ -636,9 +681,9 @@ class Installer {
     // run it — the probe dies with "is not recognized as an internal or external
     // command" — and the agent then shows up in the app with no version at all.
     if (isNodeShebangScript(binary)) {
-      return `"${this._nodeBinary()}" "${binary}" --version`;
+      return `"${this._nodeBinary()}" "${binary}" ${tail}`;
     }
-    return `"${binary}" --version`;
+    return `"${binary}" ${tail}`;
   }
 
   /**
@@ -880,11 +925,27 @@ class Installer {
       };
     }
 
+    // Nothing in the env or on disk says so, but a CLI may keep its sign-in
+    // where only it looks. Cursor's is in the OS keychain on macOS, under
+    // %APPDATA% on Windows and ~/.config on Linux, and the `authInfo` read
+    // above is only a profile it caches beside them — so a signed-in user
+    // whose config lacked it read "installed but not signed in" for good.
+    const signedIn = this._checkLoginStatus(checkReady, binary);
+    if (signedIn === true) {
+      return {
+        ready: true,
+        auth_mode: 'cli_login',
+        auth_status: 'ready',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
     // A credential file was found but could not be read (e.g. permissions).
     // That is NOT "no credentials" — report it as 'unknown' with a distinct
     // message so the UI never mislabels a real (if unreadable) login as
     // "Not logged in". Only reachable for agents that opt into creds_no_parse.
-    if (credsFile.unreadable) {
+    if (credsFile.unreadable && signedIn !== false) {
       return {
         ready: false,
         auth_mode: null,
@@ -902,7 +963,8 @@ class Installer {
     return {
       ready: false,
       auth_mode: null,
-      auth_status: checkReady.unverifiable ? 'unknown' : 'no_credentials',
+      // The CLI's own "not logged in" settles it; only its silence is unknown.
+      auth_status: checkReady.unverifiable && signedIn !== false ? 'unknown' : 'no_credentials',
       execution_mode: 'unavailable',
       message: checkReady.not_ready_message || 'Not configured',
     };
@@ -1075,6 +1137,72 @@ class Installer {
     }
   }
 
+  /**
+   * Sign-in as the agent's own CLI reports it: `check_ready.status_args` run
+   * against the resolved binary and read by loginVerdict. Returns true, false,
+   * or null when there is no answer (no such check, a timeout, a crash).
+   *
+   * Unlike status_command this reads the OUTPUT, for a CLI that exits 0
+   * whether or not anyone is signed in.
+   */
+  _checkLoginStatus(checkReady, binary) {
+    const args = checkReady.status_args;
+    if (!binary || !Array.isArray(args) || !args.length) return null;
+    if (!checkReady.logged_out_pattern && !checkReady.logged_in_pattern) return null;
+    // These can still land on a shell command line (a WSL binary, a Windows
+    // .cmd launcher); a flag or a subcommand is all a status check needs.
+    if (!args.every((a) => typeof a === 'string' && /^[\w.=:-]+$/.test(a))) return null;
+
+    const command = this._cliCommand(binary, args);
+    const cached = loginStatusCache.get(command);
+    if (cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS) return cached.verdict;
+    // A second or more of CLI startup — see probe-mode.js.
+    if (!canBlock()) return cached ? cached.verdict : null;
+
+    let verdict = null;
+    try {
+      const run = this._spawnLoginStatus(binary, args, command);
+      if (!run.error) {
+        verdict = loginVerdict(checkReady, `${run.stdout || ''}\n${run.stderr || ''}`, run.status);
+      }
+    } catch {}
+
+    loginStatusCache.set(command, { verdict, ts: Date.now() });
+    return verdict;
+  }
+
+  /**
+   * Run a status check without a shell wherever one is not needed. On Windows
+   * Cursor's launcher is cursor-agent.cmd → PowerShell → node.exe, the chain
+   * the adapter no longer starts a turn through; when its node.exe + index.js
+   * can be found, node is started directly here too. A WSL binary, or any
+   * other Windows launcher (.cmd shims need cmd.exe), keeps the command line.
+   */
+  _spawnLoginStatus(binary, args, command) {
+    const run = this._spawnSyncForTest || spawnSync;
+    const opts = {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: getEnhancedEnv(),
+      cwd: os.homedir(),
+      timeout: LOGIN_STATUS_TIMEOUT_MS,
+      windowsHide: true,
+    };
+    if (bridgedCommandString(binary, args)) return run(command, { ...opts, shell: true });
+    if (process.platform === 'win32') {
+      const own = resolveCursorNodeEntry(binary, opts.env);
+      if (!own) return run(command, { ...opts, shell: true });
+      const [node, entry] = own;
+      // What cursor-agent.cmd would have set before handing over to node.
+      if (!opts.env.CURSOR_INVOKED_AS) opts.env = { ...opts.env, CURSOR_INVOKED_AS: path.basename(binary) };
+      return run(node, [entry, ...args], { ...opts, shell: false });
+    }
+    if (/\.(mjs|cjs|js)$/i.test(binary) || isNodeShebangScript(binary)) {
+      return run(this._nodeBinary(), [binary, ...args], { ...opts, shell: false });
+    }
+    return run(binary, args, { ...opts, shell: false });
+  }
+
   _checkStatusCommand(command) {
     const cached = statusCache.get(command);
     if (cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS) {
@@ -1172,8 +1300,15 @@ class Installer {
       };
     }
 
+    // An npm package whose postinstall was skipped exits 0 with a placeholder
+    // where its CLI should be. See _findPostinstallStub.
+    // No live log here, so what the repair says goes into the returned output.
+    let repairLog = '';
+    const problem = await this.finishNpmInstall(agentType, (d) => { repairLog += d; });
+    if (problem) throw new Error(problem);
+
     this._markInstalled(agentType);
-    return { success: true, output };
+    return { success: true, output: repairLog ? `${output}\n${repairLog.trim()}` : output };
   }
 
   /**
@@ -1426,9 +1561,23 @@ class Installer {
             const fixed = fixSpawnHelpers(installCwd);
             if (fixed.length && onData) onData(`\nMade ${fixed.length} node-pty spawn-helper(s) executable.\n`);
           }
-          this._markInstalled(agentType);
-          if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
-          resolve({ success: true, command: displayCmd });
+          const markDone = () => {
+            this._markInstalled(agentType);
+            if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
+            resolve({ success: true, command: displayCmd });
+          };
+          // An npm package whose postinstall was skipped exits 0 with a
+          // placeholder where its CLI should be. See _findPostinstallStub.
+          const stub = this._findPostinstallStub(agentType);
+          if (stub) {
+            this._repairPostinstallStub(agentType, stub, onData).then((problem) => {
+              if (!problem) return markDone();
+              if (onData) onData(`\n${problem}\n`);
+              reject(new Error(problem));
+            }, reject);
+            return;
+          }
+          markDone();
         } else {
           // A partial install can leave a placeholder stub at
           // bin/<binary>.exe and npm-generated cmd-shims under
@@ -1479,6 +1628,166 @@ class Installer {
         if (fs.existsSync(f) && fs.statSync(f).size < 4096) fs.unlinkSync(f);
       } catch {}
     }
+  }
+
+  /** The npm package an agent installs from, or null when it isn't an npm install. */
+  _npmPackageFor(install) {
+    if (!install) return null;
+    if (install.npm_package) return install.npm_package;
+    const cmd = this._getInstallCommand(install);
+    if (!cmd || !cmd.includes('npm install')) return null;
+    const m = cmd.match(/npm install\s+(?:-g\s+)?(@?[\w-]+(?:\/[\w-]+)?)(?:@\S*)?$/);
+    return m ? m[1] : null;
+  }
+
+  /**
+   * The managed copy of an agent whose executable is still the placeholder its
+   * npm package ships, or null.
+   *
+   * opencode-ai (and @anthropic-ai/claude-code) publish a few hundred bytes of
+   * shell as their `bin` and have their postinstall script swap the real
+   * native binary in. With `ignore-scripts=true` in the user's npmrc — a
+   * common hardening setting — npm skips that script and still exits 0, so
+   * "exit 0 → mark installed" recorded an agent that cannot start: the
+   * marketplace said installed, the model list would not load, and every
+   * message failed. An install is not done until the placeholder is gone.
+   *
+   * @returns {{ pkgName: string, bin: string, prefix: string } | null}
+   */
+  _findPostinstallStub(agentType) {
+    const entry = this.registry.getEntry(agentType);
+    const install = entry && entry.install;
+    const pkgName = this._npmPackageFor(install);
+    if (!pkgName) return null;
+    const bin = resolveManagedNpmPackageBin(agentType, pkgName, install.binary || agentType);
+    if (!bin || !isPostinstallStub(bin)) return null;
+    const prefixes = [getRuntimePrefix(agentType), path.join(os.homedir(), '.openagents', 'nodejs')];
+    const prefix = prefixes.find((p) => bin.startsWith(path.join(p, 'node_modules') + path.sep));
+    return prefix ? { pkgName, bin, prefix } : null;
+  }
+
+  /**
+   * Run the install scripts npm skipped, for this one package. `npm rebuild
+   * <pkg>` is npm's own way of doing that, and a flag on the command line
+   * outranks the `ignore-scripts=true` in an npmrc — which stays in force for
+   * every other package and every other install.
+   */
+  _rebuildWithScripts(pkgName, prefix) {
+    const args = ['rebuild', pkgName, '--prefix', prefix, '--ignore-scripts=false', '--foreground-scripts'];
+    const env = this._buildShellEnv();
+    const run = this._execFileForTest || execFile;
+    const runNpm = (file, argv, extra = {}) => new Promise((resolve, reject) => {
+      run(file, argv, {
+        encoding: 'utf-8',
+        timeout: 300000,
+        maxBuffer: 16 * 1024 * 1024,
+        env,
+        cwd: prefix,
+        windowsHide: true,
+        ...extra,
+      }, (error, stdout, stderr) => {
+        const output = `${stdout || ''}\n${stderr || ''}`.trim();
+        if (error) reject(new Error(output || error.message));
+        else resolve(output);
+      });
+    });
+    const direct = this._resolveNodeNpmCli();
+    if (!direct) {
+      const win = process.platform === 'win32';
+      const npm = whichBinary('npm') || (win ? 'npm.cmd' : 'npm');
+      // npm.cmd is a batch file and only runs through cmd.exe. With shell:true
+      // Node joins the argv with spaces, so quote the ones that contain any.
+      if (win && /\.(cmd|bat)$/i.test(npm)) {
+        const q = (a) => (/\s/.test(a) ? `"${a}"` : a);
+        return runNpm(q(npm), args.map(q), { shell: true });
+      }
+      return runNpm(npm, args);
+    }
+    // As for the install itself: the script's own `node` has to resolve to the
+    // runtime npm is running on.
+    const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
+    const nodeDir = path.dirname(direct.node);
+    if (!(env[pathKey] || '').includes(nodeDir)) {
+      env[pathKey] = nodeDir + path.delimiter + (env[pathKey] || '');
+    }
+    return runNpm(direct.node, [direct.npmCli, ...args]);
+  }
+
+  /**
+   * The check install() and installStreaming() make once npm has exited 0, for
+   * a caller that ran npm itself — the launcher installs a version-pinned agent
+   * (opencode among them) with its own npm call. Resolves null when the CLI is
+   * real, repaired if it had to be; otherwise the message to show, with the
+   * package already taken back out.
+   */
+  async finishNpmInstall(agentType, onData) {
+    const stub = this._findPostinstallStub(agentType);
+    return stub ? this._repairPostinstallStub(agentType, stub, onData) : null;
+  }
+
+  /**
+   * Whether the CLI at `binPath` (a symlink or npm shim is followed) is the
+   * placeholder of a package whose postinstall was skipped. Check only — for
+   * a caller that updated a copy we do not manage and must not repair.
+   */
+  isPostinstallStubAt(binPath) {
+    return isPostinstallStub(binPath);
+  }
+
+  /**
+   * Finish an install that left a placeholder (see _findPostinstallStub).
+   * Resolves null once the real binary is in place, otherwise the message the
+   * user should see.
+   *
+   * When the script cannot be made to run, the package comes back out — which
+   * is what npm does itself when a postinstall fails. Left in place it reads
+   * as installed (its package.json is there), and deleting only the
+   * placeholder is worse: the next `npm install` finds the package up to date,
+   * restores nothing, and with no placeholder left to notice the install gets
+   * recorded as good.
+   */
+  async _repairPostinstallStub(agentType, stub, onData) {
+    const entry = this.registry.getEntry(agentType);
+    const label = (entry && entry.label) || agentType;
+    // The user asked npm to skip install scripts; this lets them say the
+    // repair must not run one either.
+    const optedOut = scriptRepairDisabled();
+    let output = '';
+    if (optedOut) {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. OPENAGENTS_NO_SCRIPT_REPAIR=1 is set, so it is not being run.\n');
+      }
+    } else {
+      if (onData) {
+        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+          + 'a placeholder. Running it for this one package now — set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse.\n');
+      }
+      try {
+        output = await this._rebuildWithScripts(stub.pkgName, stub.prefix);
+      } catch (e) {
+        output = (e && e.message) || '';
+      }
+    }
+    if (!optedOut && !isPostinstallStub(stub.bin) && fs.existsSync(stub.bin)) {
+      try { clearBinaryLookupCache(); } catch {}
+      if (onData) onData(`${label} CLI is in place: ${stub.bin}\n`);
+      return null;
+    }
+    try {
+      this._cleanStaleShims(agentType);
+      fs.rmSync(path.join(stub.prefix, 'node_modules', stub.pkgName), { recursive: true, force: true });
+    } catch {}
+    const tail = output.trim().slice(-2000);
+    return `${label} was downloaded, but its setup could not be finished: ${stub.pkgName}'s `
+      + 'postinstall script did not run, so its CLI is only a placeholder. npm is set to skip '
+      + 'install scripts (ignore-scripts=true in an npmrc), and '
+      + (optedOut
+        ? 'OPENAGENTS_NO_SCRIPT_REPAIR=1 stops OpenAgents from running the script for this one package. '
+        : 'running the script for this one package did not produce the binary either '
+          + '(set OPENAGENTS_NO_SCRIPT_REPAIR=1 if you do not want OpenAgents to try). ')
+      + `Allow install scripts for npm, then install ${label} again.`
+      + (tail ? `\n\nnpm output:\n${tail}` : '');
   }
 
   /**
@@ -2510,4 +2819,4 @@ class Installer {
   }
 }
 
-module.exports = { Installer, compareVersions, clearVersionCache };
+module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict };

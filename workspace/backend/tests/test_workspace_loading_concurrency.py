@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from sqlalchemy.pool import QueuePool
 
 from app.database import get_db
-from app.routers import browser, knowledge, notifications
+from app.routers import browser, cloud_agents, events, knowledge, model_access, notifications, shares, workspaces
 
 
 @pytest.mark.parametrize("method,path,body", [
@@ -26,8 +26,14 @@ from app.routers import browser, knowledge, notifications
     ("GET", "/v1/knowledge/missing", None),
     ("GET", "/v1/knowledge/by-slug/missing?network=missing", None),
     ("GET", "/v1/browser/tabs?network=missing", None),
+    ("GET", "/v1/cloud-agents?network=missing", None),
+    ("POST", "/v1/cloud-agents/test/models", {"network": "missing"}),
+    ("POST", "/v1/model-access/missing/probe", {"network": "missing"}),
+    ("POST", "/v1/model-probe", {"network": "missing", "provider": "openai", "api_key": "test"}),
+    ("GET", "/v1/events/stream?network=missing", None),
+    ("POST", "/v1/workspaces/missing/presence", {"senderEmail": "test@example.com"}),
 ])
-def test_pool_contention_allows_health_and_connection_release(method, path, body):
+def test_pool_contention_allows_health_and_connection_release(method, path, body, monkeypatch):
     # A real blocking QueuePool reproduces the production wait without needing
     # PostgreSQL or a slow query. Exhaust its sole slot before sending requests.
     pool = QueuePool(
@@ -55,8 +61,9 @@ def test_pool_contention_allows_health_and_connection_release(method, path, body
         def close(self):
             pass
 
+    monkeypatch.setattr(events, "SessionLocal", MissingRowSession)
     app = FastAPI()
-    for router in (notifications.router, knowledge.router, browser.router):
+    for router in (notifications.router, knowledge.router, browser.router, cloud_agents.router, model_access.router, events.router, shares.router, workspaces.router):
         app.include_router(router)
 
     def session():

@@ -37,6 +37,37 @@ export interface AgentSetupExtensions {
   headerActions?: boolean;
 }
 
+/** Where the host's agent catalog load stands — the gallery is empty until it lands. */
+export interface CatalogState {
+  status: 'loading' | 'ready' | 'error';
+  retry: () => void;
+}
+
+/**
+ * What to show while the catalog is empty because it has not loaded: a
+ * spinner, or the failure with a retry. Nothing once it has loaded.
+ */
+export function CatalogStateNotice({ state }: { state?: CatalogState }) {
+  const t = useT();
+  if (!state || state.status === 'ready') return null;
+  if (state.status === 'loading') {
+    return (
+      <div className="flex items-center justify-center rounded-2xl border border-dashed py-14 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin mr-2" />
+        {t('connect.marketLoading')}
+      </div>
+    );
+  }
+  return (
+    <div role="alert" className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
+      {t('connect.marketLoadFailed')}{' '}
+      <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={state.retry}>
+        {t('connect.marketRetry')}
+      </button>
+    </div>
+  );
+}
+
 const NO_ACCESS = '__none__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
@@ -403,6 +434,7 @@ function FolderPicker({
 export function AgentSetup({
   node,
   catalog,
+  catalogState,
   api,
   extensions,
   contextLabel,
@@ -414,6 +446,9 @@ export function AgentSetup({
 }: {
   node: WorkspaceNode;
   catalog: AgentCatalogEntry[];
+  /** How the host's catalog load is going. Hosts that hand over a catalog they
+   *  already have leave it out. */
+  catalogState?: CatalogState;
   api: AgentSetupApi;
   extensions?: AgentSetupExtensions;
   contextLabel?: React.ReactNode;
@@ -1237,10 +1272,17 @@ export function AgentSetup({
           </button>
         );
 
+        // An empty catalog is a load that has not landed (or failed), never a
+        // search result — say so instead of "nothing matches".
+        if (catalog.length === 0 && catalogState && catalogState.status !== 'ready') {
+          return <CatalogStateNotice state={catalogState} />;
+        }
         if (visible.length === 0) {
           return (
             <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-              {t('connect.marketNoMatch', { query: marketQuery })}{' '}
+              {q
+                ? t('connect.marketNoMatch', { query: marketQuery.trim() })
+                : t('connect.marketNoneInCategory')}{' '}
               <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
                 {t('connect.marketReset')}
               </button>

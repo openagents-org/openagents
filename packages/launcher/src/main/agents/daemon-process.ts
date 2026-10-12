@@ -25,7 +25,9 @@ export function appendDaemonLog(message: string): void {
     fs.mkdirSync(CONFIG_DIR, { recursive: true })
     fs.appendFileSync(
       DAEMON_LOG_FILE,
-      `[${new Date().toISOString()}] launcher: ${message}\n`,
+      // Same shape as the daemon's own lines. Without a level the Logs page
+      // files these as "unknown", which its default level filter hides.
+      `${new Date().toISOString()} INFO launcher: ${message}\n`,
       "utf-8",
     )
   } catch {}

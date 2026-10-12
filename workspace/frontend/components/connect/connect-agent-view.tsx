@@ -8,10 +8,11 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
+import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { desktopHost } from '@/lib/desktop-host';
-import { AgentSetup } from '@/components/agents/agent-setup';
+import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
@@ -35,9 +36,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ExpandableError } from './expandable-error';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
+const EMPTY_CATALOG: AgentCatalogEntry[] = [];
+const EMPTY_PROVIDERS: CloudAgentProvider[] = [];
+
 const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
 
 // ---------------------------------------------------------------------------
@@ -111,7 +116,6 @@ export function ConnectAgentView({
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const activeTab = isDesktop ? 'node' : selectedTab;
-  const [loading, setLoading] = useState(true);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -126,12 +130,10 @@ export function ConnectAgentView({
   const [pairingLoading, setPairingLoading] = useState(false);
 
   // Local agents
-  const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   // Cloud agents
-  const [cloudProviders, setCloudProviders] = useState<CloudAgentProvider[]>([]);
   const [cloudAgents, setCloudAgents] = useState<CloudAgentConfig[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
@@ -148,24 +150,20 @@ export function ConnectAgentView({
     workspaceApi.listCloudAgents().then(setCloudAgents).catch(() => {});
   };
 
+  // Loaded separately: the catalog needs no database, the other two do, and
+  // one of them failing must not leave the add-agent gallery empty.
+  const catalogLoad = useRetryingLoad(() => workspaceApi.getAgentCatalog(), EMPTY_CATALOG);
+  const { data: catalog } = catalogLoad;
+  const { data: cloudProviders } = useRetryingLoad(() => workspaceApi.getCloudProviders(), EMPTY_PROVIDERS);
+  // The view waits for the catalog's first attempt only. Retries and a final
+  // failure show in the gallery itself, with a retry button.
+  const [catalogSettled, setCatalogSettled] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      workspaceApi.getAgentCatalog(),
-      workspaceApi.getCloudProviders(),
-      workspaceApi.listCloudAgents(),
-    ])
-      .then(([entries, providers, agents]) => {
-        if (cancelled) return;
-        setCatalog(entries);
-        setCloudProviders(providers);
-        setCloudAgents(agents);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+    if (catalogLoad.status !== 'loading' || catalogLoad.failures > 0) setCatalogSettled(true);
+  }, [catalogLoad.status, catalogLoad.failures]);
+  const loading = !catalogSettled;
+  const catalogState = { status: catalogLoad.status, retry: catalogLoad.retry };
+  useEffect(() => { loadCloudAgents(); }, []);
 
   // Selected local agent detail
   const selectedCatalogEntry = useMemo(
@@ -447,6 +445,7 @@ export function ConnectAgentView({
             </div>
             <LocalAgentsTab
               catalog={catalog}
+              catalogState={catalogState}
               selectedAgent={selectedAgent}
               selectedEntry={selectedCatalogEntry}
               onSelectAgent={setSelectedAgent}
@@ -462,6 +461,7 @@ export function ConnectAgentView({
           <NodesTab
             nodes={nodes}
             catalog={catalog}
+            catalogState={catalogState}
             cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent}
             preferredNodeId={preferredNodeId}
@@ -766,6 +766,7 @@ function NodeCard({
   defaultExpanded = false,
   onAddAgent,
   onEditAgent,
+  onDismissPending,
   onChanged,
 }: {
   node: WorkspaceNode;
@@ -773,6 +774,8 @@ function NodeCard({
   defaultExpanded?: boolean;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
+  /** Drop a placeholder whose create failed — nothing was made on the device. */
+  onDismissPending: (name: string) => void;
   onChanged: () => void;
 }) {
   const t = useT();
@@ -1001,12 +1004,29 @@ function NodeCard({
                       {chip.text}
                     </span>
                   </div>
+                  {failed ? (
+                    <>
+                      <ExpandableError
+                        message={p.cmdMessage || t('connect.nodeAgentFailedHint')}
+                        className="text-[10px] text-red-600 dark:text-red-400"
+                      />
+                      {/* Same action row as a live agent card, so the delete
+                          sits in the same bottom-right corner. */}
+                      <div className="mt-auto flex items-center gap-1 pt-1 border-t">
+                        <span className="flex-1" />
+                        <button
+                          onClick={() => onDismissPending(p.name)}
+                          className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                          title={t('connect.remove')}
+                          aria-label={t('connect.remove')}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
                   <div className="flex items-center gap-2 pt-1 border-t border-dashed">
-                    {failed ? (
-                      <span className="text-[10px] text-red-600 dark:text-red-400">
-                        {p.cmdMessage || t('connect.nodeAgentFailedHint')}
-                      </span>
-                    ) : stalled ? (
+                    {stalled ? (
                       <span className="text-[10px] text-amber-600 dark:text-amber-500">{t('connect.nodeAgentStalledHint')}</span>
                     ) : (
                       <>
@@ -1020,6 +1040,7 @@ function NodeCard({
                       </>
                     )}
                   </div>
+                  )}
                 </div>
                 );
               })}
@@ -1054,7 +1075,7 @@ function NodeCard({
                     {a.probe && a.probe.ok === false && a.probe.code !== 'static_only' && (
                       <div className="flex items-start gap-1.5 text-[10px] text-red-600 dark:text-red-400">
                         <X className="size-3 mt-px shrink-0" />
-                        <span className="break-words">{a.probe.message || t('connect.smokeTestFailed')}</span>
+                        <ExpandableError message={a.probe.message || t('connect.smokeTestFailed')} />
                       </div>
                     )}
 
@@ -1101,6 +1122,7 @@ function NodeCard({
 function NodesTab({
   nodes,
   catalog,
+  catalogState,
   cloudProviders,
   autoAddAgent = false,
   preferredNodeId,
@@ -1114,6 +1136,7 @@ function NodesTab({
 }: {
   nodes: WorkspaceNode[];
   catalog: AgentCatalogEntry[];
+  catalogState: CatalogState;
   cloudProviders: CloudAgentProvider[];
   autoAddAgent?: boolean;
   preferredNodeId?: string;
@@ -1138,6 +1161,15 @@ function NodesTab({
 
   const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) =>
     setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
+
+  const removePending = (nodeId: string, name: string) =>
+    setPending((prev) => {
+      const kept = (prev[nodeId] || []).filter((p) => p.name !== name);
+      const next = { ...prev };
+      if (kept.length) next[nodeId] = kept;
+      else delete next[nodeId];
+      return next;
+    });
 
   // Drop placeholders once the node's real roster includes them.
   useEffect(() => {
@@ -1214,6 +1246,7 @@ function NodesTab({
         node={addingNode}
         onManageAgent={(agent) => { setAddingNodeId(null); setEditing({ nodeId: addingNode.nodeId, agent }) }}
         catalog={catalog}
+        catalogState={catalogState}
         cloudProviders={cloudProviders}
         onBack={() => setAddingNodeId(null)}
         onChanged={onRefresh}
@@ -1234,6 +1267,7 @@ function NodesTab({
         key={`edit-${editing.agent.name}`}
         node={editingNode}
         catalog={catalog}
+        catalogState={catalogState}
         cloudProviders={cloudProviders}
         editAgent={editing.agent}
         onBack={() => setEditing(null)}
@@ -1282,6 +1316,7 @@ function NodesTab({
               pending={pending[node.nodeId] || []}
               onAddAgent={() => setAddingNodeId(node.nodeId)}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
+              onDismissPending={(name) => removePending(node.nodeId, name)}
               onChanged={onRefresh}
             />
           ))}
@@ -1319,6 +1354,7 @@ function NodesTab({
 
 function LocalAgentsTab({
   catalog,
+  catalogState,
   selectedAgent,
   selectedEntry,
   onSelectAgent,
@@ -1330,6 +1366,7 @@ function LocalAgentsTab({
   copyToClipboard,
 }: {
   catalog: AgentCatalogEntry[];
+  catalogState: CatalogState;
   selectedAgent: string | null;
   selectedEntry: AgentCatalogEntry | undefined;
   onSelectAgent: (name: string | null) => void;
@@ -1343,6 +1380,7 @@ function LocalAgentsTab({
   const t = useT();
   return (
     <div className="p-4 space-y-4">
+      {catalog.length === 0 && <CatalogStateNotice state={catalogState} />}
       {/* Agent grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {catalog.map((entry) => {

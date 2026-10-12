@@ -7,7 +7,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from './create-routine-dialog';
-import { FeatureTourBanner } from '@/components/tours/feature-tours';
+import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
