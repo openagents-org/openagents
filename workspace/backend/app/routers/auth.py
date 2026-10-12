@@ -162,6 +162,9 @@ def create_apple_session(body: AppleSessionRequest):
             "Sign in with Apple token was rejected. Please sign in again.",
         )
 
+    # Accounts are keyed by lowercase email; normalise before it is minted
+    # into the session and echoed back to the client.
+    claims = {**claims, "email": claims["email"].strip().lower()}
     token, exp = mint_workspace_session(claims)
     logger.info("auth: issued workspace session for %s (apple)", claims["email"])
     return success_response({

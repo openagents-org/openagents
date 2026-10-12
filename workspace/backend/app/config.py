@@ -57,7 +57,7 @@ class Config:
     # the sign-in that started it; past that the user signs in again. Bounds how
     # long a leaked session could be kept alive by renewing it.
     WORKSPACE_SESSION_MAX_AGE_DAYS: int = int(
-        os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "365")
+        os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "90")
     )
 
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an

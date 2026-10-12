@@ -309,3 +309,147 @@ class TestSessionRenewal:
         now = int(time.time())
         resp = self._renew(client, self._session(auth_time=now - 11 * 86400))
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Sign in with Apple verification — real RS256 tokens against a local key
+# ---------------------------------------------------------------------------
+#
+# Only Apple's JWKS fetch is replaced: the client hands back a PyJWK built from
+# a locally generated RSA key, exactly what PyJWKClient returns, so signature,
+# algorithm, issuer, audience and expiry checks all run for real.
+
+import base64
+import hashlib
+import hmac
+import json
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+APPLE_AUD = "org.openagents.workspace"
+APPLE_ISS = "https://appleid.apple.com"
+APPLE_KID = "test-kid"
+
+
+def _rsa_key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+_APPLE_KEY = _rsa_key()
+_OTHER_KEY = _rsa_key()
+
+
+class _FakeJWKClient:
+    def __init__(self, public_key):
+        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(public_key))
+        jwk.update({"kid": APPLE_KID, "alg": "RS256", "use": "sig"})
+        self._jwk = jwt.PyJWK.from_dict(jwk)
+
+    def get_signing_key_from_jwt(self, token):
+        return self._jwk
+
+
+@pytest.fixture
+def apple_env(monkeypatch):
+    monkeypatch.setattr(firebase_auth.config, "APPLE_CLIENT_IDS", f"{APPLE_AUD}, other.bundle")
+    fake = _FakeJWKClient(_APPLE_KEY.public_key())
+    monkeypatch.setattr(firebase_auth, "_get_apple_jwk_client", lambda: fake)
+    yield
+
+
+def _apple_payload(**over):
+    now = int(time.time())
+    payload = {
+        "iss": APPLE_ISS,
+        "aud": APPLE_AUD,
+        "sub": "001234.abcd",
+        "email": "Relay@PrivateRelay.AppleID.com",
+        "iat": now,
+        "exp": now + 600,
+    }
+    payload.update(over)
+    return {k: v for k, v in payload.items() if v is not None}
+
+
+def _apple_token(key=_APPLE_KEY, **over):
+    return jwt.encode(_apple_payload(**over), key, algorithm="RS256", headers={"kid": APPLE_KID})
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _hs256_with_public_key():
+    """Algorithm-confusion token: HS256, HMAC keyed with Apple's PUBLIC key PEM.
+    PyJWT refuses to build this itself, so it is assembled by hand."""
+    pem = _APPLE_KEY.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    header = _b64(json.dumps({"alg": "HS256", "typ": "JWT", "kid": APPLE_KID}).encode())
+    body = _b64(json.dumps(_apple_payload()).encode())
+    signing_input = f"{header}.{body}".encode()
+    sig = _b64(hmac.new(pem, signing_input, hashlib.sha256).digest())
+    return f"{header}.{body}.{sig}"
+
+
+# Both entry points verify Apple tokens; each must accept and reject alike.
+_VERIFIERS = [
+    pytest.param(lambda t: firebase_auth.verify_apple_claims(t), id="verify_apple_claims"),
+    pytest.param(lambda t: firebase_auth.verify_apple_token(t), id="verify_apple_token"),
+]
+
+
+class TestAppleVerificationReal:
+    @pytest.mark.parametrize("verify", _VERIFIERS)
+    def test_valid_token_accepted(self, apple_env, verify):
+        assert verify(_apple_token())
+
+    def test_valid_token_claims(self, apple_env):
+        claims = firebase_auth.verify_apple_claims(_apple_token())
+        assert claims["provider"] == "apple"
+        assert claims["apple_sub"] == "001234.abcd"
+        assert claims["email"].lower() == "relay@privaterelay.appleid.com"
+
+    def test_second_configured_audience_accepted(self, apple_env):
+        assert firebase_auth.verify_apple_claims(_apple_token(aud="other.bundle"))
+
+    @pytest.mark.parametrize("verify", _VERIFIERS)
+    @pytest.mark.parametrize(
+        "token_factory",
+        [
+            pytest.param(lambda: _apple_token(aud="com.attacker.app"), id="wrong-aud"),
+            pytest.param(lambda: _apple_token(iss="https://evil.example.com"), id="wrong-iss"),
+            pytest.param(
+                lambda: _apple_token(iat=int(time.time()) - 7200, exp=int(time.time()) - 3600),
+                id="expired",
+            ),
+            pytest.param(lambda: _apple_token(key=_OTHER_KEY), id="bad-signature"),
+            pytest.param(_hs256_with_public_key, id="hs256-alg-confusion"),
+            pytest.param(lambda: _apple_token(exp=None), id="no-exp"),
+            pytest.param(lambda: _apple_token(email=None), id="no-email"),
+        ],
+    )
+    def test_rejected(self, apple_env, verify, token_factory):
+        assert not verify(token_factory())
+
+    @pytest.mark.parametrize("verify", _VERIFIERS)
+    def test_empty_client_ids_rejects_everything(self, apple_env, monkeypatch, verify):
+        monkeypatch.setattr(firebase_auth.config, "APPLE_CLIENT_IDS", "")
+        assert not verify(_apple_token())
+
+    def test_apple_session_endpoint_end_to_end(self, client, session_secret, apple_env):
+        """The real verifier behind /v1/auth/apple-session; the session's email
+        is lowercased (accounts are keyed by lowercase email)."""
+        resp = client.post("/v1/auth/apple-session", json={"identity_token": _apple_token()})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["email"] == "relay@privaterelay.appleid.com"
+        raw = jwt.decode(data["session_token"], options={"verify_signature": False})
+        assert raw["email"] == "relay@privaterelay.appleid.com"
+
+    def test_apple_session_endpoint_rejects_wrong_audience(self, client, session_secret, apple_env):
+        resp = client.post(
+            "/v1/auth/apple-session", json={"identity_token": _apple_token(aud="com.attacker.app")}
+        )
+        assert resp.status_code == 401

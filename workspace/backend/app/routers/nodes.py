@@ -246,7 +246,7 @@ def node_heartbeat(
     workspace = db.execute(
         select(Workspace).where(Workspace.id == node.workspace_id)
     ).scalar_one_or_none()
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
     # Machine credential: the shared workspace token, or this node's own.
@@ -501,7 +501,7 @@ def post_command_result(
     workspace = db.execute(
         select(Workspace).where(Workspace.id == cmd.workspace_id)
     ).scalar_one_or_none()
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
     node = db.execute(select(Node).where(Node.id == cmd.node_id)).scalar_one_or_none()
     if not _machine_token_ok(x_workspace_token, workspace, node):
