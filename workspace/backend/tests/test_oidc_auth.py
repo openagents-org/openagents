@@ -28,7 +28,7 @@ from app.routers import auth as auth_router
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-ISSUER = "https://login.microsoftonline.com/test-tenant/v2.0"
+ISSUER = "https://idp.example.test/tenant"
 CLIENT_ID = "test-client"
 
 
@@ -588,6 +588,69 @@ def test_account_deletion_keeps_owned_workspace_claimable_by_email(client, db, o
 
     workspace = db.get(Workspace, workspace_id)
     assert workspace.creator_email == "owner-keep@example.test"
+
+
+def test_account_deletion_leaves_no_unowned_workspace_for_anyone_to_claim(client, db, oidc_settings):
+    # An OIDC user whose email is not verified creates the workspace without a
+    # creator_email, because an unverified address must not grant access.
+    claims = principal_from_claims({"sub": "unowned-sub", "email": "unowned@example.test"}, ISSUER)
+    token, _ = mint_workspace_session(claims)
+    created = client.post(
+        "/v1/workspaces",
+        json={"name": "Unverified Owner"},
+        cookies={"oa_oidc_session": token},
+        headers={"Origin": config.FRONTEND_BASE_URL},
+    )
+    assert created.status_code == 200
+    workspace_id = created.json()["data"]["workspaceId"]
+    db.rollback()
+    assert db.get(Workspace, workspace_id).creator_email is None
+
+    deleted = client.delete(
+        "/v1/account",
+        cookies={"oa_oidc_session": token},
+        headers={"Origin": config.FRONTEND_BASE_URL},
+    )
+    assert deleted.status_code == 200
+    db.rollback()
+    assert db.get(Workspace, workspace_id).creator_email == "unowned@example.test"
+
+    # ...so another signed-in user is not handed the workspace.
+    other_token, _ = mint_workspace_session(
+        principal_from_claims({"sub": "other-sub", "email": "other@example.test", "email_verified": True}, ISSUER)
+    )
+    claim = client.post(
+        f"/v1/workspaces/{workspace_id}/claim",
+        cookies={"oa_oidc_session": other_token},
+        headers={"Origin": config.FRONTEND_BASE_URL},
+    )
+    assert claim.status_code == 403
+
+
+def test_oidc_session_cannot_be_renewed(client, oidc_settings):
+    claims = principal_from_claims({"sub": "renew-sub", "email": "renew@example.test"}, ISSUER)
+    token, _ = mint_workspace_session(claims)
+
+    response = client.post(
+        "/v1/auth/session/renew",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_non_oidc_session_still_renews(client, oidc_settings):
+    legacy_token, _ = mint_workspace_session(
+        {"provider": "firebase", "email": "legacy@example.test", "firebase_uid": "legacy-uid", "email_verified": True}
+    )
+
+    response = client.post(
+        "/v1/auth/session/renew",
+        headers={"Authorization": f"Bearer {legacy_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["session_token"]
 
 
 def test_unverified_oidc_email_cannot_accept_email_invite(client, oidc_settings):

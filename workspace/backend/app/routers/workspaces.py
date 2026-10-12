@@ -531,9 +531,8 @@ def rotate_token(
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
     if not (workspace.password_hash and x_workspace_token == workspace.password_hash):
-        bearer = _extract_bearer(authorization)
-        claims = verify_identity_claims(bearer) if bearer else None
-        if claims and claims.get("identity_provider") == "oidc":
+        user = resolve_current_user(db, authorization)
+        if user is not None and user.oidc_issuer:
             return json_response(ResponseCode.FORBIDDEN, "OIDC users cannot rotate machine credentials")
         role = resolve_user_role(db, workspace, authorization)
         if not role_at_least(role, "owner"):

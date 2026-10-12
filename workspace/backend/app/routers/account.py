@@ -13,8 +13,10 @@ touched, so it can't be scoped to a single workspace's token.
 Scope of deletion: the verified identity is resolved to a user row, then
 workspace memberships and email-keyed access data are removed. We do NOT delete
 whole workspaces the user created, since those may hold other collaborators'
-data; their `creator_email` is left intact. A later verified sign-in may create
-a fresh account row, matching the existing deletion behavior.
+data; their `creator_email` is kept, and a workspace that has none because the
+address was unverified gets the deleted account's address back so it is not
+left ownerless. A later verified sign-in may create a fresh account row,
+matching the existing deletion behavior.
 """
 
 import logging
@@ -193,13 +195,38 @@ def delete_account(
 ):
     """Delete all data belonging to the calling user.
 
-    Removes workspace memberships and email-keyed access rows, then tombstones
-    the identity so a stale session cannot recreate the account. Idempotent.
+    Removes workspace memberships and email-keyed access rows, then deletes the
+    user row so a later verified sign-in starts a fresh account. Idempotent.
     """
     user = resolve_current_user(db, authorization)
     if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
     email_lower = user.email
+
+    # A workspace whose creator_email is null (an OIDC user with an unverified
+    # email must not have one, since the address would then grant access) would
+    # otherwise be ownerless and ownerless workspaces are claimable by the next
+    # signed-in caller. Put the address back before the account goes away, so
+    # only a verified sign-in for it can take ownership again.
+    owned_workspaces = db.execute(
+        select(WorkspaceMembership.workspace_id).where(
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.role == "owner",
+        )
+    ).all()
+    for (workspace_id,) in owned_workspaces:
+        workspace = db.get(Workspace, workspace_id)
+        if workspace is None or workspace.creator_email is not None:
+            continue
+        owner_count = db.execute(
+            select(WorkspaceMembership.user_id).where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.role == "owner",
+            )
+        ).all()
+        if len(owner_count) <= 1:
+            workspace.creator_email = email_lower
+
     memberships_deleted = (
         db.query(WorkspaceMembership).filter(WorkspaceMembership.user_id == user.id).delete(synchronize_session=False)
     )

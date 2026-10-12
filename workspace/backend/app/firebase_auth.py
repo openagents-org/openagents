@@ -305,8 +305,8 @@ def renew_workspace_session(token: str) -> Optional[tuple]:
     reaches the expiry and never has to ask the user to sign in again.
 
     Returns (token, expires_at_epoch_seconds, claims), or None when the session
-    is not ours, fails verification, has expired, or was started more than
-    WORKSPACE_SESSION_MAX_AGE_DAYS ago.
+    is not ours, fails verification, has expired, was started more than
+    WORKSPACE_SESSION_MAX_AGE_DAYS ago, or is an OIDC session.
     """
     if not workspace_session_enabled():
         return None
@@ -323,6 +323,16 @@ def renew_workspace_session(token: str) -> Optional[tuple]:
     except Exception as e:
         logger.warning("firebase_auth: workspace session renewal rejected: %s", e)
         return None
+
+    # An OIDC session is re-established by signing in again, never renewed.
+    # Renewal rebuilds its claims from the email alone, which would drop
+    # issuer/subject and hand the browser a copy of a token that is meant to
+    # live only in an HttpOnly cookie — and that then resolves through the
+    # legacy email path instead of the OIDC identity it came from.
+    if decoded.get("identity_provider") == "oidc":
+        logger.info("firebase_auth: refusing to renew an OIDC session")
+        return None
+
     email = (decoded.get("email") or "").strip().lower()
     if not email:
         return None
