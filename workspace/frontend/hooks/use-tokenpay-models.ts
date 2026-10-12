@@ -25,7 +25,7 @@ export function useTokenPayModels(enabled: boolean, apiKey: string) {
         const response = await workspaceApi.modelProbe({ provider: 'tokenpay', apiKey: key });
         if (cancelled) return;
         if (response.keyOk !== true || response.error) {
-          setResult({ key, models: EMPTY_MODELS, error: response.error || 'Unable to load TokenPay models' });
+          setResult({ key, models: EMPTY_MODELS, error: response.error || 'Unable to load TokenDance models' });
         } else {
           setResult({ key, models: response.models || EMPTY_MODELS });
         }

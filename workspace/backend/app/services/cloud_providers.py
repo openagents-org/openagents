@@ -33,6 +33,10 @@ class ProviderInfo:
     label: str
     base_url: Optional[str]   # None = OpenAI default
     models: list[ModelInfo] = field(default_factory=list)
+    # Optional picker copy: a one-line summary (en / zh) and where to get a key.
+    description: Optional[str] = None
+    description_zh: Optional[str] = None
+    key_url: Optional[str] = None
 
 
 # Built-in fallback catalog. The canonical, contributor-editable source is the
@@ -276,7 +280,8 @@ _BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
 def _load_providers_from_files() -> dict[str, ProviderInfo]:
     """Load the provider catalog from /cloud_providers/*.json.
 
-    One JSON file per provider ({name, label, base_url, order, models}) so
+    One JSON file per provider ({name, label, base_url, order, models, and
+    optional description / description_zh / key_url for the picker}) so
     contributors add or update providers without touching Python. Mirrors the
     agent registry's layout: an env override, then a walk up from this file for
     a ``cloud_providers/`` dir (matches both the in-image copy and the repo
@@ -318,6 +323,9 @@ def _load_providers_from_files() -> dict[str, ProviderInfo]:
                     ModelInfo(m["id"], m.get("category", "chat"), m.get("label", m["id"]))
                     for m in data.get("models", []) if isinstance(m, dict) and m.get("id")
                 ],
+                description=data.get("description"),
+                description_zh=data.get("description_zh"),
+                key_url=data.get("key_url"),
             ),
         ))
     entries.sort(key=lambda x: x[0])
@@ -359,6 +367,9 @@ def providers_catalog() -> list[dict]:
             "name": p.name,
             "label": p.label,
             "base_url": p.base_url,
+            "description": p.description,
+            "description_zh": p.description_zh,
+            "key_url": p.key_url,
             "models": [
                 {"id": m.id, "category": m.category, "label": m.label}
                 for m in p.models

@@ -94,7 +94,7 @@ def _save(client, workspace):
     assert response.status_code == 200, response.text
     assert KEY not in response.text
     entry = response.json()["data"]
-    assert entry["provider"] == "tokenpay" and entry["label"] == "TokenPay"
+    assert entry["provider"] == "tokenpay" and entry["label"] == "TokenDance"
     return entry["id"]
 
 
@@ -148,3 +148,18 @@ def test_cloud_provider_calls_use_configured_endpoint_and_selected_model(monkeyp
     assert seen["base_url"] == tokenpay.BASE_URL
     assert seen["api_key"] == KEY
     assert seen["request"]["model"] == "chat"
+
+
+def test_catalog_lists_tokendance_first_with_picker_copy():
+    """TokenDance (provider id `tokenpay`) leads the catalog, and every
+    provider carries the optional picker fields (None when absent)."""
+    from app.services.cloud_providers import providers_catalog
+
+    catalog = providers_catalog()
+    names = [p["name"] for p in catalog if p["name"] != "openagents"]
+    assert names[0] == "tokenpay"
+    tokendance = next(p for p in catalog if p["name"] == "tokenpay")
+    assert tokendance["label"] == "TokenDance"
+    assert tokendance["key_url"] == "https://tokendance.space/keys"
+    assert tokendance["description"] and tokendance["description_zh"]
+    assert all({"description", "description_zh", "key_url"} <= set(p) for p in catalog)

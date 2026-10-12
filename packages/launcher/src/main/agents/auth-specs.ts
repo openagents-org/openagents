@@ -509,7 +509,7 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   cursor: {
     loginCommand: "cursor-agent login",
     statusArgs: ["status"],
-    loggedOutPattern: /not logged in|logged out|signed out/i,
+    loggedOutPattern: /not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated/i,
     apiKeyEnv: "CURSOR_API_KEY",
     // Only the KEY. CURSOR_MODEL used to be wiped alongside it, from back when
     // the setup wizard could save a model Cursor no longer served and the CLI

@@ -217,11 +217,71 @@ function readRange(fd: number, start: number, end: number): Buffer {
   return read === buf.length ? buf : buf.subarray(0, read)
 }
 
-function splitLines(buf: Buffer, keep: (line: string) => boolean): string[] {
+function splitLines(buf: Buffer): string[] {
   return buf
     .toString("utf-8")
     .split("\n")
-    .filter((line) => line && keep(line))
+    .filter((line) => line)
+}
+
+/**
+ * A line that starts a log entry. Anything else — a stack frame, wrapped
+ * output — continues the entry above it, the same rule the Logs page parser
+ * uses to fold lines together.
+ */
+const ENTRY_HEAD_RE =
+  /^\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/
+
+function isEntryHead(line: string): boolean {
+  return ENTRY_HEAD_RE.test(line)
+}
+
+/**
+ * Which lines an agent filter keeps. The filter matches an entry's first line
+ * and its continuation lines go with it — matched on their own, every stack
+ * frame that does not happen to name the agent was dropped.
+ */
+interface Filtered {
+  kept: string[]
+  /** Continuation lines before the first entry head: their entry starts earlier. */
+  leading: string[]
+  /** Whether the last entry was kept; null when the lines held no entry head. */
+  lastKept: boolean | null
+}
+
+function filterEntries(
+  lines: string[],
+  matches: (head: string) => boolean,
+  keptBefore: boolean | null,
+): Filtered {
+  const kept: string[] = []
+  const leading: string[] = []
+  let state = keptBefore
+  for (const line of lines) {
+    if (isEntryHead(line)) state = matches(line)
+    else if (state === null) {
+      leading.push(line)
+      continue
+    }
+    if (state) kept.push(line)
+  }
+  return { kept, leading, lastKept: state }
+}
+
+/**
+ * Whether the entry running at byte `pos` was kept: looks back a bounded
+ * distance for its head line. An entry whose head is further back is dropped.
+ */
+function entryKeptBefore(
+  fd: number,
+  pos: number,
+  matches: (head: string) => boolean,
+): boolean {
+  const lines = splitLines(readRange(fd, Math.max(0, pos - TAIL_CHUNK), pos))
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (isEntryHead(lines[i])) return matches(lines[i])
+  }
+  return false
 }
 
 /**
@@ -233,7 +293,7 @@ function readLastLines(
   fd: number,
   size: number,
   count: number,
-  keep: (line: string) => boolean,
+  matches: ((head: string) => boolean) | null,
 ): { lines: string[]; end: number } {
   const lastChunk = readRange(fd, Math.max(0, size - TAIL_CHUNK), size)
   const lastNewline = lastChunk.lastIndexOf(0x0a)
@@ -243,6 +303,9 @@ function readLastLines(
   let lines: string[] = []
   let pos = end
   let carry = Buffer.alloc(0)
+  // Blocks are read back to front, so continuation lines at the top of a block
+  // wait here until the block before it says whether their entry was kept.
+  let pending: string[] = []
   while (pos > 0 && lines.length < count && end - pos < MAX_SCAN_BYTES) {
     const start = Math.max(0, pos - TAIL_CHUNK)
     const block = Buffer.concat([readRange(fd, start, pos), carry])
@@ -260,8 +323,19 @@ function readLastLines(
     } else {
       carry = Buffer.alloc(0)
     }
-    lines = [...splitLines(body, keep), ...lines]
+    if (!matches) {
+      lines = [...splitLines(body), ...lines]
+      continue
+    }
+    const { kept, leading, lastKept } = filterEntries(splitLines(body), matches, null)
+    if (lastKept === null) {
+      pending = [...leading, ...pending]
+      continue
+    }
+    lines = [...kept, ...(lastKept ? pending : []), ...lines]
+    pending = leading
   }
+  // Anything still pending belongs to an entry this read never reached.
   return { lines: lines.slice(-count), end }
 }
 
@@ -275,10 +349,10 @@ export function tailLogs(
   logFile: string,
   { agent, count, offset }: { agent?: string; count: number; offset: number },
 ): LogTail {
-  const keep = agent
+  const matches = agent
     ? (line: string) =>
         line.includes(agent) || line.includes("daemon") || line.includes("Daemon")
-    : () => true
+    : null
 
   let size: number
   try {
@@ -302,15 +376,20 @@ export function tailLogs(
       let body = buf.subarray(0, lastNewline + 1)
       // Skipped part of the backlog: drop the fragment the read landed in.
       if (start > offset) body = body.subarray(body.indexOf(0x0a) + 1)
-      return {
-        lines: splitLines(body, keep),
-        size: start + lastNewline + 1,
-        reset: false,
+      let lines = splitLines(body)
+      if (matches) {
+        // The read may start inside an entry whose head is behind `start`.
+        const before =
+          lines.length > 0 && !isEntryHead(lines[0])
+            ? entryKeptBefore(fd, start, matches)
+            : null
+        lines = filterEntries(lines, matches, before).kept
       }
+      return { lines, size: start + lastNewline + 1, reset: false }
     }
 
     // First read, or the file shrank under us (cleared, replaced).
-    const { lines, end } = readLastLines(fd, size, count, keep)
+    const { lines, end } = readLastLines(fd, size, count, matches)
     return { lines, size: end, reset: offset > 0 }
   } finally {
     fs.closeSync(fd)

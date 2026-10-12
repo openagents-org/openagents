@@ -89,27 +89,32 @@ class ModelProbeRequest(BaseModel):
     protocol: Optional[Literal["openai", "anthropic"]] = None
 
 
-@router.post("/model-probe")
-async def model_probe(
+def _authorize_model_probe(
     body: ModelProbeRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Tell the user their credentials work *before* they add an agent.
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    Raw-key variant used while typing a new key; saved keys use
-    POST /v1/model-access/{id}/probe instead. Semantics in
-    app.services.model_probe.
-    """
+        return None
+    finally:
+        db.close()
+
+
+@router.post("/model-probe")
+async def model_probe(body: ModelProbeRequest, error=Depends(_authorize_model_probe)):
+    """Validate against the provider after releasing the authorization session."""
     from app.services.cloud_providers import PROVIDERS
     from app.services.model_probe import probe
 
-    workspace = _resolve_workspace(db, body.network)
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    if error is not None:
+        return error
 
     provider = body.provider.strip()
     if provider != "custom" and provider not in PROVIDERS:
@@ -138,7 +143,7 @@ class AddCloudAgentRequest(BaseModel):
 
 
 @router.post("/cloud-agents")
-async def add_cloud_agent(
+def add_cloud_agent(
     body: AddCloudAgentRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -284,7 +289,7 @@ async def add_cloud_agent(
 # ---------------------------------------------------------------------------
 
 @router.get("/cloud-agents")
-async def list_cloud_agents(
+def list_cloud_agents(
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -324,7 +329,7 @@ class UpdateCloudAgentRequest(BaseModel):
 
 
 @router.patch("/cloud-agents/{agent_name}")
-async def update_cloud_agent(
+def update_cloud_agent(
     agent_name: str,
     body: UpdateCloudAgentRequest,
     db: Session = Depends(get_db),
@@ -411,37 +416,42 @@ class CloudAgentModelsRequest(BaseModel):
     network: str
 
 
-@router.post("/cloud-agents/{agent_name}/models")
-async def list_cloud_agent_models(
+def _load_cloud_model_credentials(
     agent_name: str,
     body: CloudAgentModelsRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """The models this agent's own key and endpoint serve.
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    The provider catalog lists the vendor's models, which a relay behind a
-    custom base URL may not have. The key stays server-side; semantics as
-    /v1/model-probe in list mode.
-    """
+        cfg = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == str(workspace.id),
+                CloudAgentConfig.agent_name == agent_name,
+            )
+        ).scalar_one_or_none()
+        if not cfg:
+            return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+        return cfg.provider, cfg.api_key, cfg.base_url
+    finally:
+        db.close()
+
+
+@router.post("/cloud-agents/{agent_name}/models")
+async def list_cloud_agent_models(credentials=Depends(_load_cloud_model_credentials)):
+    from starlette.responses import Response
     from app.services.model_probe import probe
 
-    workspace = _resolve_workspace(db, body.network)
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
-
-    cfg = db.execute(
-        select(CloudAgentConfig).where(
-            CloudAgentConfig.workspace_id == str(workspace.id),
-            CloudAgentConfig.agent_name == agent_name,
-        )
-    ).scalar_one_or_none()
-    if not cfg:
-        return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
-    return success_response(await probe(cfg.provider, cfg.api_key, cfg.base_url, None))
+    if isinstance(credentials, Response):
+        return credentials
+    provider, api_key, base_url = credentials
+    return success_response(await probe(provider, api_key, base_url, None))
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +459,7 @@ async def list_cloud_agent_models(
 # ---------------------------------------------------------------------------
 
 @router.delete("/cloud-agents/{agent_name}")
-async def remove_cloud_agent(
+def remove_cloud_agent(
     agent_name: str,
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),

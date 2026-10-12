@@ -618,6 +618,13 @@ export class InstallService {
 
     const run = await this._runNpm(args, prefixDir, onData)
     if (!run.success) return { success: false, version: null, error: run.error }
+    // npm exits 0 with `ignore-scripts=true` in the user's npmrc, leaving the
+    // package's placeholder where its CLI should be. See finishNpmInstall.
+    const problem = await this._finishNpmInstall(agentType, onData)
+    if (problem) {
+      if (onData) onData(`\n${problem}\n`)
+      return { success: false, version: null, error: problem }
+    }
     this._markInstalledInCore(agentType)
     return this._finishInstall(agentType, npmPkg, spec, onData)
   }
@@ -749,7 +756,64 @@ export class InstallService {
       run = await this._runNpm(args, install.prefix, onData)
     }
     if (!run.success) return { success: false, version: null, error: run.error }
+    this._warnIfPlaceholder(agentType, npmPkg, onData)
     return this._finishInstall(agentType, npmPkg, spec, onData)
+  }
+
+  /**
+   * npm exits 0 with `ignore-scripts=true` and leaves a package's placeholder
+   * as its CLI (see _finishNpmInstall). On the user's own global install that
+   * is only reported: running scripts in a prefix we do not manage is theirs
+   * to decide. Silent on a core too old to have the check.
+   */
+  private _warnIfPlaceholder(
+    agentType: string,
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): void {
+    const installer = this._connector.installer as {
+      isPostinstallStubAt?: (bin: string) => boolean
+    }
+    try {
+      if (typeof installer?.isPostinstallStubAt !== "function") return
+      const bin = this.deps.resolveBinary(agentType)
+      if (!bin || !installer.isPostinstallStubAt(bin)) return
+      onData(
+        `\nWarning: npm skipped ${npmPkg}'s install script (ignore-scripts), so ${bin} ` +
+          "is only a placeholder and will not run. Reinstall it with " +
+          `\`npm install -g ${npmPkg} --ignore-scripts=false\`, or allow install scripts for npm.\n`,
+      )
+    } catch (e) {
+      onData(`\nCould not check ${npmPkg}'s CLI after the update: ${(e as Error)?.message || e}\n`)
+    }
+  }
+
+  /**
+   * The core's check that an npm install which exited 0 left a real CLI, not
+   * the placeholder of a package whose postinstall was skipped — it runs the
+   * skipped script for that one package, and answers with what to tell the
+   * user when that fails. Null when all is well, and on a core too old to have
+   * the check.
+   */
+  private async _finishNpmInstall(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<string | null> {
+    const installer = this._connector.installer as {
+      finishNpmInstall?: (
+        type: string,
+        onData?: (d: string) => void,
+      ) => Promise<string | null>
+    }
+    try {
+      return typeof installer?.finishNpmInstall === "function"
+        ? await installer.finishNpmInstall(agentType, onData)
+        : null
+    } catch (e) {
+      if (onData)
+        onData(`\nCould not check the installed CLI: ${(e as Error)?.message || e}\n`)
+      return null
+    }
   }
 
   /**
