@@ -133,6 +133,15 @@ def _pairs(client, ws, viewer):
 # ---------------------------------------------------------------------------
 
 class TestDirectMessages:
+    def test_self_dm_saves_reloads_and_is_private_to_sender(self, client, workspace, people, db, pushes):
+        address = f"human:{MIA}"
+        _dm(client, workspace, by="mia", to=address, content="personal note")
+        assert _conv(client, workspace, "mia", address, address) == ["personal note"]
+        assert [address, address] in _pairs(client, workspace, "mia")
+        assert _conv(client, workspace, "adam", address, address) == []
+        assert [address, address] not in _pairs(client, workspace, "adam")
+        assert _notifs(db, kind="dm") == []
+
     def test_dm_is_attributed_to_signed_in_sender(self, client, workspace, people, db, pushes):
         data = _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="hi adam")
         assert data["source"] == f"human:{MIA}"
@@ -402,3 +411,63 @@ class TestSignalsNotInbox:
         _dm(client, workspace, by="mia", to=f"human:{ADAM}", content="ping")
         client.patch(f"/v1/notifications/read-all?network={workspace['id']}", headers=_as("adam", workspace))
         assert self._list(client, workspace, "adam", "&kinds=dm&is_read=false")["unread_count"] == 1
+
+
+def test_conversation_unread_counts_incoming_messages_since_read(client, workspace, people, db):
+    import json
+    me, other = f"human:{ADAM}", f"human:{MIA}"
+    agent = "openagents:agent-alpha"
+    for source, target, ts, event_type in [
+        (other, me, 100, "workspace.message.posted"),
+        (other, me, 200, "workspace.message.posted"),
+        (other, me, 201, "workspace.message.posted"),
+        (me, other, 202, "workspace.message.posted"),
+        (other, me, 203, "workspace.user.heartbeat"),
+        (agent, me, 204, "workspace.message.posted"),
+        (other, f"human:{VIC}", 205, "workspace.message.posted"),
+    ]:
+        db.add(EventRecord(id=str(uuid.uuid4()), network_id=workspace['id'], source=source,
+                           target=target, timestamp=ts, type=event_type, visibility="direct", payload={"content": "test"}))
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=workspace['id'], source=agent,
+                       target=me, timestamp=206, type="workspace.message.posted", visibility="direct",
+                       payload={"content": "Thinking…", "message_type": "thinking"}))
+    db.commit()
+    pair_id = lambda a, b: 'dm:' + ','.join(sorted([a, b]))
+    markers = {pair_id(me, other): 100, pair_id(me, agent): 100}
+    r = client.get('/v1/events/conversations', params={'network': workspace['id'], 'read_at': json.dumps(markers)}, headers=_as('adam', workspace))
+    assert r.status_code == 200, r.text
+    rows = {pair_id(*c['agents']): c for c in r.json()['data']['conversations']}
+    assert rows[pair_id(me, other)]['unread_count'] == 2
+    assert rows[pair_id(me, agent)]['unread_count'] == 1
+    assert rows[pair_id(me, other)]['read_at'] == 100
+    assert pair_id(other, f'human:{VIC}') not in rows
+    markers = {key: 300 for key in markers}
+    r = client.get('/v1/events/conversations', params={'network': workspace['id'], 'read_at': json.dumps(markers)}, headers=_as('adam', workspace))
+    assert all(c['unread_count'] == 0 for c in r.json()['data']['conversations'])
+    r = client.get('/v1/events/conversations', params={'network': workspace['id'], 'read_at': '[]'}, headers=_as('adam', workspace))
+    assert r.status_code == 400
+
+@pytest.mark.parametrize('visibility', ['workspace', 'private'])
+def test_all_notifies_only_joined_people_without_waking_agents(client, workspace, people, db, pushes, visibility):
+    from app.models import Channel, ChannelHumanMember
+    _thread(client, workspace, name='all-ping', by='adam', visibility=visibility)
+    channel = db.query(Channel).filter_by(workspace_id=workspace['id'], name='all-ping').one()
+    db.add(ChannelHumanMember(channel_id=channel.id, user_email=MIA))
+    db.commit()
+    targets = _post_plain(client, workspace, channel='all-ping', by='adam', content='@All please read')
+    assert not targets or targets == ['__no_response__']
+    assert len(_notifs(db, recipient_email=MIA, kind='mention')) == 1
+    assert not _notifs(db, recipient_email=VIC, kind='mention')
+    assert not _notifs(db, recipient_email=ADAM, kind='mention')
+    # Explicit and all mentions do not duplicate the notification.
+    _post_plain(client, workspace, channel='all-ping', by='adam', content=f'@all @{MIA} update', mentioned=[MIA])
+    assert len(_notifs(db, recipient_email=MIA, kind='mention')) == 2
+
+
+@pytest.mark.parametrize('content,expected', [
+    ('@all', True), ('@All hello', True), ('hello @ALL!', True), ('@all.', True),
+    ('hello@all.com', False), ('@all@example.com', False), ('@all-team', False), ('@allison', False),
+])
+def test_all_token_boundaries(content, expected):
+    from app.services.people_notify import has_all_mention
+    assert has_all_mention(content) is expected

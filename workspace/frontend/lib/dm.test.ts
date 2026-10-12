@@ -51,3 +51,11 @@ describe('dmCounterpart', () => {
     expect(dmPair('x')).toEqual([]);
   });
 });
+
+it('keeps a self DM writable and uses the same pair when reopening it', () => {
+  const me = 'human:maya@example.com';
+  const session = dmSessionId(me, me);
+  expect(dmPair(session)).toEqual([me, me]);
+  expect(dmCounterpart(session, me)).toBe(me);
+  expect(dmCounterpart(session, 'human:sam@example.com')).toBeNull();
+});

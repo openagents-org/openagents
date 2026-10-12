@@ -5,6 +5,41 @@ import type { Messages } from './en-US';
  * one that no longer exists in English — fails the build.
  */
 export const messages: Messages = {
+  artifactPanel: {
+    title: '产物',
+    document: '文档',
+    html: 'HTML 页面',
+    browser: '浏览器标签页',
+    open: '打开产物预览',
+    close: '关闭产物预览',
+    browse: '浏览产物',
+    pin: '设为会话默认产物',
+    unpin: '取消固定默认产物',
+    pinnedHint: '已固定 · 进入会话时自动打开',
+    pinnedNotice: '已固定默认产物',
+    unpinnedNotice: '已取消固定默认产物',
+    unavailable: '此产物不可用，或你没有访问权限。',
+    intro: '在对话旁查看文档、仪表盘和实时浏览器操作。',
+    ownerHint: '打开并固定产物，即可设为此会话的默认预览。固定不会改变访问权限。',
+    search: '搜索产物…',
+    workspace: '所有工作区产物',
+    thread: '会话与实时标签页',
+    empty: '此会话中的文档和 HTML 页面会显示在这里。也可以选择工作区中的产物。',
+    refresh: '刷新预览',
+    failed: '无法更新默认产物。',
+    download: '下载文件',
+  },
+
+  'approvals.kinds.agentAccess': '智能体访问',
+  'knowledge.folder': '文件夹',
+  'knowledge.rootFolder': '知识库根目录',
+  'knowledge.newFolder': '新建文件夹',
+  'knowledge.parentFolder': '上级文件夹',
+  'knowledge.folderName': '文件夹名称',
+  'knowledge.folderHint': '所有人都能看到文件夹。私有条目仅对有权限的人可见。',
+  'resourceLinks.unavailable': '此条目不可用，或你没有访问权限。',
+  'resourceLinks.copyFailed': '无法复制链接，请重试。',
+
   metadata: {
     title: 'OpenAgents 工作区',
     description: '实时与你的 AI 智能体协作',
@@ -54,17 +89,20 @@ export const messages: Messages = {
   },
 
   issues: {
+    searchAssignees: "搜索成员或你的智能体…", noAssignees: "没有匹配的负责人", labelName: "标签名称",
+    paused: '已暂停', assignee: '负责人', unassigned: '未分配', labels: '标签', addLabel: '添加标签', removeLabel: '移除 {label}',
     editHint: "更改将与议题的所有参与者共享。",
     allIssues: "全部议题",
     noMatchesHint: "试试其他关键词或更改状态筛选。",
     emptyColumn: "暂无议题",
     latestReply: "最新回复",
     details: "详情",
+    addParticipantsHint: "将成员和智能体添加到议题，然后在评论中 @提及已添加的智能体来分配工作。",
+    addParticipantsButton: "添加到议题",
     participants: "参与者",
     workspaceIssue: "工作区议题",
     openedIssue: "创建了此议题",
-    noAgentWork: "准备推进时，邀请智能体参与。",
-    noTasks: "明确下一步后，创建具体任务。",
+    noAgentWork: "添加智能体后，在评论中 @提及它来启动工作。",
 
     workStarted: '已启动智能体工作',
     copyLink: '复制议题链接',
@@ -102,30 +140,16 @@ export const messages: Messages = {
     mentionPerson: "成员",
     mentionAgent: "智能体",
     noMentionMatches: "没有匹配的成员或智能体",
-    commentHint: "输入 @ 提及成员或智能体。",
+    commentShortcut: '⌘ Enter（Mac）/ Ctrl Enter（Windows）',
+    commentHint: "在评论中 @提及议题中的智能体来启动工作，其他评论仅用于讨论。",
     postComment: "发表评论",
     resolveHint: "审阅成果后，在问题解决时关闭议题。之后可以重新打开。",
     agentWork: "智能体工作",
-    bringAgent: "邀请智能体",
     linkThread: "关联会话",
     shareResult: "将成果分享到讨论",
     shared: "已分享到讨论",
-    scopedTasks: "具体任务",
-    addTask: "添加任务",
-    agentHint: "使用议题描述和最近的讨论作为背景，启动关联会话。",
-    chooseAgents: "选择智能体",
-    noAgents: "请先连接智能体。在此期间，您可以继续讨论。",
-    online: "在线",
-    offline: "离线",
-    instruction: "希望它们做什么？",
-    instructionPlaceholder: "例如：调查问题并提出解决思路。",
     selectThread: "选择会话",
-    existingTask: "已有任务",
-    newTask: "创建新任务",
-    taskScope: "范围与完成标准",
-    taskScopePlaceholder: "描述具体成果以及如何判断任务已完成。",
-    taskHint: "任务将添加到看板。明确范围后，再分配并启动任务。",
-    startWork: "启动智能体工作",
+    removeAgent: "从议题中移除 {name}",
   },
 
   views: {
@@ -144,9 +168,15 @@ export const messages: Messages = {
   },
 
   nav: {
+    unreadMessages: '{count} 条未读消息',
+    memberOnline: '在线',
+    members: '成员',
+    newHumanDM: '新建私信',
+    searchMembers: '按姓名或邮箱搜索…',
+    noMembersFound: '未找到成员',
     thisComputer: '此电脑',
     collaboration: '协作',
-    agentsWithCount: '智能体({online}/{total})',
+    agentsWithCount: '我的智能体({online}/{total})',
     onlineWithCount: '在线({count})',
     you: '{name}(你)',
     workspaceFallback: '工作区',
@@ -160,10 +190,44 @@ export const messages: Messages = {
     collapseSidebar: '收起侧边栏',
   },
 
+  threadSettings: {
+    sharingNo: "不允许",
+    sharingYes: "允许",
+    sharingApproval: "需要批准",
+
+    owner: '话题所有者',
+    workspaceOwned: '工作区',
+    shareMyAgents: '允许队友使用你的智能体',
+    membersCanAddAgents: '允许成员添加智能体',
+    people: '话题中的成员',
+    agents: '话题中的智能体',
+    remove: '从话题中移除 {name}',
+    removeFailed: '无法移除此参与者。',
+    title: '话题设置',
+    description: '管理智能体的响应方式和话题访问权限。',
+    visibility: '话题可见性',
+  },
+  responseMode: {
+    routerUnavailable: '主动路由暂不可用。请以 @智能体名称 开头发送消息以请求回复。',
+    label: '智能体回复',
+    proactive: '主动',
+    passive: '被动',
+    proactiveHint: 'AI 判断消息是否需要智能体回复，并选择合适的智能体。发给人的消息不会触发智能体。',
+    passiveHint: '以 @智能体名称 开头才会触发该智能体。其他消息不会触发回复。',
+    saveFailed: '无法保存回复模式，请重试。',
+  },
+
   header: {
     clickToRename: '点击可重命名',
     untitledThread: '会话',
     readOnly: '只读',
+    participantCount: '{people} 位成员，{agents} 个智能体',
+    viewPeople: '{count} 位成员 — 查看列表',
+    viewAgents: '{count} 个智能体 — 查看列表',
+    threadPeople: '此话题中的成员',
+    threadAgents: '此话题中的智能体',
+    noThreadPeople: '暂无成员加入此话题。',
+    noThreadAgents: '暂无智能体加入此话题。',
   },
 
   search: {
@@ -234,8 +298,10 @@ export const messages: Messages = {
     stepperChoose: '选择',
     stepperConnect: '连接设备',
     stepperStart: '添加智能体',
-    allSetTitle: '一切就绪!',
-    allSetBody: '你的智能体已上线。在下方发送消息即可开始协作。',
+    allSetTitle: '开始对话',
+    conversationWith: '与 {name} 开始对话',
+    humanConversationBody: '发送消息打个招呼，或分享你的想法。',
+    allSetBody: '提出问题、分享想法，或描述你需要完成的任务。',
     backToAgents: '返回智能体列表',
     title: '连接你的第一个智能体',
     subtitle: '选择一个你已安装的智能体,或挑选一个来配置。',
@@ -348,6 +414,12 @@ export const messages: Messages = {
   },
 
   share: {
+    chooseType: '分享此会话的链接，或创建只读快照。',
+    threadLink: '会话链接',
+    copyThreadLink: '复制会话链接',
+    threadLinkHint: '已有访问权限的人可通过此链接打开实时会话。链接不会更改谁可以查看或加入会话。',
+    threadUnavailable: '此会话不可用，或你没有访问权限。',
+    snapshot: '公开快照',
     title: '分享对话',
     description: '为该对话创建一个公开的快照链接,任何拿到链接的人都可以查看。',
     snapshotNote: '快照包含全部聊天消息,不含内部工具调用和思考步骤。',
@@ -448,6 +520,8 @@ export const messages: Messages = {
   },
 
   workflows: {
+    experimentalTitle: "实验性功能",
+    experimentalBody: "工作流仍在完善中，请检查每次运行的结果。",
     newWorkflow: '新建工作流',
     emptyTitle: '还没有工作流',
     emptyBody: '创建一个可复用的模板，定义智能体如何协作完成任务。',
@@ -806,6 +880,7 @@ export const messages: Messages = {
     inviteMembers: '邀请成员',
     sendFeedback: '意见反馈',
     workspaceSettings: '工作区设置',
+    personalSettings: '个人设置',
     signIn: '登录',
     signOut: '退出登录',
     signOutTitle: '确认退出登录?',
@@ -856,6 +931,44 @@ export const messages: Messages = {
   },
 
   approvals: {
+    yourApprovalRecorded: '已记录你的批准，正在等待其余审批人。',
+    waitingReviewers: '正在等待 {people} 的批准。',
+
+    verdictMember: "指定成员",
+    chooseMember: "选择成员",
+    specificMemberHint: "必须由此成员批准。如果其他策略要求额外的审批人，也需要他们的批准。",
+    advisoryWarning: "审批策略仅供智能体遵循，尚未强制执行",
+    pendingTab: "待审批",
+    reviewedBy: "已批准：{people}",
+
+    "customTitle": "你的策略",
+    "customHint": "从模板添加策略或编写自己的条件。多个策略适用时，采用最严格的要求。",
+    "addPolicy": "添加策略",
+    "templates": "从模板开始",
+    "noCustomPolicies": "尚未添加策略。选择模板或编写自己的策略。",
+    "condition": "适用条件",
+    "conditionPlaceholder": "例如：对生产基础设施或面向客户的服务进行任何更改。",
+    "requirement": "审批要求",
+    "removePolicy": "删除策略 {number}",
+    "customEvaluation": "代理请求审批时会评估条件。无法排除适用的条件时，会保留该条件的限制。保存的策略未覆盖的操作可以自动执行。保存后对新请求生效。代理执行操作前仍须主动请求审批。",
+    "template": {
+      "production": {
+        "title": "生产变更",
+        "description": "对生产基础设施、配置或面向客户的服务进行任何更改。"
+      },
+      "spending": {
+        "title": "超过 100 美元的支出",
+        "description": "预计总费用超过 100 美元的购买、付费 API 使用或订阅。"
+      },
+      "customers": {
+        "title": "客户沟通",
+        "description": "向客户发送消息或代表公司发布内容。"
+      },
+      "sensitive": {
+        "title": "敏感数据",
+        "description": "向工作区外部共享密码、API 密钥或客户个人数据。"
+      }
+    },
     requested: '请求审批',
     needs: '需要{role}',
     roleAny: '任一成员',
@@ -881,7 +994,7 @@ export const messages: Messages = {
     nonePending: '目前没有需要你处理的事项。',
     openThread: '打开会话',
     policyTitle: '权限策略',
-    policyHint: '适用于本工作区的所有智能体。每类操作要么直接放行，要么暂停等待指定角色的人审批，要么被直接阻止。',
+    policyHint: '选择适用于本工作区智能体的策略。模板只有在添加并保存后才会生效。',
     colAction: '操作',
     colPolicy: '策略',
     colSource: '来源',
@@ -897,6 +1010,7 @@ export const messages: Messages = {
     saveFailed: '无法保存策略',
     reset: '恢复默认',
     kinds: {
+      service_request: "启动服务任务",
       deploy: '部署',
       spend: '花费',
       external_send: '对外发送',
@@ -905,33 +1019,16 @@ export const messages: Messages = {
       data_delete: '删除数据',
       shell: '执行命令',
       generic: '其他',
-      help: '提问',
-      proposal: '提议',
     },
-    // v1.1 上报卡片：help = 向智能体所有者提问，proposal = 提议修改其共享指令
-    helpAsksYou: '{agent} 向你提问',
-    helpAsks: '{agent} 向 {who} 提问',
-    proposalTitle: '{agent} 提议修改其共享指令',
-    proposedText: '提议的指令',
-    addressedTo: '发给 {who}',
     onBehalfOf: '处理 {who} 的请求时提出',
-    answer: '回答',
-    answerPlaceholder: '给 {agent} 的回答…',
-    answerRequired: '请先输入回答。',
-    declineHelp: '不作答',
     accept: '采纳',
-    declineProposal: '不采纳',
-    answeredBy: '{who} 已回答',
-    declinedBy: '{who} 未作答',
-    acceptedBy: '{who} 已采纳',
-    notAdoptedBy: '{who} 未采纳',
     assigneeHint: '此事项发给 {who} 处理。',
   },
 
   admin: {
     navApprovals: '审批',
     approvalsTitle: '审批',
-    approvalsDescription: '智能体执行，人在关键处把关。设置哪些操作需要暂停等待人工审批，以及由谁来批准。',
+    approvalsDescription: '这些策略是给智能体的建议，并非强制执行的控制措施。它们依赖智能体主动请求审批；如果智能体跳过请求，仍然可以执行操作。',
     title: '工作区管理',
     backToWorkspace: '返回工作区',
     loading: '正在加载工作区…',
@@ -939,6 +1036,7 @@ export const messages: Messages = {
     retry: '重试',
     accessDeniedTitle: '无权访问',
     accessDeniedBody: '你没有权限访问此工作区的设置。',
+    adminRequired: '只有工作区所有者和管理员才能访问这些设置。',
     readOnlyBanner: '你当前的角色是 {role}。只有所有者或管理员才能修改这些设置。',
     roleBadgeToken: '令牌访问',
     roleOwner: '所有者',
@@ -1120,7 +1218,7 @@ export const messages: Messages = {
     invitedAs: '你被邀请以 {role} 角色加入。',
     boundTo: '此邀请发给 {email}',
     signInToAccept: '登录以接受邀请',
-    signInHint: '使用你的 Google 或 Apple 账号登录即可加入此工作区。',
+    signInHint: '登录 OpenAgents 即可加入此工作区。',
     join: '加入 {workspace}',
     signedInAs: '当前登录：{email}。',
     switchAccount: '使用其他账号',
@@ -1134,6 +1232,17 @@ export const messages: Messages = {
   },
 
   threads: {
+    tabChannels: '频道',
+    channel: '频道',
+    markAsChannel: '标记为频道',
+    convertToThread: '转为对话',
+    emptyChannels: '暂无频道。可在对话菜单中将长期讨论标记为频道。',
+    channelLabelFailed: '无法更改频道标签。仅对话所有者或参与对话的管理员可更改。',
+
+    pinFailed: "无法更新置顶，请重试。",
+    pin: '置顶',
+    unpin: '取消置顶',
+    pinned: '已置顶',
     title: '会话列表',
     unreadCount: '{count} 条未读',
     unread: '未读',
@@ -1181,7 +1290,20 @@ export const messages: Messages = {
 
   newThread: {
     title: '新建会话',
-    descriptionMulti: '选择要加入这个会话的智能体。',
+    descriptionMulti: '选择要加入这个会话的团队成员和智能体。',
+    teammates: '成员',
+    all: '全部',
+    selected: '已选',
+    agent: '智能体',
+    search: '搜索成员或智能体…',
+    filterParticipants: '筛选参与者',
+    participants: '参与者',
+    selectionSummary: '已选 {people} 位成员 · {agents} 个智能体',
+    deselectAgents: '取消选择所有智能体',
+    noneSelected: '选择要加入的成员或智能体。',
+    noResults: '没有匹配的成员或智能体。',
+    agents: '智能体',
+    createError: '无法创建会话，请重试。',
     descriptionSingle: '与你的智能体开始一段新对话。',
     allSelected: '已选择全部智能体',
     selectAll: '全选智能体',
@@ -1425,8 +1547,9 @@ export const messages: Messages = {
     yumiAdded: '已添加 Yumi',
 
     // 节点（连接设备）
-    nodeHeading: '已连接的设备',
-    nodeSubtitle: '运行 OpenAgents 桌面应用并已配对到此工作区的设备。',
+    nodeHeading: '我连接的设备',
+    nodeSubtitle: '你在此工作空间的私有设备连接。通过这些连接添加的智能体归你所有，默认不与他人共享。',
+    nodePrivateConnection: '私有连接 · 只有你可以管理此设备',
     nodeEmptyTitle: '尚未连接任何设备',
     nodeEmptyBody: '连接一台设备，即可在你自己的机器或服务器上运行智能体。',
     nodeConnect: '连接设备',
@@ -1466,7 +1589,7 @@ export const messages: Messages = {
     nodeCodeCopied: '已复制配对码',
     nodeCopyCommand: '复制命令',
     nodePairingFailed: '生成配对码失败',
-    nodePairingForbidden: '只有所有者或管理员才能连接设备',
+    nodePairingForbidden: '请以工作空间成员身份登录后连接你的设备',
     nodeDone: '完成',
     nodeDeviceServer: '服务器',
     nodeDeviceLaptop: '笔记本',
@@ -1511,7 +1634,7 @@ export const messages: Messages = {
     nodeAgentStatusStopped: '已停止',
     nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
     nodeCommandFailed: '无法排队该命令。',
-    nodeCommandForbidden: '只有所有者或管理员才能管理设备的智能体。',
+    nodeCommandForbidden: '只有连接所有者可以管理其智能体。',
     nodeOfflineActionHint: '设备已离线 — 将在重新连接后执行。',
     nodeRemoveAgentTitle: '移除智能体？',
     nodeRemoveAgentBody: '这将停止并从设备移除 “{name}”。',
@@ -1616,7 +1739,7 @@ export const messages: Messages = {
     nodeRemoveBody: '这将取消该设备的配对，并在工作区中忘记其智能体。设备上的桌面应用不会自动重新连接 — 如需恢复，请使用新的配对码重新配对。',
     nodeRemoved: '已移除设备。',
     nodeRemoveFailed: '无法移除该设备。',
-    nodeRemoveForbidden: '只有所有者或管理员才能移除设备。',
+    nodeRemoveForbidden: '只有连接所有者可以断开此设备。',
     nodeToggleDetails: '展开或收起详情',
 
     cloudAgentAddButton: '添加智能体',
@@ -1742,9 +1865,7 @@ export const messages: Messages = {
     // v1.1 可操作的通知行（在收件箱内直接审批 / 回答 / 采纳）
     needsYou: '待你处理',
     updates: '动态',
-    chipHelp: '待你回答',
     chipApproval: '待审批',
-    chipProposal: '提议',
     chipDone: '已处理',
     expand: '展开请求',
     collapse: '收起请求',
@@ -2341,7 +2462,13 @@ export const messages: Messages = {
 
   // ── v1.1 M1/M2 — 私密线程、个人智能体、共享、智能体目录 ──────────────────
   collab: {
-    viewAgents: '智能体',
+    shared: "已共享",
+    requestApprovalTitle: "逐个审批新任务",
+    requestApprovalHint: "新请求须由所选成员批准后才会发送给此智能体。每个新请求都需要单独审批。",
+    requestApprovalOff: "无需审批",
+    experimentalTitle: "实验性功能",
+    experimentalHint: "共享智能体服务处于预览阶段，功能和行为可能会发生变化。",
+    viewAgents: '服务',
 
     // 线程可见性（状态栏锁形按钮、线程列表、新建线程对话框）
     workspaceThread: '全员可见',
@@ -2394,7 +2521,7 @@ export const messages: Messages = {
     ownerSaved: '所有者已更新',
     visibilitySaved: '可见范围已更新',
     saveFailed: '保存失败',
-    saveForbidden: '只有所有者或管理员可以修改',
+    saveForbidden: '只有智能体所有者可以修改',
     personalNeedsOwner: '请先设置所有者，再把智能体设为个人',
     device: '设备',
     cloud: '云端',
@@ -2402,7 +2529,7 @@ export const messages: Messages = {
 
     // 分享对话框
     shareTitle: '分享这个线程',
-    shareDescription: '选择分享的程度——一份静态副本，还是直接邀请对方加入。',
+    shareDescription: '分享只读快照，或让队友使用智能体。',
     shareSnapshot: '分享只读快照',
     shareSnapshotHint: '生成一个公开链接，指向消息的静态副本。对方不能回复，也不能使用智能体。',
     shareInvite: '邀请同事加入这个线程',
@@ -2445,11 +2572,11 @@ export const messages: Messages = {
     back: '返回',
 
     // 智能体目录
-    directoryTitle: '智能体',
+    directoryTitle: '共享智能体服务',
     directorySubtitle: '可以把工作交给的团队专家',
     directoryEmpty: '还没有可显示的智能体。连接一个，或者请同事分享他们的。',
     directoryLoadFailed: '无法加载智能体目录',
-    searchPlaceholder: '搜索智能体…',
+    searchPlaceholder: '搜索服务…',
     pinned: '已置顶',
     pin: '置顶',
     unpin: '取消置顶',
@@ -2490,7 +2617,7 @@ export const messages: Messages = {
     profileSaved: '简介已保存',
     profileSaveFailed: '无法保存简介',
     grantsSection: '谁可以使用这个智能体',
-    grantsEmpty: '目前只有你和工作区管理员。',
+    grantsEmpty: '目前只有你可以使用此智能体。',
     grantsAdd: '添加',
     grantRevoke: '撤销',
     grantRevoked: '已撤销 {email} 的访问权限',
@@ -2516,16 +2643,6 @@ export const messages: Messages = {
     runTestRequestHint: '打开你和 {agent} 的线程，并把第一条示例请求填进输入框。',
     runTestRequestNeedsExample: '请先添加一条示例请求。',
     profileLoadFailed: '无法加载完整简介',
-    proposalsSection: '待审改动',
-    proposalsHint: '同事提出的修正。接受后会把文本追加到共享指令里。',
-    proposalsEmpty: '没有待审的提议。',
-    proposalsLoadFailed: '无法加载提议',
-    proposalAccept: '接受',
-    proposalDecline: '拒绝',
-    proposalAccepted: '已接受提议，共享指令已更新',
-    proposalDeclined: '已拒绝提议',
-    proposalResolveFailed: '无法处理这条提议',
-    proposalFrom: '来自 {channel}',
 
     // 邀请页 — 带目标的邀请
     inviteTargetChannel: '接受后你会直接进入线程"{title}"。',
@@ -2607,6 +2724,20 @@ export const messages: Messages = {
 
   // ── v1.1 权限模型 — 线程私密/公开、所有者、加入、共享对话框 ──
   threadAccess: {
+    addPeople: '添加成员',
+    addAgents: '添加智能体',
+    choosePeople: '选择成员…',
+    chooseAgents: '选择智能体…',
+    addPeopleHint: '将队友添加到此话题。',
+    addAgentsHint: '将智能体添加到此话题。',
+    addParticipants: '添加成员或智能体',
+    addParticipantsHint: '将团队成员或智能体添加到此会话。他们可以阅读消息并参与讨论。',
+    addParticipantsPlaceholder: '选择成员或智能体…',
+    addParticipantsButton: '添加到会话',
+    addingParticipants: '正在添加…',
+    addedParticipants: { one: '已添加 {count} 位参与者', other: '已添加 {count} 位参与者' },
+    addFailed: '无法将 {name} 添加到此会话',
+    addForbidden: '会话所有者决定谁可以添加参与者。',
     private: '私密',
     public: '公开',
     privateHint: '只有所有者及其邀请的成员、智能体和安全组可以看到此线程。',
@@ -2632,7 +2763,7 @@ export const messages: Messages = {
     joinFailed: '无法加入此线程',
     notJoinedHint: '你可以阅读这个公开线程。加入后即可参与。',
     newThreadVisibility: '谁可以看到此线程',
-    newThreadPrivateHint: '只有你以及你邀请的成员、智能体和安全组。之后可以改为公开。',
+    newThreadPrivateHint: '只有你以及你选择的团队成员和智能体。之后可以改为公开。',
     newThreadPublicHint: '工作区中的所有人都可以查看并加入。',
     shareWithGroups: '与安全组共享',
     shareWithGroupsHint: '可选 — 线程创建后这些安全组即可访问。',
@@ -2726,6 +2857,9 @@ export const messages: Messages = {
   },
 
   // ── 权限模型 v1.1 ── “谁可以使用这个智能体”（取代 个人/团队）
+  reactions: {
+    reply: "回复", add: '添加表情回应', choose: '选择表情', count: '{emoji} · {count} 人回应', failed: '无法保存表情回应，请重试。' },
+  services: { title: '共享智能体服务', subtitle: '与你共享的可复用服务。每项服务都有独立的指令和使用者。', experimental: '实验功能 — 服务及其行为可能会调整。', create: '创建服务', edit: '编辑服务', name: '服务名称', agent: '运行此服务的智能体', description: '描述', instructions: '服务指令', examples: '请求示例（每行一条）', inputs: '请求者需要提供的信息', approver: '审批每个请求', noApproval: '无需审批', audience: '谁可以使用此服务', save: '保存服务', request: '发起请求', search: '搜索服务…', empty: '还没有与你共享的服务。', sharing: '共享', agentSharing: '共享智能体', agentSharingHint: '直接访问允许他人与该智能体聊天并将其加入讨论。服务使用者在“服务”中单独管理。', owner: '所有者', failed: '操作失败，请重试。', requestPlaceholder: '描述你需要此服务完成的工作…', },
   agentAccess: {
     title: '谁可以使用这个智能体',
     everyone: '所有人',
@@ -2777,6 +2911,12 @@ export const messages: Messages = {
 
   // 人与人之间的消息：在会话中 @ 成员、成员之间的私信。
   peopleMessaging: {
+    selfDmTitle: "给自己的消息",
+    selfDmBody: "在这里保存笔记、链接和文件，方便以后查看。",
+    selfDmHint: "只有你能看到这段对话。",
+
+    mentionName: "提及 {name}",
+    mentionAllHint: '通知此会话中的所有人',
     mentionPeople: '成员',
     personTag: '成员',
     dmPersonHint: '只有你和 {name} 能看到这段对话。',

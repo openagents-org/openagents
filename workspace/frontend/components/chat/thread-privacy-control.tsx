@@ -1,7 +1,7 @@
 'use client';
 
 // ── v1.1 — thread access on the status bar ───────────────────────────────────
-// "Private · N people" / "Public" for the open thread, plus its owner. The
+// "Private" / "Public" for the open thread, plus its owner. The
 // owner (or an admin) may flip Private ↔ Public and switch "participants can
 // add people"; everyone else just reads the state. A public thread the viewer
 // has not joined shows a Join button (POST /channels/{name}/join). Legacy
@@ -12,15 +12,15 @@ import { ChevronDown, Globe, Loader2, Lock, LogIn } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMe } from '@/hooks/use-me';
+import { useThreadAccess } from '@/hooks/use-thread-access';
+import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { workspaceApi } from '@/lib/api';
 import { apiErrorStatus, displayNameFromEmail } from '@/lib/collab';
 import {
@@ -39,42 +39,39 @@ export function threadPrivacyApplies(channelName: string | null | undefined): bo
   return !channelName.startsWith('dm:') && !channelName.startsWith('routine:') && !channelName.startsWith('task:');
 }
 
-export function ThreadPrivacyControl({ channelName, className }: { channelName: string; className?: string }) {
+export function ThreadPrivacyControl({ channelName, className, inDialog = false, joinOnly = false }: { channelName: string; className?: string; inDialog?: boolean; joinOnly?: boolean }) {
   const { sessions, setSessionVisibility, workspace, refreshAgents } = useWorkspace();
   const t = useT();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
+  const access = useThreadAccess(channelName);
   const session = sessions.find((s) => s.sessionId === channelName);
   const hasSession = !!session;
   const visibility: ThreadVisibility = normalizeThreadVisibility(session?.visibility);
 
   const [participants, setParticipants] = useState<ChannelParticipants | null>(null);
-  const [canInvite, setCanInvite] = useState<boolean>(!!session?.participantsCanInvite);
   const [busy, setBusy] = useState(false);
   const [joining, setJoining] = useState(false);
 
-  // Participants drive the people count, the owner's display name and the
+  // Participants drive the owner's display name and the
   // "have I joined?" check; fetched when the thread or its visibility
   // changes, never on every discovery poll.
   const loadParticipants = useCallback(async () => {
     try {
       const p = await workspaceApi.getChannelParticipants(channelName);
       setParticipants(p);
-      if (typeof p.participants_can_invite === 'boolean') setCanInvite(p.participants_can_invite);
     } catch {
-      /* count stays unknown; the label degrades to "Private" / "Public" */
+      /* Keep the last known participant details when refreshing fails. */
     }
   }, [channelName]);
 
   useEffect(() => {
     setParticipants(null);
-    setCanInvite(!!session?.participantsCanInvite);
     if (!hasSession) return;
     let cancelled = false;
     workspaceApi.getChannelParticipants(channelName)
       .then((p) => {
         if (cancelled) return;
         setParticipants(p);
-        if (typeof p.participants_can_invite === 'boolean') setCanInvite(p.participants_can_invite);
       })
       .catch(() => { /* see loadParticipants */ });
     return () => { cancelled = true; };
@@ -87,38 +84,21 @@ export function ThreadPrivacyControl({ channelName, className }: { channelName: 
   const ownerRecord = ownerEmail ? participants?.humans.find((h) => h.email.toLowerCase() === ownerEmail) : undefined;
   const ownerName = ownerEmail ? (ownerRecord?.display_name || displayNameFromEmail(ownerEmail)) : null;
   const isOwner = !!me?.email && !!ownerEmail && me.email.toLowerCase() === ownerEmail;
-  const manage = canManageThread(me, ownerEmail);
+  const manage = !!access?.can_manage;
   const isPrivate = visibility === 'private';
-  const humanCount = participants?.humans.length ?? null;
   const label = isPrivate
-    ? (humanCount != null ? t('threadAccess.privateWithCount', { count: humanCount }) : t('threadAccess.private'))
+    ? t('threadAccess.private')
     : t('threadAccess.public');
   const canJoin = showJoinButton(visibility, participants?.humans, me?.email);
 
   const change = async (next: ThreadVisibility) => {
-    if (next === visibility || busy) return;
+    if (!manage || next === visibility || busy) return;
     setBusy(true);
     try {
       await setSessionVisibility(channelName, next);
       toast.success(next === 'private' ? t('threadAccess.nowPrivate') : t('threadAccess.nowPublic'));
     } catch (e) {
       toast.error(apiErrorStatus(e) === 403 ? t('threadAccess.changeForbidden') : t('threadAccess.changeFailed'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleCanInvite = async (next: boolean) => {
-    if (busy) return;
-    setBusy(true);
-    setCanInvite(next);
-    try {
-      await workspaceApi.updateChannelAccess(channelName, { participantsCanInvite: next });
-      toast.success(next ? t('threadAccess.participantsCanInviteOn') : t('threadAccess.participantsCanInviteOff'));
-      refreshAgents().catch(() => {});
-    } catch (e) {
-      setCanInvite(!next);
-      toast.error(apiErrorStatus(e) === 403 ? t('threadAccess.changeForbidden') : t('threadAccess.switchFailed'));
     } finally {
       setBusy(false);
     }
@@ -131,6 +111,7 @@ export function ThreadPrivacyControl({ channelName, className }: { channelName: 
       await workspaceApi.joinChannel(channelName);
       toast.success(t('threadAccess.joined'));
       await loadParticipants();
+      window.dispatchEvent(new CustomEvent(THREAD_PARTICIPANTS_CHANGED, { detail: channelName }));
       refreshAgents().catch(() => {});
     } catch {
       toast.error(t('threadAccess.joinFailed'));
@@ -159,10 +140,10 @@ export function ThreadPrivacyControl({ channelName, className }: { channelName: 
 
   return (
     <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground', className)}>
-      {manage ? (
+      {!joinOnly && (manage ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
+          <DropdownMenuContent align="start" className={inDialog ? "z-70 w-72" : "w-72"}>
             <DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start gap-2.5 py-2">
               <Globe className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0">
@@ -177,27 +158,11 @@ export function ThreadPrivacyControl({ channelName, className }: { channelName: 
                 <div className="text-xs text-muted-foreground">{t('threadAccess.privateHint')}</div>
               </div>
             </DropdownMenuItem>
-            {isPrivate && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={canInvite}
-                  onCheckedChange={(v) => toggleCanInvite(!!v)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="items-start py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm">{t('threadAccess.participantsCanInvite')}</div>
-                    <div className="text-xs text-muted-foreground">{t('threadAccess.participantsCanInviteHint')}</div>
-                  </div>
-                </DropdownMenuCheckboxItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : trigger}
+      ) : trigger)}
 
-      {ownerName && (
+      {!joinOnly && !inDialog && ownerName && (
         <span className="truncate" title={ownerEmail || undefined}>
           <span className="text-muted-foreground/30">·</span>{' '}
           {isOwner ? t('threadAccess.youOwn') : t('threadAccess.owner', { name: ownerName })}

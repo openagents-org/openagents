@@ -284,6 +284,9 @@ export function WorkflowsView() {
         </button>
       </DetailHeader>
 
+      <div role="note" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+        <span className="font-semibold">{t('workflows.experimentalTitle')}</span>{' '}{t('workflows.experimentalBody')}
+      </div>
       <FeatureTourBanner feature="workflows" />
 
       <div className="flex-1 overflow-y-auto">

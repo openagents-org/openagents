@@ -5,10 +5,11 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { IssueAvatar } from './issue-ui';
 import {
-  insertIssueMention,
   mentionQuery,
   type IssueMention,
 } from './issue-mentions';
+
+import { mentionDraft, editMentionDraft, replaceMentionDraft } from './issue-mention-draft';
 
 type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   value: string;
@@ -28,6 +29,7 @@ export function IssueMentionInput({
   ...props
 }: Props) {
   const t = useT();
+  const draft = mentionDraft(value, mentions);
   const input = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -62,13 +64,14 @@ export function IssueMentionInput({
   }, [active]);
   function insert(option: IssueMention) {
     if (!range) return;
-    const result = insertIssueMention(value, range, option);
-    if (props.maxLength && result.value.length > props.maxLength) return;
-    onValueChange(result.value);
+    const inserted = `@${option.name} `;
+    const next = replaceMentionDraft(draft, range.start, range.end, inserted, option);
+    if (props.maxLength && next.length > props.maxLength) return;
+    onValueChange(next);
     setRange(null);
     requestAnimationFrame(() => {
       input.current?.focus();
-      input.current?.setSelectionRange(result.cursor, result.cursor);
+      input.current?.setSelectionRange(range.start + inserted.length, range.start + inserted.length);
       setRange(null);
     });
   }
@@ -77,14 +80,14 @@ export function IssueMentionInput({
       <Textarea
         {...props}
         ref={input}
-        value={value}
+        value={draft.text}
         aria-autocomplete="list"
         aria-controls={open ? listId : undefined}
         aria-activedescendant={
           open && items.length ? `${listId}-${active}` : undefined
         }
         onChange={(e) => {
-          onValueChange(e.target.value);
+          onValueChange(editMentionDraft(draft, e.target.value));
           detect(e.target);
         }}
         onSelect={(e) => {

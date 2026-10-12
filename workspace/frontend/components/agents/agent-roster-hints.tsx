@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n';
 import { displayNameFromEmail } from '@/lib/collab';
 import type { WorkspaceAgent } from '@/lib/types';
 
-type HintAgent = Pick<WorkspaceAgent, 'visibility' | 'ownerEmail' | 'runtimeStatus' | 'runtimeName' | 'status'>;
+type HintAgent = Pick<WorkspaceAgent, 'isShared' | 'visibility' | 'ownerEmail' | 'runtimeStatus' | 'runtimeName' | 'status'>;
 
 export function isPersonalAgent(agent: HintAgent): boolean {
   return agent.visibility === 'personal';
@@ -67,10 +67,11 @@ export function DeviceOfflineHint({ agent, withLabel = false, className }: { age
 
 /** Badge + marker together, for a row that has room for both. */
 export function AgentRosterHints({ agent, ownerDisplay, className }: { agent: HintAgent; ownerDisplay?: string | null; className?: string }) {
-  if (!isPersonalAgent(agent) && !isDeviceOffline(agent)) return null;
+  const t = useT();
+  if (!agent.isShared && !isDeviceOffline(agent)) return null;
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-1', className)}>
-      <PersonalBadge agent={agent} ownerDisplay={ownerDisplay} />
+      <>{agent.isShared && <Badge variant="info" appearance="light" size="xs" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}</>
       <DeviceOfflineHint agent={agent} />
     </span>
   );

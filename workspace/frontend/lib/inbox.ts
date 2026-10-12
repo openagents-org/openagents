@@ -5,13 +5,13 @@ import type { NotificationItem } from './types';
  * unit-tested and shared by the inbox view and anything that counts rows.
  *
  * A row is *actionable* when it points at something a person can decide on
- * from the inbox (v1.1: an approval, a `help` question or a `proposal`, all
+ * from the inbox (v1.1: an approval
  * on the approvals table). Everything else is a plain notice.
  */
 
-export type InboxActionKind = 'approval' | 'help' | 'proposal';
+export type InboxActionKind = 'approval';
 
-export const ACTIONABLE_KINDS: readonly InboxActionKind[] = ['approval', 'help', 'proposal'];
+export const ACTIONABLE_KINDS: readonly InboxActionKind[] = ['approval'];
 
 export function inboxActionKind(n: Pick<NotificationItem, 'kind' | 'actionRef'>): InboxActionKind | null {
   if (!n.actionRef) return null;

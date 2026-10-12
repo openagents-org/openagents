@@ -1,4 +1,7 @@
 'use client';
+
+import { resourcePath } from '@/lib/resource-link';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -7,23 +10,19 @@ import {
   ChevronRight,
   Link2,
   MessageSquare,
-  Plus,
+  X,
   Play,
   Pencil,
   PanelRight,
   Send,
-  ListTodo,
   ChevronDown,
 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
-import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { useT, useFormatters } from '@/lib/i18n';
 import type { IssueDetail, IssueReply, IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -34,8 +33,10 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { TaskChatPopup } from '@/components/tasks/task-chat-popup';
-import { agentLabel } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
+import { AddIssueParticipants } from './add-issue-participants';
+import { IssueProperties } from './issue-properties';
+import { ApprovalCard } from '@/components/chat/approval-card';
 import { IssueEditor } from './issue-editor';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
@@ -63,8 +64,7 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, agents, sessions, tasks, refreshTasks } = useWorkspace();
-  const { openView } = useLayout();
+  const { currentUser, sessions, refreshAgents } = useWorkspace();
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -73,18 +73,8 @@ export function IssueDiscussion({
   const [edit, setEdit] = useState(false);
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [action, setAction] = useState<'agent' | 'thread' | 'task'>('agent');
   const [actionOpen, setActionOpen] = useState(false);
-  function openAction(next: 'agent' | 'thread' | 'task') {
-    setAction(next);
-    setActionOpen(true);
-  }
-  const [chosenAgents, setChosenAgents] = useState<string[]>([]);
-  const [instruction, setInstruction] = useState('');
   const [thread, setThread] = useState('');
-  const [taskId, setTaskId] = useState('');
-  const [taskTitle, setTaskTitle] = useState('');
-  const [taskDescription, setTaskDescription] = useState('');
   const [chat, setChat] = useState<{ channel: string; title: string } | null>(
     null,
   );
@@ -146,56 +136,16 @@ export function IssueDiscussion({
     e.preventDefault();
     await mutate(
       async () => {
-        if (action === 'agent')
-          await workspaceApi.startIssueThread(id, {
-            agents: chosenAgents,
-            instruction,
-            ...identity,
-          });
-        else if (action === 'thread')
-          await workspaceApi.linkIssueThread(id, thread);
-        else if (action === 'task') {
-          await workspaceApi.addIssueTask(id, {
-            ...(taskId
-              ? { task_id: taskId }
-              : { title: taskTitle, description: taskDescription }),
-            ...identity,
-          });
-          await refreshTasks();
-        }
+        await workspaceApi.linkIssueThread(id, thread);
       },
       () => {
         setActionOpen(false);
-        setInstruction('');
-        setChosenAgents([]);
         setThread('');
-        setTaskId('');
-        setTaskTitle('');
-        setTaskDescription('');
       },
     );
   }
 
-  const people = new Map<string, string>();
-  if (issue) {
-    people.set(
-      issue.created_by,
-      issue.created_by_name || authorName(issue.created_by),
-    );
-    issue.comments.forEach((c) =>
-      people.set(c.author, c.author_name || authorName(c.author)),
-    );
-    issue.threads.forEach((th) =>
-      th.agents.forEach((agent) =>
-        people.set(
-          `openagents:${agent}`,
-          agentLabel(
-            agents.find((a) => a.agentName === agent) || { agentName: agent },
-          ),
-        ),
-      ),
-    );
-  }
+  const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
   const mentions = useIssueMentions(issue);
   const agentNames = mentions
     .filter((m) => m.kind === 'agent')
@@ -206,14 +156,6 @@ export function IssueDiscussion({
   const humanNames = Object.fromEntries(
     mentions.filter((m) => m.kind === 'human').map((m) => [m.token, m.name]),
   );
-  const taskStatusKeys = {
-    backlog: 'tasks.col.backlog',
-    todo: 'tasks.col.backlog',
-    in_progress: 'tasks.col.in_progress',
-    need_input: 'tasks.col.need_input',
-    done: 'tasks.col.done',
-  } as const;
-
   const share = (reply: IssueReply | null | undefined) => {
     if (!reply) return null;
     const shared = issue?.comments.some((c) => c.source_event_id === reply.id);
@@ -293,7 +235,7 @@ export function IssueDiscussion({
                 window.location.pathname,
                 window.location.origin,
               );
-              url.searchParams.set('issue', id);
+              url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', id);
               await navigator.clipboard.writeText(url.toString());
               setCopied(true);
             } catch (e) {
@@ -398,6 +340,7 @@ export function IssueDiscussion({
                 )}
                 <div className="relative space-y-6 before:absolute before:bottom-4 before:left-[13px] before:top-3 before:w-px before:bg-border/60">
                   {issue.comments.map((c) => {
+                    if (c.approval) return <ApprovalCard key={c.id} approval={c.approval} onResolved={() => void refresh()} />;
                     const name = c.author_name || authorName(c.author);
                     const activity =
                       c.kind === 'status' || c.kind === 'activity';
@@ -483,14 +426,22 @@ export function IssueDiscussion({
                 </div>
                 <form
                   className="relative mt-8 flex gap-3"
+                  onKeyDownCapture={(e) => {
+                    if (e.target instanceof HTMLTextAreaElement && e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!busyRef.current && comment.trim()) e.currentTarget.requestSubmit();
+                    }
+                  }}
                   onSubmit={(e) => {
                     e.preventDefault();
+                    if (busyRef.current || !comment.trim()) return;
                     void mutate(
                       () =>
                         workspaceApi.commentOnIssue(id, {
                           content: comment,
                           ...identity,
-                        }),
+                        }).then((result) => { if (result.dispatch_error) setError(result.dispatch_error); }),
                       () => setComment(''),
                     );
                   }}
@@ -506,7 +457,7 @@ export function IssueDiscussion({
                       {t('issues.addComment')}
                     </label>
                     <IssueMentionInput
-                      mentions={mentions}
+                      mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source))}
                       readOnly={busy}
                       id={`issue-comment-${id}`}
                       className="min-h-24 resize-y rounded-none border-0 px-4 py-3 text-[13px] shadow-none focus-visible:ring-0"
@@ -516,13 +467,16 @@ export function IssueDiscussion({
                       placeholder={t('issues.commentPlaceholder')}
                     />
                     <div className="flex items-center justify-between gap-3 px-3 pb-3">
-                      <p className="max-w-[32ch] pl-1 text-[11px] leading-4 text-muted-foreground">
+                      <p className="max-w-[52ch] flex-1 pl-1 text-[11px] leading-4 text-muted-foreground">
                         {t('issues.commentHint')}
                       </p>
                       <Button
                         size="sm"
                         variant="mono"
                         type="submit"
+                        className="shrink-0"
+                        title={t('issues.commentShortcut')}
+                        aria-keyshortcuts="Meta+Enter Control+Enter"
                         disabled={busy || !comment.trim()}
                       >
                         {t('issues.postComment')}
@@ -574,25 +528,36 @@ export function IssueDiscussion({
                     <ChevronDown className="pointer-events-none absolute right-2 size-3 text-muted-foreground" />
                   </div>
                 </section>
+                <IssueProperties issue={issue} busy={busy} update={values => void mutate(() => workspaceApi.updateIssue(id, { ...values, ...identity }))} />
                 <section>
                   <h2 className="mb-3 text-[11px] font-medium text-muted-foreground">
                     {t('issues.participants')}
                   </h2>
-                  <div
-                    className="flex flex-wrap gap-1.5"
-                    role="group"
-                    aria-label={Array.from(people.values()).join(', ')}
-                  >
+                  <div className="max-h-64 space-y-2.5 overflow-y-auto">
                     {Array.from(people, ([person, name]) => (
-                      <IssueAvatar
-                        key={person}
-                        source={person}
-                        name={name}
-                        size={26}
-                      />
+                      <div key={person} className="flex items-center gap-2.5" title={name}>
+                        <IssueAvatar source={person} name={name} size={26} />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">{name}</span>
+                        {person.startsWith('openagents:') && <>
+                          <span className="text-[10px] text-muted-foreground">{t('newThread.agent')}</span>
+                          <button type="button" disabled={busy} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('issues.removeAgent', { name })} title={t('issues.removeAgent', { name })}
+                            onClick={() => void mutate(() => workspaceApi.removeIssueAgent(id, person.slice('openagents:'.length)))}><X className="size-3.5" /></button>
+                        </>}
+                      </div>
                     ))}
                   </div>
+                  <AddIssueParticipants issueId={id} existing={Array.from(people.keys())} onAdded={() => { void refresh(); onChanged(); }} />
                 </section>
+                <label className="flex flex-col gap-2 text-xs text-muted-foreground">
+                  {t('threadSettings.shareMyAgents')}
+                  <select className={selectClass} aria-label={t('threadSettings.shareMyAgents')}
+                    value={issue.agent_sharing_mode || 'no'} disabled={busy}
+                    onChange={event => void mutate(async () => { await workspaceApi.setIssueAgentSharing(id, event.target.value as 'no' | 'yes' | 'approval'); await refreshAgents(); })}>
+                    <option value="no">{t('threadSettings.sharingNo')}</option>
+                    <option value="yes">{t('threadSettings.sharingYes')}</option>
+                    <option value="approval">{t('threadSettings.sharingApproval')}</option>
+                  </select>
+                </label>
                 <section className="border-t border-border/60 pt-5">
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h2 className="text-[11px] font-medium text-muted-foreground">
@@ -606,7 +571,7 @@ export function IssueDiscussion({
                       title={t('issues.linkThread')}
                       className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       disabled={busy}
-                      onClick={() => openAction('thread')}
+                      onClick={() => setActionOpen(true)}
                     >
                       <Link2 className="size-3.5" />
                     </button>
@@ -643,74 +608,9 @@ export function IssueDiscussion({
                       {t('issues.noAgentWork')}
                     </p>
                   )}
-                  <Button
-                    className="mt-4 w-full justify-start text-xs"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || issue.status === 'closed'}
-                    onClick={() => openAction('agent')}
-                  >
-                    <Plus className="size-3.5" />
-                    {t('issues.bringAgent')}
-                  </Button>
+
                 </section>
-                <section className="border-t border-border/60 pt-5">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h2 className="text-[11px] font-medium text-muted-foreground">
-                      {t('issues.scopedTasks')}
-                      <span className="ml-2 tabular-nums">
-                        {issue.tasks.length || ''}
-                      </span>
-                    </h2>
-                    <button
-                      aria-label={t('issues.addTask')}
-                      title={t('issues.addTask')}
-                      disabled={busy}
-                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => {
-                        void refreshTasks().catch((e) =>
-                          setError(errorMessage(e)),
-                        );
-                        setAction('task');
-                      }}
-                    >
-                      <Plus className="size-3.5" />
-                    </button>
-                  </div>
-                  <div className="space-y-4">
-                    {issue.tasks.map((task) => (
-                      <div key={task.id}>
-                        <button
-                          className="group flex w-full items-start gap-2 text-left text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() =>
-                            task.channelName
-                              ? setChat({
-                                  channel: task.channelName,
-                                  title: task.title,
-                                })
-                              : openView('tasks')
-                          }
-                        >
-                          <ListTodo className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
-                          <span>
-                            <span className="font-medium group-hover:underline">
-                              {task.title}
-                            </span>
-                            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                              {t(taskStatusKeys[task.status])}
-                            </span>
-                          </span>
-                        </button>
-                        {share(task.latest_reply)}
-                      </div>
-                    ))}
-                  </div>
-                  {!issue.tasks.length && (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {t('issues.noTasks')}
-                    </p>
-                  )}
-                </section>
+
               </div>
             </aside>
           </div>
@@ -748,13 +648,7 @@ export function IssueDiscussion({
         <DialogContent className="max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="text-sm font-medium">
-              {t(
-                action === 'agent'
-                  ? 'issues.bringAgent'
-                  : action === 'thread'
-                    ? 'issues.linkThread'
-                    : 'issues.addTask',
-              )}
+              {t('issues.linkThread')}
             </DialogTitle>
           </DialogHeader>
           <form
@@ -762,140 +656,30 @@ export function IssueDiscussion({
             onSubmit={submitAction}
           >
             <DialogBody className="space-y-5 pb-2">
-              {action === 'agent' && (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    {t('issues.agentHint')}
-                  </p>
-                  <fieldset className="max-h-48 space-y-2 overflow-auto rounded-md">
-                    <legend className="mb-2 text-sm font-medium">
-                      {t('issues.chooseAgents')}
-                    </legend>
-                    {agents.length === 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        {t('issues.noAgents')}
-                      </p>
-                    )}
-                    {agents.map((a) => (
-                      <label
-                        key={a.agentName}
-                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/70 px-3 py-2.5 text-xs transition-colors has-[:checked]:border-foreground/30 has-[:checked]:bg-muted/50 hover:bg-muted/30"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={chosenAgents.includes(a.agentName)}
-                          onChange={(e) =>
-                            setChosenAgents((prev) =>
-                              e.target.checked
-                                ? [...prev, a.agentName]
-                                : prev.filter((n) => n !== a.agentName),
-                            )
-                          }
-                        />
-                        <IssueAvatar
-                          name={agentLabel(a)}
-                          source={`openagents:${a.agentName}`}
-                          size={26}
-                        />
-                        {agentLabel(a)}
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {a.status === 'online'
-                            ? t('issues.online')
-                            : t('issues.offline')}
-                        </span>
-                      </label>
+              <label className="block space-y-2 text-sm">
+                <span>{t('issues.sourceThread')}</span>
+                <select
+                  required
+                  className={cn(selectClass, 'w-full')}
+                  value={thread}
+                  onChange={(e) => setThread(e.target.value)}
+                >
+                  <option value="">{t('issues.selectThread')}</option>
+                  {sessions
+                    .filter(
+                      (s) =>
+                        s.status !== 'deleted' &&
+                        !issue?.threads.some(
+                          (th) => th.channel_name === s.sessionId,
+                        ),
+                    )
+                    .map((s) => (
+                      <option key={s.sessionId} value={s.sessionId}>
+                        {s.title || s.sessionId}
+                      </option>
                     ))}
-                  </fieldset>
-                  <label className="block space-y-2 text-sm">
-                    <span>{t('issues.instruction')}</span>
-                    <Textarea
-                      required
-                      maxLength={10000}
-                      value={instruction}
-                      onChange={(e) => setInstruction(e.target.value)}
-                      placeholder={t('issues.instructionPlaceholder')}
-                    />
-                  </label>
-                </>
-              )}
-              {action === 'thread' && (
-                <label className="block space-y-2 text-sm">
-                  <span>{t('issues.sourceThread')}</span>
-                  <select
-                    required
-                    className={cn(selectClass, 'w-full')}
-                    value={thread}
-                    onChange={(e) => setThread(e.target.value)}
-                  >
-                    <option value="">{t('issues.selectThread')}</option>
-                    {sessions
-                      .filter(
-                        (s) =>
-                          s.status !== 'deleted' &&
-                          !issue?.threads.some(
-                            (th) => th.channel_name === s.sessionId,
-                          ),
-                      )
-                      .map((s) => (
-                        <option key={s.sessionId} value={s.sessionId}>
-                          {s.title || s.sessionId}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              )}
-              {action === 'task' && (
-                <>
-                  <label className="block space-y-2 text-sm">
-                    <span>{t('issues.existingTask')}</span>
-                    <select
-                      className={cn(selectClass, 'w-full')}
-                      value={taskId}
-                      onChange={(e) => setTaskId(e.target.value)}
-                    >
-                      <option value="">{t('issues.newTask')}</option>
-                      {tasks
-                        .filter(
-                          (task) =>
-                            !task.issueId &&
-                            !issue?.tasks.some(
-                              (linked) => linked.id === task.id,
-                            ),
-                        )
-                        .map((task) => (
-                          <option key={task.id} value={task.id}>
-                            {task.title}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {!taskId && (
-                    <>
-                      <label className="block space-y-2 text-sm">
-                        <span>{t('issues.title')}</span>
-                        <Input
-                          required
-                          maxLength={240}
-                          value={taskTitle}
-                          onChange={(e) => setTaskTitle(e.target.value)}
-                        />
-                      </label>
-                      <label className="block space-y-2 text-sm">
-                        <span>{t('issues.taskScope')}</span>
-                        <Textarea
-                          value={taskDescription}
-                          maxLength={50000}
-                          onChange={(e) => setTaskDescription(e.target.value)}
-                          placeholder={t('issues.taskScopePlaceholder')}
-                        />
-                      </label>
-                    </>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {t('issues.taskHint')}
-                  </p>
-                </>
-              )}
+                </select>
+              </label>
               {error && <ErrorNotice message={error} />}
             </DialogBody>
             <DialogFooter className="border-t border-border/60 bg-muted/15 py-4">
@@ -909,26 +693,9 @@ export function IssueDiscussion({
               </Button>
               <Button
                 type="submit"
-                disabled={
-                  busy ||
-                  (action === 'agent'
-                    ? !chosenAgents.length ||
-                      chosenAgents.length > 10 ||
-                      !instruction.trim()
-                    : action === 'thread'
-                      ? !thread
-                      : !taskId && !taskTitle.trim())
-                }
+                disabled={busy || !thread}
               >
-                {t(
-                  busy
-                    ? 'common.saving'
-                    : action === 'agent'
-                      ? 'issues.startWork'
-                      : action === 'thread'
-                        ? 'issues.linkThread'
-                        : 'issues.addTask',
-                )}
+                {t(busy ? 'common.saving' : 'issues.linkThread')}
               </Button>
             </DialogFooter>
           </form>

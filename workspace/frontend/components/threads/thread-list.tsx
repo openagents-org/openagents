@@ -1,12 +1,14 @@
 'use client';
 
+import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2, Lock,
-  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, RefreshCw, Search,
+  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
+  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { channelSessions, isIssueWorkSession, mergeConversationRows } from '@/lib/conversation-list';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -15,9 +17,9 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
 import { addressName, dmCounterpart, dmSessionId, isMyAddress, LEGACY_HUMAN, myAddress } from '@/lib/dm';
 import { useHumanNames, useTeamRoster } from '@/hooks/use-team-roster';
-import { filterMentionPeople } from '@/lib/people-mentions';
+import { displayHumanMentions, filterMentionPeople } from '@/lib/people-mentions';
 import { humanColor } from '@/lib/human-color';
-import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
+import type { DMConversation, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +36,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { DesktopNotificationPrompt } from './desktop-notification-prompt';
+
+import { DmUnreadBadge } from '@/components/layout/dm-unread-badge';
 
 // ── DM helpers ──
 
@@ -57,10 +61,11 @@ function dmDedupKey(pair: string[], me: string): string {
 
 // ── Filter tabs ──
 
-type FilterTab = 'all' | 'starred' | 'archived' | 'dms';
+type FilterTab = 'all' | 'channels' | 'starred' | 'archived' | 'dms';
 
 const TABS: { id: FilterTab; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'threads.tabAll' },
+  { id: 'channels', labelKey: 'threads.tabChannels' },
   { id: 'starred', labelKey: 'threads.tabStarred' },
   { id: 'archived', labelKey: 'threads.tabArchived' },
   { id: 'dms', labelKey: 'threads.tabDms' },
@@ -157,6 +162,7 @@ interface ThreadRowProps {
   agents: WorkspaceAgent[];
   isSelected: boolean;
   isUnread: boolean;
+  unreadCount?: number;
   /** Unread @mentions of the viewer in this thread (Slack's "@" pill). */
   mentionCount?: number;
   isRunning: boolean;
@@ -172,7 +178,7 @@ interface ThreadRowProps {
 }
 
 function ThreadRow({
-  session, agents, isSelected, isUnread, mentionCount = 0, isRunning, isCompleted, preview, previewIsStatus,
+  session, agents, isSelected, isUnread, unreadCount = 0, mentionCount = 0, isRunning, isCompleted, preview, previewIsStatus,
   displayTime, shortcutKey, title, muted, onSelect, actions,
 }: ThreadRowProps) {
   const t = useT();
@@ -229,6 +235,8 @@ function ThreadRow({
         {/* Title row */}
         <div className="mb-0.5 flex items-center justify-between gap-1">
           <div className="flex min-w-0 items-center gap-1">
+            {session.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t('threads.channel')} />}
+            {session.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-label={t('threads.pinned')} />}
             {session.starred && (
               <Star className="size-3 shrink-0 fill-amber-400 text-amber-400" />
             )}
@@ -253,6 +261,7 @@ function ThreadRow({
           <div className="flex shrink-0 items-center gap-1">
             {/* Sits beside the timestamp rather than replacing it — the time is
                 what the user scans the list by. */}
+            <DmUnreadBadge count={unreadCount} />
             {mentionCount > 0 && (
               <MentionPill count={mentionCount} />
             )}
@@ -303,25 +312,16 @@ export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
     activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
-    unreadSessionIds, unreadDmSessionIds, unreadSignals, refreshAgents, refreshDMConversations, currentUser,
+    unreadSessionIds, unreadThreadCounts, unreadDmSessionIds, unreadDmCounts, unreadSignals, refreshAgents, refreshDMConversations, currentUser,
   } = useWorkspace();
   const me = myAddress(currentUser);
   const humanNames = useHumanNames();
-  const { isMobile, openMobileDetail, openNewThread } = useLayout();
+  const { isMobile, openMobileDetail, openNewThread, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
   const prompt = usePrompt();
   const confirm = useConfirm();
   const t = useT();
   const { timeAgo } = useFormatters();
 
-  const [filter, setFilter] = useState<FilterTab>('all');
-
-  // Keep the tab in sync with DM navigation: clicking an agent in the sidebar
-  // (or the New DM picker) opens a dm: session — show it under the DMs tab,
-  // not a stale "All" tab with no matching row. Only switches INTO the DMs
-  // tab; picking a regular thread never yanks the user's tab choice.
-  useEffect(() => {
-    if (currentSessionId?.startsWith('dm:')) setFilter('dms');
-  }, [currentSessionId]);
   const [sortOrder, setSortOrder] = useState<SortOrder>('recent');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
@@ -370,11 +370,12 @@ export function ThreadList() {
 
     return [...sessions]
       .filter((s) =>
-        s.status !== 'deleted' &&
+        s.status !== 'deleted' && !isIssueWorkSession(s) &&
         // Task working threads live on the Kanban board, not the thread list.
-        !s.sessionId.startsWith('task:') &&
+        !s.sessionId.startsWith('task:') && !s.sessionId.startsWith('dm:') &&
         (!s.sessionId.startsWith('routine:') || s.sessionId === currentSessionId))
       .sort((a, b) => {
+        if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
         if (sortOrder === 'title') return (a.title || '').localeCompare(b.title || '');
         if (sortOrder === 'oldest') return eventTime(a) - eventTime(b);
         return eventTime(b) - eventTime(a);
@@ -385,6 +386,7 @@ export function ThreadList() {
     () => sortedSessions.filter((s) => s.status === 'active'),
     [sortedSessions],
   );
+  const channels = useMemo(() => channelSessions(sortedSessions), [sortedSessions]);
   const starredSessions = useMemo(
     () => activeSessions.filter((s) => s.starred),
     [activeSessions],
@@ -394,19 +396,11 @@ export function ThreadList() {
     [sortedSessions],
   );
 
-  // Only surface DMs whose agent participants are currently online, and
-  // collapse to one row per counterpart (most recent wins — the list arrives
-  // most-recent-first from the backend).
+  // Keep the viewer's DM history even when the counterpart is offline.
   const visibleDMs = useMemo(() => {
-    const onlineAgentNames = new Set(
-      agents.filter((a) => a.status === 'online').map((a) => a.agentName),
-    );
-    const filtered = dmConversations.filter((c) =>
-      c.agents.every((addr) => {
-        if (addr.startsWith('human:')) return true;
-        return onlineAgentNames.has(addr.replace(/^openagents:/, ''));
-      }),
-    );
+    const filtered = [...dmConversations]
+      .filter(c => !!dmCounterpart(c.agents, me))
+      .sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
     const seen = new Set<string>();
     return filtered.filter((c) => {
       const key = dmDedupKey(c.agents, me);
@@ -414,27 +408,47 @@ export function ThreadList() {
       seen.add(key);
       return true;
     });
-  }, [dmConversations, agents, me]);
+  }, [dmConversations, me]);
 
   // While searching, the query spans every thread regardless of the active tab
   const visibleSessions = isSearching
     ? sortedSessions.filter((s) =>
         s.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         hitsByChannel.has(s.sessionId))
+    : filter === 'channels' ? channels
     : filter === 'starred'
       ? starredSessions
       : filter === 'archived'
         ? archivedSessions
         : activeSessions;
 
-  const unreadCount = activeSessions.filter((s) => unreadSessionIds.has(s.sessionId)).length;
+  const dmTitle = (convo: DMConversation) => {
+    const counterpart = dmCounterpart(convo.agents, me);
+    if (!counterpart) return dmDisplayTitle(convo.agents, me);
+    if (counterpart === me) return t('threads.you');
+    const name = addressName(counterpart);
+    const agent = agents.find(a => a.agentName === name);
+    return agent ? agentLabel(agent) : humanNames[name.toLowerCase()] || name;
+  };
+  const matchingDMs = isSearching ? visibleDMs.filter(c =>
+    `${dmTitle(c)} ${c.agents.join(' ')} ${c.lastMessage.content}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    hitsByChannel.has(`dm:${c.agents[0]},${c.agents[1]}`)) : visibleDMs;
+  const allRows = mergeConversationRows(visibleSessions, matchingDMs, sortOrder, dmTitle);
+  const sortedDMRows = mergeConversationRows([], matchingDMs, sortOrder, dmTitle);
+  const shortcutIds = isSearching ? [] : filter === 'all' ? allRows.map(r => r.id)
+    : filter === 'dms' ? sortedDMRows.map(r => r.id) : visibleSessions.map(s => s.sessionId);
+
+  const unreadThreadCount = activeSessions.filter((s) => unreadSessionIds.has(s.sessionId)).length;
   const dmRowId = (agents: readonly string[]) => `dm:${agents[0]},${agents[1]}`;
   const unreadDmCount = visibleDMs.filter((c) => unreadDmSessionIds.has(dmRowId(c.agents))).length;
+
+  const unreadCount = unreadThreadCount + unreadDmCount;
 
   // All and DMs count what's unread (Slack-style), hidden at zero; Starred and
   // Archived keep their totals.
   const tabCount: Record<FilterTab, number | undefined> = {
     all: unreadCount,
+    channels: channels.filter((s) => unreadSessionIds.has(s.sessionId)).length,
     starred: starredSessions.length,
     archived: archivedSessions.length,
     dms: unreadDmCount,
@@ -452,6 +466,7 @@ export function ThreadList() {
   };
 
   const selectSession = (sessionId: string) => {
+    setSelectedAgentName(null);
     setCurrentSessionId(sessionId);
     if (isMobile) openMobileDetail();
   };
@@ -473,10 +488,10 @@ export function ThreadList() {
       // steal focus — the user is navigating and presses a letter to type.
       const num = parseInt(e.key, 10);
       if (num >= 1 && num <= 9) {
-        const session = activeSessions[num - 1];
-        if (session) {
+        const sessionId = shortcutIds[num - 1];
+        if (sessionId) {
           e.preventDefault();
-          setCurrentSessionId(session.sessionId, { skipFocus: true });
+          setCurrentSessionId(sessionId, { skipFocus: true });
           if (isMobile) openMobileDetail();
         }
         return;
@@ -491,15 +506,16 @@ export function ThreadList() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeSessions, currentSessionId, isMobile, setCurrentSessionId, openMobileDetail]);
+  }, [shortcutIds, currentSessionId, isMobile, setCurrentSessionId, openMobileDetail]);
 
   /** Last-message line for a thread: search snippet, tool status, or plain text. */
   const buildPreview = (sessionId: string): { node: React.ReactNode; isStatus: boolean } => {
     const contentHit = hitsByChannel.get(sessionId);
     if (isSearching && contentHit) {
-      const snippet = contentHit.snippet.length > 80
-        ? `${contentHit.snippet.slice(0, 80)}...`
-        : contentHit.snippet;
+      const namedSnippet = displayHumanMentions(contentHit.snippet, humanNames);
+      const snippet = namedSnippet.length > 80
+        ? `${namedSnippet.slice(0, 80)}...`
+        : namedSnippet;
       return { node: highlightMatch(snippet, searchQuery), isStatus: false };
     }
 
@@ -509,11 +525,11 @@ export function ThreadList() {
     const senderAgent = agents.find((a) => a.agentName === lastMsg.senderName);
     const sender = lastMsg.senderName === 'user'
       ? t('threads.you')
-      : senderAgent ? agentLabel(senderAgent) : lastMsg.senderName;
+      : senderAgent ? agentLabel(senderAgent) : (humanNames[lastMsg.senderName.toLowerCase()] || lastMsg.senderName);
     // An unattributed waiting placeholder (several agents could answer) has
     // no sender — show the status alone rather than ": thinking...".
     const prefix = sender ? `${sender}: ` : '';
-    if (!lastMsg.isStatus) return { node: `${prefix}${lastMsg.content}`, isStatus: false };
+    if (!lastMsg.isStatus) return { node: `${prefix}${displayHumanMentions(lastMsg.content, humanNames)}`, isStatus: false };
 
     // Status lines get an icon instead of raw markdown
     const toolMatch = lastMsg.content.match(/Using tool:?\**\s*`?([^`\n]+)`?/i);
@@ -559,7 +575,7 @@ export function ThreadList() {
           <MoreVertical className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem
           onClick={async (e) => {
             e.stopPropagation();
@@ -577,6 +593,21 @@ export function ThreadList() {
         >
           <Pencil className="size-4" />
           <span>{t('common.rename')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={(e) => {
+          e.stopPropagation();
+          void updateSession(session.sessionId, { isChannel: !session.isChannel })
+            .catch(() => toast.error(t('threads.channelLabelFailed')));
+        }}>
+          {session.isChannel ? <MessageSquare className="size-4" /> : <Hash className="size-4" />}
+          <span>{t(session.isChannel ? 'threads.convertToThread' : 'threads.markAsChannel')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={(e) => {
+          e.stopPropagation();
+          void updateSession(session.sessionId, { pinned: !session.pinned }).catch(() => toast.error(t('threads.pinFailed')));
+        }}>
+          {session.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+          <span>{t(session.pinned ? 'threads.unpin' : 'threads.pin')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={(e) => {
@@ -614,7 +645,7 @@ export function ThreadList() {
     </DropdownMenu>
   );
 
-  const renderSessionRows = (rows: WorkspaceSession[], muted = false) =>
+  const renderSessionRows = (rows: WorkspaceSession[], muted = false, offset = 0) =>
     rows.map((session, idx) => {
       const { node, isStatus } = buildPreview(session.sessionId);
       const activityMs = session.lastEventAt;
@@ -626,6 +657,7 @@ export function ThreadList() {
           agents={agents}
           isSelected={session.sessionId === currentSessionId}
           isUnread={unreadSessionIds.has(session.sessionId)}
+          unreadCount={unreadThreadCounts[session.sessionId] || 0}
           mentionCount={session.sessionId === currentSessionId ? 0 : unreadSignals[session.sessionId]?.mentions ?? 0}
           isRunning={activeSessionIds.has(session.sessionId)}
           isCompleted={
@@ -641,7 +673,7 @@ export function ThreadList() {
           }
           // Hidden while searching: the rendered list reorders but the 1-9
           // handler still operates on activeSessions.
-          shortcutKey={!isSearching && !muted && idx < 9 ? idx + 1 : null}
+          shortcutKey={!isSearching && !muted && idx + offset < 9 ? idx + offset + 1 : null}
           title={
             isSearching
               ? highlightMatch(session.title || t('threads.untitled'), searchQuery)
@@ -660,8 +692,8 @@ export function ThreadList() {
   // which case the picker just shows agents).
   const team = useTeamRoster();
   const dmPeople = useMemo(
-    () => filterMentionPeople(team, '', currentUser.id.includes('@') ? currentUser.id : null),
-    [team, currentUser.id],
+    () => [...(me !== LEGACY_HUMAN ? [{ email: addressName(me), name: t('threads.you') }] : []), ...filterMentionPeople(team, '', currentUser.id.includes('@') ? currentUser.id : null)],
+    [team, currentUser.id, me, t],
   );
   const startDM = (address: string) => {
     // Canonical DM id: sorted pair, matching the backend's (lesser, greater)
@@ -725,11 +757,13 @@ export function ThreadList() {
     );
   };
 
-  const renderDMRows = () =>
-    visibleDMs.map((convo) => {
+  const renderDMRows = (rows: DMConversation[], offset = 0) =>
+    rows.map((convo, idx) => {
       const dmId = dmRowId(convo.agents);
       const isUnread = unreadDmSessionIds.has(dmId);
-      const signalCount = unreadSignals[dmId]?.dms ?? 0;
+      const counterpart = dmCounterpart(convo.agents, me);
+      const countId = counterpart ? dmSessionId(me, counterpart) : dmId;
+      const signalCount = currentSessionId === dmId ? 0 : unreadDmCounts[countId] || unreadSignals[dmId]?.dms || 0;
       // rawTitle stays address-derived (stable avatar seed and dedup); the
       // rendered title maps each agent name to its display label.
       const rawTitle = dmDisplayTitle(convo.agents, me);
@@ -737,7 +771,7 @@ export function ThreadList() {
         const a = agents.find((x) => x.agentName === n);
         return a ? agentLabel(a) : (humanNames[n.toLowerCase()] ?? n);
       };
-      const title = rawTitle.split(' ↔ ').map(nameLabel).join(' ↔ ');
+      const title = counterpart === me ? t('threads.you') : rawTitle.split(' ↔ ').map(nameLabel).join(' ↔ ');
       const isAgentPair = !convo.agents.some((a) => a.startsWith('human:'));
       // Person↔person DM: titled by the other person's roster name.
       const counterpartIsPerson = !!dmCounterpart(convo.agents, me)?.startsWith('human:');
@@ -796,11 +830,12 @@ export function ThreadList() {
                     ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
                     : ''}
                 </span>
-                {isUnread && signalCount > 0 && <DmUnreadMarker count={signalCount} />}
+                {signalCount > 0 && <DmUnreadMarker count={signalCount} />}
+                {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
               </div>
             </div>
             <p className={cn('truncate text-xs leading-snug', isUnread ? 'text-foreground/80' : 'text-muted-foreground')}>
-              {sender}: {convo.lastMessage.content}
+              {sender}: {displayHumanMentions(convo.lastMessage.content, humanNames)}
             </p>
           </div>
         </div>
@@ -822,6 +857,7 @@ export function ThreadList() {
 
     const copy: Record<FilterTab, string> = {
       all: t('threads.emptyAll'),
+      channels: t('threads.emptyChannels'),
       starred: t('threads.emptyStarred'),
       archived: t('threads.emptyArchived'),
       dms: t('threads.emptyDms'),
@@ -994,10 +1030,12 @@ export function ThreadList() {
                 outlined and rounded, and flush against the edge its ring
                 collided with the scrollbar. */}
             <ScrollArea className="h-full" viewportClassName="px-2 [&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
-              {tab.id === 'dms' && !isSearching ? (
+              {tab.id === 'all' ? (
+                allRows.length === 0 ? emptyState('all') : allRows.map((row, idx) => row.kind === 'thread' ? renderSessionRows([row.thread], false, idx) : renderDMRows([row.dm], idx))
+              ) : tab.id === 'dms' ? (
                 <>
-                  {renderNewDmButton()}
-                  {visibleDMs.length === 0 ? emptyState('dms') : renderDMRows()}
+                  {!isSearching && renderNewDmButton()}
+                  {sortedDMRows.length === 0 ? emptyState('dms') : sortedDMRows.map((row, idx) => row.kind === 'dm' ? renderDMRows([row.dm], idx) : null)}
                 </>
               ) : visibleSessions.length === 0 ? (
                 emptyState(tab.id)

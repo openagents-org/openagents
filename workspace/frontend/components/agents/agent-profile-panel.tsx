@@ -7,6 +7,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
 import { AccessExplainer } from '@/components/sharing/access-explainer';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -494,6 +495,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-3.5 space-y-3">
+          <AgentSharingButton agentName={agent.agentName} />
           {/* Description */}
           <div className="rounded-lg border overflow-hidden">
             <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">

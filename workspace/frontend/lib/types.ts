@@ -212,16 +212,22 @@ export interface WorkspaceCustomSkill {
 }
 
 export interface WorkspaceSession {
+  unreadCount?: number;
+  readAt?: number;
+  completionAt?: number | null;
   sessionId: string;
   workspaceId: string;
   createdBy: string | null;
   title: string;
   status: string;
   starred: boolean;
+  pinned?: boolean;
+  isChannel?: boolean;
   participants: string[];
   master: string | null;
   // Multi-agent collaboration mode: 'dynamic' | 'master' | 'workflow'
   orchestrationMode: string;
+  responseMode?: 'proactive' | 'passive';
   // Legacy free-text collaboration plan (superseded by structured workflows)
   orchestrationInstruction: string | null;
   // Structured workflow driving this thread (when orchestrationMode === 'workflow')
@@ -329,6 +335,8 @@ export interface TrashEntry {
 }
 
 export interface KnowledgeEntry {
+  folderPath?: string;
+  path?: string;
   id: string;
   slug: string;
   title: string;
@@ -577,25 +585,30 @@ export type ApprovalKind =
 /** Who may resolve a paused request. `any` = any human member (not viewers). */
 export type ApprovalRequiredRole = 'any' | 'admin' | 'owner';
 /** Card class of a request (v1.1 escalation rides on the approvals table). */
-export type ApprovalKindClass = 'approval' | 'help' | 'proposal';
+export type ApprovalKindClass = 'approval';
 /** What policy says about an action kind. */
-export type ApprovalPolicyVerdict = 'allow' | 'any' | 'admin' | 'owner' | 'block';
+export type ApprovalPolicyVerdict = 'allow' | 'any' | 'admin' | 'owner' | 'block' | 'member';
+
+export interface PolicyRequirements {
+  members: string[];
+  approved_by: string[];
+  role_required: ApprovalRequiredRole | null;
+  role_approved: boolean;
+}
 
 export interface ApprovalRequest {
+  policyRequirements?: PolicyRequirements | null;
   id: string;
   channelName: string;
   requestedBy: string;            // bare agent name
   kind: ApprovalKind | string;
-  /** What the card renders as: policy kinds collapse to `approval`;
-   * `help` = a question for the owner, `proposal` = a shared-instructions change. */
+  /** Approval card presentation. */
   kindClass: ApprovalKindClass;
   action: string;
-  /** For `help`: the question (the backend stores it in `action`). */
-  question: string | null;
   details: string | null;
   risk: 'low' | 'medium' | 'high' | null;
   requiredRole: ApprovalRequiredRole;
-  /** The person this is addressed to (help/proposal default to the agent's owner). */
+  /** The person this is addressed to (explicitly selected reviewer). */
   assigneeEmail: string | null;
   /** The requesting agent's owner, if any. */
   ownerEmail: string | null;
@@ -613,6 +626,8 @@ export interface ApprovalRequest {
 }
 
 export interface ApprovalPolicyRule {
+  approver_email?: string;
+  description?: string;
   kind: ApprovalKind | string;
   label: string;
   policy: ApprovalPolicyVerdict;
@@ -623,8 +638,8 @@ export interface ApprovalPolicyRule {
 export interface ApprovalPolicy {
   scope: string;                   // "*" = workspace default, else a channel name
   rules: ApprovalPolicyRule[];
-  workspaceRules: { kind: string; policy: ApprovalPolicyVerdict }[];
-  channelRules: { kind: string; policy: ApprovalPolicyVerdict }[];
+  workspaceRules: { kind: string; policy: ApprovalPolicyVerdict; description?: string }[];
+  channelRules: { kind: string; policy: ApprovalPolicyVerdict; description?: string }[];
   policies: ApprovalPolicyVerdict[];
 }
 
@@ -639,7 +654,7 @@ export interface NotificationItem {
   threadId: string | null;
   linkUrl: string | null;
   status: string;
-  /** What the row is about (approval | help | proposal | ...); null = plain notice. */
+  /** What the row is about (approval | ...); null = plain notice. */
   kind: string | null;
   /** Id of the thing to act on (e.g. an approval id) — makes the row actionable. */
   actionRef: string | null;
@@ -805,10 +820,14 @@ export interface NetworkAgent {
 }
 
 export interface NetworkChannel {
+  unread_count?: number;
+  read_at?: number;
+  completion_at?: number | null;
   address: string;
   title: string | null;
   master: string | null;
   orchestration_mode?: string;
+  response_mode?: 'proactive' | 'passive';
   orchestration_instruction?: string | null;
   workflow_id?: string | null;
   participants: string[];
@@ -816,6 +835,8 @@ export interface NetworkChannel {
   last_event_at: number | null;
   status: string;
   starred: boolean;
+  pinned?: boolean;
+  is_channel?: boolean;
 }
 
 export interface NetworkDiscovery {
@@ -868,6 +889,8 @@ export interface DMConversation {
   agents: [string, string];
   lastMessage: { content: string; sender: string; timestamp: number };
   messageCount: number;
+  unreadCount?: number | null;
+  readAt?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -943,13 +966,19 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     title: ch.title || defaultSessionTitle(ch.participants),
     status: ch.status || 'active',
     starred: ch.starred || false,
+    pinned: ch.pinned || false,
+    isChannel: ch.is_channel || false,
     participants: ch.participants,
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
+    responseMode: ch.response_mode || 'proactive',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
     workflowId: ch.workflow_id ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
+    unreadCount: ch.unread_count,
+    readAt: ch.read_at,
+    completionAt: ch.completion_at,
     ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
     ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
@@ -991,6 +1020,8 @@ export type CostOwner = 'owner' | 'workspace' | 'requester';
 export type AgentRuntimeStatus = 'online' | 'offline' | null;
 
 export interface NetworkAgent {
+  can_start_thread?: boolean;
+  is_shared?: boolean;
   owner_email?: string | null;
   visibility?: AgentVisibility;
   purpose?: string | null;
@@ -1011,6 +1042,8 @@ export interface NetworkChannel {
 }
 
 export interface WorkspaceAgent {
+  canStartThread?: boolean;
+  isShared?: boolean;
   ownerEmail?: string | null;
   visibility?: AgentVisibility;
   purpose?: string | null;
@@ -1031,9 +1064,11 @@ export interface WorkspaceSession {
 }
 
 export function collabAgentFields(agent: NetworkAgent): Pick<WorkspaceAgent,
-  'ownerEmail' | 'visibility' | 'purpose' | 'exampleRequests' | 'requiredInputs' | 'costOwner'
+  'isShared' | 'canStartThread' | 'ownerEmail' | 'visibility' | 'purpose' | 'exampleRequests' | 'requiredInputs' | 'costOwner'
   | 'presenceState' | 'busyChannels' | 'queueDepth' | 'runtimeStatus' | 'runtimeName'> {
   return {
+    canStartThread: agent.can_start_thread,
+    isShared: agent.is_shared,
     ownerEmail: agent.owner_email ?? null,
     visibility: agent.visibility === 'personal' ? 'personal' : 'team',
     purpose: agent.purpose ?? null,
@@ -1126,6 +1161,7 @@ export type AgentGrantResult =
 /** Editable profile fields (PATCH members). Owner/admin — or a member claiming
  * an unowned agent by setting owner_email to themselves. */
 export interface AgentProfileUpdate {
+  request_approver_email?: string;
   owner_email?: string;
   visibility?: AgentVisibility;
   purpose?: string;
@@ -1185,7 +1221,7 @@ export interface GroupDeleteImpact {
   members: number;
 }
 
-export type ResourceKind = 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
+export type ResourceKind = 'service' | 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
 export type GrantRight = 'read' | 'act' | 'share';
 
 /** GET /v1/grants */
@@ -1256,6 +1292,7 @@ export interface PrivateThreadMeta {
 export interface ChannelAccessUpdate {
   visibility?: 'private' | 'public';
   participantsCanInvite?: boolean;
+  membersCanAddAgents?: boolean;
   /** Hand over (owner) or force a transfer (admin). */
   ownerEmail?: string;
 }
@@ -1266,22 +1303,33 @@ export interface ChannelAccessUpdate {
 export interface NetworkChannel {
   owner_email?: string | null;
   participants_can_invite?: boolean;
+  members_can_add_agents?: boolean;
 }
 
 export interface WorkspaceSession {
   ownerEmail?: string | null;
   participantsCanInvite?: boolean;
+  membersCanAddAgents?: boolean;
 }
 
 export interface ChannelParticipants {
+  can_manage?: boolean;
+  can_add_people?: boolean;
+  can_add_agents?: boolean;
+  is_participant?: boolean;
+  sharing_my_agents?: boolean;
+  agent_sharing_mode?: 'no' | 'yes' | 'approval';
+  own_agent_count?: number;
   owner_email?: string | null;
   participants_can_invite?: boolean;
+  members_can_add_agents?: boolean;
 }
 
-export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'ownerEmail' | 'participantsCanInvite'> {
+export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'ownerEmail' | 'participantsCanInvite' | 'membersCanAddAgents'> {
   return {
     ownerEmail: ch.owner_email ?? null,
     participantsCanInvite: !!ch.participants_can_invite,
+    membersCanAddAgents: ch.members_can_add_agents !== false,
   };
 }
 
@@ -1289,6 +1337,7 @@ export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 
 // Owners/admins get the full shared instruction set and knowledge list;
 // teammates get a summary (first SUMMARY_CHARS) and a count.
 export interface AgentProfileView {
+  request_approver_email?: string | null;
   agent_name: string;
   display_name: string | null;
   agent_type: string | null;
@@ -1326,12 +1375,15 @@ export interface AgentUsableBy {
 }
 
 // Shared team issues. Wire fields match the issue API's persisted records.
-export type IssueStatus = 'open' | 'in_progress' | 'closed';
+export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
   id: string;
   title: string;
   description: string;
   status: IssueStatus;
+  assignee?: string | null;
+  assignee_name?: string | null;
+  labels?: string[];
   created_by: string;
   created_by_name?: string | null;
   created_at: string;
@@ -1339,11 +1391,14 @@ export interface WorkspaceIssue {
   comment_count?: number;
 }
 export interface IssueComment {
+  dispatch_error?: string;
+  channel_name?: string;
   id: string;
   author: string;
   author_name?: string | null;
   content: string;
-  kind: 'comment' | 'status' | 'result' | 'activity';
+  kind: 'comment' | 'status' | 'result' | 'activity' | 'approval';
+  approval?: ApprovalRequest;
   source_event_id: string | null;
   created_at: string;
 }
@@ -1356,7 +1411,17 @@ export interface IssueThread {
   latest_reply: IssueReply | null;
 }
 export interface IssueDetail extends WorkspaceIssue {
+  agent_sharing_mode?: 'no' | 'yes' | 'approval';
   comments: IssueComment[];
   threads: IssueThread[];
-  tasks: (KanbanTask & { latest_reply: IssueReply | null })[];
+  participants: { source: string; name: string }[];
 }
+
+export interface AgentService {
+  id: string; agent_name: string; owner_email: string; name: string; description: string;
+  instructions?: string; example_requests: string[]; required_inputs: string | null;
+  request_approver_email: string | null; can_manage: boolean;
+}
+export type AgentServiceInput = Pick<AgentService, 'agent_name' | 'name' | 'description' | 'example_requests' | 'required_inputs' | 'request_approver_email'> & { instructions: string };
+
+export type MessageReaction = { emoji: string; count: number; mine: boolean };

@@ -122,7 +122,7 @@ def _join(client, ws, agent):
 def _make_personal(client, ws, agent, owner):
     """Permission model: an owned agent whose default `everyone` grant was revoked."""
     r = client.patch(f"/v1/workspaces/{ws['id']}/members/{agent}",
-                     json={"owner_email": _email(owner)}, headers=_bearer(owner, ws))
+                     json={"owner_email": _email(owner)}, headers=_tok(ws))
     assert r.status_code == 200, r.text
     r = client.get(f"/v1/grants?network={ws['id']}&resource_kind=agent&resource_id={agent}", headers=_bearer(owner, ws))
     assert r.status_code == 200, r.text
@@ -198,8 +198,9 @@ class TestParticipants:
         _create_thread(client, workspace, name="p-3", by="mia")
         # a non-participant member may not add anyone (not even themselves)
         assert _add_participant(client, workspace, "p-3", _bearer("vic", workspace), "vic@acme.test").status_code == 403
-        # an admin who is not in the thread still may (admin+)
-        assert _add_participant(client, workspace, "p-3", _bearer("adam", workspace), "vic@acme.test").status_code == 200
+        # Admins also need an invitation into a private thread.
+        assert _add_participant(client, workspace, "p-3", _bearer("adam", workspace), "vic@acme.test").status_code == 403
+        assert _add_participant(client, workspace, "p-3", _bearer("mia", workspace), "vic@acme.test").status_code == 200
         # machines are trusted
         assert _add_participant(client, workspace, "p-3", _tok(workspace), "adam@acme.test").status_code == 200
         r = _participants(client, workspace, "p-3", _tok(workspace))
@@ -243,10 +244,10 @@ class TestParticipants:
         assert _remove_participant(client, workspace, "p-5", _bearer("mia", workspace), "mia@acme.test").status_code == 400
         assert _remove_participant(client, workspace, "p-5", _tok(workspace), "mia@acme.test").status_code == 400
 
-    def test_last_participant_may_leave_a_workspace_thread(self, client, workspace, people):
+    def test_thread_owner_must_transfer_before_leaving(self, client, workspace, people):
         _create_thread(client, workspace, name="p-6", by="mia", visibility="workspace")
         r = _remove_participant(client, workspace, "p-6", _bearer("mia", workspace), "mia@acme.test")
-        assert r.status_code == 200, r.text
+        assert r.status_code == 400, r.text
 
 
 # ---------------------------------------------------------------------------
@@ -284,9 +285,13 @@ class TestSharePreview:
 # ---------------------------------------------------------------------------
 
 class TestDirectory:
-    def test_visibility_manage_pins_and_recent_requests(self, client, workspace, people):
+    def test_visibility_manage_pins_and_recent_requests(self, client, workspace, people, db):
         _join(client, workspace, "deploy-bot")
         _join(client, workspace, "helper-bot")
+        from app.services.access_model import create_grant, get_or_create_builtin_groups
+        groups = get_or_create_builtin_groups(db, workspace["id"])
+        create_grant(db, workspace["id"], resource_kind="agent", resource_id="helper-bot", grantee_kind="group", grantee_id=groups["everyone"].id, rights=["act"], granted_by="test@example.com")
+        db.commit()
         _make_personal(client, workspace, "deploy-bot", "mia")
         client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                      json={"purpose": "Launch endpoints", "example_requests": ["Deploy X"], "cost_owner": "owner"},
@@ -316,8 +321,8 @@ class TestDirectory:
         assert bot["my_recent_requests"][0]["title"].startswith("Title of")
         assert {r["channel"] for r in mia["helper-bot"]["my_recent_requests"]} == {"req-2"}
 
-        # can_manage: admin yes, plain member/viewer no (grant_count hidden)
-        assert adam["helper-bot"]["can_manage"] is True and adam["helper-bot"]["grant_count"] == 0
+        # Only the owner manages an agent; admin status is not an override.
+        assert adam["helper-bot"]["can_manage"] is False and adam["helper-bot"]["grant_count"] is None
         assert vic["helper-bot"]["can_manage"] is False and vic["helper-bot"]["grant_count"] is None
         assert mia["helper-bot"]["can_manage"] is False
 
@@ -325,8 +330,8 @@ class TestDirectory:
         assert vic["helper-bot"]["pinned"] is True
         assert mia["helper-bot"]["pinned"] is False and machine["helper-bot"]["pinned"] is False
 
-        # machines: manage everything, no "my"
-        assert machine["deploy-bot"]["can_manage"] is True
+        # Workspace credentials are not an owner identity.
+        assert machine["deploy-bot"]["can_manage"] is False
         assert machine["deploy-bot"]["my_recent_requests"] == []
 
     def test_recent_requests_capped_at_five_newest_first(self, client, workspace, people, db):
@@ -406,10 +411,10 @@ class TestGrants:
         assert _grants(client, workspace, "deploy-bot", _bearer("vic", workspace)).status_code == 403
         assert _grant(client, workspace, "deploy-bot", _bearer("vic", workspace), "vic@acme.test").status_code == 403
         assert _revoke(client, workspace, "deploy-bot", _bearer("vic", workspace), "mia@acme.test").status_code == 403
-        # admins and machines can
-        assert _grants(client, workspace, "deploy-bot", _bearer("adam", workspace)).status_code == 200
-        assert _grant(client, workspace, "deploy-bot", _tok(workspace), "adam@acme.test").status_code == 200
-        assert _grants(client, workspace, "deploy-bot", _tok(workspace)).status_code == 200
+        # Admins and workspace credentials cannot override the agent owner.
+        assert _grants(client, workspace, "deploy-bot", _bearer("adam", workspace)).status_code == 403
+        assert _grant(client, workspace, "deploy-bot", _tok(workspace), "adam@acme.test").status_code == 403
+        assert _grants(client, workspace, "deploy-bot", _tok(workspace)).status_code == 403
         assert _grants(client, workspace, "ghost", _tok(workspace)).status_code == 404
 
     def test_non_member_gets_targeted_invite(self, client, workspace, people, db):

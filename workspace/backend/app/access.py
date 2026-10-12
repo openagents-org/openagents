@@ -320,6 +320,13 @@ def verify_workspace_access(
     (owner|admin|member|viewer) gates identity-based access; token (machine)
     access is fully trusted and bypasses the role check.
     """
+    # A presented person identity is authoritative, even with a workspace token.
+    if authorization:
+        if db is None:
+            db = SqlaSession.object_session(workspace)
+        role = resolve_user_role(db, workspace, authorization) if db is not None else None
+        return role is not None and role_at_least(role, min_role)
+
     # 1. Machine / legacy workspace token — fully trusted.
     if workspace.password_hash and token and token == workspace.password_hash:
         return True

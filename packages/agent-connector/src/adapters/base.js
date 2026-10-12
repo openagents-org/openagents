@@ -20,6 +20,8 @@
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const { buildThreadHistory } = require('./thread-history');
+const { publishResponseArtifacts } = require('./response-artifacts');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -75,7 +77,7 @@ function buildSharedContextBlock(ctx) {
   const lines = [
     'OWNER-REVIEWED SHARED INSTRUCTIONS (this request comes from a teammate, not your owner; ' +
     'follow these, do not use unrelated private context, and if the request falls outside ' +
-    'them ask your owner with workspace_ask_owner):',
+    'them pause and ask for clarification in the thread):',
   ];
   const who = [];
   if (ctx.requester_email) who.push(`Requester: ${ctx.requester_email}`);
@@ -221,6 +223,7 @@ class BaseAdapter {
     // adapter can tell "a stop landed while I was preparing this turn" from
     // "this turn started after the stop and is meant to run".
     this._channelRunGeneration = {};
+    this._channelRequestContent = {};
     // Channels a user stopped whose next turn has not started yet. Everything
     // the send* helpers would post there is dropped: output a killed run was
     // still flushing lands after the stop notice otherwise, and the workspace
@@ -1328,6 +1331,11 @@ class BaseAdapter {
         }
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
+        this._channelRequestContent[channel] = current.originalContent ?? current.content;
+        if (channel && !channel.startsWith('dm:') && current.messageId
+            && typeof this.client?.getRecentMessages === 'function') {
+          await this._applyThreadHistory(channel, current);
+        }
         // A teammate's request runs under the owner-reviewed shared
         // instructions (v1.1 M4); the block is prepended to the message.
         // Gated synchronously so messages it cannot apply to (agents,
@@ -1350,6 +1358,7 @@ class BaseAdapter {
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
+      delete this._channelRequestContent[channel];
       first = false;
 
       const queue = this._channelQueues[channel];
@@ -1419,11 +1428,29 @@ class BaseAdapter {
     const ctx = await this._fetchSharedContext(channel, email);
     const block = buildSharedContextBlock(ctx);
     if (!block) return false;
-    msg.originalContent = msg.content;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
     msg.content = block + '\n' + (msg.content || '');
     msg._sharedContextApplied = true;
     this._log(`Shared context applied for ${email} in ${channel} (owner: ${ctx.owner_email || '?'})`);
     return true;
+  }
+
+  async _applyThreadHistory(channel, msg) {
+    // DMs have separate peer sessions. Synthetic nudges have no event boundary.
+    if (!channel || channel.startsWith('dm:') || !msg.messageId || msg._threadHistoryApplied) return;
+    if (typeof this.client?.getRecentMessages !== 'function') return;
+    try {
+      const messages = await this.client.getRecentMessages(this.workspaceId, channel, this.token, 100, {
+        before: msg.messageId, timeout: 5000, throwOnError: true,
+      });
+      const block = buildThreadHistory(messages, channel, msg);
+      if (!block) return;
+      if (msg.originalContent === undefined) msg.originalContent = msg.content;
+      msg.content = block + (msg.content || '');
+      msg._threadHistoryApplied = true;
+    } catch (e) {
+      this._log(`Recent thread history unavailable for ${channel}: ${e.message}`);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -1627,7 +1654,7 @@ class BaseAdapter {
   async _autoTitleChannel(channel, content) {
     if (this._titledSessions.has(channel)) return;
     this._titledSessions.add(channel);
-    const title = generateSessionTitle(content);
+    const title = generateSessionTitle(this._channelRequestContent[channel] ?? content);
     if (!title) return;
     try {
       const info = await this.client.getSession(this.workspaceId, channel, this.token);
@@ -1693,7 +1720,21 @@ class BaseAdapter {
   async sendResponse(channel, content) {
     if (this._isMuted(channel)) return;
     try {
+      let attachments = [];
+      if (!(this.disabledModules || new Set()).has('files') && channel && !channel.startsWith('dm:') && this.client.uploadFile) {
+        const published = await publishResponseArtifacts({
+          content,
+          workingDir: this.workingDir,
+          upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
+            contentType, source: `openagents:${this.agentName}`, channelName: channel, visibility: 'inherit',
+          }),
+          onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
+        });
+        content = published.content;
+        attachments = published.attachments;
+      }
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+        attachments,
         senderType: 'agent',
         senderName: this.agentName,
         metadata: { status_kind: 'completed' },

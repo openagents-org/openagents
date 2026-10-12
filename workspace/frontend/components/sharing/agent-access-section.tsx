@@ -40,9 +40,10 @@ function GranteeIcon({ kind }: { kind: GranteeKind }) {
 }
 
 export function AgentAccessSection({
-  agentName, displayName, canManage = true, onChanged,
+  agentName, displayName, canManage = true, onChanged, resourceKind = 'agent',
 }: {
   agentName: string;
+  resourceKind?: 'agent' | 'service';
   displayName?: string;
   canManage?: boolean;
   onChanged?: () => void;
@@ -59,7 +60,7 @@ export function AgentAccessSection({
     try {
       const [gs, gr] = await Promise.all([
         workspaceApi.listGroups().catch(() => [] as SecurityGroup[]),
-        workspaceApi.listGrants('agent', agentName),
+        workspaceApi.listGrants(resourceKind, agentName),
       ]);
       setGroups(gs);
       setGrants(gr);
@@ -68,7 +69,7 @@ export function AgentAccessSection({
       setGrants([]);
       toast.error(t('agentAccess.loadFailed'));
     }
-  }, [agentName, t]);
+  }, [agentName, resourceKind, t]);
   useEffect(() => { load(); }, [load]);
 
   const everyoneGrant = useMemo(
@@ -88,7 +89,7 @@ export function AgentAccessSection({
     try {
       if (on) {
         await workspaceApi.createGrant({
-          resource_kind: 'agent',
+          resource_kind: resourceKind,
           resource_id: agentName,
           grantee_kind: 'group',
           grantee_id: everyoneGroup.id,
@@ -122,7 +123,7 @@ export function AgentAccessSection({
     for (const g of picked) {
       try {
         await workspaceApi.createGrant({
-          resource_kind: 'agent',
+          resource_kind: resourceKind,
           resource_id: agentName,
           grantee_kind: g.kind,
           grantee_id: g.id,
@@ -163,7 +164,7 @@ export function AgentAccessSection({
 
   return (
     <section className="space-y-3">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('agentAccess.title')}</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t(resourceKind === 'service' ? 'services.audience' : 'agentAccess.title')}</h4>
 
       {grants === null ? (
         <Loader2 className="size-4 animate-spin text-muted-foreground" />

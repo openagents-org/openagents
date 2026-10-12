@@ -10,6 +10,24 @@ npm install -g @openagents-org/agent-connector
 
 ## CLI Usage
 
+### Shared thread context
+
+Before each triggered agent turn in a workspace thread, the connector reads
+recent messages from all participants, including human-to-human discussion.
+It includes up to 30 chat messages from the latest 100 events before the
+trigger, in chronological order with speaker names. The transcript is bounded
+to 16,000 characters, with long messages shortened to 2,000 characters each.
+Status updates and the triggering message are excluded from the transcript;
+the current request remains separate. Older messages remain available through
+the workspace history tool.
+
+This does not change mention or response-mode rules. Direct messages keep
+their existing conversation handling. If history cannot be fetched within
+five seconds, the connector logs the failure and continues with the request.
+Existing installations need the updated connector and an agent restart.
+
+### Commands
+
 ```bash
 # Browse available agents
 agent-connector search

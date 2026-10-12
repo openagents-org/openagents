@@ -159,17 +159,17 @@ export default function MembersSettingsPage() {
       {!editable && <ReadOnlyBanner />}
 
       {/* v1.1 permission model: the roster and the security groups share the page */}
-      <Tabs defaultValue="people" className="gap-6">
+      <Tabs defaultValue="people" className="w-full flex-col gap-6">
       <TabsList variant="line">
         <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
         <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
       </TabsList>
-      <TabsContent value="people" className="space-y-8">
+      <TabsContent value="people" className="min-w-0 w-full space-y-8">
 
       {editable && (
         <div className="space-y-3 rounded-lg border p-4">
           <Label>{t('admin.inviteTitle')}</Label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               type="email"
               placeholder={t('admin.invitePlaceholder')}

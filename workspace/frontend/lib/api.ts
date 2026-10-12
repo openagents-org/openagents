@@ -1,3 +1,4 @@
+import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
   AgentCatalogDetail,
   AgentCatalogEntry,
@@ -14,7 +15,6 @@ import type {
   IssueDetail,
   IssueComment,
   IssueStatus,
-  IssueReply,
   TaskRunInfo,
   Workflow,
   WorkflowStep,
@@ -151,6 +151,8 @@ function mapKnowledgeEntry(raw: Record<string, unknown>): KnowledgeEntry {
   return {
     id: raw.id as string,
     slug: raw.slug as string,
+    folderPath: (raw.folder_path || "") as string,
+    path: (raw.path || "") as string,
     title: raw.title as string,
     description: (raw.description ?? null) as string | null,
     contentSize: (raw.content_size ?? null) as number | null,
@@ -171,7 +173,7 @@ class WorkspaceApi {
   configure(workspaceId: string, token: string, bearerToken?: string) {
     this.workspaceId = workspaceId;
     this.token = token;
-    if (bearerToken !== undefined) this.bearerToken = bearerToken;
+    this.bearerToken = bearerToken || '';
   }
 
   setBearerToken(bearerToken: string) {
@@ -519,12 +521,14 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null; workflowId?: string | null }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; pinned?: boolean; isChannel?: boolean; masterAgent?: string; responseMode?: 'proactive' | 'passive'; orchestrationMode?: string; orchestrationInstruction?: string | null; workflowId?: string | null }): Promise<unknown> {
     // Map camelCase fields → snake_case for the backend.
-    const { masterAgent, orchestrationMode, orchestrationInstruction, workflowId, ...rest } = updates;
+    const { masterAgent, responseMode, orchestrationMode, orchestrationInstruction, workflowId, isChannel, ...rest } = updates;
     const body: Record<string, unknown> = { ...rest };
+    if (isChannel !== undefined) body.is_channel = isChannel;
     if (masterAgent !== undefined) body.master_agent = masterAgent;
     if (orchestrationMode !== undefined) body.orchestration_mode = orchestrationMode;
+    if (responseMode !== undefined) body.response_mode = responseMode;
     if (orchestrationInstruction !== undefined) body.orchestration_instruction = orchestrationInstruction;
     if (workflowId !== undefined) body.workflow_id = workflowId ?? '';
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
@@ -538,8 +542,10 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
 
   /** Discover agents, channels, and resources in the network. */
-  async discover(): Promise<NetworkDiscovery> {
-    return this.request<NetworkDiscovery>(`/v1/discover?network=${this.workspaceId}`);
+  async discover(readAt?: Record<string, number>): Promise<NetworkDiscovery> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    if (readAt) params.set('read_at', JSON.stringify(Object.fromEntries(Object.entries(readAt).filter(([id]) => !id.startsWith('dm:')).slice(-100))));
+    return this.request<NetworkDiscovery>(`/v1/discover?${params}`);
   }
 
   /** Get network profile metadata. */
@@ -554,8 +560,10 @@ class WorkspaceApi {
   /** Create a new channel (thread) by emitting a network.channel.create event. */
   async createChannel(opts: {
     title?: string;
+    creatorId?: string;
     master?: string;
     participants?: string[];
+    humanParticipants?: string[];
     resumeFrom?: string;
     /** v1.1 M1: 'private' = only invited people see the thread (default: workspace). */
     visibility?: ChannelVisibility;
@@ -566,12 +574,14 @@ class WorkspaceApi {
   } = {}): Promise<WorkspaceSession> {
     const event = await this.sendEvent({
       type: 'network.channel.create',
-      source: 'human:user',
+      source: opts.creatorId ? `human:${opts.creatorId}` : 'human:user',
       target: 'core',
       payload: {
+        ...(opts.creatorId && { sender_id: opts.creatorId }),
         ...(opts.title && { title: opts.title }),
         ...(opts.master && { master: opts.master }),
         ...(opts.participants && { participants: opts.participants }),
+        ...(opts.humanParticipants?.length && { human_participants: opts.humanParticipants }),
         ...(opts.resumeFrom && { resume_from: opts.resumeFrom }),
         ...(opts.visibility && { visibility: opts.visibility }),
         ...(opts.directorEmail && { director_email: opts.directorEmail }),
@@ -584,7 +594,7 @@ class WorkspaceApi {
     return {
       sessionId: channelName,
       workspaceId: this.workspaceId,
-      createdBy: 'human:user',
+      createdBy: event.source,
       title: opts.title
         || (opts.participants && opts.participants.length
           ? `New Thread with ${opts.participants[0]}${opts.participants.length > 1 ? ` +${opts.participants.length - 1}` : ''}`
@@ -598,7 +608,8 @@ class WorkspaceApi {
       workflowId: null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
-      visibility: opts.visibility || 'workspace',
+      visibility: (event.metadata?.visibility as ChannelVisibility) || opts.visibility || 'workspace',
+      ownerEmail: (event.metadata?.owner_email as string) || null,
       directorEmail: opts.directorEmail || null,
     };
   }
@@ -839,6 +850,16 @@ class WorkspaceApi {
     return { files, total };
   }
 
+  /** Download bytes as the signed-in viewer, including for headerless image elements. */
+  async fetchFile(fileId: string, signal?: AbortSignal): Promise<Response> {
+    const headers: Record<string,string> = {};
+    if (this.token) headers['X-Workspace-Token'] = this.token;
+    if (this.bearerToken) headers.Authorization = `Bearer ${this.bearerToken}`;
+    const response = await fetch(`${API_URL}/v1/files/${encodeURIComponent(fileId)}`, { headers, signal, cache: 'no-store' });
+    if (!response.ok) throw new Error(`File download failed (${response.status})`);
+    return response;
+  }
+
   /** Get the download URL for a file. */
   getFileUrl(fileId: string): string {
     const params = new URLSearchParams();
@@ -971,14 +992,26 @@ class WorkspaceApi {
   // Knowledge Base
   // ---------------------------------------------------------------------------
 
+  async listKnowledgeFolders(): Promise<string[]> {
+    const result = await this.request<{ folders: string[] }>(`/v1/knowledge-folders?network=${this.workspaceId}`);
+    return result.folders;
+  }
+
+  async createKnowledgeFolder(path: string): Promise<void> {
+    await this.request('/v1/knowledge-folders', { method: 'POST', body: JSON.stringify({ network: this.workspaceId, path }) });
+  }
+
   async listKnowledge(): Promise<{ entries: KnowledgeEntry[]; total: number }> {
-    const raw = await this.request<{ entries: Record<string, unknown>[]; total: number }>(
-      `/v1/knowledge?network=${this.workspaceId}`
-    );
-    return {
-      entries: (raw.entries || []).map(mapKnowledgeEntry),
-      total: raw.total || 0,
-    };
+    const entries: KnowledgeEntry[] = [];
+    let total = 0;
+    do {
+      const raw = await this.request<{ entries: Record<string, unknown>[]; total: number }>(
+        `/v1/knowledge?network=${this.workspaceId}&limit=100&offset=${entries.length}`);
+      entries.push(...(raw.entries || []).map(mapKnowledgeEntry));
+      total = raw.total || 0;
+      if (!raw.entries?.length) break;
+    } while (entries.length < total);
+    return { entries, total };
   }
 
   async getKnowledgeEntry(entryId: string): Promise<KnowledgeEntry & { content: string }> {
@@ -986,13 +1019,14 @@ class WorkspaceApi {
     return { ...mapKnowledgeEntry(raw), content: (raw.content || '') as string };
   }
 
-  async createKnowledge(params: { title: string; content: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
+  async createKnowledge(params: { title: string; content: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
     const raw = await this.request<Record<string, unknown>>('/v1/knowledge', {
       method: 'POST',
       body: JSON.stringify({
         network: this.workspaceId,
         title: params.title,
         content: params.content,
+        folder_path: params.folderPath || "",
         description: params.description || null,
         ...(params.visibility ? { visibility: params.visibility } : {}),
         source: 'human:user',
@@ -1001,13 +1035,14 @@ class WorkspaceApi {
     return mapKnowledgeEntry(raw);
   }
 
-  async updateKnowledge(entryId: string, params: { title?: string; content?: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
+  async updateKnowledge(entryId: string, params: { title?: string; content?: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }): Promise<KnowledgeEntry> {
     const raw = await this.request<Record<string, unknown>>(`/v1/knowledge/${entryId}`, {
       method: 'PUT',
       body: JSON.stringify({
         network: this.workspaceId,
         ...params.title !== undefined && { title: params.title },
         ...params.content !== undefined && { content: params.content },
+        ...params.folderPath !== undefined && { folder_path: params.folderPath },
         ...params.description !== undefined && { description: params.description },
         ...params.visibility !== undefined && { visibility: params.visibility },
         source: 'human:user',
@@ -1494,18 +1529,27 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
 
   /** List active agent-to-agent DM conversations. */
-  async listConversations(agentFilter?: string): Promise<DMConversation[]> {
+  async listConversations(agentFilter?: string, readAt?: Record<string, number>): Promise<DMConversation[]> {
     const params = new URLSearchParams({ network: this.workspaceId });
     if (agentFilter) params.set('agent', agentFilter);
+    params.set('limit', '100');
+    if (readAt) {
+      const markers = Object.entries(readAt).filter(([id]) => id.startsWith('dm:')).sort((a, b) => b[1] - a[1]).slice(0, 100);
+      params.set('read_at', JSON.stringify(Object.fromEntries(markers)));
+    }
     const result = await this.request<{ conversations: Array<{
       agents: [string, string];
       last_message: { content: string; sender: string; timestamp: number };
       message_count: number;
+      unread_count: number | null;
+      read_at: number | null;
     }> }>(`/v1/events/conversations?${params}`);
     return result.conversations.map((c) => ({
       agents: c.agents,
       lastMessage: c.last_message,
       messageCount: c.message_count,
+      unreadCount: c.unread_count,
+      readAt: c.read_at,
     }));
   }
 
@@ -1576,15 +1620,21 @@ class WorkspaceApi {
   }
 
   async getIssue(id: string): Promise<IssueDetail> {
-    const raw = await this.request<Omit<IssueDetail, 'tasks'> & { tasks: Record<string, unknown>[] }>(this.issuePath(`/${encodeURIComponent(id)}`));
-    return { ...raw, tasks: raw.tasks.map(t => ({ ...this.mapTask(t), latest_reply: t.latest_reply as IssueReply | null })) };
+    const raw = await this.request<IssueDetail>(this.issuePath(`/${encodeURIComponent(id)}`));
+    return { ...raw, comments: raw.comments.map(comment => ({ ...comment,
+      approval: comment.approval ? this.mapApproval(comment.approval as unknown as Record<string, unknown>) : undefined,
+    })) };
+  }
+
+  async setIssueAgentSharing(id: string, mode: 'no' | 'yes' | 'approval'): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}/my-agent-sharing`), { method: 'PATCH', body: JSON.stringify({ mode }) });
   }
 
   async createIssue(input: { title: string; description: string; source: string; source_name?: string; channel_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { title?: string; description?: string; status?: IssueStatus; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
@@ -1592,17 +1642,16 @@ class WorkspaceApi {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async startIssueThread(id: string, input: { agents: string[]; instruction: string; source: string; source_name?: string }): Promise<{ channel_name: string }> {
-    return this.request(this.issuePath(`/${encodeURIComponent(id)}/threads`), { method: 'POST', body: JSON.stringify(input) });
-  }
-
   async linkIssueThread(id: string, channelName: string): Promise<void> {
     await this.request(this.issuePath(`/${encodeURIComponent(id)}/links`), { method: 'POST', body: JSON.stringify({ channel_name: channelName }) });
   }
 
-  async addIssueTask(id: string, input: { title?: string; description?: string; task_id?: string; source: string; source_name?: string }): Promise<KanbanTask> {
-    const raw = await this.request<Record<string, unknown>>(this.issuePath(`/${encodeURIComponent(id)}/tasks`), { method: 'POST', body: JSON.stringify(input) });
-    return this.mapTask(raw);
+  async removeIssueAgent(id: string, agent: string): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}/participants/remove`), { method: 'POST', body: JSON.stringify({ kind: 'agent', id: agent }) });
+  }
+
+  async addIssueParticipants(id: string, participants: { kind: 'human' | 'agent'; id: string }[]): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}/participants`), { method: 'POST', body: JSON.stringify({ participants }) });
   }
 
   // ---------------------------------------------------------------------------
@@ -1727,8 +1776,7 @@ class WorkspaceApi {
   /** Card class of a request. Older thread snapshots predate `kind_class`,
    * so fall back to the kind itself (mirrors `lib/approvals.approvalKindClass`). */
   private approvalKindClass(kindClass: unknown, kind: unknown): ApprovalRequest['kindClass'] {
-    if (kindClass === 'help' || kindClass === 'proposal' || kindClass === 'approval') return kindClass;
-    return kind === 'help' || kind === 'proposal' ? kind : 'approval';
+    return 'approval';
   }
 
   private mapApproval(a: Record<string, unknown>): ApprovalRequest {
@@ -1739,11 +1787,11 @@ class WorkspaceApi {
       kind: a.kind as string,
       kindClass: this.approvalKindClass(a.kind_class, a.kind),
       action: a.action as string,
-      question: a.kind === 'help' ? ((a.question as string) ?? (a.action as string) ?? null) : null,
       details: (a.details as string) ?? null,
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
+      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
@@ -1781,19 +1829,7 @@ class WorkspaceApi {
     return this.mapApproval(await this.request<Record<string, unknown>>(`/v1/approvals/${id}?${params}`));
   }
 
-  /** Answer a `help` question. The backend records the answer as the note,
-   * marks the request approved and posts `@agent 💬 Answer from <name>: …`
-   * into the thread so the waiting agent resumes. */
-  async answerApproval(id: string, answer: string): Promise<ApprovalRequest> {
-    const raw = await this.request<Record<string, unknown>>(`/v1/approvals/${id}/answer`, {
-      method: 'POST',
-      body: JSON.stringify({ network: this.workspaceId, answer }),
-    });
-    return this.mapApproval(raw);
-  }
 
-  /** Approve or reject. The backend checks the caller's role against the
-   * request's requiredRole and posts the decision into the thread. */
   async resolveApproval(id: string, decision: 'approve' | 'reject', note?: string): Promise<ApprovalRequest> {
     const raw = await this.request<Record<string, unknown>>(`/v1/approvals/${id}/${decision}`, {
       method: 'POST',
@@ -1819,7 +1855,7 @@ class WorkspaceApi {
   }
 
   /** Replace the rules for a scope (omit channel for the workspace default). Admin+. */
-  async updateApprovalPolicy(rules: { kind: string; policy: string }[], channel?: string): Promise<ApprovalPolicy> {
+  async updateApprovalPolicy(rules: { kind: string; policy: string; description?: string; approver_email?: string }[], channel?: string): Promise<ApprovalPolicy> {
     const raw = await this.request<Record<string, unknown>>(`/v1/approval-policy`, {
       method: 'PUT',
       body: JSON.stringify({ network: this.workspaceId, rules, ...(channel ? { channel } : {}) }),
@@ -2172,6 +2208,23 @@ class WorkspaceApi {
 
   /** Team specialists as the directory shows them (visibility already applied
    * server-side; `can_manage` says whether the caller may edit/grant). */
+  async getReactions(ids: string[]): Promise<Record<string, import('./types').MessageReaction[]>> {
+    return this.request(`/v1/reactions/query?${new URLSearchParams({ network: this.requireWorkspace() })}`, {method:'POST',body:JSON.stringify({ids})});
+  }
+  async setReaction(id: string, emoji: string, active: boolean): Promise<import('./types').MessageReaction[]> {
+    return this.request(`/v1/reactions/${encodeURIComponent(id)}?${new URLSearchParams({ network: this.requireWorkspace() })}`, {method:'PUT',body:JSON.stringify({emoji,active})});
+  }
+
+  async listServices(): Promise<import('./types').AgentService[]> {
+    return this.request(`/v1/services?${new URLSearchParams({ network: this.requireWorkspace() })}`);
+  }
+  async saveService(input: import('./types').AgentServiceInput, id?: string): Promise<import('./types').AgentService> {
+    return this.request(`/v1/services${id ? '/' + encodeURIComponent(id) : ''}?${new URLSearchParams({ network: this.requireWorkspace() })}`, { method: id ? 'PATCH' : 'POST', body: JSON.stringify(input) });
+  }
+  async startServiceRequest(id: string, content: string): Promise<{ channel: string; title: string }> {
+    return this.request(`/v1/services/${encodeURIComponent(id)}/requests?${new URLSearchParams({ network: this.requireWorkspace() })}`, { method: 'POST', body: JSON.stringify({ content }) });
+  }
+
   async getAgentDirectory(): Promise<AgentDirectoryEntry[]> {
     const params = new URLSearchParams({ network: this.requireWorkspace() });
     const raw = await this.request<{ agents: AgentDirectoryEntry[] }>(`/v1/agents/directory?${params}`);
@@ -2347,12 +2400,33 @@ class WorkspaceApi {
     return this.request<AccessExplanation>(`/v1/access/explain?${params}`);
   }
 
-  /** Visibility / participants-can-invite: owner or admin. ownerEmail: the
-   * owner hands over, or an admin forces a transfer (audited server-side). */
+  /** The owner's default preview; resource permissions still apply. */
+  async getThreadLink(sessionId: string): Promise<{ id: string; session_id: string }> {
+    return this.request('/v1/thread-links', { method: 'POST', body: JSON.stringify({ network: this.requireWorkspace(), session_id: sessionId }) });
+  }
+
+  async resolveThreadLink(id: string): Promise<{ id: string; session_id: string }> {
+    return this.request(`/v1/thread-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`);
+  }
+
+  async getThreadArtifact(channel: string): Promise<ThreadArtifactSetting> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/artifact?network=${this.workspaceId}`);
+  }
+  async pinThreadArtifact(channel: string, artifact: ArtifactReference | null): Promise<ThreadArtifactSetting> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/artifact`, { method: 'PATCH', body: JSON.stringify({ network: this.workspaceId, artifact }) });
+  }
+
+  async setThreadAgentSharing(channel: string, mode: 'no' | 'yes' | 'approval'): Promise<void> {
+    await this.request(`/v1/channels/${encodeURIComponent(channel)}/my-agent-sharing`, {
+      method: 'PATCH', body: JSON.stringify({ network: this.requireWorkspace(), mode }),
+    });
+  }
+
   async updateChannelAccess(channel: string, update: ChannelAccessUpdate): Promise<unknown> {
     const body: Record<string, unknown> = { network: this.requireWorkspace() };
     if (update.visibility !== undefined) body.visibility = update.visibility;
     if (update.participantsCanInvite !== undefined) body.participants_can_invite = update.participantsCanInvite;
+    if (update.membersCanAddAgents !== undefined) body.members_can_add_agents = update.membersCanAddAgents;
     if (update.ownerEmail !== undefined) body.owner_email = update.ownerEmail;
     return this.request(`/v1/channels/${encodeURIComponent(channel)}`, {
       method: 'PATCH',

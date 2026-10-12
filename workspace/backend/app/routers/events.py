@@ -347,9 +347,29 @@ def send_event(
     # keep the source they declared (agents reply to `event.source`).
     source = body.source
     payload = body.payload
-    if (body.visibility or "") == "direct":
+    if (body.visibility or "") == "direct" or body.type in ("network.channel.create", "workspace.message.posted"):
         source, payload = _attribute_direct_sender(db, workspace, x_workspace_token, authorization,
                                                    source, payload)
+        if body.type == "network.channel.create":
+            # The browser's generic human:user source is not an identity.
+            # Always bind a new thread to the authenticated creator, even when
+            # its selected human_participants list omits them. Never trust an
+            # owner supplied by a signed-in client over that identity.
+            from app.services.visibility import resolve_viewer
+            creator = resolve_viewer(db, workspace, x_workspace_token, authorization)
+            if creator.kind == "human" and creator.email:
+                payload = dict(payload or {})
+                payload["creator_email"] = creator.email
+                payload["owner_email"] = creator.email
+                from app.services.access_model import can_start_agent_thread
+                from app.models import WorkspaceMember
+                names = list(payload.get("participants") or [])
+                if payload.get("master"):
+                    names.append(payload["master"])
+                for name in names:
+                    member = db.get(WorkspaceMember, (str(workspace.id), name))
+                    if not member or member.status == "removed" or not can_start_agent_thread(db, str(workspace.id), creator, member):
+                        return json_response(ResponseCode.FORBIDDEN, "You do not have direct access to this agent")
 
     # Build ONM Event
     event = Event(
@@ -868,6 +888,7 @@ def list_conversations(
     network: str = Query(..., description="Network (workspace) ID or slug"),
     agent: Optional[str] = Query(None, description="Filter to conversations involving this agent"),
     limit: int = Query(20, ge=1, le=100),
+    read_at: Optional[str] = Query(None, max_length=32768, description="JSON map of DM session IDs to last-read timestamps"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -887,6 +908,17 @@ def list_conversations(
 
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    try:
+        read_markers = _json.loads(read_at) if read_at else {}
+        if not isinstance(read_markers, dict) or any(
+            not isinstance(key, str) or not key.startswith("dm:")
+            or type(value) is not int or value < 0 or value > 9007199254740991
+            for key, value in read_markers.items()
+        ):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid DM read markers")
 
     # Build a subquery to find the latest event per conversation pair.
     # Normalize pairs so (A→B) and (B→A) are the same conversation.
@@ -949,6 +981,27 @@ def list_conversations(
 
         if latest_event:
             payload = latest_event.payload or {}
+            session_id = f"dm:{row.agent_a},{row.agent_b}"
+            last_read = read_markers.get(session_id)
+            own_addresses = (_dm_addresses(viewer) or []) + ["human:user"]
+            unread_count = None
+            if last_read is not None:
+                unread_count = db.scalar(select(func.count()).select_from(EventRecord).where(
+                    EventRecord.network_id == workspace.id,
+                    EventRecord.visibility == "direct",
+                    EventRecord.type == "workspace.message.posted",
+                    or_(
+                        EventRecord.payload["message_type"].as_string().is_(None),
+                        EventRecord.payload["message_type"].as_string().notin_(["thinking", "status", "todos"]),
+                    ),
+                    EventRecord.timestamp > last_read,
+                    EventRecord.target.in_(own_addresses),
+                    ~EventRecord.source.in_(own_addresses),
+                    or_(
+                        and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
+                        and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
+                    ),
+                )) or 0
             conversations.append({
                 "agents": [row.agent_a, row.agent_b],
                 "last_message": {
@@ -957,6 +1010,8 @@ def list_conversations(
                     "timestamp": latest_event.timestamp,
                 },
                 "message_count": row.msg_count,
+                "unread_count": unread_count,
+                "read_at": last_read,
             })
 
     return success_response({"conversations": conversations})

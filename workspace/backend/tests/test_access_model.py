@@ -5,7 +5,7 @@ Permission model v1.1 — the access rule table (app/services/access_model.py).
     owner / public / participant / direct grant / group grant / agent
     inheritance / guest on public / admin denied on private / machine legacy,
     for threads, agents, files and knowledge; plus principal resolution and the
-    default `everyone` grant every new agent gets.
+    explicit `everyone` grants used by shared agents.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -51,6 +51,10 @@ def world(db, workspace):
     db.add(WorkspaceMember(workspace_id=wid, agent_name="orphan-bot", agent_type="claude", status="online"))
     db.flush()
     groups = am.get_or_create_builtin_groups(db, wid)
+    # These fixtures are deliberately shared. New agents themselves start private.
+    for name in ('deploy-bot', 'orphan-bot'):
+        am.create_grant(db, wid, resource_kind='agent', resource_id=name, grantee_kind='group',
+                        grantee_id=groups['everyone'].id, rights=['act'], granted_by='mia@acme.test')
     team = SecurityGroup(workspace_id=wid, name="Deploy team", slug="deploy-team", kind="custom", created_by="adam@acme.test")
     db.add(team)
     db.flush()
@@ -215,7 +219,7 @@ class TestThreads:
 # ---------------------------------------------------------------------------
 
 class TestAgents:
-    def test_default_everyone_grant_and_revocation(self, db, world):
+    def test_explicit_everyone_grant_and_revocation(self, db, world):
         w = world
         bot = db.execute(select(WorkspaceMember).where(WorkspaceMember.agent_name == "deploy-bot")).scalar_one()
         usable = am.agent_usable_by(db, w["wid"], ["deploy-bot", "orphan-bot"])

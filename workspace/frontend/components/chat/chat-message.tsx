@@ -1,5 +1,8 @@
 'use client';
 
+import { MessageArtifacts } from '@/components/artifacts/message-artifacts';
+import { openArtifactPreview } from '@/lib/thread-artifacts';
+import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, User, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
@@ -7,6 +10,7 @@ import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { MessageReactions } from './message-reactions';
 import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
@@ -40,13 +44,9 @@ function isPreviewable(contentType: string, filename: string): boolean {
 function Attachments({ items, senderAgentName = null }: { items: Attachment[]; senderAgentName?: string | null }) {
   if (!items || items.length === 0) return null;
 
-  const { setViewMode } = useLayout();
-  const { setSelectedFileId } = useWorkspace();
-
   const openPreview = useCallback((fileId: string) => {
-    setSelectedFileId(fileId);
-    setViewMode('files');
-  }, [setSelectedFileId, setViewMode]);
+    openArtifactPreview({ kind: 'file', id: fileId });
+  }, []);
 
   // Regenerate URLs from fileId to ensure they include current auth token
   const fixedItems = useMemo(() =>
@@ -71,8 +71,8 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
               onClick={() => openPreview(img.fileId)}
               className="block rounded-lg overflow-hidden border hover:shadow-md transition-shadow max-w-sm cursor-pointer text-left"
             >
-              <img
-                src={img.url}
+              <AuthenticatedImage
+                fileId={img.fileId}
                 alt={img.filename}
                 className="max-h-64 w-auto object-contain"
                 loading="lazy"
@@ -136,15 +136,16 @@ interface ChatMessageProps {
   isLast?: boolean;
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
   onSuggestion?: (text: string) => void;
+  onMentionPerson?: (email: string) => void;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
-  // An agent asking a person for permission — rendered as the approval card
+  // Requests from people or agents render as the same actionable approval card
   // (buttons and all) instead of prose. The plain-text content is what
   // history readers and bridges see; the card is built from the record.
   const approval = message.messageType === 'approval' ? approvalFromMetadata(message.metadata) : null;
@@ -215,13 +216,15 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     const isCurrentUser = (!!message.senderId && message.senderId === currentUser.id)
       || (!!message.senderAddress && (message.sessionId || '').startsWith('dm:')
         && isMyAddress(message.senderAddress, myAddress(currentUser)));
+    const mentionEmail = [message.senderAddress?.replace(/^human:/, ''), message.senderId, message.metadata?.sender_email]
+      .find((value): value is string => typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
     const seed = message.senderId || message.senderName || 'human';
     const displayName = isCurrentUser
       ? 'You'
-      : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
+      : ((mentionEmail && humanNames[mentionEmail.toLowerCase()]) || (message.senderName && message.senderName !== 'user' ? message.senderName : 'User'));
 
     return (
-      <div className="py-2">
+      <div className="group/message relative py-1.5">
         <div className="flex items-start gap-3">
           <div
             className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
@@ -231,7 +234,13 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-foreground">{displayName}</span>
+              {onMentionPerson && mentionEmail ? (
+                <button type="button" onClick={() => onMentionPerson(mentionEmail.toLowerCase())}
+                  className="text-sm font-semibold text-foreground cursor-pointer hover:underline focus-visible:underline"
+                  title={t('peopleMessaging.mentionName', { name: displayName })}>
+                  {displayName}
+                </button>
+              ) : <span className="text-sm font-semibold text-foreground">{displayName}</span>}
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
@@ -253,10 +262,13 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                 </span>
               )}
             </div>
-            <div className="mt-0.5 text-sm leading-relaxed">
-              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
-              <Attachments items={attachments} />
+            <div className="mt-0.5 text-sm leading-relaxed [&_.markdown-content>*:last-child]:mb-0">
+              {approval ? <ApprovalCard approval={approval} /> : <>
+                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
+                <Attachments items={attachments} />
+              </>}
             </div>
+            {!approval && <MessageReactions messageId={message.messageId} onReply={onMentionPerson && mentionEmail ? () => onMentionPerson(mentionEmail.toLowerCase()) : undefined} />}
           </div>
         </div>
       </div>
@@ -296,11 +308,13 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               <>
                 <HandoffCard handoff={handoff} agents={agents} agentNames={agentNames} agentLabels={agentLabels} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
+                <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
               </>
             ) : (
               <>
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
+                <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
               </>
             )}
 

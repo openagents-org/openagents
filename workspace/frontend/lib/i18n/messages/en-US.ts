@@ -11,6 +11,41 @@
  */
 
 export const messages = {
+  artifactPanel: {
+    title: 'Artifacts',
+    document: 'Documents',
+    html: 'HTML pages',
+    browser: 'Browser tabs',
+    open: 'Open artifact preview',
+    close: 'Close artifact preview',
+    browse: 'Browse artifacts',
+    pin: 'Pin as the thread’s default',
+    unpin: 'Unpin default artifact',
+    pinnedHint: 'Pinned · opens when you enter this thread',
+    pinnedNotice: 'Default artifact pinned',
+    unpinnedNotice: 'Default artifact unpinned',
+    unavailable: 'This artifact is unavailable or you don’t have access to it.',
+    intro: 'Keep documents, dashboards, and live browser work beside your conversation.',
+    ownerHint: 'Open an artifact and pin it to make it the default for this thread. Pinning does not change who can access it.',
+    search: 'Search artifacts…',
+    workspace: 'All workspace artifacts',
+    thread: 'Thread & live tabs',
+    empty: 'Documents and HTML pages shared in this thread will appear here. You can also choose an artifact from the workspace.',
+    refresh: 'Refresh preview',
+    failed: 'Couldn’t update the default artifact.',
+    download: 'Download file',
+  },
+
+  'approvals.kinds.agentAccess': 'Agent access',
+  'knowledge.folder': 'Folder',
+  'knowledge.rootFolder': 'All knowledge',
+  'knowledge.newFolder': 'New folder',
+  'knowledge.parentFolder': 'Parent folder',
+  'knowledge.folderName': 'Folder name',
+  'knowledge.folderHint': 'Everyone can see folders. Private entries remain visible only to people with access.',
+  'resourceLinks.unavailable': 'This item is unavailable or you don’t have access.',
+  'resourceLinks.copyFailed': 'Couldn’t copy the link. Please try again.',
+
   metadata: {
     title: 'OpenAgents Workspace',
     description: 'Interact with your AI agents in real time',
@@ -61,17 +96,20 @@ export const messages = {
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   issues: {
+    searchAssignees: "Search people or your agents…", noAssignees: "No matching assignees", labelName: "Label name",
+    paused: 'Paused', assignee: 'Assignee', unassigned: 'Unassigned', labels: 'Labels', addLabel: 'Add a label', removeLabel: 'Remove {label}',
     editHint: "Changes are shared with everyone on this issue.",
     allIssues: "All issues",
     noMatchesHint: "Try another search or change the status filter.",
     emptyColumn: "No issues yet",
     latestReply: "Latest reply",
     details: "Details",
+    addParticipantsHint: "Add teammates and agents to this issue. Then @mention an added agent in a comment to give it work.",
+    addParticipantsButton: "Add to issue",
     participants: "Participants",
     workspaceIssue: "Workspace issue",
     openedIssue: "opened this issue",
-    noAgentWork: "Invite an agent when you’re ready to move this forward.",
-    noTasks: "Break out a task when there’s a clear next step.",
+    noAgentWork: "Add an agent, then @mention it in a comment to start work.",
 
     workStarted: 'started agent work',
     copyLink: 'Copy issue link',
@@ -109,30 +147,16 @@ export const messages = {
     mentionPerson: "Person",
     mentionAgent: "Agent",
     noMentionMatches: "No matching people or agents",
-    commentHint: "Use @ to mention a person or an agent.",
+    commentShortcut: '⌘ Enter (Mac) / Ctrl Enter (Windows)',
+    commentHint: "@mention an agent on this issue to start work. Other comments stay in the discussion.",
     postComment: "Comment",
     resolveHint: "Review the outcome, then close the issue when it is resolved. You can reopen it later.",
     agentWork: "Agent work",
-    bringAgent: "Bring in an agent",
     linkThread: "Link a thread",
     shareResult: "Share result in discussion",
     shared: "Shared in discussion",
-    scopedTasks: "Tasks",
-    addTask: "Add a task",
-    agentHint: "Choose who can help and what you want them to explore. They’ll receive the issue’s context.",
-    chooseAgents: "Choose agents",
-    noAgents: "Connect an agent to the workspace first. You can keep discussing in the meantime.",
-    online: "Online",
-    offline: "Offline",
-    instruction: "What should they do?",
-    instructionPlaceholder: "For example: investigate the problem and suggest an approach.",
     selectThread: "Choose a thread",
-    existingTask: "Existing task",
-    newTask: "Create a new task",
-    taskScope: "Scope and completion criteria",
-    taskScopePlaceholder: "Describe the specific deliverable and how to know it is done.",
-    taskHint: "The task is added to the board. Assign and run it when its scope is ready.",
-    startWork: "Start agent work",
+    removeAgent: "Remove {name} from issue",
   },
 
   views: {
@@ -151,9 +175,15 @@ export const messages = {
   },
 
   nav: {
+    unreadMessages: '{count} unread messages',
+    memberOnline: 'Online',
+    members: 'Members',
+    newHumanDM: 'New direct message',
+    searchMembers: 'Search people by name or email…',
+    noMembersFound: 'No people found',
     thisComputer: 'This Computer',
     collaboration: 'Collaboration',
-    agentsWithCount: 'Agents ({online}/{total})',
+    agentsWithCount: 'My agents ({online}/{total})',
     onlineWithCount: 'Online ({count})',
     you: '{name} (you)',
     workspaceFallback: 'Workspace',
@@ -167,10 +197,44 @@ export const messages = {
     collapseSidebar: 'Collapse sidebar',
   },
 
+  threadSettings: {
+    sharingNo: "No",
+    sharingYes: "Yes",
+    sharingApproval: "Requires approval",
+
+    owner: 'Thread owner',
+    workspaceOwned: 'Workspace',
+    shareMyAgents: 'Let teammates use your agents',
+    membersCanAddAgents: 'Members can bring agents',
+    people: 'People in this thread',
+    agents: 'Agents in this thread',
+    remove: 'Remove {name} from this thread',
+    removeFailed: 'Could not remove this participant.',
+    title: 'Thread settings',
+    description: 'Manage people, agents, and sharing in this thread.',
+    visibility: 'Thread visibility',
+  },
+  responseMode: {
+    routerUnavailable: 'Proactive routing is unavailable. Start your message with @agent-name to request a reply.',
+    label: 'Agent responses',
+    proactive: 'Proactive',
+    passive: 'Passive',
+    proactiveHint: 'AI decides whether a message needs an agent and who should respond. Messages for people stay quiet.',
+    passiveHint: 'Start your message with @agent-name to trigger that agent. Other messages stay quiet.',
+    saveFailed: 'Could not save response mode. Please try again.',
+  },
+
   header: {
     clickToRename: 'Click to rename',
     untitledThread: 'Thread',
     readOnly: 'read-only',
+    participantCount: '{people} people, {agents} agents',
+    viewPeople: '{count} people — view list',
+    viewAgents: '{count} agents — view list',
+    threadPeople: 'People in this thread',
+    threadAgents: 'Agents in this thread',
+    noThreadPeople: 'No people have joined this thread.',
+    noThreadAgents: 'No agents have joined this thread.',
   },
 
   search: {
@@ -241,8 +305,10 @@ export const messages = {
     stepperChoose: 'Choose',
     stepperConnect: 'Connect a device',
     stepperStart: 'Add an agent',
-    allSetTitle: "You're all set!",
-    allSetBody: 'Your agent is online. Send a message below to start collaborating.',
+    allSetTitle: "Start a conversation",
+    conversationWith: "Start a conversation with {name}",
+    humanConversationBody: "Send a message to say hello or share what’s on your mind.",
+    allSetBody: 'Ask a question, share an idea, or describe a task.',
     backToAgents: 'Back to agents',
     title: 'Connect your first agent',
     subtitle: 'Pick an agent you already have installed, or choose one to set up.',
@@ -355,6 +421,12 @@ export const messages = {
   },
 
   share: {
+    chooseType: 'Share a link to this thread or create a read-only snapshot.',
+    threadLink: 'Thread link',
+    copyThreadLink: 'Copy thread link',
+    threadLinkHint: 'Opens the live conversation for people who already have access. This link does not change who can see or join the thread.',
+    threadUnavailable: 'This thread is unavailable or you do not have access.',
+    snapshot: 'Public snapshot',
     title: 'Share conversation',
     description: 'Create a public link to a snapshot of this conversation. Anyone with the link can view it.',
     snapshotNote: 'The snapshot includes all chat messages. Internal tool use and thinking steps are excluded.',
@@ -457,6 +529,8 @@ export const messages = {
   },
 
   workflows: {
+    experimentalTitle: "Experimental feature",
+    experimentalBody: "Workflows are still evolving. Review the results of each run.",
     newWorkflow: 'New workflow',
     emptyTitle: 'No workflows yet',
     emptyBody: 'Create a reusable template for how agents collaborate on a task.',
@@ -820,6 +894,7 @@ export const messages = {
     inviteMembers: 'Invite members',
     sendFeedback: 'Send feedback',
     workspaceSettings: 'Workspace settings',
+    personalSettings: 'Personal settings',
     signIn: 'Sign in',
     signOut: 'Sign out',
     signOutTitle: 'Sign out?',
@@ -873,6 +948,44 @@ export const messages = {
   },
 
   approvals: {
+    yourApprovalRecorded: 'Your approval is recorded. Waiting for the remaining reviewers.',
+    waitingReviewers: 'Waiting for approval from {people}.',
+
+    verdictMember: "Specific member",
+    chooseMember: "Choose a member",
+    specificMemberHint: "This person must approve. If other policies require additional reviewers, their approval is also needed.",
+    advisoryWarning: "Approval policies are advisory",
+    pendingTab: "Pending approval",
+    reviewedBy: "Approved by: {people}",
+
+    "customTitle": "Your policies",
+    "customHint": "Add a policy from a template or describe your own condition. When multiple policies apply, the strictest requirement wins.",
+    "addPolicy": "Add policy",
+    "templates": "Start from a template",
+    "noCustomPolicies": "No policies added yet. Choose a template or write your own policy.",
+    "condition": "When this applies",
+    "conditionPlaceholder": "For example: Any change to production infrastructure or customer-facing services.",
+    "requirement": "Require",
+    "removePolicy": "Remove policy {number}",
+    "customEvaluation": "Conditions are evaluated when an agent requests approval. If a condition cannot be ruled out, its safeguard stays in place. Actions not covered by a saved policy can proceed automatically. Changes apply to new requests after saving. Agents must still request approval before acting.",
+    "template": {
+      "production": {
+        "title": "Production changes",
+        "description": "Any change to production infrastructure, configuration, or customer-facing services."
+      },
+      "spending": {
+        "title": "Spending over $100",
+        "description": "Any purchase, paid API usage, or subscription expected to cost more than $100 in total."
+      },
+      "customers": {
+        "title": "Customer communication",
+        "description": "Sending messages to customers or publishing content on behalf of the company."
+      },
+      "sensitive": {
+        "title": "Sensitive data",
+        "description": "Sharing passwords, API keys, or customer personal data outside the workspace."
+      }
+    },
     requested: 'Approval requested',
     needs: 'Needs {role}',
     roleAny: 'any member',
@@ -898,7 +1011,7 @@ export const messages = {
     nonePending: 'Nothing is waiting on you.',
     openThread: 'Open thread',
     policyTitle: 'Permission policy',
-    policyHint: 'Applies to every agent in this workspace. Each kind of action either proceeds, pauses for a person with the given role, or is blocked outright.',
+    policyHint: 'Choose the policies that apply to agents in this workspace. Templates only take effect after you add and save them.',
     colAction: 'Action',
     colPolicy: 'Policy',
     colSource: 'Set by',
@@ -914,6 +1027,7 @@ export const messages = {
     saveFailed: 'Could not save the policy',
     reset: 'Reset to defaults',
     kinds: {
+      service_request: "Start service task",
       deploy: 'Deploy',
       spend: 'Spend',
       external_send: 'External send',
@@ -922,34 +1036,16 @@ export const messages = {
       data_delete: 'Delete data',
       shell: 'Shell',
       generic: 'Other',
-      help: 'Question',
-      proposal: 'Proposal',
     },
-    // v1.1 escalation cards: help = a question for the agent's owner,
-    // proposal = a change to its shared instructions
-    helpAsksYou: '{agent} asks you a question',
-    helpAsks: '{agent} asks {who}',
-    proposalTitle: '{agent} proposes a change to its shared instructions',
-    proposedText: 'Proposed instruction',
-    addressedTo: 'Addressed to {who}',
     onBehalfOf: 'While working on a request from {who}',
-    answer: 'Answer',
-    answerPlaceholder: 'Your answer for {agent}…',
-    answerRequired: 'Type an answer first.',
-    declineHelp: 'Decline',
     accept: 'Accept',
-    declineProposal: 'Decline',
-    answeredBy: 'Answered by {who}',
-    declinedBy: 'Declined by {who}',
-    acceptedBy: 'Accepted by {who}',
-    notAdoptedBy: 'Declined by {who}',
     assigneeHint: 'This is addressed to {who}.',
   },
 
   admin: {
     navApprovals: 'Approvals',
     approvalsTitle: 'Approvals',
-    approvalsDescription: 'Agents act. People approve where it matters. Decide which actions pause for a person, and who that person must be.',
+    approvalsDescription: 'These policies are recommendations for agents, not enforced execution controls. They rely on agents requesting approval. An agent that skips the request can still perform the action.',
     title: 'Workspace admin',
     backToWorkspace: 'Back to workspace',
     loading: 'Loading workspace…',
@@ -957,6 +1053,7 @@ export const messages = {
     retry: 'Retry',
     accessDeniedTitle: 'No access',
     accessDeniedBody: "You don't have access to this workspace's settings.",
+    adminRequired: 'Only workspace owners and admins can access these settings.',
     readOnlyBanner: 'You are viewing as {role}. Only an owner or admin can change these settings.',
     roleBadgeToken: 'token access',
     roleOwner: 'Owner',
@@ -1145,7 +1242,7 @@ export const messages = {
     invitedAs: "You've been invited to join as a {role}.",
     boundTo: 'This invitation is for {email}',
     signInToAccept: 'Sign in to accept',
-    signInHint: 'Sign in with your Google or Apple account to join this workspace.',
+    signInHint: 'Sign in to OpenAgents to join this workspace.',
     join: 'Join {workspace}',
     signedInAs: 'Signed in as {email}.',
     switchAccount: 'Use a different account',
@@ -1159,6 +1256,17 @@ export const messages = {
   },
 
   threads: {
+    tabChannels: 'Channels',
+    channel: 'Channel',
+    markAsChannel: 'Mark as channel',
+    convertToThread: 'Convert to thread',
+    emptyChannels: 'No channels yet. Use a thread’s menu to mark an ongoing conversation as a channel.',
+    channelLabelFailed: 'Could not change the channel label. Only the thread owner or an admin in the thread can change it.',
+
+    pinFailed: "Could not update the pin. Please try again.",
+    pin: 'Pin',
+    unpin: 'Unpin',
+    pinned: 'Pinned',
     title: 'Threads',
     unreadCount: '{count} unread',
     unread: 'Unread',
@@ -1206,7 +1314,20 @@ export const messages = {
 
   newThread: {
     title: 'New Thread',
-    descriptionMulti: 'Pick which agents join this conversation.',
+    descriptionMulti: 'Choose teammates and agents to join this conversation.',
+    teammates: 'People',
+    all: 'All',
+    selected: 'Selected',
+    agent: 'Agent',
+    search: 'Search people or agents…',
+    filterParticipants: 'Filter participants',
+    participants: 'Participants',
+    selectionSummary: '{people} people · {agents} agents selected',
+    deselectAgents: 'Deselect all agents',
+    noneSelected: 'Choose people or agents to join.',
+    noResults: 'No matching people or agents.',
+    agents: 'Agents',
+    createError: 'Could not create the thread. Please try again.',
     descriptionSingle: 'Start a new conversation with your agent.',
     allSelected: 'All agents selected',
     selectAll: 'Select all agents',
@@ -1461,8 +1582,9 @@ export const messages = {
     yumiAdded: 'Yumi added',
 
     // Nodes (connect-a-node)
-    nodeHeading: 'Connected devices',
-    nodeSubtitle: 'Devices running the OpenAgents desktop app, paired to this workspace.',
+    nodeHeading: 'My connected devices',
+    nodeSubtitle: 'Your private connections to this workspace. Agents connected through them belong to you and start private.',
+    nodePrivateConnection: 'Private connection · Only you can manage this device',
     nodeEmptyTitle: 'No devices connected yet',
     nodeEmptyBody: 'Connect a device to run agents on your own machine or server.',
     nodeConnect: 'Connect a device',
@@ -1502,7 +1624,7 @@ export const messages = {
     nodeCodeCopied: 'Code copied',
     nodeCopyCommand: 'Copy command',
     nodePairingFailed: 'Failed to generate pairing code',
-    nodePairingForbidden: 'Only an owner or admin can connect devices',
+    nodePairingForbidden: 'Sign in as a workspace member to connect your device',
     nodeDone: 'Done',
     nodeDeviceServer: 'Server',
     nodeDeviceLaptop: 'Laptop',
@@ -1547,7 +1669,7 @@ export const messages = {
     nodeAgentStatusStopped: 'stopped',
     nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
     nodeCommandFailed: 'Could not queue the command.',
-    nodeCommandForbidden: 'Only an owner or admin can manage a device’s agents.',
+    nodeCommandForbidden: 'Only the connection owner can manage its agents.',
     nodeOfflineActionHint: 'Device is offline — this will run when it reconnects.',
     nodeRemoveAgentTitle: 'Remove agent?',
     nodeRemoveAgentBody: 'This stops and removes "{name}" from the device.',
@@ -1652,7 +1774,7 @@ export const messages = {
     nodeRemoveBody: 'This unpairs the device and forgets its agents in the workspace. The desktop app on the device won’t reconnect on its own — re-pair it with a new code if you need it back.',
     nodeRemoved: 'Device removed.',
     nodeRemoveFailed: 'Could not remove the device.',
-    nodeRemoveForbidden: 'Only an owner or admin can remove a device.',
+    nodeRemoveForbidden: 'Only the connection owner can disconnect this device.',
     nodeToggleDetails: 'Toggle details',
 
     // Cloud agents tab
@@ -1779,9 +1901,7 @@ export const messages = {
     // v1.1 actionable rows (approve / answer / accept without leaving the inbox)
     needsYou: 'Needs you',
     updates: 'Updates',
-    chipHelp: 'Needs your answer',
     chipApproval: 'Needs approval',
-    chipProposal: 'Proposal',
     chipDone: 'Done',
     expand: 'Show request',
     collapse: 'Hide request',
@@ -2395,7 +2515,13 @@ export const messages = {
 
   // ── v1.1 M1/M2 — private threads, personal agents, sharing, directory ──────
   collab: {
-    viewAgents: 'Agents',
+    shared: "Shared",
+    requestApprovalTitle: "Approve each new task",
+    requestApprovalHint: "New requests wait for the selected person to approve before they reach this agent. Each incoming request needs its own approval.",
+    requestApprovalOff: "No approval required",
+    experimentalTitle: "Experimental",
+    experimentalHint: "Shared agent services are in preview. Features and behavior may change.",
+    viewAgents: 'Services',
 
     // Thread privacy (status bar lock, thread list, new-thread dialog)
     workspaceThread: 'Workspace',
@@ -2448,7 +2574,7 @@ export const messages = {
     ownerSaved: 'Owner updated',
     visibilitySaved: 'Visibility updated',
     saveFailed: 'Could not save that change',
-    saveForbidden: 'Only the owner or an admin can change this',
+    saveForbidden: 'Only the agent owner can change this',
     personalNeedsOwner: 'Set an owner before making an agent personal',
     device: 'Device',
     cloud: 'Cloud',
@@ -2456,7 +2582,7 @@ export const messages = {
 
     // Share dialog
     shareTitle: 'Share this thread',
-    shareDescription: 'Pick how much to share — a frozen copy, or a seat at the table.',
+    shareDescription: 'Share a read-only snapshot or let a teammate use an agent.',
     shareSnapshot: 'Share a read-only snapshot',
     shareSnapshotHint: 'A public link to a frozen copy of the messages. Nobody can reply or use the agents.',
     shareInvite: 'Invite a teammate into this thread',
@@ -2499,11 +2625,11 @@ export const messages = {
     back: 'Back',
 
     // Agent directory
-    directoryTitle: 'Agents',
+    directoryTitle: 'Shared agent services',
     directorySubtitle: 'Team specialists you can hand work to',
     directoryEmpty: 'No agents to show yet. Connect one, or ask a teammate to share theirs.',
     directoryLoadFailed: 'Could not load the agent directory',
-    searchPlaceholder: 'Search agents…',
+    searchPlaceholder: 'Search services…',
     pinned: 'Pinned',
     pin: 'Pin',
     unpin: 'Unpin',
@@ -2544,7 +2670,7 @@ export const messages = {
     profileSaved: 'Profile saved',
     profileSaveFailed: 'Could not save the profile',
     grantsSection: 'Who can use this agent',
-    grantsEmpty: 'Only you and workspace admins so far.',
+    grantsEmpty: 'Only you can use this agent so far.',
     grantsAdd: 'Add',
     grantRevoke: 'Revoke',
     grantRevoked: 'Access revoked for {email}',
@@ -2570,16 +2696,6 @@ export const messages = {
     runTestRequestHint: 'Opens your thread with {agent} and drafts the first example request.',
     runTestRequestNeedsExample: 'Add an example request first.',
     profileLoadFailed: 'Could not load the full profile',
-    proposalsSection: 'Proposed changes',
-    proposalsHint: 'Corrections teammates asked for. Accepting appends the text to the shared instructions.',
-    proposalsEmpty: 'No pending proposals.',
-    proposalsLoadFailed: 'Could not load proposals',
-    proposalAccept: 'Accept',
-    proposalDecline: 'Decline',
-    proposalAccepted: 'Proposal accepted — shared instructions updated',
-    proposalDeclined: 'Proposal declined',
-    proposalResolveFailed: 'Could not resolve the proposal',
-    proposalFrom: 'From {channel}',
 
     // Invite page — targeted invites
     inviteTargetChannel: 'You will land in the thread "{title}".',
@@ -2661,6 +2777,20 @@ export const messages = {
 
   // ── v1.1 permission model — thread Private/Public, owner, join, share dialog ──
   threadAccess: {
+    addPeople: 'Add people',
+    addAgents: 'Add agents',
+    choosePeople: 'Choose people…',
+    chooseAgents: 'Choose agents…',
+    addPeopleHint: 'Add teammates to this thread.',
+    addAgentsHint: 'Add agents to this thread.',
+    addParticipants: 'Add people or agents',
+    addParticipantsHint: 'Add teammates or agents to this thread. They can read its messages and take part in the conversation.',
+    addParticipantsPlaceholder: 'Choose people or agents…',
+    addParticipantsButton: 'Add to thread',
+    addingParticipants: 'Adding…',
+    addedParticipants: { one: 'Added {count} participant', other: 'Added {count} participants' },
+    addFailed: 'Could not add {name} to this thread',
+    addForbidden: 'The thread owner controls who can add participants.',
     private: 'Private',
     public: 'Public',
     privateHint: 'Only the owner and the people, agents and groups they invite can see this thread.',
@@ -2686,7 +2816,7 @@ export const messages = {
     joinFailed: 'Could not join the thread',
     notJoinedHint: 'You can read this public thread. Join it to take part.',
     newThreadVisibility: 'Who can see this thread',
-    newThreadPrivateHint: 'Only you and the people, agents and groups you invite. You can make it public later.',
+    newThreadPrivateHint: 'Only you and the teammates and agents you select. You can make it public later.',
     newThreadPublicHint: 'Everyone in the workspace can see and join.',
     shareWithGroups: 'Share with groups',
     shareWithGroupsHint: 'Optional — these groups get access as soon as the thread exists.',
@@ -2780,6 +2910,9 @@ export const messages = {
   },
 
   // ── Permission model v1.1 ── "Who can use this agent" (replaces personal/team)
+  reactions: {
+    reply: "Reply", add: 'Add reaction', choose: 'Choose an emoji', count: '{emoji} · {count} reactions', failed: 'Could not save your reaction. Please try again.' },
+  services: { title: 'Shared agent services', subtitle: 'Reusable services shared with you. Each service has its own instructions and audience.', experimental: 'Experimental — services and their behavior may change.', create: 'Create service', edit: 'Edit service', name: 'Service name', agent: 'Runs on your agent', description: 'Description', instructions: 'Service instructions', examples: 'Example requests (one per line)', inputs: 'What the requester should provide', approver: 'Approve each request', noApproval: 'No approval required', audience: 'Who can use this service', save: 'Save service', request: 'Start a request', search: 'Search services…', empty: 'No services shared with you yet.', sharing: 'Sharing', agentSharing: 'Share agent', agentSharingHint: 'Direct access lets people chat with this agent and add it to threads. Service audiences are managed separately in Services.', owner: 'Owner', failed: 'Could not complete the action. Please try again.', requestPlaceholder: 'Describe what you need from this service…', },
   agentAccess: {
     title: 'Who can use this agent',
     everyone: 'Everyone',
@@ -2831,6 +2964,12 @@ export const messages = {
 
   // People-to-people messaging: @mention people in threads, person↔person DMs.
   peopleMessaging: {
+    selfDmTitle: "Notes to yourself",
+    selfDmBody: "Keep notes, links, and files here for later.",
+    selfDmHint: "Only you can see this conversation.",
+
+    mentionName: "Mention {name}",
+    mentionAllHint: 'Notify all people in this thread',
     mentionPeople: 'People',
     personTag: 'person',
     dmPersonHint: 'Only you and {name} can see this conversation.',

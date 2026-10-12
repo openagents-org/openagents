@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentPresence, approvalBlockedReason, approvalFromMetadata, canDecideApproval } from './approvals';
+import { canActOnApproval, agentPresence, approvalBlockedReason, approvalFromMetadata, canDecideApproval } from './approvals';
 
 const me = (role: 'owner' | 'admin' | 'member' | 'viewer' | null, tokenAccess = false) => ({ role, tokenAccess });
 
@@ -67,4 +67,22 @@ describe('agentPresence', () => {
     expect(agentPresence('online', {}, 'claude-dev')).toBe('online');
     expect(agentPresence('offline', undefined, 'claude-dev')).toBe('offline');
   });
+});
+
+ it('does not use a saved token to elevate an identified member for approval', () => {
+  expect(canDecideApproval(me('member', true), 'owner', false)).toBe(false);
+  expect(canDecideApproval(me('viewer', true), 'any', false)).toBe(false);
+ });
+
+it('requires the named reviewer, retaining independent role requirements', () => {
+  const approval = { requiredRole: 'any' as const, assigneeEmail: 'sam@example.com', policyRequirements: {
+    members: ['sam@example.com'], approved_by: [] as string[], role_required: null as 'owner' | null, role_approved: false,
+  } };
+  expect(canActOnApproval({ ...me('member'), email: 'sam@example.com' }, approval, true)).toBe(true);
+  expect(canActOnApproval({ ...me('owner'), email: 'owner@example.com' }, approval, true)).toBe(false);
+  expect(canActOnApproval({ ...me(null, true), email: null }, approval, false)).toBe(false);
+  approval.policyRequirements.role_required = 'owner';
+  expect(canActOnApproval({ ...me('owner'), email: 'owner@example.com' }, approval, true)).toBe(true);
+  approval.policyRequirements.approved_by = ['sam@example.com'];
+  expect(canActOnApproval({ ...me('member'), email: 'sam@example.com' }, approval, true)).toBe(false);
 });

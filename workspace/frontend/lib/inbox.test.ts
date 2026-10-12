@@ -29,13 +29,12 @@ const ME = 'mia@acme.test';
 
 describe('inboxActionKind / isActionableNotification', () => {
   it('needs both a known kind and an action ref', () => {
-    expect(inboxActionKind(row({ kind: 'help', actionRef: 'a1' }))).toBe('help');
     expect(inboxActionKind(row({ kind: 'approval', actionRef: 'a1' }))).toBe('approval');
-    expect(inboxActionKind(row({ kind: 'proposal', actionRef: 'a1' }))).toBe('proposal');
-    expect(inboxActionKind(row({ kind: 'help', actionRef: null }))).toBeNull();
+    expect(inboxActionKind(row({ kind: 'approval', actionRef: 'a1' }))).toBe('approval');
+    expect(inboxActionKind(row({ kind: 'approval', actionRef: null }))).toBeNull();
     expect(inboxActionKind(row({ kind: 'handoff', actionRef: 'x' }))).toBeNull();
     expect(inboxActionKind(row({ kind: null, actionRef: null }))).toBeNull();
-    expect(isActionableNotification(row({ kind: 'help', actionRef: 'a1' }))).toBe(true);
+    expect(isActionableNotification(row({ kind: 'approval', actionRef: 'a1' }))).toBe(true);
     expect(isActionableNotification(row())).toBe(false);
   });
 });
@@ -52,9 +51,9 @@ describe('isAddressedToMe', () => {
 
 describe('groupInboxRows', () => {
   it('puts unresolved actionable rows addressed to me (or nobody) under Needs you', () => {
-    const mine = row({ kind: 'help', actionRef: 'a1', recipientEmail: ME });
+    const mine = row({ kind: 'approval', actionRef: 'a1', recipientEmail: ME });
     const anyone = row({ kind: 'approval', actionRef: 'a2', recipientEmail: null });
-    const theirs = row({ kind: 'help', actionRef: 'a3', recipientEmail: 'adam@acme.test' });
+    const theirs = row({ kind: 'approval', actionRef: 'a3', recipientEmail: 'adam@acme.test' });
     const notice = row({ title: 'Deploy finished' });
     const { needsYou, updates } = groupInboxRows([notice, theirs, anyone, mine], ME);
     // Same priority → newest first; `anyone` was created after `mine`.
@@ -63,17 +62,17 @@ describe('groupInboxRows', () => {
   });
 
   it('moves a resolved request to Updates even when it was addressed to me', () => {
-    const open = row({ kind: 'proposal', actionRef: 'p1', recipientEmail: ME });
-    const done = row({ kind: 'help', actionRef: 'h1', recipientEmail: ME });
+    const open = row({ kind: 'approval', actionRef: 'p1', recipientEmail: ME });
+    const done = row({ kind: 'approval', actionRef: 'h1', recipientEmail: ME });
     const { needsYou, updates } = groupInboxRows([open, done], ME, new Set(['h1']));
     expect(needsYou.map((n) => n.id)).toEqual([open.id]);
     expect(updates.map((n) => n.id)).toEqual([done.id]);
   });
 
   it('orders Needs you by priority then newest, and Updates unread-first then newest', () => {
-    const oldHigh = row({ kind: 'help', actionRef: 'a', priority: 'high', createdAt: '2026-01-01T00:00:00Z' });
-    const newNormal = row({ kind: 'help', actionRef: 'b', priority: 'normal', createdAt: '2026-02-01T00:00:00Z' });
-    const newLow = row({ kind: 'help', actionRef: 'c', priority: 'low', createdAt: '2026-03-01T00:00:00Z' });
+    const oldHigh = row({ kind: 'approval', actionRef: 'a', priority: 'high', createdAt: '2026-01-01T00:00:00Z' });
+    const newNormal = row({ kind: 'approval', actionRef: 'b', priority: 'normal', createdAt: '2026-02-01T00:00:00Z' });
+    const newLow = row({ kind: 'approval', actionRef: 'c', priority: 'low', createdAt: '2026-03-01T00:00:00Z' });
     const readNew = row({ isRead: true, createdAt: '2026-03-01T00:00:00Z' });
     const unreadOld = row({ isRead: false, createdAt: '2026-01-01T00:00:00Z' });
     const unreadNew = row({ isRead: false, createdAt: '2026-02-01T00:00:00Z' });
@@ -83,7 +82,7 @@ describe('groupInboxRows', () => {
   });
 
   it('never drops a row and handles an unknown caller', () => {
-    const rows = [row(), row({ kind: 'help', actionRef: 'a1' }), row({ kind: 'help', actionRef: 'a2', recipientEmail: 'x@y.z' })];
+    const rows = [row(), row({ kind: 'approval', actionRef: 'a1' }), row({ kind: 'approval', actionRef: 'a2', recipientEmail: 'x@y.z' })];
     const { needsYou, updates } = groupInboxRows(rows, null);
     expect(needsYou.length + updates.length).toBe(3);
     // Nobody signed in: only the unaddressed request is a to-do.

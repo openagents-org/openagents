@@ -1,12 +1,13 @@
 'use client';
 
+import { ThreadArtifactLinks } from '@/components/artifacts/thread-artifact-links';
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
 import { YumiGuide } from './yumi-guide';
 import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
 import { ThreadStatusBar } from './thread-status-bar';
-import { EmptyState } from './empty-state';
+import { EmptyConversation, EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
@@ -14,18 +15,14 @@ import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, RefreshCw, Sparkles, Cpu } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Sparkles, Cpu } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
-import { AccessExplainer } from '@/components/sharing/access-explainer';
-import { OrchestrationControl } from './orchestration-control';
+import { ThreadParticipantCount } from './thread-participant-count';
+import { HumanProfile } from './human-profile';
+import { AddThreadParticipants } from './add-thread-participants';
+import { ResponseModeControl } from './response-mode-control';
+import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
@@ -35,8 +32,8 @@ import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
-import { pendingResponderName } from '@/lib/pending-responder';
-import { WorkBrief, useBrief } from './work-brief';
+import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
+import { useBrief } from './work-brief';
 import { subscribeComposerPrefill } from './composer-prefill';
 import { useMe } from '@/hooks/use-me';
 import { useHumanNames } from '@/hooks/use-team-roster';
@@ -144,7 +141,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
 
@@ -352,20 +349,22 @@ export function ChatView() {
   };
   const dmTitle = isDM
     ? (dmHasHuman
-        ? dmAddrLabel(dmCounterpart ?? '')
+        ? dmCounterpart === myAddr ? t('threads.you') : dmAddrLabel(dmCounterpart ?? '')
         : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  useEffect(() => { setProfileEmail(null); }, [currentSessionId, viewMode]);
 
   // ── v1.1 M5: the thread's brief and who directs it ──
   // The brief carries director_email, so both the "Directed by" chip and the
   // composer hint come from the same fetch. DMs have no Channel row → no brief.
   const me = useMe(workspace?.workspaceId);
-  const { brief, saveBrief } = useBrief(!isDM ? currentSessionId : null, sessionMessages.length);
+  const { brief } = useBrief(!isDM ? currentSessionId : null, sessionMessages.length);
   const myEmail = (me?.email || (currentUser.id.includes('@') ? currentUser.id : '')).trim().toLowerCase();
   const dmWithPerson = isDM && !!dmCounterpart?.startsWith('human:');
   const composerHint = dmWithPerson
-    ? t('peopleMessaging.dmPersonHint', { name: dmTitle ?? '' })
+    ? dmCounterpart === myAddr ? t('peopleMessaging.selfDmHint') : t('peopleMessaging.dmPersonHint', { name: dmTitle ?? '' })
     : brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
       ? t('brief.composerHint')
       : null;
@@ -527,12 +526,15 @@ export function ChatView() {
       };
 
       // Add optimistic messages immediately and scroll to bottom
-      // A person on the other end of a DM doesn't "think" — no agent loading bubble.
-      const personDm = isDM && !!dmCounterpart?.startsWith('human:');
+      // People-only mentions and human DMs do not request an agent response.
+      const expectResponse = expectsAgentResponse({
+        content, mentions, mentionedHumans, dmCounterpart: isDM ? dmCounterpart : null,
+        responseMode: threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') ? currentSession?.responseMode || 'proactive' : undefined,
+      });
       setOptimisticMessages((prev) => [
         ...prev.filter((m) => m.sessionId !== currentSessionId),
         userOptimisticMsg,
-        ...(personDm ? [] : [loadingOptimisticMsg]),
+        ...(expectResponse ? [loadingOptimisticMsg] : []),
       ]);
       setScrollKey((k) => k + 1);
 
@@ -568,7 +570,7 @@ export function ChatView() {
           }));
         }
 
-        await workspaceApi.sendMessage(
+        const sent = await workspaceApi.sendMessage(
           currentSessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
           currentUser.name,
@@ -577,6 +579,11 @@ export function ChatView() {
           currentUser.id,
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
+        // The server can also suppress replies (for example, the director rule).
+        if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
+        if (Array.isArray(sent.metadata?.target_agents) && sent.metadata.target_agents.includes('__no_response__')) {
+          setOptimisticMessages((prev) => prev.filter((m) => m.messageId !== loadingOptimisticMsg.messageId));
+        }
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
           has_mentions: mentions.length > 0,
@@ -606,7 +613,7 @@ export function ChatView() {
         }
       }
     },
-    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master]
+    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
@@ -645,9 +652,10 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-thread-conversation className="flex flex-col h-full">
       {/* Thread header — title on desktop lives in the shell's app header */}
       <DetailHeader
+        titleInHeader={isDM}
         title={<>
           {/* Back button — mobile only */}
           {isMobile && (
@@ -661,7 +669,10 @@ export function ChatView() {
           {isDM ? (
             <h2 className="text-sm font-semibold truncate flex items-center gap-1.5">
               <MessageSquare className="size-3.5 text-muted-foreground" />
-              {dmTitle}
+              <button type="button" className="truncate text-left hover:text-primary" disabled={!dmCounterpart} onClick={() => {
+                if (dmCounterpart?.startsWith('openagents:')) setSelectedAgentName(dmCounterpart.slice('openagents:'.length));
+                else if (dmCounterpart?.startsWith('human:')) setProfileEmail(dmCounterpart.slice('human:'.length));
+              }}>{dmTitle}</button>
               {!dmWritable && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
                   {t('header.readOnly')}
@@ -690,6 +701,12 @@ export function ChatView() {
               {currentSession?.title || t('header.untitledThread')}
             </h2>
           )}
+          {!isDM && threadPrivacyApplies(currentSessionId) && currentSession && (
+            <span className="inline-flex shrink-0 text-muted-foreground" title={t(currentSession.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')} aria-label={t(currentSession.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')}>
+              {currentSession.visibility === 'private' ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}
+            </span>
+          )}
+          {isMobile && !isDM && currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
           {(() => {
             const participants = currentSession?.participants || [];
             const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
@@ -726,110 +743,6 @@ export function ChatView() {
             );
           })()}
 
-          {/* Compact avatar stack — click to manage thread agents (add / remove /
-              set leader). Replaces the old standalone manage-agents button. Not
-              shown for DMs. */}
-          {!isDM && (() => {
-            const participants = currentSession?.participants || [];
-            const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
-            if (sessionAgents.length === 0) return null;
-            // In-thread list must include OFFLINE participants too — otherwise an
-            // agent whose daemon is down can never be removed from the thread.
-            const agentByName = new Map(agents.map((a) => [a.agentName, a]));
-            const inThread = participants.map(
-              (name) => agentByName.get(name) || { agentName: name, status: 'offline' }
-            );
-            // The "Add to thread" picker still only offers online agents.
-            const notInThread = agents.filter(
-              (a) => a.status === 'online' && !participants.includes(a.agentName)
-            );
-            return (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="flex -space-x-1.5 shrink-0 mr-1 items-center rounded-full outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                    title={t('chat.manageThreadAgents')}
-                  >
-                    {sessionAgents.slice(0, 3).map((agent) => (
-                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agentLabel(agent)}>
-                        <AgentAvatar name={agent.agentName} size={18} />
-                      </div>
-                    ))}
-                    {sessionAgents.length > 3 && (
-                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agentLabel(agent)).join(', ')}>
-                        +{sessionAgents.length - 3}
-                      </div>
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  {inThread.length > 0 && (
-                    <>
-                      <DropdownMenuLabel>{t('chat.inThisThread')}</DropdownMenuLabel>
-                      {inThread.map((agent) => (
-                        <div
-                          key={agent.agentName}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded-md group"
-                        >
-                          <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate">{agentLabel(agent)}</span>
-                          {agent.status !== 'online' && (
-                            <span className="text-[10px] text-muted-foreground shrink-0">{t('agentStatus.offline')}</span>
-                          )}
-                          {currentSession?.master === agent.agentName ? (
-                            <span
-                              className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
-                              title={t('chat.leaderHint')}
-                            >
-                              <Crown className="size-3" /> {t('chat.leader')}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
-                              className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                              title={t('chat.setAsLeader')}
-                            >
-                              <Crown className="size-3" />
-                            </button>
-                          )}
-                          {inThread.length > 1 && (
-                            <button
-                              onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
-                              className="size-5 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                              title={t('chat.removeFromThread')}
-                            >
-                              <X className="size-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {notInThread.length > 0 && (
-                    <>
-                      {inThread.length > 0 && <DropdownMenuSeparator />}
-                      <DropdownMenuLabel>{t('chat.addToThread')}</DropdownMenuLabel>
-                      {notInThread.map((agent) => (
-                        <button
-                          key={agent.agentName}
-                          onClick={() => currentSessionId && addParticipant(currentSessionId, agent.agentName)}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
-                        >
-                          <AgentAvatar name={agent.agentName} size={20} />
-                          <span className="text-sm flex-1 truncate text-left">{agentLabel(agent)}</span>
-                          <Plus className="size-3 text-muted-foreground shrink-0" />
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {inThread.length === 0 && notInThread.length === 0 && (
-                    <p className="text-sm text-muted-foreground px-2 py-3 text-center">{t('chat.noAgentsOnline')}</p>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            );
-          })()}
-
           {/* Stop button — visible when agents are working */}
           {currentSessionId && (activeSessionIds.has(currentSessionId) || stoppingSessionIds.has(currentSessionId)) && (
             <button
@@ -858,44 +771,18 @@ export function ChatView() {
             </Button>
           )}
 
-          {/* Browser live preview toggle */}
-          {!isMobile && (
-            <Button
-              variant={splitBrowser && showBrowserPreview ? 'outline' : 'ghost'}
-              size="sm"
-              onClick={() => {
-                if (!splitBrowser) setSplitBrowser(true);
-                setShowBrowserPreview(!(splitBrowser && showBrowserPreview));
-              }}
-              className={cn(
-                'gap-1.5 h-7 text-xs font-medium',
-                splitBrowser && showBrowserPreview && 'border-primary/30 text-primary bg-primary/5'
-              )}
-              title={splitBrowser && showBrowserPreview ? t('chat.hideBrowserPreview') : t('chat.showBrowserPreview')}
-            >
-              <Globe className="size-3.5" />
-            </Button>
+          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && currentSession && (
+            <AddThreadParticipants key={`add-participants:${currentSessionId}`} channelName={currentSessionId} />
           )}
 
-          {/* Orchestration mode picker — only for multi-agent threads */}
-          {!isDM && currentSession && (() => {
-            const participants = currentSession.participants || [];
-            const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
-            if (sessionAgents.length < 2) return null;
-            return (
-              <OrchestrationControl
-                session={currentSession}
-                agents={sessionAgents}
-                onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
-              />
-            );
-          })()}
+          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
+            <ResponseModeControl key={`response-mode:${currentSessionId}`} session={currentSession} onChange={(updates) => setSessionOrchestration(currentSessionId, updates)} />
+          )}
 
-          {/* Thread access — Private/Public, owner, Join, "why can I see this" */}
+          {/* Thread access — Private/Public, owner, Join */}
           {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && currentSession && (
             <div className="mr-1 flex min-w-0 max-w-[22rem] items-center gap-0.5">
-              <ThreadPrivacyControl channelName={currentSessionId} className="flex-nowrap whitespace-nowrap" />
-              <AccessExplainer resourceKind="channel" resourceId={currentSessionId} compact />
+              <ThreadPrivacyControl channelName={currentSessionId} joinOnly className="flex-nowrap whitespace-nowrap" />
             </div>
           )}
 
@@ -909,7 +796,31 @@ export function ChatView() {
           >
             <Share2 className="size-3.5" />
           </Button>
+          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
+            <ThreadSettings key={`thread-settings:${currentSessionId}`} session={currentSession} />
+          )}
+
+          {/* Artifact preview toggle */}
+          {(
+            <Button
+              variant={splitBrowser && showBrowserPreview ? 'outline' : 'ghost'}
+              size="sm"
+              onClick={() => {
+                if (!splitBrowser) setSplitBrowser(true);
+                setShowBrowserPreview(!(splitBrowser && showBrowserPreview));
+              }}
+              className={cn(
+                'gap-1.5 h-7 text-xs font-medium',
+                splitBrowser && showBrowserPreview && 'border-primary/30 text-primary bg-primary/5'
+              )}
+              aria-label={splitBrowser && showBrowserPreview ? t('artifactPanel.close') : t('artifactPanel.open')}
+              title={splitBrowser && showBrowserPreview ? t('artifactPanel.close') : t('artifactPanel.open')}
+            >
+              <PanelRight className="size-3.5" />
+            </Button>
+          )}
       </DetailHeader>
+      <ThreadArtifactLinks />
 
       {/* Agent roster bar — thin strip listing who's in the thread + a hint of
           their responsibility. Only shown for group threads (>1 agent), never DMs. */}
@@ -921,7 +832,6 @@ export function ChatView() {
           <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-zinc-50/60 dark:bg-zinc-900/40">
             {sessionAgents.map((agent, i) => {
               const desc = shortDescription(agent.description);
-              const isMaster = currentSession?.master === agent.agentName;
               return (
                 <div key={agent.agentName} className="flex items-center gap-2 shrink-0">
                   {i > 0 && <span className="text-zinc-300 dark:text-zinc-700 select-none">|</span>}
@@ -933,7 +843,6 @@ export function ChatView() {
                     <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
                       {agentLabel(agent)}
                     </span>
-                    {isMaster && <Crown className="size-2.5 text-amber-500 shrink-0" />}
                     {desc && (
                       <span className="text-[11px] text-muted-foreground truncate max-w-[220px]">
                         {desc}
@@ -986,7 +895,7 @@ export function ChatView() {
         const participants = currentSession?.participants || [];
         if (participants.length === 0) return null;
         const byName = new Map(agents.map((a) => [a.agentName, a]));
-        const offline = participants.filter((p) => byName.get(p)?.status !== 'online');
+        const offline = participants.filter((p) => byName.get(p)?.status === 'offline');
         if (offline.length === 0) return null;
         const allOffline = offline.length === participants.length;
         return (
@@ -1064,9 +973,6 @@ export function ChatView() {
           const hasYumi = agents.some((a) => a.builtin && participants.includes(a.agentName));
           return hasYumi ? <YumiGuide /> : null;
         })()}
-        {!isDM && currentSessionId && brief && (
-          <WorkBrief brief={brief} onSave={saveBrief} agents={agents} currentUserEmail={myEmail} />
-        )}
         {loading ? (
           <div className="flex items-center justify-center flex-1">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -1081,7 +987,7 @@ export function ChatView() {
             return dmBuiltin ? (
               <YumiDmIntro agentLabel={agentLabel(dmBuiltin)} onQuick={(text) => handleSend(text)} />
             ) : (
-              <EmptyState />
+              isDM ? <EmptyConversation name={dmTitle || undefined} human={dmWithPerson} self={dmCounterpart === myAddr} /> : <EmptyState />
             );
           })()
         ) : (
@@ -1093,6 +999,11 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
+            onMentionPerson={(!isDM || dmWritable) ? (email) => {
+              const separator = currentDraft && !/\s$/.test(currentDraft) ? ' ' : '';
+              handleDraftChange(`${currentDraft}${separator}@${email} `);
+              setFocusKey((key) => key + 1);
+            } : undefined}
             onSuggestion={(text) => {
               capture('suggestion_chip_tapped', { text });
               void handleSend(text);
@@ -1109,7 +1020,7 @@ export function ChatView() {
         {(!isDM || dmWritable) && (
           <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
             {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
-            <ChatInput
+            <ChatInput conversationId={currentSessionId}
               onSend={handleSend}
               agents={agents}
               knowledge={knowledge}
@@ -1123,6 +1034,8 @@ export function ChatView() {
             />
           </div>
         )}
+
+        <HumanProfile email={profileEmail} onClose={() => setProfileEmail(null)} />
 
         <CreateRoutineDialog
           open={showCreateRoutine}
@@ -1139,6 +1052,7 @@ export function ChatView() {
 
         {currentSessionId && (
           <ShareDialog
+            key={currentSessionId}
             open={shareDialogOpen}
             onOpenChange={setShareDialogOpen}
             sessionId={currentSessionId}

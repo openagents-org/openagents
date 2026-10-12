@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ArrowUp, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
+import { ArrowUp, Users, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +20,10 @@ import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
 import { User } from 'lucide-react';
 import { useTeamRoster } from '@/hooks/use-team-roster';
+import { useThreadMentionEmails } from '@/hooks/use-thread-mention-emails';
 import { extractMentionedAgents, extractMentionedHumans, filterMentionPeople, type MentionPerson } from '@/lib/people-mentions';
 import { humanColor } from '@/lib/human-color';
+import { humanMentionDisplay, editHumanMentionDraft, updateHumanMentionDraft } from './composer-human-mentions';
 
 // Keep in sync with the backend's MAX_FILE_SIZE (app/config.py); nginx's
 // /v1/files client_max_body_size allows extra headroom for multipart
@@ -35,6 +37,7 @@ export interface PendingFile {
 }
 
 interface ChatInputProps {
+  conversationId: string | null;
   /** `mentionedHumans` — emails of roster people @mentioned in the text. */
   onSend: (content: string, mentions: string[], files: PendingFile[], mentionedHumans?: string[]) => void;
   disabled?: boolean;
@@ -58,7 +61,7 @@ function isImageFile(file: File): boolean {
 const FILE_ACCEPT =
   'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml';
 
-export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine, hint }: ChatInputProps) {
+export function ChatInput({ conversationId, onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine, hint }: ChatInputProps) {
   const t = useT();
   const [message, setMessage] = React.useState(draft ?? '');
   const [showMentions, setShowMentions] = React.useState(false);
@@ -70,6 +73,14 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const dragCountRef = React.useRef(0);
+  const team = useTeamRoster();
+  const participantEmails = useThreadMentionEmails(conversationId, showMentions);
+  const threadPeople = team.filter(person => participantEmails.includes(person.email.toLowerCase()));
+  const mentionPeople = React.useMemo(() => team.map((m) => ({
+    email: m.email,
+    name: (m.displayName || '').trim() || m.email,
+  })), [team]);
+  const displayMessage = humanMentionDisplay(message, mentionPeople).text;
 
   // Auto-size the textarea to its content (capped), toggling a scrollbar past
   // the cap. Centralized here so every path that changes `message` — typing,
@@ -96,20 +107,24 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   // useLayoutEffect runs synchronously before paint, so there's no flicker.
   React.useLayoutEffect(() => {
     resizeTextarea();
-  }, [message, resizeTextarea]);
+  }, [displayMessage, resizeTextarea]);
 
   // Auto-focus textarea when focusKey changes (thread opened/switched)
   React.useEffect(() => {
     if (focusKey != null && textareaRef.current) {
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      });
     }
   }, [focusKey]);
 
   const agentNames = agents.map((a) => a.agentName);
   // v1.1 M3: a pending approval makes an agent "waiting" in the picker too.
   const { pendingApprovalsByAgent, currentUser } = useWorkspace();
-  // People in the workspace roster (cached per workspace), minus yourself.
-  const team = useTeamRoster();
+  // Only joined people are selectable; keep the full roster for rendering saved drafts.
   const selfEmail = currentUser.id.includes('@') ? currentUser.id : null;
   const availabilityOf = (a: WorkspaceAgent): AgentAvailability =>
     agentAvailability(a, pendingApprovalsByAgent[a.agentName] ?? 0);
@@ -135,17 +150,22 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
 
   const filteredKnowledge = knowledge.filter(
     (k) => k.title.toLowerCase().includes(mentionFilter.toLowerCase()) ||
-           k.slug.toLowerCase().includes(mentionFilter.toLowerCase())
+           k.slug.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+           `knowledge:${k.slug}`.toLowerCase().startsWith(mentionFilter.toLowerCase())
   );
 
-  const filteredPeople = filterMentionPeople(team, mentionFilter, selfEmail);
+  const filteredPeople = filterMentionPeople(threadPeople, mentionFilter, selfEmail);
+
+  const offerAll = !!conversationId && !conversationId.startsWith('dm:') && 'all'.startsWith(mentionFilter.toLowerCase());
 
   type MentionItem =
+    | { type: 'all' }
     | { type: 'agent'; agent: WorkspaceAgent }
     | { type: 'person'; person: MentionPerson }
     | { type: 'knowledge'; entry: KnowledgeEntry };
 
   const mentionItems: MentionItem[] = [
+    ...(offerAll ? [{ type: 'all' as const }] : []),
     ...filteredAgents.map((agent): MentionItem => ({ type: 'agent', agent })),
     ...filteredPeople.map((person): MentionItem => ({ type: 'person', person })),
     ...filteredKnowledge.map((entry): MentionItem => ({ type: 'knowledge', entry })),
@@ -185,7 +205,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     if (!trimmed && pendingFiles.length === 0) return;
     if (disabled) return;
     const mentions = extractMentions(trimmed);
-    const mentionedHumans = extractMentionedHumans(trimmed, team.map((m) => m.email), selfEmail);
+    const mentionedHumans = extractMentionedHumans(trimmed, participantEmails, selfEmail);
     onSend(trimmed, mentions, pendingFiles, mentionedHumans);
     setMessage('');
     onDraftChange?.('');
@@ -195,18 +215,17 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     textareaRef.current?.blur();
   };
 
-  const insertMention = (mentionText: string) => {
+  const insertMention = (mentionText: string, displayName = mentionText) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     const cursorPos = textarea.selectionStart;
-    const textBefore = message.slice(0, cursorPos);
-    const textAfter = message.slice(cursorPos);
+    const textBefore = displayMessage.slice(0, cursorPos);
 
     const atIndex = textBefore.lastIndexOf('@');
     if (atIndex === -1) return;
 
-    const newText = textBefore.slice(0, atIndex) + `@${mentionText} ` + textAfter;
+    const newText = editHumanMentionDraft(message, mentionPeople, atIndex, cursorPos, `@${mentionText} `);
     setMessage(newText);
     onDraftChange?.(newText);
     setShowMentions(false);
@@ -214,17 +233,18 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
 
     setTimeout(() => {
       textarea.focus();
-      const newCursorPos = atIndex + mentionText.length + 2;
+      const newCursorPos = atIndex + displayName.length + 2;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
     }, 0);
   };
 
   const insertMentionItem = (item: MentionItem) => {
-    if (item.type === 'agent') {
+    if (item.type === 'all') {
+      insertMention('all');
+    } else if (item.type === 'agent') {
       insertMention(item.agent.agentName);
     } else if (item.type === 'person') {
-      // Same token style as the issue board: the person's email.
-      insertMention(item.person.email);
+      insertMention(item.person.email, item.person.name);
     } else {
       insertMention(`knowledge:${item.entry.slug}`);
     }
@@ -272,8 +292,9 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   // Auto-resize textarea + detect @mentions
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
-    setMessage(value);
-    onDraftChange?.(value);
+    const nextDraft = updateHumanMentionDraft(message, value, mentionPeople, e.target.selectionStart);
+    setMessage(nextDraft);
+    onDraftChange?.(nextDraft);
     const textarea = e.target;
     // Height is kept in sync by the layout effect keyed on `message`.
 
@@ -382,6 +403,17 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       {/* @mention autocomplete dropdown */}
       {showMentions && mentionItems.length > 0 && (
         <div className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden max-h-[280px] overflow-y-auto">
+          {offerAll && (
+            <button
+              type="button"
+              className={cn('w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent', mentionIndex === 0 && 'bg-accent')}
+              onMouseDown={(event) => { event.preventDefault(); insertMention('all'); }}
+            >
+              <Users className="size-6" />
+              <span className="font-medium">@all</span>
+              <span className="text-xs text-muted-foreground">{t('peopleMessaging.mentionAllHint')}</span>
+            </button>
+          )}
           {filteredAgents.length > 0 && (filteredKnowledge.length > 0 || filteredPeople.length > 0) && (
             <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">{t('chatInput.mentionAgents')}</div>
           )}
@@ -421,13 +453,13 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                 )}>
                   {agent.role}
                 </span>
-                <span className={cn(
+                {availability !== 'waiting' && <span className={cn(
                   'inline-flex shrink-0 items-center gap-1.5 text-[11px] lowercase',
                   unreachable ? 'text-muted-foreground/70' : 'text-muted-foreground'
                 )}>
                   <span className={cn('size-2 rounded-full', availabilityDotClass(availability))} />
                   {availabilityLabel(t, availability, agent.queueDepth ?? 0)}
-                </span>
+                </span>}
               </button>
             );
           })}
@@ -450,7 +482,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                     )}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      insertMention(person.email);
+                      insertMention(person.email, person.name);
                     }}
                   >
                     <span
@@ -598,7 +630,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
 
           <textarea
             ref={textareaRef}
-            value={message}
+            value={displayMessage}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}

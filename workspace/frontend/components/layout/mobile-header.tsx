@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const { viewMode, openView, openMobileList } = useLayout();
+  const { viewMode, openView, openMobileList, setThreadFilter } = useLayout();
   const { workspace } = useWorkspace();
   const t = useT();
 
@@ -46,6 +46,7 @@ export function MobileHeader() {
   const closeSheet = () => setIsSheetOpen(false);
 
   const handleViewSwitch = (mode: ViewMode) => {
+    if (mode === 'threads') setThreadFilter('all');
     openView(mode);
     openMobileList();
   };

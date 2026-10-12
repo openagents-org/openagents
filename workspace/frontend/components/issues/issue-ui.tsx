@@ -1,16 +1,17 @@
 'use client';
-import { Circle, CircleCheck, CircleDot } from 'lucide-react';
+import { Circle, CircleCheck, CircleDot, CirclePause } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import type { IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 
-export const statuses: IssueStatus[] = ['open', 'in_progress', 'closed'];
+export const statuses: IssueStatus[] = ['open', 'in_progress', 'paused', 'closed'];
 export const statusKeys = {
   open: 'issues.open',
   in_progress: 'issues.inProgress',
   closed: 'issues.closed',
+  paused: 'issues.paused',
 } as const;
 export const selectClass =
   'h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -36,7 +37,7 @@ export function StatusIcon({
   className?: string;
 }) {
   const Icon =
-    status === 'closed'
+    status === 'paused' ? CirclePause : status === 'closed'
       ? CircleCheck
       : status === 'in_progress'
         ? CircleDot

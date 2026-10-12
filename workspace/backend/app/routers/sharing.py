@@ -284,19 +284,16 @@ def _can_manage_channel(db: Session, ctx: _Ctx, channel: Channel) -> bool:
     the `share` right — and any participant when the owner switched on
     `participants_can_invite` (or the thread has no owner at all: legacy
     workspace-owned threads keep the M1 "participants manage" rule)."""
-    if ctx.is_admin:
+    from app.services.access_model import can_manage_thread_settings
+    if can_manage_thread_settings(db, ctx.viewer, channel):
         return True
-    if _can_manage_resource(db, ctx.viewer, resource_for_channel(channel), ctx.wid):
-        return True
-    if not ctx.viewer.email:
+    if not ctx.viewer.email or ctx.viewer.email not in channel_participant_emails(db, channel):
         return False
-    if channel.participants_can_invite or not _norm(channel.owner_email):
-        return ctx.viewer.email in channel_participant_emails(db, channel)
-    return False
+    return bool(channel.participants_can_invite or not _norm(channel.owner_email))
 
 
 def _can_manage_agent(ctx: _Ctx, member: WorkspaceMember) -> bool:
-    return ctx.is_admin or is_agent_owner(ctx.viewer, member)
+    return is_agent_owner(ctx.viewer, member)
 
 
 def _channel_title(channel: Channel) -> str:
@@ -376,11 +373,26 @@ def list_participants(
             "usable_by": usable.get(name),
         })
 
+    from app.models import ChannelAgentSharing
+    from app.services.access_model import can_manage_thread_settings
+    participant = bool(ctx.viewer.email and ctx.viewer.email in channel_participant_emails(db, ch))
+    manage = can_manage_thread_settings(db, ctx.viewer, ch)
+    own_agents = [a for a in agents if ctx.viewer.email and _norm(a["owner_email"]) == ctx.viewer.email]
+    from app.services.thread_agent_requests import sharing_mode
+    sharing = db.get(ChannelAgentSharing, (ch.id, ctx.viewer.email)) if ctx.viewer.email else None
     return success_response({
+        "can_manage": manage,
+        "can_add_people": _can_manage_channel(db, ctx, ch),
+        "can_add_agents": manage or bool(participant and ch.members_can_add_agents),
+        "is_participant": participant,
+        "sharing_my_agents": bool(sharing and sharing.enabled),
+        "agent_sharing_mode": sharing_mode(sharing),
+        "own_agent_count": len(own_agents),
         "channel": ch.name,
         "visibility": normalize_visibility(ch.visibility, "public") or "public",
         "owner_email": _norm(ch.owner_email),
         "participants_can_invite": bool(ch.participants_can_invite),
+        "members_can_add_agents": bool(ch.members_can_add_agents),
         "director_email": ch.director_email,
         "humans": humans,
         "agents": agents,
@@ -451,8 +463,12 @@ def remove_participant(
     if not _valid_email(email):
         return json_response(ResponseCode.BAD_REQUEST, "A valid email is required")
     is_self = bool(ctx.viewer.email) and ctx.viewer.email == email
-    if not is_self and not _can_manage_channel(db, ctx, ch):
-        return json_response(ResponseCode.FORBIDDEN, "Only a participant or an admin can remove people from this thread")
+    is_owner = bool(ctx.viewer.email) and ctx.viewer.email == _norm(ch.owner_email)
+    from app.services.access_model import can_manage_thread_settings
+    if not is_self and not can_manage_thread_settings(db, ctx.viewer, ch):
+        return json_response(ResponseCode.FORBIDDEN, "Only the thread owner or an admin can remove other people")
+    if email == _norm(ch.owner_email):
+        return json_response(ResponseCode.BAD_REQUEST, "Transfer thread ownership before removing its owner")
 
     current = channel_participant_emails(db, ch)
     if email not in current:
@@ -608,7 +624,7 @@ def agent_directory(
             "presence_state": m.presence_state,
             "busy_channels": m.busy_channels or [],
             "queue_depth": m.queue_depth or 0,
-            **agent_runtime_fields(m, runtime_by_id),
+            **agent_runtime_fields(m, runtime_by_id, ctx.viewer),
             "pinned": m.agent_name in pinned,
             "grant_count": int(usable.get(m.agent_name, {}).get("people", 0)) if manage else None,
             "can_manage": manage,
@@ -896,7 +912,8 @@ def start_request(
     member = _get_agent(db, ctx, agent)
     if member is None:
         return json_response(ResponseCode.NOT_FOUND, "Agent not found")
-    if not can_use_agent(db, ctx.wid, ctx.viewer, member):
+    from app.services.access_model import can_start_agent_thread
+    if not can_start_agent_thread(db, ctx.wid, ctx.viewer, member):
         return json_response(ResponseCode.FORBIDDEN, "You do not have access to this agent")
 
     email = ctx.viewer.email

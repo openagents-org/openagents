@@ -441,7 +441,7 @@ async function cmdConnect(connector, flags, positional) {
   // no server round-trip; the credential is already on disk. This is the
   // pairing-first path; the token form below stays for manual connection.
   if (flags.workspace && typeof flags.workspace === 'string') {
-    connectKnownWorkspace(connector, name, flags.workspace);
+    connectKnownWorkspace(connector, name, flags.workspace, flags.connection);
     return;
   }
 
@@ -474,6 +474,7 @@ async function cmdConnect(connector, flags, positional) {
 
     // Connect agent
     connector.connectWorkspace(name, slug);
+  if (chosen) connector.config.updateAgent(name, { node_id: chosen.node_id });
     print(`'${name}' connected to workspace '${wsName}'`);
     // Manual token connection is being retired in favor of device pairing.
     // It keeps working (backward compatibility is deliberate); this is the
@@ -504,7 +505,12 @@ async function cmdConnect(connector, flags, positional) {
  * (node.json) — a pairing registers its network on the spot so the daemon can
  * pick up the token. Never touches the server.
  */
-function connectKnownWorkspace(connector, name, ref) {
+function connectKnownWorkspace(connector, name, ref, connectionId) {
+  const matches = require('./node-config').listPairings().filter((p) => p.workspace_slug === ref || p.workspace_id === ref);
+  if ((!connectionId && matches.length > 1) || (connectionId && !matches.some((p) => p.node_id === connectionId))) {
+    throw new Error("Choose a device connection with --connection <id>");
+  }
+  const chosen = matches.find((p) => !connectionId || p.node_id === connectionId);
   const networks = connector.config.getNetworks() || [];
   let net = networks.find((n) => n.slug === ref || n.id === ref);
 
@@ -545,6 +551,7 @@ function connectKnownWorkspace(connector, name, ref) {
 
   const slug = net.slug || ref;
   connector.connectWorkspace(name, slug);
+  if (chosen) connector.config.updateAgent(name, { node_id: chosen.node_id });
   print(`'${name}' connected to workspace '${net.name || slug}'`);
 
   const pid = connector.getDaemonPid();
@@ -621,12 +628,19 @@ async function cmdNode(connector, flags, positional) {
       // credential in place — but the user should hear "already paired", not
       // a duplicate "connected".
       const alreadyPaired = priorPairings.some(
-        (p) => p.workspace_id === res.workspaceId,
+        (p) => p.node_id === res.nodeId,
       );
       // recordPairing, not saveNode: this device can be a node in several
       // workspaces at once, and a bare save would drop the others' pairings.
+      // Freeze legacy bindings before another owner adds a connection here.
+      const prior = priorPairings.filter((p) => p.workspace_id === res.workspaceId);
+      if (prior.length === 1) for (const agent of connector.config.getAgents()) {
+        if (!agent.node_id && (agent.network === prior[0].workspace_slug || agent.network === prior[0].workspace_id))
+          connector.config.updateAgent(agent.name, { node_id: prior[0].node_id });
+      }
       nodeCfg.recordPairing(info.nodeKey, {
         node_id: res.nodeId,
+        owner_email: res.ownerEmail,
         workspace_id: res.workspaceId,
         workspace_slug: res.workspaceSlug,
         workspace_name: res.workspaceName,

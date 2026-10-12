@@ -4,12 +4,11 @@
 // Profile editor (purpose, example requests, required inputs, cost owner,
 // visibility, owner) via PATCH members, the specialist scope teammates'
 // requests run under (shared instructions + allowed knowledge) with a
-// "what teammates see" preview and a test request, proposals from teammates
-// (kind=proposal approvals) to accept or decline, plus the grants list (who
+// "what teammates see" preview and a test request, plus the grants list (who
 // may use the agent) with add / revoke.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Check, CheckSquare, Loader2, Play, Square, X } from 'lucide-react';
+import { BookOpen, Check, CheckSquare, Loader2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -43,7 +42,6 @@ import { dmSessionId, myAddress } from '@/lib/dm';
 import type {
   AgentDirectoryEntry,
   AgentProfileView,
-  ApprovalRequest,
   CostOwner,
   TeamMember,
 } from '@/lib/types';
@@ -66,7 +64,7 @@ export function AgentManageSheet({
 }) {
   const t = useT();
   const name = entry.display_name?.trim() || entry.agent_name;
-  const { knowledge, sessions, setCurrentSessionId, currentUser } = useWorkspace();
+  const { knowledge, setCurrentSessionId, currentUser } = useWorkspace();
   const { openView, isMobile, openMobileDetail } = useLayout();
 
   // ── Profile ──
@@ -80,12 +78,14 @@ export function AgentManageSheet({
   // ── Specialist scope (v1.1 M4) — only in the owner/admin view of the profile ──
   const [profile, setProfile] = useState<AgentProfileView | null>(null);
   const [sharedInstructions, setSharedInstructions] = useState('');
+  const [requestApprover, setRequestApprover] = useState('');
   const [allowedKnowledge, setAllowedKnowledge] = useState<string[]>([]);
   const loadProfile = useCallback(async () => {
     try {
       const p = await workspaceApi.getAgentProfile(entry.agent_name);
       setProfile(p);
       if (p.can_manage) {
+        setRequestApprover(p.request_approver_email || '');
         setSharedInstructions(p.shared_instructions || '');
         setAllowedKnowledge((p.allowed_knowledge || []).map((k) => k.slug));
       }
@@ -148,6 +148,7 @@ export function AgentManageSheet({
         // The scope fields only travel when we hold the full view — otherwise
         // a stale/blank value would wipe what the owner set.
         ...(canEditScope ? {
+          request_approver_email: requestApprover,
           shared_instructions: sharedInstructions.trim(),
           allowed_knowledge: allowedKnowledge,
         } : {}),
@@ -178,43 +179,6 @@ export function AgentManageSheet({
     onOpenChange(false);
     setTimeout(() => prefillComposer(text), 150);
   };
-
-  // ── Proposals (v1.1 M4) — teammates' corrections awaiting the owner ──
-  const [proposals, setProposals] = useState<ApprovalRequest[] | null>(null);
-  const [resolving, setResolving] = useState<string | null>(null);
-  const loadProposals = useCallback(async () => {
-    try {
-      const { approvals } = await workspaceApi.listApprovals({ status: 'pending', kind: 'proposal', limit: 100 });
-      setProposals(approvals.filter((a) => a.kind === 'proposal' && a.requestedBy === entry.agent_name));
-    } catch {
-      setProposals([]);
-      toast.error(t('collab.proposalsLoadFailed'));
-    }
-  }, [entry.agent_name, t]);
-  useEffect(() => { if (canEditScope) loadProposals(); }, [canEditScope, loadProposals]);
-
-  const resolveProposal = async (proposal: ApprovalRequest, decision: 'approve' | 'reject') => {
-    if (resolving) return;
-    setResolving(proposal.id);
-    try {
-      await workspaceApi.resolveApproval(proposal.id, decision);
-      setProposals((prev) => prev?.filter((p) => p.id !== proposal.id) ?? prev);
-      if (decision === 'approve') {
-        // Approving appends `details` to shared_instructions server-side —
-        // reload so the textarea shows the merged text.
-        await loadProfile();
-        toast.success(t('collab.proposalAccepted'));
-      } else {
-        toast.success(t('collab.proposalDeclined'));
-      }
-      onSaved?.();
-    } catch {
-      toast.error(t('collab.proposalResolveFailed'));
-    } finally {
-      setResolving(null);
-    }
-  };
-  const channelTitle = (channel: string) => sessions.find((s) => s.sessionId === channel)?.title?.trim() || channel;
 
   // ── Teammate preview — what the directory card / teammate view shows ──
   const previewExamples = linesToList(examples).slice(0, 3);
@@ -332,6 +296,18 @@ export function AgentManageSheet({
                 </SelectContent>
               </Select>
             </div>
+            {canEditScope && <div className="space-y-2 rounded-md border p-3">
+              <Label htmlFor="service-request-reviewer">{t('collab.requestApprovalTitle')}</Label>
+              <p className="text-xs text-muted-foreground">{t('collab.requestApprovalHint')}</p>
+              <select id="service-request-reviewer" className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={requestApprover} onChange={(e) => setRequestApprover(e.target.value)} disabled={members === null}>
+                <option value="">{t('collab.requestApprovalOff')}</option>
+                {(members || []).filter((m) => m.role !== 'viewer').map((m) => (
+                  <option key={m.email} value={m.email}>{m.displayName || m.email}</option>
+                ))}
+                {requestApprover && !(members || []).some((m) => m.email === requestApprover) && <option value={requestApprover}>{requestApprover}</option>}
+              </select>
+            </div>}
             <Button size="sm" onClick={saveProfile} disabled={saving}>
               {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
               {t('collab.saveProfile')}
@@ -392,47 +368,6 @@ export function AgentManageSheet({
                   {firstExample ? t('collab.runTestRequestHint', { agent: name }) : t('collab.runTestRequestNeedsExample')}
                 </p>
               </div>
-            </section>
-          )}
-
-          {/* v1.1 M4: proposals from teammates' requests */}
-          {canEditScope && (
-            <section className="space-y-3">
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('collab.proposalsSection')}</h4>
-                <p className="text-[11px] text-muted-foreground">{t('collab.proposalsHint')}</p>
-              </div>
-              {proposals === null ? (
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-              ) : proposals.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('collab.proposalsEmpty')}</p>
-              ) : (
-                <ul className="space-y-2">
-                  {proposals.map((p) => (
-                    <li key={p.id} className="space-y-2 rounded-md border p-3">
-                      <div className="min-w-0">
-                        {p.action && <p className="text-sm font-medium">{p.action}</p>}
-                        <p className="text-[11px] text-muted-foreground">
-                          {t('collab.proposalFrom', { channel: `#${channelTitle(p.channelName)}` })}
-                        </p>
-                      </div>
-                      {p.details && (
-                        <p className="whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-2 text-sm">{p.details}</p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" onClick={() => resolveProposal(p, 'approve')} disabled={!!resolving}>
-                          {resolving === p.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                          {t('collab.proposalAccept')}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => resolveProposal(p, 'reject')} disabled={!!resolving}>
-                          <X className="size-3.5" />
-                          {t('collab.proposalDecline')}
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </section>
           )}
 

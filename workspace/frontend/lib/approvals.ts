@@ -29,7 +29,7 @@ export function canDecideApproval(
   if (!me) return false;
   const min = REQUIRED_MIN_ROLE[requiredRole] ?? 'member';
   if (me.role && ROLE_RANK[me.role] >= ROLE_RANK[min]) return true;
-  return Boolean(me.tokenAccess) && !requireLogin;
+  return !me.role && Boolean(me.tokenAccess) && !requireLogin;
 }
 
 /** Why the buttons are hidden — for the hint under a card. */
@@ -44,14 +44,10 @@ export function approvalBlockedReason(
 }
 
 /**
- * Card class of a request: policy kinds collapse to `approval`; the v1.1
- * escalation kinds render as a question (`help`) or a proposed change to the
- * agent's shared instructions (`proposal`). Older thread snapshots predate
- * `kind_class`, so the kind itself is the fallback.
+ * All supported requests render as approval cards.
  */
 export function approvalKindClass(kindClass: unknown, kind: unknown): ApprovalKindClass {
-  if (kindClass === 'help' || kindClass === 'proposal' || kindClass === 'approval') return kindClass;
-  return kind === 'help' || kind === 'proposal' ? kind : 'approval';
+  return 'approval';
 }
 
 const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
@@ -60,15 +56,22 @@ const sameEmail = (a: string | null | undefined, b: string | null | undefined) =
 /**
  * Can this caller act on *this* request? On top of the role bar
  * (`canDecideApproval`), a request addressed to someone (`assigneeEmail` —
- * help/proposal default to the agent's owner) narrows to that person or an
+ * explicitly selected reviewer) narrows to that person or an
  * admin/owner, as the backend does; a legacy token visitor on an open
  * workspace (no identity at all) still may.
  */
 export function canActOnApproval(
   me: Pick<WorkspaceMe, 'role' | 'tokenAccess' | 'email'> | null | undefined,
-  approval: Pick<ApprovalRequest, 'requiredRole' | 'assigneeEmail'>,
+  approval: Pick<ApprovalRequest, 'requiredRole' | 'assigneeEmail' | 'policyRequirements'>,
   requireLogin: boolean,
 ): boolean {
+  const requirements = approval.policyRequirements;
+  if (requirements?.members.length) {
+    const email = me?.email?.trim().toLowerCase();
+    if (!email || !me?.role || ROLE_RANK[me.role] < ROLE_RANK.member || requirements.approved_by.includes(email)) return false;
+    return requirements.members.includes(email) || Boolean(requirements.role_required && !requirements.role_approved &&
+      canDecideApproval(me, requirements.role_required, requireLogin));
+  }
   if (!canDecideApproval(me, approval.requiredRole, requireLogin)) return false;
   if (!approval.assigneeEmail) return true;
   if (sameEmail(me?.email, approval.assigneeEmail)) return true;
@@ -79,10 +82,11 @@ export function canActOnApproval(
 /** Why the buttons are hidden on this request — `assignee` = it is someone else's to answer. */
 export function approvalActionBlockedReason(
   me: Pick<WorkspaceMe, 'role' | 'tokenAccess' | 'email'> | null | undefined,
-  approval: Pick<ApprovalRequest, 'requiredRole' | 'assigneeEmail'>,
+  approval: Pick<ApprovalRequest, 'requiredRole' | 'assigneeEmail' | 'policyRequirements'>,
   requireLogin: boolean,
 ): 'signIn' | 'role' | 'assignee' | null {
   if (canActOnApproval(me, approval, requireLogin)) return null;
+  if (approval.policyRequirements?.members.length) return 'assignee';
   return approvalBlockedReason(me, approval.requiredRole, requireLogin) ?? 'assignee';
 }
 
@@ -98,11 +102,11 @@ export function approvalFromMetadata(metadata: Record<string, unknown> | undefin
     kind,
     kindClass: approvalKindClass(raw.kind_class, kind),
     action: String(raw.action ?? ''),
-    question: kind === 'help' ? (String(raw.question ?? raw.action ?? '') || null) : null,
     details: (raw.details as string) ?? null,
     risk: (raw.risk as ApprovalRequest['risk']) ?? null,
     requiredRole: (raw.required_role as ApprovalRequiredRole) ?? 'any',
     assigneeEmail: (raw.assignee_email as string) ?? null,
+    policyRequirements: (raw.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
     ownerEmail: (raw.owner_email as string) ?? null,
     requesterEmail: (raw.requester_email as string) ?? null,
     status: (raw.status as ApprovalRequest['status']) ?? 'pending',

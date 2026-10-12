@@ -213,7 +213,7 @@ class TestGrants:
         assert d["grantee"] == {"kind": "group", "id": gid, "label": "Deploy team"}
         assert client.get(f"/v1/grants/preview?network={workspace['id']}&resource_kind=channel&resource_id=pv-1", headers=vic).status_code == 403
         r = client.get(f"/v1/grants/preview?network={workspace['id']}&resource_kind=agent&resource_id=agent-alpha", headers=_tok(workspace))
-        assert r.json()["data"]["items"][0]["kind"] == "agent"
+        assert r.status_code == 403  # Workspace credentials cannot manage agent shares.
         _grant(client, workspace, mia, resource_kind="channel", resource_id="pv-1", grantee_kind="group", grantee_id=gid)
         r = client.get(f"/v1/access/mine?network={workspace['id']}", headers=vic)
         assert r.status_code == 200, r.text
@@ -406,7 +406,7 @@ class TestFiles:
         assert _explain(client, workspace, vic, "file", d["id"])["reason"] == "inherited_from_channel"
         # an identified agent owns what it uploads; its owner can manage it
         _join(client, workspace, "deploy-bot")
-        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot", json={"owner_email": E["mia"]}, headers=mia)
+        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot", json={"owner_email": E["mia"]}, headers=_tok(workspace))
         d = _upload(client, workspace, {**_tok(workspace), "X-Agent-Name": "deploy-bot"}, "bot.txt").json()["data"]
         assert d["owner"] == "openagents:deploy-bot" and d["owner_label"] == "@deploy-bot" and d["visibility"] == "private"
         assert "bot.txt" in _file_ids(client, workspace, mia) and "bot.txt" not in _file_ids(client, workspace, vic)
@@ -459,11 +459,11 @@ class TestAgentsUsableBy:
     def test_directory_and_shims(self, client, workspace, people, db):
         _join(client, workspace, "deploy-bot")
         mia, vic = _bearer("mia", workspace), _bearer("vic", workspace)
-        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot", json={"owner_email": E["mia"], "visibility": "personal"}, headers=mia)
+        client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot", json={"owner_email": E["mia"], "visibility": "personal"}, headers=_tok(workspace))
         directory = lambda h: {a["agent_name"]: a for a in client.get(f"/v1/agents/directory?network={workspace['id']}", headers=h).json()["data"]["agents"]}  # noqa: E731
-        bot = directory(vic)["deploy-bot"]
-        assert bot["usable_by"] == {"everyone": True, "groups": [], "people": 0, "agents": 0}
-        assert bot["visibility"] == "team", "the deprecated flag mirrors the everyone grant, PATCH ignored it"
+        bot = directory(mia)["deploy-bot"]
+        assert bot["usable_by"] == {"everyone": False, "groups": [], "people": 0, "agents": 0}
+        assert bot["visibility"] == "personal"
         _revoke_everyone(client, workspace, "deploy-bot", mia)
         assert "deploy-bot" not in directory(vic)
         gid = _team(client, workspace, ("human", E["vic"]))

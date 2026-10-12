@@ -1,14 +1,17 @@
 """Shared issues: human discussion is independent of agent execution.
 
-Only POST /threads starts agents. Comments, edits, task creation, and linking
-existing work never enter the agent-routing pipeline.
+Only human comments mentioning an agent already on the issue start work.
+Adding participants, ordinary discussion, and linking existing work stay passive.
 """
 
 import uuid
+import re
+import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Query
+from pydantic_core import PydanticCustomError
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -22,16 +25,18 @@ from app.models import (
     Issue,
     IssueComment,
     IssueThread,
-    KanbanTask,
+    IssueAgentSharing,
+    ApprovalRequest,
     WorkspaceMember,
+    WorkspaceMembership,
+    User,
 )
 from app.response import success_response
 from app.routers.network import _emit_event_blocking, _resolve_workspace
-from app.routers.tasks import _serialize_task
 from openagents.core.onm_events import Event
 
 router = APIRouter(prefix="/v1/issues", tags=["Issues"])
-IssueStatus = Literal["open", "in_progress", "closed"]
+IssueStatus = Literal["open", "in_progress", "paused", "closed"]
 
 
 class ActorRequest(BaseModel):
@@ -54,6 +59,22 @@ class UpdateIssueRequest(ActorRequest):
     title: Optional[str] = Field(default=None, min_length=1, max_length=240)
     description: Optional[str] = Field(default=None, max_length=50000)
     status: Optional[IssueStatus] = None
+    assignee: Optional[str] = Field(default=None, max_length=330)
+    labels: Optional[list[str]] = Field(default=None, max_length=20)
+
+    @field_validator("labels")
+    @classmethod
+    def clean_labels(cls, values):
+        if values is None:
+            return values
+        result = []
+        for value in values:
+            value = value.strip()
+            if not value or len(value) > 40:
+                raise PydanticCustomError("label_length", "Labels must be between 1 and 40 characters")
+            if value.casefold() not in {item.casefold() for item in result}:
+                result.append(value)
+        return result
 
     @field_validator("title", mode="before")
     @classmethod
@@ -66,19 +87,17 @@ class CommentRequest(ActorRequest):
     source_event_id: Optional[str] = None
 
 
-class StartThreadRequest(ActorRequest):
-    agents: list[str] = Field(min_length=1, max_length=10)
-    instruction: str = Field(min_length=1, max_length=10000)
-
-
 class LinkThreadRequest(ActorRequest):
     channel_name: str
 
 
-class IssueTaskRequest(ActorRequest):
-    task_id: Optional[str] = None
-    title: str = Field(default="", max_length=240)
-    description: str = Field(default="", max_length=50000)
+class ParticipantRequest(BaseModel):
+    kind: Literal["human", "agent"]
+    id: str = Field(min_length=1, max_length=320)
+
+
+class AddParticipantsRequest(BaseModel):
+    participants: list[ParticipantRequest] = Field(min_length=1, max_length=100)
 
 
 def _access(network, db, token, authorization, write=False):
@@ -132,8 +151,12 @@ def _serialize(issue):
             "title",
             "description",
             "status",
+            "assignee",
+            "assignee_name",
+            "labels",
             "created_by",
             "created_by_name",
+            "participants",
         )
     } | {
         "created_at": _iso(issue.created_at),
@@ -218,6 +241,28 @@ def _linked_channels(db, issue):
             .order_by(IssueThread.created_at)
         ).scalars()
     )
+
+
+def _participants(db, issue, channels):
+    people = {issue.created_by: {"source": issue.created_by, "name": issue.created_by_name or issue.created_by.split(":", 1)[-1]}}
+    for comment in db.execute(select(IssueComment).where(IssueComment.issue_id == issue.id)).scalars():
+        people[comment.author] = {"source": comment.author, "name": comment.author_name or comment.author.split(":", 1)[-1]}
+    for channel in channels:
+        for agent in channel.participants:
+            people[f"openagents:{agent.agent_name}"] = {"source": f"openagents:{agent.agent_name}", "name": agent.agent_name}
+    for person in issue.participants or []:
+        if person.get("removed"):
+            people.pop(person["source"], None)
+        else:
+            people[person["source"]] = person
+    return list(people.values())
+
+
+def _mentioned_agents(content, agents):
+    # Exact handles only: email addresses and longer handles must not trigger
+    # a similarly named agent. Code snippets and quoted text are passive.
+    prose = re.sub(r"```[\s\S]*?```|`[^`\n]*`|(?m:^>.*$)", "", content)
+    return [name for name in agents if re.search(r"(?<![\w@])@" + re.escape(name) + r"(?![\w@-]|\.[\w-])", prose)]
 
 
 @router.get("")
@@ -317,22 +362,9 @@ def get_issue(
         .scalars()
         .all()
     )
-    tasks = (
-        db.execute(
-            select(KanbanTask).where(
-                KanbanTask.issue_id == issue.id, KanbanTask.workspace_id == workspace.id
-            )
-        )
-        .scalars()
-        .all()
-    )
     channels = [c for c in _linked_channels(db, issue) if _can_see(db, workspace, viewer, c.name)]
-    # Fetch the latest shareable agent reply for each linked execution thread
-    # the caller may read.
-    names = {c.name for c in channels} | {
-        t.channel_name for t in tasks
-        if t.channel_name and _can_see(db, workspace, viewer, t.channel_name)
-    }
+    # Only expose replies from linked execution threads the caller may read.
+    names = {c.name for c in channels}
     latest = {}
     if names:
         ranked = (
@@ -367,10 +399,39 @@ def get_issue(
                 "author": event.source,
                 "content": (event.payload or {}).get("content", ""),
             }
+    # Project completed chat replies into the discussion without copying
+    # private thread content into a workspace-visible IssueComment record.
+    discussion = [_comment(c) for c in comments]
+    already = {c.source_event_id for c in comments if c.source_event_id}
+    if names:
+        replies = db.execute(select(EventRecord).where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.target.in_([f"channel/{n}" for n in names]),
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.startswith("openagents:"),
+            func.coalesce(EventRecord.payload["message_type"].as_string(), "chat") == "chat",
+        ).order_by(EventRecord.timestamp, EventRecord.id)).scalars()
+        for reply in replies:
+            content = (reply.payload or {}).get("content", "")
+            if reply.id in already or not content.strip():
+                continue
+            discussion.append({"id": reply.id, "source_event_id": reply.id,
+                "author": reply.source, "author_name": reply.source.split(":", 1)[-1],
+                "content": content, "kind": "result",
+                "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
+    from app.services.approvals import serialize_with_owner
+    for approval in db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace.id,
+            ApprovalRequest.channel_name.in_(names), ApprovalRequest.kind == "issue_agent_request")).scalars():
+        discussion.append({"id": approval.id, "author": "system:approval", "author_name": "Approval",
+            "kind": "approval", "content": approval.action, "source_event_id": None,
+            "created_at": _iso(approval.created_at), "approval": serialize_with_owner(db, approval)})
+    discussion.sort(key=lambda item: (item["created_at"], item["id"]))
     return success_response(
         _serialize(issue)
         | {
-            "comments": [_comment(c) for c in comments],
+            "participants": _participants(db, issue, channels),
+            "comments": discussion,
+            "agent_sharing_mode": (db.get(IssueAgentSharing, (issue.id, viewer.email)).mode if viewer.email and db.get(IssueAgentSharing, (issue.id, viewer.email)) else "no"),
             "threads": [
                 {
                     "channel_name": c.name,
@@ -380,10 +441,6 @@ def get_issue(
                     "latest_reply": latest.get(c.name),
                 }
                 for c in channels
-            ],
-            "tasks": [
-                _serialize_task(t) | {"latest_reply": latest.get(t.channel_name)}
-                for t in tasks
             ],
         }
     )
@@ -401,6 +458,41 @@ def update_issue(
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
     actor, actor_name = _actor(db, authorization, body.source, body.source_name)
+    if "assignee" in body.model_fields_set and body.assignee != issue.assignee:
+        current_agent = None
+        if (issue.assignee or "").startswith("openagents:"):
+            current_agent = db.get(WorkspaceMember, (str(workspace.id), issue.assignee.split(":", 1)[1]))
+        may_assign = actor in (issue.created_by, issue.assignee) or (
+            current_agent is not None and actor == f"human:{current_agent.owner_email}"
+        )
+        if not may_assign:
+            raise HTTPException(403, "Only the creator or current assignee can reassign this issue")
+        name = None
+        if body.assignee:
+            kind, _, identifier = body.assignee.partition(":")
+            if kind == "human":
+                member = db.execute(select(User).join(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == workspace.id,
+                    func.lower(User.email) == identifier.lower(),
+                )).scalar_one_or_none()
+                if member is None:
+                    raise HTTPException(422, "Choose a workspace member")
+                body.assignee = f"human:{member.email.lower()}"
+            elif kind == "openagents":
+                member = db.get(WorkspaceMember, (str(workspace.id), identifier))
+                if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
+                    raise HTTPException(403, "You can only assign your own agents")
+            else:
+                raise HTTPException(422, "Choose a person or one of your agents")
+            name = member.display_name or identifier
+            roster = {p["source"]: p for p in issue.participants or []}
+            roster[body.assignee] = {"source": body.assignee, "name": name}
+            issue.participants = list(roster.values())
+        issue.assignee, issue.assignee_name = body.assignee, name
+        _add_comment(db, issue, actor, f"assigned this issue to {name}" if name else "removed the assignment", "activity", author_name=actor_name)
+    if body.labels is not None and body.labels != issue.labels:
+        issue.labels = body.labels
+        _add_comment(db, issue, actor, "updated labels: " + (", ".join(body.labels) or "none"), "activity", author_name=actor_name)
     if body.title is not None:
         issue.title = body.title
     if body.description is not None:
@@ -424,6 +516,7 @@ def add_comment(
     issue_id: str,
     body: CommentRequest,
     network: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -440,15 +533,6 @@ def add_comment(
         ):
             event = None
         names = {c.name for c in _linked_channels(db, issue)}
-        names.update(
-            db.execute(
-                select(KanbanTask.channel_name).where(
-                    KanbanTask.workspace_id == workspace.id,
-                    KanbanTask.issue_id == issue.id,
-                    KanbanTask.channel_name.is_not(None),
-                )
-            ).scalars()
-        )
         if (
             not event
             or event.network_id != workspace.id
@@ -476,6 +560,18 @@ def add_comment(
         actor_name = event.source.removeprefix("openagents:")
     if not content:
         raise HTTPException(422, "Comment cannot be empty")
+    targets = []
+    if kind == "comment" and actor.startswith("human:"):
+        viewer = _viewer(db, workspace, x_workspace_token, authorization)
+        visible = [c for c in _linked_channels(db, issue) if _can_see(db, workspace, viewer, c.name)]
+        roster = {p["source"].removeprefix("openagents:") for p in _participants(db, issue, visible) if p["source"].startswith("openagents:")}
+        active = db.execute(select(WorkspaceMember.agent_name).where(
+            WorkspaceMember.workspace_id == workspace.id, WorkspaceMember.status != "removed",
+            WorkspaceMember.agent_name.in_(roster),
+        )).scalars()
+        targets = _mentioned_agents(content, sorted(active))
+        if targets and issue.status == "closed":
+            raise HTTPException(409, "Reopen the issue before asking an agent to work")
     comment = _add_comment(
         db, issue, actor, content, kind, body.source_event_id, author_name=actor_name
     )
@@ -494,7 +590,27 @@ def add_comment(
         ).scalar_one_or_none()
         if comment is None:
             raise
-    return success_response(_comment(comment))
+    result = _comment(comment)
+    if targets:
+        from app.services.thread_agent_requests import issue_request_access
+        allowed_targets = []
+        for name in targets:
+            member = db.get(WorkspaceMember, (str(workspace.id), name))
+            if not viewer.machine and issue_request_access(db, workspace.id, issue, member, actor.removeprefix("human:")) == "no":
+                owner = member.owner_email if member else "the owner"
+                result["dispatch_error"] = f"Your comment was posted, but {name} wasn’t asked to work. Ask {owner} to enable sharing or require approval in this issue’s Details."
+            else:
+                allowed_targets.append(name)
+        targets = allowed_targets
+    if targets:
+        try:
+            result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
+        except Exception:
+            # The comment is saved. Do not encourage reposting it (which could
+            # create duplicate work); expose delivery failure separately.
+            logging.getLogger(__name__).exception("Issue comment saved but agent dispatch failed")
+            result["dispatch_error"] = "Your comment was saved, but the agent request could not be delivered. Check the linked work before trying again."
+    return success_response(result)
 
 
 @router.post("/{issue_id}/links")
@@ -514,35 +630,7 @@ def link_thread(
     return success_response({"linked": True})
 
 
-@router.post("/{issue_id}/threads")
-def start_thread(
-    issue_id: str,
-    body: StartThreadRequest,
-    network: str,
-    db: Session = Depends(get_db),
-    x_workspace_token: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    workspace = _access(network, db, x_workspace_token, authorization, write=True)
-    issue = _issue(db, workspace, issue_id)
-    if issue.status == "closed":
-        raise HTTPException(409, "Reopen the issue before starting new work")
-    actor, actor_name = _actor(db, authorization, body.source, body.source_name)
-    agents = list(
-        dict.fromkeys(a.removeprefix("openagents:").strip() for a in body.agents)
-    )
-    members = set(
-        db.execute(
-            select(WorkspaceMember.agent_name).where(
-                WorkspaceMember.workspace_id == workspace.id,
-                WorkspaceMember.agent_name.in_(agents),
-            )
-        ).scalars()
-    )
-    if not agents or any(a not in members for a in agents):
-        raise HTTPException(422, "Choose agents that belong to this workspace")
-    if not body.instruction.strip():
-        raise HTTPException(422, "Describe what you want the agents to do")
+def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):
     # Bound the initial context. The durable discussion remains on the issue.
     comments = list(
         db.execute(
@@ -586,12 +674,14 @@ def start_thread(
         target=f"channel/{name}",
         payload={
             "content": (
-                f"{' '.join('@' + a for a in agents)}\n\nRequested work: {body.instruction.strip()}\n\n"
+                f"{' '.join('@' + a for a in agents)}\n\nRequested work: {instruction.strip()}\n\n"
                 f"Issue: {issue.title}\n{issue.description[:20000]}\n\nRecent discussion:\n{discussion}\n\n"
                 "Post your findings or deliverable here for the team to review. "
                 "The issue stays open until the team decides it is resolved."
             ),
             "message_type": "chat",
+            "sender_email": actor.removeprefix("human:") if "@" in actor else None,
+            "sender_name": actor_name,
         },
         metadata={"target_agents": agents},
     )
@@ -604,17 +694,19 @@ def start_thread(
     db.refresh(issue)
     if issue.status == "open":
         issue.status = "in_progress"
-    _add_comment(
-        db, issue, actor, body.instruction.strip(), "activity", author_name=actor_name
-    )
     db.commit()
-    return success_response({"channel_name": name})
+    from app.services.cloud_agent import invoke_cloud_agents
+    background_tasks.add_task(invoke_cloud_agents, str(workspace.id), {
+        "id": str(sent.id), "type": sent.type, "source": sent.source,
+        "target": sent.target, "payload": sent.payload, "metadata": sent.metadata,
+    })
+    return name
 
 
-@router.post("/{issue_id}/tasks")
-def add_task(
+@router.post("/{issue_id}/participants")
+def add_participants(
     issue_id: str,
-    body: IssueTaskRequest,
+    body: AddParticipantsRequest,
     network: str,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -622,31 +714,76 @@ def add_task(
 ):
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
-    actor, actor_name = _actor(db, authorization, body.source, body.source_name)
-    if body.task_id:
-        task = db.execute(
-            select(KanbanTask)
-            .where(
-                KanbanTask.workspace_id == workspace.id, KanbanTask.id == body.task_id
-            )
-            .with_for_update()
-        ).scalar_one_or_none()
-        if not task:
-            raise HTTPException(404, "Task not found")
-        if task.issue_id and task.issue_id != issue.id:
-            raise HTTPException(409, "Task already belongs to another issue")
-        task.issue_id = issue.id
-    else:
-        if not body.title.strip():
-            raise HTTPException(422, "Task title is required")
-        task = KanbanTask(
-            workspace_id=workspace.id,
-            issue_id=issue.id,
-            title=body.title.strip(),
-            description=body.description.strip(),
-            created_by=actor,
-        )
-        db.add(task)
+    participants = {p["source"]: p for p in (issue.participants or [])}
+    # Validate the entire selection before changing the saved roster. Adding
+    # an agent here is passive: only the explicit start-work endpoint routes it.
+    for person in body.participants:
+        identity = person.id.strip()
+        if person.kind == "human":
+            identity = identity.lower()
+            member = db.execute(select(User).join(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                func.lower(User.email) == identity,
+            )).scalar_one_or_none()
+            source = f"human:{identity}"
+        else:
+            member = db.execute(select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name == identity,
+                WorkspaceMember.status != "removed",
+            )).scalar_one_or_none()
+            source = f"openagents:{identity}"
+        if member is None:
+            raise HTTPException(422, "Choose an existing workspace member or agent")
+        participants[source] = {"source": source, "name": member.display_name or identity}
+    issue.participants = list(participants.values())
     issue.updated_at = datetime.now(timezone.utc)
     db.commit()
-    return success_response(_serialize_task(task))
+    return success_response({"participants": issue.participants})
+
+
+@router.post("/{issue_id}/participants/remove")
+def remove_participant(
+    issue_id: str, body: ParticipantRequest, network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    issue = _issue(db, workspace, issue_id, lock=True)
+    if body.kind != "agent":
+        raise HTTPException(422, "Only agents can be removed from an issue")
+    source = f"openagents:{body.id.strip()}"
+    participants = {p["source"]: p for p in (issue.participants or [])}
+    # A tombstone prevents historical comments/threads re-adding this agent.
+    # Existing work and discussion remain intact. Re-adding clears it.
+    participants[source] = {"source": source, "name": body.id.strip(), "removed": True}
+    issue.participants = list(participants.values())
+    issue.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return success_response({"removed": True})
+
+
+class IssueAgentSharingPatch(BaseModel):
+    mode: Literal["no", "yes", "approval"]
+
+
+@router.patch("/{issue_id}/my-agent-sharing")
+def update_issue_agent_sharing(issue_id: str, network: str, body: IssueAgentSharingPatch,
+        db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    issue = _issue(db, workspace, issue_id, lock=True)
+    user = resolve_current_user(db, authorization)
+    if not user:
+        raise HTTPException(403, "Sign in to manage sharing of your agents")
+    setting = db.get(IssueAgentSharing, (issue.id, user.email))
+    if setting is None:
+        setting = IssueAgentSharing(issue_id=issue.id, owner_email=user.email)
+        db.add(setting)
+    setting.mode = body.mode
+    # Saving this personal preference also joins the person to the issue.
+    roster = {p["source"]: p for p in issue.participants or []}
+    roster[f"human:{user.email}"] = {"source": f"human:{user.email}", "name": user.display_name or user.email}
+    issue.participants = list(roster.values())
+    db.commit()
+    return success_response({"mode": setting.mode})

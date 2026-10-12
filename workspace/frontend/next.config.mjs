@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  ...(process.env.NEXT_DEV_ALLOWED_ORIGIN && {
+    allowedDevOrigins: [process.env.NEXT_DEV_ALLOWED_ORIGIN],
+  }),
   async redirects() {
     return [
       // NOTE: `/` on workspace.openagents.org used to redirect to the marketing

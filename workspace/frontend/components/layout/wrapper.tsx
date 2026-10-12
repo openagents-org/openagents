@@ -1,4 +1,10 @@
 'use client';
+import { workspaceApi } from '@/lib/api';
+import { ArtifactPanel } from '@/components/artifacts/artifact-panel';
+import { useThreadArtifactPreview } from '@/components/artifacts/thread-artifact-controller';
+import { resourcePath } from '@/lib/resource-link';
+import { threadPath } from '@/lib/thread-link';
+import { desktopHost } from '@/lib/desktop-host';
 
 import { Activity, useEffect, useRef } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
@@ -69,6 +75,7 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
+  useThreadArtifactPreview();
   useDesktopWorkspaceState();
   useSignalNotifications();
   const {
@@ -84,7 +91,32 @@ export function Wrapper() {
     const q = hash.indexOf('?');
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { monitorMode, agents, loading, sessions, currentSessionId, currentUser } = useWorkspace();
+  const { monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  // Resolve a stable identity before writing the URL; never expose DM participants.
+  useEffect(() => {
+    if (loading || desktopHost()) return;
+    let active = true;
+    const update = async () => {
+      const url = new URL(window.location.href);
+      const workspaceSlug = decodeURIComponent(url.pathname.split('/')[1]);
+      if (viewMode === 'issues') return;
+      if (viewMode === 'files' || viewMode === 'knowledge') {
+        url.pathname = resourcePath(workspaceSlug, viewMode, viewMode === 'files' ? selectedFileId : selectedKnowledgeId);
+      } else if (viewMode === 'threads' && currentSessionId) {
+        try {
+          const link = await workspaceApi.getThreadLink(currentSessionId);
+          if (!active) return;
+          url.pathname = threadPath(workspaceSlug, link.id);
+        } catch { return; }
+      } else if (viewMode !== 'threads') {
+        url.pathname = `/${encodeURIComponent(workspaceSlug)}`;
+      }
+      for (const key of ['thread', 'issue', 'knowledge', 'file']) url.searchParams.delete(key);
+      if (active && url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+    };
+    void update();
+    return () => { active = false; };
+  }, [loading, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
 
@@ -175,6 +207,8 @@ export function Wrapper() {
             <div className="relative h-full bg-background overflow-hidden">
               <BrowserView />
             </div>
+          ) : viewMode === 'threads' && showBrowserPreview ? (
+            <div className="h-full overflow-hidden bg-background"><ArtifactPanel /></div>
           ) : mobilePane === 'list' ? (
             /* List pane — full width */
             <div className="flex h-full flex-col bg-background overflow-hidden">
@@ -264,7 +298,7 @@ export function Wrapper() {
               {isAgentPanelOpen && <AgentProfilePanel />}
             </div>
           ) : viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
-            /* Split view: chat + browser side by side */
+            /* Split view: conversation + artifact side by side */
             <div className="flex flex-1 min-w-0">
               <div className="relative flex-1 min-w-0 overflow-hidden border-e border-border bg-background">
                 <div className="h-full">
@@ -273,7 +307,7 @@ export function Wrapper() {
                 {isAgentPanelOpen && <AgentProfilePanel />}
               </div>
               <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-                <BrowserView />
+                <ArtifactPanel />
               </div>
             </div>
           ) : (

@@ -14,6 +14,15 @@ export interface MentionPerson {
 
 const EMAIL_MENTION = /(?<![\w.+-])@([^\s@]+@[^\s@]+\.[^\s@]+)/g;
 
+/** Plain-text previews display names while stored mention tokens keep their identity. */
+export function displayHumanMentions(text: string, names: Record<string, string>): string {
+  return text.replace(EMAIL_MENTION, (match, address: string) => {
+    const email = address.replace(/[.,;:!?)\]}'"]+$/, '');
+    const name = names[email.toLowerCase()]?.trim();
+    return name ? `@${name}${address.slice(email.length)}` : match;
+  });
+}
+
 /** Emails of roster people @mentioned in `text` (deduped, lowercased, roster-only, never yourself). */
 export function extractMentionedHumans(
   text: string,
@@ -58,4 +67,9 @@ export function filterMentionPeople(
     .map((m) => ({ email: m.email.toLowerCase(), name: (m.displayName || '').trim() || m.email }))
     .filter((p) => !q || p.name.toLowerCase().includes(q) || p.email.includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** A standalone @all token; email addresses and longer handles are excluded. */
+export function hasAllMention(text: string): boolean {
+  return /(?<![\w.@+-])@all(?![\w@+-]|\.[\w])/i.test(text);
 }

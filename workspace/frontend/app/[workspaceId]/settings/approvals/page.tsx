@@ -1,30 +1,22 @@
 'use client';
+import { threadPath } from '@/lib/thread-link';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { Check, ExternalLink, Lock, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, Check, ExternalLink, Lock, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { CustomPolicyEditor, type CustomPolicy } from '@/components/settings/custom-policy-editor';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
-import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { ReadOnlyBanner } from '@/components/settings/section-chrome';
 import { workspaceApi } from '@/lib/api';
-import { canDecideApproval } from '@/lib/approvals';
+import { canActOnApproval } from '@/lib/approvals';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { MessageKey } from '@/lib/i18n/translate';
-import type { ApprovalPolicyRule, ApprovalPolicyVerdict, ApprovalRequest } from '@/lib/types';
+import type { ApprovalPolicyRule, ApprovalRequest } from '@/lib/types';
 
-const VERDICTS: ApprovalPolicyVerdict[] = ['allow', 'any', 'admin', 'owner', 'block'];
-const VERDICT_KEYS: Record<ApprovalPolicyVerdict, MessageKey> = {
-  allow: 'approvals.verdictAllow',
-  any: 'approvals.verdictAny',
-  admin: 'approvals.verdictAdmin',
-  owner: 'approvals.verdictOwner',
-  block: 'approvals.verdictBlock',
-};
 const KIND_KEYS: Record<string, MessageKey> = {
+  service_request: 'approvals.kinds.service_request',
   deploy: 'approvals.kinds.deploy',
   spend: 'approvals.kinds.spend',
   external_send: 'approvals.kinds.external_send',
@@ -38,10 +30,8 @@ const KIND_KEYS: Record<string, MessageKey> = {
 /**
  * Settings → Approvals: what pauses for a person, and who that person must be.
  *
- * Two parts. The queue at the top is everything currently waiting on a human
- * (approve/reject here or in the thread — same endpoint). Below it, the
- * workspace-default permission policy: one verdict per action kind. Channel
- * overrides exist in the API and are surfaced per thread later.
+ * Policies added by an admin and pending requests live in separate tabs.
+ * Requests can be resolved here or in the thread through the same endpoint.
  */
 export default function ApprovalsSettingsPage() {
   const { workspaceId, workspace, me, query } = useAdminSettings();
@@ -65,8 +55,8 @@ export default function ApprovalsSettingsPage() {
   const decide = async (a: ApprovalRequest, decision: 'approve' | 'reject') => {
     setBusyId(a.id);
     try {
-      await workspaceApi.resolveApproval(a.id, decision);
-      setPending((prev) => (prev || []).filter((x) => x.id !== a.id));
+      const updated = await workspaceApi.resolveApproval(a.id, decision);
+      setPending((prev) => (prev || []).flatMap((x) => x.id !== a.id ? [x] : updated.status === 'pending' ? [updated] : []));
     } catch {
       toast.error(t('approvals.failed'));
     } finally {
@@ -75,45 +65,37 @@ export default function ApprovalsSettingsPage() {
   };
 
   // ── Policy ──
-  const [rules, setRules] = useState<ApprovalPolicyRule[] | null>(null);
-  const [draft, setDraft] = useState<Record<string, ApprovalPolicyVerdict>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [custom, setCustom] = useState<CustomPolicy[]>([]);
+  const [savedCustom, setSavedCustom] = useState<CustomPolicy[]>([]);
+  const applyPolicy = (allRules: ApprovalPolicyRule[]) => {
+    const added = allRules.filter((r) => r.description).map(({ kind, description, policy, approver_email }) => ({ approver_email, kind: kind.startsWith('custom:') ? kind : `custom:legacy:${kind}`, description: description!, policy })) as CustomPolicy[];
+    setLoaded(true);
+    setLoadFailed(false);
+    setCustom(added);
+    setSavedCustom(added);
+  };
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     workspaceApi.getApprovalPolicy()
       .then((p) => {
-        setRules(p.rules);
-        setDraft(Object.fromEntries(p.rules.map((r) => [r.kind, r.policy])));
+        applyPolicy(p.rules);
       })
-      .catch(() => setRules([]));
+      .catch(() => setLoadFailed(true));
   }, []);
 
   const dirty = useMemo(
-    () => (rules || []).some((r) => draft[r.kind] && draft[r.kind] !== r.policy),
-    [rules, draft],
+    () => JSON.stringify(custom) !== JSON.stringify(savedCustom),
+    [custom, savedCustom],
   );
 
   const save = async () => {
+    if (!editable || !loaded || custom.some((r) => (!r.description.trim() || (r.policy === 'member' && !r.approver_email)))) return;
     setSaving(true);
     try {
-      const p = await workspaceApi.updateApprovalPolicy(
-        Object.entries(draft).map(([kind, policy]) => ({ kind, policy })),
-      );
-      setRules(p.rules);
-      setDraft(Object.fromEntries(p.rules.map((r) => [r.kind, r.policy])));
-      toast.success(t('approvals.saved'));
-    } catch {
-      toast.error(t('approvals.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const resetDefaults = async () => {
-    setSaving(true);
-    try {
-      const p = await workspaceApi.updateApprovalPolicy([]);
-      setRules(p.rules);
-      setDraft(Object.fromEntries(p.rules.map((r) => [r.kind, r.policy])));
+      const p = await workspaceApi.updateApprovalPolicy(custom);
+      applyPolicy(p.rules);
       toast.success(t('approvals.saved'));
     } catch {
       toast.error(t('approvals.saveFailed'));
@@ -127,11 +109,24 @@ export default function ApprovalsSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <SectionHeader title={t('admin.approvalsTitle')} description={t('admin.approvalsDescription')} />
+      <div className="space-y-3 border-b pb-4">
+        <h2 className="text-lg font-semibold">{t('admin.approvalsTitle')}</h2>
+        <div role="note" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-medium">{t('approvals.advisoryWarning')}</p>
+            <p>{t('admin.approvalsDescription')}</p>
+          </div>
+        </div>
+      </div>
       {!editable && <ReadOnlyBanner />}
 
-      {/* Pending queue */}
-      <section className="space-y-3">
+      <Tabs defaultValue="policy">
+        <TabsList variant="line">
+          <TabsTrigger value="policy">{t('approvals.policyTitle')}</TabsTrigger>
+          <TabsTrigger value="pending">{t('approvals.pendingTab')}{!!pending?.length && <span className="rounded-full bg-muted px-1.5 text-xs">{pending.length}</span>}</TabsTrigger>
+        </TabsList>
+      <TabsContent value="pending" className="space-y-3 pt-4">
         <h2 className="text-sm font-semibold">
           {t('approvals.pendingTitle')}
           {pending && pending.length > 0 && (
@@ -146,7 +141,7 @@ export default function ApprovalsSettingsPage() {
           ) : pending.length === 0 ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">{t('approvals.nonePending')}</p>
           ) : pending.map((a) => {
-            const allowed = canDecideApproval(me, a.requiredRole, workspace.requireLogin);
+            const allowed = canActOnApproval(me, a, workspace.requireLogin);
             return (
               <div key={a.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
                 <Lock className="mt-0.5 size-4 shrink-0 text-amber-600" />
@@ -154,7 +149,7 @@ export default function ApprovalsSettingsPage() {
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-sm font-medium">{a.action}</span>
                     <span className="text-xs text-muted-foreground">
-                      {a.requestedBy} · {t(KIND_KEYS[a.kind] ?? 'approvals.kinds.generic')} · {t('approvals.needs', { role: roleText(a.requiredRole) })}
+                      {a.requestedBy} · {t(KIND_KEYS[a.kind] ?? 'approvals.kinds.generic')} · {t('approvals.needs', { role: a.policyRequirements?.members.length ? a.policyRequirements.members.join(', ') + (a.policyRequirements.role_required ? ` + ${roleText(a.policyRequirements.role_required)}` : '') : roleText(a.requiredRole) })}
                       {a.createdAt && <> · {timeAgoShort(a.createdAt)}</>}
                     </span>
                   </div>
@@ -163,12 +158,20 @@ export default function ApprovalsSettingsPage() {
                       {a.details}
                     </pre>
                   )}
-                  <Link
-                    href={`/${workspaceId}${query}#?thread=${encodeURIComponent(a.channelName)}`}
+                  {!!a.policyRequirements?.approved_by.length && <p className="mt-1 text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: a.policyRequirements.approved_by.join(', ') })}</p>}
+                  {a.note && <p className="mt-1 text-xs text-muted-foreground">{a.note}</p>}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const link = await workspaceApi.getThreadLink(a.channelName);
+                        window.location.assign(`${threadPath(workspaceId, link.id)}${query}`);
+                      } catch { toast.error(t('share.threadUnavailable')); }
+                    }}
                     className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                   >
                     {t('approvals.openThread')} <ExternalLink className="size-3" />
-                  </Link>
+                  </button>
                 </div>
                 {allowed && (
                   <div className="flex shrink-0 items-center gap-2">
@@ -184,10 +187,9 @@ export default function ApprovalsSettingsPage() {
             );
           })}
         </div>
-      </section>
+      </TabsContent>
 
-      {/* Permission policy */}
-      <section className="space-y-3">
+      <TabsContent value="policy" className="space-y-3 pt-4">
         <div className="flex items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{t('approvals.policyTitle')}</h2>
@@ -195,57 +197,16 @@ export default function ApprovalsSettingsPage() {
           </div>
           {editable && (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground" disabled={saving} onClick={resetDefaults}>
-                <RotateCcw className="size-3.5" /> {t('approvals.reset')}
-              </Button>
-              <Button size="sm" className="h-8" disabled={!dirty || saving} onClick={save}>
+              <Button size="sm" className="h-8" disabled={!dirty || saving || !loaded || custom.some((r) => (!r.description.trim() || (r.policy === 'member' && !r.approver_email)))} onClick={save}>
                 {t('common.save')}
               </Button>
             </div>
           )}
         </div>
-        <div className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 font-medium">{t('approvals.colAction')}</th>
-                <th className="px-4 py-2 font-medium">{t('approvals.colPolicy')}</th>
-                <th className="hidden px-4 py-2 font-medium sm:table-cell">{t('approvals.colSource')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {(rules || []).map((r) => (
-                <tr key={r.kind}>
-                  <td className="px-4 py-2.5">
-                    <div className="font-medium">{t(KIND_KEYS[r.kind] ?? 'approvals.kinds.generic')}</div>
-                    <div className="text-xs text-muted-foreground">{r.label}</div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <Select
-                      value={draft[r.kind] ?? r.policy}
-                      onValueChange={(v) => setDraft((d) => ({ ...d, [r.kind]: v as ApprovalPolicyVerdict }))}
-                      disabled={!editable}
-                    >
-                      <SelectTrigger className="h-8 w-[200px]"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {VERDICTS.map((v) => (
-                          <SelectItem key={v} value={v}>{t(VERDICT_KEYS[v])}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">
-                    {r.source === 'default' ? t('approvals.sourceDefault') : r.source === 'workspace' ? t('approvals.sourceWorkspace') : t('approvals.sourceChannel')}
-                  </td>
-                </tr>
-              ))}
-              {rules !== null && rules.length === 0 && (
-                <tr><td colSpan={3} className="px-4 py-3 text-sm text-muted-foreground">{t('admin.loadFailed')}</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <CustomPolicyEditor value={custom} onChange={setCustom} disabled={!editable || saving || !loaded} />
+        {!loaded && <p className="text-sm text-muted-foreground">{t(loadFailed ? 'admin.loadFailed' : 'admin.loading')}</p>}
+      </TabsContent>
+      </Tabs>
     </div>
   );
 }

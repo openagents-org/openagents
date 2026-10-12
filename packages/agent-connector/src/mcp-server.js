@@ -739,9 +739,10 @@ class McpServer {
           contentType: mime,
           source: `openagents:${this.agentName}`,
           channelName: this.channelName,
+          visibility: this.channelName ? 'inherit' : undefined,
         });
         const fileId = result.id || result.file_id || 'unknown';
-        return text(`File written: ${args.filename} (id: ${fileId})`);
+        return text(`File written: ${args.filename} (id: ${fileId}). Link it in your reply: [${args.filename}](/v1/files/${encodeURIComponent(fileId)})`);
       }
 
       case 'workspace_delete_file': {

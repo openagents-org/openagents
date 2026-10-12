@@ -258,9 +258,12 @@ async def add_cloud_agent(
     )
     db.add(cfg)
 
+    from app.access import resolve_current_user
+    creator = resolve_current_user(db, authorization)
     member = WorkspaceMember(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
+        owner_email=creator.email if creator else workspace.creator_email,
         role="member",
         agent_type=f"cloud:{body.provider}",
         status="online",

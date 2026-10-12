@@ -1,5 +1,7 @@
 'use client';
 
+import { isIssueWorkSession } from '@/lib/conversation-list';
+
 import {
   BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
@@ -32,7 +34,7 @@ interface NavItem {
 
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
-  const { viewMode, openView } = useLayout();
+  const { viewMode, openView, setThreadFilter } = useLayout();
   const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, hasUnreadInThreads } = useWorkspace();
   const t = useT();
 
@@ -48,7 +50,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           mode: 'threads',
           label: t('views.threads'),
           icon: <MessageSquare />,
-          count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
+          count: sessions.filter((s) => !isIssueWorkSession(s) && !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
           unread: hasUnreadInThreads,
         },
     { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
@@ -72,18 +74,18 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             urgent: true,
           },
           {
-            mode: 'workflows',
-            label: t('views.workflows'),
-            icon: <Waypoints />,
-            count: workflows.length,
-          },
-          {
             mode: 'inbox',
             label: t('views.inbox'),
             icon: <Inbox />,
             count: unreadNotificationCount > 0 ? unreadNotificationCount : undefined,
           },
           { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+          {
+            mode: 'workflows',
+            label: t('views.workflows'),
+            icon: <Waypoints />,
+            count: workflows.length,
+          },
           // v1.1 M2: team specialists directory
           { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
         ] as NavItem[])
@@ -101,6 +103,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
                 tooltip={item.label}
                 isActive={viewMode === item.mode}
                 onClick={() => {
+                  if (item.mode === 'threads') setThreadFilter('all');
                   openView(item.mode);
                   onNavigate?.();
                 }}

@@ -17,6 +17,7 @@ Two cases produce an inbox notification addressed to one person (and, through
     `@<email>` tokens and `@<key>` tokens (display-name slug / email local
     part, see `push._workspace_human_keys`). Only people who can view the
     thread are notified — a private thread never leaks to a non-participant.
+    A standalone @all adds only joined human participants, excluding the sender.
 
 Best-effort: every failure is logged and swallowed; the event is already
 committed and must stay that way.
@@ -32,7 +33,7 @@ from typing import Iterable, Optional, Set
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Channel, NotificationRecord, User, Workspace, WorkspaceCollaborator
+from app.models import ChannelHumanMember, Channel, NotificationRecord, User, Workspace, WorkspaceCollaborator
 from app.services.message_identity import human_sender_email
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,11 @@ SNIPPET_MAX = 240
 DM_COLLAPSE_WINDOW = timedelta(minutes=10)
 
 _EMAIL_MENTION_RE = re.compile(r"@([A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)")
+
+
+def has_all_mention(content: str) -> bool:
+    """Match a standalone @all, never an email address or a longer handle."""
+    return bool(re.search(r"(?<![\w.@+-])@all(?![\w@+-]|\.[\w])", content, re.IGNORECASE))
 
 
 def dm_session_id(source: str, target: str) -> str:
@@ -258,7 +264,7 @@ def mentioned_people(db: Session, workspace_id: str, payload: dict) -> Set[str]:
         if "@" in content:
             keys = _workspace_human_keys(db, workspace_id)
             for key in _extract_mentions(content):
-                if key in keys:
+                if key != "all" and key in keys:
                     out.add(keys[key])
     return out
 
@@ -273,13 +279,19 @@ def _notify_mentions(db: Session, workspace: Workspace, event: dict) -> int:
     sender_email = _sender_email_of(event)
     if sender_email:
         recipients.discard(sender_email)
-    if not recipients:
-        return 0
-
     channel_name = str(event.get("target") or "")[len("channel/"):]
     channel = db.execute(
         select(Channel).where(Channel.workspace_id == wid, Channel.name == channel_name)
     ).scalar_one_or_none()
+    if channel is not None and has_all_mention(str(payload.get("content") or "")):
+        recipients.update(_norm(email) for email in db.execute(
+            select(ChannelHumanMember.user_email).where(ChannelHumanMember.channel_id == channel.id)
+        ).scalars())
+        recipients.discard(None)
+        if sender_email:
+            recipients.discard(sender_email)
+    if not recipients:
+        return 0
     thread_title = (channel.title if channel is not None and channel.title else None) or channel_name
     name = _sender_name(db, wid, event, sender_email)
     message = _snippet(_readable_mentions(db, wid, payload.get("content")))

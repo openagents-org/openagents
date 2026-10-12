@@ -31,9 +31,10 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
   const self = selfMention && !humanNames[selfMention] ? { [selfMention]: selfMention } : {};
   humanNames = { ...humanNames, ...self };
   const names = [...agentNames, ...Object.keys(humanNames)].sort((a, b) => b.length - a.length);
-  if (!children || names.length === 0) return children;
+  if (!children) return children;
 
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  escaped.push('[aA][lL][lL]');
   const mentionRegex = new RegExp(`(?<![\\p{L}\\p{N}_@.-])(@(?:${escaped.join('|')}))(?![\\p{L}\\p{N}_@-]|\\.[\\p{L}\\p{N}])`, 'gu');
 
   let keyCounter = 0;
@@ -44,7 +45,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
       if (parts.length === 1) return node;
       return parts.map((part) => {
         keyCounter++;
-        if (part.startsWith('@') && names.includes(part.slice(1))) {
+        if (part.startsWith('@') && (names.includes(part.slice(1)) || part.toLowerCase() === '@all')) {
           const name = part.slice(1);
           const color = getAgentColor(name, agentNames);
           return (
@@ -57,7 +58,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
                 'font-medium rounded px-0.5',
                 selfMention && name === selfMention
                   ? 'bg-amber-200/80 text-amber-950 dark:bg-amber-400/25 dark:text-amber-100'
-                  : humanNames[name] ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text,
+                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text,
               )}
             >
               @{humanNames[name] || agentLabels?.[name] || name}

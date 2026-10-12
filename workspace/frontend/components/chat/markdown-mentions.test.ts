@@ -50,3 +50,8 @@ describe('self mentions', () => {
     expect(html).toContain('@Bob');
   });
 });
+
+it('highlights @all in prose, including mixed case, without highlighting code or emails', () => {
+  expect(render('@All hello')).toContain('data-mention="All"');
+  expect(render('`@all` test@all.com @allison')).not.toContain('data-mention');
+});

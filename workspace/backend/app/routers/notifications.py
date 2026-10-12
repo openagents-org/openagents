@@ -75,7 +75,7 @@ def _serialize_notification(n: NotificationRecord) -> dict:
         "link_url": n.link_url,
         "status": n.status,
         # v1.1 — what the row is about, so the inbox can render it as an
-        # actionable card: `kind` (approval | help | proposal | ...), the id
+        # actionable card: `kind` (approval | ...), the id
         # of the thing to act on, and the person it is addressed to (None =
         # the whole workspace).
         "kind": n.kind,

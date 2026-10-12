@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { MessageSquare, PanelLeft } from "lucide-react"
+import { Hash, MessageSquare, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -16,6 +16,7 @@ import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
 import { useLayout, type ViewMode } from "./layout-context"
 
 const ACTIONS_SLOT_ID = "app-header-actions"
@@ -114,7 +115,7 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   inbox: "views.inbox",
   connect: "views.connect",
   skills: "views.skills",
-  agents: "collab.viewAgents", // v1.1 M2: agent directory
+  agents: "collab.directoryTitle", // v1.1 M2: agent directory
 }
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
@@ -188,13 +189,17 @@ function ThreadTitle() {
   }
 
   return (
-    <h3
-      onClick={startEditing}
-      title={t("header.clickToRename")}
-      className="w-0 flex-1 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
-    >
-      {session?.title || t("header.untitledThread")}
-    </h3>
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      {session?.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("threads.channel")} />}
+      <h3
+        onClick={startEditing}
+        title={t("header.clickToRename")}
+        className="min-w-0 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
+      >
+        {session?.title || t("header.untitledThread")}
+      </h3>
+      {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
+    </div>
   )
 }
 

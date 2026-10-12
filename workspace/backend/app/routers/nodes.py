@@ -2,14 +2,14 @@
 """
 Device endpoints — a device (formerly "node") running the launcher daemon,
 connected to a workspace. Served under /v1/devices/* (product wording) and the
-legacy /v1/nodes/* alias; the device owner — the human who paired it — is the
+legacy /v1/nodes/* alias; the connection owner — the human who paired it — is the
 only person who controls it (permission model v1.1 §4).
 
 Onboarding flow ("connect a device"):
-  1. Owner/admin generates a pairing code in the workspace
+  1. A signed-in member generates a pairing code in the workspace
      (POST /v1/workspaces/{id}/pairing-codes — see routers/workspaces.py).
   2. The launcher redeems it here (POST /v1/nodes/redeem) → registers a Node and
-     receives the workspace token, without the user copy-pasting id + token.
+     receives its connection token, without the user copy-pasting id + token.
   3. The daemon heartbeats the node (POST /v1/nodes/heartbeat), independent of
      any agent, so the workspace shows the device as connected.
   4. The workspace lists nodes (GET /v1/nodes) with live status.
@@ -89,48 +89,28 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def _machine_token_ok(token, workspace, node) -> bool:
-    """Node endpoints accept the shared workspace token (legacy) or the
-    node's own per-node token — never another node's."""
-    if not token:
-        return False
-    if workspace.password_hash and token == workspace.password_hash:
-        return True
-    return bool(node is not None and node.token and token == node.token)
+    """Only this connection's credential may operate its private device."""
+    return bool(token and node is not None and node.owner_email and node.token and token == node.token)
+
+
+def _can_access_connection(db, workspace, node, token, authorization):
+    # An authenticated human never inherits the accompanying machine credential.
+    if authorization:
+        user = resolve_current_user(db, authorization)
+        return bool(_is_owner(user, node.owner_email) and
+                    resolve_user_role(db, workspace, authorization) is not None)
+    return _machine_token_ok(token, workspace, node)
 
 
 def _owner_emails(db: Session, node_ids) -> dict:
-    """Device owner = the human who paired it (permission model v1.1 §4).
-
-    Nothing is persisted on the Node row: ownership is derived from the pairing
-    code that was redeemed for it — `NodePairingCode.created_by` is the email of
-    the person who minted the code and `node_id` is set on redeem. The most
-    recent redeem BY A PERSON wins, so re-pairing from another account transfers
-    the device while a token-minted code (created_by NULL — scripts, CI) never
-    strips an owner. Devices with no human pairer at all have no owner and fall
-    back to the legacy owner/admin rule. Returns {node_id: email}.
-    """
-    ids = [str(i) for i in node_ids if i]
-    if not ids:
-        return {}
-    rows = db.execute(
-        select(NodePairingCode.node_id, NodePairingCode.created_by)
-        .where(
-            NodePairingCode.node_id.in_(ids),
-            NodePairingCode.redeemed_at.isnot(None),
-            NodePairingCode.created_by.isnot(None),
-        )
-        .order_by(NodePairingCode.redeemed_at.asc())
-    ).all()
-    out: dict = {}
-    for node_id, email in rows:          # ascending → the latest overwrites
-        email = (email or "").strip().lower()
-        if email:
-            out[str(node_id)] = email
-    return out
+    """Ownership belongs to the connection, never to the physical device."""
+    return {str(node_id): email for node_id, email in db.execute(
+        select(Node.id, Node.owner_email).where(Node.id.in_(list(node_ids)), Node.owner_email.isnot(None))
+    ).all()}
 
 
 def _device_owner_email(db: Session, node: Node) -> Optional[str]:
-    return _owner_emails(db, [node.id]).get(str(node.id))
+    return node.owner_email
 
 
 def _is_owner(user, owner_email: Optional[str]) -> bool:
@@ -232,14 +212,14 @@ class CommandResultRequest(BaseModel):
 def redeem_pairing_code(body: NodeRedeemRequest, db: Session = Depends(get_db)):
     """Redeem a pairing code (the code itself is the credential — no auth header).
 
-    Registers/updates the Node and returns the workspace token so the launcher
+    Registers/updates the Node and returns a connection token so the launcher
     can heartbeat and run agents. Codes are single-use and short-lived.
     """
     code = normalize_pairing_code(body.code)
     if not body.node_key:
         return json_response(ResponseCode.BAD_REQUEST, "Missing node_key")
 
-    pc = db.get(NodePairingCode, code)
+    pc = db.execute(select(NodePairingCode).where(NodePairingCode.code == code).with_for_update()).scalar_one_or_none()
     if not pc:
         return json_response(ResponseCode.NOT_FOUND, "Invalid pairing code")
     if pc.redeemed_at is not None:
@@ -254,11 +234,18 @@ def redeem_pairing_code(body: NodeRedeemRequest, db: Session = Depends(get_db)):
     if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
+    owner = (pc.created_by or "").strip().lower()
+    from app.services.access_model import workspace_human_roles
+    if not owner or workspace_human_roles(db, workspace).get(owner) not in ("member", "admin", "owner"):
+        return json_response(ResponseCode.FORBIDDEN, "The person connecting this device must be a current workspace member")
+    # Serialize distinct pairing codes redeemed for the same connection.
+    db.execute(select(Workspace.id).where(Workspace.id == workspace.id).with_for_update()).first()
     node = db.execute(
-        select(Node).where(Node.workspace_id == workspace.id, Node.node_key == body.node_key)
+        select(Node).where(Node.workspace_id == workspace.id, Node.node_key == body.node_key,
+                           Node.owner_email == owner)
     ).scalar_one_or_none()
     if node is None:
-        node = Node(workspace_id=workspace.id, node_key=body.node_key)
+        node = Node(workspace_id=workspace.id, node_key=body.node_key, owner_email=owner)
         db.add(node)
     node.name = body.name or body.hostname or node.name
     node.hostname = body.hostname or node.hostname
@@ -288,12 +275,13 @@ def redeem_pairing_code(body: NodeRedeemRequest, db: Session = Depends(get_db)):
         "workspaceId": str(workspace.id),
         "workspaceSlug": workspace.slug,
         "workspaceName": workspace.name,
+        "ownerEmail": owner,
         "token": node.token,
     })
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/nodes/heartbeat — node liveness (authenticated by the workspace token)
+# POST /v1/nodes/heartbeat — node liveness (authenticated by its connection token)
 # ---------------------------------------------------------------------------
 
 @_both("post", "/heartbeat")
@@ -312,7 +300,7 @@ def node_heartbeat(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
-    # Machine credential: the shared workspace token, or this node's own.
+    # Only this connection's own credential may heartbeat it.
     if not _machine_token_ok(x_workspace_token, workspace, node):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace token")
 
@@ -374,16 +362,22 @@ def list_nodes(
     if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    nodes = db.execute(
-        select(Node).where(Node.workspace_id == workspace.id).order_by(Node.created_at.asc())
-    ).scalars().all()
+    user = resolve_current_user(db, authorization) if authorization else None
+    query = select(Node).where(Node.workspace_id == workspace.id, Node.owner_email.isnot(None))
+    if user:
+        query = query.where(Node.owner_email == user.email.strip().lower())
+    elif not authorization and x_workspace_token:
+        query = query.where(Node.token == x_workspace_token)
+    else:
+        return json_response(ResponseCode.FORBIDDEN, "Sign in to view your device connections")
+    nodes = db.execute(query.order_by(Node.created_at.asc())).scalars().all()
     now = _now()
     owners = _owner_emails(db, [n.id for n in nodes])
     return success_response([_format_node(n, now, owners.get(str(n.id))) for n in nodes])
 
 
 # ---------------------------------------------------------------------------
-# DELETE /v1/nodes/{node_id} — unpair/forget a node (owner/admin)
+# DELETE /v1/nodes/{node_id} — unpair/forget an owned connection
 # ---------------------------------------------------------------------------
 
 @_both("delete", "/{node_id}")
@@ -393,15 +387,7 @@ def delete_node(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Remove a device from the workspace. Its queued commands cascade-delete.
-
-    Allowed for the device owner (the human who paired it), an admin/owner of
-    the workspace (unpair is the one admin control over someone else's device),
-    or the machine token. Useful for a device that's gone (offline /
-    disconnected). If the daemon is still running there, it will re-register on
-    its next heartbeat — the user should stop it (`agn down`) / disconnect
-    before removing.
-    """
+    """Unpair this owner's connection; other connections are independent."""
     node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
     if not node:
         return json_response(ResponseCode.NOT_FOUND, "Device not found")
@@ -413,18 +399,8 @@ def delete_node(
     # A signed-in person is judged by identity even though the web client also
     # sends the shared workspace token; token-only callers (scripts, the device
     # itself) keep the machine rule.
-    user = resolve_current_user(db, authorization)
-    if user is not None:
-        allowed = _is_owner(user, _device_owner_email(db, node)) or role_at_least(
-            resolve_user_role(db, workspace, authorization), "admin"
-        )
-    else:
-        allowed = verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin")
-    if not allowed:
-        return json_response(
-            ResponseCode.FORBIDDEN,
-            "Only the person who connected this device, or a workspace admin, can remove it",
-        )
+    if not _can_access_connection(db, workspace, node, x_workspace_token, authorization):
+        return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can disconnect this device")
 
     db.delete(node)
     db.commit()
@@ -443,15 +419,7 @@ def enqueue_command(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Queue a remote agent-management command for a device.
-
-    Only the device owner (the human who paired it) or the device's own machine
-    token may control it — not other members, and not admins (they can only
-    unpair, see DELETE). Devices with no recorded human pairer (code minted with
-    the workspace token) keep the legacy owner/admin rule so scripts and older
-    pairings do not regress. The daemon receives the command on its next
-    heartbeat and runs it locally.
-    """
+    """Only the connection owner or its own credential can manage the device."""
     action = (body.action or "").strip()
     if action not in ALLOWED_COMMAND_ACTIONS:
         return json_response(ResponseCode.BAD_REQUEST, f"Unknown action '{action}'")
@@ -464,27 +432,8 @@ def enqueue_command(
     ).scalar_one_or_none()
     if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
-    owner = _device_owner_email(db, node)
-    user = resolve_current_user(db, authorization)
-    if user is not None:
-        # Signed-in person: identity wins even though the web client also sends
-        # the shared workspace token (otherwise every member could drive every
-        # device). Admins are NOT exempt — they may only unpair (DELETE).
-        if owner:
-            if not _is_owner(user, owner):
-                return json_response(
-                    ResponseCode.FORBIDDEN,
-                    f"Only the person who connected this device ({owner}) can manage its agents",
-                )
-        elif not role_at_least(resolve_user_role(db, workspace, authorization), "admin"):
-            return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can manage this device's agents")
-    elif not _machine_token_ok(x_workspace_token, workspace, node):
-        # No identity: the device's own token (or the legacy shared token) only.
-        if owner or not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
-            return json_response(
-                ResponseCode.FORBIDDEN,
-                "Only the person who connected this device, or the device itself, can manage its agents",
-            )
+    if not _can_access_connection(db, workspace, node, x_workspace_token, authorization):
+        return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage its agents")
 
     args = dict(body.args or {})
     if action in AGENT_SCOPED_ACTIONS:
@@ -496,6 +445,12 @@ def enqueue_command(
         (args.get("type") or "").strip() or (args.get("name") or "").strip()
     ):
         return json_response(ResponseCode.BAD_REQUEST, "Missing agent type or name")
+
+    if action in AGENT_SCOPED_ACTIONS and args.get("name"):
+        from app.models import WorkspaceMember
+        member = db.get(WorkspaceMember, (str(workspace.id), args["name"].strip()))
+        if member and (member.node_id != node.id or member.owner_email != node.owner_email):
+            return json_response(ResponseCode.FORBIDDEN, "This agent belongs to a different connection")
 
     # A saved Model access entry can stand in for raw credentials: the browser
     # sends its id and the key/base URL are resolved here, server-side.
@@ -577,8 +532,8 @@ def list_commands(
     ).scalar_one_or_none()
     if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
-    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    if not _can_access_connection(db, workspace, node, x_workspace_token, authorization):
+        return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can view its commands")
 
     cmds = db.execute(
         select(NodeCommand)
@@ -596,7 +551,7 @@ def post_command_result(
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
 ):
-    """The daemon reports a command's outcome (authenticated by workspace token)."""
+    """The daemon reports a command's outcome (authenticated by its connection token)."""
     cmd = db.execute(select(NodeCommand).where(NodeCommand.id == command_id)).scalar_one_or_none()
     if not cmd:
         return json_response(ResponseCode.NOT_FOUND, "Command not found")

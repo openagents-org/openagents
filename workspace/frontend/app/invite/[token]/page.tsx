@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, Loader2, Mail, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
   const { token } = use(params);
   const router = useRouter();
   const t = useT();
-  const { user, idToken, loading: authLoading, signIn, signOut } = useOpenAgentsAuth();
+  const { user, idToken, loading: authLoading, signOut } = useOpenAgentsAuth();
 
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState(false);
@@ -34,7 +34,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
     return () => { cancelled = true; };
   }, [token]);
 
-  const join = async () => {
+  const join = useCallback(async () => {
     if (!idToken) return;
     setJoining(true);
     setAcceptError(null);
@@ -48,7 +48,20 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       setAcceptError(e instanceof Error ? e.message : t('invitePage.acceptFailed'));
       setJoining(false);
     }
-  };
+  }, [idToken, token, router, t]);
+
+  const autoJoinAttempted = useRef(false);
+  useEffect(() => {
+    if (authLoading || !user || !idToken || peek?.status !== 'pending' || autoJoinAttempted.current) return;
+    // Clicking “Sign in to accept” already expressed intent to join. Resume
+    // only that invitation after the login round trip, once per attempt.
+    try {
+      if (sessionStorage.getItem('oa-accept-invite') !== token) return;
+      sessionStorage.removeItem('oa-accept-invite');
+    } catch { return; }
+    autoJoinAttempted.current = true;
+    void join();
+  }, [authLoading, user, idToken, peek?.status, token, join]);
 
   const card = (children: React.ReactNode) => (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
@@ -138,7 +151,10 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       ) : (
         <div className="space-y-3">
           {/* goToCentralLogin round-trips back to this invite URL. */}
-          <Button className="w-full" onClick={() => goToCentralLogin(signIn)}>
+          <Button className="w-full" onClick={() => {
+            try { sessionStorage.setItem('oa-accept-invite', token); } catch { /* Join button remains available after login. */ }
+            goToCentralLogin(undefined, { forceCentral: true });
+          }}>
             <LogIn className="size-4" />
             {t('invitePage.signInToAccept')}
           </Button>

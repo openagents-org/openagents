@@ -1,4 +1,5 @@
 'use client';
+import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
 import { desktopHost } from '@/lib/desktop-host';
@@ -24,7 +25,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
-import { agentLabel, isRecentAgent } from '@/lib/helpers';
+import { agentLabel } from '@/lib/helpers';
+import { ownedSidebarAgents } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -37,8 +39,8 @@ import {
 } from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
-import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
+import { SidebarMembers } from './sidebar-members';
 import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 
 interface RailItem {
@@ -193,16 +195,16 @@ function RailResizeHandle() {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
+    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
     workspace, agents, hasUnreadInThreads, unreadNotificationCount, pendingApprovalsByAgent,
-    onlineUsers, currentUser, tasks, setCurrentSessionId,
+    onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
 
-  const recentAgents = agents.filter(isRecentAgent);
+  const recentAgents = ownedSidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
@@ -219,31 +221,27 @@ export function NavRail() {
       unread: hasUnreadThreads,
     },
     { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
-    ...(hasAgents
-      ? ([
-          { mode: 'files', label: t('views.files'), icon: <FileText /> },
-          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
-          { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
-          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          {
-            mode: 'tasks',
-            label: t('views.tasks'),
-            icon: <KanbanSquare />,
-            // Attention dot when a task is blocked waiting on human input.
-            unread: tasks.some((task) => task.status === 'need_input'),
-          },
-          { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
-          {
-            mode: 'inbox',
-            label: t('views.inbox'),
-            icon: <Inbox />,
-            unread: unreadNotificationCount > 0,
-          },
-          { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
-          // v1.1 M2: team specialists directory
-          { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
-        ] as RailItem[])
-      : []),
+    { mode: 'files', label: t('views.files'), icon: <FileText /> },
+    { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
+    { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
+    { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
+    {
+      mode: 'tasks',
+      label: t('views.tasks'),
+      icon: <KanbanSquare />,
+      // Attention dot when a task is blocked waiting on human input.
+      unread: tasks.some((task) => task.status === 'need_input'),
+    },
+    {
+      mode: 'inbox',
+      label: t('views.inbox'),
+      icon: <Inbox />,
+      unread: unreadNotificationCount > 0,
+    },
+    { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+    { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
+    // v1.1 M2: team specialists directory
+    { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
   ];
 
   const isConnectActive = viewMode === 'connect';
@@ -333,7 +331,7 @@ export function NavRail() {
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
                     isActive={viewMode === item.mode}
-                    onClick={() => openView(item.mode)}
+                    onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
@@ -397,13 +395,11 @@ export function NavRail() {
                         aria-label={agentLabel(agent)}
                         tooltip={{ children: agentLabel(agent), hidden: showLabels }}
                         onClick={() => {
-                          // Clicking a person anticipates a conversation: open
-                          // the DM with them in the middle and dock their
-                          // profile beside it. Same canonical sorted-pair id
-                          // as thread-list's startDM.
+                          setSelectedAgentName(null);
                           setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                           openView('threads');
-                          setSelectedAgentName(agent.agentName);
+                          setThreadFilter('dms');
+                          openMobileDetail();
                         }}
                       >
                         <AgentAvatar
@@ -416,6 +412,7 @@ export function NavRail() {
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
                         {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
+                        <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -425,64 +422,7 @@ export function NavRail() {
           </>
         )}
 
-        {/* Humans currently in the workspace. Collapsed there is no room for a
-            name, so each becomes an initial chip carrying the name in its
-            tooltip — the same trade the agent avatars make. */}
-        {onlineUsers.length > 0 && (
-          <>
-            <div className="px-3">
-              <Separator />
-            </div>
-            <SidebarGroup className="px-1.5">
-              {showLabels && (
-                <SidebarGroupLabel className="px-2">
-                  <Users className="me-1 size-3" />
-                  {t('nav.onlineWithCount', { count: onlineUsers.length })}
-                </SidebarGroupLabel>
-              )}
-              <SidebarGroupContent>
-                <SidebarMenu className="gap-0.5">
-                  {onlineUsers.map((user) => {
-                    const label =
-                      user.id === currentUser.id ? t('nav.you', { name: user.name }) : user.name;
-
-                    return (
-                      <SidebarMenuItem key={user.id}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div
-                              className={cn(
-                                'flex h-8 items-center gap-2 rounded-md text-sm',
-                                showLabels ? 'px-2' : 'justify-center',
-                              )}
-                            >
-                              {showLabels ? (
-                                <>
-                                  <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-                                  <span className="min-w-0 truncate text-foreground">
-                                    {label}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="relative flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase text-muted-foreground">
-                                  {user.name.trim().charAt(0) || '?'}
-                                  <span className="absolute -end-0.5 -bottom-0.5 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />
-                                </span>
-                              )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" hidden={showLabels}>
-                            {label}
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
+        <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
       {/* Connect agent + global tools */}
@@ -537,7 +477,7 @@ export function NavRail() {
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
-          <QrcodeMenu side="right" align="end" />
+          {showLabels && <div className="flex-1" aria-hidden="true" />}
           <UserMenu side="right" align="end" />
         </div>
 

@@ -98,10 +98,23 @@ def _set_require_login(db, workspace, value):
     db.commit()
 
 
+@pytest.fixture
+def configured_legacy_policies(db, workspace):
+    """Explicitly saved legacy policies, not automatically installed defaults."""
+    from app.services import approvals as svc
+    svc.set_rules(db, workspace['id'], '*', [
+        {'kind': 'deploy', 'policy': 'admin'}, {'kind': 'spend', 'policy': 'owner'},
+        {'kind': 'repo_read', 'policy': 'allow'}, {'kind': 'data_delete', 'policy': 'block'},
+        {'kind': 'external_send', 'policy': 'any'}, {'kind': 'other', 'policy': 'any'},
+    ], 'test-admin')
+    db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Creation + policy verdicts
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("configured_legacy_policies")
 class TestCreate:
     def test_pauses_for_any_member_by_default(self, client, workspace, db):
         resp = _request(client, workspace)
@@ -154,10 +167,10 @@ class TestCreate:
         assert a["resolved_by"] == "policy"
         assert "policy" in (a["note"] or "").lower()
 
-    def test_unknown_kind_falls_back_to_other(self, client, workspace):
-        a = _request(client, workspace, kind="teleport").json()["data"]
-        assert a["kind"] == "other"
-        assert a["status"] == "pending"
+    def test_unknown_kind_is_rejected(self, client, workspace):
+        response = _request(client, workspace, kind="teleport").json()
+        assert response["code"] != 0
+        assert response["message"] == "Unsupported approval kind"
 
     def test_requires_action_and_channel(self, client, workspace):
         assert _request(client, workspace, action="  ").json()["code"] != 0
@@ -174,6 +187,7 @@ class TestCreate:
 # Resolution — who may decide
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("configured_legacy_policies")
 class TestResolve:
     def test_member_approves_any(self, client, workspace, db, people):
         a = _request(client, workspace).json()["data"]
@@ -264,6 +278,7 @@ class TestResolve:
 # Listing
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("configured_legacy_policies")
 class TestList:
     def test_filters_and_pending_by_agent(self, client, workspace):
         _request(client, workspace)
@@ -286,6 +301,7 @@ class TestList:
 # Kanban parking
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("configured_legacy_policies")
 class TestKanban:
     def test_request_parks_card_and_resolution_resumes(self, client, workspace, db, people):
         task = client.post("/v1/tasks", json={"network": workspace["id"], "title": "Ship hotfix"},
@@ -358,9 +374,8 @@ class TestPolicy:
     def test_defaults(self, client, workspace):
         resp = client.get(f"/v1/approval-policy?network={workspace['id']}", headers=_tok(workspace))
         data = resp.json()["data"]
-        by_kind = {r["kind"]: r for r in data["rules"]}
-        assert by_kind["deploy"]["policy"] == "admin" and by_kind["deploy"]["source"] == "default"
-        assert by_kind["data_delete"]["policy"] == "block"
+        assert data["rules"] == []
+        assert data["defaults"] == []
         assert data["scope"] == "*"
         assert "allow" in data["policies"]
 
@@ -419,4 +434,205 @@ class TestPolicy:
     def test_records_survive_in_table(self, client, workspace, db):
         _request(client, workspace)
         rows = db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace["id"])).scalars().all()
-        assert len(rows) == 1 and rows[0].status == "pending"
+        assert len(rows) == 1 and rows[0].status == "approved"
+
+
+class TestCustomPolicies:
+    def _save(self, client, workspace, rules, role="adam", channel=None):
+        return client.put('/v1/approval-policy', headers={**_tok(workspace), **_bearer(role)},
+                           json={"network": workspace['id'], "rules": rules, "channel": channel})
+
+    def test_admin_owner_edit_member_cannot_even_with_token(self, client, workspace, people):
+        rules = [{"kind": "custom:production", "description": "Changes to production infrastructure", "policy": "owner"}]
+        assert self._save(client, workspace, rules, "mia").status_code == 403
+        for role in ("adam", "olivia"):
+            response = self._save(client, workspace, rules, role)
+            assert response.status_code == 200
+            assert response.json()['data']['saved'] == rules
+        response = client.get('/v1/approval-policy', params={"network": workspace['id']}, headers=_tok(workspace))
+        custom = [r for r in response.json()['data']['rules'] if r.get('description')]
+        assert custom[0]['description'] == rules[0]['description']
+        assert custom[0]['source'] == 'workspace'
+        assert self._save(client, workspace, []).status_code == 200
+        response = client.get('/v1/approval-policy', params={"network": workspace['id']}, headers=_tok(workspace))
+        assert not any(r.get('description') for r in response.json()['data']['rules'])
+
+    @pytest.mark.parametrize('rules', [
+        [{"kind": "custom:x", "description": " ", "policy": "owner"}],
+        [{"kind": "custom:x", "description": "x" * 1001, "policy": "admin"}],
+        [{"kind": "not-real", "policy": "owner"}],
+        [{"kind": "custom:x", "description": "Something", "policy": "admin"}] * 2,
+        [{"kind": f"custom:{i}", "description": "Something", "policy": "admin"} for i in range(21)],
+    ])
+    def test_invalid_policies(self, client, workspace, people, rules):
+        assert self._save(client, workspace, rules).status_code == 400
+
+    def test_matching_rule_applies_to_any_category_and_assignee_respects_role(self, client, workspace, people, monkeypatch):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'match'})
+        self._save(client, workspace, [{"kind": "custom:secrets", "description": "Reading production secrets", "policy": "owner"}])
+        a = _request(client, workspace, kind='repo_read', action='Read production credentials', assignee_email='mia@acme.test').json()['data']
+        assert a['status'] == 'pending'
+        assert a['required_role'] == 'owner'
+        assert 'Reading production secrets' in a['note']
+        for role in ('mia', 'adam'):
+            assert client.post(f"/v1/approvals/{a['id']}/approve", json={"network": workspace['id']}, headers=_bearer(role)).status_code == 403
+        assert client.post(f"/v1/approvals/{a['id']}/approve", json={"network": workspace['id']}, headers=_bearer('olivia')).status_code == 200
+
+    @pytest.mark.parametrize('classification', [{}, {'0': 'uncertain'}, {'0': 'invalid'}])
+    def test_uncertain_matching_retains_block(self, client, workspace, people, monkeypatch, classification):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: classification)
+        self._save(client, workspace, [{"kind": "custom:sensitive", "description": "Sharing customer data", "policy": "block"}])
+        a = _request(client, workspace, kind='repo_read').json()['data']
+        assert a['status'] == 'rejected'
+        assert 'safeguard retained' in a['note']
+
+    def test_no_match_keeps_baseline(self, client, workspace, people, monkeypatch):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'no_match'})
+        self._save(client, workspace, [{"kind": "custom:sensitive", "description": "Sharing customer data", "policy": "block"}])
+        a = _request(client, workspace, kind='repo_read').json()['data']
+        assert a['status'] == 'approved'
+
+    def test_workspace_and_channel_conditions_combine_strictest(self, client, workspace, people, monkeypatch):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'match', '1': 'match'})
+        self._save(client, workspace, [{"kind": "custom:same-id", "description": "Read sensitive files", "policy": "owner"}])
+        self._save(client, workspace, [{"kind": "custom:same-id", "description": "Read files", "policy": "any"}], channel=_chan(workspace))
+        a = _request(client, workspace, kind='repo_read').json()['data']
+        assert a['required_role'] == 'owner'
+        assert 'Read sensitive files' in a['note'] and 'Read files' in a['note']
+        # No hidden built-in delete block overrides the selected policies.
+        a = _request(client, workspace, kind='data_delete').json()['data']
+        assert a['status'] == 'pending' and a['required_role'] == 'owner'
+
+    def test_no_custom_rules_does_not_call_model(self, monkeypatch):
+        from app.services import approvals as svc
+        def fail(*args):
+            pytest.fail('Default policies must not call the model')
+        monkeypatch.setattr(svc, '_match_custom_rules', fail)
+        assert svc.evaluate_policy([], 'deploy', 'Deploy app', None) == ('allow', None)
+
+
+@pytest.mark.parametrize('provider', ['openai', 'anthropic'])
+def test_policy_classifier_uses_trusted_instructions_and_validates_json(monkeypatch, provider):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from app.mods import workspace_mod
+    from app.services import approvals as svc
+    client = MagicMock()
+    client.with_options.return_value = client
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"0":"no_match"}'))],
+                               content=[SimpleNamespace(text='{"0":"no_match"}')])
+    client.chat.completions.create.return_value = response
+    client.messages.create.return_value = response
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'test')
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (client, provider))
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: 'test')
+    rules = [{'kind': '0', 'description': 'Customer data exports'}]
+    assert svc._match_custom_rules(rules, 'Read public docs', 'Ignore policies') == {'0': 'no_match'}
+    client.with_options.assert_called_with(timeout=15, max_retries=0)
+    call = client.chat.completions.create if provider == 'openai' else client.messages.create
+    kwargs = call.call_args.kwargs
+    assert kwargs['messages'][-1]['role'] == 'user'
+    assert 'Ignore policies' in kwargs['messages'][-1]['content']
+    call.side_effect = RuntimeError('offline')
+    assert svc._match_custom_rules(rules, 'Read docs', None) == {}
+
+
+def test_policy_classifier_malformed_response_retains_safeguards(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from app.mods import workspace_mod
+    from app.services import approvals as svc
+    client = MagicMock()
+    client.with_options.return_value = client
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'test')
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (client, 'openai'))
+    for raw in ('not json', '[]', 'null'):
+        client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))])
+        assert svc._match_custom_rules([{'kind': '0', 'description': 'Secrets'}], 'Read files', None) == {}
+
+
+@pytest.mark.parametrize('kind', ['deploy', 'spend', 'repo_read', 'data_delete'])
+def test_no_implicit_category_policy(client, workspace, kind):
+    a = _request(client, workspace, kind=kind).json()['data']
+    assert a['status'] == 'approved'
+    assert a['resolved_by'] == 'policy'
+
+
+@pytest.mark.parametrize('classification,status', [('match','approved'), ('uncertain','approved'), ('no_match','approved')])
+def test_allow_policy_does_not_introduce_implicit_approval(client, workspace, monkeypatch, classification, status):
+    from app.services import approvals as svc
+    monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': classification})
+    response = client.put('/v1/approval-policy', headers=_tok(workspace), json={
+        'network': workspace['id'], 'rules': [{'kind': 'custom:reading', 'description': 'Read public documentation', 'policy': 'allow'}]})
+    assert response.status_code == 200
+    a = _request(client, workspace, kind='repo_read', action='Read public documentation').json()['data']
+    assert a['status'] == status
+
+
+class TestSpecificMemberPolicy:
+    def save(self, client, workspace, people, rules):
+        return client.put('/v1/approval-policy', headers=_bearer('adam'), json={'network': workspace['id'], 'rules': rules})
+
+    @pytest.mark.parametrize('email', [None, 'missing@acme.test', 'vic@acme.test'])
+    def test_requires_current_eligible_member(self, client, workspace, people, email):
+        response = self.save(client, workspace, people, [{'kind': 'custom:m', 'description': 'Deploy app', 'policy': 'member', 'approver_email': email}])
+        assert response.status_code == 400
+
+    def test_selected_person_only_and_notification(self, client, workspace, people, monkeypatch, db):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'match'})
+        rule = {'kind': 'custom:m', 'description': 'Deploy app', 'policy': 'member', 'approver_email': ' MIA@acme.test '}
+        saved = self.save(client, workspace, people, [rule])
+        assert saved.status_code == 200
+        assert saved.json()['data']['saved'][0]['approver_email'] == 'mia@acme.test'
+        a = _request(client, workspace, assignee_email='adam@acme.test').json()['data']
+        assert a['status'] == 'pending'
+        assert a['assignee_email'] == 'mia@acme.test'
+        assert a['policy_requirements']['members'] == ['mia@acme.test']
+        notes = db.execute(select(NotificationRecord).where(NotificationRecord.action_ref == a['id'])).scalars().all()
+        assert {n.recipient_email for n in notes} == {'mia@acme.test'}
+        for headers in [_bearer('adam'), _bearer('olivia'), _tok(workspace)]:
+            assert client.post(f"/v1/approvals/{a['id']}/approve", headers=headers, json={'network': workspace['id']}).status_code == 403
+        approved = client.post(f"/v1/approvals/{a['id']}/approve", headers=_bearer('mia'), json={'network': workspace['id']})
+        assert approved.json()['data']['status'] == 'approved'
+
+    def test_multiple_reviewers_and_role_all_required(self, client, workspace, people, monkeypatch, db):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'match', '1': 'match', '2': 'match'})
+        rules = [{'kind': 'custom:m', 'description': 'Deploy app', 'policy': 'member', 'approver_email': 'mia@acme.test'},
+                 {'kind': 'custom:a', 'description': 'Deploy app', 'policy': 'member', 'approver_email': 'adam@acme.test'},
+                 {'kind': 'custom:o', 'description': 'Production changes', 'policy': 'owner'}]
+        assert self.save(client, workspace, people, rules).status_code == 200
+        a = _request(client, workspace).json()['data']
+        for who in ('mia', 'adam'):
+            response = client.post(f"/v1/approvals/{a['id']}/approve", headers=_bearer(who), json={'network': workspace['id']})
+            assert response.status_code == 200
+            assert response.json()['data']['status'] == 'pending'
+            # No final response to wake the agent before all requirements are met.
+            assert response.json()['data']['resolution_event_id'] is None
+        assert client.post(f"/v1/approvals/{a['id']}/approve", headers=_bearer('mia'), json={'network': workspace['id']}).status_code == 403
+        partial = [e for e in _channel_events(db, workspace) if e.source.startswith('human:')]
+        assert all(e.payload['message_type'] == 'approval' and not (e.metadata_ or {}).get('target_agents') for e in partial)
+        response = client.post(f"/v1/approvals/{a['id']}/approve", headers=_bearer('olivia'), json={'network': workspace['id']})
+        assert response.json()['data']['status'] == 'approved'
+        assert set(response.json()['data']['policy_requirements']['approved_by']) == {'mia@acme.test', 'adam@acme.test', 'olivia@acme.test'}
+
+    def test_uncertain_rule_still_requires_selected_member_and_rejection_stops(self, client, workspace, people, monkeypatch):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {})
+        self.save(client, workspace, people, [{'kind': 'custom:m', 'description': 'Deploy app', 'policy': 'member', 'approver_email': 'mia@acme.test'}])
+        a = _request(client, workspace).json()['data']
+        response = client.post(f"/v1/approvals/{a['id']}/reject", headers=_bearer('mia'), json={'network': workspace['id']})
+        assert response.json()['data']['status'] == 'rejected'
+
+    def test_nonmatching_member_policy_does_not_route_or_pause(self, client, workspace, people, monkeypatch):
+        from app.services import approvals as svc
+        monkeypatch.setattr(svc, '_match_custom_rules', lambda *args: {'0': 'no_match'})
+        self.save(client, workspace, people, [{'kind': 'custom:m', 'description': 'Deploy app', 'policy': 'member', 'approver_email': 'mia@acme.test'}])
+        a = _request(client, workspace).json()['data']
+        assert a['status'] == 'approved'
+        assert a['policy_requirements'] is None

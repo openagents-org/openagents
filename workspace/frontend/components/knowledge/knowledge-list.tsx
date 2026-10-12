@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
+import { Folder, FolderPlus, ArrowLeft, BookOpen, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/responsive-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +34,27 @@ export function KnowledgeList() {
   const { timeAgo } = useFormatters();
 
   const [query, setQuery] = useState('');
+  const [folder, setFolder] = useState('');
+  const [folders, setFolders] = useState<string[]>([]);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [savingFolder, setSavingFolder] = useState(false);
+  const loadFolders = useCallback(() => workspaceApi.listKnowledgeFolders().then(setFolders).catch(() => toast.error(t('knowledge.loadFailed'))), [t]);
+  useEffect(() => { void loadFolders(); }, [loadFolders]);
+  useEffect(() => {
+    const selected = knowledge.find(entry => entry.id === selectedKnowledgeId);
+    if (selected) setFolder(selected.folderPath || '');
+  }, [selectedKnowledgeId, knowledge]);
+  const childFolders = folders.filter(path => path.split('/').slice(0, -1).join('/') === folder);
+  const createFolder = async () => {
+    if (!folderName.trim() || folderName.includes('/')) return;
+    setSavingFolder(true);
+    try {
+      await workspaceApi.createKnowledgeFolder([folder, folderName.trim()].filter(Boolean).join('/'));
+      await loadFolders(); setNewFolderOpen(false); setFolderName('');
+    } catch (error) { toast.error(error instanceof Error ? error.message : t('knowledge.loadFailed')); }
+    finally { setSavingFolder(false); }
+  };
   const [editorOpen, setEditorOpen] = useState(false);
   // Permission model v1.1 — share dialog, by id so a refresh re-derives the row.
   const [shareEntryId, setShareEntryId] = useState<string | null>(null);
@@ -42,14 +65,14 @@ export function KnowledgeList() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return knowledge;
+    if (!q) return knowledge.filter(entry => (entry.folderPath || "") === folder);
     return knowledge.filter(
       (e) =>
         e.title.toLowerCase().includes(q) ||
         e.slug.toLowerCase().includes(q) ||
         (e.description || '').toLowerCase().includes(q),
     );
-  }, [knowledge, query]);
+  }, [knowledge, query, folder]);
 
   const handleEdit = useCallback(async (entry: KnowledgeEntry) => {
     try {
@@ -146,8 +169,14 @@ export function KnowledgeList() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 border-b px-3 py-2 text-xs text-muted-foreground">
+        {folder && <Button variant="ghost" mode="icon" size="sm" aria-label={t('knowledge.parentFolder')} onClick={() => { setFolder(folder.split('/').slice(0,-1).join('/')); setSelectedKnowledgeId(null); setQuery(''); }}><ArrowLeft className="size-3.5" /></Button>}
+        <span className="min-w-0 flex-1 truncate" title={'/' + folder}>{folder ? '/' + folder : t('knowledge.rootFolder')}</span>
+        <Button variant="ghost" mode="icon" size="sm" title={t('knowledge.newFolder')} aria-label={t('knowledge.newFolder')} onClick={() => setNewFolderOpen(true)}><FolderPlus className="size-4" /></Button>
+      </div>
       {/* Rows */}
       <ScrollArea className="min-h-0 flex-1" viewportClassName="[&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
+        {!query && childFolders.map(path => <button key={path} className="flex items-center gap-2 border-b border-border/50 px-3 py-3 text-left text-sm hover:bg-muted" onClick={() => { setFolder(path); setSelectedKnowledgeId(null); }}><Folder className="size-4 text-muted-foreground" /><span className="truncate">{path.split('/').at(-1)}</span></button>)}
         {filtered.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center">
             <BookOpen className="mb-2 size-8 text-muted-foreground/25" />
@@ -263,7 +292,13 @@ export function KnowledgeList() {
           onVisibilityChange={async (v) => { if (v) await updateKnowledge(shareEntry.id, { visibility: v }); }}
         />
       )}
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}><DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>{t('knowledge.newFolder')}</DialogTitle></DialogHeader>
+        <DialogBody><p className="mb-3 text-xs text-muted-foreground">{t('knowledge.folderHint')}</p><Input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} placeholder={t('knowledge.folderName')} aria-label={t('knowledge.folderName')} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (!savingFolder) void createFolder(); } }} /></DialogBody>
+        <DialogFooter><Button variant="outline" onClick={() => setNewFolderOpen(false)}>{t('common.cancel')}</Button><Button disabled={savingFolder || !folderName.trim() || folderName.includes('/')} onClick={() => void createFolder()}>{t('common.create')}</Button></DialogFooter>
+      </DialogContent></Dialog>
       <KnowledgeEditor
+        defaultFolder={folder}
         open={editorOpen}
         entry={editingEntry}
         onClose={() => { setEditorOpen(false); setEditingEntry(null); }}

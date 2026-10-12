@@ -210,7 +210,7 @@ async def _invoke_chat_agent(
 
     await _post_response(
         db, workspace_id, channel_target, agent_name,
-        response_text, depth,
+        response_text, depth, in_reply_to=event_data.get("id"),
     )
 
 
@@ -365,7 +365,7 @@ async def _invoke_assistant_agent(
 
     await _post_response(
         db, workspace_id, channel_target, agent_name, final_text, depth,
-        explicit_targets=explicit_targets,
+        explicit_targets=explicit_targets, in_reply_to=event_data.get("id"),
     )
 
 
@@ -419,7 +419,7 @@ async def _invoke_image_agent(
     await _post_response(
         db, workspace_id, channel_target, agent_name,
         f"Here's the generated image for: *{instruction[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
         attachments=[{
             "file_id": file_id,
             "filename": filename,
@@ -463,7 +463,7 @@ async def _invoke_audio_agent(
     await _post_response(
         db, workspace_id, channel_target, agent_name,
         f"Generated speech for: *{text[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
         attachments=[{
             "file_id": file_id,
             "filename": filename,
@@ -730,6 +730,7 @@ async def _post_response(
     attachments: Optional[list] = None,
     explicit_targets: Optional[list] = None,
     status_kind: str = "completed",
+    in_reply_to: Optional[str] = None,
 ) -> None:
     """Post the cloud agent's response back through the event pipeline.
 
@@ -760,6 +761,8 @@ async def _post_response(
         payload["attachments"] = attachments
 
     metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
+    if in_reply_to:
+        metadata["in_reply_to"] = in_reply_to
     if explicit_targets is not None:
         metadata["explicit_targets"] = list(explicit_targets)
 
@@ -888,7 +891,7 @@ async def _post_error_message(
             agent_name,
             f"[Error] {error_text}",
             depth=0,
-            status_kind="failed",
+            status_kind="failed", in_reply_to=event_data.get("id"),
         )
     except Exception:
         logger.exception("cloud_agent: failed to post error message for %s", agent_name)

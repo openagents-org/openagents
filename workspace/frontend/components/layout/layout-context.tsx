@@ -9,6 +9,8 @@ import {
   useMemo,
   useState
 } from 'react';
+import type { ArtifactReference } from '@/lib/thread-artifacts';
+import { requestedResource } from '@/lib/resource-link';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
@@ -116,6 +118,9 @@ export const RAIL_WIDTH_EXPANDED = 180;
 export type MobilePane = 'list' | 'detail';
 
 interface LayoutState {
+  selectedArtifact: ArtifactReference | null;
+  setSelectedArtifact: (artifact: ArtifactReference | null) => void;
+  openArtifact: (artifact: ArtifactReference) => void;
   isMobile: boolean;
   /** Whether the list panel beside the rail is showing (the sidebar's open state) */
   isSidebarOpen: boolean;
@@ -125,6 +130,8 @@ interface LayoutState {
   setViewMode: (mode: ViewMode) => void;
   /** Switch view and open/collapse the list panel to match it */
   openView: (mode: ViewMode) => void;
+  threadFilter: 'all' | 'channels' | 'starred' | 'archived' | 'dms';
+  setThreadFilter: (filter: 'all' | 'channels' | 'starred' | 'archived' | 'dms') => void;
   selectedAgentName: string | null;
   setSelectedAgentName: (name: string | null) => void;
   isAgentPanelOpen: boolean;
@@ -150,10 +157,10 @@ interface LayoutState {
    */
   railDragWidth: number | null;
   setRailDragWidth: (width: number | null) => void;
-  /** Experimental: show browser tab side-by-side with chat */
+  /** Show an artifact side-by-side with chat */
   splitBrowser: boolean;
   setSplitBrowser: (v: boolean) => void;
-  /** Whether the browser live preview panel is currently showing */
+  /** Whether the artifact preview panel is currently showing */
   showBrowserPreview: boolean;
   setShowBrowserPreview: (v: boolean) => void;
   /** Whether the New Thread dialog (agent picker) is open */
@@ -184,9 +191,11 @@ const LayoutContext = createContext<LayoutState | undefined>(undefined);
 
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
+  const [threadFilter, setThreadFilter] = useState<'all' | 'channels' | 'starred' | 'archived' | 'dms'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has('issue')) setViewMode('issues');
+    const resource = requestedResource(window.location.href);
+    if (resource) setViewMode(resource.view);
   }, []);
   const [filesSection, setFilesSection] = useState<FilesSection>('folders');
   const [filesBrowse, setFilesBrowseState] = useState<FilesBrowseState>(DEFAULT_FILES_BROWSE);
@@ -197,6 +206,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [pendingTaskChannel, setPendingTaskChannel] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
+  useEffect(() => {
+    if (requestedResource(window.location.href)?.id || /\/threads\//.test(window.location.pathname) || new URLSearchParams(window.location.search).has('thread')) setMobilePane('detail');
+  }, []);
   const [splitBrowser, setSplitBrowser] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('x-split-browser') === '1';
@@ -210,6 +222,10 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [isRailExpanded, setIsRailExpanded] = useState(false);
   const [railDragWidth, setRailDragWidth] = useState<number | null>(null);
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
+  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactReference | null>(null);
+  const openArtifact = useCallback((artifact: ArtifactReference) => {
+    setSelectedArtifact(artifact); setSplitBrowser(true); setShowBrowserPreview(true); setMobilePane('detail');
+  }, []);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const openNewThread = () => setNewThreadOpen(true);
 
@@ -302,6 +318,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       pendingTaskChannel,
       setPendingTaskChannel,
       openView,
+      threadFilter,
+      setThreadFilter,
       selectedAgentName,
       setSelectedAgentName,
       isAgentPanelOpen,
@@ -318,6 +336,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setRailDragWidth,
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
+      selectedArtifact, setSelectedArtifact, openArtifact,
       showBrowserPreview,
       setShowBrowserPreview,
       newThreadOpen,

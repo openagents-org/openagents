@@ -104,12 +104,9 @@ def list_account_workspaces(
             "workspaceId": str(ws.id),
             "name": ws.name,
             "slug": ws.slug,
-            # Shared workspace access token (password_hash stores the raw token,
-            # compared by equality in app.access.verify_workspace_access). May be
-            # null for an open workspace with no token set. Withheld from viewers
-            # so they open the workspace bearer-only (read access) and can't use
-            # the token to bypass the read-only role.
-            "token": None if role == "viewer" else ws.password_hash,
+            # Machine credentials bypass human role checks when used alone.
+            # Members and viewers must use their own identity, never this token.
+            "token": ws.password_hash if role in ("owner", "admin") else None,
             "role": role,
             "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
         }

@@ -130,7 +130,7 @@ class TestAvailability:
         assert d["reason"] == "agent_offline" and d["status"] == "offline"
 
         # a dead runtime explains everything else
-        node = Node(workspace_id=workspace["id"], node_key="dev-1", name="Mia's laptop", hostname="mia-mbp",
+        node = Node(workspace_id=workspace["id"], owner_email="mia@acme.test", node_key="dev-1", name="Mia's laptop", hostname="mia-mbp",
                     status="offline", last_heartbeat=datetime.now(timezone.utc) - timedelta(hours=2))
         db.add(node)
         db.flush()
@@ -153,7 +153,7 @@ class TestAvailability:
     def test_hidden_personal_agent_is_404_for_outsiders(self, client, workspace, people):
         _join(client, workspace, "deploy-bot")
         _set_profile(client, workspace, "deploy-bot", owner_email="mia@acme.test")
-        _revoke_everyone(client, workspace, "deploy-bot", _tok(workspace))
+        _revoke_everyone(client, workspace, "deploy-bot", _bearer("mia", workspace))
         assert _availability(client, workspace, "deploy-bot", _bearer("adam", workspace)).status_code == 404
         assert _availability(client, workspace, "deploy-bot", _bearer("mia", workspace)).status_code == 200
         assert _availability(client, workspace, "deploy-bot").status_code == 200
@@ -195,12 +195,13 @@ class TestProfile:
         assert p["availability"]["reason"] in ("available", "agent_offline")
         assert "shared_instructions_summary" not in p
 
-    def test_admin_and_machine_can_manage(self, client, workspace, specialist):
-        for h in (_bearer("adam", workspace), _tok(workspace)):
-            p = _profile(client, workspace, "deploy-bot", h).json()["data"]
-            assert p["can_manage"] is True and p["shared_instructions"] == LONG_INSTRUCTIONS
+    def test_admin_cannot_manage_another_owners_agent(self, client, workspace, specialist):
+        assert _profile(client, workspace, "deploy-bot", _bearer("adam", workspace)).status_code == 404
+        p = _profile(client, workspace, "deploy-bot", _tok(workspace)).json()["data"]
+        assert p["can_manage"] is True
 
     def test_teammate_gets_summary_only(self, client, workspace, specialist):
+        assert client.post("/v1/grants", json={"network": workspace["id"], "resource_kind": "agent", "resource_id": "deploy-bot", "grantee_kind": "human", "grantee_id": "vic@acme.test", "rights": ["read", "act"]}, headers=_bearer("mia", workspace)).status_code == 200
         r = _profile(client, workspace, "deploy-bot", _bearer("vic", workspace))
         assert r.status_code == 200, r.text
         p = r.json()["data"]
@@ -213,7 +214,7 @@ class TestProfile:
         assert "availability" in p and "reason" in p["availability"]
 
     def test_personal_agent_hidden_from_non_grantees(self, client, workspace, specialist, db):
-        _revoke_everyone(client, workspace, "deploy-bot", _tok(workspace))
+        _revoke_everyone(client, workspace, "deploy-bot", _bearer("mia", workspace))
         assert _profile(client, workspace, "deploy-bot", _bearer("vic", workspace)).status_code == 404
         assert _profile(client, workspace, "deploy-bot", _bearer("mia", workspace)).status_code == 200
         assert _profile(client, workspace, "deploy-bot", _tok(workspace)).status_code == 200
@@ -255,7 +256,7 @@ class TestSharedContext:
 
     def test_unowned_agent_never_applies(self, client, workspace, people):
         _join(client, workspace, "free-bot")
-        _set_profile(client, workspace, "free-bot", shared_instructions="x")
+        _set_profile(client, workspace, "free-bot", owner_email="", shared_instructions="x")
         d = _shared_context(client, workspace, "free-bot", _tok(workspace), requester_email="vic@acme.test").json()["data"]
         assert d["apply"] is False
 

@@ -186,10 +186,13 @@ def agent_availability(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    _, _, member, err = _resolve(db, network, agent, x_workspace_token, authorization)
+    _, viewer, member, err = _resolve(db, network, agent, x_workspace_token, authorization)
     if err is not None:
         return err
-    return success_response(member_availability(db, member))
+    availability = member_availability(db, member)
+    if not viewer.machine and viewer.email != member.owner_email:
+        availability['runtime_name'] = None
+    return success_response(availability)
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +218,7 @@ def agent_profile(
         can_manage = True
     else:
         role = resolve_user_role(db, workspace, authorization)
-        can_manage = role_at_least(role, "admin") or is_agent_owner(viewer, member)
+        can_manage = is_agent_owner(viewer, member)
 
     knowledge = _knowledge_by_slugs(db, workspace.id, member.allowed_knowledge or [])
     from app.services.access_model import agent_usable_by, legacy_agent_visibility
@@ -232,10 +235,13 @@ def agent_profile(
         "example_requests": list(member.example_requests or []),
         "required_inputs": member.required_inputs,
         "cost_owner": member.cost_owner,
+        "request_approver_email": member.request_approver_email,
         "grant_count": _grant_count(db, workspace.id, member.agent_name),
         "availability": member_availability(db, member),
         "can_manage": bool(can_manage),
     }
+    if not viewer.machine and viewer.email != member.owner_email:
+        profile['availability']['runtime_name'] = None
     if can_manage:
         profile["shared_instructions"] = member.shared_instructions
         profile["allowed_knowledge"] = [{"slug": k.slug, "title": k.title} for k in knowledge]
@@ -294,6 +300,16 @@ def agent_shared_context(
         or (director is not None and director != owner)
     )
 
+    if channel and ch is not None and ch.service_id:
+        from app.models import AgentService
+        service = db.get(AgentService, ch.service_id)
+        if service and service.agent_name == agent and service.owner_email == member.owner_email:
+            # Reuse the connector's existing shared-context protocol. Service
+            # scope applies for owner requests too, and is selected server-side.
+            apply = True
+            from types import SimpleNamespace
+            member = SimpleNamespace(shared_instructions=service.instructions, allowed_knowledge=service.allowed_knowledge,
+                cost_owner=service.cost_owner, request_approver_email=service.request_approver_email)
     result = {
         "apply": apply,
         "owner_email": owner,
@@ -302,6 +318,7 @@ def agent_shared_context(
         "shared_instructions": member.shared_instructions if apply else None,
         "allowed_knowledge": [],
         "cost_owner": member.cost_owner,
+        "request_approver_email": member.request_approver_email,
     }
     if apply:
         budget = SHARED_KNOWLEDGE_CAP

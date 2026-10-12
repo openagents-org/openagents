@@ -15,13 +15,13 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Path, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import KnowledgeEntry, Workspace
+from app.models import KnowledgeEntry, KnowledgeFolder, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event,
@@ -84,6 +84,7 @@ MAX_CONTENT_SIZE = 1 * 1024 * 1024  # 1 MB
 class CreateKnowledgeRequest(BaseModel):
     network: str
     title: str
+    folder_path: str = ""
     content: str
     description: Optional[str] = None
     source: Optional[str] = "human:user"
@@ -92,6 +93,7 @@ class CreateKnowledgeRequest(BaseModel):
 
 class UpdateKnowledgeRequest(BaseModel):
     network: str
+    folder_path: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     description: Optional[str] = None
@@ -102,6 +104,61 @@ class UpdateKnowledgeRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _folder_path(value: str) -> str:
+    path = value.strip().strip("/")
+    if len(path) > 500 or (path and any(not p.strip() or p in (".", "..") or p != p.strip() for p in path.split("/"))) or "\\" in path or any(ord(c) < 32 for c in path):
+        raise HTTPException(400, "Choose a folder path without empty names, '.' or '..'.")
+    return path
+
+
+def _require_folder(db, workspace_id, value):
+    path = _folder_path(value)
+    if path and not db.get(KnowledgeFolder, (workspace_id, path)):
+        raise HTTPException(404, "Knowledge folder not found")
+    return path
+
+
+class CreateKnowledgeFolderRequest(BaseModel):
+    network: str
+    path: str
+
+
+@router.get("/knowledge-folders")
+def list_knowledge_folders(network: str = Query(...), db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace = _resolve_workspace(db, network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    folders = db.execute(select(KnowledgeFolder.path).where(KnowledgeFolder.workspace_id == str(workspace.id)).order_by(KnowledgeFolder.path)).scalars().all()
+    return success_response({"folders": list(folders)})
+
+
+@router.post("/knowledge-folders")
+def create_knowledge_folder(body: CreateKnowledgeFolderRequest, db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    from app.access import verify_workspace_access
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db, min_role="member"):
+        raise HTTPException(403, "Only workspace members can create folders")
+    path = _folder_path(body.path)
+    if not path:
+        raise HTTPException(400, "Enter a folder name")
+    workspace_id = str(workspace.id)
+    _require_folder(db, workspace_id, path.rpartition("/")[0])
+    # Serialize folder creation so concurrent requests for the same path are idempotent.
+    db.execute(select(Workspace).where(Workspace.id == workspace_id).with_for_update()).scalar_one()
+    if not db.get(KnowledgeFolder, (workspace_id, path)):
+        db.add(KnowledgeFolder(workspace_id=workspace_id, path=path))
+        db.commit()
+    return success_response({"path": path})
+
 
 def _slugify(title: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", title.lower())
@@ -131,6 +188,8 @@ def _serialize(entry: KnowledgeEntry, meta: Optional[dict] = None) -> dict:
         **(meta or {}),
         "id": entry.id,
         "slug": entry.slug,
+        "folder_path": entry.folder_path or "",
+        "path": "/" + "/".join(filter(None, [entry.folder_path, entry.slug])),
         "title": entry.title,
         "description": entry.description,
         "content_size": entry.content_size,
@@ -165,6 +224,7 @@ async def create_knowledge(
         return json_response(ResponseCode.BAD_REQUEST, f"Content too large (max {MAX_CONTENT_SIZE // 1024}KB)")
 
     ws_id = str(workspace.id)
+    folder_path = _require_folder(db, ws_id, body.folder_path)
     base_slug = _slugify(body.title)
     slug = _unique_slug(db, ws_id, base_slug)
 
@@ -180,6 +240,7 @@ async def create_knowledge(
         id=entry_id,
         workspace_id=ws_id,
         slug=slug,
+        folder_path=folder_path,
         title=body.title,
         description=body.description,
         storage_key=storage_key,
@@ -263,7 +324,7 @@ def get_knowledge(
     authorization: Optional[str] = Header(None),
 ):
     entry = db.execute(
-        select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
+        select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id, KnowledgeEntry.status == "active")
     ).scalar_one_or_none()
     if not entry:
         return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
@@ -367,6 +428,8 @@ async def update_knowledge(
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
     ws_id = str(workspace.id)
+    if str(entry.workspace_id) != ws_id:
+        return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
     now = datetime.now(timezone.utc)
 
     # Permission model: editing takes the `act` right (owner, admin, machine,
@@ -381,6 +444,9 @@ async def update_knowledge(
         if not can_manage(db, _viewer, resource_for_knowledge(entry), ws_id):
             return json_response(ResponseCode.FORBIDDEN, "Only the entry's owner or an admin can change who sees it")
         entry.visibility = vis
+
+    if body.folder_path is not None:
+        entry.folder_path = _require_folder(db, ws_id, body.folder_path)
 
     if body.title is not None and body.title != entry.title:
         base_slug = _slugify(body.title)
@@ -450,6 +516,9 @@ async def delete_knowledge(
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    if str(entry.workspace_id) != str(workspace.id):
+        return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
 
     _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
     if not allowed(db, _viewer, resource_for_knowledge(entry), "act", str(workspace.id)):

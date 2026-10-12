@@ -1,5 +1,6 @@
 'use client';
 
+import { AuthenticatedImage } from './authenticated-image';
 import { useState, type ReactNode } from 'react';
 import {
   File as FileIcon,
@@ -415,8 +416,8 @@ function FileThumbnail({
       style={loaded ? { background: `color-mix(in oklab, ${color} 12%, transparent)` } : undefined}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={workspaceApi.getFileUrl(file.id)}
+      <AuthenticatedImage
+        fileId={file.id}
         // Decorative: the filename sits right beside it in every caller.
         alt=""
         loading="lazy"

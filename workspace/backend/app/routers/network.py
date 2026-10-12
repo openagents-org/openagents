@@ -197,14 +197,14 @@ def effective_agent_status(member: WorkspaceMember, now: Optional[datetime] = No
     return status
 
 
-def agent_runtime_fields(member: WorkspaceMember, runtime_by_id: dict) -> dict:
+def agent_runtime_fields(member: WorkspaceMember, runtime_by_id: dict, viewer=None) -> dict:
     """runtime_status / runtime_name for an agent given runtime_status_by_node().
     Cloud agents are always "online"; agents with no node report None."""
     is_cloud = (member.agent_type or "").startswith("cloud:")
     rt = runtime_by_id.get(str(member.node_id)) or {}
     return {
         "runtime_status": rt.get("status") if (member.node_id and not is_cloud) else ("online" if is_cloud else None),
-        "runtime_name": rt.get("name") if member.node_id else None,
+        "runtime_name": rt.get("name") if member.node_id and (viewer is None or viewer.machine or viewer.email == member.owner_email) else None,
     }
 
 
@@ -494,6 +494,7 @@ def resolve_token(
 @router.get("/discover")
 def discover(
     network: str = Query(..., description="Network (workspace) ID"),
+    read_at: Optional[str] = Query(None, max_length=32768),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -505,6 +506,12 @@ def discover(
 
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    from app.services.thread_activity import read_markers, thread_activity
+    try:
+        markers = read_markers(read_at)
+    except (ValueError, TypeError):
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid read_at")
 
     now = datetime.now(timezone.utc)
 
@@ -538,8 +545,10 @@ def discover(
     hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
     # Runtime (device) liveness for the "runtime offline" signal.
     runtime_by_id = runtime_status_by_node(db, workspace, now)
-    from app.services.access_model import agent_usable_by, legacy_agent_visibility, normalize_visibility
+    from app.services.access_model import agent_usable_by, legacy_agent_visibility, normalize_visibility, can_start_agent_thread
     usable = agent_usable_by(db, str(workspace.id), [m.agent_name for m in members])
+    from app.services.thread_agent_requests import shared_agent_names
+    thread_shared = shared_agent_names(db, workspace.id)
 
     agents = []
     for m in members:
@@ -554,12 +563,12 @@ def discover(
             "status": status,
             "agent_type": m.agent_type,
             "builtin": (m.agent_type or "") == "cloud:openagents",
-            "server_host": m.server_host,
+            "server_host": m.server_host if viewer.machine or viewer.email == m.owner_email else None,
             # The device this agent runs on, stamped at join time. Null for
             # cloud agents and manual-token joins. Clients use it to group
             # agents by node without reverse-matching names from /v1/nodes.
-            "node_id": m.node_id,
-            "working_dir": m.working_dir,
+            "node_id": m.node_id if viewer.machine or viewer.email == m.owner_email else None,
+            "working_dir": m.working_dir if viewer.machine or viewer.email == m.owner_email else None,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
             "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
@@ -570,6 +579,8 @@ def discover(
             # Deprecated personal/team flag: mirrors the `everyone` grant.
             "visibility": legacy_agent_visibility(usable.get(m.agent_name, {})),
             "usable_by": usable.get(m.agent_name),
+            "is_shared": m.agent_name in thread_shared or any(usable.get(m.agent_name, {}).values()),
+            "can_start_thread": can_start_agent_thread(db, str(workspace.id), viewer, m),
             "purpose": m.purpose,
             "example_requests": m.example_requests or [],
             "required_inputs": m.required_inputs,
@@ -579,7 +590,7 @@ def discover(
             "queue_depth": m.queue_depth or 0,
             # "online" / "offline" for the device this agent runs on; None when
             # the agent has no node (cloud agents, manual-token joins).
-            **agent_runtime_fields(m, runtime_by_id),
+            **agent_runtime_fields(m, runtime_by_id, viewer),
         })
 
     hidden_channels = hidden_channel_names(db, str(workspace.id), viewer)
@@ -590,6 +601,12 @@ def discover(
         )
     ).scalars().all()
 
+    visible_channels = [c for c in channels_rows if c.name not in hidden_channels]
+    activity = thread_activity(db, str(workspace.id), visible_channels, markers, viewer.email)
+    from app.models import ThreadPin
+    pinned_channels = set(db.execute(select(ThreadPin.channel_id).join(Channel).where(
+        Channel.workspace_id == workspace.id, ThreadPin.user_email == viewer.email,
+    )).scalars()) if viewer.kind == "human" and viewer.email else set()
     channels = []
     for c in channels_rows:
         if c.name in hidden_channels:
@@ -598,9 +615,11 @@ def discover(
         created_at_ts = int(c.created_at.timestamp() * 1000) if c.created_at else None
         channels.append({
             "address": target_key,
+            **activity.get(c.name, {}),
             "title": c.title,
             "master": c.master_agent,
-            "orchestration_mode": c.orchestration_mode or "dynamic",
+            "orchestration_mode": "workflow" if c.orchestration_mode == "workflow" else "dynamic",
+            "response_mode": c.response_mode or "proactive",
             "orchestration_instruction": c.orchestration_instruction,
             "workflow_id": c.workflow_id,
             "participants": [p.agent_name for p in (c.participants or [])],
@@ -608,9 +627,12 @@ def discover(
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
+            "pinned": c.id in pinned_channels,
+            "is_channel": bool(c.is_channel),
             "visibility": normalize_visibility(c.visibility, "public") or "public",
             "owner_email": c.owner_email,
             "participants_can_invite": bool(c.participants_can_invite),
+            "members_can_add_agents": bool(c.members_can_add_agents),
             "director_email": c.director_email,
             "created_by": c.created_by,
         })

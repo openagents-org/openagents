@@ -161,6 +161,8 @@ class TestPrivateThreads:
 
     def test_locking_a_thread_keeps_the_locker_in(self, client, workspace, people, db):
         _create_thread(client, workspace, name="open-2", by="mia", visibility="workspace")
+        assert client.post('/v1/channels/open-2/join', headers=_bearer('adam', workspace),
+                           json={'network': workspace['id']}).status_code == 200
         r = client.patch(f"/v1/workspaces/{workspace['id']}/channels/open-2", json={"visibility": "private"},
                          headers=_bearer("adam", workspace))
         assert r.status_code == 200, r.text
@@ -205,12 +207,12 @@ def _revoke_everyone(client, ws, agent, headers):
         if g["grantee_kind"] == "group" and g["grantee_label"] == "Everyone":
             assert client.delete(f"/v1/grants/{g['id']}?network={ws['id']}", headers=headers).status_code == 200
             found = True
-    assert found, "a new agent starts with an `everyone` grant"
+    # New agents are private already; legacy fixtures may have explicit shares.
 
 
 def _make_private(client, ws, agent, owner):
     r = client.patch(f"/v1/workspaces/{ws['id']}/members/{agent}",
-                     json={"owner_email": f"{owner}@acme.test"}, headers=_bearer(owner, ws))
+                     json={"owner_email": f"{owner}@acme.test"}, headers=_tok(ws))
     assert r.status_code == 200, r.text
     _revoke_everyone(client, ws, agent, _bearer(owner, ws))
 
@@ -218,15 +220,14 @@ def _make_private(client, ws, agent, owner):
 class TestPersonalAgents:
     def test_claim_and_hide(self, client, workspace, people):
         _join(client, workspace, "deploy-bot")
-        # a member may claim an unowned agent for themselves …
+        # Connection ownership is authoritative; another member cannot claim it.
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                          json={"owner_email": "mia@acme.test", "visibility": "personal"}, headers=_bearer("mia", workspace))
-        assert r.status_code == 200, r.text
-        # `visibility` is deprecated and ignored: the agent stays usable by
-        # everyone until the owner revokes the `everyone` grant.
+        assert r.status_code == 403, r.text
+        # Trusted setup transfers the fixture to Mia. New agents start private.
+        _make_private(client, workspace, "deploy-bot", "mia")
         _, adam_ag = _discover(client, workspace, _bearer("adam", workspace))
-        assert "deploy-bot" in adam_ag
-        _revoke_everyone(client, workspace, "deploy-bot", _bearer("mia", workspace))
+        assert "deploy-bot" not in adam_ag
         # … but not someone else's
         r = client.patch(f"/v1/workspaces/{workspace['id']}/members/deploy-bot",
                          json={"owner_email": "vic@acme.test"}, headers=_bearer("vic", workspace))
@@ -279,4 +280,37 @@ class TestPersonalAgents:
         assert bot["purpose"].startswith("Launch")
         assert bot["example_requests"] == ["Deploy the eval model"]
         assert bot["cost_owner"] == "owner"
-        assert bot["visibility"] == "team"
+        assert bot["visibility"] == "personal"
+
+
+@pytest.mark.parametrize("with_token", [False, True])
+@pytest.mark.parametrize("include_creator", [False, True])
+def test_browser_group_thread_keeps_authenticated_creator(client, workspace, people, db, with_token, include_creator):
+    invitees = ["adam@acme.test", "vic@acme.test"] + (["mia@acme.test"] if include_creator else [])
+    response = client.post("/v1/events", headers=_bearer("mia", workspace if with_token else None), json={
+        "network": workspace["id"], "type": "network.channel.create", "source": "human:user", "target": "core",
+        "payload": {"name": "browser-group", "visibility": "private", "participants": [],
+                    "human_participants": invitees, "director_email": "mia@acme.test"},
+    })
+    assert response.status_code == 200, response.text
+    channel = db.execute(select(Channel).where(Channel.name == "browser-group")).scalar_one()
+    assert channel.owner_email == "mia@acme.test"
+    assert channel.created_by == "human:mia@acme.test"
+    members = list(db.execute(select(ChannelHumanMember.user_email).where(ChannelHumanMember.channel_id == channel.id)).scalars())
+    assert sorted(members) == ["adam@acme.test", "mia@acme.test", "vic@acme.test"]
+    assert "browser-group" in _discover(client, workspace, _bearer("mia", workspace))[0]
+    posted = _post(client, workspace, channel="browser-group", by="mia", content="Hello team", headers=_bearer("mia", workspace))
+    assert posted.status_code == 200, posted.text
+
+
+def test_thread_creator_cannot_spoof_owner_and_does_not_make_thread_public(client, workspace, people, db):
+    response = client.post("/v1/events", headers=_bearer("mia", workspace), json={
+        "network": workspace["id"], "type": "network.channel.create", "source": "human:adam@acme.test", "target": "core",
+        "payload": {"name": "bound-creator", "visibility": "private", "sender_email": "adam@acme.test",
+                    "creator_email": "adam@acme.test", "owner_email": "adam@acme.test", "participants": []},
+    })
+    assert response.status_code == 200, response.text
+    channel = db.execute(select(Channel).where(Channel.name == "bound-creator")).scalar_one()
+    assert channel.owner_email == "mia@acme.test" and channel.visibility == "private"
+    assert list(db.execute(select(ChannelHumanMember.user_email).where(ChannelHumanMember.channel_id == channel.id)).scalars()) == ["mia@acme.test"]
+    assert _post(client, workspace, channel="bound-creator", by="vic", content="Not invited", headers=_bearer("vic", workspace)).status_code == 403

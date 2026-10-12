@@ -66,8 +66,8 @@ describe('costOwnerDescriptor', () => {
 });
 
 describe('permissions', () => {
-  it('lets admins and the owner manage, nobody else', () => {
-    expect(canManageAgent({ email: 'a@x.com', effectiveRole: 'admin' }, 'b@x.com')).toBe(true);
+  it('lets only the owner manage, without an admin override', () => {
+    expect(canManageAgent({ email: 'a@x.com', effectiveRole: 'admin' }, 'b@x.com')).toBe(false);
     expect(canManageAgent({ email: 'b@x.com', effectiveRole: 'member' }, 'B@x.com')).toBe(true);
     expect(canManageAgent({ email: 'c@x.com', effectiveRole: 'member' }, 'b@x.com')).toBe(false);
     expect(canManageAgent(null, 'b@x.com')).toBe(false);

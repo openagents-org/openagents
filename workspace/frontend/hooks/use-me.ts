@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceMe } from '@/lib/types';
 
@@ -14,27 +15,32 @@ const cache = new Map<string, WorkspaceMe>();
 const inflight = new Map<string, Promise<WorkspaceMe>>();
 
 export function useMe(workspaceId: string | null | undefined): WorkspaceMe | null {
-  const [me, setMe] = useState<WorkspaceMe | null>(() => (workspaceId ? cache.get(workspaceId) ?? null : null));
+  const { idToken } = useOpenAgentsAuth();
+  const cacheKey = `${workspaceId || ''}:${idToken || ''}`;
+  const [identity, setIdentity] = useState(cacheKey);
+  const [me, setMe] = useState<WorkspaceMe | null>(() => (workspaceId ? cache.get(cacheKey) ?? null : null));
 
   useEffect(() => {
+    setIdentity(cacheKey);
+    setMe(null);
     if (!workspaceId || !workspaceApi.isConfigured()) return;
-    const cached = cache.get(workspaceId);
+    const cached = cache.get(cacheKey);
     if (cached) { setMe(cached); return; }
     let cancelled = false;
-    let p = inflight.get(workspaceId);
+    let p = inflight.get(cacheKey);
     if (!p) {
       p = workspaceApi.getMe();
-      inflight.set(workspaceId, p);
-      p.finally(() => inflight.delete(workspaceId));
+      inflight.set(cacheKey, p);
+      void p.then(() => inflight.delete(cacheKey), () => inflight.delete(cacheKey));
     }
-    p.then((m) => { cache.set(workspaceId, m); if (!cancelled) setMe(m); }).catch(() => {});
+    p.then((m) => { cache.set(cacheKey, m); if (!cancelled) setMe(m); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, cacheKey]);
 
-  return me;
+  return identity === cacheKey ? me : null;
 }
 
 /** Drop the cache (e.g. after sign-in changes) so the next mount refetches. */
 export function invalidateMe(workspaceId?: string) {
-  if (workspaceId) cache.delete(workspaceId); else cache.clear();
+  if (workspaceId) { for (const key of cache.keys()) if (key.startsWith(`${workspaceId}:`)) cache.delete(key); } else cache.clear();
 }

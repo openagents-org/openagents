@@ -1,5 +1,7 @@
 'use client';
 
+import { workspaceApi } from '@/lib/api';
+import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -20,14 +22,18 @@ import { cn } from '@/lib/utils';
 
 interface KnowledgeEditorProps {
   open: boolean;
+  defaultFolder?: string;
   entry: (KnowledgeEntry & { content: string }) | null;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEditorProps) {
+export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder = "" }: KnowledgeEditorProps) {
   const { createKnowledge, updateKnowledge } = useWorkspace();
   const t = useT();
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folderPath, setFolderPath] = useState('');
+  useEffect(() => { if (open) workspaceApi.listKnowledgeFolders().then(setFolders).catch(() => toast.error(t('knowledge.loadFailed'))); }, [open, t]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
@@ -39,6 +45,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
 
   useEffect(() => {
     if (open) {
+      setFolderPath(entry ? entry.folderPath || '' : defaultFolder);
       if (entry) {
         setTitle(entry.title);
         setDescription(entry.description || '');
@@ -51,7 +58,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
         setVisibility('private');
       }
     }
-  }, [open, entry]);
+  }, [open, entry, defaultFolder]);
 
   const handleSave = async () => {
     if (!title.trim() || !content.trim()) return;
@@ -60,6 +67,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
       if (isEditing && entry) {
         await updateKnowledge(entry.id, {
           title: title.trim(),
+          folderPath,
           content: content.trim(),
           description: description.trim() || undefined,
           // Only owners/admins may flip visibility — send it only when changed.
@@ -68,14 +76,15 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
       } else {
         await createKnowledge({
           title: title.trim(),
+          folderPath,
           content: content.trim(),
           description: description.trim() || undefined,
           visibility,
         });
       }
       onSaved();
-    } catch {
-      // ignore
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("knowledge.loadFailed"));
     } finally {
       setSaving(false);
     }
@@ -89,6 +98,12 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
         </DialogHeader>
 
         <DialogBody className="space-y-4 py-1">
+          <div className="space-y-2"><Label htmlFor="kb-folder">{t('knowledge.folder')}</Label>
+            <select id="kb-folder" value={folderPath} onChange={event => setFolderPath(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+              <option value="">{t('knowledge.rootFolder')}</option>
+              {folders.map(path => <option key={path} value={path}>/{path}</option>)}
+            </select>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="kb-title">{t('knowledge.fieldTitle')}</Label>
             <Input

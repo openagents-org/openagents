@@ -39,12 +39,6 @@ function KindChip({ kind, resolved }: { kind: InboxActionKind; resolved: boolean
   if (resolved) {
     return <Badge variant="secondary" appearance="light" size="xs" className="shrink-0">{t('inbox.chipDone')}</Badge>;
   }
-  if (kind === 'help') {
-    return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipHelp')}</Badge>;
-  }
-  if (kind === 'proposal') {
-    return <Badge variant="info" appearance="light" size="xs" className="shrink-0">{t('inbox.chipProposal')}</Badge>;
-  }
   return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
 }
 

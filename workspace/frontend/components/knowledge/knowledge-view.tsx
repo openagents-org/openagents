@@ -14,6 +14,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
+import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
 import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
 import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 import { AccessExplainer } from '@/components/sharing/access-explainer';
@@ -87,7 +88,7 @@ export function KnowledgeView() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <BookOpen className="size-8 opacity-30" />
-        <p className="text-sm">{t('knowledge.selectEntry')}</p>
+        <p className="text-sm">{selectedKnowledgeId ? t('resourceLinks.unavailable') : t('knowledge.selectEntry')}</p>
       </div>
     );
   }
@@ -105,11 +106,12 @@ export function KnowledgeView() {
               <ArrowLeft className="size-4" />
             </button>
           )}
-          <h2 className="truncate text-sm font-semibold">{entry.title}</h2>
+          <h2 className="truncate text-sm font-semibold" title={entry.path}>{entry.title}</h2>
         </>}
       >
         {/* The slug used to live here as static grey text; it now sits in the
             article header as a copyable chip, so the toolbar keeps Share + Edit. */}
+        <CopyResourceLink view="knowledge" id={entry.id} />
         <ArtifactSharePopover
           kind="knowledge"
           id={entry.id}
@@ -190,7 +192,8 @@ export function KnowledgeView() {
               {(entry.owner || entry.visibility) && (
                 <>
                   <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} />
+                  <span className="text-xs text-muted-foreground" title={entry.path}>{entry.path}</span>
+            <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} />
                   <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 </>
               )}

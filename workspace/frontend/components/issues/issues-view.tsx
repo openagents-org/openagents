@@ -1,4 +1,7 @@
 'use client';
+
+import { requestedResource, resourcePath } from '@/lib/resource-link';
+import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CircleDot,
@@ -42,15 +45,19 @@ function IssueWorkspace() {
   const [selected, setSelected] = useState<string | null>(() =>
     typeof window === 'undefined'
       ? null
-      : new URLSearchParams(window.location.search).get('issue'),
+      : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
   const selectIssue = (id: string | null) => {
-    const url = new URL(window.location.href);
-    if (id) url.searchParams.set('issue', id);
-    else url.searchParams.delete('issue');
-    window.history.replaceState(null, '', url);
+    const outer = new URL(window.location.href);
+    const isHashRoute = outer.hash.startsWith('#/');
+    const url = isHashRoute ? new URL(outer.hash.slice(1), outer.origin) : outer;
+    url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', id);
+    for (const key of ['issue', 'thread', 'knowledge', 'file']) url.searchParams.delete(key);
+    if (isHashRoute) { outer.hash = url.pathname + url.search; }
+    window.history.replaceState(window.history.state, '', isHashRoute ? outer : url);
     setSelected(id);
   };
+  useEffect(() => { selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
   const [board, setBoard] = useState(false);
   const [status, setStatus] = useState<IssueStatus | 'all'>('all');
@@ -133,14 +140,17 @@ function IssueWorkspace() {
         <div
           className={cn('flex gap-4', asCard ? 'items-start' : 'items-center')}
         >
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
           <span
             className={cn(
-              'min-w-0 flex-1 text-[13px] font-medium leading-5 text-foreground',
+              'min-w-0 text-[13px] font-medium leading-5 text-foreground',
               asCard ? 'line-clamp-3' : 'truncate',
             )}
           >
             {issue.title}
           </span>
+          {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
+          </div>
           {!asCard && (
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
               {timeAgo(issue.updated_at)}
@@ -159,7 +169,7 @@ function IssueWorkspace() {
         )}
         <div
           className={cn(
-            'flex items-center gap-2 text-[11px] text-muted-foreground',
+            'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground',
             asCard ? 'mt-4' : 'mt-2',
           )}
         >
@@ -170,6 +180,7 @@ function IssueWorkspace() {
           <span className="truncate">
             {issue.created_by_name || authorName(issue.created_by)}
           </span>
+          {issue.assignee && <span className="ml-2 truncate" title={t('issues.assignee')}>{t('issues.assignee')}: {issue.assignee_name || authorName(issue.assignee)}</span>}
           {asCard && (
             <span className="ml-auto shrink-0">
               {timeAgo(issue.updated_at)}
@@ -329,7 +340,7 @@ function IssueWorkspace() {
             )}
           </div>
         ) : board ? (
-          <div className="grid min-h-full grid-cols-1 gap-6 bg-muted/15 p-5 sm:grid-cols-3 sm:px-8 sm:py-6">
+          <div className="grid min-h-full grid-cols-1 gap-6 bg-muted/15 p-5 sm:grid-cols-4 sm:px-8 sm:py-6">
             {statuses.map((value) => (
               <section key={value} className="min-w-0">
                 <div className="mb-4 flex items-center gap-2.5 px-1">

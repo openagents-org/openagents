@@ -32,14 +32,14 @@ function embedUrl(liveUrl: string): string {
  * tabs pinned first, temporary tabs after), an address bar, the live page, and
  * a status bar that says who is driving — with a take-over / hand-back switch.
  */
-export function BrowserView() {
+export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) {
   const t = useT();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const { timeAgoShort: timeAgo } = useFormatters();
   const {
     browserTabs, browserContexts, browserTabLimits, agents,
-    selectedBrowserTabId, setSelectedBrowserTabId,
+    selectedBrowserTabId: workspaceBrowserTabId, setSelectedBrowserTabId,
     selectedBrowserContextId, setSelectedBrowserContextId,
     closeBrowserTab, navigateBrowserTab, reconnectBrowserTab, persistBrowserTab, unpersistBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
@@ -60,6 +60,7 @@ export function BrowserView() {
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
 
+  const selectedBrowserTabId = artifactTabId || workspaceBrowserTabId;
   const tab = browserTabs.find((x) => x.id === selectedBrowserTabId);
   const { permanent, temporary } = buildTabEntries(browserTabs, browserContexts);
   const asleepEntry = !tab && selectedBrowserContextId
@@ -698,7 +699,7 @@ export function BrowserView() {
 
   return (
     <div className="flex h-full flex-col">
-      <DetailHeader
+      {!artifactTabId && <DetailHeader
         title={<>
           <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-amber-500' : 'text-foreground/70')} />
           <p className="truncate text-sm font-medium">{tab?.title || asleepEntry?.context.name || t('browser.cloudBrowser')}</p>
@@ -713,11 +714,11 @@ export function BrowserView() {
             {isDetailExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
         )}
-      </DetailHeader>
+      </DetailHeader>}
 
-      <FeatureTourBanner feature="browser" />
+      {!artifactTabId && <FeatureTourBanner feature="browser" />}
 
-      {tabStrip}
+      {!artifactTabId && tabStrip}
       {toolbar}
       {viewport}
       {placeholder}

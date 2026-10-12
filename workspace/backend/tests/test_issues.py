@@ -1,13 +1,30 @@
-"""Issues are passive discussions until a member explicitly starts work."""
+"""Only mentions of agents on an issue dispatch work."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Channel, EventRecord, KanbanTask, WorkspaceMember
-from app.routers.tasks import _context_block
+from app.models import Channel, EventRecord, WorkspaceMember
+
+
+@pytest.fixture(autouse=True)
+def cloud_dispatch():
+    with patch("app.services.cloud_agent.invoke_cloud_agents", new_callable=AsyncMock) as invoke:
+        yield invoke
+
+
+def add_agents(client, ws, issue, names=("agent-alpha",)):
+    response = client.post(path(ws, f"/{issue['id']}/participants"), headers=headers(ws),
+                           json={"participants": [{"kind": "agent", "id": name} for name in names]})
+    assert response.status_code == 200, response.text
+
+
+def request_work(client, ws, issue, names=("agent-alpha",), instruction="Investigate", source="human:alice"):
+    add_agents(client, ws, issue, names)
+    return client.post(path(ws, f"/{issue['id']}/comments"), headers=headers(ws),
+                       json={"content": " ".join("@" + n for n in names) + " " + instruction, "source": source})
 
 
 def headers(ws):
@@ -57,7 +74,8 @@ def test_discussion_never_routes_agents(client, workspace, db):
     assert db.scalar(select(func.count()).select_from(Channel)) == before
     result = detail(client, workspace, issue)
     assert result["status"] == "open" and len(result["comments"]) == 1
-    assert result["threads"] == result["tasks"] == []
+    assert result["threads"] == []
+    assert "tasks" not in result
 
 
 @pytest.mark.parametrize("payload", [{"title": " "}, {"title": "x" * 241}])
@@ -181,11 +199,8 @@ def test_viewer_can_read_but_cannot_mutate(client, workspace):
         for suffix, body in [
             ("", {"title": "No"}),
             (f"/{issue['id']}/comments", {"content": "No"}),
-            (
-                f"/{issue['id']}/threads",
-                {"agents": ["agent-alpha"], "instruction": "No"},
-            ),
-            (f"/{issue['id']}/tasks", {"title": "No"}),
+            (f"/{issue['id']}/participants/remove", {"kind": "agent", "id": "agent-alpha"}),
+            (f"/{issue['id']}/participants", {"participants": [{"kind": "agent", "id": "agent-alpha"}]}),
             (f"/{issue['id']}/links", {"channel_name": workspace["channel"]["name"]}),
         ]:
             assert (
@@ -238,15 +253,7 @@ def test_start_agent_work_with_discussion_context(client, workspace, db):
         headers=headers(workspace),
         json={"content": "Keep the first screen simple."},
     )
-    response = client.post(
-        path(workspace, f"/{issue['id']}/threads"),
-        headers=headers(workspace),
-        json={
-            "agents": ["agent-alpha", "openagents:agent-beta"],
-            "instruction": "Investigate and propose options",
-            "source": "human:alice",
-        },
-    )
+    response = request_work(client, workspace, issue, ("agent-alpha", "agent-beta"), "Investigate and propose options")
     assert response.status_code == 200, response.text
     name = response.json()["data"]["channel_name"]
     result = detail(client, workspace, issue)
@@ -271,33 +278,18 @@ def test_start_agent_work_with_discussion_context(client, workspace, db):
         assert expected in event.payload["content"]
 
 
-def test_invalid_agent_or_closed_issue_cannot_start_work(client, workspace, db):
+def test_unadded_agent_mentions_stay_passive_and_closed_issues_reject_work(client, workspace, db):
     issue = create(client, workspace)
-    before = db.scalar(select(func.count()).select_from(Channel))
-    url = path(workspace, f"/{issue['id']}/threads")
-    for agents in (["outsider"], [], [""]):
-        assert (
-            client.post(
-                url,
-                headers=headers(workspace),
-                json={"agents": agents, "instruction": "Investigate"},
-            ).status_code
-            == 422
-        )
-    assert db.scalar(select(func.count()).select_from(Channel)) == before
-    client.patch(
-        path(workspace, f"/{issue['id']}"),
-        headers=headers(workspace),
-        json={"status": "closed"},
-    )
-    assert (
-        client.post(
-            url,
-            headers=headers(workspace),
-            json={"agents": ["agent-alpha"], "instruction": "Investigate"},
-        ).status_code
-        == 409
-    )
+    with patch("app.routers.issues._emit_event_blocking") as emit:
+        response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                               json={"content": "@agent-alpha investigate"})
+        assert response.status_code == 200
+        emit.assert_not_called()
+    add_agents(client, workspace, issue)
+    client.patch(path(workspace, f"/{issue['id']}"), headers=headers(workspace), json={"status": "closed"})
+    assert request_work(client, workspace, issue).status_code == 409
+    assert client.post(path(workspace, f"/{issue['id']}/threads"), headers=headers(workspace),
+                       json={"agents": ["agent-alpha"], "instruction": "Legacy"}).status_code == 404
 
 
 def seed_reply(
@@ -367,58 +359,20 @@ def test_cannot_share_unlinked_or_nonchat_result(client, workspace, db):
         )
 
 
-def test_tasks_stay_passive_and_inherit_issue_context(client, workspace, db):
+def test_issue_task_feature_is_removed_without_removing_workspace_tasks(client, workspace):
     issue = create(client, workspace)
-    url = path(workspace, f"/{issue['id']}/tasks")
-    with patch("app.routers.issues._emit_event_blocking") as emit:
-        response = client.post(
-            url,
-            headers=headers(workspace),
-            json={
-                "title": "Add a welcome screen",
-                "description": "Show the next action.",
-            },
-        )
-        assert response.status_code == 200, response.text
-        task = response.json()["data"]
-        assert task["status"] == "backlog" and task["channel_name"] is None
-        assert task["issue_id"] == issue["id"]
-        emit.assert_not_called()
-    assert detail(client, workspace, issue)["tasks"][0]["id"] == task["id"]
-    assert "Improve onboarding" in _context_block(
-        db, workspace["id"], db.get(KanbanTask, task["id"])
-    )
-    other = create(client, workspace, title="Another issue")
-    assert (
-        client.post(
-            path(workspace, f"/{other['id']}/tasks"),
-            headers=headers(workspace),
-            json={"task_id": task["id"]},
-        ).status_code
-        == 409
-    )
-    standalone = client.post(
-        "/v1/tasks",
-        headers=headers(workspace),
-        json={"network": workspace["id"], "title": "Standalone task"},
-    ).json()["data"]
-    assert (
-        client.post(
-            url, headers=headers(workspace), json={"task_id": standalone["id"]}
-        ).json()["data"]["issue_id"]
-        == issue["id"]
-    )
+    assert client.post(path(workspace, f"/{issue['id']}/tasks"), headers=headers(workspace),
+                       json={"title": "Old issue task"}).status_code == 404
+    assert client.post("/v1/tasks", headers=headers(workspace),
+                       json={"network": workspace["id"], "title": "Standalone task"}).status_code == 200
 
 
 def test_failed_thread_creation_leaves_issue_open(client, workspace):
     issue = create(client, workspace)
     with patch("app.routers.issues._emit_event_blocking", return_value=None):
-        response = client.post(
-            path(workspace, f"/{issue['id']}/threads"),
-            headers=headers(workspace),
-            json={"agents": ["agent-alpha"], "instruction": "Investigate"},
-        )
-    assert response.status_code == 502
+        response = request_work(client, workspace, issue)
+    assert response.status_code == 200
+    assert response.json()["data"]["dispatch_error"]
     assert detail(client, workspace, issue)["status"] == "open"
 
 
@@ -450,12 +404,9 @@ def test_failed_kickoff_keeps_thread_link_for_recovery(client, workspace):
         return _emit_event_blocking(event, *args, **kwargs)
 
     with patch("app.routers.issues._emit_event_blocking", side_effect=emit):
-        response = client.post(
-            path(workspace, f"/{issue['id']}/threads"),
-            headers=headers(workspace),
-            json={"agents": ["agent-alpha"], "instruction": "Investigate"},
-        )
-    assert response.status_code == 502
+        response = request_work(client, workspace, issue)
+    assert response.status_code == 200
+    assert response.json()["data"]["dispatch_error"]
     result = detail(client, workspace, issue)
     assert len(result["threads"]) == 1
     assert result["status"] == "open"
@@ -514,9 +465,11 @@ def test_private_linked_thread_is_hidden_from_non_participants(client, workspace
     ann_view = client.get(path(workspace, f"/{issue['id']}"), headers=_bearer("ann")).json()["data"]
     assert [t["channel_name"] for t in ann_view["threads"]] == ["ann-private"]
     assert ann_view["threads"][0]["latest_reply"]["content"] == "secret result"
+    assert any(c["content"] == "secret result" and c["kind"] == "result" for c in ann_view["comments"])
 
     ben_view = client.get(path(workspace, f"/{issue['id']}"), headers=_bearer("ben")).json()["data"]
     assert ben_view["threads"] == []
+    assert not any(c["content"] == "secret result" for c in ben_view["comments"])
 
     # Ben cannot share the private reply into the discussion either.
     r = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer("ben"),
@@ -528,8 +481,131 @@ def test_issue_started_thread_is_public(client, workspace, db):
     issue = create(client, workspace)
     with patch("app.routers.issues._emit_event_blocking") as emit:
         emit.return_value = None
-        client.post(path(workspace, f"/{issue['id']}/threads"), headers=headers(workspace),
-                    json={"agents": ["agent-alpha"], "instruction": "go", "source": "human:alice"})
+        request_work(client, workspace, issue)
     create_calls = [c for c in emit.call_args_list if c.args and c.args[0].type == "network.channel.create"]
     assert create_calls, "expected a channel create"
     assert create_calls[0].args[0].payload["visibility"] == "public"
+
+
+def test_add_issue_participants_persists_people_and_agents_without_starting_work(client, workspace, db, two_members):
+    issue = create(client, workspace)
+    url = path(workspace, f"/{issue['id']}/participants")
+    selection = [{"kind": "human", "id": "ANN@acme.test"}, {"kind": "agent", "id": "agent-alpha"}]
+    before = db.scalar(select(func.count()).select_from(Channel))
+    with patch("app.routers.issues._emit_event_blocking") as emit:
+        for _ in range(2):
+            response = client.post(url, headers=_bearer("ben"), json={"participants": selection})
+            assert response.status_code == 200, response.text
+        emit.assert_not_called()
+    saved = detail(client, workspace, issue)["participants"]
+    assert {p["source"] for p in saved} == {"human:alice", "human:ann@acme.test", "openagents:agent-alpha"}
+    assert next(p["name"] for p in saved if p["source"] == "human:ann@acme.test") == "Ann"
+    assert len(saved) == 3
+    assert db.scalar(select(func.count()).select_from(Channel)) == before
+    assert detail(client, workspace, issue)["status"] == "open"
+
+
+@pytest.mark.parametrize("person", [
+    {"kind": "human", "id": "outsider@example.com"},
+    {"kind": "agent", "id": "unregistered"},
+    {"kind": "group", "id": "all"},
+])
+def test_invalid_issue_participants_are_atomic(client, workspace, two_members, person):
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/participants"), headers=_bearer("ann"),
+                           json={"participants": [{"kind": "human", "id": "ben@acme.test"}, person]})
+    assert response.status_code == 422
+    assert [p["source"] for p in detail(client, workspace, issue)["participants"]] == ["human:alice"]
+
+
+def test_participants_cannot_be_added_to_another_workspace_issue(client, workspace):
+    issue = create(client, workspace)
+    data = client.post("/v1/workspaces", json={"name": "Other", "agent_name": "other-agent"}).json()["data"]
+    other = {"id": data["workspaceId"], "token": data["token"]}
+    response = client.post(path(other, f"/{issue['id']}/participants"), headers=headers(other),
+                           json={"participants": [{"kind": "agent", "id": "agent-alpha"}]})
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("content,source", [
+    ("Ordinary discussion", "human:alice"),
+    ("agent-alpha@example.com", "human:alice"),
+    ("@agent-alpha-longer investigate", "human:alice"),
+    ("`@agent-alpha` is a handle", "human:alice"),
+    ("> @agent-alpha quoted request", "human:alice"),
+    ("@agent-alpha investigate", "openagents:agent-beta"),
+])
+def test_non_direct_human_mentions_do_not_dispatch(client, workspace, content, source):
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    with patch("app.routers.issues._emit_event_blocking") as emit:
+        response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                               json={"content": content, "source": source})
+        assert response.status_code == 200
+        emit.assert_not_called()
+
+
+def test_remove_inferred_agent_prevents_future_mentions_and_readd_restores(client, workspace, db):
+    issue = create(client, workspace, channel_name=workspace["channel"]["name"])
+    before = detail(client, workspace, issue)
+    assert any(p["source"] == "openagents:agent-alpha" for p in before["participants"])
+    url = path(workspace, f"/{issue['id']}/participants/remove")
+    assert client.post(url, headers=headers(workspace), json={"kind": "agent", "id": "agent-alpha"}).status_code == 200
+    after = detail(client, workspace, issue)
+    assert all(p["source"] != "openagents:agent-alpha" for p in after["participants"])
+    assert after["threads"] == before["threads"]
+    with patch("app.routers.issues._emit_event_blocking") as emit:
+        client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace), json={"content": "@agent-alpha wait"})
+        emit.assert_not_called()
+    response = request_work(client, workspace, issue)
+    assert response.status_code == 200 and response.json()["data"].get("channel_name"), response.text
+    assert any(p["source"] == "openagents:agent-alpha" for p in detail(client, workspace, issue)["participants"])
+
+
+def test_mentioned_service_still_waits_for_reviewer(client, workspace, db, two_members, cloud_dispatch):
+    from app.models import ApprovalRequest
+    agent = db.get(WorkspaceMember, (workspace["id"], "agent-alpha"))
+    agent.request_approver_email = "ann@acme.test"
+    db.commit()
+    issue = create(client, workspace)
+    response = request_work(client, workspace, issue)
+    assert response.status_code == 200 and not response.json()["data"].get("dispatch_error"), response.text
+    approval = db.execute(select(ApprovalRequest).where(ApprovalRequest.kind == "service_request")).scalar_one()
+    assert approval.status == "pending" and approval.assignee_email == "ann@acme.test"
+    assert cloud_dispatch.call_args.args[1]["metadata"]["target_agents"] == ["__no_response__"]
+
+
+def test_only_added_mentioned_agents_receive_request_even_when_context_mentions_others(client, workspace, db, cloud_dispatch):
+    db.add(WorkspaceMember(workspace_id=workspace["id"], agent_name="agent-beta"))
+    db.commit()
+    issue = create(client, workspace, description="@agent-beta is mentioned in background context")
+    add_agents(client, workspace, issue)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                           json={"content": "Please investigate @agent-alpha. Ask @agent-beta later."})
+    assert response.status_code == 200 and response.json()["data"].get("channel_name"), response.text
+    event = cloud_dispatch.call_args.args[1]
+    assert event["metadata"]["target_agents"] == ["agent-alpha"]
+    assert detail(client, workspace, issue)["threads"][0]["agents"] == ["agent-alpha"]
+
+
+def test_assignment_handoffs_labels_and_paused(client, workspace, db, two_members):
+    issue = create(client, workspace, source='human:ann@acme.test')
+    url = path(workspace, f"/{issue['id']}")
+    response = client.patch(url, headers=_bearer('ann'), json={'assignee':'human:ben@acme.test','labels':['Bug','Bug',' API '],'status':'paused'})
+    assert response.status_code == 200, response.text
+    assert response.json()['data']['labels'] == ['Bug','API']
+    assert response.json()['data']['status'] == 'paused'
+    agent = db.get(WorkspaceMember, (workspace['id'], 'agent-alpha'))
+    agent.owner_email = 'ben@acme.test'
+    db.commit()
+    # Creator cannot delegate to somebody else's private agent.
+    assert client.patch(url, headers=_bearer('ann'), json={'assignee':'openagents:agent-alpha'}).status_code == 403
+    with patch('app.routers.issues._emit_event_blocking') as emit:
+        response = client.patch(url, headers=_bearer('ben'), json={'assignee':'openagents:agent-alpha'})
+        assert response.status_code == 200, response.text
+        emit.assert_not_called()
+    assert any(p['source'] == 'openagents:agent-alpha' for p in response.json()['data']['participants'])
+    # The assigned agent's owner retains the ability to hand work to a human.
+    assert client.patch(url, headers=_bearer('ben'), json={'assignee':'human:ann@acme.test'}).status_code == 200
+    assert client.patch(url, headers=_bearer('ben'), json={'assignee':None}).status_code == 403
+    assert client.patch(url, headers=_bearer('ann'), json={'labels':[' ']}).status_code == 422

@@ -1,5 +1,6 @@
 'use client';
 
+import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import {
@@ -163,7 +164,7 @@ export function AttachmentPicker({
             return (
               <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
                 {isImage && f ? (
-                  <img src={workspaceApi.getFileUrl(f.id)} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
+                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
                 ) : (
                   <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
                     <FileIcon className="size-4 text-muted-foreground" />

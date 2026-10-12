@@ -12,8 +12,8 @@ const CENTRAL = 'https://openagents.org';
 
 // NEXT_PUBLIC_INLINE_LOGIN=1 (build-time) makes every host behave like
 // localhost: sign in with the app's own Firebase popup instead of bouncing
-// through openagents.org. The central handoff always returns to the
-// production app, so a preview/staging domain cannot use it.
+// through openagents.org. Invitation acceptance explicitly uses central login
+// so every account provider is available and its return URL is preserved.
 const INLINE_LOGIN = process.env.NEXT_PUBLIC_INLINE_LOGIN === '1';
 
 function isLocalhost(): boolean {
@@ -26,11 +26,11 @@ function isLocalhost(): boolean {
  * session back to this workspace and returns to where they started.
  * @param fallbackSignIn used only on localhost (inline Firebase Google popup).
  */
-export function goToCentralLogin(fallbackSignIn?: () => void): void {
+export function goToCentralLogin(fallbackSignIn?: () => void, options?: { forceCentral?: boolean }): void {
   if (typeof window === 'undefined') return;
   const host = desktopHost();
   if (host) { host.signIn(); return; }
-  if (isLocalhost()) {
+  if (isLocalhost() && !options?.forceCentral) {
     fallbackSignIn?.();
     return;
   }
@@ -50,4 +50,16 @@ export async function goToCentralLogout(signOut: () => Promise<void>): Promise<v
   }
   if (typeof window === 'undefined' || isLocalhost() || desktopHost()) return;
   window.location.href = `${CENTRAL}/logout`;
+}
+
+/** Login route for protected pages; popup login must begin with a user click. */
+export function redirectToLogin(): void {
+  if (typeof window === 'undefined') return;
+  if (desktopHost()) { desktopHost()?.signIn(); return; }
+  if (isLocalhost() || window.location.hostname === 'workspace-preview.openagents.org') {
+    const returnTo = window.location.pathname + window.location.search + window.location.hash;
+    window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  } else {
+    goToCentralLogin();
+  }
 }

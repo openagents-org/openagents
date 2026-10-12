@@ -75,6 +75,14 @@ class EventRecord(Base):
 # Materialized state tables (projections maintained by mods)
 # ---------------------------------------------------------------------------
 
+class MessageReaction(Base):
+    __tablename__ = "message_reactions"
+    event_id = Column(Text, ForeignKey("events.id", ondelete="CASCADE"), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    emoji = Column(Text, primary_key=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
 class Workspace(Base):
     """A workspace = an ONM network."""
     __tablename__ = "workspaces"
@@ -137,9 +145,9 @@ class WorkspaceMember(Base):
     # The person who owns (teaches, funds, answers for) this agent. NULL on
     # legacy rows = the workspace's agent, nobody in particular.
     owner_email = Column(Text, nullable=True)
-    # "team"     → visible/usable by every workspace member (legacy default)
-    # "personal" → visible only to owner_email + rows in agent_grants
-    visibility = Column(Text, nullable=False, default="team", server_default=text("'team'"))
+    # "team"     → legacy mirror of an explicit everyone grant
+    # "personal" → private by default; owner can grant access to people/groups
+    visibility = Column(Text, nullable=False, default="personal", server_default=text("'personal'"))
     # Specialist profile shown in the team agent directory.
     purpose = Column(Text, nullable=True)
     example_requests = Column(JSONB, nullable=True)          # ["Deploy X to HyperPod", ...]
@@ -150,6 +158,7 @@ class WorkspaceMember(Base):
     allowed_knowledge = Column(JSONB, nullable=True)         # [knowledge slug, ...]
     # Whose credits/runtime a shared request spends: "owner" | "workspace" | "requester"
     cost_owner = Column(Text, nullable=True)
+    request_approver_email = Column(Text, nullable=True)
     # Live detail reported by the connector on heartbeat (v1.1 M3).
     presence_state = Column(Text, nullable=True)             # idle | working | NULL
     busy_channels = Column(JSONB, nullable=True)             # [channel_name, ...]
@@ -163,6 +172,25 @@ class WorkspaceMember(Base):
     )
 
 
+class AgentService(Base):
+    """A separately shared offering backed by an owner's private agent."""
+    __tablename__ = "agent_services"
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    agent_name = Column(Text, nullable=False)
+    owner_email = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="", server_default="")
+    instructions = Column(Text, nullable=False, default="", server_default="")
+    example_requests = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    required_inputs = Column(Text, nullable=True)
+    allowed_knowledge = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    request_approver_email = Column(Text, nullable=True)
+    cost_owner = Column(Text, nullable=False, default="owner", server_default="owner")
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    __table_args__ = (Index("idx_agent_services_workspace", "workspace_id"),)
+
+
 class Channel(Base):
     """A channel = session / thread (named event stream)."""
     __tablename__ = "channels"
@@ -170,6 +198,8 @@ class Channel(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)              # e.g. "session-{uuid}"
+    service_id = Column(Text, ForeignKey("agent_services.id", ondelete="SET NULL"), nullable=True)
+    pinned_artifact = Column(JSONB, nullable=True)  # {kind: file|knowledge|browser, id}
     title = Column(Text, nullable=True)
     title_manually_set = Column(Boolean, default=False, server_default=text("FALSE"))
     created_by = Column(Text, nullable=True)
@@ -182,6 +212,8 @@ class Channel(Base):
     #   "workflow" → a structured Workflow template drives the thread step by
     #                step (see workflow_id + the workflow_runs table)
     orchestration_mode = Column(Text, nullable=False, server_default=text("'dynamic'"))
+    # Whether conversation messages may proactively wake agents.
+    response_mode = Column(Text, nullable=False, default="proactive", server_default=text("'proactive'"))
     # Legacy free-text collaboration plan — superseded by structured workflows
     # (kept for backward compat; no longer authored in the UI).
     orchestration_instruction = Column(Text, nullable=True)
@@ -189,6 +221,8 @@ class Channel(Base):
     # run lives in workflow_runs, keyed by this channel's name.
     workflow_id = Column(Text, nullable=True)
     status = Column(Text, default="active")           # active | archived | deleted
+    # A shared browsing label only; routing, privacy, and membership are unchanged.
+    is_channel = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)
     # ── v1.1: privacy / ownership (permission model, migration 055) ────
@@ -204,6 +238,7 @@ class Channel(Base):
     owner_email = Column(Text, nullable=True)
     # Owner-controlled switch: may participants add people themselves?
     participants_can_invite = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+    members_can_add_agents = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
     # Who directs the work in a shared thread. Other humans' un-mentioned
     # messages are information, not instructions (v1.1 M5).
     director_email = Column(Text, nullable=True)
@@ -235,6 +270,16 @@ class ChannelMember(Base):
     __table_args__ = (
         PrimaryKeyConstraint("channel_id", "agent_name"),
     )
+
+
+class ChannelAgentSharing(Base):
+    """An owner's opt-in to share their agents with the current thread roster."""
+    __tablename__ = "channel_agent_sharing"
+
+    channel_id = Column(UUID(as_uuid=False), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True)
+    owner_email = Column(Text, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+    mode = Column(Text, nullable=False, default="no", server_default="no")
 
 
 class ChannelHumanMember(Base):
@@ -423,6 +468,8 @@ class Node(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    # Every connection has a human owner; re-pairing another account creates a new row.
+    owner_email = Column(Text, nullable=False, index=True)
     node_key = Column(Text, nullable=False)             # stable device id generated by the launcher
     # Per-node machine credential, minted at pairing redeem and REUSED on
     # re-pair (so running agents never blip). Deleting the row is real
@@ -454,7 +501,7 @@ class Node(Base):
     workspace = relationship("Workspace", back_populates="nodes")
 
     __table_args__ = (
-        UniqueConstraint("workspace_id", "node_key", name="uq_node_workspace_key"),
+        UniqueConstraint("workspace_id", "node_key", "owner_email", name="uq_node_workspace_key_owner"),
         Index("idx_nodes_workspace", "workspace_id"),
     )
 
@@ -512,12 +559,20 @@ class NodeCommand(Base):
 # Shared knowledge base
 # ---------------------------------------------------------------------------
 
+class KnowledgeFolder(Base):
+    """Shared organization only; visibility remains on each knowledge entry."""
+    __tablename__ = "knowledge_folders"
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
+    path = Column(Text, primary_key=True)
+
+
 class KnowledgeEntry(Base):
     """A knowledge base entry — workspace-global markdown document."""
     __tablename__ = "knowledge_entries"
 
     id = Column(Text, primary_key=True, default=_uuid)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    folder_path = Column(Text, nullable=False, default="", server_default="")
     slug = Column(Text, nullable=False)
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
@@ -750,12 +805,23 @@ class Issue(Base):
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False, default="", server_default="")
     status = Column(Text, nullable=False, default="open", server_default="open")
+    assignee = Column(Text, nullable=True)
+    assignee_name = Column(Text, nullable=True)
+    labels = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    participants = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     created_by = Column(Text, nullable=False)
     created_by_name = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
 
     __table_args__ = (Index("idx_issues_workspace_status", "workspace_id", "status"),)
+
+
+class IssueAgentSharing(Base):
+    __tablename__ = "issue_agent_sharing"
+    issue_id = Column(Text, ForeignKey("issues.id", ondelete="CASCADE"), primary_key=True)
+    owner_email = Column(Text, primary_key=True)
+    mode = Column(Text, nullable=False, default="no", server_default="no")
 
 
 class IssueComment(Base):
@@ -1004,7 +1070,7 @@ class NotificationRecord(Base):
     read_at = Column(DateTime(timezone=True), nullable=True)
     # v1.1: per-person inbox. NULL = addressed to the whole workspace (legacy).
     recipient_email = Column(Text, nullable=True)
-    kind = Column(Text, nullable=True)                      # approval | help | handoff | proposal | share | ...
+    kind = Column(Text, nullable=True)                      # approval | handoff | share | ...
     action_ref = Column(Text, nullable=True)                # e.g. approval id — makes the card actionable
 
     __table_args__ = (
@@ -1231,9 +1297,9 @@ class ApprovalRequest(Base):
     details = Column(Text, nullable=True)                  # command / diff summary / URL
     risk = Column(Text, nullable=True)                     # low | medium | high
     required_role = Column(Text, nullable=False, default="any", server_default=text("'any'"))  # any | admin | owner
-    # v1.1: a specific person who must resolve (the agent's owner for help
-    # requests and improvement proposals). Role still applies as a floor.
+    # A specific person who must resolve. Role still applies as a floor.
     assignee_email = Column(Text, nullable=True)
+    policy_requirements = Column(JSONB, nullable=True)  # frozen named reviewers and recorded decisions
     status = Column(Text, nullable=False, default="pending", server_default=text("'pending'"))
     resolved_by = Column(Text, nullable=True)
     resolved_by_role = Column(Text, nullable=True)
@@ -1257,8 +1323,9 @@ class ApprovalPolicy(Base):
     One row per (workspace, channel). ``channel_name = "*"`` is the workspace
     default; a channel row overrides it kind-by-kind. ``rules`` is a list of
     ``{"kind": str, "policy": str}`` where policy is one of
-    allow | any | admin | owner | block. Kinds absent from every row fall back
-    to the built-in defaults in ``app.services.approvals``.
+    allow | any | admin | owner | block. No built-in policies are installed.
+    Custom rules use ``kind="custom:<id>"`` and a natural-language
+    ``description``. Actions not covered by a saved policy are allowed.
     """
     __tablename__ = "approval_policies"
 
@@ -1409,3 +1476,19 @@ class AgentPin(Base):
     __table_args__ = (
         PrimaryKeyConstraint("workspace_id", "user_email", "agent_name"),
     )
+
+
+class ThreadPin(Base):
+    """A person's pinned thread; does not change anyone else's ordering."""
+    __tablename__ = "thread_pins"
+    channel_id = Column(UUID(as_uuid=False), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+
+
+class DirectThreadLink(Base):
+    """Opaque, workspace-scoped identity for a direct conversation."""
+    __tablename__ = "direct_thread_links"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    session_key = Column(Text, nullable=False)
+    __table_args__ = (UniqueConstraint("workspace_id", "session_key", name="uq_direct_thread_link"),)

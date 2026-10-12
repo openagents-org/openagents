@@ -1,5 +1,6 @@
 'use client';
 
+import { useFileObjectUrl } from '@/hooks/use-file-object-url';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
@@ -32,6 +33,7 @@ import {
   type FileKind,
 } from './file-utils';
 import { useFormatters, useT } from '@/lib/i18n';
+import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
 import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
 import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 import { AccessExplainer } from '@/components/sharing/access-explainer';
@@ -270,7 +272,8 @@ export function FilePreview() {
   const filename = file?.filename || '';
   const kind = file ? getFileKind(contentType, filename) : 'unknown';
   const strategy = file ? loadStrategyFor(kind, contentType, filename) : 'none';
-  const sourceUrl = file ? workspaceApi.getFileUrl(file.id) : '';
+  const media = useFileObjectUrl(strategy === 'url' ? file?.id : undefined);
+  const sourceUrl = strategy === 'url' ? (media.url || '') : (file ? workspaceApi.getFileUrl(file.id) : '');
   // Images don't have one — the picture wants the width, and its footer says
   // everything a column would have.
   const hasInfoPanel = kind === 'audio' || kind === 'video';
@@ -317,11 +320,7 @@ export function FilePreview() {
     let objectUrl: string | null = null;
     setLoading(true);
 
-    const headers: Record<string, string> = {};
-    const token = (workspaceApi as unknown as { token: string }).token;
-    if (token) headers['X-Workspace-Token'] = token;
-
-    fetch(workspaceApi.getFileUrl(file.id), { headers })
+    workspaceApi.fetchFile(file.id)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (strategy === 'text') {
@@ -349,7 +348,7 @@ export function FilePreview() {
   }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!file) {
-    return <FileGrid />;
+    return selectedFileId ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t("resourceLinks.unavailable")}</p><Button variant="outline" onClick={() => setSelectedFileId(null)}>{t("files.backToFiles")}</Button></div> : <FileGrid />;
   }
 
   const folderSegments = dirname(filename) ? dirname(filename).split('/') : [];
@@ -376,7 +375,7 @@ export function FilePreview() {
   };
 
   const renderBody = () => {
-    if (loading) {
+    if (loading || (strategy === 'url' && !media.url && !media.failed)) {
       return (
         <div className="flex h-full items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -384,12 +383,12 @@ export function FilePreview() {
       );
     }
 
-    if (error) {
+    if (error || (strategy === 'url' && media.failed)) {
       return (
         <UnsupportedStage
           filename={filename}
           contentType={contentType}
-          reason={error}
+          reason={error || t('files.loadFailed')}
           onDownload={handleDownload}
         />
       );
@@ -575,6 +574,7 @@ export function FilePreview() {
             <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
           </span>
         )}
+        <CopyResourceLink view="files" id={file.id} />
         <ArtifactSharePopover
           kind="file"
           id={file.id}

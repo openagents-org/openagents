@@ -1,21 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Lightbulb, Lock, MessageCircleQuestionMark, Send, ShieldAlert, User, X } from 'lucide-react';
+import { Check, Lock, ShieldAlert, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useMe } from '@/hooks/use-me';
 import { useFormatters, useT } from '@/lib/i18n';
-import { approvalActionBlockedReason, approvalKindClass, canActOnApproval } from '@/lib/approvals';
+import { approvalActionBlockedReason, canActOnApproval } from '@/lib/approvals';
 import { roleLabel } from '@/lib/roles';
 import type { MessageKey } from '@/lib/i18n/translate';
 import type { ApprovalRequest } from '@/lib/types';
 
 const KIND_KEYS: Record<string, MessageKey> = {
+  service_request: 'approvals.kinds.service_request',
+  thread_agent_request: 'approvals.kinds.agentAccess',
+  issue_agent_request: 'approvals.kinds.agentAccess',
   deploy: 'approvals.kinds.deploy',
   spend: 'approvals.kinds.spend',
   external_send: 'approvals.kinds.external_send',
@@ -24,23 +28,13 @@ const KIND_KEYS: Record<string, MessageKey> = {
   data_delete: 'approvals.kinds.data_delete',
   shell: 'approvals.kinds.shell',
   other: 'approvals.kinds.generic',
-  help: 'approvals.kinds.help',
-  proposal: 'approvals.kinds.proposal',
 };
 
-type Busy = 'approve' | 'reject' | 'answer' | null;
+type Busy = 'approve' | 'reject' | null;
 
 /**
  * The approval gate, rendered where the work is — inline in the thread, and
  * (v1.1) expanded from an inbox row.
- *
- * Three faces, chosen by `kindClass`:
- *   - `approval` — an agent asking permission for a policy-gated action
- *     (Approve / Reject, optional note). Unchanged from v1.0.
- *   - `help` — an agent asking its owner (or the workspace) a question; the
- *     answer is typed here and reaches the agent as an @mention.
- *   - `proposal` — an agent proposing a change to its shared instructions;
- *     Accept appends it, Decline leaves them alone.
  *
  * The card starts from the snapshot the agent's message carried, then tracks
  * the live record: while the workspace still lists this id as pending it stays
@@ -58,6 +52,8 @@ export function ApprovalCard({
   const t = useT();
   const { formatTime } = useFormatters();
   const { workspace, pendingApprovals, refreshApprovals } = useWorkspace();
+  const team = useTeamRoster();
+  const personName = (email: string) => team.find(person => person.email.toLowerCase() === email.replace(/^human:/, '').toLowerCase())?.displayName || email;
   const me = useMe(workspace?.slug || workspace?.workspaceId);
 
   const [approval, setApproval] = useState(initial);
@@ -68,31 +64,37 @@ export function ApprovalCard({
   // Live status: pending list is the cheap signal; the record is the truth.
   const stillPending = pendingApprovals.some((a) => a.id === approval.id);
   useEffect(() => {
-    if (approval.status !== 'pending' || stillPending) return;
+    if (approval.status !== 'pending') return;
+    const pending = pendingApprovals.find((a) => a.id === approval.id);
+    if (pending) {
+      setApproval(pending);
+      return;
+    }
     let cancelled = false;
     workspaceApi.getApproval(approval.id)
       .then((fresh) => { if (!cancelled && fresh.status !== 'pending') setApproval(fresh); })
       .catch(() => {});
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stillPending, approval.status, approval.id]);
+  }, [pendingApprovals, stillPending, approval.status, approval.id]);
 
-  const kindClass = approval.kindClass ?? approvalKindClass(undefined, approval.kind);
   const requireLogin = Boolean(workspace?.requireLogin);
   const canDecide = canActOnApproval(me, approval, requireLogin);
   const blocked = approvalActionBlockedReason(me, approval, requireLogin);
 
-  const roleText = approval.requiredRole === 'admin'
+  const baseRoleText = approval.requiredRole === 'admin'
     ? t('approvals.roleAdmin')
     : approval.requiredRole === 'owner' ? t('approvals.roleOwner') : t('approvals.roleAny');
 
+  const requirements = approval.policyRequirements;
+  const roleText = requirements?.members.length ? requirements.members.map(personName).join(', ') + (requirements.role_required ? ` + ${baseRoleText}` : '') : baseRoleText;
+
   // Who this is for: the named assignee, else the agent's owner, else the role.
   const addressee = approval.assigneeEmail ?? approval.ownerEmail ?? null;
-  const addresseeText = addressee ?? roleText;
+  const addresseeText = addressee ? personName(addressee) : roleText;
   const myEmail = me?.email?.trim().toLowerCase() ?? null;
-  const addressedToMe = !addressee || (myEmail !== null && addressee.trim().toLowerCase() === myEmail);
 
-  const whoResolved = approval.resolvedBy === 'token' ? t('approvals.tokenHolder') : (approval.resolvedBy || '');
+  const whoResolved = approval.resolvedBy === 'token' ? t('approvals.tokenHolder') : personName(approval.resolvedBy || '');
 
   const finish = (fresh: ApprovalRequest) => {
     setApproval(fresh);
@@ -120,19 +122,6 @@ export function ApprovalCard({
     }
   };
 
-  const answer = async () => {
-    const text = note.trim();
-    if (!text) { toast.error(t('approvals.answerRequired')); return; }
-    setBusy('answer');
-    try {
-      finish(await workspaceApi.answerApproval(approval.id, text));
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const kindLabel = t(KIND_KEYS[approval.kind] ?? 'approvals.kinds.generic');
 
   const isPending = approval.status === 'pending';
@@ -141,14 +130,7 @@ export function ApprovalCard({
     : approval.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground';
 
   // ---- Header ----------------------------------------------------------------
-  const HeaderIcon = kindClass === 'help' ? MessageCircleQuestionMark : kindClass === 'proposal' ? Lightbulb : Lock;
-  const headerText = kindClass === 'help'
-    ? (addressedToMe
-      ? t('approvals.helpAsksYou', { agent: approval.requestedBy })
-      : t('approvals.helpAsks', { agent: approval.requestedBy, who: addresseeText }))
-    : kindClass === 'proposal'
-      ? t('approvals.proposalTitle', { agent: approval.requestedBy })
-      : `${t('approvals.requested')} · ${approval.action}`;
+  const headerText = `${t('approvals.requested')} · ${approval.action}`;
 
   // ---- Verdict line ------------------------------------------------------------
   const verdictText = (() => {
@@ -158,16 +140,14 @@ export function ApprovalCard({
     }
     if (approval.status === 'expired') return t('approvals.expired');
     const ok = approval.status === 'approved';
-    if (kindClass === 'help') return ok ? t('approvals.answeredBy', { who: whoResolved }) : t('approvals.declinedBy', { who: whoResolved });
-    if (kindClass === 'proposal') return ok ? t('approvals.acceptedBy', { who: whoResolved }) : t('approvals.notAdoptedBy', { who: whoResolved });
     return ok ? t('approvals.approvedBy', { who: whoResolved }) : t('approvals.rejectedBy', { who: whoResolved });
   })();
 
-  // For an answered question the answer *is* the resolution — show it on the
-  // same line ("Answered by X: …"); other notes stay a quoted afterthought.
-  const inlineAnswer = kindClass === 'help' && approval.status === 'approved' && approval.note;
-
-  const blockedHint = blocked === 'signIn'
+  const blockedHint = requirements?.approved_by.includes(myEmail || '')
+    ? t('approvals.yourApprovalRecorded')
+    : requirements?.members.length && blocked
+    ? t('approvals.waitingReviewers', { people: roleText })
+    : blocked === 'signIn'
     ? t('approvals.signInHint')
     : blocked === 'assignee'
       ? t('approvals.assigneeHint', { who: addresseeText })
@@ -180,20 +160,20 @@ export function ApprovalCard({
         isPending ? 'border-amber-300/70 dark:border-amber-500/40' : 'border-border',
       )}
       data-testid="approval-card"
-      data-kind-class={kindClass}
+      data-kind-class="approval"
     >
       {/* Header */}
       <div className={cn(
         'flex items-center gap-2 px-3.5 py-2 text-xs font-semibold',
         isPending ? 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-muted/60 text-foreground',
       )}>
-        <HeaderIcon className="size-3.5 shrink-0" />
+        <Lock className="size-3.5 shrink-0" />
         <span className="truncate">{headerText}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <span className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {kindLabel}
           </span>
-          {kindClass === 'approval' && approval.risk && (
+          {approval.risk && (
             <span className={cn(
               'rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
               approval.risk === 'high'
@@ -210,80 +190,38 @@ export function ApprovalCard({
 
       {/* Body */}
       <div className="space-y-2.5 px-3.5 py-3">
-        {/* help: the question itself; proposal: the one-line summary */}
-        {kindClass === 'help' && (
-          <p className="text-sm font-medium leading-snug text-foreground">{approval.question ?? approval.action}</p>
-        )}
-        {kindClass === 'proposal' && (
-          <p className="text-sm font-medium leading-snug text-foreground">{approval.action}</p>
-        )}
-
         {approval.details && (
-          <div className="space-y-1">
-            {kindClass === 'proposal' && (
-              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('approvals.proposedText')}</div>
-            )}
-            <pre className={cn(
-              'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed',
-              kindClass === 'help' ? 'text-muted-foreground' : 'text-foreground/90',
-            )}>
-              {approval.details}
-            </pre>
-          </div>
+          <pre className={cn(
+            'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed',
+            'text-foreground/90',
+          )}>
+            {approval.details}
+          </pre>
         )}
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {kindClass === 'approval' ? (
-            <span className="inline-flex items-center gap-1">
-              <ShieldAlert className="size-3.5" />
-              {t('approvals.needs', { role: roleText })}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <User className="size-3.5" />
-              {t('approvals.addressedTo', { who: addresseeText })}
-            </span>
-          )}
+          <span className="inline-flex items-center gap-1">
+            <ShieldAlert className="size-3.5" />
+            {t('approvals.needs', { role: roleText })}
+          </span>
           {approval.requesterEmail && (
-            <span>{t('approvals.onBehalfOf', { who: approval.requesterEmail })}</span>
+            <span>{t('approvals.onBehalfOf', { who: personName(approval.requesterEmail) })}</span>
           )}
           {verdictText && (
             <span className={cn('font-medium', verdictTone)}>
               {verdictText}
-              {inlineAnswer && <span className="font-normal text-foreground">: “{approval.note}”</span>}
               {approval.resolvedAt && <span className="font-normal text-muted-foreground"> · {formatTime(approval.resolvedAt)}</span>}
             </span>
           )}
         </div>
 
-        {!isPending && approval.note && approval.resolvedBy !== 'policy' && !inlineAnswer && (
+        {!isPending && approval.note && approval.resolvedBy !== 'policy' && (
           <p className="text-xs italic text-muted-foreground">“{approval.note}”</p>
         )}
 
+        {!!requirements?.approved_by.length && <p className="text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: requirements.approved_by.map(personName).join(', ') })}</p>}
         {/* Decision */}
-        {isPending && canDecide && kindClass === 'help' && (
-          <div className="space-y-2 pt-0.5">
-            <Textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={t('approvals.answerPlaceholder', { agent: approval.requestedBy })}
-              rows={2}
-              className="text-sm"
-              data-testid="approval-answer"
-            />
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="h-8 gap-1.5" disabled={busy !== null || !note.trim()} onClick={answer}>
-                <Send className="size-3.5" />
-                {busy === 'answer' ? t('approvals.sending') : t('approvals.answer')}
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy !== null} onClick={() => decide('reject')}>
-                <X className="size-3.5" />
-                {busy === 'reject' ? t('approvals.sending') : t('approvals.declineHelp')}
-              </Button>
-            </div>
-          </div>
-        )}
-        {isPending && canDecide && kindClass !== 'help' && (
+        {isPending && canDecide && (
           <div className="space-y-2 pt-0.5">
             {showNote && (
               <Textarea
@@ -299,13 +237,13 @@ export function ApprovalCard({
                 <Check className="size-3.5" />
                 {busy === 'approve'
                   ? t('approvals.sending')
-                  : kindClass === 'proposal' ? t('approvals.accept') : t('approvals.approve')}
+                  : t('approvals.approve')}
               </Button>
               <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy !== null} onClick={() => decide('reject')}>
                 <X className="size-3.5" />
                 {busy === 'reject'
                   ? t('approvals.sending')
-                  : kindClass === 'proposal' ? t('approvals.declineProposal') : t('approvals.reject')}
+                  : t('approvals.reject')}
               </Button>
               {!showNote && (
                 <button

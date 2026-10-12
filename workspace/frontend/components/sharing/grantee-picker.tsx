@@ -164,7 +164,7 @@ export function GranteePicker({
             {placeholder || t('groups.pickerPlaceholder')}
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-72 p-0">
+        <PopoverContent align="start" className="z-70 w-[var(--radix-popover-trigger-width)] min-w-72 p-0">
           <Command loop>
             <CommandInput placeholder={t('groups.pickerSearch')} />
             {offered.length > 1 && (

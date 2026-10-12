@@ -85,6 +85,8 @@ def _owner_for(viewer, source: Optional[str]) -> Optional[str]:
 
 
 def _visibility_for(viewer, channel_name: Optional[str], requested: Optional[str]) -> Optional[str]:
+    if requested == "inherit" and channel_name:
+        return None
     v = normalize_visibility(requested)
     if v in ("private", "public"):
         return v

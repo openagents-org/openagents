@@ -35,13 +35,14 @@ export function issueMentionOptions({
   onlineUsers?: OnlineUser[];
   currentUser: { id: string; name: string };
   issue?:
-    | (WorkspaceIssue & Partial<Pick<IssueDetail, 'comments' | 'threads'>>)
+    | (WorkspaceIssue & Partial<Pick<IssueDetail, 'comments' | 'threads' | 'participants'>>)
     | null;
 }): IssueMention[] {
   const people = new Map<string, IssueMention>();
   const add = (source: string, name: string) =>
     people.set(source, issueMention(source, name));
   if (issue) {
+    issue.participants?.forEach((p) => add(p.source, p.name));
     add(
       issue.created_by,
       issue.created_by_name ||

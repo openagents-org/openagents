@@ -32,10 +32,11 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from sqlalchemy import event, or_, select
+from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AgentService,
     Channel,
     ChannelHumanMember,
     ChannelMember,
@@ -55,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 RIGHTS = ("read", "act", "share")
 DEFAULT_RIGHTS = ["read", "act"]
-RESOURCE_KINDS = ("channel", "agent", "file", "knowledge", "browser_context")
+RESOURCE_KINDS = ("service", "channel", "agent", "file", "knowledge", "browser_context")
 GRANTEE_KINDS = ("human", "agent", "group")
 PRINCIPAL_KINDS = ("human", "agent")
 BUILTIN_GROUPS = (("everyone", "Everyone"), ("guest", "Guests"))
@@ -263,6 +264,18 @@ def role_for_email(db: Session, workspace: Workspace, email: Optional[str]) -> O
     return None
 
 
+def can_manage_thread_settings(db, principal, channel):
+    """Normal thread controls require ownership or an admin who has joined."""
+    if principal.machine:
+        return True
+    email = principal.owner_email if principal.is_agent else principal.email
+    if not email:
+        return False
+    if email == _norm(channel.owner_email):
+        return True
+    return principal.is_admin and email in channel_participant_emails(db, channel)
+
+
 def resolve_principal(db: Session, workspace: Union[Workspace, str, None], token: Optional[str],
                       authorization: Optional[str], agent_name: Optional[str] = None) -> Principal:
     """A signed-in person is a person even when the client also sends the
@@ -278,6 +291,9 @@ def resolve_principal(db: Session, workspace: Union[Workspace, str, None], token
             from app.access import resolve_user_role
             role = resolve_user_role(db, ws, authorization)
         return Principal("human", email=email, role=role, workspace_id=wid)
+    # A failed/expired person credential must never become a privileged machine.
+    if authorization:
+        return Principal("human", email=None, workspace_id=wid)
     if token and is_machine_caller(ws, token, db):
         name = _clean_agent_name(agent_name) or get_request_agent_name()
         if name and wid:
@@ -368,25 +384,6 @@ def _ensure_builtin_groups_conn(connection, workspace_id: str) -> Dict[str, str]
             out[kind] = row[0]
     return out
 
-
-@event.listens_for(WorkspaceMember, "after_insert")
-def _grant_everyone_on_new_agent(mapper, connection, member: WorkspaceMember) -> None:
-    """Every new agent starts usable by `everyone` (rights ["act"]); the owner
-    may revoke that grant. Done at INSERT time for every creation path (join,
-    workspace create, cloud agents, Yumi) so "no grants" always means "the
-    owner revoked everyone", never "nobody got around to it"."""
-    try:
-        groups = _ensure_builtin_groups_conn(connection, member.workspace_id)
-        everyone = groups.get("everyone")
-        if not everyone:
-            return
-        connection.execute(ResourceGrant.__table__.insert().values(
-            id=str(uuid.uuid4()), workspace_id=str(member.workspace_id), resource_kind="agent",
-            resource_id=member.agent_name, grantee_kind="group", grantee_id=everyone, rights=["act"],
-            granted_by="system", note="default", created_at=_now(),
-        ))
-    except Exception:  # never let the default grant break an agent join
-        logger.warning("access_model: default everyone grant failed for %s", member.agent_name, exc_info=True)
 
 
 def workspace_human_roles(db: Session, workspace: Workspace) -> Dict[str, str]:
@@ -569,6 +566,9 @@ def resource_for_knowledge(entry: KnowledgeEntry) -> Resource:
 
 def load_resource(db: Session, workspace_id: str, kind: str, resource_id: str) -> Optional[Resource]:
     wid = str(workspace_id)
+    if kind == "service":
+        service = db.execute(select(AgentService).where(AgentService.workspace_id == wid, AgentService.id == resource_id)).scalar_one_or_none()
+        return Resource("service", service.id, f"human:{service.owner_email}", None, obj=service) if service else None
     if kind == "channel":
         ch = db.execute(select(Channel).where(Channel.workspace_id == wid, Channel.name == resource_id,
                                               Channel.status != "deleted")).scalar_one_or_none()
@@ -685,12 +685,6 @@ def revoke_grants(db: Session, workspace_id: str, *, resource_kind: str, resourc
     return n
 
 
-def ensure_default_agent_grant(db: Session, workspace_id: str, agent_name: str) -> None:
-    """Explicit twin of the after_insert hook, for callers that re-activate a
-    removed agent and want it usable again."""
-    groups = get_or_create_builtin_groups(db, workspace_id)
-    create_grant(db, workspace_id, resource_kind="agent", resource_id=agent_name, grantee_kind="group",
-                 grantee_id=groups["everyone"].id, rights=["act"], granted_by="system", note="default")
 
 
 # ---------------------------------------------------------------------------
@@ -763,8 +757,38 @@ def _owner_principal(db: Session, workspace_id: str, principal: Principal) -> Op
     return Principal("human", email=principal.owner_email, role=role, workspace_id=str(workspace_id))
 
 
+def thread_shared_agent_names(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
+    """Agents opted in by their owner, shared only with current thread members.
+
+    This grants read/act, never share. Existing grants are independent. Removing
+    either person or the agent from the thread ends this path to access.
+    """
+    from sqlalchemy.orm import aliased
+    from app.models import ChannelAgentSharing
+    email = principal.owner_email if principal.is_agent else principal.email
+    if not email:
+        return set()
+    recipient = aliased(ChannelHumanMember)
+    owner = aliased(ChannelHumanMember)
+    return set(db.execute(
+        select(WorkspaceMember.agent_name)
+        .join(ChannelMember, ChannelMember.agent_name == WorkspaceMember.agent_name)
+        .join(Channel, Channel.id == ChannelMember.channel_id)
+        .join(ChannelAgentSharing, ChannelAgentSharing.channel_id == Channel.id)
+        .join(recipient, recipient.channel_id == Channel.id)
+        .join(owner, owner.channel_id == Channel.id)
+        .where(Channel.workspace_id == str(workspace_id),
+               WorkspaceMember.workspace_id == str(workspace_id),
+               WorkspaceMember.status != "removed",
+               ChannelAgentSharing.enabled.is_(True),
+               ChannelAgentSharing.owner_email == func.lower(WorkspaceMember.owner_email),
+               owner.user_email == ChannelAgentSharing.owner_email,
+               recipient.user_email == email)
+    ).scalars().all())
+
+
 def explain(db: Session, principal: Principal, resource: Resource, right: str = "read",
-            workspace_id: Optional[str] = None, _depth: int = 0) -> Explanation:
+            workspace_id: Optional[str] = None, _depth: int = 0, include_thread_sharing: bool = True) -> Explanation:
     """Why may (or may not) the principal exercise `right` on `resource`."""
     wid = str(workspace_id or principal.workspace_id or "")
     if principal.machine:
@@ -797,10 +821,14 @@ def explain(db: Session, principal: Principal, resource: Resource, right: str = 
             name = grp.name if grp else "a group"
             return Explanation(True, f"group:{name}", f"Granted to the group “{name}”, which includes you.")
 
+    if include_thread_sharing and resource.kind == "agent" and right in ("read", "act") and wid:
+        if resource.id in thread_shared_agent_names(db, wid, principal):
+            return Explanation(True, "thread_sharing", "The owner shared this agent with the people in your thread.")
+
     if principal.kind == "agent" and _depth == 0:
         owner = _owner_principal(db, wid, principal)
         if owner is not None:
-            inner = explain(db, owner, resource, right, wid, _depth=1)
+            inner = explain(db, owner, resource, right, wid, _depth=1, include_thread_sharing=include_thread_sharing)
             if inner.allowed:
                 return Explanation(True, "inherited_from_owner",
                                    f"Your owner ({owner.email}) can access this ({inner.reason}); you inherit it.")
@@ -828,6 +856,8 @@ def can_manage(db: Session, principal: Principal, resource: Resource, workspace_
     """May the principal change visibility / grants of this resource: owner,
     admin, machine, or a holder of the `share` right."""
     wid = str(workspace_id or principal.workspace_id or "")
+    if resource.kind in ("agent", "service"):
+        return _owner_matches(db, wid, principal, resource.owner)
     if principal.machine or (principal.kind == "human" and principal.is_admin):
         return True
     if _owner_matches(db, wid, principal, resource.owner):
@@ -893,6 +923,10 @@ def hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -
     return {name for cid, name, _ in private if cid not in visible_ids and name not in visible_names}
 
 
+def can_start_agent_thread(db, workspace_id, principal, member):
+    return explain(db, principal, resource_for_agent(member), "act", workspace_id, include_thread_sharing=False).allowed
+
+
 def can_use_agent(db: Session, workspace_id: str, principal: Principal, member: WorkspaceMember) -> bool:
     """May this principal see/mention/start requests with the agent?"""
     if principal.machine:
@@ -923,7 +957,7 @@ def hidden_agent_names(db: Session, workspace_id: str, principal: Principal,
         emails.add(principal.email)
     if principal.kind == "agent" and principal.owner_email:
         emails.add(principal.owner_email)
-    granted: Set[str] = set()
+    granted: Set[str] = thread_shared_agent_names(db, wid, principal)
     pairs = _identity_pairs(db, wid, principal)
     for g in grants_for_pairs(db, wid, pairs, "agent", [m.agent_name for m in members]):
         if _has_right(g.rights, "read"):
@@ -960,7 +994,7 @@ def filter_files(db: Session, workspace_id: str, principal: Principal,
         return list(records)
     wid = str(workspace_id)
     hidden_channels = hidden_channel_names(db, wid, principal)
-    granted: Set[str] = set()
+    granted: Set[str] = thread_shared_agent_names(db, wid, principal)
     pairs = _identity_pairs(db, wid, principal)
     for g in grants_for_pairs(db, wid, pairs, "file", [r.id for r in records]):
         if _has_right(g.rights, "read"):
@@ -984,7 +1018,7 @@ def filter_knowledge(db: Session, workspace_id: str, principal: Principal,
     if principal.machine or not entries:
         return list(entries)
     wid = str(workspace_id)
-    granted: Set[str] = set()
+    granted: Set[str] = thread_shared_agent_names(db, wid, principal)
     pairs = _identity_pairs(db, wid, principal)
     for g in grants_for_pairs(db, wid, pairs, "knowledge", [e.id for e in entries]):
         if _has_right(g.rights, "read"):

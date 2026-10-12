@@ -1,5 +1,7 @@
 'use client';
 
+import { toast } from 'sonner';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
@@ -15,7 +17,7 @@ import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
 import { Square } from 'lucide-react';
 import type { WorkspaceMessage, WorkspaceSession } from '@/lib/types';
-import { pendingResponderName } from '@/lib/pending-responder';
+import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
 
 interface MonitorOverlayProps {
   sessionId: string;
@@ -149,7 +151,10 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         metadata: { _userContent: userContent },
       };
 
-      setOptimisticMessages([userOptimisticMsg, loadingOptimisticMsg]);
+      setOptimisticMessages([
+        userOptimisticMsg,
+        ...(expectsAgentResponse({ content, mentions, mentionedHumans, responseMode: /^(?:dm|routines?|task):/.test(sessionId) ? undefined : session.responseMode || 'proactive' }) ? [loadingOptimisticMsg] : []),
+      ]);
       setScrollKey((k) => k + 1);
 
       try {
@@ -166,7 +171,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           }));
         }
 
-        await workspaceApi.sendMessage(
+        const sent = await workspaceApi.sendMessage(
           sessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
           currentUser.name,
@@ -175,12 +180,16 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           currentUser.id,
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
+        if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
+        if (Array.isArray(sent.metadata?.target_agents) && sent.metadata.target_agents.includes('__no_response__')) {
+          setOptimisticMessages((prev) => prev.filter((m) => m.messageId !== loadingOptimisticMsg.messageId));
+        }
         forceRefresh();
       } catch {
         setOptimisticMessages([]);
       }
     },
-    [sessionId, currentUser.id, currentUser.name, forceRefresh, agents, session.participants, session.master]
+    [sessionId, currentUser.id, currentUser.name, forceRefresh, agents, session.participants, session.master, session.responseMode]
   );
 
   return (
@@ -252,7 +261,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           {/* Input */}
           <div className="px-4 py-3 border-t">
             <div className="max-w-3xl mx-auto w-full">
-              <ChatInput onSend={handleSend} agents={agents} disabled={!currentUser.name.trim()} focusKey={focusKey} onCreateRoutine={() => setShowCreateRoutine(true)} />
+              <ChatInput conversationId={sessionId} onSend={handleSend} agents={agents} disabled={!currentUser.name.trim()} focusKey={focusKey} onCreateRoutine={() => setShowCreateRoutine(true)} />
             </div>
           </div>
         </div>

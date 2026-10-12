@@ -2,9 +2,8 @@
 
 // ── v1.1 M1 — agents half of the unified Members roster ──────────────────────
 // The people list above it is unchanged; this section lists every agent from
-// discover with owner / visibility / status-runtime / node. Owners, admins and
-// the agent's own owner may change owner and Personal/Team (PATCH members); a
-// member may claim an unowned agent.
+// discover with ownership, sharing and availability. Connected agents inherit
+// their device connection owner; sharing is managed through Services.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Cloud, Loader2, Monitor, UserRoundPlus } from 'lucide-react';
@@ -141,7 +140,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
 
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                   {/* Owner */}
-                  {manage ? (
+                  {manage && !agent.nodeId ? (
                     <Select
                       value={agent.ownerEmail || NO_OWNER}
                       disabled={busy}
@@ -173,30 +172,13 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                     </span>
                   )}
 
-                  {/* Visibility */}
-                  {manage ? (
-                    <Select
-                      value={agent.visibility || 'team'}
-                      disabled={busy}
-                      onValueChange={(v) => patch(agent, { visibility: v as AgentVisibility }, 'collab.visibilitySaved')}
-                    >
-                      <SelectTrigger className="h-8 w-28 shrink-0 text-xs" aria-label={t('collab.visibility')}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="team">{t('collab.visibilityTeam')}</SelectItem>
-                        <SelectItem value="personal">{t('collab.visibilityPersonal')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Badge
-                      variant={agent.visibility === 'personal' ? 'info' : 'secondary'}
-                      appearance="light"
-                      size="sm"
-                    >
-                      {agent.visibility === 'personal' ? t('collab.visibilityPersonal') : t('collab.visibilityTeam')}
-                    </Badge>
-                  )}
+                  <Badge
+                    variant={agent.visibility === 'personal' ? 'info' : 'secondary'}
+                    appearance="light"
+                    size="sm"
+                  >
+                    {agent.visibility === 'personal' ? t('collab.visibilityPersonal') : t('collab.visibilityTeam')}
+                  </Badge>
                   {busy && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
                 </div>
               </div>

@@ -390,7 +390,7 @@ class WorkspaceClient {
    * previous session fails (the channel's chat history is the only thing
    * that survives a session-storage rotation).
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc' } = {}) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc', before, timeout, throwOnError = false } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
@@ -399,14 +399,16 @@ class WorkspaceClient {
         sort,
         limit: String(limit),
       });
-      const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
+      if (before) params.set('before', before);
+      const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token), timeout);
       const result = data.data || data;
       const events = (result && result.events) || [];
       // A desc window arrives newest-first; reverse so the caller always gets
       // chronological order. An asc window is already chronological.
       const ordered = sort === 'asc' ? events.slice() : events.slice().reverse();
       return ordered.map((e) => this._eventToMessage(e));
-    } catch {
+    } catch (error) {
+      if (throwOnError) throw error;
       return [];
     }
   }
@@ -655,7 +657,7 @@ class WorkspaceClient {
    * Upload a file via POST /v1/files/base64.
    */
   async uploadFile(workspaceId, token, filename, contentBase64, {
-    contentType = 'application/octet-stream', source = 'human:user', channelName,
+    contentType = 'application/octet-stream', source = 'human:user', channelName, visibility,
   } = {}) {
     const body = {
       filename,
@@ -665,6 +667,7 @@ class WorkspaceClient {
       source,
     };
     if (channelName) body.channel_name = channelName;
+    if (visibility) body.visibility = visibility;
 
     const data = await this._post('/v1/files/base64', body, this._wsHeaders(token), 60000);
     return data.data || data;
@@ -1010,6 +1013,7 @@ class WorkspaceClient {
       sessionId,
       senderType: isHuman ? 'human' : 'agent',
       senderName,
+      senderDisplayName: payload.sender_display_name || (event.metadata || {}).sender_display_name || null,
       content: (payload.content || event.content || ''),
       mentions: payload.mentions || [],
       messageType: payload.message_type || 'chat',
@@ -1057,33 +1061,6 @@ class WorkspaceClient {
     if (requester_email) body.requester_email = requester_email;
     const data = await this._post('/v1/approvals', body, this._wsHeaders(token));
     return data.data || data;
-  }
-
-  /** v1.1 M3 — ask the agent's owner a question (kind=help). The backend
-   * routes it to `owner_email`; the record stays pending until answered. */
-  async askOwner(workspaceId, token, { channel, question, details, source, requester_email } = {}) {
-    return this.createApproval(workspaceId, token, {
-      channel,
-      kind: 'help',
-      action: question,
-      details,
-      source,
-      requester_email,
-    });
-  }
-
-  /** v1.1 M3 — propose a change to the owner-reviewed shared instructions
-   * (kind=proposal). `summary` is the one-line label, `proposal` the text
-   * that is appended on approval. */
-  async proposeImprovement(workspaceId, token, { channel, summary, proposal, source, requester_email } = {}) {
-    return this.createApproval(workspaceId, token, {
-      channel,
-      kind: 'proposal',
-      action: summary,
-      details: proposal,
-      source,
-      requester_email,
-    });
   }
 
   async getApproval(workspaceId, token, approvalId) {

@@ -133,7 +133,7 @@ describe('shared context for a teammate\'s request', () => {
 
   it('buildSharedContextBlock renders the header, instructions and knowledge', () => {
     const block = buildSharedContextBlock(ctx);
-    assert.match(block, /^OWNER-REVIEWED SHARED INSTRUCTIONS \(this request comes from a teammate, not your owner; follow these, do not use unrelated private context, and if the request falls outside them ask your owner with workspace_ask_owner\):/);
+    assert.match(block, /^OWNER-REVIEWED SHARED INSTRUCTIONS \(this request comes from a teammate, not your owner; follow these, do not use unrelated private context, and if the request falls outside them pause and ask for clarification in the thread\):/);
     assert.match(block, /Deploy only to staging\./);
     assert.match(block, /HyperPod runbook \(@knowledge:runbook\)/);
     assert.match(block, /kubectl apply/);

@@ -1,8 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { Eye, EyeOff, FileCode2, Maximize2, MessageSquareReply } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Eye, FileCode2, MessageSquareReply } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { buildRevisionPrompt } from '@/lib/brief';
 import { prefillComposer } from './composer-prefill';
@@ -14,21 +12,13 @@ interface HtmlArtifactPreviewProps {
   url: string;
   /** Agent that posted the message, or null for a human upload. */
   senderAgentName: string | null;
-  /** Existing "open in the Files pane" behaviour. */
+  /** Open this artifact in the thread preview panel. */
   onOpenFull: (fileId: string) => void;
 }
 
-const PREVIEW_HEIGHT = 360;
-
-/**
- * v1.1 M5 — an HTML artifact rendered inline, collapsed by default.
- * The iframe is sandboxed WITHOUT allow-same-origin: scripts may run (charts,
- * interactive reports) but the document cannot read the app's storage or
- * cookies, or reach the workspace API as the signed-in user.
- */
-export function HtmlArtifactPreview({ fileId, filename, url, senderAgentName, onOpenFull }: HtmlArtifactPreviewProps) {
+/** Open HTML outputs alongside the conversation; rendering lives in ArtifactContent. */
+export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenFull }: HtmlArtifactPreviewProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
 
   const requestRevision = () => {
     prefillComposer(buildRevisionPrompt(senderAgentName, filename));
@@ -44,24 +34,12 @@ export function HtmlArtifactPreview({ fileId, filename, url, senderAgentName, on
         </span>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
-          className={cn(
-            'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors',
-            open ? 'border-primary/30 bg-primary/5 text-primary' : 'bg-background hover:bg-muted',
-          )}
-          aria-expanded={open}
-        >
-          {open ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-          {open ? t('artifact.hidePreview') : t('artifact.preview')}
-        </button>
-        <button
-          type="button"
           onClick={() => onOpenFull(fileId)}
           className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-          title={t('artifact.openFull')}
+          title={t('artifactPanel.open')}
         >
-          <Maximize2 className="size-3.5" />
-          <span className="hidden sm:inline">{t('artifact.openFull')}</span>
+          <Eye className="size-3.5" />
+          {t('artifact.preview')}
         </button>
         <button
           type="button"
@@ -73,19 +51,7 @@ export function HtmlArtifactPreview({ fileId, filename, url, senderAgentName, on
           <span className="hidden sm:inline">{t('artifact.requestRevision')}</span>
         </button>
       </div>
-      {open && (
-        <div className="border-t">
-          <iframe
-            src={url}
-            title={filename}
-            sandbox="allow-scripts"
-            referrerPolicy="no-referrer"
-            className="block w-full border-0 bg-white"
-            style={{ height: PREVIEW_HEIGHT }}
-          />
-          <div className="px-3 py-1 text-[10px] text-muted-foreground">{t('artifact.sandboxNote')}</div>
-        </div>
-      )}
+
     </div>
   );
 }

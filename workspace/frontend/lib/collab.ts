@@ -3,7 +3,7 @@
 // members page, the share dialog and the agent directory. Framework-free so
 // it can be unit-tested (see collab.test.ts).
 
-import type { AgentRuntimeStatus, CostOwner, WorkspaceMe, WorkspaceRole } from './types';
+import type { AgentRuntimeStatus, CostOwner, WorkspaceMe } from './types';
 import type { TranslateFn } from './i18n';
 
 /**
@@ -93,16 +93,13 @@ export function displayNameFromEmail(value: string | null | undefined): string {
   return at > 0 ? value.slice(0, at) : value;
 }
 
-const ROLE_RANK: Record<WorkspaceRole, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
-
-/** Admin-or-above, or the agent's own owner. Mirrors the server rule so the
+/** Only the agent owner. Mirrors the server rule so the
  * UI can hide controls it knows will 403. */
 export function canManageAgent(
   me: Pick<WorkspaceMe, 'email' | 'effectiveRole'> | null | undefined,
   agentOwnerEmail: string | null | undefined,
 ): boolean {
   if (!me) return false;
-  if (me.effectiveRole && ROLE_RANK[me.effectiveRole] >= ROLE_RANK.admin) return true;
   const mine = (me.email || '').trim().toLowerCase();
   return !!mine && mine === (agentOwnerEmail || '').trim().toLowerCase();
 }

@@ -110,6 +110,7 @@ class Config {
       agent.network = networkSlug;
     } else {
       delete agent.network;
+      delete agent.node_id;
     }
     this.save(config);
   }

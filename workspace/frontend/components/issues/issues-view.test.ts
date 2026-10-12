@@ -22,19 +22,21 @@ const mocks = vi.hoisted(() => ({
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
     commentOnIssue: vi.fn(),
-    startIssueThread: vi.fn(),
+    removeIssueAgent: vi.fn(),
     linkIssueThread: vi.fn(),
-    addIssueTask: vi.fn(),
+    addIssueParticipants: vi.fn(),
+    discover: vi.fn(),
   },
 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
+vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
 vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => ({ openView: vi.fn() }),
 }));
+const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({
-  useT: () => (key: string, params?: Record<string, string | number>) =>
-    translate(messages, messages, 'en-US', key, params),
+  useT: () => t,
   useFormatters: () => ({ timeAgo: () => 'just now' }),
 }));
 vi.mock('@/components/layout/app-header', () => ({
@@ -64,6 +66,7 @@ vi.mock('@/components/ui/responsive-dialog', () => ({
     createElement('div', {}, children),
   DialogHeader: ({ children }: { children: React.ReactNode }) =>
     createElement('div', {}, children),
+  DialogDescription: ({ children }: { children: React.ReactNode }) => createElement('p', {}, children),
   DialogTitle: ({ children }: { children: React.ReactNode }) =>
     createElement('h2', {}, children),
 }));
@@ -80,7 +83,7 @@ const issue: IssueDetail = {
   updated_at: '2026-10-07T12:00:00Z',
   comments: [],
   threads: [],
-  tasks: [],
+  participants: [{ source: 'human:alice-id', name: 'Alice' }, { source: 'openagents:research-agent', name: 'Research agent' }],
 };
 let root: Root;
 let host: HTMLDivElement;
@@ -128,6 +131,8 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/workspace-1?token=private-token');
   mocks.ws.agents = [];
   mocks.api.getTeam.mockResolvedValue([]);
+  mocks.api.discover.mockResolvedValue({ agents: [] });
+  mocks.api.addIssueParticipants.mockResolvedValue(undefined);
   mocks.api.listIssues.mockResolvedValue({
     issues: [issue],
     next_offset: null,
@@ -135,7 +140,7 @@ beforeEach(() => {
   mocks.api.getIssue.mockResolvedValue(issue);
   mocks.api.createIssue.mockResolvedValue(issue);
   mocks.api.commentOnIssue.mockResolvedValue({ id: 'comment-1' });
-  mocks.api.startIssueThread.mockResolvedValue({ channel_name: 'work-1' });
+  mocks.api.removeIssueAgent.mockResolvedValue(undefined);
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -163,9 +168,10 @@ describe('shared issues', () => {
         source_name: 'Alice',
       }),
     );
-    expect(mocks.api.startIssueThread).not.toHaveBeenCalled();
+
     expect(host.textContent).toContain('Add to the discussion');
-    expect(window.location.search).toContain('issue=issue-1');
+    expect(window.location.pathname).toBe('/workspace-1/issues/issue-1');
+    expect(window.location.search).not.toContain('issue=');
   });
 
   it('keeps discussion passive and retains the draft on a failed comment', async () => {
@@ -180,7 +186,7 @@ describe('shared issues', () => {
     expect(host.textContent).toContain('Connection interrupted');
     await click(button('Comment'));
     expect(textarea.value).toBe('');
-    expect(mocks.api.startIssueThread).not.toHaveBeenCalled();
+
   });
 
   it('does not reset edits when a collaborator update is polled', async () => {
@@ -219,7 +225,7 @@ describe('shared issues', () => {
       );
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(input.value).toBe('Ask @bob@example.com ');
+    expect(input.value).toBe('Ask @Bob ');
     expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
     await fill(input, input.value + 'and @Res');
     await act(async () => {
@@ -228,7 +234,7 @@ describe('shared issues', () => {
       );
       await vi.advanceTimersByTimeAsync(20);
     });
-    expect(input.value).toBe('Ask @bob@example.com and @research-agent ');
+    expect(input.value).toBe('Ask @Bob and @Research agent ');
     await click(button('Comment'));
     expect(mocks.api.commentOnIssue).toHaveBeenCalledWith(
       'issue-1',
@@ -236,7 +242,7 @@ describe('shared issues', () => {
         content: 'Ask @bob@example.com and @research-agent ',
       }),
     );
-    expect(mocks.api.startIssueThread).not.toHaveBeenCalled();
+
   });
 
   it('dismisses mention suggestions with Escape without losing the draft', async () => {
@@ -253,31 +259,11 @@ describe('shared issues', () => {
     expect(input.value).toBe('Hello @');
   });
 
-  it('only starts agents after choosing an agent and submitting an instruction', async () => {
-    mocks.ws.agents = [
-      {
-        agentName: 'research-agent',
-        displayName: 'Research agent',
-        status: 'online',
-      },
-    ];
+  it('removes an agent from the issue and has no start-work button', async () => {
     await openIssue();
-    await click(button('Bring in an agent'));
-    expect(mocks.api.startIssueThread).not.toHaveBeenCalled();
-    await click(host.querySelector('input[type=checkbox]')!);
-    await fill(
-      host.querySelector('[role=dialog] textarea')!,
-      'Investigate the first screen',
-    );
-    await click(button('Start agent work'));
-    expect(mocks.api.startIssueThread).toHaveBeenCalledWith(
-      'issue-1',
-      expect.objectContaining({
-        agents: ['research-agent'],
-        instruction: 'Investigate the first screen',
-        source_name: 'Alice',
-      }),
-    );
+    expect(host.textContent).not.toContain('Start agent work');
+    await click(host.querySelector('[aria-label="Remove Research agent from issue"]')!);
+    expect(mocks.api.removeIssueAgent).toHaveBeenCalledWith('issue-1', 'research-agent');
   });
 
   it('clears a temporary loading error when polling recovers', async () => {
@@ -298,4 +284,72 @@ describe('shared issues', () => {
     expect(mocks.api.getIssue).toHaveBeenCalledWith('issue-1');
     expect(host.textContent).toContain('Discuss the first screen.');
   });
+});
+
+it('adds people and agents without starting work, and omits the issue Tasks section', async () => {
+  mocks.api.getTeam.mockResolvedValue([{ email: 'bob@example.com', displayName: 'Bob', role: 'member' }]);
+  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:new-agent', display_name: 'New agent' }] });
+  await openIssue();
+  expect(host.textContent).not.toContain('Break out a task');
+  await click(button('Add people or agents'));
+  const dialog = host.querySelector('[role=dialog]')!;
+  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('Bob'))!);
+  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('New agent'))!);
+  await click(button('Add to issue'));
+  expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith('issue-1', [
+    expect.objectContaining({ kind: 'human', id: 'bob@example.com' }),
+    expect.objectContaining({ kind: 'agent', id: 'new-agent' }),
+  ]);
+
+});
+
+it('clears a saved comment and reports delivery failure without inviting a duplicate submission', async () => {
+  await openIssue();
+  mocks.api.commentOnIssue.mockResolvedValueOnce({ id: 'saved', dispatch_error: 'Comment saved; delivery failed' });
+  await fill(host.querySelector('textarea')!, '@research-agent investigate');
+  await click(button('Comment'));
+  expect(host.querySelector('textarea')!.value).toBe('');
+  expect(host.textContent).toContain('Comment saved; delivery failed');
+});
+
+it.each(['metaKey', 'ctrlKey'] as const)('sends an issue comment with %s + Enter, but not plain Enter or IME confirmation', async (modifier) => {
+  await openIssue();
+  const textarea = host.querySelector('textarea')!;
+  await fill(textarea, 'Please review this');
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [modifier]: true, isComposing: true, bubbles: true })); });
+  expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [modifier]: true, bubbles: true })); });
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledTimes(1);
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ content: 'Please review this' }));
+  expect(textarea.value).toBe('');
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [modifier]: true, bubbles: true })); });
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledTimes(1);
+});
+
+it('saves labels and paused status in issue details', async () => {
+  await openIssue();
+  const status = host.querySelector('select[id^="issue-status-"]') as HTMLSelectElement;
+  expect([...status.options].some(option => option.value === 'paused')).toBe(true);
+  await act(async () => { status.value = 'paused'; status.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ status: 'paused' }));
+  await click(host.querySelector<HTMLButtonElement>('button[aria-label="Add a label"]')!);
+  const input = host.querySelector('input[id^="issue-label-"]') as HTMLInputElement;
+  await fill(input, 'Bug');
+  await act(async () => input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ labels: ['Bug'] }));
+});
+
+it('searches the assignee picker and saves a selected person', async () => {
+  mocks.api.getTeam.mockResolvedValue([{ email: 'bob@example.com', displayName: 'Bob', role: 'member' }]);
+  await openIssue();
+  await click(host.querySelector<HTMLButtonElement>('button[aria-labelledby="issue-assignee-issue-1"]')!);
+  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search people or your agents…"]')!;
+  expect(search).not.toBeNull();
+  await fill(search, 'Bob');
+  const choice = Array.from(document.querySelectorAll('button')).find(item => item.textContent === 'Bob')!;
+  await click(choice);
+  expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ assignee: 'human:bob@example.com' }));
+  expect(document.querySelector('input[aria-label="Search people or your agents…"]')).toBeNull();
 });
