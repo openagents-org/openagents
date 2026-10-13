@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Globe } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
@@ -44,7 +43,9 @@ export function BrowserThumbnail({ tabId, pageUrl, title, enabled }: {
       visible = entries.some(entry => entry.isIntersecting);
       if (visible) void refresh();
     });
-    observer?.observe(host.current);
+    // Observe the card, so hiding an unavailable image does not prevent a
+    // later screenshot from loading when the browser becomes available again.
+    observer?.observe(host.current.parentElement || host.current);
     void refresh();
     const timer = setInterval(() => void refresh(), 30000);
     const onVisible = () => { if (!document.hidden) void refresh(); };
@@ -56,9 +57,12 @@ export function BrowserThumbnail({ tabId, pageUrl, title, enabled }: {
     };
   }, [key, enabled, tabId]);
   const current = state.key === key ? state : null;
-  return <span ref={host} className="relative block h-44 w-full overflow-hidden border-b bg-muted/50">
-    {current?.url ? <img src={current.url} alt={t('browser.screenshotOf', { url: title })} className="h-full w-full object-cover object-top" />
-      : !enabled || current?.failed ? <span className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground"><Globe className="size-6 opacity-50" />{t('browser.thumbnailUnavailable')}</span>
-      : <span className="block h-full w-full animate-pulse bg-muted" aria-label={t('common.loading')} />}
+  return <span ref={host} className={current?.url ? "relative block h-44 w-full overflow-hidden border-b bg-muted/50" : "hidden"}>
+    {current?.url && <img
+      src={current.url}
+      alt={t('browser.screenshotOf', { url: title })}
+      onError={() => setState({ key, failed: true })}
+      className="h-full w-full object-cover object-top"
+    />}
   </span>;
 }

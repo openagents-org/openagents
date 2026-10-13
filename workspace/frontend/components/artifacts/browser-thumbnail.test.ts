@@ -45,13 +45,20 @@ it('invalidates the old frame on navigation and cleans up its request',async()=>
   await act(async()=>seen([{isIntersecting:true}]));
   expect(fetchFrame).toHaveBeenCalledTimes(2);
 });
-it('leaves a quiet fallback if capture fails or the tab is sleeping',async()=>{
+it('hides unavailable thumbnails and recovers when capture succeeds',async()=>{
   fetchFrame.mockRejectedValue(new Error('Tab unavailable'));
   await render();await act(async()=>seen([{isIntersecting:true}]));
-  expect(host.textContent).toContain('browser.thumbnailUnavailable');
+  expect(host.textContent).toBe('');
+  expect(host.firstElementChild?.className).toBe('hidden');
   expect(host.querySelector('img')).toBeNull();
+  fetchFrame.mockResolvedValue(new Response(new Blob(['frame'], {type:'image/png'})));
+  await act(async()=>vi.advanceTimersByTime(30000));
+  expect(host.querySelector('img')).not.toBeNull();
+  await act(async()=>host.querySelector('img')!.dispatchEvent(new Event('error')));
+  expect(host.firstElementChild?.className).toBe('hidden');
   await render(false);await act(async()=>vi.advanceTimersByTime(30000));
-  expect(fetchFrame).toHaveBeenCalledTimes(1);
+  expect(fetchFrame).toHaveBeenCalledTimes(2);
+  expect(host.firstElementChild?.className).toBe('hidden');
 });
 it('sends viewer credentials as headers, never in the screenshot URL',async()=>{
   fetchFrame.mockRestore();
