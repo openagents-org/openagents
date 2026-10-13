@@ -186,6 +186,17 @@ def _describe_schedule(
     return f"{', '.join(day_labels)} at {time_str}"
 
 
+def _same_days(a: Optional[List[int]], b: Optional[List[int]]) -> bool:
+    """Whether two `days` values pick the same weekdays (`None` = all seven)."""
+    every_day = set(range(7))
+    return (set(a) if a is not None else every_day) == (set(b) if b is not None else every_day)
+
+
+def _fallback_context(name: str, message: str, schedule_desc: str) -> str:
+    """The context a routine gets when no LLM is available to write one."""
+    return f"Routine: {name}\n\nTask: {message}\nSchedule: {schedule_desc}"
+
+
 MAX_CONVERSATION_CHARS = 8000
 
 def _generate_routine_context_sync(
@@ -195,7 +206,7 @@ def _generate_routine_context_sync(
     """Call the LLM to expand a brief task description into comprehensive routine context."""
     from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
 
-    fallback = f"Routine: {name}\n\nTask: {message}\nSchedule: {schedule_desc}"
+    fallback = _fallback_context(name, message, schedule_desc)
 
     if not _get_router_api_key():
         logger.warning("No LLM API key for routine context generation, using fallback")
@@ -530,10 +541,30 @@ async def update_routine(
             )
 
     # ── Apply ──
+    #
+    # A field being present doesn't mean it changed — the edit form resends
+    # everything it loaded on every save. Each one is compared against the
+    # stored value, so a rename isn't mistaken for a new schedule.
+
+    # What the fallback context reads for the routine as it is now, taken
+    # before anything is applied — it is how one is recognized further down.
+    previous_fallback = _fallback_context(
+        routine.name,
+        routine.message,
+        _describe_schedule(
+            routine.schedule_hour,
+            routine.schedule_minute,
+            routine.schedule_days,
+            routine.schedule_interval_minutes,
+        ),
+    )
+
+    name_changed = False
     if body.name is not None:
         name = body.name.strip()
-        if name:
+        if name and name != routine.name:
             routine.name = name
+            name_changed = True
 
     message_changed = False
     if body.message is not None:
@@ -547,19 +578,29 @@ async def update_routine(
         routine.created_by = target_agent
         routine.channel_name = channel.name
 
+    # An interval routine's next tick is "now + interval", so re-arming on an
+    # unchanged interval would push the next fire a full interval out from
+    # every unrelated save.
     schedule_changed = False
     if wants_interval:
-        routine.schedule_interval_minutes = body.interval_minutes
-        routine.schedule_hour = None
-        routine.schedule_minute = None
-        routine.schedule_days = None
-        schedule_changed = True
+        if body.interval_minutes != routine.schedule_interval_minutes:
+            routine.schedule_interval_minutes = body.interval_minutes
+            routine.schedule_hour = None
+            routine.schedule_minute = None
+            routine.schedule_days = None
+            schedule_changed = True
     elif wants_daily:
-        routine.schedule_hour = hour
-        routine.schedule_minute = minute
-        routine.schedule_days = days
-        routine.schedule_interval_minutes = None
-        schedule_changed = True
+        if (
+            routine.schedule_interval_minutes is not None
+            or hour != routine.schedule_hour
+            or minute != routine.schedule_minute
+            or not _same_days(days, routine.schedule_days)
+        ):
+            routine.schedule_hour = hour
+            routine.schedule_minute = minute
+            routine.schedule_days = days
+            routine.schedule_interval_minutes = None
+            schedule_changed = True
 
     resumed = body.status == "active" and routine.status != "active"
     if body.status is not None:
@@ -568,20 +609,28 @@ async def update_routine(
     # The context is what the agent actually reads when the routine fires, so
     # it can't keep describing the old task. An explicit context wins; a bare
     # task edit regenerates it the same way creation does.
+    #
+    # A rename or a reschedule leaves the task alone, so a written context is
+    # kept — regenerating it from the name and the trigger message would throw
+    # away whatever detail its author put there. The fallback context is the
+    # exception: it spells the name and the schedule out, so it is re-rendered
+    # rather than left quoting the old ones.
+    schedule_desc = _describe_schedule(
+        routine.schedule_hour,
+        routine.schedule_minute,
+        routine.schedule_days,
+        routine.schedule_interval_minutes,
+    )
     if body.context is not None:
         routine.context = body.context
     elif message_changed:
         import asyncio
-        schedule_desc = _describe_schedule(
-            routine.schedule_hour,
-            routine.schedule_minute,
-            routine.schedule_days,
-            routine.schedule_interval_minutes,
-        )
         routine.context = await asyncio.to_thread(
             _generate_routine_context_sync, routine.name, routine.message, schedule_desc,
             body.conversation_history,
         )
+    elif (name_changed or schedule_changed) and routine.context == previous_fallback:
+        routine.context = _fallback_context(routine.name, routine.message, schedule_desc)
 
     # A pause leaves `next_fires_at` in the past, which would make a resumed
     # routine fire the instant it comes back. Both a new schedule and a resume
@@ -610,7 +659,7 @@ def cancel_routine(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Cancel an active routine."""
+    """Cancel a routine, active or paused."""
     routine = db.execute(
         select(RoutineRecord).where(RoutineRecord.id == routine_id)
     ).scalar_one_or_none()
@@ -625,8 +674,10 @@ def cancel_routine(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    if routine.status != "active":
-        return json_response(ResponseCode.BAD_REQUEST, f"Routine is already {routine.status}")
+    # Only a second cancel is refused. A paused routine has to stay
+    # cancellable — pausing is not a way to make one undeletable.
+    if routine.status == "cancelled":
+        return json_response(ResponseCode.BAD_REQUEST, "Routine is already cancelled")
 
     routine.status = "cancelled"
     db.commit()

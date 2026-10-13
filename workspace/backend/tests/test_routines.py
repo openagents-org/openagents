@@ -24,6 +24,18 @@ def _create_payload(workspace, **overrides):
     return base
 
 
+def _other_workspace(client):
+    """A second, unrelated workspace with its own token."""
+    resp = client.post("/v1/workspaces", json={
+        "name": "Other Workspace",
+        "agent_name": "agent-omega",
+        "creator_email": "other@example.com",
+    })
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    return {"id": data["workspaceId"], "token": data["token"]}
+
+
 class TestComputeNextFires:
     def test_interval_mode_uses_now_plus_n(self):
         before = datetime.now(timezone.utc)
@@ -337,3 +349,122 @@ class TestUpdateRoutine:
         assert data["context"] == created["context"]
         assert data["schedule_hour"] == 8
         assert data["schedule_days"] == [0, 1]
+
+    def test_rename_does_not_rearm_an_interval_routine(self, client, workspace):
+        """The edit form resends the schedule it loaded on every save. An
+        interval's next tick is now + interval, so treating that as a schedule
+        change pushed an hourly routine due at :00 out to :50 on a :50 rename."""
+        created = self._create(client, workspace, interval_minutes=60)
+        data = self._patch(
+            client, workspace, created["id"], name="Renamed", interval_minutes=60,
+        ).json()["data"]
+        assert data["name"] == "Renamed"
+        assert data["next_fires_at"] == created["next_fires_at"]
+
+    def test_resending_the_same_daily_schedule_changes_nothing(self, client, workspace):
+        # The form sends all seven days for a routine stored as "every day".
+        created = self._create(client, workspace, hour=8, minute=30)
+        data = self._patch(
+            client, workspace, created["id"],
+            name="Renamed", hour=8, minute=30, days=[0, 1, 2, 3, 4, 5, 6],
+        ).json()["data"]
+        assert data["schedule_days"] is None
+        assert data["next_fires_at"] == created["next_fires_at"]
+
+    def test_rename_and_reschedule_refresh_the_fallback_context(self, client, workspace):
+        """The fallback context spells out the name and the schedule, and it is
+        what the agent reads on every fire — it can't go on quoting old ones."""
+        created = self._create(client, workspace, name="Old name", interval_minutes=30)
+        assert "Routine: Old name" in created["context"]
+        assert "Schedule: Every 30 minutes" in created["context"]
+
+        renamed = self._patch(client, workspace, created["id"], name="New name").json()["data"]
+        assert "Routine: New name" in renamed["context"]
+        assert "Old name" not in renamed["context"]
+
+        rescheduled = self._patch(
+            client, workspace, created["id"], interval_minutes=120,
+        ).json()["data"]
+        assert "Schedule: Every 2h" in rescheduled["context"]
+        assert "30 minutes" not in rescheduled["context"]
+        assert "Routine: New name" in rescheduled["context"]
+
+    def test_rename_and_reschedule_keep_a_written_context(self, client, workspace, monkeypatch):
+        """Neither changes the task, so neither is a reason to replace what
+        the routine's author wrote with something generated from its name."""
+        from app.routers import routines as routines_module
+
+        def _unexpected(*args, **kwargs):
+            raise AssertionError("context must not be regenerated")
+
+        created = self._create(
+            client, workspace, interval_minutes=30, context="hand written",
+        )
+        monkeypatch.setattr(routines_module, "_generate_routine_context_sync", _unexpected)
+        data = self._patch(
+            client, workspace, created["id"], name="Renamed", interval_minutes=120,
+        ).json()["data"]
+        assert data["schedule_interval_minutes"] == 120
+        assert data["context"] == "hand written"
+
+    def test_another_workspace_cannot_edit_a_routine(self, client, workspace):
+        created = self._create(client, workspace, interval_minutes=30)
+        other = _other_workspace(client)
+        resp = self._patch(client, other, created["id"], name="Hijacked")
+        assert resp.status_code == 404, resp.text
+
+        listed = client.get(
+            f"/v1/routines?network={workspace['id']}", headers=_headers(workspace),
+        ).json()["data"]["routines"]
+        assert [r["name"] for r in listed] == [created["name"]]
+
+    def test_bad_token_cannot_edit_a_routine(self, client, workspace):
+        created = self._create(client, workspace, interval_minutes=30)
+        for headers in ({"X-Workspace-Token": "not-the-token"}, {}):
+            resp = client.patch(
+                f"/v1/routines/{created['id']}",
+                json={"network": workspace["id"], "name": "Hijacked"},
+                headers=headers,
+            )
+            assert resp.status_code == 401, resp.text
+
+
+class TestCancelRoutine:
+    def _create(self, client, workspace):
+        resp = client.post(
+            "/v1/routines",
+            json=_create_payload(workspace, interval_minutes=30),
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"]
+
+    def _list(self, client, workspace):
+        return client.get(
+            f"/v1/routines?network={workspace['id']}", headers=_headers(workspace),
+        ).json()["data"]["routines"]
+
+    def test_a_paused_routine_can_be_cancelled(self, client, workspace):
+        """Pausing must not make a routine undeletable — the cancel guard used
+        to refuse anything that wasn't active."""
+        created = self._create(client, workspace)
+        paused = client.patch(
+            f"/v1/routines/{created['id']}",
+            json={"network": workspace["id"], "status": "paused"},
+            headers=_headers(workspace),
+        )
+        assert paused.json()["data"]["status"] == "paused"
+
+        resp = client.delete(f"/v1/routines/{created['id']}", headers=_headers(workspace))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["status"] == "cancelled"
+        assert self._list(client, workspace) == []
+
+    def test_cancelling_twice_is_rejected(self, client, workspace):
+        created = self._create(client, workspace)
+        assert client.delete(
+            f"/v1/routines/{created['id']}", headers=_headers(workspace),
+        ).status_code == 200
+        resp = client.delete(f"/v1/routines/{created['id']}", headers=_headers(workspace))
+        assert resp.status_code == 400
+        assert "already cancelled" in resp.json()["message"]

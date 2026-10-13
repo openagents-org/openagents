@@ -33,24 +33,29 @@ def install_sqlite_compat() -> None:
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
         SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
 
-    # Give `DateTime(timezone=True)` columns their UTC tzinfo back on the way
-    # out of SQLite.
+    # Make `DateTime(timezone=True)` columns round-trip through SQLite the way
+    # they do through Postgres: stored as UTC, loaded as aware UTC.
     #
     # SQLite has no timestamptz. Its storage format has no offset field, so a
-    # tz-aware datetime goes in as its UTC wall time and comes back NAIVE,
-    # while Postgres returns it aware. Everything writes UTC (models._now), so
-    # the instant survives — but the missing tzinfo breaks anything comparing a
-    # loaded value against `datetime.now(timezone.utc)`, and `.isoformat()`
-    # then serializes without the offset, which browsers read as local time.
-    # Concretely, on a dev SQLite database the routine scheduler's atomic
-    # claim raised "can't compare offset-naive and offset-aware datetimes"
-    # every cycle, so no routine ever fired, and the UI showed a freshly
-    # created routine as overdue.
+    # tz-aware datetime is written as its bare wall time and comes back NAIVE,
+    # while Postgres returns it aware. The missing tzinfo breaks anything
+    # comparing a loaded value against `datetime.now(timezone.utc)`, and
+    # `.isoformat()` then serializes without the offset, which browsers read
+    # as local time.
+    #
+    # Concretely, on a dev SQLite database no routine ever fired and the UI
+    # showed a freshly created one as overdue. The scheduler's atomic claim is
+    # an ORM-enabled UPDATE, and SQLAlchemy synchronizes the session after one
+    # by re-evaluating its WHERE clause in Python against the rows it already
+    # holds — so `next_fires_at <= now` compared a naive loaded value with an
+    # aware `now` and raised "can't compare offset-naive and offset-aware
+    # datetimes" every cycle. (The claim now skips that synchronization too,
+    # see `_fire_due_in_thread` in app/main.py.)
+    from datetime import datetime as _datetime, timezone as _timezone
+
     from sqlalchemy.dialects.sqlite.base import DATETIME as SQLiteDATETIME
 
     if not hasattr(SQLiteDATETIME, "_orig_result_processor"):
-        from datetime import timezone as _timezone
-
         SQLiteDATETIME._orig_result_processor = SQLiteDATETIME.result_processor
 
         def _utc_aware_result_processor(self, dialect, coltype):
@@ -67,6 +72,28 @@ def install_sqlite_compat() -> None:
             return process
 
         SQLiteDATETIME.result_processor = _utc_aware_result_processor
+
+    # The read side above labels every stored value UTC, which is only true if
+    # the write side stored UTC. SQLite's own bind processor drops the tzinfo
+    # without converting, so an aware datetime in any other zone would be
+    # written as its local wall time and read back hours off. Every write in
+    # the app is UTC today; this keeps that from being a precondition.
+    if not hasattr(SQLiteDATETIME, "_orig_bind_processor"):
+        SQLiteDATETIME._orig_bind_processor = SQLiteDATETIME.bind_processor
+
+        def _utc_bind_processor(self, dialect):
+            inner = SQLiteDATETIME._orig_bind_processor(self, dialect)
+            if not self.timezone:
+                return inner
+
+            def process(value):
+                if isinstance(value, _datetime) and value.tzinfo is not None:
+                    value = value.astimezone(_timezone.utc)
+                return inner(value) if inner is not None else value
+
+            return process
+
+        SQLiteDATETIME.bind_processor = _utc_bind_processor
 
 
 if _is_sqlite:

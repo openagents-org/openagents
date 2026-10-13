@@ -71,6 +71,29 @@ class TestStoredDatetimesKeepTheirZone:
         # three minutes out reads as hours overdue east of UTC.
         assert next_fires_at.endswith("+00:00"), next_fires_at
 
+    def test_a_value_in_another_zone_keeps_its_instant(self, client, workspace, db):
+        """Loaded values are labelled UTC, so the write has to store UTC —
+        otherwise 18:00+08:00 goes in as 18:00 and comes back as 18:00 UTC."""
+        routine_id = _due_routine(db, workspace)
+        instant = datetime(2026, 1, 1, 18, 0, tzinfo=timezone(timedelta(hours=8)))
+
+        routine = db.execute(
+            select(RoutineRecord).where(RoutineRecord.id == routine_id)
+        ).scalar_one()
+        routine.next_fires_at = instant
+        db.commit()
+        db.expire_all()
+
+        loaded = db.execute(
+            select(RoutineRecord).where(RoutineRecord.id == routine_id)
+        ).scalar_one()
+        assert loaded.next_fires_at == instant
+        # Same conversion for a value bound into a WHERE clause.
+        matched = db.execute(
+            select(RoutineRecord.id).where(RoutineRecord.next_fires_at == instant)
+        ).scalars().all()
+        assert matched == [routine_id]
+
 
 class TestFireDue:
     def test_a_due_routine_actually_fires(self, client, workspace, db, monkeypatch):
