@@ -25,3 +25,11 @@ workspace browser cannot be previewed through this mechanism.
 Backend migration 077 and the frontend can be deployed independently of the
 connector. Automatic thread context on existing device connectors requires the
 updated connector; explicit HTTP requests work without a connector rollout.
+
+For a local-browser deployment, install Chromium and its system dependencies
+with `python -m playwright install --with-deps chromium` and run the backend with
+`WEB_CONCURRENCY=1`. Local tabs live in the worker process; multiple workers
+cannot share them. Cloud Browser Fabric sessions support the usual multi-worker
+configuration. Installing the local runtime in an existing container is a demo
+setup only; repeat that setup after recreating the container or include it in the
+local deployment image.
