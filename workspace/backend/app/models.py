@@ -649,6 +649,7 @@ class BrowserTab(Base):
     status = Column(Text, nullable=False, default="active")       # active | closed
     created_by = Column(Text, nullable=False)                      # "human:user" or "openagents:agent-name"
     shared_with = Column(JSONB, default=[])                        # list of agent names with access
+    artifact_channels = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))  # threads with a live preview card
     context_id = Column(Text, ForeignKey("browser_contexts.id", ondelete="SET NULL"), nullable=True)  # persistent context
     session_id = Column(Text, nullable=True)                       # Browserbase session ID
     live_url = Column(Text, nullable=True)                         # Browserbase live view URL

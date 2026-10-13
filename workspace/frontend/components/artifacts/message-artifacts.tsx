@@ -17,7 +17,8 @@ export function MessageArtifacts({ content, attachedIds }: { content: string; at
     if (!artifact || seen.has(`${artifact.kind}:${artifact.id}`)) continue;
     seen.add(`${artifact.kind}:${artifact.id}`);
     const file = artifact.kind === 'file' ? files.find(item => item.id === artifact.id) : null;
-    const filename = file?.filename.split('/').at(-1) || match[1];
+    const tab = artifact.kind === 'browser' ? browserTabs.find(item => item.id === artifact.id) : null;
+    const filename = tab?.title || tab?.url || file?.filename.split('/').at(-1) || match[1];
     const project = isWebProject(file?.contentType, filename);
     const html = file?.contentType === 'text/html' || /\.html?$/i.test(file?.filename || match[1]);
     cards.push({ artifact, title: projectDisplayName(filename,file?.contentType), project, Icon: artifact.kind === 'browser' ? Globe : project ? Folder : html ? FileCode2 : FileText });

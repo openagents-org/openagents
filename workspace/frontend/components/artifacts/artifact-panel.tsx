@@ -31,7 +31,7 @@ export function ArtifactPanel() {
   const entries = useMemo<Entry[]>(() => [
     ...files.filter(isDocumentFile).map(file => ({ ref: {kind:'file' as const,id:file.id}, title:projectDisplayName(file.filename,file.contentType), kind: (file.contentType === WEB_PROJECT_TYPE ? 'project' : /html/.test(file.contentType) || /\.html?$/i.test(file.filename) ? 'html' : 'document') as Entry['kind'], here:file.channelName === currentSessionId })),
     ...knowledge.map(entry => ({ref:{kind:'knowledge' as const,id:entry.id},title:entry.title,kind:'document' as const,here:false,detail:entry.path})),
-    ...browserTabs.map(tab => ({ref:{kind:'browser' as const,id:tab.id},title:tab.title || tab.url,kind:'browser' as const,here:true,detail:tab.activity ? `${tab.activity.actor.replace(/^(openagents:|human:)/,'')} · ${tab.url}` : tab.url})),
+    ...browserTabs.map(tab => ({ref:{kind:'browser' as const,id:tab.id},title:tab.title || tab.url,kind:'browser' as const,here:!!tab.artifactChannels?.includes(currentSessionId || ''),detail:tab.activity ? `${tab.activity.actor.replace(/^(openagents:|human:)/,'')} · ${tab.url}` : tab.url})),
   ], [files, knowledge, browserTabs, currentSessionId]);
   const selected = entries.find(entry => sameArtifact(entry.ref,selectedArtifact));
   const pinned = sameArtifact(setting?.artifact || null, selectedArtifact);

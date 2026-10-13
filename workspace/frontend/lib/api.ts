@@ -1069,6 +1069,7 @@ class WorkspaceApi {
       status: t.status as string,
       createdBy: (t.created_by as string) || 'unknown',
       sharedWith: (t.shared_with as string[]) || [],
+      artifactChannels: (t.artifact_channels as string[]) || [],
       liveUrl: (t.live_url as string) || null,
       sessionId: (t.session_id as string) || null,
       contextId: (t.context_id as string) || null,

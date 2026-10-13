@@ -754,8 +754,8 @@ class WorkspaceClient {
   /**
    * Open a new browser tab via POST /v1/browser/tabs.
    */
-  async browserOpenTab(workspaceId, token, { url = 'about:blank', source = 'human:user', context_id } = {}) {
-    const body = { url, network: workspaceId, source };
+  async browserOpenTab(workspaceId, token, { url = 'about:blank', source = 'human:user', context_id, channel } = {}) {
+    const body = { url, network: workspaceId, source, channel };
     if (context_id) body.context_id = context_id;
     const data = await this._post('/v1/browser/tabs', body, this._wsHeaders(token));
     return data.data || data;
@@ -773,24 +773,24 @@ class WorkspaceClient {
   /**
    * Navigate a browser tab via POST /v1/browser/tabs/{tabId}/navigate.
    */
-  async browserNavigate(workspaceId, token, tabId, url) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/navigate`, { url }, this._wsHeaders(token));
+  async browserNavigate(workspaceId, token, tabId, url, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/navigate`, { url, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
   /**
    * Click an element via POST /v1/browser/tabs/{tabId}/click.
    */
-  async browserClick(workspaceId, token, tabId, selector) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/click`, { selector }, this._wsHeaders(token));
+  async browserClick(workspaceId, token, tabId, selector, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/click`, { selector, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
   /**
    * Type text via POST /v1/browser/tabs/{tabId}/type.
    */
-  async browserType(workspaceId, token, tabId, selector, text) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/type`, { selector, text }, this._wsHeaders(token));
+  async browserType(workspaceId, token, tabId, selector, text, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/type`, { selector, text, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
@@ -798,16 +798,22 @@ class WorkspaceClient {
    * Get screenshot via GET /v1/browser/tabs/{tabId}/screenshot.
    * @returns {Buffer}
    */
-  async browserScreenshot(workspaceId, token, tabId) {
-    return this._getRaw(`/v1/browser/tabs/${tabId}/screenshot`, this._wsHeaders(token), 30000);
+  async browserScreenshot(workspaceId, token, tabId, { source, channel } = {}) {
+    const query = new URLSearchParams();
+    if (source) query.set('source', source);
+    if (channel) query.set('channel', channel);
+    return this._getRaw(`/v1/browser/tabs/${tabId}/screenshot?${query}`, this._wsHeaders(token), 30000);
   }
 
   /**
    * Get accessibility snapshot via GET /v1/browser/tabs/{tabId}/snapshot.
    * @returns {string}
    */
-  async browserSnapshot(workspaceId, token, tabId) {
-    const buf = await this._getRaw(`/v1/browser/tabs/${tabId}/snapshot`, this._wsHeaders(token));
+  async browserSnapshot(workspaceId, token, tabId, { source, channel } = {}) {
+    const query = new URLSearchParams();
+    if (source) query.set('source', source);
+    if (channel) query.set('channel', channel);
+    const buf = await this._getRaw(`/v1/browser/tabs/${tabId}/snapshot?${query}`, this._wsHeaders(token));
     return buf.toString('utf-8');
   }
 

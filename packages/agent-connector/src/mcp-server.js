@@ -840,6 +840,7 @@ class McpServer {
         const opts = {
           url: args.url || 'about:blank',
           source: `openagents:${this.agentName}`,
+          channel: this.channelName,
         };
         // Resolve context_name to context_id
         if (args.context_name) {
@@ -862,29 +863,29 @@ class McpServer {
       }
 
       case 'workspace_browser_navigate': {
-        const result = await this.ws.browserNavigate(this.workspaceId, this.token, args.tab_id, args.url);
+        const result = await this.ws.browserNavigate(this.workspaceId, this.token, args.tab_id, args.url, { source: `openagents:${this.agentName}`, channel: this.channelName });
         const title = result.title || '';
         return text(`Navigated to: ${args.url}${title ? ` (title: ${title})` : ''}`);
       }
 
       case 'workspace_browser_click': {
-        const result = await this.ws.browserClick(this.workspaceId, this.token, args.tab_id, args.selector);
+        const result = await this.ws.browserClick(this.workspaceId, this.token, args.tab_id, args.selector, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(`Clicked: ${args.selector}${result.url ? ` (url now: ${result.url})` : ''}`);
       }
 
       case 'workspace_browser_type': {
-        await this.ws.browserType(this.workspaceId, this.token, args.tab_id, args.selector, args.text);
+        await this.ws.browserType(this.workspaceId, this.token, args.tab_id, args.selector, args.text, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(`Typed into ${args.selector}: ${args.text.slice(0, 50)}${args.text.length > 50 ? '...' : ''}`);
       }
 
       case 'workspace_browser_screenshot': {
-        const buf = await this.ws.browserScreenshot(this.workspaceId, this.token, args.tab_id);
+        const buf = await this.ws.browserScreenshot(this.workspaceId, this.token, args.tab_id, { source: `openagents:${this.agentName}`, channel: this.channelName });
         const b64 = Buffer.isBuffer(buf) ? buf.toString('base64') : buf;
         return image(b64, 'image/png');
       }
 
       case 'workspace_browser_snapshot': {
-        const snapshot = await this.ws.browserSnapshot(this.workspaceId, this.token, args.tab_id);
+        const snapshot = await this.ws.browserSnapshot(this.workspaceId, this.token, args.tab_id, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot));
       }
 

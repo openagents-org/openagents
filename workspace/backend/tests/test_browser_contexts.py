@@ -449,7 +449,8 @@ class TestPermanentTabs:
             "url": "https://a.example", "network": ws["id"], "source": "openagents:scout",
         }, headers={"X-Workspace-Token": ws["token"]})
         tab = resp.json()["data"]
-        assert tab["activity"] is None
+        assert tab["activity"]["action"] == "open"
+        assert tab["activity"]["actor"] == "openagents:scout"
 
         resp = client.post(f"/v1/browser/tabs/{tab['id']}/click", json={"selector": "#go"},
                            headers={"X-Workspace-Token": ws["token"]})

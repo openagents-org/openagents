@@ -13,7 +13,7 @@ export function ThreadArtifactLinks() {
   const {setSplitBrowser,setShowBrowserPreview}=useLayout();
   const currentSession=sessions.find(session=>session.sessionId===currentSessionId);
   const docs=files.filter(file=>file.channelName===currentSessionId&&isDocumentFile(file)).slice(0,3);
-  const tabs=browserTabs.filter(tab=>tabHasFreshAgentActivity(tab)&&(currentSession?.participants||[]).includes((tab.activity?.actor||tab.createdBy).replace(/^openagents:/,''))).slice(0,2);
+  const tabs=browserTabs.filter(tab=>tab.status==='active' && (tab.artifactChannels?.includes(currentSessionId || '') || (!tab.artifactChannels?.length && tabHasFreshAgentActivity(tab)&&(currentSession?.participants||[]).includes((tab.activity?.actor||tab.createdBy).replace(/^openagents:/,'')))));
   if (!docs.length&&!tabs.length) return null;
   return <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b px-4 py-2 text-xs text-muted-foreground">
     <button type="button" className="flex shrink-0 items-center gap-1 hover:text-foreground" onClick={()=>{setSplitBrowser(true);setShowBrowserPreview(true);}}><PanelRight className="size-3.5" />{t('artifactPanel.title')}</button>

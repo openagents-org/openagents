@@ -31,3 +31,10 @@ it('ignores placeholder links and inline Markdown examples',async()=>{
   await act(async()=>root.render(React.createElement(MessageArtifacts,{content:'Reply with [your project name](/v1/files/RETURNED_PROJECT_ID). Example: `[report](/v1/files/bb111111-2222-4333-8444-555555555555)` and ``[report](/demo/files/bb111111-2222-4333-8444-555555555555)``.',attachedIds:[]})));
   expect(host.querySelector('button')).toBeNull();
 });
+
+it('opens a new live tab by ID before polling discovers it',async()=>{
+  const id='dd111111-2222-4333-8444-555555555555';
+  await act(async()=>root.render(React.createElement(MessageArtifacts,{content:`Opened a [live browser tab](/v1/browser/tabs/${id}).`,attachedIds:[]})));
+  await act(async()=>host.querySelector('button')!.click());
+  expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser',id});
+});

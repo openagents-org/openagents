@@ -373,6 +373,7 @@ export interface BrowserTabActivity {
 }
 
 export interface BrowserTab {
+  artifactChannels?: string[];
   id: string;
   url: string;
   title: string | null;

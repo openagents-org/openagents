@@ -21,6 +21,11 @@ export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: Bro
     const url = new URL(href, window.location.href);
     const local = url.origin === window.location.origin;
     if (local) {
+      const browserId = url.pathname.match(/^\/v1\/browser\/tabs\/([^/]+)\/?$/);
+      if (browserId) {
+        const id = decodeURIComponent(browserId[1]);
+        return FILE_ID.test(id) || tabs.some(tab => tab.id === id) ? {kind:'browser',id} : null;
+      }
       const fileId = url.pathname.match(/^\/v1\/files\/([^/]+)\/?$/);
       if (fileId) {
         const id = decodeURIComponent(fileId[1]);

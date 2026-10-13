@@ -44,7 +44,7 @@ from app.browser_creds import (
 )
 from app.database import get_db
 from app.net_security import UnsafeURLError
-from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
+from app.models import BrowserContext, BrowserTab, BrowserUsage, Channel, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event,
@@ -215,9 +215,8 @@ class OpenTabRequest(BaseModel):
     persistent: Optional[bool] = None
     name: Optional[str] = None                # label for the new context (defaults to the hostname)
     # Workspace channel (thread) this tab is being driven for. Optional and
-    # purely informational for the browser itself; it lets the Slack bridge
-    # post page previews into that thread's Slack conversation
-    # (services/browser_preview). Remembered per tab for later navigations.
+    # attaches the live preview to this conversation and lets the Slack bridge
+    # post page previews. Remembered per tab for later operations.
     channel: Optional[str] = None
 
 
@@ -228,11 +227,13 @@ class NavigateRequest(BaseModel):
 
 
 class ClickRequest(BaseModel):
+    channel: Optional[str] = None
     selector: str
     source: Optional[str] = None
 
 
 class TypeRequest(BaseModel):
+    channel: Optional[str] = None
     selector: str
     text: str
     append: bool = False  # If True, move cursor to end before typing (for contenteditable)
@@ -240,11 +241,13 @@ class TypeRequest(BaseModel):
 
 
 class PressKeyRequest(BaseModel):
+    channel: Optional[str] = None
     key: str  # e.g. "Enter", "Tab", "End", "Control+a"
     source: Optional[str] = None
 
 
 class EvaluateRequest(BaseModel):
+    channel: Optional[str] = None
     expression: str  # JavaScript to execute in page context
     source: Optional[str] = None
 
@@ -269,6 +272,7 @@ def _tab_to_dict(tab: BrowserTab, context_name: str = None) -> dict:
         "status": tab.status,
         "created_by": tab.created_by,
         "shared_with": tab.shared_with or [],
+        "artifact_channels": tab.artifact_channels or [],
         "created_at": tab.created_at.isoformat() if tab.created_at else None,
         "last_active_at": tab.last_active_at.isoformat() if tab.last_active_at else None,
     }
@@ -349,6 +353,51 @@ def _actor_for(tab: BrowserTab, source: Optional[str]) -> str:
     if created_by.startswith("openagents:"):
         return created_by
     return "openagents:agent"
+
+
+async def _record_browser_work(db, workspace, tab, actor, channel, action):
+    """Attach a stable live preview once per tab/thread, without agent wake-ups.
+
+    Browser operations already happened externally. Preserve their metadata even
+    if posting the informational card fails. Never guess a conversation from an
+    agent's membership: it may be working in several private threads at once.
+    """
+    db.commit()
+    if not actor or not actor.startswith("openagents:"):
+        return
+    _record_activity(tab.id, action, actor)
+    from app.services.browser_preview import channel_for_tab, remember_tab_channel
+    channel = channel or channel_for_tab(tab.id) or next(iter(tab.artifact_channels or []), None)
+    if not channel:
+        return
+    try:
+        thread = db.execute(select(Channel).where(
+            Channel.workspace_id == str(workspace.id),
+            Channel.name == channel, Channel.status != "deleted",
+        )).scalar_one_or_none()
+        if not thread:
+            return
+        remember_tab_channel(tab.id, channel)
+        # Serialize first-use announcements; a browser operation can overlap a
+        # screenshot/snapshot. Reload the JSON after acquiring the row lock.
+        db.refresh(tab, with_for_update=True)
+        channels = list(tab.artifact_channels or [])
+        if channel in channels:
+            tab.artifact_channels = [channel, *[name for name in channels if name != channel]]
+            db.commit()
+            return
+        tab.artifact_channels = [channel, *channels]
+        event = Event(
+            type="workspace.message.posted", source=actor, target=f"channel/{channel}",
+            payload={"content": f"Using a [live browser tab](/v1/browser/tabs/{tab.id}). Preview it to follow along.", "message_type": "artifact"},
+            metadata={"target_agents": ["__no_response__"], "explicit_targets": [], "browser_artifact": tab.id},
+        )
+        result = await _emit_event(event, workspace, db, token=workspace.password_hash)
+        if result is None:
+            db.rollback()
+    except Exception:
+        db.rollback()
+        logger.warning("Could not attach browser preview for tab %s", tab.id, exc_info=True)
 
 
 def _record_activity(tab_id: str, action: str, actor: str) -> None:
@@ -712,6 +761,8 @@ async def open_tab(
     except Exception as e:
         logger.debug("browser preview hook failed for %s: %s", tab_id, e)
 
+    await _record_browser_work(db, workspace, record, body.source, body.channel, "open")
+
     # A partially failed init (session created, navigate/page-info failed) is
     # still a created tab — the caller gets the tab plus explicit warnings.
     data = _tab_to_dict(record, context_name=new_context.name if new_context else (context_record.name if context_record else None))
@@ -907,6 +958,8 @@ async def navigate_tab(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
 
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "navigate")
+
     # Slack browser preview (best-effort, after the response) — see open_tab.
     try:
         from app.services.browser_preview import schedule_browser_preview
@@ -1033,8 +1086,7 @@ async def click_tab(
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     _touch(tab)
-    _record_activity(tab_id, "click", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "click")
 
     return success_response({"tab_id": tab_id, "clicked": body.selector, "url": tab.url})
 
@@ -1075,8 +1127,7 @@ async def type_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Type failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "type", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "type")
 
     return success_response({"tab_id": tab_id, "typed": body.selector})
 
@@ -1117,8 +1168,7 @@ async def press_key_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Press key failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "press_key", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "press_key")
 
     return success_response({"tab_id": tab_id, "pressed": body.key})
 
@@ -1159,8 +1209,7 @@ async def evaluate_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Evaluate failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "evaluate", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "evaluate")
 
     return success_response({"tab_id": tab_id, "result": result.get("result")})
 
@@ -1172,6 +1221,8 @@ async def evaluate_in_tab(
 @router.get("/tabs/{tab_id}/screenshot")
 async def get_screenshot(
     tab_id: str,
+    source: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -1213,6 +1264,9 @@ async def get_screenshot(
             _touch(tab)
             db.commit()
 
+    if source or channel:
+        await _record_browser_work(db, workspace, tab, _actor_for(tab, source), channel, "screenshot")
+
     return Response(
         content=data,
         media_type="image/png",
@@ -1227,6 +1281,8 @@ async def get_screenshot(
 @router.get("/tabs/{tab_id}/snapshot")
 async def get_snapshot(
     tab_id: str,
+    source: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -1254,6 +1310,8 @@ async def get_snapshot(
         logger.error("Snapshot failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Snapshot failed")
 
+    if source or channel:
+        await _record_browser_work(db, workspace, tab, _actor_for(tab, source), channel, "snapshot")
     return Response(content=tree, media_type="text/plain")
 
 

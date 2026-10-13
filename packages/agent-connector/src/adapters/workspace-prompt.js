@@ -421,7 +421,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `${curl} -s -X POST ${baseUrl}/v1/browser/tabs ` +
         `-H "${h}" -H "Content-Type: application/json" ` +
         `-d '{"url":"https://example.com","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}"}'\n` +
+        `"source":"openagents:${agentName}","channel":"${channelName}"}'\n` +
         `Step 2 — read content: ` +
         `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
         `Step 3 — close tab: ` +
@@ -447,7 +447,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs` +
         ` -d '{"url":"URL","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}"}'\`\n` +
+        `"source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         'Tabs are **temporary** by default (closed after a while idle). Add ' +
         '`"persistent":true` (and optionally `"name":"…"`) to open a **permanent** ' +
         'tab whose login state is saved and reusable — humans see the two kinds ' +
@@ -456,26 +456,26 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         '**Navigate:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/navigate` +
-        ` -d '{"url":"URL","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"url":"URL","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Click element:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/click` +
-        ` -d '{"selector":"CSS_SELECTOR","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"selector":"CSS_SELECTOR","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Type text:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/type` +
-        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT","source":"openagents:${agentName}"}'\`\n` +
+        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         '(add `"append":true` to keep existing text instead of replacing it)\n\n' +
         '**Press a key** (e.g. submit a form with Enter):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/press_key` +
-        ` -d '{"key":"Enter","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"key":"Enter","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Run JavaScript** in the page (returns the result):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +
-        ` -d '{"expression":"document.title","source":"openagents:${agentName}"}'\`\n` +
+        ` -d '{"expression":"document.title","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         'The `source` field is how humans watching the shared browser see *who* is ' +
-        'acting — include it on every tab action.\n\n' +
+        'acting — include it and `channel` on every tab action. The workspace automatically posts a live browser preview card in this conversation.\n\n' +
         '**Close tab:**\n' +
         `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
         '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +
