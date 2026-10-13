@@ -22,7 +22,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix, whereBinary } = require('../paths');
 
@@ -312,7 +312,7 @@ class OpenClawAdapter extends BaseAdapter {
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
       );
     }
   }
@@ -531,14 +531,20 @@ class OpenClawAdapter extends BaseAdapter {
           // --log-level trace fills stderr with diagnostics, so quote the lines
           // that say something about the failure rather than the last 300
           // characters of the trace — and strip secrets from what is quoted.
+          // Only OpenClaw's own words are read for the cause: its trace, and
+          // the error object a failed --json run prints. The reply is the
+          // model's, and a reply that mentions a sign-in page or a
+          // settings.json is not an auth or a config failure.
           const failure = classifyRunFailure({
             code,
-            stderr: allOutput,
+            stderr: OpenClawAdapter._traceOnly(stderrContent),
+            error: OpenClawAdapter._cliError(output),
             cli: 'OpenClaw',
             guidance: OPENCLAW_GUIDANCE,
             skip: ['session'],
+            secrets: this._knownSecrets(),
           });
-          this._log(`Run failed (${failure.kind}, exit ${code})`);
+          this._log(`Run failed (${failure.kind}, exit ${code})`, 'error');
           reject(classifiedError(failure.message));
           return;
         }
@@ -564,6 +570,40 @@ class OpenClawAdapter extends BaseAdapter {
         proc.on('exit', () => { clearTimeout(timeout); resolve(); });
       });
     } catch {}
+  }
+
+  /**
+   * stderr without the `{"payloads": …}` reply --json writes into it: what is
+   * left is OpenClaw's trace.
+   */
+  static _traceOnly(stderr) {
+    const text = String(stderr || '');
+    const start = text.search(/\{\s*"payloads"/);
+    if (start < 0) return text;
+    let depth = 0;
+    let end = text.length;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}' && --depth === 0) { end = i + 1; break; }
+    }
+    return text.slice(0, start) + text.slice(end);
+  }
+
+  /**
+   * The error a failed `--json` run reports on stdout, as
+   * `{"ok":false,"error":{"type","message"}}` (openclaw 2026.9.8), or null.
+   * Older releases print nothing there and leave the reason in the trace.
+   */
+  static _cliError(stdout) {
+    const text = String(stdout || '').trim();
+    for (const candidate of [text, ...text.split('\n').map((l) => l.trim())]) {
+      if (!candidate.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && parsed.ok === false && parsed.error) return parsed.error;
+      } catch {}
+    }
+    return null;
   }
 
   _parseCliOutput(output, resolve) {

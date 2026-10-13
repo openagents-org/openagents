@@ -14,7 +14,7 @@ const http = require('http');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const MAX_HISTORY = 50;
@@ -173,7 +173,7 @@ class LlmDirectAdapter extends BaseAdapter {
       this._log(`Error handling message: ${e.message}`);
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
       );
     }
   }
@@ -225,8 +225,9 @@ class LlmDirectAdapter extends BaseAdapter {
               cli: this._adapterLabel,
               guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
               skip: ['session'],
+              secrets: this._knownSecrets(),
             });
-            this._log(`API call failed (${failure.kind}, HTTP ${res.statusCode})`);
+            this._log(`API call failed (${failure.kind}, HTTP ${res.statusCode})`, 'error');
             reject(classifiedError(failure.message));
           });
           return;
@@ -281,7 +282,9 @@ class LlmDirectAdapter extends BaseAdapter {
           cli: this._adapterLabel,
           guidance: directGuidance(this._adapterLabel, this._apiKeyEnvVar, this._baseUrlEnvVar),
           skip: ['session'],
+          secrets: this._knownSecrets(),
         });
+        this._log(`API call failed (${failure.kind}, no response)`, 'error');
         reject(classifiedError(failure.message));
       });
       req.on('timeout', () => {

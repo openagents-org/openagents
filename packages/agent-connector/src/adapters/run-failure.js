@@ -27,19 +27,36 @@ const { redactSecrets } = require('./utils');
 /** How much of the CLI's own words to quote back. */
 const DETAIL_CAP = 300;
 
+// A config file named next to a word that says it could not be read as one.
+// The file name alone is not a failure: CLIs print the path of the settings
+// they loaded on every run, and "settings.json not found" is a missing file,
+// not a broken one.
+const CONFIG_FILE = '(?:settings|providers|config)\\.(?:json|ya?ml|toml)';
+const UNREADABLE = '(?:invalid|malformed|corrupt|syntax error|unexpected token|(?:could not|cannot|failed to|unable to) parse)';
+
 /**
  * Failure kinds, in the order they are tested. Earlier wins, so the more
  * specific causes come first: "authentication failed or timed out" is an auth
  * failure, not a timeout.
+ *
+ * Each pattern wants the failure itself, not a word that is merely near one —
+ * this text is whatever a CLI printed, and "sign-in page rendered" or
+ * "path is forbidden by the sandbox" is a tool talking about its work. So
+ * "sign in" counts only as a request or a requirement, and "forbidden" only
+ * as the HTTP status or the error itself.
  */
 const PATTERNS = [
   ['session', /Error resuming session|Invalid session identifier|No previous sessions found/i],
-  ['auth', /authentication (?:required|failed)|not authenticated|no valid credentials|sign[ -]?in|log[ -]?in required|Please set an Auth method|API key not valid|API[_ ]?KEY[_ ]?INVALID|UNAUTHENTICATED|PERMISSION_DENIED|invalid_grant|re-?authenticate|IneligibleTier|not eligible|\bunauthorized\b|\bforbidden\b|invalid[^\n]{0,20}(?:api.?key|token|credential)|api[_ -]?key (?:is )?(?:missing|required|not set|unset)|\bstatus:? 40[13]\b|GEMINI_API_KEY/i],
+  ['auth', /authentication (?:required|failed)|not authenticated|no valid credentials|please (?:sign|log) in|(?:sign|log)[ -]?in (?:is )?required|not (?:signed|logged) in|Please set an Auth method|API key not valid|API[_ ]?KEY[_ ]?INVALID|UNAUTHENTICATED|PERMISSION_DENIED|invalid_grant|re-?authenticate|IneligibleTier|account is not eligible|\bunauthorized\b|\b403\b[^\n]{0,24}\bforbidden\b|\bforbidden\b[^\n]{0,24}\b403\b|\berror["']?[:=]\s*["']?forbidden\b|(?:invalid|incorrect)[^\n]{0,20}(?:api.?key|token|credential)|api[_ -]?key (?:is )?(?:missing|required|not set|unset)|\b(?:status|HTTP):? 40[13]\b|GEMINI_API_KEY/i],
   ['quota', /RESOURCE_EXHAUSTED|\bquota\b|exhausted your capacity|rate.?limit|too many requests|\b429\b|overloaded/i],
   ['network', /fetch failed|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|socket hang up|getaddrinfo|network error|self[- ]signed certificate|unable to verify the first certificate/i],
   ['model', /ModelNotFound|models?\b[^\n]{0,60}\bnot (?:found|supported)|unknown model|invalid model|unsupported model|no such model|model[^\n]{0,30}(?:unavailable|does not exist)|\bstatus:? 404\b/i],
   ['provider', /modelProvider|model provider|unknown provider|no (?:inference )?provider configured|provider[^\n]{0,30}(?:not|un)(?:available|configured|supported|known)/i],
-  ['config', /settings\.json|providers\.json|config(?:uration)? (?:error|is invalid|invalid|malformed)|invalid json|malformed/i],
+  ['config', new RegExp(
+    `${CONFIG_FILE}[^\\n]{0,60}${UNREADABLE}|${UNREADABLE}[^\\n]{0,60}${CONFIG_FILE}`
+    + '|config(?:uration)? (?:error|is invalid|invalid|malformed)|invalid json|malformed (?:json|ya?ml|toml|config)',
+    'i',
+  )],
   ['timeout', /print-timeout|timed? ?out|deadline exceeded/i],
 ];
 
@@ -86,13 +103,17 @@ const cap = (s, max = DETAIL_CAP) => (s.length > max ? `${s.slice(0, max - 1)}�
 const TELLING_RE = /error|fail|invalid|denied|not |please|unable|cannot|refused/i;
 
 /**
- * Did the run fail? A success result settles it whatever the exit code;
- * otherwise an error result, an error-severity event, or a non-zero exit
- * (a signal leaves code null) does.
+ * Did the run fail? The CLI's own verdict comes first: a success result
+ * settles it whatever the exit code and whatever error events came before it
+ * (an error the run recovered from is not a failed run — reporting it would
+ * post a notice under a reply that was delivered). Without one, an error
+ * result, an error-severity event, or a non-zero exit (a signal leaves code
+ * null) is a failure.
  */
 function isFailedRun({ code, resultStatus, errorMessages = [] } = {}) {
-  if (String(resultStatus || '').toLowerCase() === 'error' || errorMessages.length > 0) return true;
-  if (String(resultStatus || '').toLowerCase() === 'success') return false;
+  const status = String(resultStatus || '').toLowerCase();
+  if (status === 'success') return false;
+  if (status === 'error' || errorMessages.length > 0) return true;
   return code !== 0;
 }
 
@@ -101,11 +122,15 @@ function isFailedRun({ code, resultStatus, errorMessages = [] } = {}) {
  * error wins over stderr, which is mostly startup chatter. Redaction runs over
  * the whole text BEFORE it is cut, so a key split across the cut cannot
  * survive as a fragment.
+ *
+ * `secrets` are the values the caller knows to be secret — the agent's own
+ * keys and its workspace token (BaseAdapter._knownSecrets). They are masked by
+ * value, which is the only protection for a key whose format no pattern knows.
  */
-function failureDetail({ stderr, error, errorMessages = [], max = DETAIL_CAP } = {}) {
+function failureDetail({ stderr, error, errorMessages = [], secrets = [], max = DETAIL_CAP } = {}) {
   const structured = [errorMessage(error), ...errorMessages].filter(Boolean).join(' | ');
-  if (structured) return cap(oneLine(redactSecrets(structured)), max);
-  const lines = redactSecrets(stderr || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (structured) return cap(oneLine(redactSecrets(structured, secrets)), max);
+  const lines = redactSecrets(stderr || '', secrets).split('\n').map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return '';
   const telling = lines.filter((l) => TELLING_RE.test(l));
   return cap(oneLine((telling.length ? telling : lines).slice(-2).join(' ')), max);
@@ -140,16 +165,17 @@ function classifyFailureText(text, { skip = [] } = {}) {
  * @param {string}   info.cli         the CLI's name, for the fallback wording
  * @param {object}   info.guidance    kind → the sentence to lead with
  * @param {string[]} info.skip        kinds this CLI can never produce
+ * @param {string[]} info.secrets     values to mask wherever they appear
  * @param {string}   info.codeLabel   how to name `code` when it is not an exit
  *   code — "HTTP 429" for an adapter that talks to an API rather than a CLI.
  */
 function classifyRunFailure({
   code, stderr, error, errorMessages = [], cli = 'The CLI', guidance = {}, skip = [],
-  codeLabel = '',
+  secrets = [], codeLabel = '',
 } = {}) {
   const errType = error && typeof error === 'object' ? String(error.type || '') : '';
   const structured = [errType, errorMessage(error), ...errorMessages].filter(Boolean).join('\n');
-  const detail = failureDetail({ stderr, error, errorMessages });
+  const detail = failureDetail({ stderr, error, errorMessages, secrets });
   const kind = classifyFailureText([structured, stderr].filter(Boolean).join('\n'), { skip });
 
   if (kind) {

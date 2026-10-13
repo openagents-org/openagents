@@ -45,9 +45,9 @@ const GUIDANCE = {
  * should read: guidance for the failures a user can act on, followed by the
  * CLI's own words.
  */
-function classifyGeminiFailure({ code, stderr, error, errorMessages = [] } = {}) {
+function classifyGeminiFailure({ code, stderr, error, errorMessages = [], secrets = [] } = {}) {
   return classifyRunFailure({
-    code, stderr, error, errorMessages, cli: CLI, guidance: GUIDANCE,
+    code, stderr, error, errorMessages, secrets, cli: CLI, guidance: GUIDANCE,
   });
 }
 

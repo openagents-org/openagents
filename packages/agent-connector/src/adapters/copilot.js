@@ -792,7 +792,9 @@ class CopilotAdapter extends BaseAdapter {
     if (exitCode && exitCode !== 0) {
       // Nothing above matched, so quote what the CLI actually said (redacted,
       // chatter dropped) — a bare exit code tells the user nothing.
-      const detail = failureDetail({ stderr, error: errorEvent && errorEvent.message });
+      const detail = failureDetail({
+        stderr, error: errorEvent && errorEvent.message, secrets: this._knownSecrets(),
+      });
       return {
         hard: false,
         message: detail

@@ -18,7 +18,7 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
 const fs = require('fs');
 const os = require('os');
@@ -227,6 +227,30 @@ class BaseAdapter {
     // The control poller (Stop, mode changes) fails silently otherwise: its
     // errors are caught so the loop keeps going, and nothing else logs them.
     this._controlFailures = new FailureStreak();
+  }
+
+  // ------------------------------------------------------------------
+  // Redaction of text quoted into the channel
+  // ------------------------------------------------------------------
+
+  /**
+   * The exact values this agent must never quote back: the credentials in the
+   * environment its CLI runs with, and its own workspace token. A CLI that
+   * fails on auth tends to echo the key it was handed, in whatever format the
+   * provider issues — matching by value catches it where no pattern would.
+   */
+  _knownSecrets() {
+    return secretValues(this.agentEnv, [this.token]);
+  }
+
+  /**
+   * Redact CLI or exception text on its way to the channel: this agent's own
+   * secrets by value first, then anything shaped like a credential. For quoted
+   * text only — authored guidance names variables ("set GEMINI_API_KEY") that
+   * the shape rules would rewrite.
+   */
+  _redact(text) {
+    return redactSecrets(text, this._knownSecrets());
   }
 
   // ------------------------------------------------------------------
@@ -1338,7 +1362,7 @@ class BaseAdapter {
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
-        try { await this.sendError(channel, `Agent error: ${redactSecrets(e.message)}`); } catch {}
+        try { await this.sendError(channel, `Agent error: ${this._redact(e.message)}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
       first = false;

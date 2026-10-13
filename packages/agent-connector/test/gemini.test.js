@@ -146,6 +146,38 @@ describe('GeminiAdapter — what a run posts', () => {
     assert.deepEqual(a.posted.response, []);
   });
 
+  it('a run that reports success is not also reported as a failure', async () => {
+    // An error event the run recovered from, then a success result: the reply
+    // is the outcome, and an error notice under it would contradict it.
+    const a = makeAdapter();
+    script = [{
+      events: [
+        { type: 'message', role: 'assistant', content: 'Done.', delta: true },
+        { type: 'error', severity: 'error', message: 'tool call failed: file not found' },
+        { type: 'result', status: 'success' },
+      ],
+    }];
+    await a._handleMessage(MSG);
+    assert.deepEqual(a.posted.response, ['Done.']);
+    assert.deepEqual(a.posted.error, []);
+  });
+
+  it('masks the agent\'s own key in the reason it quotes', async () => {
+    const a = makeAdapter();
+    a.agentEnv = { GEMINI_API_KEY: 'kz-91Ab_x7.Qm4' };
+    script = [{
+      events: [{
+        type: 'result',
+        status: 'error',
+        error: { type: 'Error', message: '[API Error: credential kz-91Ab_x7.Qm4 was refused upstream]' },
+      }],
+      code: 1,
+    }];
+    await a._handleMessage(MSG);
+    assert.equal(a.posted.error.length, 1);
+    assert.match(a.posted.error[0], /credential \[REDACTED\] was refused upstream/);
+  });
+
   it('posts both the partial answer and the error that cut it off', async () => {
     const a = makeAdapter();
     script = [{

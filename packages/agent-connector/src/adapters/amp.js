@@ -360,8 +360,9 @@ class AmpAdapter extends BaseAdapter {
       if (exitCode !== 0) {
         const failure = classifyRunFailure({
           code: exitCode, stderr, cli: 'Amp', guidance: AMP_GUIDANCE, skip: ['session'],
+          secrets: this._knownSecrets(),
         });
-        this._log(`Amp run failed (${failure.kind}, exit ${exitCode})`);
+        this._log(`Amp run failed (${failure.kind}, exit ${exitCode})`, 'error');
         throw classifiedError(failure.message);
       }
       return '';

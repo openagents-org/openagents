@@ -19,7 +19,7 @@ const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 const {
   isFailedRun,
@@ -414,7 +414,7 @@ class GeminiAdapter extends BaseAdapter {
               if (event.severity === 'error' && event.message) {
                 errorMessages.push(String(event.message));
               } else if (event.message) {
-                this._log(`CLI warning: ${redactSecrets(event.message)}`);
+                this._log(`CLI warning: ${this._redact(event.message)}`);
               }
             } else if (eventType === 'result') {
               if (event.session_id) {
@@ -441,7 +441,7 @@ class GeminiAdapter extends BaseAdapter {
             if (code !== 0) {
               this._log(`CLI exited with ${signal ? `signal ${signal}` : `code ${code}`}`);
               // Redact the whole buffer before cutting it; keep the end, where the failure is.
-              const stderrText = redactSecrets(stderrBuf).trim();
+              const stderrText = this._redact(stderrBuf).trim();
               if (stderrText) this._log(`stderr: ${stderrText.slice(-500)}`);
             }
 
@@ -461,7 +461,9 @@ class GeminiAdapter extends BaseAdapter {
               if (fullResponse) {
                 try { await this.sendResponse(msgChannel, fullResponse); } catch {}
               }
-              const detail = failureDetail({ stderr: stderrBuf, error: resultError, errorMessages });
+              const detail = failureDetail({
+                stderr: stderrBuf, error: resultError, errorMessages, secrets: this._knownSecrets(),
+              });
               try {
                 await this.sendError(
                   msgChannel,
@@ -484,9 +486,9 @@ class GeminiAdapter extends BaseAdapter {
             }
 
             const failure = classifyGeminiFailure({
-              code, stderr: stderrBuf, error: resultError, errorMessages,
+              code, stderr: stderrBuf, error: resultError, errorMessages, secrets: this._knownSecrets(),
             });
-            this._log(`Run failed (${failure.kind})`);
+            this._log(`Run failed (${failure.kind})`, 'error');
 
             // Only a resume that failed, or a failure nothing explains, is worth
             // a fresh session. Retrying anything else repeats the same wait for
@@ -523,7 +525,7 @@ class GeminiAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
+        await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;

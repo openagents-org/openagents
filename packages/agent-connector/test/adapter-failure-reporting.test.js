@@ -13,6 +13,7 @@
 const { describe, it, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const EventEmitter = require('node:events');
+const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const cp = require('node:child_process');
@@ -33,7 +34,10 @@ cp.spawn = (cmd, args, opts) => {
   spawns.push({ cmd, args, opts, proc });
   setImmediate(() => {
     if (step.stdout) proc.stdout.emit('data', Buffer.from(step.stdout, 'utf-8'));
-    if (step.stderr) proc.stderr.emit('data', Buffer.from(step.stderr, 'utf-8'));
+    // OpenClaw hands its child a file descriptor for stderr, not a pipe.
+    const stderrFd = opts && Array.isArray(opts.stdio) ? opts.stdio[2] : null;
+    if (step.stderr && typeof stderrFd === 'number') fs.writeSync(stderrFd, step.stderr);
+    else if (step.stderr) proc.stderr.emit('data', Buffer.from(step.stderr, 'utf-8'));
     proc.exitCode = step.code ?? 0;
     proc.emit('exit', step.code ?? 0, null);
     proc.emit('close', step.code ?? 0, null);
@@ -49,7 +53,8 @@ beforeEach(() => { spawns = []; script = []; });
 
 /** Common stubs: no workspace, no real binary, everything posted is captured. */
 function harness(a) {
-  a._log = () => {};
+  a.logged = [];
+  a._log = (text, level = 'info') => { a.logged.push({ text, level }); };
   a._saveSessions = () => {};
   a.posted = { response: [], error: [], status: [], thinking: [] };
   a.client = { getSession: async () => ({}), updateSession: async () => {} };
@@ -64,14 +69,21 @@ function harness(a) {
 
 const MSG = { content: 'hi', sessionId: 'chan-1', senderName: 'you' };
 const OPENAI_KEY = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789';
+// A relay's key and a workspace token: no prefix, no length, nothing a pattern
+// could recognise. Only knowing the value masks them.
+const RELAY_KEY = 'kz-91Ab_x7.Qm4';
+const WS_TOKEN = 'wst_51d0e8c3';
+
+/** The failure line an adapter writes to the daemon log, with its level. */
+const failureLog = (a) => a.logged.find((l) => /failed \(/i.test(l.text));
 
 // ---------------------------------------------------------------- Hermes
 
-function makeHermes(sessions = {}) {
+function makeHermes(sessions = {}, agentEnv = {}) {
   const a = createAdapter('hermes', {
-    workspaceId: 'ws-test', channelName: 'general', token: 'tok',
+    workspaceId: 'ws-test', channelName: 'general', token: WS_TOKEN,
     agentName: 'hermes-bot', endpoint: 'https://example.invalid',
-    agentType: 'hermes', agentEnv: {}, workingDir: os.tmpdir(),
+    agentType: 'hermes', agentEnv, workingDir: os.tmpdir(),
   });
   harness(a);
   a._hermesBin = '/nonexistent/hermes';
@@ -102,6 +114,7 @@ describe('Hermes — a failed run says why', () => {
     assert.ok(!a.posted.error[0].includes('session_id'), a.posted.error[0]);
     assert.ok(!a.posted.error[0].startsWith('Error processing message'), a.posted.error[0]);
     assert.equal(a._channelSessions['chan-1'], 'S-live', 'the channel keeps its history');
+    assert.equal(failureLog(a).level, 'error');
   });
 
   it('quotes what Hermes said when nothing explains the failure', async () => {
@@ -113,6 +126,38 @@ describe('Hermes — a failed run says why', () => {
     assert.equal(spawns.length, 1);
     assert.deepEqual(a.posted.response, []);
     assert.deepEqual(a.posted.error, ['Hermes failed (exit 1): something odd happened']);
+  });
+
+  it('masks the key this agent was given and its workspace token, whatever their format', async () => {
+    const a = makeHermes({ 'chan-1': 'S-live' }, { LLM_API_KEY: RELAY_KEY });
+    script = [{
+      stderr: `Error: relay refused credential ${RELAY_KEY} for workspace ${WS_TOKEN}\n\nsession_id: S-live\n`,
+      code: 1,
+    }];
+
+    await a._handleMessage(MSG);
+
+    assert.deepEqual(a.posted.error, [
+      'Hermes failed (exit 1): Error: relay refused credential [REDACTED] for workspace [REDACTED]',
+    ]);
+  });
+
+  it('does not read a cause into the model\'s own reply', async () => {
+    // stdout is the reply. The turn failed for a reason stderr does not give,
+    // and a reply that talks about a sign-in page and a settings.json is not
+    // an auth or a config failure.
+    const a = makeHermes({ 'chan-1': 'S-live' }, { LLM_API_KEY: RELAY_KEY });
+    const reply =
+      'The sign-in page rendered, but settings.json was not found and the request was forbidden.\n'
+      + `I stopped after the provider rejected ${RELAY_KEY}; the token limit was reached.`;
+    script = [{ stdout: `${reply}\n`, stderr: 'session_id: S-live\n', code: 1 }];
+
+    await a._handleMessage(MSG);
+
+    assert.equal(a.posted.error.length, 1);
+    assert.ok(!/LLM_API_KEY|could not authenticate|configuration is invalid/i.test(a.posted.error[0]), a.posted.error[0]);
+    // Hermes's account is posted as it stands, minus this agent's own key.
+    assert.equal(a.posted.error[0], reply.replace(RELAY_KEY, '[REDACTED]'));
   });
 });
 
@@ -138,6 +183,27 @@ describe('Amp — a failed run says why', () => {
     assert.equal(a.posted.error.length, 1);
     assert.match(a.posted.error[0], /rate-limited|out of credit/i);
     assert.match(a.posted.error[0], /Details: .*429/);
+    assert.equal(failureLog(a).level, 'error');
+  });
+
+  it('masks the agent\'s own key in what it quotes', async () => {
+    const a = createAdapter('amp', {
+      workspaceId: 'ws-test', channelName: 'general', token: WS_TOKEN,
+      agentName: 'amp-bot', endpoint: 'https://example.invalid',
+      agentType: 'amp', agentEnv: { AMP_API_KEY: RELAY_KEY }, workingDir: os.tmpdir(),
+    });
+    harness(a);
+    a._ampBin = '/nonexistent/amp';
+    a._reportStatus = () => {};
+    a.getBrowserEnabled = async () => false;
+    a._buildSystemContext = () => 'ctx';
+    script = [{ stderr: `Error: credential ${RELAY_KEY} was refused\n`, code: 1 }];
+
+    await a._handleMessage(MSG);
+
+    assert.equal(a.posted.error.length, 1);
+    assert.ok(!a.posted.error[0].includes(RELAY_KEY), a.posted.error[0]);
+    assert.match(a.posted.error[0], /credential \[REDACTED\] was refused/);
   });
 });
 
@@ -172,34 +238,79 @@ describe('Cursor — an errored result reaches the channel', () => {
 
 // -------------------------------------------------------------- OpenClaw
 
+function makeOpenClaw(agentEnv = {}) {
+  const a = createAdapter('openclaw', {
+    workspaceId: 'ws-test-openclaw', channelName: 'general', token: WS_TOKEN,
+    agentName: 'claw-bot', endpoint: 'https://example.invalid',
+    agentType: 'openclaw', agentEnv, workingDir: os.tmpdir(),
+  });
+  harness(a);
+  a._openclawBinary = '/nonexistent/openclaw.mjs';
+  return a;
+}
+
 describe('OpenClaw — a failed run says why', () => {
+  // stderr of openclaw 2026.7.1 run with a rejected key, shortened: stdout is
+  // empty, and the reason is one line among the --log-level trace.
+  const TRACE_401 =
+    '[provider-transport-fetch] [model-fetch] start provider=openai api=openai-responses model=gpt-5.5 method=POST\n'
+    + `[openai-transport] [responses] error provider=openai status=401 code=invalid_api_key message=401 Incorrect API key provided: ${OPENAI_KEY}.\n`
+    + '[agent/embedded] embedded run agent end: runId=dae455a2 isError=true model=gpt-5.5 provider=openai\n'
+    + '[diagnostic] lane task error: lane=main durationMs=4708 error="FailoverError: Authentication failed (provider returned HTTP 401)."\n'
+    + '[model-fallback/decision] model fallback decision: decision=candidate_failed requested=openai/gpt-5.5 reason=auth next=none\n';
+
   it('quotes the telling trace line, not the last 300 characters of noise', async () => {
-    const a = createAdapter('openclaw', {
-      workspaceId: 'ws-test-openclaw', channelName: 'general', token: 'tok',
-      agentName: 'claw-bot', endpoint: 'https://example.invalid',
-      agentType: 'openclaw', agentEnv: {}, workingDir: os.tmpdir(),
-    });
-    harness(a);
-    a._openclawBinary = '/nonexistent/openclaw.mjs';
-    // --log-level trace: the reason is one line among many, and the tail of the
-    // stream is unrelated chatter.
-    script = [{
-      stdout:
-        'trace: embedded run agent start\n'
-        + `trace: config loaded (api_key: ${OPENAI_KEY})\n`
-        + 'Error: 401 Unauthorized from the model endpoint\n'
-        + 'trace: shutting down workers\n',
-      code: 1,
-    }];
+    const a = makeOpenClaw();
+    script = [{ stderr: TRACE_401, code: 1 }];
 
     await a._handleMessage({ ...MSG, sessionId: 'chan-1' });
 
     assert.equal(a.posted.error.length, 1);
     assert.match(a.posted.error[0], /LLM_API_KEY/);
-    assert.match(a.posted.error[0], /401 Unauthorized/);
+    assert.match(a.posted.error[0], /Authentication failed \(provider returned HTTP 401\)/);
     assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
-    assert.ok(!a.posted.error[0].includes('shutting down workers'), a.posted.error[0]);
+    assert.ok(!a.posted.error[0].includes('model-fetch'), a.posted.error[0]);
     assert.deepEqual(a.posted.response, []);
+    assert.equal(failureLog(a).level, 'error');
+  });
+
+  it('reads the error object a failed --json run prints on stdout', async () => {
+    // openclaw 2026.9.8 reports a failure as {"ok":false,"error":{type,message}}.
+    const a = makeOpenClaw({ LLM_API_KEY: RELAY_KEY });
+    const message =
+      'Auth profile store requires legacy credential migration; run openclaw doctor --fix '
+      + `(profile openai:manual, key ${RELAY_KEY})`;
+    script = [{
+      stdout: `${JSON.stringify({ ok: false, error: { type: 'cli_error', message } })}\n`,
+      code: 1,
+    }];
+
+    await a._handleMessage({ ...MSG, sessionId: 'chan-1' });
+
+    assert.deepEqual(a.posted.error, [
+      `OpenClaw failed (exit 1): ${message.replace(RELAY_KEY, '[REDACTED]')}`,
+    ]);
+  });
+
+  it('does not read a cause into the model\'s own reply', async () => {
+    // --json writes the reply into stderr beside the trace. The run crashed
+    // for a reason of its own; what the model had written is not evidence.
+    const a = makeOpenClaw();
+    const reply = { payloads: [{ text: 'Please sign in first — settings.json is malformed and the API key is invalid.' }], meta: {} };
+    script = [{
+      stdout: 'Please sign in to continue\n',
+      stderr:
+        '[agent/embedded] embedded run agent start\n'
+        + `${JSON.stringify(reply, null, 2)}\n`
+        + 'RangeError: Maximum call stack size exceeded\n',
+      code: 1,
+    }];
+
+    await a._handleMessage({ ...MSG, sessionId: 'chan-1' });
+
+    assert.deepEqual(a.posted.error, [
+      'OpenClaw failed (exit 1): RangeError: Maximum call stack size exceeded',
+    ]);
   });
 });
 
@@ -238,6 +349,35 @@ describe('Direct LLM API — a rejected call says why', () => {
     assert.match(a.posted.error[0], /Details:/);
     assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
     assert.ok(!a.posted.error[0].startsWith('Error processing message'), a.posted.error[0]);
+    assert.equal(failureLog(a).level, 'error');
+  });
+
+  it('masks a relay key no pattern recognises when the relay echoes it', async () => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `upstream rejected ${RELAY_KEY} (expired)` }));
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+
+    const a = new LlmDirectAdapter({
+      workspaceId: 'ws-test', channelName: 'general', token: WS_TOKEN,
+      agentName: 'direct-bot', endpoint: 'https://example.invalid',
+      agentType: 'nanoclaw', workingDir: os.tmpdir(), adapterLabel: 'NanoClaw',
+      suppressConfigLog: true,
+      agentEnv: { OPENAI_API_KEY: RELAY_KEY, OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1` },
+    });
+    harness(a);
+
+    try {
+      await a._handleMessage(MSG);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+
+    assert.equal(a.posted.error.length, 1);
+    assert.match(a.posted.error[0], /upstream rejected \[REDACTED\] \(expired\)/);
+    assert.ok(!a.posted.error[0].includes(RELAY_KEY), a.posted.error[0]);
   });
 });
 
@@ -282,28 +422,35 @@ describe('Kimi direct API — the guidance names the settings Kimi reads', () =>
  * quoting its request — so it is redacted like any other CLI output.
  */
 describe('An unclassified exception is redacted before it reaches the channel', () => {
-  const THROWN = `connect ECONNRESET https://api.example.invalid/v1?api_key=${OPENAI_KEY}`;
+  // One secret a pattern recognises, and two only their value gives away: the
+  // agent's own key and the workspace token it posts with.
+  const THROWN =
+    `connect ECONNRESET https://api.example.invalid/v1?api_key=${OPENAI_KEY} `
+    + `(key ${RELAY_KEY}, workspace ${WS_TOKEN})`;
+  const assertNothingSecret = (text) => {
+    for (const secret of [OPENAI_KEY, RELAY_KEY, WS_TOKEN]) assert.ok(!text.includes(secret), text);
+  };
 
   it('redacts the adapter-level "Error processing message" fallback', async () => {
-    const a = makeHermes();
+    const a = makeHermes({}, { LLM_API_KEY: RELAY_KEY });
     a._buildPrompt = async () => { throw new Error(THROWN); };
 
     await a._handleMessage(MSG);
 
     assert.equal(a.posted.error.length, 1);
     assert.match(a.posted.error[0], /^Error processing message: connect ECONNRESET/);
-    assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
+    assertNothingSecret(a.posted.error[0]);
   });
 
   it('redacts the channel worker\'s "Agent error" catch-all, for every adapter', async () => {
-    const a = makeHermes();
+    const a = makeHermes({}, { LLM_API_KEY: RELAY_KEY });
     a._handleMessage = async () => { throw new Error(THROWN); };
 
     await a._channelWorker('chan-1', { ...MSG });
 
     assert.equal(a.posted.error.length, 1);
     assert.match(a.posted.error[0], /^Agent error: connect ECONNRESET/);
-    assert.ok(!a.posted.error[0].includes(OPENAI_KEY), a.posted.error[0]);
+    assertNothingSecret(a.posted.error[0]);
   });
 
   it('leaves no adapter posting a raw exception message', () => {

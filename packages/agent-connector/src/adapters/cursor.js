@@ -20,7 +20,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { classifyRunFailure } = require('./run-failure');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { resolveCursorNodeEntry } = require('./cursor-node-entry');
@@ -663,9 +663,10 @@ class CursorAdapter extends BaseAdapter {
               cli: 'Cursor CLI',
               guidance: CURSOR_GUIDANCE,
               skip: ['session'],
+              secrets: this._knownSecrets(),
             })
             : null;
-          if (failure) this._log(`Run failed (${failure.kind})`);
+          if (failure) this._log(`Run failed (${failure.kind})`, 'error');
           // Only a failure nothing explains is worth a fresh session. Clearing
           // it for a bad key or an exhausted quota throws the channel's history
           // away and buys a second helping of the same error.
@@ -717,7 +718,7 @@ class CursorAdapter extends BaseAdapter {
       });
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
+      await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
       break;
     }
     if (!_shouldRetry) break;

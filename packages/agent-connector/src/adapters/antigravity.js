@@ -25,7 +25,7 @@ const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 const {
   buildAgyArgv,
@@ -341,8 +341,10 @@ class AntigravityAdapter extends BaseAdapter {
               // Surface the real reason (auth, provider config, bad model)
               // instead of a generic retry prompt — the gemini adapter's
               // silent-stderr dead end is what this branch fixes.
-              const { kind, message } = classifyAgyFailure({ code, stderr: stderrBuf, error: run.error });
-              this._log(`run failed (${kind})`);
+              const { kind, message } = classifyAgyFailure({
+                code, stderr: stderrBuf, error: run.error, secrets: this._knownSecrets(),
+              });
+              this._log(`run failed (${kind})`, 'error');
               try { await this.sendError(msgChannel, message); } catch {}
               resolve(false);
             } else {
@@ -370,7 +372,7 @@ class AntigravityAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${redactSecrets(e.message)}`);
+        await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;

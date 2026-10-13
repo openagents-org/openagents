@@ -38,7 +38,7 @@ const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { redactSecrets } = require('./utils');
+const { maskSecretValues } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
@@ -733,20 +733,26 @@ class HermesAdapter extends BaseAdapter {
         // The turn did not finish, and stdout is Hermes's own account of why,
         // after whatever answer it had reached. Worth more to the user than
         // an exit code.
-        this._log(`Hermes turn did not finish (code=${run.exitCode})`);
-        await this.sendError(msgChannel, run.text);
+        // It is prose, so the shape rules of redaction stay off it; what is
+        // masked is this agent's own secrets, which a provider error quoted
+        // there would echo.
+        this._log(`Hermes turn did not finish (code=${run.exitCode})`, 'error');
+        await this.sendError(msgChannel, maskSecretValues(run.text, this._knownSecrets()));
       } else {
         // Nothing on stdout, so the reason is whatever Hermes wrote to stderr:
         // in -Q mode that is where it reports a backend error that produced
         // no reply, and a credential check that failed before the turn began.
+        // stdout is never classified — it is the model's reply, and a reply
+        // that mentions a sign-in page is not an auth failure.
         const failure = classifyRunFailure({
           code: run.exitCode,
           stderr: run.detail,
           cli: 'Hermes',
           guidance: HERMES_GUIDANCE,
           skip: ['session'],
+          secrets: this._knownSecrets(),
         });
-        this._log(`Hermes run failed (${failure.kind}, code=${run.exitCode})`);
+        this._log(`Hermes run failed (${failure.kind}, code=${run.exitCode})`, 'error');
         throw classifiedError(failure.message);
       }
     } catch (e) {
@@ -755,7 +761,7 @@ class HermesAdapter extends BaseAdapter {
       // anything else is an adapter-side error and says so.
       await this.sendError(
         msgChannel,
-        isClassifiedError(e) ? e.message : `Error processing message: ${redactSecrets(e.message)}`,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
       );
     }
   }

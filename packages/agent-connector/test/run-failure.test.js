@@ -33,6 +33,12 @@ describe('isFailedRun', () => {
     assert.equal(isFailedRun({ code: null }), true);
     assert.equal(isFailedRun({ code: 0 }), false);
   });
+
+  it('a success result settles it over error events the run recovered from', () => {
+    // Otherwise the channel gets the reply and then a failure notice under it.
+    assert.equal(isFailedRun({ code: 0, resultStatus: 'success', errorMessages: ['tool call failed'] }), false);
+    assert.equal(isFailedRun({ code: 1, resultStatus: 'success', errorMessages: ['tool call failed'] }), false);
+  });
 });
 
 describe('classifyFailureText', () => {
@@ -72,6 +78,41 @@ describe('classifyFailureText', () => {
     assert.equal(classifyFailureText(''), null);
     assert.equal(classifyFailureText(null), null);
   });
+
+  // A word that sits near a failure is not the failure. Each of these is a
+  // tool reporting on its own work, and used to be labelled with a cause.
+  const unrelated = [
+    'TypeError: cannot read properties of undefined — sign-in page rendered',
+    'navigated to /login and filled the sign in form',
+    'write to /etc/hosts is forbidden by the sandbox policy',
+    'ENOENT: settings.json not found',
+    'reading settings from C:\\Users\\a\\.gemini\\antigravity-cli\\settings.json',
+    'tool call skipped: file is not eligible for indexing',
+    'upstream returned a malformed response body',
+  ];
+  for (const text of unrelated) {
+    it(`does not put a cause on: ${text.slice(0, 44)}`, () => {
+      assert.equal(classifyFailureText(text), null);
+    });
+  }
+
+  const stillRecognised = [
+    ['auth', 'Sign-in required'],
+    ['auth', 'Error: you are not logged in'],
+    ['auth', 'Please log in to continue'],
+    ['auth', 'HTTP 403 Forbidden'],
+    ['auth', '{"error":"Forbidden"}'],
+    ['auth', 'Error: HTTP 401: Incorrect API key provided'],
+    ['auth', 'Your current account is not eligible for this service'],
+    ['config', 'settings.json is malformed'],
+    ['config', 'failed to parse /home/u/.hermes/config.yaml'],
+    ['provider', 'No inference provider configured'],
+  ];
+  for (const [kind, text] of stillRecognised) {
+    it(`still ${kind}: ${text.slice(0, 44)}`, () => {
+      assert.equal(classifyFailureText(text), kind);
+    });
+  }
 });
 
 describe('failureDetail', () => {
@@ -110,6 +151,18 @@ describe('failureDetail', () => {
   it('is empty when there is nothing to quote', () => {
     assert.equal(failureDetail({}), '');
     assert.equal(failureDetail({ stderr: '  \n ' }), '');
+  });
+
+  it('masks the values the caller knows are secret, in either source', () => {
+    const secrets = ['kz-91Ab_x7'];
+    assert.equal(
+      failureDetail({ error: { message: 'credential kz-91Ab_x7 is disabled' }, secrets }),
+      'credential [REDACTED] is disabled',
+    );
+    assert.equal(
+      failureDetail({ stderr: 'Error: credential kz-91Ab_x7 is disabled\n', secrets }),
+      'Error: credential [REDACTED] is disabled',
+    );
   });
 });
 
@@ -165,5 +218,36 @@ describe('classifyRunFailure', () => {
     });
     assert.equal(r.kind, 'auth');
     assert.ok(!r.message.includes('sk-live-abcdef1234567890'), r.message);
+  });
+
+  it('redacts a bearer token that has no recognisable prefix', () => {
+    const r = classifyRunFailure({
+      code: 1,
+      stderr: 'Error: 401 Unauthorized — sent Authorization: Bearer abcDEF1234567890xyz',
+      cli: 'Acme CLI',
+    });
+    assert.equal(r.kind, 'auth');
+    assert.ok(!r.message.includes('abcDEF1234567890xyz'), r.message);
+  });
+
+  it('masks the agent\'s own key by value, and still classifies on the raw text', () => {
+    // Nothing about this key's shape gives it away; only knowing it does.
+    const key = 'kz-91Ab_x7';
+    const r = classifyRunFailure({
+      code: 1,
+      stderr: `Error: invalid api key ${key}`,
+      cli: 'Acme CLI',
+      secrets: [key],
+    });
+    assert.equal(r.kind, 'auth');
+    assert.match(r.message, /Details: Error: invalid api key \[REDACTED\]$/);
+    assert.equal(r.detail, 'Error: invalid api key [REDACTED]');
+  });
+
+  it('masks it in a failure nothing explains, too', () => {
+    const r = classifyRunFailure({
+      code: 3, stderr: 'boom: kz-91Ab_x7', cli: 'Acme CLI', secrets: ['kz-91Ab_x7'],
+    });
+    assert.equal(r.message, 'Acme CLI failed (exit 3): boom: [REDACTED]');
   });
 });
