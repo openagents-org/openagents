@@ -62,6 +62,9 @@ class ClaudeAdapter extends BaseAdapter {
       'CLAUDE_API_KEY',
       'CLAUDE_CODE_MAX_TURNS',
       'CLAUDE_CODE_OAUTH_TOKEN',
+      // The CLI's own per-account config/auth home (multi-account isolation).
+      // Not a credential and not an SDK-harness signal; see openagents#682.
+      'CLAUDE_CONFIG_DIR',
     ]);
     const env = { ...(baseEnv || {}) };
     for (const k of Object.keys(env)) {
