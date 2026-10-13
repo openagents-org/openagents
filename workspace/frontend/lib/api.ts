@@ -1173,6 +1173,19 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
+  async controlBrowserTab(tabId: string, token: string, action: 'claim' | 'renew' | 'release'): Promise<void> {
+    await this.request(`/v1/browser/tabs/${tabId}/control`, {
+      method: 'POST', body: JSON.stringify({ token, action }),
+    });
+  }
+
+  async sendBrowserInput(tabId: string, input: {
+    token: string; kind: 'click' | 'text' | 'key' | 'scroll';
+    x?: number; y?: number; text?: string; key?: string; delta_x?: number; delta_y?: number;
+  }): Promise<void> {
+    await this.request(`/v1/browser/tabs/${tabId}/input`, { method: 'POST', body: JSON.stringify(input) });
+  }
+
   /** Navigate a browser tab to a new URL (attributed to the human at the keyboard). */
   async navigateBrowserTab(tabId: string, url: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(

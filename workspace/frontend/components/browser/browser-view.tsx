@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, Eye, Globe, Hand, Hourglass, Maximize2, Minimize2, Moon, MousePointer2,
-  Pin, PinOff, Play, Plus, RefreshCw, Users, X,
+  Bot, Eye, Globe, Hand, Maximize2, Minimize2, Moon, MousePointer2,
+  Play, Plus, RefreshCw, Users, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -12,15 +12,15 @@ import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { MessageKey } from '@/lib/i18n';
 import type { BrowserTab } from '@/lib/types';
 import { NewBrowserTabDialog } from './new-browser-tab-dialog';
 import { actorName, useAgentActivity } from './agent-activity';
-import { buildTabEntries, displayUrl, idleMinutesLeft, normalizeUrl, whoLabel, type PermanentEntry } from './tab-model';
+import { buildTabEntries, displayUrl, normalizeUrl, whoLabel, type PermanentEntry } from './tab-model';
 
-type ControlMode = 'watching' | 'controlling';
+import { useBrowserControl } from './use-browser-control';
 
 /** The live view is embedded chrome-less; the workspace draws the browser around it. */
 function embedUrl(liveUrl: string): string {
@@ -28,20 +28,18 @@ function embedUrl(liveUrl: string): string {
 }
 
 /**
- * The cloud browser. Reads like a remote Chrome window: a tab strip (permanent
- * tabs pinned first, temporary tabs after), an address bar, the live page, and
+ * The shared browser: a tab strip, an address bar, the live page, and
  * a status bar that says who is driving — with a take-over / hand-back switch.
  */
 export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) {
   const t = useT();
   const confirm = useConfirm();
-  const prompt = usePrompt();
   const { timeAgoShort: timeAgo } = useFormatters();
   const {
     browserTabs, browserContexts, browserTabLimits, agents,
     selectedBrowserTabId: workspaceBrowserTabId, setSelectedBrowserTabId,
     selectedBrowserContextId, setSelectedBrowserContextId,
-    closeBrowserTab, navigateBrowserTab, reconnectBrowserTab, persistBrowserTab, unpersistBrowserTab,
+    closeBrowserTab, navigateBrowserTab, reconnectBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
   } = useWorkspace();
   const { isMobile, isDetailExpanded, toggleDetailExpanded } = useLayout();
@@ -55,10 +53,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [editingUrl, setEditingUrl] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [wakingId, setWakingId] = useState<string | null>(null);
-  const [control, setControl] = useState<ControlMode>('watching');
   const urlInputRef = useRef<HTMLInputElement>(null);
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
+  const refreshFrameRef = useRef<(() => void) | null>(null);
 
   const selectedBrowserTabId = artifactTabId || workspaceBrowserTabId;
   const tab = browserTabs.find((x) => x.id === selectedBrowserTabId);
@@ -69,12 +67,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const idleMinutes = browserTabLimits?.idleMinutes ?? 15;
   const activity = useAgentActivity(tab);
 
-  // Who starts in control: a tab a human opened is theirs; an agent's tab is
-  // watched until the human explicitly takes over. Re-decided per tab only.
-  useEffect(() => {
-    if (!tab) return;
-    setControl(tab.createdBy?.startsWith('human:') && !activity.active ? 'controlling' : 'watching');
-  }, [tab?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { controlling, busy: controlBusy, toggle: toggleControl, input: sendInput, frameRevision } = useBrowserControl(tab?.id);
 
   // Validate the live session on mount / tab switch, then keep checking. The
   // backend probes the BF session and auto-reconnects if it can, returning
@@ -109,9 +102,13 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       return;
     }
     let cancelled = false;
+    setScreenshotUrl(null);
     failCountRef.current = 0;
     setSessionDead(false);
+    let fetching = false;
     const fetchScreenshot = async () => {
+      if (fetching || cancelled) return;
+      fetching = true;
       try {
         const url = workspaceApi.getBrowserScreenshotUrl(selectedBrowserTabId);
         const headers: Record<string, string> = {};
@@ -137,18 +134,22 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         setLoading(false);
       } catch {
         failCountRef.current++;
-        if (failCountRef.current >= 3) { setSessionDead(true); setLoading(false); }
-      }
+        if (!cancelled && failCountRef.current >= 3) { setSessionDead(true); setLoading(false); }
+      } finally { fetching = false; }
     };
+    refreshFrameRef.current = fetchScreenshot;
     setLoading(true);
     fetchScreenshot();
     const interval = setInterval(fetchScreenshot, 2000);
     return () => {
       cancelled = true;
+      refreshFrameRef.current = null;
       clearInterval(interval);
       if (prevBlobRef.current) { URL.revokeObjectURL(prevBlobRef.current); prevBlobRef.current = null; }
     };
-  }, [selectedBrowserTabId, tab]);
+  }, [selectedBrowserTabId, !!tab, hasLiveUrl]);
+
+  useEffect(() => { refreshFrameRef.current?.(); }, [frameRevision]);
 
   // ── actions ──────────────────────────────────────────────────────────────
 
@@ -214,7 +215,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       await closeBrowserTab(x.id);
       if (x.contextId) {
         if (selectedBrowserTabId === x.id) setSelectedBrowserContextId(x.contextId);
-        toast.success(t('browser.sleptToast'));
+        toast.success(t('browser.tabClosed'));
       } else {
         toast.success(t('browser.tabClosed'));
       }
@@ -241,51 +242,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     }
   };
 
-  const handlePersist = async () => {
-    if (!tab || tab.contextId) return;
-    const name = await prompt({
-      title: t('browser.savePersistentTitle'),
-      description: t('browser.savePersistentDescription'),
-      placeholder: t('browser.savePersistentPlaceholder'),
-      defaultValue: displayUrl(tab.url, 40).split('/')[0],
-      confirmText: t('common.save'),
-    });
-    if (!name?.trim()) return;
-    try {
-      await persistBrowserTab(tab.id, name.trim());
-      toast.success(t('browser.nowPersistent', { name: name.trim() }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('browser.makePersistentFailed'));
-    }
-  };
-
-  const handleUnpersist = async () => {
-    if (!tab || !tab.contextId) return;
-    const ctx = browserContexts.find((c) => c.id === tab.contextId);
-    const label = ctx?.name || tab.contextName || t('browser.thisTab');
-    const ok = await confirm({
-      title: t('browser.removePersistentTitle'),
-      description: t('browser.removePersistentDescription', { label }),
-      confirmText: t('common.remove'),
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      await unpersistBrowserTab(tab.id);
-      toast.success(t('browser.nowTemporal'));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('browser.removePersistentFailed'));
-    }
-  };
-
   // ── derived labels ────────────────────────────────────────────────────────
 
   const agentWho = actorName(activity.actor, agents) || t('browser.agentGeneric');
   const activityLabel = activity.active
     ? t(`browser.agentAction.${activity.action ?? 'other'}` as MessageKey, { agent: agentWho })
-    : null;
-  const currentContextName = tab?.contextId
-    ? browserContexts.find((c) => c.id === tab.contextId)?.name || tab.contextName || t('browser.kindPermanent')
     : null;
   const liveState: 'live' | 'connecting' | 'expired' | 'none' = !tab
     ? 'none'
@@ -298,9 +259,9 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // ── tab strip ─────────────────────────────────────────────────────────────
 
   const TabChip = ({
-    active, awake, kind, label, sub, icon, onSelect, onClose, closeTitle, busy,
+    active, awake, label, sub, icon, onSelect, onClose, closeTitle, busy,
   }: {
-    active: boolean; awake: boolean; kind: 'permanent' | 'temporary'; label: string; sub?: string;
+    active: boolean; awake: boolean; label: string; sub?: string;
     icon: React.ReactNode; onSelect: () => void; onClose?: () => void; closeTitle?: string; busy?: boolean;
   }) => (
     <div
@@ -315,7 +276,6 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         active
           ? 'z-10 border-border bg-background text-foreground shadow-[0_1px_0_0_var(--background)]'
           : 'border-transparent text-muted-foreground hover:bg-zinc-200/60 hover:text-foreground dark:hover:bg-zinc-800/60',
-        kind === 'temporary' && !active && 'border-dashed border-border/50',
         !awake && 'italic',
         busy && 'animate-pulse',
       )}
@@ -332,7 +292,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           title={closeTitle}
           aria-label={closeTitle}
         >
-          {kind === 'permanent' ? <Moon className="size-3" /> : <X className="size-3" />}
+          <X className="size-3" />
         </button>
       )}
     </div>
@@ -348,34 +308,29 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             key={entry.key}
             active={active}
             awake={awake}
-            kind="permanent"
             label={entry.context.name}
             sub={awake ? displayUrl(entry.tab!.url) : t('browser.asleepHint')}
             busy={wakingId === entry.context.id}
             icon={awake
-              ? <Pin className="size-3.5 text-emerald-500" />
+              ? <Globe className="size-3.5 text-muted-foreground" />
               : <Moon className="size-3.5 text-zinc-400" />}
             onSelect={() => {
               if (awake) selectLive(entry.tab!);
               else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
             }}
             onClose={awake ? () => handleCloseOrSleep(entry.tab!) : undefined}
-            closeTitle={t('browser.sleepHint')}
+            closeTitle={t('browser.closeTab')}
           />
         );
       })}
-      {permanent.length > 0 && temporary.length > 0 && (
-        <span className="mx-1 mb-1.5 h-5 w-px shrink-0 bg-border" aria-hidden />
-      )}
       {temporary.map((entry) => (
         <TabChip
           key={entry.key}
           active={entry.tab.id === selectedBrowserTabId}
           awake
-          kind="temporary"
           label={entry.tab.title || displayUrl(entry.tab.url, 30) || t('browser.untitled')}
-          sub={t('browser.idleClosesIn', { minutes: idleMinutesLeft(entry.tab, idleMinutes) })}
-          icon={<Hourglass className="size-3.5 text-amber-500" />}
+          sub={displayUrl(entry.tab.url)}
+          icon={<Globe className="size-3.5 text-muted-foreground" />}
           onSelect={() => selectLive(entry.tab)}
           onClose={() => handleCloseOrSleep(entry.tab)}
           closeTitle={t('browser.closeTab')}
@@ -395,7 +350,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             className="inline-flex items-center gap-1"
             title={t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
           >
-            <Hourglass className="size-3 text-amber-500" />
+            <Globe className="size-3" />
             <span className={cn(browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max && 'text-red-500')}>
               {browserTabLimits.concurrent.used}/{browserTabLimits.concurrent.max}
             </span>
@@ -425,9 +380,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           editingUrl && 'border-foreground/40 bg-background',
         )}
       >
-        {tab.contextId
-          ? <Pin className="size-3 shrink-0 text-emerald-500" />
-          : <Globe className="size-3 shrink-0 text-muted-foreground/60" />}
+        <Globe className="size-3 shrink-0 text-muted-foreground/60" />
         {editingUrl ? (
           <input
             ref={urlInputRef}
@@ -460,33 +413,23 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         </div>
       )}
 
-      {tab.contextId ? (
-        <button
-          onClick={handleUnpersist}
-          className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
-          title={t('browser.removePersistentHint')}
-        >
-          <Pin className="size-3" />
-          <span className="hidden max-w-[8rem] truncate sm:inline">{currentContextName}</span>
-        </button>
-      ) : (
-        <button
-          onClick={handlePersist}
-          className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 transition-colors hover:bg-emerald-500/15 hover:text-emerald-700 dark:text-amber-300 dark:hover:text-emerald-300"
-          title={t('browser.makePersistentHint')}
-        >
-          <PinOff className="size-3" />
-          <span className="hidden sm:inline">{t('browser.makePersistent')}</span>
-        </button>
-      )}
+      <button
+        onClick={toggleControl}
+        disabled={controlBusy || sessionDead || reconnecting}
+        className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-accent px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
+        title={controlling ? t('browser.handBack') : t('browser.takeOver')}
+      >
+        <Hand className="size-3" />
+        <span>{controlling ? t('browser.handBack') : t('browser.takeOver')}</span>
+      </button>
 
       <button
         onClick={() => handleCloseOrSleep(tab)}
         className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-red-500"
-        title={tab.contextId ? t('browser.sleepHint') : t('browser.closeTab')}
-        aria-label={tab.contextId ? t('browser.sleep') : t('browser.closeTab')}
+        title={t('browser.closeTab')}
+        aria-label={t('browser.closeTab')}
       >
-        {tab.contextId ? <Moon className="size-3.5" /> : <X className="size-3.5" />}
+        <X className="size-3.5" />
       </button>
     </div>
   );
@@ -519,6 +462,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       ) : tab.liveUrl && !reconnecting ? (
         <iframe
           src={embedUrl(tab.liveUrl)}
+          tabIndex={controlling ? 0 : -1}
+          inert={!controlling}
           className="h-full w-full border-0"
           allow="clipboard-read; clipboard-write"
           title={t('browser.liveBrowser', { url: tab.url })}
@@ -532,7 +477,37 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           <img
             src={screenshotUrl}
             alt={t('browser.screenshotOf', { url: tab.url })}
-            className="max-w-full rounded-lg border border-zinc-200 shadow-sm dark:border-zinc-700"
+            className={cn('max-w-full rounded-lg border border-zinc-200 shadow-sm outline-none focus:ring-2 focus:ring-primary dark:border-zinc-700', controlling && 'cursor-pointer')}
+            draggable={false}
+            tabIndex={controlling ? 0 : -1}
+            role={controlling ? 'application' : undefined}
+            aria-label={controlling ? t('browser.controlInstructions') : undefined}
+            onClick={(event) => {
+              if (!controlling) return;
+              event.currentTarget.focus();
+              const rect = event.currentTarget.getBoundingClientRect();
+              sendInput({ kind: 'click', x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
+            }}
+            onKeyDown={(event) => {
+              if (!controlling || event.nativeEvent.isComposing) return;
+              // Escape leaves the remote canvas, so keyboard users can reach Hand back.
+              if (event.key === 'Escape') { event.currentTarget.blur(); return; }
+              if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
+              event.preventDefault();
+              if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) sendInput({ kind: 'text', text: event.key });
+              else sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key === ' ' ? 'Space' : event.key].filter(Boolean).join('+') });
+            }}
+            onPaste={(event) => {
+              if (!controlling) return;
+              event.preventDefault();
+              sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
+            }}
+            onWheel={(event) => {
+              if (!controlling) return;
+              const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 500 : 1;
+              sendInput({ kind: 'scroll', delta_x: Math.max(-2000, Math.min(2000, event.deltaX * scale)), delta_y: Math.max(-2000, Math.min(2000, event.deltaY * scale)) });
+            }}
           />
         </div>
       ) : (
@@ -545,10 +520,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           from the agent's page and offers "Take over". Controlling = no sheet;
           just a small pill to hand back. */}
       {tab.liveUrl && !sessionDead && !reconnecting && (
-        control === 'watching' ? (
+        !controlling ? (
           <div
             className="absolute inset-0 z-10 flex cursor-default flex-col justify-end"
-            onDoubleClick={() => setControl('controlling')}
+
           >
             <div className="pointer-events-none flex items-end justify-between gap-3 bg-gradient-to-t from-black/45 to-transparent px-3 pb-3 pt-10">
               <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[12px] text-white shadow backdrop-blur">
@@ -569,7 +544,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
                 )}
               </div>
               <button
-                onClick={() => setControl('controlling')}
+                onClick={toggleControl}
+                disabled={controlBusy}
                 className="pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100"
               >
                 <Hand className="size-3.5" />
@@ -589,7 +565,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
                 </span>
               )}
               <button
-                onClick={() => setControl('watching')}
+                onClick={toggleControl}
+                disabled={controlBusy}
                 className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium hover:bg-white/25"
                 title={t('browser.watchingHint')}
               >
@@ -618,20 +595,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         {liveState === 'live' ? t('browser.live') : liveState === 'expired' ? t('browser.expiredTitle') : t('browser.opening')}
         <span className="hidden text-muted-foreground/60 sm:inline">· {t('browser.cloudBrowser')}</span>
       </span>
-      <span className="inline-flex min-w-0 items-center gap-1.5">
-        {tab.contextId ? (
-          <>
-            <Pin className="size-3 text-emerald-500" />
-            <span className="truncate">{t('browser.kindPermanent')}</span>
-          </>
-        ) : (
-          <>
-            <Hourglass className="size-3 text-amber-500" />
-            <span className="truncate">
-              {t('browser.kindTemporary')} · {t('browser.idleClosesIn', { minutes: idleMinutesLeft(tab, idleMinutes) })}
-            </span>
-          </>
-        )}
+      <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
+        {controlling ? t('browser.youAreInControl') : t('browser.watching')}
       </span>
       <span className="ml-auto hidden items-center gap-1.5 md:inline-flex">
         <span className="truncate">

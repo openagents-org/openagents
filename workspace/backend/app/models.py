@@ -653,6 +653,9 @@ class BrowserTab(Base):
     context_id = Column(Text, ForeignKey("browser_contexts.id", ondelete="SET NULL"), nullable=True)  # persistent context
     session_id = Column(Text, nullable=True)                       # Browserbase session ID
     live_url = Column(Text, nullable=True)                         # Browserbase live view URL
+    control_owner = Column(Text, nullable=True)
+    control_token = Column(Text, nullable=True)
+    control_expires_at = Column(DateTime(timezone=True), nullable=True)
     # --- BF credential reference (never the key itself; see app/browser_creds.py) ---
     bf_key_source = Column(Text, nullable=True)                    # 'workspace' | 'global' | NULL (local/legacy)
     bf_key_fingerprint = Column(Text, nullable=True)               # SHA-256 hex of the creating key

@@ -23,13 +23,15 @@ import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
+from app.access import resolve_current_user
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
@@ -912,7 +914,112 @@ async def get_tab(
 # POST /v1/browser/tabs/{tab_id}/navigate
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/navigate")
+def _control_active(tab):
+    expiry = tab.control_expires_at
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    return bool(tab.control_owner and expiry and expiry > datetime.now(timezone.utc))
+
+
+def _lock_control_tab(db, tab_id, token, authorization):
+    # Claims serialize across workers; never wait for another control update.
+    try:
+        tab = db.execute(select(BrowserTab).where(BrowserTab.id == tab_id).with_for_update(nowait=True)).scalar_one_or_none()
+    except OperationalError:
+        db.rollback()
+        raise HTTPException(409, "The browser is finishing another action. Try again shortly.")
+    if not tab:
+        raise HTTPException(404, "Browser tab not found")
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace or not _verify_workspace_access(workspace, token, authorization):
+        raise HTTPException(401, "Invalid workspace credentials")
+    return tab
+
+
+async def _guard_browser_control(tab_id: str, db: Session = Depends(get_db),
+                                 x_workspace_token: Optional[str] = Header(None),
+                                 authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    if _control_active(tab):
+        user = resolve_current_user(db, authorization)
+        if not user or str(user.id) != tab.control_owner:
+            raise HTTPException(409, "A teammate is controlling this browser. Wait until they hand it back.")
+    # Do not hold SQL row locks across browser I/O. A previously admitted
+    # action may finish; subsequent agent actions are refused until release.
+    db.commit()
+
+
+class BrowserControlRequest(BaseModel):
+    token: uuid.UUID
+    action: Literal['claim', 'renew', 'release']
+
+
+class BrowserInputRequest(BaseModel):
+    token: uuid.UUID
+    kind: Literal['click', 'text', 'key', 'scroll']
+    x: float = Field(default=0, ge=0, le=1)
+    y: float = Field(default=0, ge=0, le=1)
+    text: str = Field(default='', max_length=10000)
+    key: str = Field(default='', max_length=80)
+    delta_x: float = Field(default=0, ge=-2000, le=2000)
+    delta_y: float = Field(default=0, ge=-2000, le=2000)
+
+
+@router.post('/tabs/{tab_id}/control')
+async def control_browser(tab_id: str, body: BrowserControlRequest, db: Session = Depends(get_db),
+                          x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    user = resolve_current_user(db, authorization)
+    if not user:
+        raise HTTPException(401, 'Sign in to take control of this browser.')
+    owns = tab.control_owner == str(user.id) and tab.control_token == str(body.token)
+    active = _control_active(tab)
+    if active and not owns:
+        raise HTTPException(409, 'Another viewer is controlling this browser.')
+    if body.action == 'release':
+        if owns:
+            tab.control_owner = tab.control_token = tab.control_expires_at = None
+    else:
+        if tab.status != 'active':
+            raise HTTPException(409, 'Reopen the browser before taking control.')
+        if body.action == 'renew' and (not owns or not active):
+            raise HTTPException(409, 'Browser control has expired. Take over again to continue.')
+        tab.control_owner = str(user.id)
+        tab.control_token = str(body.token)
+        tab.control_expires_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+        _touch(tab)
+    db.commit()
+    return success_response({'controlling': body.action != 'release'})
+
+
+@router.post('/tabs/{tab_id}/input')
+async def browser_input(tab_id: str, body: BrowserInputRequest, db: Session = Depends(get_db),
+                        x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    user = resolve_current_user(db, authorization)
+    if not user or not _control_active(tab) or tab.control_owner != str(user.id) or tab.control_token != str(body.token):
+        raise HTTPException(409, 'Take over this browser before interacting with it.')
+    if tab.status != 'active' or tab.live_url:
+        raise HTTPException(409, 'This browser does not accept screenshot input.')
+    # Release the row before browser I/O (screenshots also update tab metadata).
+    # The page's input lock preserves gesture order with any in-flight action.
+    db.commit()
+    # Never silently replace the session during a human gesture.
+    try:
+        result = await BrowserManager.get().human_input(tab_id, body.model_dump(exclude={'token'}))
+    except KeyError:
+        raise HTTPException(409, 'The browser disconnected. Reconnect and take over again.')
+    except Exception:
+        logger.exception('Human browser input failed')
+        raise HTTPException(400, 'The browser could not complete that action.')
+    tab.url = result['url']
+    tab.title = result['title']
+    _touch(tab)
+    db.commit()
+    return success_response(result)
+
+
+@router.post("/tabs/{tab_id}/navigate", dependencies=[Depends(_guard_browser_control)])
 async def navigate_tab(
     tab_id: str,
     body: NavigateRequest,
@@ -978,7 +1085,7 @@ async def navigate_tab(
 # POST /v1/browser/tabs/{tab_id}/reconnect — create new session for expired tab
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/reconnect")
+@router.post("/tabs/{tab_id}/reconnect", dependencies=[Depends(_guard_browser_control)])
 async def reconnect_tab(
     tab_id: str,
     reopen: bool = False,
@@ -1072,7 +1179,7 @@ async def reconnect_tab(
 # POST /v1/browser/tabs/{tab_id}/click
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/click")
+@router.post("/tabs/{tab_id}/click", dependencies=[Depends(_guard_browser_control)])
 async def click_tab(
     tab_id: str,
     body: ClickRequest,
@@ -1115,7 +1222,7 @@ async def click_tab(
 # POST /v1/browser/tabs/{tab_id}/type
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/type")
+@router.post("/tabs/{tab_id}/type", dependencies=[Depends(_guard_browser_control)])
 async def type_in_tab(
     tab_id: str,
     body: TypeRequest,
@@ -1156,7 +1263,7 @@ async def type_in_tab(
 # POST /v1/browser/tabs/{tab_id}/press_key
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/press_key")
+@router.post("/tabs/{tab_id}/press_key", dependencies=[Depends(_guard_browser_control)])
 async def press_key_in_tab(
     tab_id: str,
     body: PressKeyRequest,
@@ -1197,7 +1304,7 @@ async def press_key_in_tab(
 # POST /v1/browser/tabs/{tab_id}/evaluate
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/evaluate")
+@router.post("/tabs/{tab_id}/evaluate", dependencies=[Depends(_guard_browser_control)])
 async def evaluate_in_tab(
     tab_id: str,
     body: EvaluateRequest,
@@ -1370,7 +1477,7 @@ def share_tab(
 # POST /v1/browser/tabs/{tab_id}/persist — mark tab as persistent
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/persist")
+@router.post("/tabs/{tab_id}/persist", dependencies=[Depends(_guard_browser_control)])
 async def persist_tab(
     tab_id: str,
     body: PersistTabRequest,
@@ -1490,7 +1597,7 @@ async def persist_tab(
 # POST /v1/browser/tabs/{tab_id}/unpersist — remove persistent state
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/unpersist")
+@router.post("/tabs/{tab_id}/unpersist", dependencies=[Depends(_guard_browser_control)])
 async def unpersist_tab(
     tab_id: str,
     x_workspace_token: Optional[str] = Header(None),
@@ -1624,7 +1731,7 @@ async def delete_context(
 # DELETE /v1/browser/tabs/{tab_id} — close tab
 # ---------------------------------------------------------------------------
 
-@router.delete("/tabs/{tab_id}")
+@router.delete("/tabs/{tab_id}", dependencies=[Depends(_guard_browser_control)])
 async def close_tab(
     tab_id: str,
     x_workspace_token: Optional[str] = Header(None),
