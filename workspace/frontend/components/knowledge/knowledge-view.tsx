@@ -96,6 +96,7 @@ export function KnowledgeView() {
   return (
     <div className="flex h-full flex-col">
       <DetailHeader
+        titleInHeader
         title={<>
           {isMobile && (
             <button
@@ -106,11 +107,12 @@ export function KnowledgeView() {
               <ArrowLeft className="size-4" />
             </button>
           )}
-          <h2 className="truncate text-sm font-semibold" title={entry.path}>{entry.title}</h2>
+          <BookOpen className="size-4 shrink-0 text-muted-foreground" />
+          <h2 className="min-w-0 truncate text-sm font-medium text-muted-foreground" title={entry.path || `/${[entry.folderPath, entry.slug].filter(Boolean).join('/')}`}>
+            {entry.path || `/${[entry.folderPath, entry.slug].filter(Boolean).join('/')}`}
+          </h2>
         </>}
       >
-        {/* The slug used to live here as static grey text; it now sits in the
-            article header as a copyable chip, so the toolbar keeps Share + Edit. */}
         <CopyResourceLink view="knowledge" id={entry.id} />
         <ArtifactSharePopover
           kind="knowledge"
@@ -151,9 +153,9 @@ export function KnowledgeView() {
           capped at ~70ch (see the body below) while code blocks and tables
           take the full width they need. */}
       <div className="flex-1 overflow-y-auto">
-        <article className="w-full px-6 py-6 sm:px-8">
+        <article className="w-full px-5 py-7 sm:px-8 sm:py-9">
           <header className="max-w-[70ch]">
-            <h1 className="text-2xl leading-tight font-semibold tracking-tight text-foreground">
+            <h1 className="text-2xl leading-snug font-semibold tracking-tight text-foreground sm:text-[28px]">
               {entry.title}
             </h1>
             {entry.description && (
@@ -161,44 +163,33 @@ export function KnowledgeView() {
                 {entry.description}
               </p>
             )}
-            <div className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-xs text-muted-foreground">
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+              {entry.owner ? (
+                <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} size={18} />
+              ) : (
+                <span>{knowledgeAuthorName(entry.updatedBy || entry.createdBy)}</span>
+              )}
+              {(entry.updatedAt || entry.createdAt) && (
+                <span>{t('knowledge.updated', { time: timeAgo(entry.updatedAt || entry.createdAt) })}</span>
+              )}
+              <div className="inline-flex items-center gap-1">
+                <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
+                <AccessExplainer compact resourceKind="knowledge" resourceId={entry.id} />
+              </div>
               <button
                 type="button"
                 onClick={handleCopyMention}
                 aria-label={t('knowledge.copyMention')}
-                title={t('knowledge.copyMention')}
-                className="group/mention inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1 font-mono text-[11px] transition-colors hover:border-border hover:bg-muted hover:text-foreground"
+                title={`@knowledge:${entry.slug}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {copied ? (
                   <Check className="size-3 text-green-600 dark:text-green-400" />
                 ) : (
-                  <Copy className="size-3 opacity-40 transition-opacity group-hover/mention:opacity-100" />
+                  <Copy className="size-3" />
                 )}
-                @knowledge:{entry.slug}
+                {t('knowledge.copyMention')}
               </button>
-              {(entry.updatedAt || entry.createdAt) && (
-                <>
-                  <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span>{t('knowledge.updated', { time: timeAgo(entry.updatedAt || entry.createdAt) })}</span>
-                </>
-              )}
-              {knowledgeAuthorName(entry.updatedBy || entry.createdBy) && (
-                <>
-                  <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span>{knowledgeAuthorName(entry.updatedBy || entry.createdBy)}</span>
-                </>
-              )}
-              {/* Permission model v1.1 — owner + visibility */}
-              {(entry.owner || entry.visibility) && (
-                <>
-                  <span aria-hidden className="text-muted-foreground/40">·</span>
-                  <span className="text-xs text-muted-foreground" title={entry.path}>{entry.path}</span>
-            <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} />
-                  <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
-                </>
-              )}
-              <span aria-hidden className="text-muted-foreground/40">·</span>
-              <AccessExplainer resourceKind="knowledge" resourceId={entry.id} />
             </div>
           </header>
 
@@ -206,7 +197,7 @@ export function KnowledgeView() {
               the body waits — the title no longer blinks in after a fetch.
               No `prose` wrapper on the body: MarkdownContent styles every
               element itself, and `prose-sm` would pin it back to 14px. */}
-          <div className="mt-5 border-t border-border/60 pt-6">
+          <div className="mt-6 border-t border-border/60 pt-7">
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />

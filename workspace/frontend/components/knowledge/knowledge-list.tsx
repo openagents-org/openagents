@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Folder, FolderPlus, ArrowLeft, BookOpen, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
+import { Folder, FolderPlus, ChevronRight, FileText, ArrowLeft, BookOpen, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/responsive-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeEditor } from './knowledge-editor';
 import { ArtifactShareDialog } from '@/components/sharing/artifact-share';
-import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 
 /**
  * Knowledge entries in the shell's list panel, matching the thread list:
@@ -144,7 +144,7 @@ export function KnowledgeList() {
       </div>
 
       {/* Search */}
-      <div className="shrink-0 border-b border-border/60 px-3 py-2">
+      <div className="shrink-0 px-3 pt-3 pb-1">
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3 -translate-y-1/2 text-muted-foreground/50" />
           <Input
@@ -152,7 +152,7 @@ export function KnowledgeList() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label={t('knowledge.searchLabel')}
-            className="h-7 pl-7 text-xs"
+            className="h-8 rounded-lg bg-muted/30 pl-7 pr-7 text-xs"
           />
           {query && (
             <Button
@@ -169,14 +169,20 @@ export function KnowledgeList() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b px-3 py-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground">
         {folder && <Button variant="ghost" mode="icon" size="sm" aria-label={t('knowledge.parentFolder')} onClick={() => { setFolder(folder.split('/').slice(0,-1).join('/')); setSelectedKnowledgeId(null); setQuery(''); }}><ArrowLeft className="size-3.5" /></Button>}
         <span className="min-w-0 flex-1 truncate" title={'/' + folder}>{folder ? '/' + folder : t('knowledge.rootFolder')}</span>
         <Button variant="ghost" mode="icon" size="sm" title={t('knowledge.newFolder')} aria-label={t('knowledge.newFolder')} onClick={() => setNewFolderOpen(true)}><FolderPlus className="size-4" /></Button>
       </div>
       {/* Rows */}
       <ScrollArea className="min-h-0 flex-1" viewportClassName="[&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
-        {!query && childFolders.map(path => <button key={path} className="flex items-center gap-2 border-b border-border/50 px-3 py-3 text-left text-sm hover:bg-muted" onClick={() => { setFolder(path); setSelectedKnowledgeId(null); }}><Folder className="size-4 text-muted-foreground" /><span className="truncate">{path.split('/').at(-1)}</span></button>)}
+        {!query && childFolders.map(path => (
+          <button key={path} className="mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { setFolder(path); setSelectedKnowledgeId(null); }}>
+            <Folder className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{path.split('/').at(-1)}</span>
+            <ChevronRight className="size-3.5 text-muted-foreground/60" />
+          </button>
+        ))}
         {filtered.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 text-center">
             <BookOpen className="mb-2 size-8 text-muted-foreground/25" />
@@ -198,50 +204,44 @@ export function KnowledgeList() {
           filtered.map((entry) => (
             <div
               key={entry.id}
-              role="listitem"
+              role="button"
               tabIndex={0}
               aria-pressed={selectedKnowledgeId === entry.id}
               onClick={() => select(entry)}
               onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   select(entry);
                 }
               }}
               className={cn(
-                'group relative flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-3 py-2.5 transition-colors',
+                'group relative mx-2 mb-1 flex shrink-0 cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-3 transition-colors',
                 'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
                 selectedKnowledgeId === entry.id
-                  ? 'bg-accent/60 dark:bg-accent/20'
-                  : 'hover:bg-accent/60 dark:hover:bg-accent/20',
+                  ? 'border-border bg-accent/70 shadow-xs dark:bg-accent/40'
+                  : 'border-transparent hover:bg-muted/60',
               )}
             >
+              <FileText className={cn('mt-0.5 size-4 shrink-0', selectedKnowledgeId === entry.id ? 'text-foreground/80' : 'text-muted-foreground/60')} />
               <div className="flex min-w-0 flex-1 flex-col">
-                <p className="truncate text-sm leading-tight font-medium text-foreground">
+                <p className="line-clamp-2 text-sm leading-snug font-medium text-foreground" title={entry.title}>
                   {entry.title}
                 </p>
                 {entry.description && (
-                  <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
+                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {entry.description}
                   </p>
                 )}
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="truncate font-mono text-[10px] text-muted-foreground/60">
-                    @knowledge:{entry.slug}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                <div className="mt-2 flex min-h-6 items-center gap-2 pr-20">
+                  <span className="truncate text-[11px] text-muted-foreground">
                     {timeAgo(entry.updatedAt || entry.createdAt)}
                   </span>
-                  {(entry.owner || entry.visibility) && (
-                    <>
-                      <ArtifactOwner owner={entry.owner} ownerLabel={entry.ownerLabel} compact size={14} />
-                      <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
-                    </>
-                  )}
+                  <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute right-2 bottom-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5 pointer-events-none opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
                 <Button
                   variant="ghost"
                   mode="icon"
@@ -249,7 +249,7 @@ export function KnowledgeList() {
                   aria-label={t('artifactAccess.share')}
                   title={t('artifactAccess.share')}
                   onClick={(e) => { e.stopPropagation(); setShareEntryId(entry.id); }}
-                  className="text-muted-foreground"
+                  className="size-6 text-muted-foreground"
                 >
                   <Share2 className="size-3" />
                 </Button>
@@ -259,7 +259,7 @@ export function KnowledgeList() {
                   size="sm"
                   aria-label={t('knowledge.editEntry')}
                   onClick={(e) => { e.stopPropagation(); handleEdit(entry); }}
-                  className="text-muted-foreground"
+                  className="size-6 text-muted-foreground"
                 >
                   <Pencil className="size-3" />
                 </Button>
@@ -269,7 +269,7 @@ export function KnowledgeList() {
                   size="sm"
                   aria-label={t('knowledge.deleteEntry')}
                   onClick={(e) => { e.stopPropagation(); handleDelete(entry); }}
-                  className="text-muted-foreground hover:text-destructive"
+                  className="size-6 text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 className="size-3" />
                 </Button>
