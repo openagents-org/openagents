@@ -18,12 +18,87 @@ from app.config import config
 _is_serverless = os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
 _is_sqlite = config.DATABASE_URL.startswith("sqlite")
 
-# Register PostgreSQL type compilers for SQLite so JSONB/UUID columns work.
-if _is_sqlite:
+def install_sqlite_compat() -> None:
+    """Make SQLite behave enough like Postgres to run the app against it.
+
+    Applied for a dev/test SQLite database only. Idempotent — the test suite
+    calls it too, so the suite exercises the same shims the dev server runs
+    with instead of its own private copy.
+    """
     from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
+
+    # JSONB/UUID columns have no SQLite equivalent — compile them to types it has.
     if not hasattr(SQLiteTypeCompiler, "_orig_visit_JSONB"):
+        SQLiteTypeCompiler._orig_visit_JSONB = True
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
         SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
+
+    # Make `DateTime(timezone=True)` columns round-trip through SQLite the way
+    # they do through Postgres: stored as UTC, loaded as aware UTC.
+    #
+    # SQLite has no timestamptz. Its storage format has no offset field, so a
+    # tz-aware datetime is written as its bare wall time and comes back NAIVE,
+    # while Postgres returns it aware. The missing tzinfo breaks anything
+    # comparing a loaded value against `datetime.now(timezone.utc)`, and
+    # `.isoformat()` then serializes without the offset, which browsers read
+    # as local time.
+    #
+    # Concretely, on a dev SQLite database no routine ever fired and the UI
+    # showed a freshly created one as overdue. The scheduler's atomic claim is
+    # an ORM-enabled UPDATE, and SQLAlchemy synchronizes the session after one
+    # by re-evaluating its WHERE clause in Python against the rows it already
+    # holds — so `next_fires_at <= now` compared a naive loaded value with an
+    # aware `now` and raised "can't compare offset-naive and offset-aware
+    # datetimes" every cycle. (The claim now skips that synchronization too,
+    # see `_fire_due_in_thread` in app/main.py.)
+    from datetime import datetime as _datetime, timezone as _timezone
+
+    from sqlalchemy.dialects.sqlite.base import DATETIME as SQLiteDATETIME
+
+    if not hasattr(SQLiteDATETIME, "_orig_result_processor"):
+        SQLiteDATETIME._orig_result_processor = SQLiteDATETIME.result_processor
+
+        def _utc_aware_result_processor(self, dialect, coltype):
+            inner = SQLiteDATETIME._orig_result_processor(self, dialect, coltype)
+            if not self.timezone:
+                return inner
+
+            def process(value):
+                dt = inner(value) if inner is not None else value
+                if dt is not None and dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=_timezone.utc)
+                return dt
+
+            return process
+
+        SQLiteDATETIME.result_processor = _utc_aware_result_processor
+
+    # The read side above labels every stored value UTC, which is only true if
+    # the write side stored UTC. SQLite's own bind processor drops the tzinfo
+    # without converting, so an aware datetime in any other zone would be
+    # written as its local wall time and read back hours off. Every write in
+    # the app is UTC today; this keeps that from being a precondition.
+    if not hasattr(SQLiteDATETIME, "_orig_bind_processor"):
+        SQLiteDATETIME._orig_bind_processor = SQLiteDATETIME.bind_processor
+
+        def _utc_bind_processor(self, dialect):
+            inner = SQLiteDATETIME._orig_bind_processor(self, dialect)
+            if not self.timezone:
+                return inner
+
+            def process(value):
+                if isinstance(value, _datetime) and value.tzinfo is not None:
+                    value = value.astimezone(_timezone.utc)
+                return inner(value) if inner is not None else value
+
+            return process
+
+        SQLiteDATETIME.bind_processor = _utc_bind_processor
+
+
+if _is_sqlite:
+    install_sqlite_compat()
+
 
 # A PgBouncer pooler in front of Postgres maintains its own backend pool,
 # so app-level pooling is redundant and causes stale-connection failures
