@@ -76,3 +76,53 @@ def test_rejected_card_can_be_retried(db, setup, monkeypatch):
     asyncio.run(browser._record_browser_work(db,ws,tab,tab.created_by,'browser-demo','click'))
     db.refresh(tab)
     assert tab.artifact_channels == []
+
+
+def test_closed_artifact_metadata_requires_access_and_does_not_reopen(client, db, workspace, setup, monkeypatch):
+    ws, tab = setup
+    tab.status = 'closed'
+    tab.title = 'Saved browser'
+    db.commit()
+    connect = AsyncMock()
+    monkeypatch.setattr(browser, '_ensure_connected', connect)
+    url = f'/v1/browser/tabs/{tab.id}'
+    headers = {'X-Workspace-Token': workspace['token']}
+    assert client.get(url, headers=headers).status_code == 404
+    assert client.get(url+'?include_closed=true').status_code == 401
+    response = client.get(url+'?include_closed=true&validate=true', headers=headers)
+    assert response.status_code == 200
+    assert response.json()['data']['status'] == 'closed'
+    assert response.json()['data']['title'] == 'Saved browser'
+    connect.assert_not_called()
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_reopen_preserves_browser_artifact_identity(client, db, workspace, setup, monkeypatch, fails):
+    from app.models import BrowserUsage
+    ws, tab = setup
+    tab.status = 'closed'
+    tab.session_id = None
+    tab.artifact_channels = ['browser-demo']
+    db.commit()
+    manager = MagicMock()
+    manager.open_tab = AsyncMock(side_effect=RuntimeError('offline')) if fails else AsyncMock(return_value={'title':'Example Domain','url':tab.url})
+    manager.get_session_id.return_value = None
+    manager.get_live_url.return_value = None
+    monkeypatch.setattr(browser.BrowserManager, 'get', lambda: manager)
+    monkeypatch.setattr(browser, '_resolve_bf_key', AsyncMock(return_value=(None, None)))
+    headers = {'X-Workspace-Token': workspace['token']}
+    url = f'/v1/browser/tabs/{tab.id}/reconnect'
+    assert client.post(url, headers=headers).status_code == 404
+    assert client.post(url+'?reopen=true').status_code == 401
+    manager.open_tab.assert_not_called()
+    response = client.post(url+'?reopen=true', headers=headers)
+    assert response.status_code == (500 if fails else 200)
+    db.refresh(tab)
+    assert tab.status == ('closed' if fails else 'active')
+    assert tab.artifact_channels == ['browser-demo']
+    assert tab.created_by == 'openagents:agent-alpha'
+    usage = db.execute(select(BrowserUsage).where(BrowserUsage.tab_id == tab.id)).scalars().all()
+    assert len(usage) == (0 if fails else 1)
+    if not fails:
+        assert response.json()['data']['id'] == tab.id
+    manager.open_tab.assert_awaited_once()

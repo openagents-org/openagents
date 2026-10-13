@@ -13,6 +13,11 @@
 export const messages = {
   webProject: {"kind": "Web project","upload": "Upload web project", "update": "Update project", "choose": "Choose project folder", "name": "Project name", "entry": "Entry page", "files": "files", "keepsSharing": "Keeps the existing link and sharing.", "threadSharing": "Shared with this thread.", "private": "Only visible to you until shared.", "help": "Choose a static site folder. Use relative links for images, styles, scripts, and data. Hidden files and dependency folders are excluded.", "noHtml": "This folder needs an HTML entry page.", "publish": "Publish project", "published": "Project published", "preview": "Web project preview"},
   artifactPanel: {
+    browserClosed: "This browser session has ended",
+    browserClosedHint: "Reopen the saved page to start a new session. The agent’s previous live session is no longer running.",
+    reopenBrowser: "Reopen browser",
+    reopenFailed: "Couldn’t reopen this browser. Please try again.",
+
     liveBrowser: 'Live browser',
     project: "Web projects",
     title: 'Artifacts',

@@ -883,12 +883,13 @@ async def list_tabs(
 async def get_tab(
     tab_id: str,
     validate: bool = False,
+    include_closed: bool = False,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     tab = _get_tab(db, tab_id)
-    if not tab or tab.status != "active":
+    if not tab or (tab.status != "active" and not (include_closed and tab.status == "closed")):
         return json_response(ResponseCode.NOT_FOUND, "Tab not found")
 
     workspace = _resolve_workspace(db, str(tab.workspace_id))
@@ -897,7 +898,7 @@ async def get_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    if validate:
+    if validate and tab.status == "active":
         try:
             await _ensure_connected(tab, db, workspace)
             db.commit()
@@ -980,12 +981,13 @@ async def navigate_tab(
 @router.post("/tabs/{tab_id}/reconnect")
 async def reconnect_tab(
     tab_id: str,
+    reopen: bool = False,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     tab = _get_tab(db, tab_id)
-    if not tab or tab.status != "active":
+    if not tab or (tab.status != "active" and not (reopen and tab.status == "closed")):
         return json_response(ResponseCode.NOT_FOUND, "Tab not found")
 
     workspace = _resolve_workspace(db, str(tab.workspace_id))
@@ -993,6 +995,17 @@ async def reconnect_tab(
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    was_closed = tab.status == "closed"
+    if was_closed and tab.context_id:
+        existing = db.execute(select(BrowserTab).where(
+            BrowserTab.workspace_id == tab.workspace_id,
+            BrowserTab.context_id == tab.context_id,
+            BrowserTab.status == "active",
+            BrowserTab.id != tab.id,
+        )).scalars().first()
+        if existing:
+            return json_response(ResponseCode.BAD_REQUEST, "This saved browser is already open in another tab")
 
     manager = BrowserManager.get()
 
@@ -1017,6 +1030,7 @@ async def reconnect_tab(
         ctx = db.execute(
             select(BrowserContext)
             .where(BrowserContext.id == tab.context_id)
+            .where(BrowserContext.workspace_id == tab.workspace_id)
             .where(BrowserContext.status == "active")
         ).scalar_one_or_none()
         if ctx:
@@ -1039,7 +1053,13 @@ async def reconnect_tab(
     tab.title = result.get("title", tab.title)
     warnings = result.get("warnings") or []
     tab.last_error = "; ".join(warnings) if warnings else None
+    tab.status = "active"
     _touch(tab)
+    if was_closed:
+        db.add(BrowserUsage(
+            workspace_id=str(workspace.id), tab_id=tab.id,
+            session_id=tab.session_id, opened_by="human:user",
+        ))
     db.commit()
 
     data = _tab_to_dict(tab)

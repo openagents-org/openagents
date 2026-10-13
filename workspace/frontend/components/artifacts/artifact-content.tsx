@@ -7,20 +7,13 @@ import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { MarkdownContent } from '@/components/chat/markdown-content';
-import { BrowserView } from '@/components/browser/browser-view';
+import { BrowserArtifactPreview } from './browser-artifact-preview';
 import { useT } from '@/lib/i18n';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
 
 export function ArtifactContent({ artifact, revision }: { artifact: ArtifactReference; revision: number }) {
   const t = useT();
-  const { files, browserTabs, refreshBrowserTabs } = useWorkspace();
-  const [checkedBrowser, setCheckedBrowser] = useState<string | null>(null);
-  useEffect(() => {
-    if (artifact.kind !== 'browser') return;
-    let active = true;
-    void refreshBrowserTabs().catch(() => {}).finally(() => { if (active) setCheckedBrowser(artifact.id); });
-    return () => { active = false; };
-  }, [artifact.kind, artifact.id, refreshBrowserTabs]);
+  const { files } = useWorkspace();
   const { idToken } = useOpenAgentsAuth();
   const file = artifact.kind === 'file' ? files.find(f => f.id === artifact.id) : null;
   const [loaded, setLoaded] = useState<{ key: string; text?: string; url?: string; type?: string; failed?: boolean } | null>(null);
@@ -55,7 +48,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
     void load().catch(() => { if (!abort.signal.aborted) setLoaded({key,failed:true}); });
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [key, file?.contentType, file?.filename]);
-  if (artifact.kind === 'browser') return browserTabs.some(tab => tab.id === artifact.id) ? <BrowserView artifactTabId={artifact.id} /> : checkedBrowser !== artifact.id ? <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div> : <p className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
+  if (artifact.kind === 'browser') return <BrowserArtifactPreview tabId={artifact.id} revision={revision} />;
   if (file?.contentType === WEB_PROJECT_TYPE || (loaded?.key === key && loaded.type === 'project')) return <ProjectPreview id={artifact.id} revision={revision} showDetails={false} />;
   if (!loaded || loaded.key !== key) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
   if (loaded.failed) return <p role="alert" className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;

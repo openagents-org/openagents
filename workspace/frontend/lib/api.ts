@@ -1148,6 +1148,14 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
+  /** Read saved browser metadata without reopening a closed session. */
+  async getBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}?include_closed=true`,
+    );
+    return this.mapTab(result);
+  }
+
   /** Validate a browser tab session — auto-reconnects if expired. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
@@ -1157,9 +1165,9 @@ class WorkspaceApi {
   }
 
   /** Reconnect an expired browser tab (creates a new session). */
-  async reconnectBrowserTab(tabId: string): Promise<BrowserTab> {
+  async reconnectBrowserTab(tabId: string, reopen = false): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
-      `/v1/browser/tabs/${tabId}/reconnect`,
+      `/v1/browser/tabs/${tabId}/reconnect${reopen ? "?reopen=true" : ""}`,
       { method: 'POST' },
     );
     return this.mapTab(result);
