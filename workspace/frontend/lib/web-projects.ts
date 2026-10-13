@@ -1,4 +1,11 @@
 export const WEB_PROJECT_TYPE = 'application/vnd.openagents.web-project+zip';
+/** Project archives are a storage detail, not their user-facing name. */
+export function isWebProject(contentType?: string, filename = '') {
+  return contentType === WEB_PROJECT_TYPE || filename.endsWith('.webproject.zip');
+}
+export function projectDisplayName(filename: string, contentType?: string) {
+  return isWebProject(contentType, filename) ? filename.split('/').at(-1)!.replace(/\.webproject\.zip$/, '') : filename;
+}
 export type ProjectPreview = { id: string; revision: string; entrypoint: string; files: string[]; can_update: boolean; preview_path: string; expires_in: number };
 export type ProjectUpload = { title: string; entrypoint: string; files: { path: string; content_base64: string }[]; channel_name?: string; visibility: 'private' | 'inherit'; expected_revision?: string };
 export function projectFiles(files: File[]) {

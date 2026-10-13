@@ -1,4 +1,5 @@
 'use client';
+import { projectDisplayName } from '@/lib/web-projects';
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
@@ -756,8 +757,8 @@ export function FileGrid() {
                 )}
               >
                 <FileRowIcon file={file} />
-                <span className="flex-1 truncate text-sm font-medium" title={file.filename}>
-                  {displayName}
+                <span className="flex-1 truncate text-sm font-medium" title={projectDisplayName(file.filename,file.contentType)}>
+                  {projectDisplayName(displayName,file.contentType)}
                   {/* Where it lives, only where that isn't already the answer:
                       in a folder listing every row shares the same folder. */}
                   {!hasFolder && dirname(file.filename) && (
@@ -785,7 +786,7 @@ export function FileGrid() {
                 )}
                 <FileAccessMenu
                   file={file}
-                  displayName={displayName}
+                  displayName={projectDisplayName(displayName,file.contentType)}
                   onShare={() => setShareFileId(file.id)}
                   onVisibility={(v) => flipVisibility(file, v)}
                   className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
@@ -872,8 +873,8 @@ export function FileGrid() {
                       directly in the folder above, so the name is all there is
                       to say. The recent list spans folders, so the metadata
                       line below carries the one each file came from. */}
-                  <span className="text-xs font-medium truncate w-full leading-tight" title={file.filename}>
-                    {displayName}
+                  <span className="text-xs font-medium truncate w-full leading-tight" title={projectDisplayName(file.filename,file.contentType)}>
+                    {projectDisplayName(displayName,file.contentType)}
                   </span>
 
                   {/* Metadata */}
@@ -893,7 +894,7 @@ export function FileGrid() {
                   {/* Share / visibility menu on hover — mirrors the delete button */}
                   <FileAccessMenu
                     file={file}
-                    displayName={displayName}
+                    displayName={projectDisplayName(displayName,file.contentType)}
                     onShare={() => setShareFileId(file.id)}
                     onVisibility={(v) => flipVisibility(file, v)}
                     className="absolute top-1.5 left-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
@@ -923,7 +924,7 @@ export function FileGrid() {
           onOpenChange={(open) => { if (!open) setShareFileId(null); }}
           kind="file"
           id={shareFile.id}
-          name={basename(shareFile.filename)}
+          name={projectDisplayName(basename(shareFile.filename),shareFile.contentType)}
           visibility={shareFile.visibility}
           effectiveVisibility={shareFile.effectiveVisibility}
           canManage={shareFile.canManage}

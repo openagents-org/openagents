@@ -145,6 +145,7 @@ export function getFileKind(contentType: string | undefined, filename: string): 
 }
 
 export function getFileTypeMeta(contentType: string | undefined, filename: string): FileTypeMeta {
+  if (contentType === WEB_PROJECT_TYPE) return {...FILE_TYPES.web, icon:Folder, labelKey:'webProject.kind'};
   return FILE_TYPES[getFileKind(contentType, filename)];
 }
 
@@ -204,7 +205,7 @@ export function getFileFilterGroup(contentType: string | undefined, filename: st
 
 /** Short uppercase badge for a file — 'PDF', 'PNG', 'WEB', … */
 export function getFileExtensionLabel(filename: string): string {
-  if (/^https?:\/\//i.test(filename)) return 'WEB';
+  if (filename.endsWith('.webproject.zip') || /^https?:\/\//i.test(filename)) return 'WEB';
   const ext = extensionOf(filename);
   return ext ? ext.slice(0, 4).toUpperCase() : 'FILE';
 }
@@ -238,6 +239,7 @@ export function FileTypeTile({
 }) {
   const { icon: Icon, color } = getFileTypeMeta(contentType, filename);
   const extension = getFileExtensionLabel(filename);
+  if (contentType === WEB_PROJECT_TYPE) return <FolderTile className={className} />;
 
   return (
     <div

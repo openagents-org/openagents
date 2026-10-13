@@ -1,11 +1,12 @@
 'use client';
 
+import { isWebProject, projectDisplayName } from '@/lib/web-projects';
 import { MessageArtifacts } from '@/components/artifacts/message-artifacts';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, User, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
+import { Copy, Check, User, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
@@ -34,6 +35,7 @@ interface Attachment {
 }
 
 function isPreviewable(contentType: string, filename: string): boolean {
+  if (isWebProject(contentType, filename)) return true;
   if (contentType?.startsWith('image/')) return true;
   if (contentType === 'text/html' || /\.html?$/i.test(filename)) return true;
   if (contentType === 'text/markdown' || /\.mdx?$/i.test(filename)) return true;
@@ -106,8 +108,8 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
                 onClick={() => openPreview(file.fileId)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted hover:bg-muted/80 transition-colors text-sm cursor-pointer"
               >
-                <Eye className="size-4 text-muted-foreground shrink-0" />
-                <span className="truncate max-w-[200px]">{file.filename}</span>
+                <span className="shrink-0 text-muted-foreground">{isWebProject(file.contentType,file.filename)?<Folder className="size-4" />:<Eye className="size-4" />}</span>
+                <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
               </button>
             ) : (
               <a
@@ -118,7 +120,7 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted hover:bg-muted/80 transition-colors text-sm"
               >
                 <FileIcon className="size-4 text-muted-foreground shrink-0" />
-                <span className="truncate max-w-[200px]">{file.filename}</span>
+                <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
                 <Download className="size-3 text-muted-foreground shrink-0" />
               </a>
             );

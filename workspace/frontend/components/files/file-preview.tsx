@@ -1,6 +1,6 @@
 'use client';
 
-import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
+import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
 import { ProjectPreview } from '@/components/artifacts/project-preview';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
 import { useEffect, useMemo, useState } from 'react';
@@ -455,7 +455,7 @@ export function FilePreview() {
 
       case 'pdf':
         return blobUrl ? (
-          <iframe src={blobUrl} title={basename(filename)} className="h-full w-full border-0" />
+          <iframe src={blobUrl} title={projectDisplayName(basename(filename),contentType)} className="h-full w-full border-0" />
         ) : null;
 
       case 'web':
@@ -463,7 +463,7 @@ export function FilePreview() {
           return (
             <iframe
               src={sourceUrl}
-              title={basename(filename)}
+              title={projectDisplayName(basename(filename),contentType)}
               className="h-full w-full border-0 bg-white"
               sandbox="allow-scripts allow-same-origin"
             />
@@ -559,7 +559,7 @@ export function FilePreview() {
             {folderSegments.length > 0 && <ChevronRight className="size-3.5 shrink-0 opacity-40" />}
             <span className="flex min-w-0 items-center gap-1.5 px-1.5">
               {getFileIcon(contentType, filename)}
-              <p className="truncate text-sm font-medium text-foreground">{basename(filename)}</p>
+              <p className="truncate text-sm font-medium text-foreground">{projectDisplayName(basename(filename),contentType)}</p>
             </span>
           </div>
         }
@@ -581,7 +581,7 @@ export function FilePreview() {
         <ArtifactSharePopover
           kind="file"
           id={file.id}
-          name={basename(filename)}
+          name={projectDisplayName(basename(filename),contentType)}
           visibility={file.visibility}
           effectiveVisibility={file.effectiveVisibility}
           canManage={file.canManage}
