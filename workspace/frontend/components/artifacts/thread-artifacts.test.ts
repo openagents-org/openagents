@@ -50,7 +50,7 @@ it('opens a helpful panel for an unavailable pin without exposing its reference'
 it('recognizes canonical document links, uploaded paths, and existing live tabs',()=>{
   const files=[{id:'doc',filename:'uploaded_files/report.md'}] as any;
   // A just-published output is clickable before the files list refreshes.
-  expect(artifactFromLink('/v1/files/new-output',[],[],'demo')).toEqual({kind:'file',id:'new-output'});
+  expect(artifactFromLink('/v1/files/aa111111-2222-4333-8444-555555555555',[],[],'demo')).toEqual({kind:'file',id:'aa111111-2222-4333-8444-555555555555'});
   expect(artifactFromLink('/demo/files/doc',files,[],'demo')).toEqual({kind:'file',id:'doc'});
   expect(artifactFromLink('/demo/knowledge/notes',files,[],'demo')).toEqual({kind:'knowledge',id:'notes'});
   expect(artifactFromLink('uploaded_files/report.md',files,[],'demo')).toEqual({kind:'file',id:'doc'});
@@ -86,7 +86,15 @@ it('opens links inside a document preview in the artifact panel',async()=>{
   mocks.get.mockResolvedValue({artifact:null});
   await act(async()=>root.render(React.createElement(Controller)));
   const panel=document.createElement('aside');panel.setAttribute('data-artifact-preview','');
-  const link=document.createElement('a');link.href='/v1/files/dashboard';panel.append(link);host.append(panel);
+  const link=document.createElement('a');link.href='/v1/files/cc111111-2222-4333-8444-555555555555';panel.append(link);host.append(panel);
   await act(async()=>link.click());
-  expect(mocks.layout.openArtifact).toHaveBeenLastCalledWith({kind:'file',id:'dashboard'});
+  expect(mocks.layout.openArtifact).toHaveBeenLastCalledWith({kind:'file',id:'cc111111-2222-4333-8444-555555555555'});
+});
+
+it('rejects placeholder file IDs while supporting real new uploads and known legacy IDs',()=>{
+  for(const id of ['RETURNED_PROJECT_ID','FILE_ID','example','<file-id>']) {
+    expect(artifactFromLink(`/v1/files/${encodeURIComponent(id)}`,[],[],'demo')).toBeNull();
+    expect(artifactFromLink(`/demo/files/${encodeURIComponent(id)}`,[],[],'demo')).toBeNull();
+  }
+  expect(artifactFromLink('/v1/files/legacy-file',[{id:'legacy-file',filename:'report.md'}] as any,[],'demo')).toEqual({kind:'file',id:'legacy-file'});
 });

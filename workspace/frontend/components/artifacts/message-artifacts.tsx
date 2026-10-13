@@ -10,7 +10,7 @@ export function MessageArtifacts({ content, attachedIds }: { content: string; at
   const { workspace, files = [], browserTabs = [] } = useWorkspace();
   const t = useT();
   const seen = new Set(attachedIds.map(id => `file:${id}`));
-  const text = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '');
+  const text = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '').replace(/(`+)[\s\S]*?\1/g, '');
   const cards = [];
   for (const match of text.matchAll(/(?<!!)\[([^\]\n]+)\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"[^"]*")?\s*\)/g)) {
     const artifact = artifactFromLink(match[2] || match[3], files, browserTabs, workspace?.slug || workspace?.workspaceId || '');
