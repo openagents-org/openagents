@@ -66,7 +66,7 @@ it('sends viewer credentials as headers, never in the screenshot URL',async()=>{
   vi.stubGlobal('fetch',fetch);
   workspaceApi.configure('workspace','workspace-secret','viewer-secret');
   await workspaceApi.fetchBrowserScreenshot('tab');
-  expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/browser\/tabs\/tab\/screenshot$/);
+  expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/browser\/tabs\/tab\/screenshot\?quality=sd$/);
   expect(fetch.mock.calls[0][1].headers).toEqual({'X-Workspace-Token':'workspace-secret',Authorization:'Bearer viewer-secret'});
   workspaceApi.configure('','','');
 });

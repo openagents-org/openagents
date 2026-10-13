@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from app import cache
 from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
 from app.browser_maintenance import BROWSER_TAB_IDLE_MINUTES
+from app.services.browser_frame import standard_browser_frame
 from app.browser_creds import (
     SOURCE_GLOBAL,
     SOURCE_WORKSPACE,
@@ -1348,6 +1349,7 @@ async def evaluate_in_tab(
 @router.get("/tabs/{tab_id}/screenshot")
 async def get_screenshot(
     tab_id: str,
+    quality: Literal["sd", "original"] = Query("original"),
     source: Optional[str] = Query(None),
     channel: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
@@ -1371,6 +1373,8 @@ async def get_screenshot(
     manager = BrowserManager.get()
     try:
         data = await manager.screenshot(tab_id)
+        if quality == "sd":
+            data = await run_in_threadpool(standard_browser_frame, data)
     except KeyError:
         return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
     except Exception as e:
@@ -1396,7 +1400,7 @@ async def get_screenshot(
 
     return Response(
         content=data,
-        media_type="image/png",
+        media_type="image/jpeg" if quality == "sd" else "image/png",
         headers={"Cache-Control": "no-cache, no-store"},
     )
 

@@ -1210,9 +1210,9 @@ class WorkspaceApi {
     return response;
   }
 
-  /** Get screenshot URL for a browser tab. */
-  getBrowserScreenshotUrl(tabId: string): string {
-    return `${API_URL}/v1/browser/tabs/${tabId}/screenshot`;
+  /** Browser previews default to SD; agent screenshots keep their original resolution. */
+  getBrowserScreenshotUrl(tabId: string, quality: 'sd' | 'original' = 'sd'): string {
+    return `${API_URL}/v1/browser/tabs/${tabId}/screenshot?quality=${quality}`;
   }
 
   /** Remove persistent state from a browser tab (revert to temporal). */
