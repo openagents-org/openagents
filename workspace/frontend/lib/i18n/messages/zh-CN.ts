@@ -7,6 +7,7 @@ import type { Messages } from './en-US';
 export const messages: Messages = {
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
   artifactPanel: {
+    liveBrowser: '实时浏览器',
     project: "网页项目",
     title: '产物',
     document: '文档',
@@ -1850,6 +1851,7 @@ export const messages: Messages = {
     expiredTitle: '浏览器会话已过期',
     expiredBody: '远程浏览器已超时。点击重连即可开启新会话。',
     liveBrowser: '实时浏览器:{url}',
+    thumbnailUnavailable: '暂时无法预览页面',
     screenshotOf: '{url} 的截图',
     noScreenshot: '暂无截图',
   },

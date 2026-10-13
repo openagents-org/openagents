@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const opened=vi.fn();
+vi.mock('./browser-thumbnail',()=>({BrowserThumbnail:()=>null}));
 vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>({workspace:{slug:'demo'},files:[],browserTabs:[{id:'tab',url:'https://example.com/'}]})}));
 vi.mock('@/lib/i18n',()=>({useT:()=>(key:string)=>key}));
 import { MessageArtifacts } from './message-artifacts';

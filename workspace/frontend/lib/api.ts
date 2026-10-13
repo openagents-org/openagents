@@ -1179,6 +1179,16 @@ class WorkspaceApi {
     await this.request<unknown>(`/v1/browser/tabs/${tabId}`, { method: 'DELETE' });
   }
 
+  /** Fetch a browser frame with the current viewer's credentials. */
+  async fetchBrowserScreenshot(tabId: string, signal?: AbortSignal): Promise<Response> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers['X-Workspace-Token'] = this.token;
+    if (this.bearerToken) headers.Authorization = `Bearer ${this.bearerToken}`;
+    const response = await fetch(this.getBrowserScreenshotUrl(tabId), { headers, signal, cache: 'no-store' });
+    if (!response.ok) throw new Error(`Browser screenshot failed (${response.status})`);
+    return response;
+  }
+
   /** Get screenshot URL for a browser tab. */
   getBrowserScreenshotUrl(tabId: string): string {
     return `${API_URL}/v1/browser/tabs/${tabId}/screenshot`;

@@ -13,6 +13,7 @@
 export const messages = {
   webProject: {"kind": "Web project","upload": "Upload web project", "update": "Update project", "choose": "Choose project folder", "name": "Project name", "entry": "Entry page", "files": "files", "keepsSharing": "Keeps the existing link and sharing.", "threadSharing": "Shared with this thread.", "private": "Only visible to you until shared.", "help": "Choose a static site folder. Use relative links for images, styles, scripts, and data. Hidden files and dependency folders are excluded.", "noHtml": "This folder needs an HTML entry page.", "publish": "Publish project", "published": "Project published", "preview": "Web project preview"},
   artifactPanel: {
+    liveBrowser: 'Live browser',
     project: "Web projects",
     title: 'Artifacts',
     document: 'Documents',
@@ -1886,6 +1887,7 @@ export const messages = {
     expiredTitle: 'Browser session expired',
     expiredBody: 'The remote browser timed out. Click reconnect to start a new session.',
     liveBrowser: 'Live browser: {url}',
+    thumbnailUnavailable: 'Page preview unavailable',
     screenshotOf: 'Screenshot of {url}',
     noScreenshot: 'No screenshot available',
   },
