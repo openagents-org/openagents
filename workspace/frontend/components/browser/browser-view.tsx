@@ -54,6 +54,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [wakingId, setWakingId] = useState<string | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const screenshotRef = useRef<HTMLImageElement>(null);
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
   const refreshFrameRef = useRef<(() => void) | null>(null);
@@ -68,6 +69,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const activity = useAgentActivity(tab);
 
   const { controlling, busy: controlBusy, toggle: toggleControl, input: sendInput, frameRevision } = useBrowserControl(tab?.id);
+
+  // Focus once on takeover (or when the first frame arrives), not on every
+  // screenshot refresh: people can still deliberately return to the composer.
+  const hasScreenshot = !!screenshotUrl;
+  useEffect(() => {
+    if (controlling) screenshotRef.current?.focus({ preventScroll: true });
+    else if (document.activeElement === screenshotRef.current) screenshotRef.current?.blur();
+  }, [controlling, hasScreenshot]);
 
   // Validate the live session on mount / tab switch, then keep checking. The
   // backend probes the BF session and auto-reconnects if it can, returning
@@ -475,6 +484,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       ) : screenshotUrl ? (
         <div className="flex w-full justify-center overflow-auto p-4">
           <img
+            ref={screenshotRef}
             src={screenshotUrl}
             alt={t('browser.screenshotOf', { url: tab.url })}
             className={cn('max-w-full rounded-lg border border-zinc-200 shadow-sm outline-none focus:ring-2 focus:ring-primary dark:border-zinc-700', controlling && 'cursor-pointer')}
@@ -489,7 +499,9 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               sendInput({ kind: 'click', x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
             }}
             onKeyDown={(event) => {
-              if (!controlling || event.nativeEvent.isComposing) return;
+              if (!controlling) return;
+              event.stopPropagation();
+              if (event.nativeEvent.isComposing) return;
               // Escape leaves the remote canvas, so keyboard users can reach Hand back.
               if (event.key === 'Escape') { event.currentTarget.blur(); return; }
               if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
@@ -498,8 +510,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) sendInput({ kind: 'text', text: event.key });
               else sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key === ' ' ? 'Space' : event.key].filter(Boolean).join('+') });
             }}
+            onKeyUp={(event) => { if (controlling) event.stopPropagation(); }}
             onPaste={(event) => {
               if (!controlling) return;
+              event.stopPropagation();
               event.preventDefault();
               sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
             }}
@@ -663,7 +677,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-browser-controls>
       {!artifactTabId && <DetailHeader
         title={<>
           <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-amber-500' : 'text-foreground/70')} />

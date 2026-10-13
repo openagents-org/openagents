@@ -478,8 +478,9 @@ export function ThreadList() {
     const onKeyDown = (e: KeyboardEvent) => {
       // Don't hijack typing in any input/textarea, and skip when modifier
       // keys are held (so Cmd+1 / Ctrl+R / etc. still reach the browser).
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-browser-controls]')) return;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (target?.isContentEditable) return;
