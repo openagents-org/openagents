@@ -56,7 +56,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [key, file?.contentType, file?.filename]);
   if (artifact.kind === 'browser') return browserTabs.some(tab => tab.id === artifact.id) ? <BrowserView artifactTabId={artifact.id} /> : checkedBrowser !== artifact.id ? <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div> : <p className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
-  if (file?.contentType === WEB_PROJECT_TYPE || (loaded?.key === key && loaded.type === 'project')) return <ProjectPreview id={artifact.id} revision={revision} />;
+  if (file?.contentType === WEB_PROJECT_TYPE || (loaded?.key === key && loaded.type === 'project')) return <ProjectPreview id={artifact.id} revision={revision} showDetails={false} />;
   if (!loaded || loaded.key !== key) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
   if (loaded.failed) return <p role="alert" className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
   if (loaded.type === 'html') return <iframe title={file?.filename || t('artifactPanel.html')} srcDoc={loaded.text} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full w-full border-0 bg-white" />;
