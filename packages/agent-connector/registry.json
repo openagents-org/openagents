@@ -670,7 +670,15 @@
       ],
       "saved_env_key": "KIMI_API_KEY",
       "login_command": "kimi login",
+      "unverifiable": true,
       "not_ready_message": "Not configured — set an API key (press e) or run: kimi login"
+    },
+    "probe": {
+      "args": [
+        "-p",
+        "hi"
+      ],
+      "timeout_s": 60
     },
     "env_config": [
       {
