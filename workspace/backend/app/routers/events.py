@@ -932,6 +932,16 @@ def list_conversations(
         else_=EventRecord.target,
     )
 
+    # Direct routing is also used for agent control traffic. Only posted
+    # messages form conversations; the internal system actor is never a DM peer.
+    conversation_events = (
+        EventRecord.network_id == workspace.id,
+        EventRecord.visibility == "direct",
+        EventRecord.type == "workspace.message.posted",
+        func.lower(EventRecord.source) != "human:system",
+        func.lower(EventRecord.target) != "human:system",
+        ~EventRecord.target.startswith("channel/"),
+    )
     base = (
         select(
             lesser.label("agent_a"),
@@ -939,12 +949,7 @@ def list_conversations(
             func.max(EventRecord.timestamp).label("last_ts"),
             func.count().label("msg_count"),
         )
-        .where(
-            EventRecord.network_id == workspace.id,
-            EventRecord.visibility == "direct",
-            # Exclude channel targets — those are not DMs
-            ~EventRecord.target.startswith("channel/"),
-        )
+        .where(*conversation_events)
     )
 
     if agent:
@@ -969,7 +974,7 @@ def list_conversations(
         latest_event = db.execute(
             select(EventRecord)
             .where(
-                EventRecord.network_id == workspace.id,
+                *conversation_events,
                 EventRecord.timestamp == row.last_ts,
                 or_(
                     and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),

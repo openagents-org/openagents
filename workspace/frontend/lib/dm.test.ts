@@ -59,3 +59,11 @@ it('keeps a self DM writable and uses the same pair when reopening it', () => {
   expect(dmCounterpart(session, me)).toBe(me);
   expect(dmCounterpart(session, 'human:sam@example.com')).toBeNull();
 });
+
+it('never treats internal system control traffic as the viewer’s DM', () => {
+  for (const me of ['human:alice@x.io', 'human:user']) {
+    expect(dmCounterpart(['human:system', 'openagents:someone-elses-agent'], me)).toBeNull();
+    expect(dmCounterpart(['openagents:someone-elses-agent', 'human:system'], me)).toBeNull();
+    expect(dmCounterpart(['human:system', me], me)).toBeNull();
+  }
+});

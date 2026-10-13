@@ -382,6 +382,8 @@ def _direct_link_key(ctx, value):
     if not value.startswith('dm:'):
         return None
     pair = value[3:].split(',')
+    if any(p.lower() == 'human:system' for p in pair):
+        return None
     if len(pair) != 2 or any(not (p.startswith('human:') or p.startswith('openagents:')) or not p.split(':', 1)[1] for p in pair):
         return None
     # Apply the same participant/legacy visibility rule as direct-message reads.

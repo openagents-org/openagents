@@ -56,7 +56,7 @@ export function dmCounterpart(
   me: string,
 ): string | null {
   const pair = typeof sessionOrPair === 'string' || !sessionOrPair ? dmPair(sessionOrPair) : sessionOrPair;
-  if (pair.length !== 2) return null;
+  if (pair.length !== 2 || pair.some((address) => address.toLowerCase() === 'human:system')) return null;
   const [a, b] = pair;
   const aMe = isMyAddress(a, me);
   const bMe = isMyAddress(b, me);
