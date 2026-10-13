@@ -76,6 +76,21 @@ function buildToolDefs(disabledModules) {
         },
       },
       {
+        name: 'workspace_publish_project',
+        description: 'Publish a static web project as one previewable artifact. Include its HTML, images, CSS, JavaScript and data using relative paths. No servers or dependencies are installed. Exclude secrets and hidden files. Reuse project_id and expected_revision to update while keeping its link and pins.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' }, entrypoint: { type: 'string', description: 'Relative HTML entry page, usually index.html' },
+            project_id: { type: 'string' }, expected_revision: { type: 'string', description: 'Revision returned by the last publish or preview' },
+            files: { type: 'array', maxItems: 500, items: { type: 'object', properties: {
+              path: { type: 'string' }, content: { type: 'string', description: 'UTF-8 text, or use content_base64 for binary files' },
+              content_base64: { type: 'string' },
+            }, required: ['path'] } },
+          }, required: ['title', 'files'],
+        },
+      },
+      {
         name: 'workspace_write_file',
         description: 'Write/upload a file to shared workspace storage.',
         inputSchema: {
@@ -725,6 +740,20 @@ class McpServer {
         // Try to decode as text
         const str = Buffer.isBuffer(buf) ? buf.toString('utf-8') : String(buf);
         return text(str);
+      }
+
+      case 'workspace_publish_project': {
+        const channel = this.channelName && !this.channelName.startsWith('dm:') ? this.channelName : undefined;
+        const files = args.files.map(file => {
+          if (typeof file.content_base64 !== 'string' && typeof file.content !== 'string') throw new Error('Each file needs content or content_base64');
+          return { path:file.path, content_base64:file.content_base64 ?? Buffer.from(file.content,'utf8').toString('base64') };
+        });
+        const result = await this.ws.publishWebProject(this.workspaceId, this.token, {
+          title:args.title, entrypoint:args.entrypoint || 'index.html', files,
+          channel_name:channel, visibility:channel ? 'inherit' : 'private',
+          source:`openagents:${this.agentName}`, expected_revision:args.expected_revision,
+        }, args.project_id);
+        return text(`Project published (id: ${result.id}, revision: ${result.revision}). Link it in your reply: [${args.title}](/v1/files/${encodeURIComponent(result.id)})`);
       }
 
       case 'workspace_write_file': {

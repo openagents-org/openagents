@@ -34,7 +34,7 @@ export function useThreadArtifactPreview() {
     const click = (event: MouseEvent) => {
       if (viewMode !== 'threads' || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as Element).closest?.('a[href]');
-      if (!(anchor instanceof HTMLAnchorElement) || !anchor.closest('[data-thread-conversation]')) return;
+      if (!(anchor instanceof HTMLAnchorElement) || !anchor.closest('[data-thread-conversation], [data-artifact-preview]')) return;
       const artifact = artifactFromLink(anchor.getAttribute('href') || '', files, browserTabs, workspace?.slug || workspace?.workspaceId || '');
       if (!artifact) return;
       event.preventDefault(); event.stopPropagation(); ++manual.current; openArtifact(artifact);

@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
+import { ProjectPreview } from './project-preview';
 import { Loader2 } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -17,7 +19,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
   const [loaded, setLoaded] = useState<{ key: string; text?: string; url?: string; type?: string; failed?: boolean } | null>(null);
   const key = `${artifact.kind}:${artifact.id}:${revision}:${idToken}`;
   useEffect(() => {
-    if (artifact.kind === 'browser') return;
+    if (artifact.kind === 'browser' || file?.contentType === WEB_PROJECT_TYPE) return;
     const abort = new AbortController(); let objectUrl: string | undefined;
     setLoaded(null);
     const load = async () => {
@@ -29,7 +31,10 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
       const response = await workspaceApi.fetchFile(artifact.id, abort.signal);
       const type = file?.contentType || response.headers.get('content-type') || '';
       const filename = file?.filename || '';
-      if (/text\/html/.test(type) || /\.html?$/i.test(filename)) {
+      if (type.includes(WEB_PROJECT_TYPE)) {
+        await response.body?.cancel();
+        if (!abort.signal.aborted) setLoaded({key,type:'project'});
+      } else if (/text\/html/.test(type) || /\.html?$/i.test(filename)) {
         const text = await response.text();
         if (!abort.signal.aborted) setLoaded({key,text,type:'html'});
       } else if (type.startsWith('text/') || /\.(mdx?|json|csv)$/i.test(filename)) {
@@ -44,6 +49,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [key, file?.contentType, file?.filename]);
   if (artifact.kind === 'browser') return browserTabs.some(tab => tab.id === artifact.id) ? <BrowserView artifactTabId={artifact.id} /> : <p className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
+  if (file?.contentType === WEB_PROJECT_TYPE || (loaded?.key === key && loaded.type === 'project')) return <ProjectPreview id={artifact.id} revision={revision} />;
   if (!loaded || loaded.key !== key) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
   if (loaded.failed) return <p role="alert" className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
   if (loaded.type === 'html') return <iframe title={file?.filename || t('artifactPanel.html')} srcDoc={loaded.text} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full w-full border-0 bg-white" />;

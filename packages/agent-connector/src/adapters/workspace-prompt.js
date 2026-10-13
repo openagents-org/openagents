@@ -303,7 +303,12 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     let s = '\n### Shared Files\n\n' +
       'When you produce a document or HTML report for the user, upload it to this thread before your final reply. ' +
       'Set visibility to inherit so the upload keeps the thread’s access rules. Use the returned file ID in a Markdown link such as [report.html](/v1/files/FILE_ID). ' +
-      'A path on your machine is not accessible to teammates and does not create a workspace preview.\n\n';
+      'A path on your machine is not accessible to teammates and does not create a workspace preview.\n\n' +
+      'For HTML that depends on images, CSS, scripts, or data, publish the static project together. ' +
+      'Use workspace_publish_project when available, or POST /v1/web-projects with network, title, entrypoint, source, channel_name, visibility: \"inherit\", ' +
+      'and files: [{path: \"index.html\", content_base64: \"...\"}, ...]. Use relative asset paths, include all required assets, and exclude secrets, hidden files, and node_modules. ' +
+      'Build frontend apps first and upload the static output folder; server-side apps are not supported. Limit: 500 files / 25 MB. ' +
+      'Link the returned project id using /v1/files/ID. To update, PUT /v1/web-projects/ID with the complete bundle and expected_revision from the previous publish; this preserves sharing and pins.\n\n';
 
     if (!isPlan) {
       if (isWindows) {

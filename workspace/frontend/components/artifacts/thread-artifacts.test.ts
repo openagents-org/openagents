@@ -82,3 +82,11 @@ it('embeds the selected live browser with its existing controls',async()=>{
   expect(host.querySelector('[data-browser=live]')).toBeTruthy();
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
+it('opens links inside a document preview in the artifact panel',async()=>{
+  mocks.get.mockResolvedValue({artifact:null});
+  await act(async()=>root.render(React.createElement(Controller)));
+  const panel=document.createElement('aside');panel.setAttribute('data-artifact-preview','');
+  const link=document.createElement('a');link.href='/v1/files/dashboard';panel.append(link);host.append(panel);
+  await act(async()=>link.click());
+  expect(mocks.layout.openArtifact).toHaveBeenLastCalledWith({kind:'file',id:'dashboard'});
+});

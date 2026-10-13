@@ -1,3 +1,4 @@
+import { WEB_PROJECT_TYPE } from './web-projects';
 import type { BrowserTab, WorkspaceFile } from './types';
 export type ArtifactReference = { kind: 'file' | 'knowledge' | 'browser'; id: string };
 export type ThreadArtifactSetting = { artifact: ArtifactReference | null; unavailable: boolean; can_pin: boolean };
@@ -8,7 +9,7 @@ export function openArtifactPreview(artifact: ArtifactReference) {
   window.dispatchEvent(new CustomEvent(ARTIFACT_OPEN_EVENT, { detail: artifact }));
 }
 export function isDocumentFile(file: Pick<WorkspaceFile,'filename'|'contentType'>) {
-  return file.contentType.startsWith('text/') || /\.(md|mdx|html?|txt|pdf|json|csv)$/i.test(file.filename) || file.contentType === 'application/pdf';
+  return file.contentType === WEB_PROJECT_TYPE || file.contentType.startsWith('text/') || /\.(md|mdx|html?|txt|pdf|json|csv)$/i.test(file.filename) || file.contentType === 'application/pdf';
 }
 /** Resolve workspace resource links; the preview fetch enforces access. */
 export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: BrowserTab[], workspace: string): ArtifactReference | null {

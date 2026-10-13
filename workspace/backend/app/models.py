@@ -1492,3 +1492,13 @@ class DirectThreadLink(Base):
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     session_key = Column(Text, nullable=False)
     __table_args__ = (UniqueConstraint("workspace_id", "session_key", name="uq_direct_thread_link"),)
+
+
+class ProjectPreviewTicket(Base):
+    """Short-lived, project-scoped access; never embeds a workspace credential."""
+    __tablename__ = 'project_preview_tickets'
+    id = Column(Text, primary_key=True)
+    file_id = Column(Text, ForeignKey('files.id', ondelete='CASCADE'), nullable=False)
+    storage_key = Column(Text, nullable=False)
+    principal = Column(JSONB, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

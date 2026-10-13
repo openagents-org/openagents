@@ -656,6 +656,15 @@ class WorkspaceClient {
   /**
    * Upload a file via POST /v1/files/base64.
    */
+  async publishWebProject(workspaceId, token, project, projectId) {
+    const body = { ...project, network: workspaceId };
+    const route = '/v1/web-projects' + (projectId ? '/' + encodeURIComponent(projectId) : '');
+    const data = projectId
+      ? await this._put(route, body, this._wsHeaders(token), 60000)
+      : await this._post(route, body, this._wsHeaders(token), 60000);
+    return data.data || data;
+  }
+
   async uploadFile(workspaceId, token, filename, contentBase64, {
     contentType = 'application/octet-stream', source = 'human:user', channelName, visibility,
   } = {}) {

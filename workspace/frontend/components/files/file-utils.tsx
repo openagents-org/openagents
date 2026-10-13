@@ -1,5 +1,6 @@
 'use client';
 
+import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
 import { AuthenticatedImage } from './authenticated-image';
 import { useState, type ReactNode } from 'react';
 import {
@@ -119,6 +120,7 @@ function extensionOf(filename: string): string {
 
 /** Resolve a file to its kind — extension first, content type as the fallback. */
 export function getFileKind(contentType: string | undefined, filename: string): FileKind {
+  if (contentType === WEB_PROJECT_TYPE) return 'web';
   const name = filename || '';
   if (/^https?:\/\//i.test(name)) return 'web';
 

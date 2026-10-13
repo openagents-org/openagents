@@ -1,3 +1,4 @@
+import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
   AgentCatalogDetail,
@@ -2407,6 +2408,17 @@ class WorkspaceApi {
 
   async resolveThreadLink(id: string): Promise<{ id: string; session_id: string }> {
     return this.request(`/v1/thread-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`);
+  }
+
+  async publishWebProject(body: ProjectUpload, id?: string): Promise<{id: string; revision: string}> {
+    return this.request(`/v1/web-projects${id ? '/' + encodeURIComponent(id) : ''}`, {method:id ? 'PUT' : 'POST',body:JSON.stringify({...body,network:this.requireWorkspace()})});
+  }
+  async getWebProjectRevision(id: string): Promise<{revision: string}> {
+    return this.request(`/v1/web-projects/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`);
+  }
+  async previewWebProject(id: string): Promise<ProjectPreview> {
+    const result = await this.request<ProjectPreview>(`/v1/web-projects/${encodeURIComponent(id)}/preview?network=${encodeURIComponent(this.requireWorkspace())}`, {method:'POST'});
+    return {...result,preview_path:API_URL + result.preview_path};
   }
 
   async getThreadArtifact(channel: string): Promise<ThreadArtifactSetting> {

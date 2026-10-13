@@ -1,5 +1,7 @@
 'use client';
 
+import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
+import { ProjectPreview } from '@/components/artifacts/project-preview';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -375,6 +377,7 @@ export function FilePreview() {
   };
 
   const renderBody = () => {
+    if (contentType === WEB_PROJECT_TYPE) return <ProjectPreview id={file.id} />;
     if (loading || (strategy === 'url' && !media.url && !media.failed)) {
       return (
         <div className="flex h-full items-center justify-center">
