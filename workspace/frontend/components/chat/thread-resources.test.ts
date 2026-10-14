@@ -12,7 +12,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace 
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, params?: any) => params?.agent ? `${key} ${params.agent}` : key }));
 vi.mock('@/components/agents/agent-avatar', () => ({ AgentAvatar: () => null }));
-vi.mock('@/components/files/file-utils', () => ({ FileRowIcon: ({ file }: any) => React.createElement('img', { alt: file.filename, width: 28, height: 28 }) }));
+vi.mock('@/components/files/file-utils', () => ({ FileTile: ({ file }: any) => React.createElement('img', { alt: file.filename }) }));
 import { ThreadResources } from './thread-resources';
 let root: Root, host: HTMLDivElement;
 beforeEach(async () => {
@@ -34,15 +34,21 @@ it('shows only participating agents and prepares instructions without sending', 
   await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(mocks.instruct).toHaveBeenCalledWith('scout', 'Check the exchange rate and cite sources');
 });
-it('switches to tiny artifact previews and opens the correct browser', async () => {
+it('switches to artifact cards and opens the correct browser', async () => {
   const artifacts = Array.from(host.querySelectorAll<HTMLButtonElement>('[role=tab]')).find(el => el.textContent?.includes('artifactPanel.title'))!;
   await act(async () => artifacts.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
   expect(host.textContent).toContain('photo.png');
   expect(host.textContent).not.toContain('private.pdf');
-  expect(host.querySelector('img')?.width).toBe(28);
+  expect(host.querySelector('img')?.alt).toBe('people/me/photo.png');
+  const row = host.querySelector<HTMLUListElement>('ul')!;
+  row.scrollBy = vi.fn();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.scrollRight"]')!.click());
+  expect(row.scrollBy).toHaveBeenLastCalledWith({ left: 336, behavior: 'smooth' });
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.scrollLeft"]')!.click());
+  expect(row.scrollBy).toHaveBeenLastCalledWith({ left: -336, behavior: 'smooth' });
   const opened = vi.fn(); window.addEventListener('workspace:open-artifact', opened);
   try {
-    await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(el => el.textContent?.startsWith('XE'))!.click());
+    await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(el => el.getAttribute('title') === 'XE')!.click());
     expect(opened.mock.calls[0][0].detail).toEqual({ kind: 'browser', id: 'live' });
   } finally { window.removeEventListener('workspace:open-artifact', opened); }
 });

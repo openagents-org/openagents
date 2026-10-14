@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowUpRight, Bot, ChevronDown, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { FileRowIcon } from '@/components/files/file-utils';
+import { FileTile } from '@/components/files/file-utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
@@ -22,6 +22,8 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
   const browsers = browserTabs.filter(tab => tab.status === 'active' && tab.artifactChannels?.includes(currentSessionId || ''));
+  const artifactRow = useRef<HTMLUListElement>(null);
+  const scrollArtifacts = (direction: number) => artifactRow.current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
   const [section, setSection] = useState('agents');
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -30,14 +32,18 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
   if (!members.length && !artifactCount) return null;
   const active = members.length ? section : 'artifacts';
   const selectedAgent = members.find(a => a.agentName === editing);
-  return <section className="shrink-0 border-b bg-muted/15 px-3 py-2" aria-label={t('threadResources.title')}>
-    <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="gap-1.5">
+  return <section className="min-w-0 shrink-0 border-b bg-muted/15 px-3 py-2" aria-label={t('threadResources.title')}>
+    <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="min-w-0 gap-1.5">
       <div className="flex items-center gap-2">
         <TabsList className="h-7" aria-label={t('threadResources.title')}>
           {members.length > 0 && <TabsTrigger value="agents" className="gap-1.5 px-2 text-xs"><Bot className="size-3.5" />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
           <TabsTrigger value="artifacts" className="gap-1.5 px-2 text-xs"><Layers className="size-3.5" />{t('artifactPanel.title')}<span className="tabular-nums text-muted-foreground">{artifactCount}</span></TabsTrigger>
         </TabsList>
-        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted">{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}</button>
+        {!collapsed && active === 'artifacts' && artifactCount > 1 && <div className="ml-auto flex items-center gap-1">
+          <button type="button" aria-label={t('threadResources.scrollLeft')} onClick={() => scrollArtifacts(-1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-3.5" /></button>
+          <button type="button" aria-label={t('threadResources.scrollRight')} onClick={() => scrollArtifacts(1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronRight className="size-3.5" /></button>
+        </div>}
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={`${!collapsed && active === 'artifacts' && artifactCount > 1 ? '' : 'ml-auto'} rounded p-1 text-muted-foreground hover:bg-muted`}>{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}</button>
       </div>
       {!collapsed && <>
         <TabsContent value="agents" className="mt-0">
@@ -61,14 +67,15 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
             <div className="mt-1 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{t('threadResources.draftHint')}</span><button type="submit" disabled={!instruction.trim()} className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">{t('threadResources.addDraft')}</button></div>
           </form>}
         </TabsContent>
-        <TabsContent value="artifacts" className="mt-0">
-          <ul className="max-h-36 overflow-y-auto overscroll-contain divide-y divide-border/50">
-            {browsers.map(tab => <li key={tab.id}><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left hover:bg-muted aria-pressed:bg-muted">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-500"><Globe className="size-4" /></span>
-              <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{tab.title || tab.url}</span><span className="block truncate text-[11px] text-muted-foreground">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span></span><ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+        <TabsContent value="artifacts" className="mt-0 min-w-0">
+          <ul ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity pb-2">
+            {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
+              <span className="flex h-16 w-full flex-col items-center justify-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-[10px]">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span></span>
+              <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{tab.title || tab.url}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>
             </button></li>)}
-            {documents.map(file => <li key={file.id}><button type="button" onClick={() => openArtifactPreview({ kind: 'file', id: file.id })} aria-pressed={selectedArtifact?.kind === 'file' && selectedArtifact.id === file.id} className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left hover:bg-muted aria-pressed:bg-muted">
-              <FileRowIcon file={file} /><span className="min-w-0 flex-1 truncate text-xs" title={projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)}>{projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)}</span><ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+            {documents.map(file => <li key={file.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'file', id: file.id })} title={projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)} aria-pressed={selectedArtifact?.kind === 'file' && selectedArtifact.id === file.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
+              <FileTile file={file} className="h-16 w-full rounded-md shadow-none" />
+              <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>
             </button></li>)}
           </ul>
           {!artifactCount && <p className="py-2 text-xs text-muted-foreground">{t('threadResources.empty')}</p>}
