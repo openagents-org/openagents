@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>mocks.workspace}));
 vi.mock('@/components/layout/layout-context',()=>({useLayout:()=>mocks.layout}));
-vi.mock('@/lib/api',()=>({workspaceApi:{getThreadArtifact:mocks.get,fetchFile:mocks.fetch,getKnowledgeEntry:mocks.knowledge}}));
+vi.mock('@/lib/api',()=>({workspaceApi:{getBrowserTab:async(id:string)=>({id,status:'active'}),getThreadArtifact:mocks.get,fetchFile:mocks.fetch,getKnowledgeEntry:mocks.knowledge}}));
 vi.mock('@/lib/openagents-auth-context',()=>({useOpenAgentsAuth:()=>({idToken:'signed-in'})}));
 vi.mock('@/lib/i18n',()=>({useT:()=>(key:string)=>key}));
 vi.mock('@/components/chat/markdown-content',()=>({MarkdownContent:({content}:any)=>React.createElement('article',null,content)}));

@@ -1,6 +1,6 @@
 'use client';
 
-import { ThreadArtifactLinks } from '@/components/artifacts/thread-artifact-links';
+import { ThreadResources } from './thread-resources';
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
 import { YumiGuide } from './yumi-guide';
@@ -16,7 +16,7 @@ import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Sparkles, Cpu } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
 import { ThreadParticipantCount } from './thread-participant-count';
@@ -61,15 +61,6 @@ function parseDMSession(sessionId: string | null): [string, string] | null {
 
 function normalizeAgentAddress(address: string): string {
   return address.replace(/^openagents:/, '');
-}
-
-/** Condense an agent description down to a few words for the roster bar. */
-function shortDescription(desc: string | null, maxWords = 8): string {
-  if (!desc) return '';
-  const clean = desc.trim().replace(/\s+/g, ' ');
-  const words = clean.split(' ');
-  if (words.length <= maxWords) return clean;
-  return words.slice(0, maxWords).join(' ') + '…';
 }
 
 function messagesForSession(sessionId: string, msgs: WorkspaceMessage[]): WorkspaceMessage[] {
@@ -797,72 +788,10 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadArtifactLinks />
-
-      {/* Agent roster bar — thin strip listing who's in the thread + a hint of
-          their responsibility. Only shown for group threads (>1 agent), never DMs. */}
-      {!isDM && (() => {
-        const participants = currentSession?.participants || [];
-        const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
-        if (sessionAgents.length <= 1) return null;
-        return (
-          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-zinc-50/60 dark:bg-zinc-900/40">
-            {sessionAgents.map((agent, i) => {
-              const desc = shortDescription(agent.description);
-              return (
-                <div key={agent.agentName} className="flex items-center gap-2 shrink-0">
-                  {i > 0 && <span className="text-zinc-300 dark:text-zinc-700 select-none">|</span>}
-                  <div
-                    className="flex items-center gap-1.5 shrink-0"
-                    title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}
-                  >
-                    <AgentAvatar name={agent.agentName} size={16} status={agent.status} showStatus />
-                    <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
-                      {agentLabel(agent)}
-                    </span>
-                    {desc && (
-                      <span className="text-[11px] text-muted-foreground truncate max-w-[220px]">
-                        {desc}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {/* Missing-description warning — routing accuracy (dynamic/workflow router
-          and the master's own delegation) depends on agent descriptions. Nudge
-          the user to fill any that are blank; each chip opens that agent's
-          profile, where a one-click auto-generate button drafts one. */}
-      {!isDM && (() => {
-        const participants = currentSession?.participants || [];
-        const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
-        if (sessionAgents.length <= 1) return null;
-        const missing = sessionAgents.filter((a) => !a.description || !a.description.trim());
-        if (missing.length === 0) return null;
-        return (
-          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            <span className="text-[11px] leading-snug shrink-0">
-              {t('chat.missingDescriptions')}
-            </span>
-            {missing.map((a) => (
-              <button
-                key={a.agentName}
-                onClick={() => setSelectedAgentName(a.agentName)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shrink-0"
-                title={t('chat.addDescriptionFor', { agent: agentLabel(a) })}
-              >
-                <Sparkles className="size-2.5" />
-                {agentLabel(a)}
-              </button>
-            ))}
-          </div>
-        );
-      })()}
+      <ThreadResources key={currentSessionId} onInstruct={(name, instruction) => {
+        setCurrentDraft(previous => [previous.trimEnd(), `@${name} ${instruction}`].filter(Boolean).join('\n'));
+        setFocusKey(value => value + 1);
+      }} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
