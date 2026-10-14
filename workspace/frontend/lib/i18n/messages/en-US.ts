@@ -1939,6 +1939,7 @@ export const messages = {
     emptyBody: 'Agent notifications will appear here',
     unread: 'Unread',
     read: 'Read',
+    sourceThread: 'Thread: {title}',
     goToThread: 'Go to thread',
     // v1.1 actionable rows (approve / answer / accept without leaving the inbox)
     needsYou: 'Needs you',

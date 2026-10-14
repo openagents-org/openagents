@@ -6,7 +6,7 @@ import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, User, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
+import { Copy, Check, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
@@ -28,7 +28,8 @@ import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 
 import { isHtmlAttachment } from '@/lib/brief';
 import { HtmlArtifactPreview } from './html-artifact-preview';
 import { isMyAddress, myAddress } from '@/lib/dm';
-import { humanColor } from '@/lib/human-color';
+import { HumanAvatar } from './human-avatar';
+import { humanMessageContent } from '@/lib/message-content';
 import { useHumanNames } from '@/hooks/use-team-roster';
 
 interface Attachment {
@@ -184,6 +185,8 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     url: '',
   }));
 
+  const humanContent = humanMessageContent(message.content, attachments);
+
   const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
   const handleCopy = async () => {
@@ -234,12 +237,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     return (
       <div className="group/message relative py-1.5">
         <div className="flex items-start gap-3">
-          <div
-            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: humanColor(seed) }}
-          >
-            <User className="size-3.5 text-zinc-700" />
-          </div>
+          <HumanAvatar email={mentionEmail || (isCurrentUser ? currentUser.id : seed)} className="mt-0.5" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               {onMentionPerson && mentionEmail ? (
@@ -273,7 +271,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             <div className="mt-0.5 text-sm leading-relaxed [&_.markdown-content>*:last-child]:mb-0">
               {message.metadata.recalled ? <p className="text-xs italic text-muted-foreground">{t('messageReply.recalled')}</p> : approval ? <ApprovalCard approval={approval} /> : <>
                 <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
-                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
+                {humanContent && <MarkdownContent content={humanContent} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />}
                 <Attachments items={attachments} />
               </>}
             </div>

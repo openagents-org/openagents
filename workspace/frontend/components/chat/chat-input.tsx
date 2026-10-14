@@ -18,11 +18,10 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
-import { User } from 'lucide-react';
+import { HumanAvatar } from './human-avatar';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useThreadMentionParticipants } from '@/hooks/use-thread-mention-emails';
 import { extractMentionedAgents, extractMentionedHumans, filterMentionPeople, type MentionPerson } from '@/lib/people-mentions';
-import { humanColor } from '@/lib/human-color';
 import { humanMentionDisplay, editHumanMentionDraft, updateHumanMentionDraft } from './composer-human-mentions';
 
 // Keep in sync with the backend's MAX_FILE_SIZE (app/config.py); nginx's
@@ -168,8 +167,8 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
 
   const mentionItems: MentionItem[] = [
     ...(offerAll ? [{ type: 'all' as const }] : []),
-    ...filteredAgents.map((agent): MentionItem => ({ type: 'agent', agent })),
     ...filteredPeople.map((person): MentionItem => ({ type: 'person', person })),
+    ...filteredAgents.map((agent): MentionItem => ({ type: 'agent', agent })),
     ...filteredKnowledge.map((entry): MentionItem => ({ type: 'knowledge', entry })),
   ];
 
@@ -416,8 +415,43 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
               <span className="text-xs text-muted-foreground">{t('peopleMessaging.mentionAllHint')}</span>
             </button>
           )}
+          {filteredPeople.length > 0 && (
+            <>
+              {(filteredAgents.length > 0 || filteredKnowledge.length > 0) && (
+                <div className={cn(
+                  'px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-border',
+                  'border-b',
+                )}>{t('peopleMessaging.mentionPeople')}</div>
+              )}
+              {filteredPeople.map((person) => {
+                const idx = mentionItems.findIndex((m) => m.type === 'person' && m.person.email === person.email);
+                return (
+                  <button
+                    key={person.email}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent transition-colors',
+                      idx === mentionIndex && 'bg-accent'
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertMention(person.email, person.name);
+                    }}
+                  >
+                    <HumanAvatar email={person.email} className="size-6" />
+                    <span className="font-medium truncate">{person.name}</span>
+                    {person.name !== person.email && (
+                      <span className="text-xs text-muted-foreground truncate">{person.email}</span>
+                    )}
+                    <span className="ml-auto shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                      {t('peopleMessaging.personTag')}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
           {filteredAgents.length > 0 && (filteredKnowledge.length > 0 || filteredPeople.length > 0) && (
-            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">{t('chatInput.mentionAgents')}</div>
+            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-y border-border">{t('chatInput.mentionAgents')}</div>
           )}
           {filteredAgents.map((agent) => {
             const idx = mentionItems.findIndex((m) => m.type === 'agent' && m.agent.agentName === agent.agentName);
@@ -465,46 +499,6 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
               </button>
             );
           })}
-          {filteredPeople.length > 0 && (
-            <>
-              {(filteredAgents.length > 0 || filteredKnowledge.length > 0) && (
-                <div className={cn(
-                  'px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-border',
-                  filteredAgents.length > 0 ? 'border-t' : 'border-b',
-                )}>{t('peopleMessaging.mentionPeople')}</div>
-              )}
-              {filteredPeople.map((person) => {
-                const idx = mentionItems.findIndex((m) => m.type === 'person' && m.person.email === person.email);
-                return (
-                  <button
-                    key={person.email}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent transition-colors',
-                      idx === mentionIndex && 'bg-accent'
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      insertMention(person.email, person.name);
-                    }}
-                  >
-                    <span
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full"
-                      style={{ backgroundColor: humanColor(person.email) }}
-                    >
-                      <User className="size-3.5 text-zinc-700" />
-                    </span>
-                    <span className="font-medium truncate">{person.name}</span>
-                    {person.name !== person.email && (
-                      <span className="text-xs text-muted-foreground truncate">{person.email}</span>
-                    )}
-                    <span className="ml-auto shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
-                      {t('peopleMessaging.personTag')}
-                    </span>
-                  </button>
-                );
-              })}
-            </>
-          )}
           {filteredKnowledge.length > 0 && (
             <>
               {(filteredAgents.length > 0 || filteredPeople.length > 0) && (

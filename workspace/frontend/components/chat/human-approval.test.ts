@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({ email: 'maya@example.com', pending: [] as any[
 vi.mock('@/lib/api', () => ({ workspaceApi: { resolveApproval: mocks.resolveApproval, getApproval: vi.fn().mockRejectedValue(new Error('not needed')) } }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({ currentUser: { id: mocks.email, isAuthenticated: true }, workspace: { workspaceId: 'workspace', requireLogin: true }, pendingApprovals: mocks.pending, refreshApprovals: mocks.refreshApprovals }) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: mocks.email, role: 'member', tokenAccess: false }) }));
-vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({ 'sam@example.com': 'Sam Okafor' }), useTeamRoster: () => [{ email:'sam@example.com',displayName:'Sam Okafor' },{ email:'maya@example.com',displayName:'Maya Chen' }] }));
+vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({ 'sam@example.com': 'Sam Okafor' }), useTeamRoster: () => [{ email:'sam@example.com',displayName:'Sam Okafor' },{ email:'maya@example.com',displayName:'Maya Chen',avatarUrl:'https://images.example.com/maya.png' }] }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, args?: Record<string,string>) => key + (args ? ' ' + Object.values(args).join(' ') : ''), useFormatters: () => ({ formatTime: () => '08:22' }) }));
 vi.mock('./markdown-content', () => ({ MarkdownContent: ({ content }: any) => React.createElement('p',null,content) }));
 vi.mock('./message-reactions', () => ({ MessageReactions: ({ onReply, onRecall }: any) => React.createElement('span',null,'reaction controls', onReply && React.createElement('button', { onClick: onReply }, 'Reply'), onRecall && React.createElement('button', { onClick: onRecall }, 'Recall')) }));
@@ -59,4 +59,10 @@ it('offers Recall only for your unassigned messages and hides the withdrawn body
   await act(async () => root.render(React.createElement(ChatMessage, { message: { ...chat, metadata: { recalled: true } }, onRecall: recall })));
   expect(host.textContent).not.toContain('Withdraw this');
   expect(host.textContent).not.toContain('reaction controls');
+});
+
+it('uses the current profile photo for your thread messages', async () => {
+  const chat = { ...message, senderAddress: 'human:maya@example.com', senderId: 'maya@example.com', messageType: 'chat', content: 'Hi', metadata: {} };
+  await act(async () => root.render(React.createElement(ChatMessage, { message: chat })));
+  expect(host.querySelector('img')?.getAttribute('src')).toBe('https://images.example.com/maya.png');
 });

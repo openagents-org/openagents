@@ -71,7 +71,8 @@ export function NotificationCard({
 }) {
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
-  const { agents } = useWorkspace();
+  const { agents, sessions } = useWorkspace();
+  const sourceThread = sessions.find(session => session.sessionId === notification.channelName);
   const humanNames = useHumanNames();
   const fromPerson = notification.createdBy.startsWith('human:');
   const agentName = notification.createdBy.replace(/^(openagents:|system:|human:)/, '');
@@ -130,6 +131,9 @@ export function NotificationCard({
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
           {resolved && notification.approvalStatus ? t('notifications.resolvedRequest') : notification.message}
         </p>
+        {sourceThread && <p className="mt-1 truncate text-[11px] text-muted-foreground" title={sourceThread.title}>
+          {t('inbox.sourceThread', { title: sourceThread.title })}
+        </p>}
         <div className="flex items-center gap-2 mt-1">
           <span className="text-[10px] text-muted-foreground">{senderLabel}</span>
           <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>

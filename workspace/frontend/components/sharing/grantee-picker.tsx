@@ -152,7 +152,7 @@ export function GranteePicker({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover modal open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             type="button"
@@ -187,7 +187,7 @@ export function GranteePicker({
                 ))}
               </div>
             )}
-            <CommandList className="max-h-72">
+            <CommandList className="max-h-72 overscroll-contain">
               {loading && (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />

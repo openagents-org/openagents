@@ -1903,6 +1903,7 @@ export const messages: Messages = {
     emptyBody: '智能体的通知会显示在这里',
     unread: '未读',
     read: '已读',
+    sourceThread: '会话：{title}',
     goToThread: '前往会话',
     // v1.1 可操作的通知行（在收件箱内直接审批 / 回答 / 采纳）
     needsYou: '待你处理',

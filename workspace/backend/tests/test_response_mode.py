@@ -319,3 +319,21 @@ def test_name_matching_requires_full_unique_direct_address():
     assert _named_agent_recipient('hey Code Helper', agents, ['Code Helper']) is None
     agents.append(SimpleNamespace(agent_name='other', display_name='Code Helper'))
     assert _named_agent_recipient('hey Code Helper', agents) is None
+
+
+@pytest.mark.parametrize('content,expected', [
+    ('帮我整理合作机会@agent-master @agent-worker', ['agent-master', 'agent-worker']),
+    ('请@agent-worker帮忙看看', ['agent-worker']),
+    ('邮件name@agent-worker.com 和 @agent-worker@example.com', []),
+    ('`@agent-worker` and ```@agent-master```', []),
+    ('@agent-worker-extra and @agent-master.com', []),
+])
+def test_cjk_agent_mentions(content, expected):
+    from app.mods.workspace_mod import _explicit_human_mentions
+    assert _explicit_human_mentions(content, ['agent-master', 'agent-worker']) == expected
+
+
+def test_cjk_mentions_route_to_both_agents_without_model(db, multi_agent_workspace):
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
+        assert route(db, multi_agent_workspace, '帮我整理合作机会@agent-master @agent-worker') == ['agent-master', 'agent-worker']
+        router.assert_not_called()

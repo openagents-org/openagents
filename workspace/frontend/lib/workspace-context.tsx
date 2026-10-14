@@ -751,6 +751,7 @@ export function WorkspaceProvider({
             return {
               ...s,
               title: keepLocalTitle ? s.title : remote.title,
+              icon: remote.icon,
               participants: remote.participants,
               master: remote.master,
               orchestrationMode: remote.orchestrationMode,

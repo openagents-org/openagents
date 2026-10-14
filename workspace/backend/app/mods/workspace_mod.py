@@ -1182,8 +1182,13 @@ def _routing_choice(event, candidates):
 def _explicit_human_mentions(content, known_agents):
     # Code examples and email addresses are not agent mention tags.
     text = re.sub(r"```[\s\S]*?```|`[^`]*`", "", content)
-    names = re.findall(r"(?<![\w@])@([\w-]+)(?![\w@.+-])", text)
-    return list(dict.fromkeys(name for name in names if name in known_agents))
+    if not known_agents:
+        return []
+    # CJK text need not put spaces around mentions. Match known handles while
+    # keeping ASCII email addresses and longer handles out of the match.
+    handles = "|".join(re.escape(name) for name in sorted(known_agents, key=len, reverse=True))
+    names = re.findall(rf"(?<![a-zA-Z0-9_@.+-])@({handles})(?![a-zA-Z0-9_@+-]|\.[a-zA-Z0-9_])", text)
+    return list(dict.fromkeys(names))
 
 
 def _named_agent_recipient(content, members, human_names=()):

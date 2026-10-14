@@ -28,6 +28,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { LanguageMenuSub } from './language-menu';
+import { HumanAvatar } from '@/components/chat/human-avatar';
 import { FeedbackDialog } from '@/components/feedback/feedback-dialog';
 
 interface UserMenuProps {
@@ -122,9 +123,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             {user ? (
-              <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                {user.email[0].toUpperCase()}
-              </span>
+              <HumanAvatar email={user.email} className="size-6" />
             ) : (
               <User className="size-4" />
             )}
