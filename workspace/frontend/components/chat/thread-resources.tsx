@@ -49,15 +49,16 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
       </div>
       {!collapsed && <>
         <TabsContent value="agents" className="mt-0 min-w-0">
-          <p className="mb-1 text-[11px] text-muted-foreground">{t('threadResources.guide')}</p>
           <ul ref={agentRow} aria-label={t('threadResources.agents')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {members.map(agent => <li key={agent.agentName} className="flex w-40 shrink-0 snap-start flex-col gap-1.5 rounded-lg border bg-background p-1.5">
-              <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="flex h-16 w-full flex-col items-center justify-center gap-1 rounded-md bg-muted/50 px-1 hover:bg-muted" title={agentLabel(agent)}>
-                <AgentAvatar name={agent.agentName} size={32} status={agent.status} showStatus />
-                <span className="block w-full truncate text-center text-[11px] font-medium">{agentLabel(agent)}</span>
+            {members.map(agent => <li key={agent.agentName} className="flex w-64 shrink-0 snap-start items-center gap-2 rounded-lg border bg-background p-2">
+              <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left hover:bg-muted/50" title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}>
+                <span className="shrink-0"><AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus /></span>
+                <span className="min-w-0 flex-1 py-0.5">
+                  <span className="block truncate text-xs font-medium leading-4">{agentLabel(agent)}</span>
+                  <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{agent.description?.trim() || t('threadResources.noRole')}</span>
+                </span>
               </button>
-              <p className="min-h-8 line-clamp-2 px-0.5 text-[11px] leading-4 text-muted-foreground" title={agent.description || undefined}>{agent.description?.trim() || t('threadResources.noRole')}</p>
-              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} onClick={() => { setEditing(agent.agentName); setInstruction(''); }} className="mt-auto flex items-center justify-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] hover:bg-muted"><PencilLine className="size-3" />{t('threadResources.instruct')}</button>
+              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} title={t('threadResources.instruct')} onClick={() => { setEditing(agent.agentName); setInstruction(''); }} className="flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"><PencilLine className="size-3.5" /></button>
             </li>)}
           </ul>
           {selectedAgent && <form className="mt-2 rounded-lg border bg-background p-2" onSubmit={event => {
