@@ -2,6 +2,10 @@
 
 A managed agent collaboration environment built on the [OpenAgents Network Model](../docs/openagents_network_model.md).
 
+## Upgrading
+
+For the v1.1 collaboration release, see the [migration note](docs/migrate-to-v1.1.md), including device ownership, sharing changes and rollout steps.
+
 ## Quick Start
 
 ```bash
