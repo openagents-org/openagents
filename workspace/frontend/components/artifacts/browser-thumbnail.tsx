@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 /** A lightweight glance at a live tab. Only visible cards request screenshots;
  * authenticated bytes stay in a local blob URL, never a credential-bearing URL. */
-export function BrowserThumbnail({ tabId, pageUrl, title, enabled }: {
-  tabId: string; pageUrl?: string; title: string; enabled: boolean;
+export function BrowserThumbnail({ tabId, pageUrl, title, enabled, className }: {
+  tabId: string; pageUrl?: string; title: string; enabled: boolean; className?: string;
 }) {
   const t = useT();
   const { idToken } = useOpenAgentsAuth();
@@ -57,7 +58,7 @@ export function BrowserThumbnail({ tabId, pageUrl, title, enabled }: {
     };
   }, [key, enabled, tabId]);
   const current = state.key === key ? state : null;
-  return <span ref={host} className={current?.url ? "relative block h-44 w-full overflow-hidden border-b bg-muted/50" : "hidden"}>
+  return <span ref={host} className={current?.url ? cn("relative block h-44 w-full overflow-hidden border-b bg-muted/50", className) : "hidden"}>
     {current?.url && <img
       src={current.url}
       alt={t('browser.screenshotOf', { url: title })}

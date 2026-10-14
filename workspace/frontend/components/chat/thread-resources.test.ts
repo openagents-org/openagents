@@ -12,6 +12,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace 
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, params?: any) => params?.agent ? `${key} ${params.agent}` : key }));
 vi.mock('@/components/agents/agent-avatar', () => ({ AgentAvatar: () => null }));
+vi.mock('@/components/artifacts/browser-thumbnail', () => ({ BrowserThumbnail: ({ tabId, pageUrl, enabled }: any) => React.createElement('span', { 'data-browser-thumbnail': tabId, 'data-url': pageUrl, 'data-enabled': enabled }) }));
 vi.mock('@/components/files/file-utils', () => ({ FileTile: ({ file }: any) => React.createElement('img', { alt: file.filename }) }));
 import { ThreadResources } from './thread-resources';
 let root: Root, host: HTMLDivElement;
@@ -43,6 +44,8 @@ it('defaults to Artifacts first and lets users switch to agent cards to prepare 
 it('switches to artifact cards and opens the correct browser', async () => {
   const artifacts = Array.from(host.querySelectorAll<HTMLButtonElement>('[role=tab]')).find(el => el.textContent?.includes('artifactPanel.title'))!;
   await act(async () => artifacts.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+  expect(host.querySelector('[data-browser-thumbnail=live]')?.getAttribute('data-url')).toBe('https://www.xe.com');
+  expect(host.querySelector('[data-browser-thumbnail=live]')?.getAttribute('data-enabled')).toBe('true');
   expect(host.textContent).toContain('photo.png');
   expect(host.textContent).not.toContain('private.pdf');
   expect(host.querySelector('img')?.alt).toBe('people/me/photo.png');

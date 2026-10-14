@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { FileTile } from '@/components/files/file-utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -73,7 +74,9 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
         <TabsContent value="artifacts" className="mt-0 min-w-0">
           <ul ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
-              <span className="flex h-16 w-full flex-col items-center justify-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-[10px]">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span></span>
+              <span className="relative flex h-16 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-[10px]">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span>
+                <BrowserThumbnail tabId={tab.id} pageUrl={tab.url} title={tab.title || tab.url} enabled={!tab.asleep} className="absolute inset-0 h-full border-0" />
+              </span>
               <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{tab.title || tab.url}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>
             </button></li>)}
             {documents.map(file => <li key={file.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'file', id: file.id })} title={projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)} aria-pressed={selectedArtifact?.kind === 'file' && selectedArtifact.id === file.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
