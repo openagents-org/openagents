@@ -1143,8 +1143,18 @@ Rules:
 - Output next:<agent_name> only when there is clear evidence of both agent-directed
   intent AND which agent should act. Use names, relevant descriptions, explicit
   addressing, or a clear follow-up to that agent's question/task.
-- An agent speaking most recently, a generic name, a master role, or missing
-  descriptions is NOT enough evidence. Never guess or fall back to a master.
+- Directly greeting or calling an agent IS agent-directed intent, even without
+  a task: "hey <name>" requests a reply from that agent. Do not require an action
+  verb, a full exact name, an @ tag, or a description for a direct address.
+- Resolve natural short names, nicknames and spacing variations against the
+  participants. If the addressed name clearly identifies ONE agent and no human,
+  choose that agent. For example, "hey atlas" addresses atlas-dev when it is the
+  only Atlas in the thread; "hello code helper" can address code-helper.
+  If atlas-dev and atlas-review are both present, "hey atlas" is ambiguous: ask.
+- Use names to identify WHO is addressed; use descriptions to match unnamed
+  tasks to capabilities. A missing description does not weaken a clear name match.
+- An agent speaking most recently or having a master role is not, by itself,
+  enough evidence. Never guess or fall back to a master.
 - With multiple humans, clear human-to-human discussion, social conversation,
   acknowledgements, or requests addressed to a human should output stop.
 - With only one human and multiple agents, a human message needs an agent or a
