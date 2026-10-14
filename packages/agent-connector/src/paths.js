@@ -544,6 +544,9 @@ function _addAgentInstallerPaths(dirs) {
   if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
   if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
   if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+  // qwen — install-qwen-standalone.sh / .ps1 read these for a custom target.
+  if (process.env.QWEN_INSTALL_BIN_DIR) _push(dirs, process.env.QWEN_INSTALL_BIN_DIR);
+  if (process.env.QWEN_INSTALL_ROOT) _push(dirs, path.join(process.env.QWEN_INSTALL_ROOT, 'bin'));
 
   // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
   // the executable into uv's bin dir, which reaches PATH through a shell rc
@@ -587,6 +590,9 @@ function _addAgentInstallerPaths(dirs) {
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
     // codebuddy's native Windows install.
     _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // qwen — install-qwen-standalone.ps1 puts its qwen.cmd wrapper here and
+    // edits the user Path; on Unix the same installer uses ~/.local/bin.
+    _push(dirs, path.join(lad, 'qwen-code', 'bin'));
     // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
     // who didn't take the npm route. The copilot adapter knew it; nothing else did.
     _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));

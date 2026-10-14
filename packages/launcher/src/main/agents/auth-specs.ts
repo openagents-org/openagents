@@ -1016,6 +1016,14 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // Qwen Code (`qwen-code`): Alibaba's terminal coding agent, npm package
+  // @qwen-code/qwen-code (binary `qwen`). It authenticates with an
+  // OpenAI-compatible key only — `qwen auth` was removed upstream and its
+  // OAuth sign-in is gone — so there is no login command or sign-in probe:
+  // the registry's LLM_* fields (mapped to OPENAI_*) are the whole of it.
+  // Same core-before-marketplace ordering as above: a core without the
+  // qwen-code adapter degrades to "unsupported", not a broken install.
+  "qwen-code",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

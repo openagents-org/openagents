@@ -484,6 +484,15 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
   },
+  // Qwen Code's adapter sends a blank base URL to Model Studio, so the
+  // picker lists from there too (its /models answers with the key's models).
+  "qwen-code": {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    defaultBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  },
   opencode: {
     envVar: "LLM_MODEL",
     provider: "openai",
