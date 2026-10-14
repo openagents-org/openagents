@@ -26,7 +26,10 @@ it('shows choices only to the original sender', async () => {
   mocks.currentUser.id = 'someone-else@example.com';
   await render(); expect(host.textContent).toBe('');
   mocks.currentUser.id = 'ann@example.com';
-  await render(); expect(host.textContent).toContain('Who should work on this?');
+  await render(); expect(host.textContent).toContain('Ask an agent');
+  expect(host.textContent).not.toContain('writer');
+  await act(async () => button('Ask an agent').click());
+  expect(host.textContent).toContain('Who should work on this?');
   expect(host.textContent).toContain('writer');
   expect(mocks.resolve).not.toHaveBeenCalled();
 });
@@ -34,6 +37,7 @@ it('assigns the original message once and hides the prompt after success', async
   let finish!: (v: unknown) => void;
   mocks.resolve.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   await render();
+  await act(async () => button('Ask an agent').click());
   await act(async () => { button('writer').click(); button('writer').click(); });
   expect(mocks.resolve).toHaveBeenCalledTimes(1);
   expect(mocks.resolve).toHaveBeenCalledWith('event-1', 'writer');
@@ -44,6 +48,7 @@ it('assigns the original message once and hides the prompt after success', async
 it('dismisses without requesting an agent', async () => {
   mocks.resolve.mockResolvedValue({ status: 'dismissed' });
   await render();
+  await act(async () => button('Ask an agent').click());
   await act(async () => button('Dismiss').click());
   expect(mocks.resolve).toHaveBeenCalledWith('event-1', null);
   expect(host.textContent).toBe('');
@@ -51,10 +56,20 @@ it('dismisses without requesting an agent', async () => {
 it('keeps the choice available after a permission or network failure', async () => {
   mocks.resolve.mockRejectedValueOnce(new Error('Sharing changed'));
   await render();
+  await act(async () => button('Ask an agent').click());
   await act(async () => button('writer').click());
   expect(host.querySelector('[role="alert"]')?.textContent).toBe('Sharing changed');
   expect(button('writer').disabled).toBe(false);
   mocks.resolve.mockResolvedValueOnce({ status: 'assigned' });
   await act(async () => button('reviewer').click());
+  expect(host.textContent).toBe('');
+});
+
+it('dismisses the compact action without expanding or starting work', async () => {
+  mocks.resolve.mockResolvedValue({ status: 'dismissed' });
+  await render();
+  expect(host.querySelector('section')).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Dismiss assignment suggestion"]')!.click());
+  expect(mocks.resolve).toHaveBeenCalledWith('event-1', null);
   expect(host.textContent).toBe('');
 });

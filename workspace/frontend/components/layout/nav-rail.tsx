@@ -329,7 +329,7 @@ export function NavRail() {
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
-                    {!!item.count && <span className={cn('shrink-0 rounded-full px-1.5 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute -right-1 -top-1', item.mode === 'inbox' ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+                    {!!item.count && <span className={cn('shrink-0 rounded-full px-1.5 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute -right-1 -top-1', (item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
 
                   </SidebarMenuButton>
                 </SidebarMenuItem>

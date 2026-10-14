@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Loader2, X } from 'lucide-react';
+import { ArrowRight, Bot, ChevronDown, Loader2, X } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
@@ -28,6 +28,8 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => { setExpanded(false); setError(''); }, [message.messageId]);
   useEffect(() => { setStatus(initial?.status); }, [message.messageId, initial?.status]);
   if (!initial || initial.requester_email.toLowerCase() !== currentUser.id.toLowerCase() || status !== 'pending') return null;
   const choose = async (agent: string | null) => {
@@ -41,6 +43,12 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { submitting.current = false; setBusy(false); }
   };
+  if (!expanded) return <div className="mt-2 flex flex-wrap items-center gap-1">
+    <button type="button" aria-expanded={false} onClick={() => setExpanded(true)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"><Bot className="size-3.5" />{t('routing.askAgent')}<ChevronDown className="size-3" /></button>
+    <button type="button" aria-label={t('routing.dismiss')} title={t('routing.dismissAction')} disabled={busy} onClick={() => void choose(null)} className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-50"><X className="size-3.5" /></button>
+    {busy && <Loader2 aria-label={t('common.saving')} className="size-3 animate-spin" />}
+    {error && <p role="alert" className="w-full text-xs text-destructive">{error}</p>}
+  </div>;
   return <section aria-label={t('routing.title')} className="relative mt-3 max-w-xl rounded-xl border bg-muted/25 p-3">
     <button type="button" aria-label={t('routing.dismiss')} disabled={busy} onClick={() => void choose(null)} className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-50"><X className="size-3.5" /></button>
     <p className="pr-7 text-xs font-medium">{t('routing.title')}</p>

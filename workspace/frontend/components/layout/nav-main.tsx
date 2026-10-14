@@ -105,13 +105,13 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">
                   <Badge
-                    variant={item.urgent || item.mode === 'inbox' ? 'destructive' : 'secondary'}
+                    variant={item.urgent || item.mode === 'inbox' || item.mode === 'threads' ? 'destructive' : 'secondary'}
                     appearance="light"
                     size="sm"
                     shape="circle"
                     className="min-w-5 justify-center px-1.5 tabular-nums"
                   >
-                    {item.count}
+                    {item.count > 99 ? '99+' : item.count}
                   </Badge>
                 </SidebarMenuBadge>
               )}

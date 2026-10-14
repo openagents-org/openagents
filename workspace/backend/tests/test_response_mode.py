@@ -255,7 +255,7 @@ def test_uncertainty_prompts_sender_but_clear_group_conversation_does_not(db, mu
     with patch('app.mods.workspace_mod._get_llm_client', return_value=(model, 'anthropic')):
         result = _run(_handle_message_posted(event, ctx))
     assert result.metadata['target_agents'] == ['__no_response__']
-    if decision == 'stop' and multiple_people:
+    if decision == 'stop':
         assert 'routing_choice' not in result.metadata
     else:
         choice = result.metadata['routing_choice']
@@ -337,3 +337,22 @@ def test_cjk_mentions_route_to_both_agents_without_model(db, multi_agent_workspa
     with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
         assert route(db, multi_agent_workspace, '帮我整理合作机会@agent-master @agent-worker') == ['agent-master', 'agent-worker']
         router.assert_not_called()
+
+@pytest.mark.parametrize('content,filename,expected_text', [
+    ('image.png', 'image.png', 'Attachment shared without a written request'),
+    ('uploaded_files/image.png', 'uploaded_files/image.png', 'Attachment shared without a written request'),
+    ('Please review this design', 'image.png', 'Please review this design'),
+])
+def test_router_distinguishes_attachment_labels_from_requests(db, multi_agent_workspace, content, filename, expected_text):
+    ch, ws = multi_agent_workspace['channel'], multi_agent_workspace['workspace']
+    event = _make_event('human:user', f'channel/{ch.name}', content)
+    event.payload['attachments'] = [{'filename': filename, 'url': 'https://private.example/secret'}]
+    model = MagicMock()
+    model.messages.create.return_value = _mock_anthropic_response('stop')
+    with patch('app.mods.workspace_mod._get_llm_client', return_value=(model, 'anthropic')):
+        assert _run(_route_with_llm(ch, event, db, ws, allow_human_stop=True)) == []
+    call = model.messages.create.call_args.kwargs
+    prompt = call['messages'][0]['content']
+    assert expected_text in prompt
+    assert 'https://private.example/secret' not in prompt
+    assert call['temperature'] == 0

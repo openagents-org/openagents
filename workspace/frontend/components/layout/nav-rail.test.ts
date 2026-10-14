@@ -4,12 +4,12 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { NavRail } from './nav-rail';
 
-const state = vi.hoisted(() => ({ openView: vi.fn() }));
+const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
   viewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null,
 }), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 180 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online' }],
+  unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online' }],
   currentUser: { id: 'sam@example.com' }, tasks: [], onlineUsers: [], pendingApprovalsByAgent: {}, unreadDmCounts: {},
 }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
@@ -44,4 +44,21 @@ it('shows workspace navigation to a member with no owned agents without adding s
     await act(async () => services.click());
     expect(state.openView).toHaveBeenCalledWith('agents');
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('shows the Threads unread total, caps large counts, and clears the badge at zero', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const threads = () => [...host.querySelectorAll('button')].find(b => b.textContent?.startsWith('views.threads'))!;
+  try {
+    state.unreadThreadsTotal = 7;
+    await act(async () => root.render(React.createElement(NavRail)));
+    expect(threads().querySelector('[aria-label="nav.unreadCount"]')?.textContent).toBe('7');
+    state.unreadThreadsTotal = 120;
+    await act(async () => root.render(React.createElement(NavRail)));
+    expect(threads().querySelector('[aria-label="nav.unreadCount"]')?.textContent).toBe('99+');
+    state.unreadThreadsTotal = 0;
+    await act(async () => root.render(React.createElement(NavRail)));
+    expect(threads().querySelector('[aria-label="nav.unreadCount"]')).toBeNull();
+  } finally { state.unreadThreadsTotal = 0; await act(async () => root.unmount()); host.remove(); }
 });

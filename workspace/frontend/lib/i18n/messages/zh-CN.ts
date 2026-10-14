@@ -100,7 +100,7 @@ export const messages: Messages = {
   },
 
   messageReply: { confirmTitle: "撤回这条消息？", confirmDescription: "这将从会话中为所有人移除此消息及其附件。其他人可能已经看过。此操作无法撤销。", to: '回复 {name}', cancel: '取消回复', attachment: '附件', recalled: '消息已撤回', recall: '撤回消息', recallFailed: '无法撤回此消息。' },
-  routing: { title: '希望哪个智能体来处理？',
+  routing: { askAgent: '请智能体处理', title: '希望哪个智能体来处理？',
     hint: '选择一个智能体处理此请求，或将这条消息保留为普通聊天。',
     dismiss: '忽略分配建议', dismissAction: '忽略',
   },
