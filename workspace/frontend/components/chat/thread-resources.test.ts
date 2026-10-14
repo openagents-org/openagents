@@ -21,7 +21,13 @@ beforeEach(async () => {
   await act(async () => root.render(React.createElement(ThreadResources, { onInstruct: mocks.instruct })));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
-it('shows only participating agents and prepares instructions without sending', async () => {
+it('defaults to Artifacts first and lets users switch to agent cards to prepare instructions', async () => {
+  const tabs = Array.from(host.querySelectorAll<HTMLButtonElement>('[role=tab]'));
+  expect(tabs[0].textContent).toContain('artifactPanel.title');
+  expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+  await act(async () => tabs[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+  const row = host.querySelector<HTMLUListElement>('ul')!;
+  expect(row.getAttribute('aria-label')).toBe('threadResources.agents');
   expect(host.textContent).toContain('Research and verify sources');
   expect(host.textContent).not.toContain('Elsewhere');
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.instructAgent scout"]')!.click());

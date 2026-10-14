@@ -5,7 +5,7 @@ import type { Messages } from './en-US';
  * one that no longer exists in English — fails the build.
  */
 export const messages: Messages = {
-  threadResources: {"scrollLeft": "向左滚动附件", "scrollRight": "向右滚动附件", "title": "会话资源", "agents": "智能体", "expand": "展开资源", "collapse": "收起资源", "guide": "为每个智能体明确分工：调研、执行或审核。", "noRole": "告诉这个智能体可以如何协助。", "instruct": "添加指令", "instructAgent": "给 {agent} 的指令", "instructions": "智能体指令", "placeholder": "希望它负责什么？说明目标、交付内容和注意事项。", "draftHint": "在消息框中确认后发送。", "addDraft": "加入消息", "cancel": "取消指令", "empty": "此会话中共享的文件和浏览器会话将显示在这里。", "liveBrowser": "实时浏览器", "browsing": "{agent} 正在浏览"},
+  threadResources: {"scrollLeft": "向左滚动", "scrollRight": "向右滚动", "title": "会话资源", "agents": "智能体", "expand": "展开资源", "collapse": "收起资源", "guide": "为每个智能体明确分工：调研、执行或审核。", "noRole": "告诉这个智能体可以如何协助。", "instruct": "添加指令", "instructAgent": "给 {agent} 的指令", "instructions": "智能体指令", "placeholder": "希望它负责什么？说明目标、交付内容和注意事项。", "draftHint": "在消息框中确认后发送。", "addDraft": "加入消息", "cancel": "取消指令", "empty": "此会话中共享的文件和浏览器会话将显示在这里。", "liveBrowser": "实时浏览器", "browsing": "{agent} 正在浏览"},
   issueWork: {"edit": "编辑智能体工作", "delete": "删除智能体工作","threads": "关联会话","add": "添加智能体工作", "setupHint": "为此议题准备智能体或工作流。点击运行后才会开始执行。", "hint": "在此跟踪智能体进度。运行完成不会自动关闭议题。", "empty": "暂无运行。可添加智能体或工作流，或在讨论中提及智能体。", "openIssue": "打开议题", "runs": "运行记录", "back": "返回议题"},
   messageAgentAccess: {"owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请共享 {agent}。批准后，你可以与该智能体私聊并将其加入讨论。已有的私人对话仍然保持私密。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
@@ -99,7 +99,7 @@ export const messages: Messages = {
     useAuto: '跟随所在地区',
   },
 
-  messageReply: { to: '回复 {name}', cancel: '取消回复', attachment: '附件', recalled: '消息已撤回', recall: '撤回消息', recallFailed: '无法撤回此消息。' },
+  messageReply: { confirmTitle: "撤回这条消息？", confirmDescription: "这将从会话中为所有人移除此消息及其附件。其他人可能已经看过。此操作无法撤销。", to: '回复 {name}', cancel: '取消回复', attachment: '附件', recalled: '消息已撤回', recall: '撤回消息', recallFailed: '无法撤回此消息。' },
   routing: { title: '希望哪个智能体来处理？',
     hint: '选择一个智能体处理此请求，或将这条消息保留为普通聊天。',
     dismiss: '忽略分配建议', dismissAction: '忽略',

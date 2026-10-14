@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { CopyMessageLink } from './copy-message-link';
 import { Reply, SmilePlus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -63,15 +64,34 @@ export function MessageReactions({ messageId, onReply, onRecall }: {messageId:st
     {rows.map(row=><button key={row.emoji} disabled={busy} onClick={()=>void toggle(row.emoji)} aria-pressed={row.mine} aria-label={t('reactions.count',{emoji:row.emoji,count:row.count})} className={`rounded-full border px-2 py-0.5 text-xs ${row.mine?'border-primary/40 bg-primary/10':'bg-muted/30 hover:bg-muted'}`}>{row.emoji} {row.count}</button>)}
     <div className={`absolute right-0 top-1 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'}`}>
     <button type="button" aria-label={t('reactions.add')} title={t('reactions.add')} aria-expanded={open} disabled={busy} onClick={()=>setOpen(!open)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><SmilePlus className="size-3.5" /></button>
-    {onRecall && <button type="button" aria-label={t('messageReply.recall')} title={t('messageReply.recall')} disabled={busy} onClick={async () => {
-      if (pending.current) return;
-      pending.current = true; setBusy(true);
-      try { await onRecall(); } catch (error) { toast.error(error instanceof Error ? error.message : t('messageReply.recallFailed')); }
-      finally { pending.current = false; setBusy(false); }
-    }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 className="size-3.5" /></button>}
+    {onRecall && <RecallMessageButton disabled={busy} onRecall={onRecall} />}
     {onReply && <button type="button" aria-label={t('reactions.reply')} title={t('reactions.reply')} onClick={onReply} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><Reply className="size-3.5" /></button>}
     <CopyMessageLink messageId={messageId} />
     </div>
     {open&&<div role="group" aria-label={t('reactions.choose')} className="flex flex-wrap gap-0.5 rounded-lg border bg-background p-1">{emojis.map(emoji=><button key={emoji} aria-label={emoji} disabled={busy} onClick={()=>void toggle(emoji)} className="rounded px-1.5 py-1 hover:bg-muted">{emoji}</button>)}</div>}
   </div>;
+}
+
+function RecallMessageButton({ disabled, onRecall }: { disabled: boolean; onRecall: () => Promise<void> }) {
+  const t = useT();
+  const confirm = useConfirm();
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const recall = async () => {
+    if (pending.current) return;
+    pending.current = true; setBusy(true);
+    try {
+      const accepted = await confirm({
+        title: t('messageReply.confirmTitle'),
+        description: t('messageReply.confirmDescription'),
+        confirmText: t('messageReply.recall'),
+        cancelText: t('common.cancel'),
+        destructive: true,
+      });
+      if (accepted) await onRecall();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('messageReply.recallFailed'));
+    } finally { pending.current = false; setBusy(false); }
+  };
+  return <button type="button" aria-label={t('messageReply.recall')} title={t('messageReply.recall')} disabled={disabled || busy} onClick={() => void recall()} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 className="size-3.5" /></button>;
 }

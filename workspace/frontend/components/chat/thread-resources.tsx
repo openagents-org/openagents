@@ -23,39 +23,41 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
   const browsers = browserTabs.filter(tab => tab.status === 'active' && tab.artifactChannels?.includes(currentSessionId || ''));
   const artifactRow = useRef<HTMLUListElement>(null);
-  const scrollArtifacts = (direction: number) => artifactRow.current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
-  const [section, setSection] = useState('agents');
+  const agentRow = useRef<HTMLUListElement>(null);
+  const scrollRow = (direction: number) => (active === 'agents' ? agentRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
+  const [section, setSection] = useState('artifacts');
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
   const artifactCount = documents.length + browsers.length;
   if (!members.length && !artifactCount) return null;
   const active = members.length ? section : 'artifacts';
+  const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : members.length) > 1;
   const selectedAgent = members.find(a => a.agentName === editing);
   return <section className="min-w-0 shrink-0 border-b bg-muted/15 px-3 py-2" aria-label={t('threadResources.title')}>
     <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="min-w-0 gap-1.5">
       <div className="flex items-center gap-2">
         <TabsList className="h-7" aria-label={t('threadResources.title')}>
-          {members.length > 0 && <TabsTrigger value="agents" className="gap-1.5 px-2 text-xs"><Bot className="size-3.5" />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
           <TabsTrigger value="artifacts" className="gap-1.5 px-2 text-xs"><Layers className="size-3.5" />{t('artifactPanel.title')}<span className="tabular-nums text-muted-foreground">{artifactCount}</span></TabsTrigger>
+          {members.length > 0 && <TabsTrigger value="agents" className="gap-1.5 px-2 text-xs"><Bot className="size-3.5" />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
         </TabsList>
-        {!collapsed && active === 'artifacts' && artifactCount > 1 && <div className="ml-auto flex items-center gap-1">
-          <button type="button" aria-label={t('threadResources.scrollLeft')} onClick={() => scrollArtifacts(-1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-3.5" /></button>
-          <button type="button" aria-label={t('threadResources.scrollRight')} onClick={() => scrollArtifacts(1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronRight className="size-3.5" /></button>
+        {showArrows && <div className="ml-auto flex items-center gap-1">
+          <button type="button" aria-label={t('threadResources.scrollLeft')} onClick={() => scrollRow(-1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="size-3.5" /></button>
+          <button type="button" aria-label={t('threadResources.scrollRight')} onClick={() => scrollRow(1)} className="rounded-md border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronRight className="size-3.5" /></button>
         </div>}
-        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={`${!collapsed && active === 'artifacts' && artifactCount > 1 ? '' : 'ml-auto'} rounded p-1 text-muted-foreground hover:bg-muted`}>{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}</button>
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={`${showArrows ? '' : 'ml-auto'} rounded p-1 text-muted-foreground hover:bg-muted`}>{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}</button>
       </div>
       {!collapsed && <>
-        <TabsContent value="agents" className="mt-0">
+        <TabsContent value="agents" className="mt-0 min-w-0">
           <p className="mb-1 text-[11px] text-muted-foreground">{t('threadResources.guide')}</p>
-          <ul className="max-h-32 overflow-y-auto overscroll-contain divide-y divide-border/50">
-            {members.map(agent => <li key={agent.agentName} className="flex min-w-0 items-center gap-2 py-1.5">
-              <AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus />
-              <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="min-w-0 flex-1 text-left" title={agent.description || agentLabel(agent)}>
-                <span className="block truncate text-xs font-medium">{agentLabel(agent)}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{agent.description?.trim() || t('threadResources.noRole')}</span>
+          <ul ref={agentRow} aria-label={t('threadResources.agents')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {members.map(agent => <li key={agent.agentName} className="flex w-40 shrink-0 snap-start flex-col gap-1.5 rounded-lg border bg-background p-1.5">
+              <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="flex h-16 w-full flex-col items-center justify-center gap-1 rounded-md bg-muted/50 px-1 hover:bg-muted" title={agentLabel(agent)}>
+                <AgentAvatar name={agent.agentName} size={32} status={agent.status} showStatus />
+                <span className="block w-full truncate text-center text-[11px] font-medium">{agentLabel(agent)}</span>
               </button>
-              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} onClick={() => { setEditing(agent.agentName); setInstruction(''); }} className="flex shrink-0 items-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] hover:bg-muted"><PencilLine className="size-3" />{t('threadResources.instruct')}</button>
+              <p className="min-h-8 line-clamp-2 px-0.5 text-[11px] leading-4 text-muted-foreground" title={agent.description || undefined}>{agent.description?.trim() || t('threadResources.noRole')}</p>
+              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} onClick={() => { setEditing(agent.agentName); setInstruction(''); }} className="mt-auto flex items-center justify-center gap-1 rounded-md border bg-background px-2 py-1 text-[11px] hover:bg-muted"><PencilLine className="size-3" />{t('threadResources.instruct')}</button>
             </li>)}
           </ul>
           {selectedAgent && <form className="mt-2 rounded-lg border bg-background p-2" onSubmit={event => {
@@ -68,7 +70,7 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
           </form>}
         </TabsContent>
         <TabsContent value="artifacts" className="mt-0 min-w-0">
-          <ul ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity pb-2">
+          <ul ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
               <span className="flex h-16 w-full flex-col items-center justify-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-[10px]">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span></span>
               <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{tab.title || tab.url}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>
