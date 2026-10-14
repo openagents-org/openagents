@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { OpenAgentsAuthProvider } from '@/lib/openagents-auth-context';
 import { DialogsProvider } from '@/components/ui/dialogs-provider';
 import { I18nProvider } from '@/lib/i18n';
+import { MaintenanceBanner } from '@/components/maintenance/maintenance-banner';
 import { getServerTranslations, resolveLocale } from '@/lib/i18n/server';
 import '@/styles/globals.css';
 
@@ -100,6 +101,7 @@ export default async function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <I18nProvider initialLocale={locale} hasStoredLocale={hasStoredLocale}>
+            <MaintenanceBanner />
             {/* Legacy email/password AuthProvider was removed in v1.0 —
                 Firebase (OpenAgentsAuthProvider) is the sole identity path. */}
             <OpenAgentsAuthProvider>

@@ -123,7 +123,7 @@ export function Wrapper() {
   // ── Mobile layout: single-pane with list/detail switching ──
   if (isMobile) {
     return (
-      <div className="flex flex-col h-screen w-full [&_.container-fluid]:px-5">
+      <div className="flex flex-col h-[calc(100vh-var(--oa-banner-h,0px))] w-full [&_.container-fluid]:px-5">
         <MobileHeader />
         <div className="flex-1 min-h-0 pt-[var(--header-height-mobile)] pb-[calc(48px+env(safe-area-inset-bottom))]">
           {/* Full-screen views (no list/detail split) */}
@@ -220,7 +220,7 @@ export function Wrapper() {
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
-      className="h-screen min-h-0 [&_.container-fluid]:px-5"
+      className="h-[calc(100vh-var(--oa-banner-h,0px))] min-h-0 [&_.container-fluid]:px-5"
       style={{
         '--sidebar-width': `${shellWidth}px`,
         '--sidebar-width-icon': `${railWidth}px`,

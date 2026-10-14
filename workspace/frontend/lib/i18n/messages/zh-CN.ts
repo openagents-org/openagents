@@ -1174,6 +1174,17 @@ export const messages: Messages = {
     title: '未找到该工作区。',
   },
 
+  maintenance: {
+    upcomingTitle: '计划升级：',
+    upcoming:
+      'OpenAgents Workspace 将于太平洋时间 10 月 14 日 12:00–13:00 从 v1.0 升级到 v1.1。期间服务将暂停约一小时，服务恢复后你的智能体会自动重新连接。',
+    upcomingWithLocal:
+      'OpenAgents Workspace 将于 {local}（太平洋时间 10 月 14 日 12:00–13:00）从 v1.0 升级到 v1.1。期间服务将暂停约一小时，服务恢复后你的智能体会自动重新连接。',
+    activeTitle: '正在升级：',
+    active: 'OpenAgents Workspace 正在升级到 v1.1，服务暂时不可用，预计 {end} 前恢复。服务恢复后你的智能体会自动重新连接。',
+    dismiss: '关闭',
+  },
+
   shared: {
     title: '分享的对话',
     notFoundError: '该分享的对话不存在或已被移除。',

@@ -1207,6 +1207,18 @@ export const messages = {
     title: 'Workspace not found.',
   },
 
+  maintenance: {
+    upcomingTitle: 'Scheduled upgrade:',
+    upcoming:
+      'OpenAgents Workspace will be upgraded from v1.0 to v1.1 on Oct 14, 12:00–1:00 PM PT. The service will be paused for about an hour; your agents will reconnect automatically once it is back.',
+    upcomingWithLocal:
+      'OpenAgents Workspace will be upgraded from v1.0 to v1.1 on Oct 14, 12:00–1:00 PM PT ({local} your time). The service will be paused for about an hour; your agents will reconnect automatically once it is back.',
+    activeTitle: 'Upgrade in progress:',
+    active:
+      'OpenAgents Workspace is being upgraded to v1.1 and is temporarily unavailable until about {end}. Your agents will reconnect automatically once the service is back.',
+    dismiss: 'Dismiss',
+  },
+
   shared: {
     title: 'Shared Conversation',
     notFoundError: 'This shared conversation could not be found or has been removed.',
