@@ -32,7 +32,9 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
   const available = agentsOnly ? choices.filter(choice => choice.id.startsWith('openagents:')) : choices;
   const selected = available.find(choice => choice.id === value);
   const choose = (id: string) => { onChange(id); setOpen(false); };
-  return <Popover open={open} onOpenChange={setOpen}>
+  // Give the portaled list its own scroll lock inside the issue dialog.
+  // Otherwise the parent dialog treats wheel/touch events here as outside.
+  return <Popover modal open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
       <button type="button" disabled={disabled} aria-label={t('issues.assignee')} className="flex min-h-11 w-full items-center gap-2.5 rounded-lg border border-input bg-background px-3 py-2 text-left text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
         <Avatar id={value} />
@@ -44,7 +46,7 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
     <PopoverContent align="start" sideOffset={6} className="z-70 w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 shadow-xl" onEscapeKeyDown={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
       <Command loop className="rounded-lg! [&_[data-slot=command-input-wrapper]]:h-11 [&_[data-slot=command-input-wrapper]]:px-3">
         <CommandInput autoFocus aria-label={t('issues.searchAssignees')} placeholder={t(agentsOnly ? 'issues.searchAgents' : 'issues.searchAssignees')} className="text-xs" />
-        <CommandList className="max-h-64 p-1.5">
+        <CommandList className="max-h-64 overscroll-contain p-1.5">
           <CommandEmpty className="px-3 py-6 text-xs">{t('issues.noAssignees')}</CommandEmpty>
           {!agentsOnly && <CommandItem value="unassigned" keywords={[t('issues.unassigned')]} data-checked={!value} onSelect={() => choose('')} className="gap-2.5 rounded-md px-2 py-2 text-xs"><Avatar id="" /><span className="text-muted-foreground">{t('issues.unassigned')}</span></CommandItem>}
           {(['human', 'openagents'] as const).filter(kind => available.some(choice => choice.id.startsWith(`${kind}:`))).map(kind => <CommandGroup key={kind} heading={t(kind === 'human' ? 'issues.people' : 'issues.yourAgents')}>
