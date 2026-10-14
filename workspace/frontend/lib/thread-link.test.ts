@@ -29,7 +29,17 @@ it('continues to resolve old query links and rejects inaccessible path links', (
 it('message links encode the exact target without credentials', async () => {
   const { messageLink, requestedMessageId } = await import('./thread-link');
   const url = new URL(messageLink('https://workspace.test', 'acme', 'thread-id', 'event#123&456'));
-  expect(url.pathname).toBe('/acme/threads/thread-id');
-  expect(requestedMessageId(url.search)).toBe('event#123&456');
-  expect([...url.searchParams.keys()]).toEqual(['message']);
+  expect(url.pathname).toBe('/acme/threads/thread-id/messages/event%23123%26456');
+  expect(requestedMessageId(url.href)).toBe('event#123&456');
+  expect(url.search).toBe('');
+  expect(resolveThreadLink(url.href, ['thread-id'], 'human:me@example.com')).toBe('thread-id');
+});
+
+
+it('reads old message arguments and rejects malformed path IDs', async () => {
+  const { requestedMessageId } = await import('./thread-link');
+  expect(requestedMessageId('/acme/threads/thread-id?message=old-message')).toBe('old-message');
+  expect(requestedMessageId('/acme/threads/thread-id/messages/%ZZ')).toBeNull();
+  expect(requestedMessageId('/acme/threads/thread-id/messages/event/extra')).toBeNull();
+  expect(resolveThreadLink('/acme/threads/private/messages/event', ['public'], 'human:me@example.com')).toBeNull();
 });

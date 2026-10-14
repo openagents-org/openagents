@@ -385,7 +385,9 @@ export function WorkspaceProvider({
   const setCurrentSessionId = useCallback((id: string | null, options?: { skipFocus?: boolean }) => {
     if (currentSessionIdRef.current && currentSessionIdRef.current !== id && typeof window !== 'undefined') {
       const url = new URL(window.location.href);
-      if (url.searchParams.has('message')) { url.searchParams.delete('message'); window.history.replaceState(window.history.state, '', url); }
+      url.pathname = url.pathname.replace(/(\/threads\/[^/]+)\/messages\/[^/]+\/?$/, '$1');
+      url.searchParams.delete('message');
+      if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
     }
     if (options?.skipFocus) skipFocusRef.current = true;
     _setCurrentSessionId(id);

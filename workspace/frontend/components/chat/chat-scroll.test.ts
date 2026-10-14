@@ -75,8 +75,8 @@ it('resets user scroll intent when switching threads and cleans up pending work'
 });
 
 
-it('loads earlier history for a message link and scrolls to its row instead of the bottom', async () => {
-  window.history.replaceState(null, '', '/?message=older');
+it.each(['/?message=older', '/acme/threads/thread-id/messages/older'])('loads earlier history for a message link %s and scrolls to its row instead of the bottom', async (url) => {
+  window.history.replaceState(null, '', url);
   const loadOlder = vi.fn().mockResolvedValue(undefined);
   await act(async () => root.render(React.createElement(ChatMessages, { messages: [message()], showAllSteps: false, hasOlder: true, loadOlder })));
   await flush();

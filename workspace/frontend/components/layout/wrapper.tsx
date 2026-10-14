@@ -3,7 +3,7 @@ import { workspaceApi } from '@/lib/api';
 import { ArtifactPanel } from '@/components/artifacts/artifact-panel';
 import { useThreadArtifactPreview } from '@/components/artifacts/thread-artifact-controller';
 import { resourcePath } from '@/lib/resource-link';
-import { threadPath } from '@/lib/thread-link';
+import { threadPath, messagePath, requestedThreadId, requestedMessageId } from '@/lib/thread-link';
 import { desktopHost } from '@/lib/desktop-host';
 
 import { Activity, useEffect, useRef } from 'react';
@@ -106,12 +106,14 @@ export function Wrapper() {
         try {
           const link = await workspaceApi.getThreadLink(currentSessionId);
           if (!active) return;
-          url.pathname = threadPath(workspaceSlug, link.id);
+          const linkedThread = requestedThreadId(url.href);
+          const messageId = linkedThread === link.id || linkedThread === currentSessionId ? requestedMessageId(url.href) : null;
+          url.pathname = messageId ? messagePath(workspaceSlug, link.id, messageId) : threadPath(workspaceSlug, link.id);
         } catch { return; }
       } else if (viewMode !== 'threads') {
         url.pathname = `/${encodeURIComponent(workspaceSlug)}`;
       }
-      for (const key of ['thread', 'issue', 'knowledge', 'file']) url.searchParams.delete(key);
+      for (const key of ['thread', 'issue', 'knowledge', 'file', 'message']) url.searchParams.delete(key);
       if (active && url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
     };
     void update();

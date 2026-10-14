@@ -121,7 +121,7 @@ interface ChatMessagesProps {
 
 function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson }: ChatMessagesProps) {
   const t = useT();
-  const [targetMessage, setTargetMessage] = useState(() => typeof window === 'undefined' ? null : requestedMessageId(window.location.search));
+  const [targetMessage, setTargetMessage] = useState(() => typeof window === 'undefined' ? null : requestedMessageId(window.location.href));
   const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
   const targetPendingRef = useRef(targetMessage);
   targetPendingRef.current = targetMessage;
