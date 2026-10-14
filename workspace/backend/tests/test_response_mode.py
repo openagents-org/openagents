@@ -271,3 +271,30 @@ def test_router_unavailable_produces_a_choice(db, multi_agent_workspace, monkeyp
     event.payload['sender_email'] = ws.creator_email
     ctx = PipelineContext(network_id=str(ws.id), agent_address=event.source, db=db, workspace=ws)
     assert _run(_handle_message_posted(event, ctx)).metadata['routing_choice']['status'] == 'pending'
+
+
+@pytest.mark.parametrize('manual', [True, False])
+@pytest.mark.parametrize('router_enabled', [True, False])
+def test_assigned_agent_reply_does_not_wake_a_bystander(db, multi_agent_workspace, monkeypatch, manual, router_enabled):
+    from app.models import EventRecord
+    ws, ch = multi_agent_workspace['workspace'], multi_agent_workspace['channel']
+    metadata = {'target_agents': ['agent-master']}
+    if manual:
+        metadata['routing_assignment'] = {'agent': 'agent-master', 'message_id': 'original'}
+    db.add(EventRecord(id='assigned-human', network_id=ws.id, type='workspace.message.posted',
+        source='human:user', target=f'channel/{ch.name}', payload={'content': 'hi'},
+        metadata_=metadata, timestamp=100))
+    db.flush()
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', router_enabled)
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock, return_value=['agent-worker']) as router:
+        assert route(db, multi_agent_workspace, 'Hi. What would you like to work on?', 'openagents:agent-master') == ['__no_response__']
+        router.assert_not_called()
+        assert route(db, multi_agent_workspace, '@agent-worker please review this', 'openagents:agent-master') == ['agent-worker']
+        router.assert_not_called()
+    # A new human request replaces the previous assignment; no permanent lock.
+    db.add(EventRecord(id='new-human', network_id=ws.id, type='workspace.message.posted',
+        source='human:user', target=f'channel/{ch.name}', payload={'content': 'Collaborate'},
+        metadata_={'target_agents': ['agent-master', 'agent-worker']}, timestamp=200))
+    db.flush()
+    from app.mods.workspace_mod import _human_request_has_assignee
+    assert not _human_request_has_assignee(db, ws, ch)

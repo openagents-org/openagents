@@ -903,6 +903,28 @@ def _agent_chat_stopped(db, workspace, channel) -> bool:
         return False
 
 
+def _human_request_has_assignee(db, workspace, channel) -> bool:
+    """An ordinary reply must not widen a human's single-agent assignment.
+
+    Dedicated job streams and planned workflows keep their coordination rules.
+    Explicit agent handoffs are handled by the caller before this guard.
+    """
+    if not _has_response_mode(channel) or channel.orchestration_mode == "workflow":
+        return False
+    from app.models import EventRecord
+    latest = db.execute(select(EventRecord.metadata_).where(
+        EventRecord.network_id == workspace.id,
+        EventRecord.type == WorkspaceEventTypes.MESSAGE_POSTED,
+        EventRecord.target == f"channel/{channel.name}",
+        EventRecord.source.like("human:%"),
+        func.coalesce(EventRecord.payload["message_type"].astext, "chat") == "chat",
+    ).order_by(EventRecord.timestamp.desc()).limit(1)).scalar_one_or_none() or {}
+    targets = latest.get("target_agents") or []
+    return bool(latest.get("routing_assignment")) or (
+        len(targets) == 1 and targets[0] != "__no_response__"
+    )
+
+
 def _post_system_notice(db, workspace, channel_name: str, content: str, notice: str) -> None:
     """Persist + publish a one-off system message into a channel so the user gets
     immediate feedback (e.g. "no agent online"). Bypasses the pipeline (no
@@ -2140,6 +2162,11 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         # wake an agent nobody asked. The mentioned people are notified by
         # services/people_notify instead.
         logger.info("workspace_mod: %s message addresses only people — no agent woken", channel.name)
+        targets = []
+    elif (event.source.startswith("openagents:") and explicit is None
+          and _human_request_has_assignee(db, workspace, channel)):
+        # A greeting, answer, or completion is for the requesting human.
+        # Only an explicit handoff may wake another agent after assignment.
         targets = []
     elif len(real_participants) >= 2:
         from app.config import config
