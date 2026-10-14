@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CopyMessageLink } from './copy-message-link';
-import { Reply, SmilePlus, Undo2 } from 'lucide-react';
+import { Reply, SmilePlus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -68,7 +68,7 @@ export function MessageReactions({ messageId, onReply, onRecall }: {messageId:st
       pending.current = true; setBusy(true);
       try { await onRecall(); } catch (error) { toast.error(error instanceof Error ? error.message : t('messageReply.recallFailed')); }
       finally { pending.current = false; setBusy(false); }
-    }} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"><Undo2 className="size-3.5" /></button>}
+    }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 className="size-3.5" /></button>}
     {onReply && <button type="button" aria-label={t('reactions.reply')} title={t('reactions.reply')} onClick={onReply} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><Reply className="size-3.5" /></button>}
     <CopyMessageLink messageId={messageId} />
     </div>

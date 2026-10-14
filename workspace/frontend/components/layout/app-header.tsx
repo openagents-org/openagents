@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Hash, MessageSquare, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -32,12 +32,18 @@ function HeaderSlot({
 }) {
   const [slot, setSlot] = useState<HTMLElement | null>(null)
 
-  // The header renders before any detail view, so the slot exists by the time
-  // this effect runs; re-checking on every render keeps it correct across
-  // view switches that remount the header.
-  useEffect(() => {
-    setSlot(document.getElementById(id))
-  })
+  // Activity keeps hidden views mounted, including their portals. Give each
+  // portal its own host and detach it on layout-effect cleanup so an inactive
+  // view cannot suppress the fallback title or leave hidden toolbar controls.
+  useLayoutEffect(() => {
+    const target = document.getElementById(id)
+    if (!target) return
+    const host = document.createElement("div")
+    host.className = "contents"
+    target.appendChild(host)
+    setSlot(host)
+    return () => host.remove()
+  }, [id])
 
   return slot ? createPortal(children, slot) : null
 }

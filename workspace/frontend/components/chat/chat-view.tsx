@@ -33,6 +33,7 @@ import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { acknowledgeMessage, pendingMessagesForDisplay } from '@/lib/optimistic-messages';
 import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
 import { useBrief } from './work-brief';
 import { subscribeComposerPrefill } from './composer-prefill';
@@ -376,48 +377,18 @@ export function ChatView() {
     [currentSessionId, optimisticMessages]
   );
 
-  // Clear optimistic messages progressively for the current session only:
-  // 1. Remove optimistic user msg once the real user message arrives from the server
-  // 2. Remove optimistic loading msg once any real agent message arrives after the user msg
+  // Reconcile by server identity, never by text (uploads rename filenames,
+  // and a repeated "hi" must not match an older message).
   useEffect(() => {
-    if (sessionOptimisticMessages.length === 0) return;
-    const removeIds = new Set<string>();
-
-    // Check if the real user message has arrived
-    const optimisticUser = sessionOptimisticMessages.find((m) => m.messageId.startsWith('optimistic-user-'));
-    if (optimisticUser) {
-      const realUserFound = sessionMessages.some(
-        (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
-      );
-      if (realUserFound) {
-        removeIds.add(optimisticUser.messageId);
-      }
+    const remaining = pendingMessagesForDisplay(sessionMessages, sessionOptimisticMessages);
+    if (remaining.length !== sessionOptimisticMessages.length) {
+      const keep = new Set(remaining.map(m => m.messageId));
+      setOptimisticMessages(prev => prev.filter(m => m.sessionId !== currentSessionId || keep.has(m.messageId)));
     }
+  }, [sessionMessages, sessionOptimisticMessages, currentSessionId]);
 
-    // Check if a real agent message has arrived AFTER the user message — clear loading indicator
-    const optimisticLoading = sessionOptimisticMessages.find((m) => m.messageId.startsWith('optimistic-loading-'));
-    if (optimisticLoading) {
-      // Find the index of the real user message that replaced the optimistic one
-      const userMsgIdx = sessionMessages.findIndex(
-        (m) => m.senderType !== 'agent' && m.content === optimisticLoading.metadata?._userContent
-      );
-      // If user msg is confirmed AND there's an agent message after it, clear loading
-      const hasAgentAfterUser = userMsgIdx >= 0 && sessionMessages.slice(userMsgIdx + 1).some(
-        (m) => m.senderType === 'agent'
-      );
-      if (hasAgentAfterUser) {
-        removeIds.add(optimisticLoading.messageId);
-      }
-    }
-
-    if (removeIds.size > 0) {
-      setOptimisticMessages((prev) => prev.filter((m) => !removeIds.has(m.messageId)));
-    }
-  }, [sessionMessages, sessionOptimisticMessages]);
-
-  // Merge real messages with optimistic messages for display
   const displayMessages = useMemo(
-    () => [...sessionMessages, ...sessionOptimisticMessages],
+    () => [...sessionMessages, ...pendingMessagesForDisplay(sessionMessages, sessionOptimisticMessages)],
     [sessionMessages, sessionOptimisticMessages]
   );
 
@@ -527,7 +498,7 @@ export function ChatView() {
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: { _userContent: userContent },
+        metadata: {},
       };
 
       // Add optimistic messages immediately and scroll to bottom
@@ -547,7 +518,8 @@ export function ChatView() {
         if (isDM && dmCounterpart) {
           // Direct message — targeted at the counterpart address, not a
           // channel. Attachments/mentions aren't supported in DMs yet.
-          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr, replyingTo?.messageId);
+          const sent = await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr, replyingTo?.messageId);
+          setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent));
           capture('message_sent', { dm: true });
           // A legacy `human:user` conversation: the new message is stored under
           // the viewer's own address, so follow it to the canonical session.
@@ -587,9 +559,7 @@ export function ChatView() {
         );
         // The server can also suppress replies (for example, the director rule).
         if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
-        if (Array.isArray(sent.metadata?.target_agents) && sent.metadata.target_agents.includes('__no_response__')) {
-          setOptimisticMessages((prev) => prev.filter((m) => m.messageId !== loadingOptimisticMsg.messageId));
-        }
+        setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent));
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
           has_mentions: mentions.length > 0,
