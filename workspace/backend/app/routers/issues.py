@@ -45,6 +45,9 @@ class ActorRequest(BaseModel):
 
 
 class CreateIssueRequest(ActorRequest):
+    assignee: Optional[str] = Field(default=None, max_length=330)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
+    file_ids: list[str] = Field(default_factory=list, max_length=100)
     title: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=50000)
     channel_name: Optional[str] = None
@@ -56,6 +59,8 @@ class CreateIssueRequest(ActorRequest):
 
 
 class UpdateIssueRequest(ActorRequest):
+    knowledge_ids: Optional[list[str]] = Field(default=None, max_length=100)
+    file_ids: Optional[list[str]] = Field(default=None, max_length=100)
     title: Optional[str] = Field(default=None, min_length=1, max_length=240)
     description: Optional[str] = Field(default=None, max_length=50000)
     status: Optional[IssueStatus] = None
@@ -143,6 +148,57 @@ def _iso(value):
     return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
 
 
+def _resolve_assignee(db, workspace, actor, assignee):
+    if not assignee:
+        return None, None
+    kind, _, identifier = assignee.partition(":")
+    if kind == "human":
+        member = db.execute(select(User).join(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace.id,
+            func.lower(User.email) == identifier.lower(),
+        )).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(422, "Choose a workspace member")
+        assignee = f"human:{member.email.lower()}"
+    elif kind == "openagents":
+        member = db.get(WorkspaceMember, (str(workspace.id), identifier))
+        if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
+            raise HTTPException(403, "You can only assign your own agents")
+    else:
+        raise HTTPException(422, "Choose a person or one of your agents")
+    return assignee, member.display_name or identifier
+
+
+def _validate_context(db, workspace, viewer, knowledge_ids, file_ids):
+    from app.models import KnowledgeEntry, FileRecord
+    from app.services.access_model import can_read_knowledge, can_read_file, can_manage, resource_for_file
+    knowledge_ids, file_ids = list(dict.fromkeys(knowledge_ids)), list(dict.fromkeys(file_ids))
+    for kind, ids, model, readable in (("knowledge", knowledge_ids, KnowledgeEntry, can_read_knowledge), ("file", file_ids, FileRecord, can_read_file)):
+        rows = db.execute(select(model).where(model.workspace_id == workspace.id, model.id.in_(ids), model.status == "active")).scalars().all() if ids else []
+        if len(rows) != len(ids) or any(not readable(db, str(workspace.id), viewer, row) for row in rows):
+            raise HTTPException(404, f"Selected {kind} is unavailable")
+        if kind == "file":
+            for record in rows:
+                # Issues are workspace-wide. Attaching a file deliberately shares
+                # it with that audience, but requires the right to share it.
+                if record.visibility not in ("public", "workspace", "team"):
+                    if not can_manage(db, viewer, resource_for_file(record), str(workspace.id)):
+                        raise HTTPException(403, "You cannot share this attachment with the issue")
+                    record.visibility = "public"
+    return knowledge_ids, file_ids
+
+
+def _context_metadata(db, workspace, viewer, issue):
+    from app.models import KnowledgeEntry, FileRecord
+    from app.services.access_model import can_read_knowledge, can_read_file
+    files = db.execute(select(FileRecord).where(FileRecord.workspace_id == workspace.id, FileRecord.id.in_(issue.file_ids or []), FileRecord.status == "active")).scalars().all()
+    knowledge = db.execute(select(KnowledgeEntry).where(KnowledgeEntry.workspace_id == workspace.id, KnowledgeEntry.id.in_(issue.knowledge_ids or []), KnowledgeEntry.status == "active")).scalars().all()
+    return {
+        "attachments": [{"file_id": f.id, "filename": f.filename, "content_type": f.content_type, "size": f.size} for f in files if can_read_file(db, str(workspace.id), viewer, f)],
+        "knowledge": [{"id": k.id, "title": k.title} for k in knowledge if can_read_knowledge(db, str(workspace.id), viewer, k)],
+    }
+
+
 def _serialize(issue):
     return {
         key: getattr(issue, key)
@@ -154,6 +210,8 @@ def _serialize(issue):
             "assignee",
             "assignee_name",
             "labels",
+            "knowledge_ids",
+            "file_ids",
             "created_by",
             "created_by_name",
             "participants",
@@ -327,7 +385,13 @@ def create_issue(
         _visible_channel(db, workspace, _viewer(db, workspace, x_workspace_token, authorization), body.channel_name)
         if body.channel_name else None
     )
+    assignee, assignee_name = _resolve_assignee(db, workspace, actor, body.assignee)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    knowledge_ids, file_ids = _validate_context(db, workspace, viewer, body.knowledge_ids, body.file_ids)
     issue = Issue(
+        assignee=assignee, assignee_name=assignee_name,
+        knowledge_ids=knowledge_ids, file_ids=file_ids,
+        participants=[{"source": assignee, "name": assignee_name}] if assignee else [],
         workspace_id=workspace.id,
         title=body.title,
         description=body.description.strip(),
@@ -338,6 +402,11 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
+    if assignee and assignee.startswith("openagents:"):
+        from app.models import KanbanTask
+        db.add(KanbanTask(workspace_id=workspace.id, issue_id=issue.id,
+            title=issue.title, description=issue.description, status="backlog",
+            assignee=assignee.removeprefix("openagents:"), created_by=actor))
     db.commit()
     return success_response(_serialize(issue))
 
@@ -439,6 +508,7 @@ def get_issue(
 
     return success_response(
         _serialize(issue)
+        | _context_metadata(db, workspace, viewer, issue)
         | {
             "participants": participants,
             "comments": discussion,
@@ -478,29 +548,21 @@ def update_issue(
         )
         if not may_assign:
             raise HTTPException(403, "Only the creator or current assignee can reassign this issue")
-        name = None
-        if body.assignee:
-            kind, _, identifier = body.assignee.partition(":")
-            if kind == "human":
-                member = db.execute(select(User).join(WorkspaceMembership).where(
-                    WorkspaceMembership.workspace_id == workspace.id,
-                    func.lower(User.email) == identifier.lower(),
-                )).scalar_one_or_none()
-                if member is None:
-                    raise HTTPException(422, "Choose a workspace member")
-                body.assignee = f"human:{member.email.lower()}"
-            elif kind == "openagents":
-                member = db.get(WorkspaceMember, (str(workspace.id), identifier))
-                if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
-                    raise HTTPException(403, "You can only assign your own agents")
-            else:
-                raise HTTPException(422, "Choose a person or one of your agents")
-            name = member.display_name or identifier
+        assignee, name = _resolve_assignee(db, workspace, actor, body.assignee)
+        if assignee:
             roster = {p["source"]: p for p in issue.participants or []}
-            roster[body.assignee] = {"source": body.assignee, "name": name}
+            roster[assignee] = {"source": assignee, "name": name}
             issue.participants = list(roster.values())
-        issue.assignee, issue.assignee_name = body.assignee, name
+        issue.assignee, issue.assignee_name = assignee, name
         _add_comment(db, issue, actor, f"assigned this issue to {name}" if name else "removed the assignment", "activity", author_name=actor_name)
+    if body.knowledge_ids is not None or body.file_ids is not None:
+        viewer = _viewer(db, workspace, x_workspace_token, authorization)
+        knowledge_ids, file_ids = _validate_context(db, workspace, viewer,
+            body.knowledge_ids or [], body.file_ids or [])
+        if body.knowledge_ids is not None:
+            issue.knowledge_ids = knowledge_ids
+        if body.file_ids is not None:
+            issue.file_ids = file_ids
     if body.labels is not None and body.labels != issue.labels:
         issue.labels = body.labels
         _add_comment(db, issue, actor, "updated labels: " + (", ".join(body.labels) or "none"), "activity", author_name=actor_name)
@@ -681,6 +743,10 @@ def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instructi
     channel = _channel(db, workspace, name)
     _link_thread(db, issue, channel)
     db.commit()
+    from types import SimpleNamespace
+    from app.routers.tasks import _context_block, _task_attachments
+    context = SimpleNamespace(issue_id=issue.id, knowledge_ids=[], file_ids=[])
+    attachments = _task_attachments(db, str(workspace.id), context)
     kickoff = Event(
         type="workspace.message.posted",
         source=actor,
@@ -689,10 +755,12 @@ def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instructi
             "content": (
                 f"{' '.join('@' + a for a in agents)}\n\nRequested work: {instruction.strip()}\n\n"
                 f"Issue: {issue.title}\n{issue.description[:20000]}\n\nRecent discussion:\n{discussion}\n\n"
+                f"{_context_block(db, str(workspace.id), SimpleNamespace(issue_id=None, knowledge_ids=issue.knowledge_ids))}\n\n"
                 "Post your findings or deliverable here for the team to review. "
                 "The issue stays open until the team decides it is resolved."
             ),
             "message_type": "chat",
+            **({"attachments": attachments} if attachments else {}),
             "sender_email": actor.removeprefix("human:") if "@" in actor else None,
             "sender_name": actor_name,
         },

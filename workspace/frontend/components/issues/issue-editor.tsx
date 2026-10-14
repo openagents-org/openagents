@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n';
 import type { WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AttachmentPicker, KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
 import {
@@ -33,10 +34,15 @@ export function IssueEditor({
 }) {
   const t = useT();
   const descriptionId = useId();
-  const { currentUser, sessions } = useWorkspace();
+  const { currentUser, sessions, agents } = useWorkspace();
   const mentions = useIssueMentions(issue);
   const [title, setTitle] = useState(issue?.title ?? '');
   const [description, setDescription] = useState(issue?.description ?? '');
+  const [assignee, setAssignee] = useState('');
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
+  const [fileIds, setFileIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const ownAgents = agents.filter(a => a.ownerEmail?.toLowerCase() === currentUser.id.toLowerCase());
   const [channel, setChannel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -45,17 +51,22 @@ export function IssueEditor({
       setTitle(issue?.title ?? '');
       setDescription(issue?.description ?? '');
       setChannel('');
+      setAssignee(issue?.assignee ?? '');
+      setKnowledgeIds(issue?.knowledge_ids ?? []);
+      setFileIds(issue?.file_ids ?? []);
       setError('');
     }
   }, [open, issue?.id]);
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (busy || uploading) return;
     setBusy(true);
     setError('');
     try {
       const input = {
         title: title.trim(),
         description,
+        ...(!issue || JSON.stringify(fileIds) !== JSON.stringify(issue.file_ids ?? []) ? { file_ids: fileIds } : {}),
         source: `human:${currentUser.id}`,
         source_name: currentUser.name,
       };
@@ -63,6 +74,8 @@ export function IssueEditor({
         ? await workspaceApi.updateIssue(issue.id, input)
         : await workspaceApi.createIssue({
             ...input,
+            assignee: assignee || null,
+            knowledge_ids: assignee.startsWith("openagents:") ? knowledgeIds : [],
             ...(channel ? { channel_name: channel } : {}),
           });
       onSaved(result);
@@ -76,7 +89,7 @@ export function IssueEditor({
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!busy) onOpenChange(value);
+        if (!busy && !uploading) onOpenChange(value);
       }}
     >
       <DialogContent className="max-w-[620px]">
@@ -117,6 +130,26 @@ export function IssueEditor({
                 className="min-h-44 resize-y rounded-none border-0 px-0 text-[13px] leading-6 shadow-none focus-visible:ring-0"
               />
             </div>
+            {!issue && (
+              <div className="space-y-3 border-t border-border/60 pt-4">
+                <label className="block space-y-2 text-xs font-medium text-muted-foreground">
+                  <span>{t('issues.assignee')}</span>
+                  <select aria-label={t('issues.assignee')} className={cn(selectClass, 'w-full')} value={assignee} disabled={busy} onChange={e => setAssignee(e.target.value)}>
+                    <option value="">{t('issues.unassigned')}</option>
+                    {mentions.filter(m => m.kind === 'human').map(m => <option key={m.source} value={m.source}>{m.name}</option>)}
+                    {ownAgents.map(a => <option key={a.agentName} value={`openagents:${a.agentName}`}>{a.displayName || a.agentName}</option>)}
+                  </select>
+                </label>
+                {assignee.startsWith('openagents:') && (
+                  <fieldset disabled={busy} className="space-y-3">
+                    <p className="text-xs text-muted-foreground">{t('issues.assignmentRunHint')}</p>
+                    <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
+                  </fieldset>
+                )}
+              </div>
+            )}
+            <AttachmentPicker value={fileIds} onChange={setFileIds} disabled={busy} onUploadingChange={setUploading} />
+            <p className="text-[11px] text-muted-foreground">{t('issues.attachmentAudience')}</p>
             {!issue && sessions.length > 0 && (
               <details className="group/link border-t border-border/60 pt-4">
                 <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
@@ -158,7 +191,7 @@ export function IssueEditor({
                 size="sm"
                 type="button"
                 variant="ghost"
-                disabled={busy}
+                disabled={busy || uploading}
                 onClick={() => onOpenChange(false)}
               >
                 {t('common.cancel')}
@@ -167,7 +200,7 @@ export function IssueEditor({
                 size="sm"
                 variant="mono"
                 type="submit"
-                disabled={busy || !title.trim()}
+                disabled={busy || uploading || !title.trim()}
               >
                 {t(
                   busy

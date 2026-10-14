@@ -109,13 +109,18 @@ const ATTACH_ACCEPT =
 export function AttachmentPicker({
   value,
   onChange,
+  disabled = false,
+  onUploadingChange,
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
+  disabled?: boolean;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const t = useT();
   const { files } = useWorkspace();
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadingRef = useRef(false);
   // Files uploaded in this dialog session — the workspace `files` list may not
   // have refreshed yet, so keep our own record for names/thumbnails.
   const [uploaded, setUploaded] = useState<WorkspaceFile[]>([]);
@@ -127,7 +132,9 @@ export function AttachmentPicker({
 
   const addFiles = async (list: FileList | File[]) => {
     const picked = Array.from(list);
-    if (picked.length === 0) return;
+    if (picked.length === 0 || disabled || uploadingRef.current) return;
+    uploadingRef.current = true;
+    onUploadingChange?.(true);
     setError(null);
     const previews: { name: string; preview?: string }[] = picked.map((f) => ({
       name: f.name,
@@ -135,12 +142,16 @@ export function AttachmentPicker({
     }));
     setPending((p) => [...p, ...previews]);
     try {
-      const results = await Promise.all(picked.map((f) => workspaceApi.uploadFile(f)));
+      const outcomes = await Promise.allSettled(picked.map((f) => workspaceApi.uploadFile(f)));
+      const results = outcomes.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
       setUploaded((u) => [...u, ...results]);
       onChange([...value, ...results.map((r) => r.id)]);
+      if (outcomes.some(result => result.status === 'rejected')) setError(t('tasks.attachFailed'));
     } catch {
       setError(t('tasks.attachFailed'));
     } finally {
+      uploadingRef.current = false;
+      onUploadingChange?.(false);
       previews.forEach((pv) => pv.preview && URL.revokeObjectURL(pv.preview));
       setPending((p) => p.filter((x) => !previews.includes(x)));
     }
@@ -175,6 +186,7 @@ export function AttachmentPicker({
                 )}
                 <button
                   type="button"
+                  disabled={disabled || pending.length > 0}
                   onClick={() => remove(id)}
                   className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                   title={t('common.remove')}
@@ -204,6 +216,7 @@ export function AttachmentPicker({
 
       <button
         type="button"
+        disabled={disabled || pending.length > 0}
         onClick={() => inputRef.current?.click()}
         className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
       >
@@ -211,6 +224,8 @@ export function AttachmentPicker({
         {t('tasks.attachAdd')}
       </button>
       <input
+        disabled={disabled || pending.length > 0}
+        aria-label={t('tasks.fieldAttachments')}
         ref={inputRef}
         type="file"
         multiple

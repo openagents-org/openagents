@@ -13,12 +13,13 @@ const mocks = vi.hoisted(() => ({
     agents: [] as unknown[],
     sessions: [],
     tasks: [] as KanbanTask[],
-    workflows: [], knowledge: [], files: [],
+    workflows: [], knowledge: [] as {id: string; title: string; description: string}[], files: [],
     createTask: vi.fn(), runTask: vi.fn(), updateTask: vi.fn(), stopTask: vi.fn(), deleteTask: vi.fn(),
     refreshTasks: vi.fn(),
   },
   api: {
     getTeam: vi.fn(),
+    uploadFile: vi.fn(),
     listIssues: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
@@ -128,6 +129,7 @@ async function openIssue() {
 
 beforeEach(() => {
   mocks.ws.tasks = [];
+  mocks.ws.knowledge = [];
   vi.useFakeTimers();
   vi.clearAllMocks();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -398,4 +400,52 @@ it('keeps the work draft when preparing a run fails', async () => {
   expect(host.querySelector('[role="dialog"]')).not.toBeNull();
   expect(dialog.querySelector('textarea')!.value).toBe('Keep my investigation notes');
   expect(dialog.textContent).toContain('Could not save work');
+});
+
+it('creates assigned agent work with knowledge and waits for attachments to upload', async () => {
+  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
+    { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
+  mocks.ws.knowledge = [{ id: 'guide-1', title: 'Support guide', description: 'Reference notes' }];
+  mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(button('New issue'));
+  await fill(host.querySelector('input[required]')!, 'Review evidence');
+  const select = host.querySelector('select[aria-label="Assignee"]')! as HTMLSelectElement;
+  expect(select.textContent).not.toContain('Other agent');
+  expect(host.textContent).not.toContain('Support guide');
+  await act(async () => {
+    select.value = 'openagents:research-agent';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes('Support guide'))!);
+  let finish!: (value: unknown) => void;
+  mocks.api.uploadFile.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const input = host.querySelector('input[type="file"]')!;
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'evidence.txt', { type: 'text/plain' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(button('Create issue').disabled).toBe(true);
+  expect(mocks.api.createIssue).not.toHaveBeenCalled();
+  await act(async () => finish({ id: 'file-1', filename: 'evidence.txt', contentType: 'text/plain' }));
+  mocks.api.createIssue.mockRejectedValueOnce(new Error('Try again'));
+  await click(button('Create issue'));
+  expect(host.textContent).toContain('Try again');
+  expect(host.textContent).toContain('evidence.txt');
+  await click(button('Create issue'));
+  expect(mocks.api.createIssue).toHaveBeenLastCalledWith(expect.objectContaining({
+    assignee: 'openagents:research-agent', knowledge_ids: ['guide-1'], file_ids: ['file-1'],
+  }));
+  expect(mocks.ws.runTask).not.toHaveBeenCalled();
+});
+
+it('shows saved attachments and knowledge as links on the issue', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue,
+    attachments: [{ file_id: 'file-1', filename: 'evidence.txt', content_type: 'text/plain', size: 8 }],
+    knowledge: [{ id: 'guide-1', title: 'Support guide' }],
+  });
+  await openIssue();
+  expect(host.querySelector('a[href="/workspace-1/files/file-1"]')?.textContent).toBe('evidence.txt');
+  expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });

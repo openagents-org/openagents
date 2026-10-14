@@ -182,12 +182,16 @@ def _task_attachments(db: Session, workspace_id: str, task: KanbanTask) -> list:
     (see cloud_agent._post_response), so agents/clients render them the same."""
     from app.models import FileRecord
 
-    if not task.file_ids:
+    from app.models import Issue
+    issue = db.get(Issue, task.issue_id) if task.issue_id else None
+    issue_ids = (issue.file_ids or []) if issue and str(issue.workspace_id) == workspace_id else []
+    ids = list(dict.fromkeys([*issue_ids, *(task.file_ids or [])]))
+    if not ids:
         return []
     rows = db.execute(
         select(FileRecord).where(
             FileRecord.workspace_id == workspace_id,
-            FileRecord.id.in_(task.file_ids),
+            FileRecord.id.in_(ids),
             FileRecord.status == "active",
         )
     ).scalars().all()
@@ -199,7 +203,7 @@ def _task_attachments(db: Session, workspace_id: str, task: KanbanTask) -> list:
             "content_type": r.content_type,
             "size": r.size,
         }
-        for r in (by_id[i] for i in task.file_ids if i in by_id)
+        for r in (by_id[i] for i in ids if i in by_id)
     ]
 
 
@@ -212,27 +216,29 @@ def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
     from app.models import Issue, IssueComment, KnowledgeEntry
 
     issue_context = ""
+    knowledge_ids = list(task.knowledge_ids or [])
     if task.issue_id:
         issue = db.execute(select(Issue).where(Issue.id == task.issue_id, Issue.workspace_id == workspace_id)).scalar_one_or_none()
         if issue:
+            knowledge_ids = list(dict.fromkeys([*(issue.knowledge_ids or []), *knowledge_ids]))
             comments = list(db.execute(select(IssueComment).where(IssueComment.issue_id == issue.id,
                 IssueComment.kind != "status").order_by(IssueComment.created_at.desc()).limit(10)).scalars())
             discussion = "\n\n".join(f"{c.author}: {c.content[:2000]}" for c in reversed(comments))
             issue_context = f"\n\nRelated issue: {issue.title}\n{issue.description[:10000]}\n\nRecent discussion:\n{discussion}"
 
-    if not task.knowledge_ids:
+    if not knowledge_ids:
         return issue_context
     rows = db.execute(
         select(KnowledgeEntry).where(
             KnowledgeEntry.workspace_id == workspace_id,
-            KnowledgeEntry.id.in_(task.knowledge_ids),
+            KnowledgeEntry.id.in_(knowledge_ids),
             KnowledgeEntry.status == "active",
         )
     ).scalars().all()
     if not rows:
         return issue_context
     by_id = {r.id: r for r in rows}
-    ordered = [by_id[i] for i in task.knowledge_ids if i in by_id]
+    ordered = [by_id[i] for i in knowledge_ids if i in by_id]
     lines = "\n".join(f"- “{r.title}” → @knowledge:{r.slug}" for r in ordered)
     return issue_context + (
         "\n\nContext documents — read each with your knowledge tool before "

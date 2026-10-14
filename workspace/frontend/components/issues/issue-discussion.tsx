@@ -5,6 +5,8 @@ import { resourcePath } from '@/lib/resource-link';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Paperclip,
+  BookOpen,
   ArrowLeft,
   ArrowUpRight,
   Check,
@@ -65,7 +67,7 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents } = useWorkspace();
+  const { currentUser, sessions, refreshAgents, workspace } = useWorkspace();
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -324,6 +326,12 @@ export function IssueDiscussion({
                   </p>
                 )}
               </article>
+              {((issue.attachments?.length ?? 0) > 0 || (issue.knowledge?.length ?? 0) > 0) && (
+                <div className="mb-8 flex flex-wrap gap-2">
+                  {issue.attachments?.map(file => <a key={file.file_id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'files', file.file_id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{file.filename}</span></a>)}
+                  {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
+                </div>
+              )}
               <IssueWork issueId={id} title={issue.title} />
               <section aria-label={t('issues.discussion')}>
                 <div className="mb-6 flex items-center gap-2 border-b border-border/70 pb-3">

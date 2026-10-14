@@ -1388,6 +1388,8 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  knowledge_ids?: string[];
+  file_ids?: string[];
   id: string;
   title: string;
   description: string;
@@ -1422,6 +1424,8 @@ export interface IssueThread {
   latest_reply: IssueReply | null;
 }
 export interface IssueDetail extends WorkspaceIssue {
+  attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
+  knowledge?: { id: string; title: string }[];
   agent_sharing_mode?: 'no' | 'yes' | 'approval';
   comments: IssueComment[];
   threads: IssueThread[];

@@ -99,6 +99,8 @@ export const messages: Messages = {
   },
 
   issues: {
+    assignmentRunHint: '将准备智能体工作，您可以稍后手动启动。',
+    attachmentAudience: '附件将共享给所有可以查看此议题的成员。',
     searchAssignees: "搜索成员或你的智能体…", noAssignees: "没有匹配的负责人", labelName: "标签名称",
     paused: '已暂停', assignee: '负责人', unassigned: '未分配', labels: '标签', addLabel: '添加标签', removeLabel: '移除 {label}',
     editHint: "更改将与议题的所有参与者共享。",

@@ -609,3 +609,101 @@ def test_assignment_handoffs_labels_and_paused(client, workspace, db, two_member
     assert client.patch(url, headers=_bearer('ben'), json={'assignee':'human:ann@acme.test'}).status_code == 200
     assert client.patch(url, headers=_bearer('ben'), json={'assignee':None}).status_code == 403
     assert client.patch(url, headers=_bearer('ann'), json={'labels':[' ']}).status_code == 422
+
+
+def seed_issue_context(db, workspace, owner="human:ann@acme.test"):
+    from app.models import KnowledgeEntry, FileRecord
+    entry = KnowledgeEntry(workspace_id=workspace['id'], slug='issue-context', title='Support guide',
+                           created_by=owner, owner=owner, visibility='private')
+    file = FileRecord(workspace_id=workspace['id'], filename='evidence.txt', content_type='text/plain',
+                      size=12, storage_key='test/evidence.txt', uploaded_by=owner, owner=owner, visibility='private')
+    db.add_all([entry, file])
+    db.commit()
+    return entry, file
+
+
+def test_create_assigned_issue_prepares_work_with_context(client, workspace, db, two_members):
+    from app.models import KanbanTask
+    from app.routers.tasks import _context_block, _task_attachments
+    agent = db.get(WorkspaceMember, (workspace['id'], 'agent-alpha'))
+    agent.owner_email = 'ann@acme.test'
+    entry, file = seed_issue_context(db, workspace)
+    before = db.scalar(select(func.count()).select_from(Channel))
+    with patch('app.routers.issues._emit_event_blocking') as emit:
+        response = client.post(path(workspace), headers=_bearer('ann'), json={
+            'title': 'Check evidence', 'source': 'human:spoof', 'assignee': 'openagents:agent-alpha',
+            'knowledge_ids': [entry.id, entry.id], 'file_ids': [file.id],
+        })
+        assert response.status_code == 200, response.text
+        emit.assert_not_called()
+    issue = response.json()['data']
+    assert issue['created_by'] == 'human:ann@acme.test'
+    assert issue['knowledge_ids'] == [entry.id]
+    task = db.scalar(select(KanbanTask).where(KanbanTask.issue_id == issue['id']))
+    assert task.status == 'backlog' and task.assignee == 'agent-alpha'
+    assert db.scalar(select(func.count()).select_from(Channel)) == before
+    assert '@knowledge:issue-context' in _context_block(db, workspace['id'], task)
+    assert _task_attachments(db, workspace['id'], task)[0]['file_id'] == file.id
+    result = client.get(path(workspace, '/' + issue['id']), headers=_bearer('ben')).json()['data']
+    assert result['attachments'][0]['filename'] == 'evidence.txt'
+    assert result['knowledge'] == []  # Private knowledge is not shared by attaching its reference.
+    db.refresh(file)
+    assert file.visibility == 'public'
+
+
+def test_create_human_assignment_does_not_prepare_agent_run(client, workspace, db, two_members):
+    from app.models import KanbanTask
+    response = client.post(path(workspace), headers=_bearer('ann'), json={
+        'title': 'Human follow-up', 'source': 'human:ann@acme.test', 'assignee': 'human:ben@acme.test',
+    })
+    assert response.status_code == 200, response.text
+    issue = response.json()['data']
+    assert issue['assignee_name'] == 'Ben'
+    assert db.scalar(select(KanbanTask).where(KanbanTask.issue_id == issue['id'])) is None
+
+
+@pytest.mark.parametrize('field', ['knowledge_ids', 'file_ids'])
+def test_issue_context_rejects_unreadable_or_missing_resources(client, workspace, db, two_members, field):
+    from app.models import Issue
+    entry, file = seed_issue_context(db, workspace)
+    selected = entry.id if field == 'knowledge_ids' else file.id
+    for ids in ([selected], ['missing']):
+        response = client.post(path(workspace), headers=_bearer('ben'), json={
+            'title': 'Cannot attach', 'source': 'human:ben@acme.test', field: ids,
+        })
+        assert response.status_code == 404, response.text
+    assert db.scalar(select(func.count()).select_from(Issue)) == 0
+    db.refresh(file)
+    assert file.visibility == 'private'
+
+
+def test_create_cannot_assign_someone_elses_agent(client, workspace, db, two_members):
+    response = client.post(path(workspace), headers=_bearer('ann'), json={
+        'title': 'Cannot assign', 'source': 'human:test@example.com', 'assignee': 'openagents:agent-alpha',
+    })
+    assert response.status_code == 403
+
+
+def test_issue_mention_work_inherits_context(client, workspace, db):
+    entry, file = seed_issue_context(db, workspace, owner='human:test@example.com')
+    issue = create(client, workspace, knowledge_ids=[entry.id], file_ids=[file.id])
+    response = request_work(client, workspace, issue)
+    assert response.status_code == 200, response.text
+    events = db.scalars(select(EventRecord).where(EventRecord.type == 'workspace.message.posted')).all()
+    kickoff = next(e for e in events if 'Requested work:' in (e.payload or {}).get('content', ''))
+    assert '@knowledge:issue-context' in kickoff.payload['content']
+    assert kickoff.payload['attachments'][0]['file_id'] == file.id
+
+
+def test_edit_attachment_does_not_require_access_to_unchanged_knowledge(client, workspace, db, two_members):
+    entry, file = seed_issue_context(db, workspace)
+    response = client.post(path(workspace), headers=_bearer('ann'), json={
+        'title': 'Shared issue', 'source': 'human:ann@acme.test', 'knowledge_ids': [entry.id], 'file_ids': [file.id],
+    })
+    issue = response.json()['data']
+    response = client.patch(path(workspace, '/' + issue['id']), headers=_bearer('ben'), json={
+        'source': 'human:ben@acme.test', 'file_ids': [],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()['data']['knowledge_ids'] == [entry.id]
+    assert response.json()['data']['file_ids'] == []

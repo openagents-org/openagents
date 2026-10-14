@@ -805,6 +805,9 @@ class Issue(Base):
     """A durable team discussion; creating one never starts agent work."""
     __tablename__ = "issues"
 
+    knowledge_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    file_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+
     id = Column(Text, primary_key=True, default=_uuid)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     title = Column(Text, nullable=False)

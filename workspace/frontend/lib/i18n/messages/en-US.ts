@@ -106,6 +106,8 @@ export const messages = {
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   issues: {
+    assignmentRunHint: 'Agent work will be prepared. Start it when you’re ready.',
+    attachmentAudience: 'Attachments are shared with everyone who can view this issue.',
     searchAssignees: "Search people or your agents…", noAssignees: "No matching assignees", labelName: "Label name",
     paused: 'Paused', assignee: 'Assignee', unassigned: 'Unassigned', labels: 'Labels', addLabel: 'Add a label', removeLabel: 'Remove {label}',
     editHint: "Changes are shared with everyone on this issue.",
