@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { playNotificationSound } from '@/lib/notification-audio';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SectionHeader } from '@/components/settings/section-chrome';
@@ -10,7 +13,7 @@ import { useT } from '@/lib/i18n';
  * This-browser-only preferences. They live in localStorage under the same keys
  * the main workspace view reads on mount (workspace-context.tsx for the
  * notification sound, layout-context.tsx for split browser), so changes apply
- * the next time the workspace view mounts — no server round-trip involved.
+ * immediately through a local preference event — no server round-trip involved.
  */
 const SOUND_KEY = 'oa_notification_sound';
 /** DM / mention sound — default ON, so only an explicit 'false' turns it off. */
@@ -19,13 +22,13 @@ const SPLIT_KEY = 'x-split-browser';
 
 export default function PreferencesSettingsPage() {
   const t = useT();
-  const [sound, setSound] = useState(false);
+  const [sound, setSound] = useState(true);
   const [signalSound, setSignalSound] = useState(true);
   const [split, setSplit] = useState(false);
 
   useEffect(() => {
     try {
-      setSound(localStorage.getItem(SOUND_KEY) === 'true');
+      setSound(localStorage.getItem(SOUND_KEY) !== 'false');
       setSignalSound(localStorage.getItem(SIGNAL_SOUND_KEY) !== 'false');
       setSplit(localStorage.getItem(SPLIT_KEY) === '1');
     } catch { /* storage unavailable */ }
@@ -33,12 +36,12 @@ export default function PreferencesSettingsPage() {
 
   const toggleSound = (v: boolean) => {
     setSound(v);
-    try { localStorage.setItem(SOUND_KEY, String(v)); } catch {}
+    try { localStorage.setItem(SOUND_KEY, String(v)); window.dispatchEvent(new Event('workspace-sound-preferences'));  } catch {}
   };
 
   const toggleSignalSound = (v: boolean) => {
     setSignalSound(v);
-    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(v)); } catch {}
+    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(v)); window.dispatchEvent(new Event('workspace-sound-preferences'));  } catch {}
   };
 
   const toggleSplit = (v: boolean) => {
@@ -53,6 +56,9 @@ export default function PreferencesSettingsPage() {
         description={t('admin.preferencesDescription')}
       />
 
+      <Button variant="outline" onClick={async () => {
+        if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
+      }}>{t('settings.testSound')}</Button>
       <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
         <div className="space-y-0.5">
           <Label>{t('settings.notificationSound')}</Label>

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLayout } from '@/components/layout/layout-context';
+import { knowledgeTitle } from '@/lib/knowledge-title';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { KnowledgeEntry } from '@/lib/types';
@@ -25,7 +26,7 @@ import { ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-ba
  */
 export function KnowledgeList() {
   const {
-    knowledge, refreshKnowledge, deleteKnowledge,
+    knowledge, sessions, refreshKnowledge, deleteKnowledge,
     selectedKnowledgeId, setSelectedKnowledgeId,
     updateKnowledge,
   } = useWorkspace();
@@ -68,11 +69,11 @@ export function KnowledgeList() {
     if (!q) return knowledge.filter(entry => (entry.folderPath || "") === folder);
     return knowledge.filter(
       (e) =>
-        e.title.toLowerCase().includes(q) ||
+        knowledgeTitle(e.title, sessions).toLowerCase().includes(q) ||
         e.slug.toLowerCase().includes(q) ||
         (e.description || '').toLowerCase().includes(q),
     );
-  }, [knowledge, query, folder]);
+  }, [knowledge, sessions, query, folder]);
 
   const handleEdit = useCallback(async (entry: KnowledgeEntry) => {
     try {
@@ -225,8 +226,8 @@ export function KnowledgeList() {
             >
               <FileText className={cn('mt-0.5 size-4 shrink-0', selectedKnowledgeId === entry.id ? 'text-foreground/80' : 'text-muted-foreground/60')} />
               <div className="flex min-w-0 flex-1 flex-col">
-                <p className="line-clamp-2 text-sm leading-snug font-medium text-foreground" title={entry.title}>
-                  {entry.title}
+                <p className="line-clamp-2 text-sm leading-snug font-medium text-foreground" title={knowledgeTitle(entry.title, sessions)}>
+                  {knowledgeTitle(entry.title, sessions)}
                 </p>
                 {entry.description && (
                   <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">

@@ -18,6 +18,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
+import { knowledgeTitle } from '@/lib/knowledge-title';
 import { HumanAvatar } from './human-avatar';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useThreadMentionParticipants } from '@/hooks/use-thread-mention-emails';
@@ -123,7 +124,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
 
   const agentNames = agents.map((a) => a.agentName);
   // v1.1 M3: a pending approval makes an agent "waiting" in the picker too.
-  const { pendingApprovalsByAgent, currentUser } = useWorkspace();
+  const { pendingApprovalsByAgent, currentUser, sessions } = useWorkspace();
   // Only joined people are selectable; keep the full roster for rendering saved drafts.
   const selfEmail = currentUser.id.includes('@') ? currentUser.id : null;
   const availabilityOf = (a: WorkspaceAgent): AgentAvailability =>
@@ -150,7 +151,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
     .sort((a, b) => AVAILABILITY_RANK[availabilityOf(a)] - AVAILABILITY_RANK[availabilityOf(b)]);
 
   const filteredKnowledge = knowledge.filter(
-    (k) => k.title.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+    (k) => knowledgeTitle(k.title, sessions).toLowerCase().includes(mentionFilter.toLowerCase()) ||
            k.slug.toLowerCase().includes(mentionFilter.toLowerCase()) ||
            `knowledge:${k.slug}`.toLowerCase().startsWith(mentionFilter.toLowerCase())
   );
@@ -521,7 +522,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                     <div className="size-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
                       <BookOpen className="size-3.5 text-amber-600 dark:text-amber-400" />
                     </div>
-                    <span className="font-medium truncate">{entry.title}</span>
+                    <span className="font-medium truncate">{knowledgeTitle(entry.title, sessions)}</span>
                     <span className="text-[10px] text-muted-foreground ml-auto font-mono shrink-0">@knowledge:{entry.slug}</span>
                   </button>
                 );

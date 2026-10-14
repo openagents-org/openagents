@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { armNotificationAudio, playNotificationSound } from '@/lib/notification-audio';
 import { useWorkspace } from '@/lib/workspace-context';
 import { diffNewSignals, shouldNotify } from '@/lib/signals';
 import { useLayout } from './layout-context';
@@ -22,8 +23,30 @@ function notificationsSupported(): boolean {
  * DesktopNotificationPrompt).
  */
 export function useSignalNotifications() {
-  const { signals, signalsLoaded, signalSound, currentSessionId, setCurrentSessionId } = useWorkspace();
-  const { openView, isMobile, openMobileDetail } = useLayout();
+  const { workspace, sessions = [], signals, signalsLoaded, notifications, notificationsLoaded, notificationSound, signalSound, currentSessionId, setCurrentSessionId } = useWorkspace();
+  const { openView, viewMode, isMobile, openMobileDetail } = useLayout();
+
+  useEffect(() => armNotificationAudio(), []);
+  const inboxSeenRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!notificationsLoaded) { inboxSeenRef.current = null; return; }
+    const { fresh, seen } = diffNewSignals(inboxSeenRef.current, notifications);
+    inboxSeenRef.current = seen;
+    if (notificationSound && fresh.some(item => !item.isRead)) void playNotificationSound();
+  }, [notifications, notificationsLoaded, notificationSound]);
+
+  const completionRef = useRef<Map<string, number> | null>(null);
+  useEffect(() => { completionRef.current = null; }, [workspace?.workspaceId]);
+  useEffect(() => {
+    if (!sessions.length) return;
+    const previous = completionRef.current;
+    completionRef.current = new Map(sessions.map(session => [session.sessionId, session.completionAt || 0]));
+    if (!previous || !notificationSound) return;
+    const context = { hidden: document.visibilityState === 'hidden', focused: document.hasFocus(),
+      openSessionId: viewMode === 'threads' ? currentSessionId : null };
+    if (sessions.some(session => (session.completionAt || 0) > Math.max(previous.get(session.sessionId) || 0, session.readAt || 0)
+      && shouldNotify({ channelName: session.sessionId }, context))) void playNotificationSound();
+  }, [sessions, notificationSound, viewMode, currentSessionId]);
 
   const seenRef = useRef<Set<string> | null>(null);
   // Read through refs so a notification clicked minutes later opens the
@@ -35,7 +58,7 @@ export function useSignalNotifications() {
     if (isMobile) openMobileDetail();
   };
   const ctxRef = useRef({ currentSessionId, signalSound });
-  ctxRef.current = { currentSessionId, signalSound };
+  ctxRef.current = { currentSessionId: viewMode === 'threads' ? currentSessionId : null, signalSound };
 
   // A workspace switch resets signals to "not loaded": start a fresh baseline.
   useEffect(() => {
@@ -53,15 +76,11 @@ export function useSignalNotifications() {
       focused: document.hasFocus(),
       openSessionId: ctxRef.current.currentSessionId,
     };
-    const toAlert = fresh.filter((n) => shouldNotify(n, notifyCtx));
+    const toAlert = fresh.filter((n) => !n.isRead && shouldNotify(n, notifyCtx));
     if (toAlert.length === 0) return;
 
     if (ctxRef.current.signalSound) {
-      try {
-        const audio = new Audio('/notification.wav');
-        audio.volume = 0.35;
-        audio.play().catch(() => {});
-      } catch { /* no audio */ }
+      void playNotificationSound();
     }
 
     if (!notificationsSupported() || Notification.permission !== 'granted') return;

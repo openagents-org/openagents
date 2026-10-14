@@ -288,6 +288,7 @@ interface WorkspaceContextValue {
   /** False until the first signals poll for this workspace has landed — what
    *  was there on load is baselined, not notified. */
   signalsLoaded: boolean;
+  notificationsLoaded: boolean;
   /** The same signals grouped by thread name / `dm:` session id. */
   unreadSignals: UnreadSignals;
   refreshSignals: () => Promise<void>;
@@ -448,6 +449,7 @@ export function WorkspaceProvider({
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   // DM / mention signals. Ids marked read locally are remembered so a poll
@@ -489,11 +491,11 @@ export function WorkspaceProvider({
   }, [browserTabs]);
 
   // Notification sound — client-side preference stored in localStorage
-  const [notificationSound, _setNotificationSound] = useState(false);
+  const [notificationSound, _setNotificationSound] = useState(true);
   useEffect(() => {
     try {
       const stored = localStorage.getItem('oa_notification_sound');
-      if (stored === 'true') _setNotificationSound(true);
+      _setNotificationSound(stored !== 'false');
     } catch {}
   }, []);
   const setNotificationSound = useCallback((enabled: boolean) => {
@@ -511,6 +513,21 @@ export function WorkspaceProvider({
   const setSignalSound = useCallback((enabled: boolean) => {
     _setSignalSound(enabled);
     try { localStorage.setItem(SIGNAL_SOUND_KEY, String(enabled)); } catch {}
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      try {
+        _setNotificationSound(localStorage.getItem('oa_notification_sound') !== 'false');
+        _setSignalSound(localStorage.getItem(SIGNAL_SOUND_KEY) !== 'false');
+      } catch {}
+    };
+    window.addEventListener('storage', sync);
+    window.addEventListener('workspace-sound-preferences', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('workspace-sound-preferences', sync);
+    };
   }, []);
 
   // Presence heartbeat
@@ -930,6 +947,7 @@ export function WorkspaceProvider({
       workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {});
       workspaceApi.listNotifications().then((r) => {
         setNotifications(r.notifications);
+        setNotificationsLoaded(true);
         setUnreadNotificationCount(r.unreadCount);
       }).catch(() => {});
       workspaceApi.listApprovals({ status: 'pending' }).then((r) => {
@@ -1084,6 +1102,7 @@ export function WorkspaceProvider({
     try {
       const result = await workspaceApi.listNotifications();
       setNotifications(result.notifications);
+      setNotificationsLoaded(true);
       setUnreadNotificationCount(result.unreadCount);
     } catch {
       // Non-critical
@@ -1410,6 +1429,7 @@ export function WorkspaceProvider({
       setRoutines([]);
       setKnowledge([]);
       setNotifications([]);
+      setNotificationsLoaded(false);
       setUnreadNotificationCount(0);
       setSignals([]);
       setSignalsLoaded(false);
@@ -1518,6 +1538,7 @@ export function WorkspaceProvider({
         loadOptional(workspaceApi.listKnowledge(), (r) => setKnowledge(r.entries));
         loadOptional(workspaceApi.listNotifications(), (r) => {
           setNotifications(r.notifications);
+          setNotificationsLoaded(true);
           setUnreadNotificationCount(r.unreadCount);
         });
         loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), setDMConversations);
@@ -1948,28 +1969,6 @@ export function WorkspaceProvider({
     });
   }, [markSessionRead]);
 
-  // Play notification sound when a thread completes
-  const notificationSoundRef = React.useRef(notificationSound);
-  notificationSoundRef.current = notificationSound;
-  const prevCompletedRef = React.useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!notificationSoundRef.current) {
-      prevCompletedRef.current = completedSessionIds;
-      return;
-    }
-    // Detect newly completed sessions
-    const prev = prevCompletedRef.current;
-    const hasNew = Array.from(completedSessionIds).some((id) => !prev.has(id));
-    prevCompletedRef.current = completedSessionIds;
-    if (hasNew) {
-      try {
-        const audio = new Audio('/notification.wav');
-        audio.volume = 0.35;
-        audio.play().catch(() => {});
-      } catch {}
-    }
-  }, [completedSessionIds]);
-
   // ── v1.1 M1/M2 ──────────────────────────────────────────────────────────────
   // Thread privacy. Optimistic like updateSession; on failure the previous
   // visibility comes back and the error propagates so the control can say why
@@ -2121,6 +2120,7 @@ export function WorkspaceProvider({
         setSignalSound,
         signals,
         signalsLoaded,
+        notificationsLoaded,
         unreadSignals,
         refreshSignals,
         markChannelSignalsRead,

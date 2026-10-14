@@ -10,6 +10,7 @@ import { DetailHeader } from '@/components/layout/app-header';
 import { workspaceApi } from '@/lib/api';
 import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { knowledgeTitle } from '@/lib/knowledge-title';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { KnowledgeExport } from './knowledge-export';
@@ -26,7 +27,7 @@ import { AccessExplainer } from '@/components/sharing/access-explainer';
  * same list/detail split as threads and files.
  */
 export function KnowledgeView() {
-  const { knowledge, refreshKnowledge, agents, selectedKnowledgeId, updateKnowledge } = useWorkspace();
+  const { knowledge, sessions, refreshKnowledge, agents, selectedKnowledgeId, updateKnowledge } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
   const { timeAgo } = useFormatters();
@@ -114,12 +115,12 @@ export function KnowledgeView() {
           </h2>
         </>}
       >
-        <KnowledgeExport entry={entry} />
+        <KnowledgeExport entry={{ ...entry, title: knowledgeTitle(entry.title, sessions) }} />
         <CopyResourceLink view="knowledge" id={entry.id} />
         <ArtifactSharePopover
           kind="knowledge"
           id={entry.id}
-          name={entry.title}
+          name={knowledgeTitle(entry.title, sessions)}
           visibility={entry.visibility}
           effectiveVisibility={entry.effectiveVisibility}
           canManage={entry.canManage}
@@ -158,7 +159,7 @@ export function KnowledgeView() {
         <article className="w-full px-5 py-7 sm:px-8 sm:py-9">
           <header className="max-w-[70ch]">
             <h1 className="text-2xl leading-snug font-semibold tracking-tight text-foreground sm:text-[28px]">
-              {entry.title}
+              {knowledgeTitle(entry.title, sessions)}
             </h1>
             {entry.description && (
               <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground">

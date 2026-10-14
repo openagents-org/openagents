@@ -711,6 +711,7 @@ export const messages = {
   },
 
   files: {
+    personalFolders: 'Personal folders',
     title: 'Files',
     recentFiles: 'Recent files',
     allFiles: 'All files',
@@ -962,7 +963,9 @@ export const messages = {
     monitorMode: 'Monitor Mode',
     monitorModeHint: 'Show a 2x3 grid overview of recent threads instead of the thread list.',
     notificationSound: 'Notification Sound',
-    notificationSoundHint: 'Play a sound when an agent completes a task.',
+    notificationSoundHint: 'Play a sound for new inbox notifications and completed agent work.',
+    testSound: 'Test sound',
+    soundBlocked: 'Sound could not play. Check your browser audio permission and device volume.',
     splitBrowser: 'Split Browser View',
     splitBrowserHint: 'Show browser tab side-by-side with chat when viewing threads.',
     collaborators: 'Collaborators',
@@ -2914,6 +2917,7 @@ export const messages = {
   },
   // ── Permission model v1.1 ── owned files & knowledge: visibility + sharing
   artifactAccess: {
+    ownerMustShare: 'You can view this item, but only its owner, an admin, or someone with sharing permission can change access. Ask the owner to share it.',
     private: 'Private',
     public: 'Public',
     inherits: 'Inherits thread',

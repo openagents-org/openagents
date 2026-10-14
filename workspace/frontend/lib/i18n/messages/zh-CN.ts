@@ -700,6 +700,7 @@ export const messages: Messages = {
   },
 
   files: {
+    personalFolders: '个人文件夹',
     title: '文件',
     recentFiles: '最近的文件',
     allFiles: '全部文件',
@@ -947,7 +948,9 @@ export const messages: Messages = {
     monitorMode: '监控模式',
     monitorModeHint: '以 2x3 网格概览最近的会话,替代会话列表。',
     notificationSound: '通知提示音',
-    notificationSoundHint: '智能体完成任务时播放提示音。',
+    notificationSoundHint: '收到新通知或智能体完成工作时播放提示音。',
+    testSound: '测试提示音',
+    soundBlocked: '无法播放提示音，请检查浏览器的音频权限和设备音量。',
     splitBrowser: '分屏浏览器视图',
     splitBrowserHint: '查看会话时,将浏览器标签页与聊天并排显示。',
     collaborators: '协作者',
@@ -2861,6 +2864,7 @@ export const messages: Messages = {
   },
   // ── 权限模型 v1.1 ── 有所有者的文件与知识：可见性 + 分享
   artifactAccess: {
+    ownerMustShare: '你可以查看此项目，但只有所有者、管理员或拥有分享权限的人才能更改访问权限。请联系所有者分享。',
     private: '私有',
     public: '公开',
     inherits: '跟随会话',

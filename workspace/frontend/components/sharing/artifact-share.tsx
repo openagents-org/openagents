@@ -53,13 +53,14 @@ export function ArtifactShareContent({
   // ── existing grants ──
   const [grants, setGrants] = useState<ResourceGrant[] | null>(null);
   const loadGrants = useCallback(async () => {
+    if (!canManage) { setGrants([]); return; }
     try {
       setGrants(await workspaceApi.listGrants(kind, id));
     } catch {
       setGrants([]);
       toast.error(t('artifactAccess.grantsLoadFailed'));
     }
-  }, [kind, id, t]);
+  }, [kind, id, t, canManage]);
   useEffect(() => { loadGrants(); }, [loadGrants]);
 
   const revoke = async (grant: ResourceGrant) => {
@@ -97,7 +98,7 @@ export function ArtifactShareContent({
   const exclude = useMemo(() => (grants ?? []).map((g) => g.grantee_id), [grants]);
 
   const share = async () => {
-    if (picked.length === 0 || sharing) return;
+    if (!canManage || picked.length === 0 || sharing) return;
     setSharing(true);
     let done = 0;
     for (const g of picked) {
@@ -172,8 +173,9 @@ export function ArtifactShareContent({
         )}
       </section>
 
+      {!canManage && <p className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">{t('artifactAccess.ownerMustShare')}</p>}
       {/* Share with… */}
-      <section className="space-y-2">
+      {canManage && <section className="space-y-2">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.shareWith')}</h4>
         <GranteePicker value={picked} onChange={setPicked} exclude={exclude} />
         {picked.length > 0 && (
@@ -201,10 +203,10 @@ export function ArtifactShareContent({
           {sharing ? <Loader2 className="size-3.5 animate-spin" /> : <Share2 className="size-3.5" />}
           {sharing ? t('artifactAccess.sharing') : t('artifactAccess.shareAction')}
         </Button>
-      </section>
+      </section>}
 
       {/* Who has access */}
-      <section className="space-y-1.5">
+      {canManage && <section className="space-y-1.5">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.grantsTitle')}</h4>
         {grants === null ? (
           <p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p>
@@ -238,7 +240,7 @@ export function ArtifactShareContent({
             ))}
           </ul>
         )}
-      </section>
+      </section>}
       <span className="sr-only">{t('artifactAccess.shareTitle', { name })}</span>
     </div>
   );

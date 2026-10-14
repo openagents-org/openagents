@@ -53,6 +53,7 @@ from app.services.access_model import (
     resource_meta,
 )
 from app.services.visibility import resolve_viewer
+from app.services.personal_files import default_file_folder
 from app.storage import get_file_store
 from openagents.core.onm_events import Event
 
@@ -114,8 +115,8 @@ INLINE_SAFE_CONTENT_TYPES = {
 }
 
 
-def _organize_filename(filename: str, content_type: str) -> str:
-    """Put uploaded files into uploaded_files/ with a timestamped name."""
+def _organize_filename(filename: str, content_type: str, folder: Optional[str] = None) -> str:
+    """Use the personal default for bare names, preserving explicit destinations."""
     # Already in a folder — don't reorganize
     if "/" in filename:
         return filename
@@ -135,7 +136,7 @@ def _organize_filename(filename: str, content_type: str) -> str:
     # Clean up the name part (keep it short, remove special chars)
     clean_name = re.sub(r"[^\w\-.]", "_", name_part)[:60]
 
-    return f"uploaded_files/{timestamp}_{clean_name}{ext}"
+    return f"{folder or 'uploaded_files'}/{timestamp}_{clean_name}{ext}"
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +427,7 @@ async def upload_file(
         # Multipart upload
         data = await file.read()
         content_type = file.content_type or "application/octet-stream"
-        filename = _organize_filename(file.filename, content_type)
+        filename = file.filename
         uploaded_by = source or "human:user"
         network_id = network
     else:
@@ -447,6 +448,8 @@ async def upload_file(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, source)
+    filename = _organize_filename(filename, content_type, default_file_folder(db, workspace.id, _viewer, channel_name))
     # Save to storage backend (use basename for physical storage, full path for DB)
     file_id = str(uuid.uuid4())
     store = get_file_store()
@@ -565,7 +568,8 @@ async def upload_file_base64(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    organized_filename = _organize_filename(body.filename, body.content_type)
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    organized_filename = _organize_filename(body.filename, body.content_type, default_file_folder(db, workspace.id, _viewer, body.channel_name))
 
     file_id = str(uuid.uuid4())
     store = get_file_store()
@@ -695,7 +699,8 @@ async def upload_file_from_url(
         )
 
     filename = body.filename or (parsed.path.rsplit("/", 1)[-1] or "download")
-    organized_filename = _organize_filename(filename, content_type)
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    organized_filename = _organize_filename(filename, content_type, default_file_folder(db, workspace.id, _viewer, body.channel_name))
 
     file_id = str(uuid.uuid4())
     store = get_file_store()

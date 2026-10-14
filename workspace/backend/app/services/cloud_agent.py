@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.config import config
 from app.database import SessionLocal
-from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
+from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace, WorkspaceMember
 from app.services.cloud_providers import (
     audio_generation,
     chat_completion,
@@ -695,7 +695,14 @@ async def _upload_image(
 
     file_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"uploaded_files/{timestamp}_generated.{image_format}"
+    from app.services.personal_files import default_file_folder
+    from app.services.access_model import Principal
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.agent_name == agent_name,
+    )).scalar_one_or_none()
+    viewer = Principal("agent", agent_name=agent_name, owner_email=member.owner_email if member else None, workspace_id=workspace_id)
+    folder = default_file_folder(db, workspace_id, viewer, channel_target.removeprefix("channel/")) or "uploaded_files"
+    filename = f"{folder}/{timestamp}_generated.{image_format}"
     storage_name = f"{timestamp}_generated.{image_format}"
 
     store = get_file_store()
