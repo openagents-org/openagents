@@ -59,7 +59,9 @@ const {
   classifyQwenVersion,
   interpretQwenFrame,
   parseFrame,
+  parseQwenSettings,
   qwenSystemDefaultsSource,
+  qwenSystemSettingsSource,
   redactArgs,
   redactSecrets,
   resolveQwenCredentials,
@@ -100,6 +102,7 @@ class QwenCodeAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    this._usesPinnedContext = true;
     // channel → { sessionId, workingDir }
     this._channelSessions = {};
     // channel → child process (the in-flight headless run)
@@ -558,6 +561,27 @@ class QwenCodeAdapter extends BaseAdapter {
     }
   }
 
+  /** Keep saved modelProviders from redirecting this run's explicit credentials. */
+  _writeRunSettings() {
+    const source = qwenSystemSettingsSource(this.agentEnv);
+    let existing = {};
+    if (fs.existsSync(source)) {
+      try {
+        existing = parseQwenSettings(fs.readFileSync(source, 'utf-8'));
+      } catch {
+        throw new Error(`Cannot read system settings as JSON: ${source}`);
+      }
+    }
+    // System settings outrank user/project settings. null clears the map;
+    // an empty object would merge the saved providers back into this run.
+    const settings = { ...existing, modelProviders: null };
+    const dir = path.join(os.homedir(), '.openagents', 'qwen-code', 'run-settings');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    fs.writeFileSync(file, JSON.stringify(settings), { mode: 0o600 });
+    return file;
+  }
+
   // ------------------------------------------------------------------
   // Workspace MCP server
   // ------------------------------------------------------------------
@@ -821,9 +845,11 @@ class QwenCodeAdapter extends BaseAdapter {
       // seen on macOS); unhandled, that would take the daemon down.
       proc.stdout.on('error', () => {});
       proc.stderr.on('error', () => {});
+      proc.stdout.setEncoding('utf8');
+      proc.stderr.setEncoding('utf8');
 
       proc.stdout.on('data', (chunk) => {
-        stdoutBuf += chunk.toString('utf-8');
+        stdoutBuf += chunk;
         let nl;
         while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
           const line = stdoutBuf.slice(0, nl);
@@ -834,7 +860,7 @@ class QwenCodeAdapter extends BaseAdapter {
 
       proc.stderr.on('data', (chunk) => {
         // Bounded: a long run must not grow it without limit.
-        stderrBuf = truncate(stderrBuf + chunk.toString('utf-8'), 8000);
+        stderrBuf = truncate(stderrBuf + chunk, 8000);
       });
 
       proc.on('error', (e) => {
@@ -954,6 +980,7 @@ class QwenCodeAdapter extends BaseAdapter {
       model: creds.model || null,
       browserEnabled: await this.getBrowserEnabled(),
       toolMode: 'mcp',
+      ...this.pinnedPromptOpts(channel),
     });
 
     const env = buildQwenChildEnv(getEnhancedEnv(this.agentEnv), {
@@ -974,6 +1001,14 @@ class QwenCodeAdapter extends BaseAdapter {
         if (recap) prompt = `${recap}\n\n---\n\n${content}`;
       }
 
+      let runSettingsPath;
+      try {
+        if (creds.apiKey) runSettingsPath = this._writeRunSettings();
+      } catch (e) {
+        await this.sendError(channel, `Could not prepare Qwen Code settings: ${redactSecrets(e.message)}`);
+        return;
+      }
+
       const mcpConfigPath = this._writeMcpConfig(channel);
       const args = buildQwenArgs({
         appendSystemPrompt: systemPrompt,
@@ -986,9 +1021,22 @@ class QwenCodeAdapter extends BaseAdapter {
 
       let run;
       try {
-        run = await this._runQwen(channel, bin, args, workingDir, prompt, env);
+        const runEnv = runSettingsPath
+          ? {
+            ...env,
+            QWEN_CODE_SYSTEM_SETTINGS_PATH: runSettingsPath,
+            QWEN_CODE_SYSTEM_DEFAULTS_PATH: env.QWEN_CODE_SYSTEM_DEFAULTS_PATH
+              || qwenSystemDefaultsSource(this.agentEnv),
+          } : env;
+        run = await this._runQwen(channel, bin, args, workingDir, prompt, runEnv);
       } finally {
         if (mcpConfigPath) { try { fs.unlinkSync(mcpConfigPath); } catch {} }
+        if (runSettingsPath) {
+          // Older CLIs back up the settings file before migrating it.
+          for (const file of [runSettingsPath, `${runSettingsPath}.orig`]) {
+            try { fs.unlinkSync(file); } catch {}
+          }
+        }
       }
 
       if (run.userStopped) {

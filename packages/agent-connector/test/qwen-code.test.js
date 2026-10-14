@@ -48,11 +48,14 @@ process.stdin.on('data', (c) => { stdin += c; });
 process.stdin.on('end', () => {
   if (process.env.FAKE_CAPTURE) {
     const pick = (k) => process.env[k] === undefined ? null : process.env[k];
-    fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ args, stdin, cwd: process.cwd(), env: {
+    const settingsPath = process.env.QWEN_CODE_SYSTEM_SETTINGS_PATH;
+    const settings = settingsPath ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : null;
+    fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ args, stdin, cwd: process.cwd(), settings, env: {
       OPENAI_API_KEY: pick('OPENAI_API_KEY'),
       OPENAI_BASE_URL: pick('OPENAI_BASE_URL'),
       OPENAI_MODEL: pick('OPENAI_MODEL'),
       QWEN_CODE_SYSTEM_DEFAULTS_PATH: pick('QWEN_CODE_SYSTEM_DEFAULTS_PATH'),
+      QWEN_CODE_SYSTEM_SETTINGS_PATH: pick('QWEN_CODE_SYSTEM_SETTINGS_PATH'),
       QWEN_CODE_SUPPRESS_YOLO_WARNING: pick('QWEN_CODE_SUPPRESS_YOLO_WARNING'),
     } }));
   }
@@ -88,6 +91,22 @@ process.stdin.on('end', () => {
     say({ type: 'text', text: msg });
     result({ subtype: 'error_during_execution', is_error: true, error: { message: msg } });
     process.exit(1);
+  }
+  if (scenario === 'legacy_auth') {
+    init();
+    const msg = '[API Error: 401 Incorrect API key provided.]';
+    say({ type: 'text', text: msg });
+    result({ subtype: 'success', is_error: false, result: msg });
+    process.exit(0);
+  }
+  if (scenario === 'split_unicode') {
+    init();
+    const bytes = Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false,
+      session_id: sid, result: '你好，世界 🌍' }) + '\\n');
+    const split = bytes.indexOf(Buffer.from('好')) + 1;
+    process.stdout.write(bytes.subarray(0, split));
+    setTimeout(() => { process.stdout.write(bytes.subarray(split)); process.exit(0); }, 50);
+    return;
   }
   if (scenario === 'stale_resume') {
     if (resumeAt >= 0) {
@@ -344,6 +363,21 @@ describe('QwenCodeAdapter — replies', () => {
     assert.match(a._captured.error[0], /Incorrect API key provided/);
   });
 
+  it('reports a legacy CLI auth error even when its result and exit code say success', async () => {
+    const a = makeAdapter({ scenario: 'legacy_auth' });
+    await send(a);
+    assert.deepEqual(a._captured.response, []);
+    assert.deepEqual(a._captured.thinking, []);
+    assert.equal(a._captured.error.length, 1);
+    assert.match(a._captured.error[0], /rejected the API key/);
+  });
+
+  it('preserves UTF-8 characters split across stdout chunks', async () => {
+    const a = makeAdapter({ scenario: 'split_unicode' });
+    await send(a);
+    assert.deepEqual(a._captured.response, ['你好，世界 🌍']);
+  });
+
   it('falls back to the streamed text when a clean run summarizes nothing', async () => {
     const a = makeAdapter({ scenario: 'empty_result' });
     await send(a);
@@ -355,6 +389,32 @@ describe('QwenCodeAdapter — replies', () => {
     await send(a);
     assert.deepEqual(a._captured.response, ['Survived.']);
     assert.ok(a._captured.logs.some((l) => l.includes('brand_new_frame')));
+  });
+});
+
+describe('QwenCodeAdapter — pinned channel context', () => {
+  it('refreshes decisions and glossary in the system prompt on a resumed turn', async () => {
+    const a = makeAdapter();
+    const entries = [
+      { id: 'decisions-id', title: 'Decisions for channel thread', content: 'Use endpoint A.' },
+      { id: 'glossary-id', title: 'Glossary for channel thread', content: 'Widget means a local task.' },
+    ];
+    a.client.listKnowledge = async () => ({ entries });
+    a.client.getKnowledge = async (_ws, _token, id) => entries.find((e) => e.id === id);
+
+    await a._channelWorker('thread', { content: 'first turn', sessionId: 'thread' });
+    const first = argAfter(readCapture(a), '--append-system-prompt');
+    assert.ok(first.includes('Use endpoint A.'));
+    assert.ok(first.includes('Widget means a local task.'));
+    assert.ok(first.includes('decisions-id'));
+
+    entries[0].content = 'Use endpoint B.';
+    await a._channelWorker('thread', { content: 'next turn', sessionId: 'thread' });
+    const cap = readCapture(a);
+    const next = argAfter(cap, '--append-system-prompt');
+    assert.equal(argAfter(cap, '--resume'), 'sess-abc');
+    assert.ok(next.includes('Use endpoint B.'));
+    assert.ok(!next.includes('Use endpoint A.'));
   });
 });
 
@@ -476,6 +536,52 @@ describe('QwenCodeAdapter — binary resolution', () => {
 });
 
 describe('QwenCodeAdapter — settings layer file', () => {
+  it('preserves system settings while isolating explicit credentials for one run', async () => {
+    const admin = path.join(tmpRoot, 'system-policy.json');
+    const original = '{ // machine policy\n"tools":{"exclude":["web_search"]},"modelProviders":{"openai":[]}\n}';
+    fs.writeFileSync(admin, original);
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: 'agent-key', QWEN_CODE_SYSTEM_SETTINGS_PATH: admin } });
+    await send(a);
+    const cap = readCapture(a);
+    assert.deepEqual(cap.settings, { tools: { exclude: ['web_search'] }, modelProviders: null });
+    assert.notEqual(cap.env.QWEN_CODE_SYSTEM_SETTINGS_PATH, admin);
+    assert.equal(fs.existsSync(cap.env.QWEN_CODE_SYSTEM_SETTINGS_PATH), false);
+    assert.equal(fs.readFileSync(admin, 'utf8'), original);
+  });
+
+  it('leaves a keyless run on the original system settings file', async () => {
+    const admin = path.join(tmpRoot, 'keyless-system.json');
+    const settings = { modelProviders: { openai: [{ id: 'saved-model' }] } };
+    fs.writeFileSync(admin, JSON.stringify(settings));
+    const a = makeAdapter({ agentEnv: { QWEN_CODE_SYSTEM_SETTINGS_PATH: admin } });
+    await send(a);
+    const cap = readCapture(a);
+    assert.equal(cap.env.QWEN_CODE_SYSTEM_SETTINGS_PATH, admin);
+    assert.deepEqual(cap.settings, settings);
+    assert.ok(fs.existsSync(admin));
+  });
+
+  it('refuses to run if system settings cannot be preserved safely', async () => {
+    const admin = path.join(tmpRoot, 'invalid-system.json');
+    fs.writeFileSync(admin, '{ invalid json');
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: 'agent-key', QWEN_CODE_SYSTEM_SETTINGS_PATH: admin } });
+    await send(a);
+    assert.equal(fs.existsSync(capturePath), false);
+    assert.deepEqual(a._captured.response, []);
+    assert.match(a._captured.error[0], /Could not prepare Qwen Code settings/);
+  });
+
+  it('keeps the original system-defaults lookup when its overlay cannot be written', async () => {
+    const admin = path.join(tmpRoot, 'policy', 'settings.json');
+    fs.mkdirSync(path.dirname(admin), { recursive: true });
+    fs.writeFileSync(admin, '{}');
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: 'agent-key', QWEN_CODE_SYSTEM_SETTINGS_PATH: admin } });
+    a._writeSystemDefaults = () => null;
+    await send(a);
+    assert.equal(readCapture(a).env.QWEN_CODE_SYSTEM_DEFAULTS_PATH,
+      path.join(tmpRoot, 'policy', 'system-defaults.json'));
+  });
+
   it('merges a machine-wide system-defaults file instead of replacing it', () => {
     const a = makeAdapter();
     delete a._writeSystemDefaults;

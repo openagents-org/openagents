@@ -16,7 +16,9 @@
  *      The answer is `result.result`; assistant frames only drive the ticker.
  *   2. A FAILED RUN STILL WRITES A RESULT FRAME. Model and auth errors arrive
  *      as `result` with `is_error: true` and `error.message`, exit code 1, and
- *      nothing on stderr. The same error is ALSO streamed first as assistant
+ *      nothing on stderr in 0.25.1. 0.16.0 instead wraps an API error in a
+ *      successful result and exits 0; that result is normalized below.
+ *      The same error is ALSO streamed first as assistant
  *      text ("[API Error: 401 …]"), which must not be mistaken for an answer.
  *      Exit 130 is a SIGINT/SIGTERM stop (no result frame), 53 a turn cap and
  *      55 a budget abort.
@@ -205,7 +207,8 @@ function resolveQwenCredentials(agentEnv = {}, workspaceModel = '') {
  * another tool can leak in. A blank base URL becomes Model Studio only for the
  * agent's own key: a key that came from OPENAI_* in the environment was
  * exported for some other tool, most likely for api.openai.com, and must never
- * be sent to a different provider by default — it keeps the CLI's own default.
+ * be sent to a different provider by default — it explicitly uses OpenAI's
+ * default so saved settings cannot redirect that key either.
  * Without a key, the environment is left alone for the CLI's own settings.
  *
  * @param {object} baseEnv  the agent's full environment (process env included)
@@ -218,9 +221,8 @@ function buildQwenChildEnv(baseEnv = {}, { creds = {}, defaultsPath = '' } = {})
   const env = { ...baseEnv };
   if (creds.apiKey) {
     env.OPENAI_API_KEY = creds.apiKey;
-    const baseUrl = creds.baseUrl || (creds.source === 'agent' ? QWEN_DEFAULT_BASE_URL : '');
-    if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
-    else delete env.OPENAI_BASE_URL;
+    env.OPENAI_BASE_URL = creds.baseUrl || (creds.source === 'agent'
+      ? QWEN_DEFAULT_BASE_URL : 'https://api.openai.com/v1');
     if (creds.model) env.OPENAI_MODEL = creds.model;
     else delete env.OPENAI_MODEL;
   }
@@ -312,13 +314,28 @@ function sameQwenSettings(onDisk, desired) {
 function qwenSystemDefaultsSource(env = {}, platform = process.platform) {
   const explicit = String(env.QWEN_CODE_SYSTEM_DEFAULTS_PATH || '').trim();
   if (explicit) return explicit;
-  const settings = String(env.QWEN_CODE_SYSTEM_SETTINGS_PATH || '').trim()
-    || (platform === 'darwin' ? '/Library/Application Support/QwenCode/settings.json'
-      : platform === 'win32' ? 'C:\\ProgramData\\qwen-code\\settings.json'
-        : '/etc/qwen-code/settings.json');
+  const settings = qwenSystemSettingsSource(env, platform);
   const sep = platform === 'win32' ? '\\' : '/';
   const cut = Math.max(settings.lastIndexOf('/'), settings.lastIndexOf('\\'));
   return (cut >= 0 ? settings.slice(0, cut) : '.') + sep + 'system-defaults.json';
+}
+
+function qwenSystemSettingsSource(env = {}, platform = process.platform) {
+  return String(env.QWEN_CODE_SYSTEM_SETTINGS_PATH || '').trim()
+    || (platform === 'darwin' ? '/Library/Application Support/QwenCode/settings.json'
+      : platform === 'win32' ? 'C:\\ProgramData\\qwen-code\\settings.json'
+        : '/etc/qwen-code/settings.json');
+}
+
+/** Match Qwen's settings reader: JSON with comments and an optional UTF-8 BOM. */
+function parseQwenSettings(source) {
+  const json = String(source).replace(/^\uFEFF/, '').replace(
+    /"(?:\\.|[^"\\])*"|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
+    (token) => token.startsWith('"') ? token : token.replace(/[^\r\n]/g, ' '),
+  );
+  const settings = JSON.parse(json);
+  if (!isPlainObject(settings)) throw new SyntaxError('Expected a settings object.');
+  return settings;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,14 +483,18 @@ function interpretQwenFrame(frame) {
 
   if (frame.type === 'result') {
     const err = frame.error && typeof frame.error === 'object' ? frame.error : null;
+    const text = typeof frame.result === 'string' ? frame.result : '';
+    // 0.16.0 wraps provider failures in a success result and exits 0.
+    const legacyError = frame.is_error !== true && API_ERROR_TEXT_RE.test(text.trim())
+      ? redactSecrets(text) : '';
     return {
       kind: 'result',
       subtype: typeof frame.subtype === 'string' ? frame.subtype : '',
-      isError: frame.is_error === true,
+      isError: frame.is_error === true || !!legacyError,
       // `result` is present on success and absent on failure; always a string
       // here so callers never have to guard it.
-      text: typeof frame.result === 'string' ? frame.result : '',
-      errorMessage: err && typeof err.message === 'string' ? redactSecrets(err.message) : '',
+      text: legacyError ? '' : text,
+      errorMessage: err && typeof err.message === 'string' ? redactSecrets(err.message) : legacyError,
       sessionId: typeof frame.session_id === 'string' ? frame.session_id : null,
       numTurns: Number.isFinite(frame.num_turns) ? frame.num_turns : null,
       durationMs: Number.isFinite(frame.duration_ms) ? frame.duration_ms : null,
@@ -691,6 +712,8 @@ module.exports = {
   buildQwenSystemDefaults,
   sameQwenSettings,
   qwenSystemDefaultsSource,
+  qwenSystemSettingsSource,
+  parseQwenSettings,
   buildQwenArgs,
   parseFrame,
   toolInputPreview,

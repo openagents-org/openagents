@@ -27,6 +27,10 @@ with tool results, and one closing `result` frame. The reply is read from
 `result.result`. Assistant text and tool calls only drive the channel's
 progress ticker.
 
+Older supported releases such as 0.16.0 put `[API Error: ...]` in a successful
+`result` and exit 0. The adapter recognizes that form as a failure too, so an
+authentication or model error is never posted as a completed answer.
+
 Workspace tools (`workspace_read_file`, the shared browser, todos, …) come
 through the same stdio MCP server the Claude adapter uses, so the briefing is
 the same one too. Qwen Code defers MCP tools. The model looks one up with
@@ -39,6 +43,9 @@ frame, is stored with the working directory, and is passed back with
 session ran in, so a session is only resumed from that same directory. If the
 CLI answers a resume with "No saved session found", the binding is dropped and
 the turn runs once more from scratch.
+
+The channel's decision log and glossary are refreshed before each turn and
+pinned into the system prompt, including resumed turns and fresh sessions.
 
 ## Authentication
 
@@ -87,6 +94,17 @@ form, or all three from `OPENAI_*`. They are never mixed. Otherwise a blank
 form base URL would pick up an `OPENAI_BASE_URL` exported for some other tool
 and send the Qwen key there.
 
+Saved Qwen `modelProviders` take precedence even over CLI arguments. When an
+explicit key is supplied, a private per-run system-settings file clears that
+provider map so the key and endpoint above stay together. Other machine-wide
+system settings are preserved, and the temporary file is deleted after the
+run. If the original system-settings file exists but cannot be read as JSONC,
+the adapter reports an error before starting the CLI. User and project
+settings files are not rewritten by the adapter.
+
+An `OPENAI_API_KEY` with no `OPENAI_BASE_URL` explicitly uses
+`https://api.openai.com/v1`, so a saved endpoint cannot redirect that key.
+
 When the agent has no key at all, nothing is overridden and the CLI's own
 `~/.qwen/settings.json` decides. A provider set up with `/auth` in an
 interactive session still works that way.
@@ -105,8 +123,9 @@ project's `.qwen/settings.json` still override it.
 | `memory.enableManagedAutoDream` | `false` | Background memory consolidation, same reason. |
 | `general.enableAutoUpdate` | `false` | A self-update would replace the CLI, and the stream format the adapter parses, in the middle of a run. |
 
-Nothing else is changed. Settings a headless run does not depend on, such as
-usage statistics, are left to the user.
+The separate per-run system-settings file only overrides `modelProviders`
+when an explicit key is supplied. Settings a headless run does not depend on,
+such as usage statistics, are left to the user.
 
 The CLI writes a `"$version"` stamp back into this file the first time it
 loads it. The adapter treats that stamp as no change, so the file is written
@@ -171,6 +190,7 @@ command-line limit. A standalone install runs on the Node it ships with.
 | `~/.openagents/sessions/<workspace>_<agent>_qwen-code.json` | The CLI session id per channel, and the working directory it was created in. |
 | `~/.openagents/mcp-configs/qwen-code-*.json` | The workspace MCP config for one run. Written `0600` and deleted when the run ends, because it carries the workspace token. |
 | `~/.openagents/qwen-code/system-defaults.json` | The settings layer described above. |
+| `~/.openagents/qwen-code/run-settings/*.json` | Private per-run settings that isolate explicit credentials from saved providers; deleted with any CLI migration backup when the run ends. |
 | `~/.qwen/projects/<dir>/chats/<session>.jsonl` | Qwen Code's own transcripts (`$QWEN_HOME` if set). |
 
 ## Troubleshooting

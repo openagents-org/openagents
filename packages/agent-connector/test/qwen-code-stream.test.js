@@ -14,6 +14,7 @@ const {
   classifyQwenVersion,
   interpretQwenFrame,
   parseFrame,
+  parseQwenSettings,
   qwenSystemDefaultsSource,
   redactArgs,
   sameQwenSettings,
@@ -76,7 +77,7 @@ describe('qwen-code credentials', () => {
     // blank base URL at DashScope would hand it to a third party.
     const c = resolveQwenCredentials({ OPENAI_API_KEY: 'sk-openai-key-123456' });
     const env = buildQwenChildEnv({ OPENAI_API_KEY: 'sk-openai-key-123456' }, { creds: c });
-    assert.equal(env.OPENAI_BASE_URL, undefined);
+    assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1');
   });
 
   it("puts the workspace's model picker ahead of the configured model", () => {
@@ -103,6 +104,22 @@ describe('qwen-code credentials', () => {
 });
 
 describe('qwen-code settings layer', () => {
+  it('reads JSONC settings without treating quoted URLs or escaped quotes as comments', () => {
+    const source = '\uFEFF{ // system policy\n' +
+      '"url": "https://example.com/path/*literal*/", /* keep URL */\n' +
+      '"label": "say \\"hello\\" // literal",\n' +
+      '"tools": {"exclude": ["web_search"]}\n}';
+    assert.deepEqual(parseQwenSettings(source), {
+      url: 'https://example.com/path/*literal*/',
+      label: 'say "hello" // literal',
+      tools: { exclude: ['web_search'] },
+    });
+    assert.throws(() => parseQwenSettings('{"value":1/* comment */2}'), SyntaxError);
+    assert.throws(() => parseQwenSettings('{"value":1,}'), SyntaxError);
+    assert.throws(() => parseQwenSettings('null'), SyntaxError);
+    assert.throws(() => parseQwenSettings('[]'), SyntaxError);
+  });
+
   it('turns off auto-memory and self-update', () => {
     const d = buildQwenSystemDefaults(null);
     assert.equal(d.memory.enableManagedAutoMemory, false);
@@ -239,6 +256,19 @@ describe('qwen-code frames', () => {
     assert.equal(bad.isError, true);
     assert.equal(bad.text, '');
     assert.match(bad.errorMessage, /404/);
+  });
+
+  it('normalizes API errors wrapped as successful results by Qwen Code 0.16.0', () => {
+    for (const [message, kind] of [
+      ['[API Error: 401 Incorrect API key provided.]', 'auth'],
+      ['[API Error: 404 The model does not exist.]', 'model'],
+    ]) {
+      const result = interpretQwenFrame({ type: 'result', subtype: 'success', is_error: false, result: message });
+      assert.equal(result.isError, true);
+      assert.equal(result.text, '');
+      assert.equal(result.errorMessage, message);
+      assert.equal(classifyQwenRun({ result, code: 0 }).kind, kind);
+    }
   });
 
   it('flags a frame type it has never seen', () => {
