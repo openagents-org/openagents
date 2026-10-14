@@ -399,6 +399,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       </div>
       </>}
       <IssueEditor
+        agentsOnly={showWork}
         open={createOpen}
         onOpenChange={setCreateOpen}
         onSaved={(issue) => {

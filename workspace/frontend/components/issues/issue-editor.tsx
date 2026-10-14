@@ -8,6 +8,7 @@ import type { WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AttachmentPicker, KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
+import { IssueAssigneePicker } from './issue-assignee-picker';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
 import {
@@ -26,10 +27,12 @@ export function IssueEditor({
   onOpenChange,
   issue,
   onSaved,
+  agentsOnly = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   issue?: WorkspaceIssue;
+  agentsOnly?: boolean;
   onSaved: (issue: WorkspaceIssue) => void;
 }) {
   const t = useT();
@@ -59,7 +62,7 @@ export function IssueEditor({
   }, [open, issue?.id]);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || uploading) return;
+    if (busy || uploading || (agentsOnly && !ownAgents.some(a => `openagents:${a.agentName}` === assignee))) return;
     setBusy(true);
     setError('');
     try {
@@ -132,14 +135,13 @@ export function IssueEditor({
             </div>
             {!issue && (
               <div className="space-y-3 border-t border-border/60 pt-4">
-                <label className="block space-y-2 text-xs font-medium text-muted-foreground">
-                  <span>{t('issues.assignee')}</span>
-                  <select aria-label={t('issues.assignee')} className={cn(selectClass, 'w-full')} value={assignee} disabled={busy} onChange={e => setAssignee(e.target.value)}>
-                    <option value="">{t('issues.unassigned')}</option>
-                    {mentions.filter(m => m.kind === 'human').map(m => <option key={m.source} value={m.source}>{m.name}</option>)}
-                    {ownAgents.map(a => <option key={a.agentName} value={`openagents:${a.agentName}`}>{a.displayName || a.agentName}</option>)}
-                  </select>
-                </label>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">{t('issues.assignee')}</p>
+                  <IssueAssigneePicker value={assignee} onChange={setAssignee} disabled={busy} agentsOnly={agentsOnly} choices={[
+                    ...mentions.filter(m => m.kind === 'human').map(m => ({ id: m.source, name: m.name })),
+                    ...ownAgents.map(a => ({ id: `openagents:${a.agentName}`, name: a.displayName || a.agentName })),
+                  ]} />
+                </div>
                 {assignee.startsWith('openagents:') && (
                   <fieldset disabled={busy} className="space-y-3">
                     <p className="text-xs text-muted-foreground">{t('issues.assignmentRunHint')}</p>
@@ -200,7 +202,7 @@ export function IssueEditor({
                 size="sm"
                 variant="mono"
                 type="submit"
-                disabled={busy || uploading || !title.trim()}
+                disabled={busy || uploading || !title.trim() || (agentsOnly && !ownAgents.some(a => `openagents:${a.agentName}` === assignee))}
               >
                 {t(
                   busy

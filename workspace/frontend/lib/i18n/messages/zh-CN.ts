@@ -99,6 +99,10 @@ export const messages: Messages = {
   },
 
   issues: {
+    chooseAgent: '选择智能体',
+    searchAgents: '搜索你的智能体…',
+    people: '成员',
+    yourAgents: '你的智能体',
     assignmentRunHint: '将准备智能体工作，您可以稍后手动启动。',
     attachmentAudience: '附件将共享给所有可以查看此议题的成员。',
     searchAssignees: "搜索成员或你的智能体…", noAssignees: "没有匹配的负责人", labelName: "标签名称",

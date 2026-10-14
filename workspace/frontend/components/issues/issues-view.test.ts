@@ -132,7 +132,8 @@ beforeEach(() => {
   mocks.ws.knowledge = [];
   vi.useFakeTimers();
   vi.clearAllMocks();
-  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} unobserve() {} disconnect() {} } });
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   window.history.replaceState(null, '', '/workspace-1?token=private-token');
   mocks.ws.agents = [];
   mocks.api.getTeam.mockResolvedValue([]);
@@ -411,13 +412,13 @@ it('creates assigned agent work with knowledge and waits for attachments to uplo
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
   await click(button('New issue'));
   await fill(host.querySelector('input[required]')!, 'Review evidence');
-  const select = host.querySelector('select[aria-label="Assignee"]')! as HTMLSelectElement;
-  expect(select.textContent).not.toContain('Other agent');
+  await click(host.querySelector('button[aria-label="Assignee"]')!);
+  expect(document.querySelector('[cmdk-list]')?.textContent).not.toContain('Other agent');
   expect(host.textContent).not.toContain('Support guide');
-  await act(async () => {
-    select.value = 'openagents:research-agent';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  expect(document.querySelector('[cmdk-list]')?.textContent).toContain('Your agents');
+  const search = document.querySelector('input[cmdk-input]')! as HTMLInputElement;
+  await fill(search, 'Research');
+  await click(document.querySelector('[cmdk-item][data-value="openagents:research-agent"]')!);
   await click(Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes('Support guide'))!);
   let finish!: (value: unknown) => void;
   mocks.api.uploadFile.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
@@ -448,4 +449,25 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   await openIssue();
   expect(host.querySelector('a[href="/workspace-1/files/file-1"]')?.textContent).toBe('evidence.txt');
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
+});
+
+it('requires an agent assignment when creating from Agent work and supports keyboard selection', async () => {
+  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' }];
+  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  await click(button('New issue'));
+  await fill(host.querySelector('input[required]')!, 'Agent investigation');
+  expect(button('Create issue').disabled).toBe(true);
+  await click(host.querySelector('button[aria-label="Assignee"]')!);
+  const list = document.querySelector('[cmdk-list]')!;
+  expect(list.textContent).toContain('Your agents');
+  expect(list.textContent).not.toContain('Alice');
+  expect(list.textContent).not.toContain('Unassigned');
+  const search = document.querySelector('input[cmdk-input]')! as HTMLInputElement;
+  await fill(search, 'Research');
+  await act(async () => { search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+  expect(document.querySelector('[cmdk-list]')).toBeNull();
+  expect(mocks.api.createIssue).not.toHaveBeenCalled();
+  expect(button('Create issue').disabled).toBe(false);
+  await click(button('Create issue'));
+  expect(mocks.api.createIssue).toHaveBeenCalledWith(expect.objectContaining({ assignee: 'openagents:research-agent' }));
 });

@@ -106,6 +106,10 @@ export const messages = {
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   issues: {
+    chooseAgent: 'Choose an agent',
+    searchAgents: 'Search your agents…',
+    people: 'People',
+    yourAgents: 'Your agents',
     assignmentRunHint: 'Agent work will be prepared. Start it when you’re ready.',
     attachmentAudience: 'Attachments are shared with everyone who can view this issue.',
     searchAssignees: "Search people or your agents…", noAssignees: "No matching assignees", labelName: "Label name",
