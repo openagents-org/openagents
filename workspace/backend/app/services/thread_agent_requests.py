@@ -75,7 +75,15 @@ def shared_agent_names(db, workspace_id):
 
 def issue_for_work(db, channel):
     from app.models import Issue, IssueThread
-    if not channel or not channel.name.startswith("issue-work-"):
+    if not channel:
+        return None
+    if channel.name.startswith("task:"):
+        from app.models import KanbanTask
+        return db.execute(select(Issue).join(KanbanTask, KanbanTask.issue_id == Issue.id)
+            .where(KanbanTask.channel_name == channel.name,
+                   KanbanTask.workspace_id == channel.workspace_id,
+                   Issue.workspace_id == channel.workspace_id)).scalars().first()
+    if not channel.name.startswith("issue-work-"):
         return None
     return db.execute(select(Issue).join(IssueThread, IssueThread.issue_id == Issue.id)
         .where(IssueThread.channel_id == channel.id, Issue.workspace_id == channel.workspace_id)).scalars().first()

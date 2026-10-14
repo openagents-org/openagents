@@ -1736,6 +1736,7 @@ class WorkspaceApi {
   }
 
   async createTask(input: {
+    issueId?: string;
     title: string;
     description?: string;
     status?: KanbanTask['status'];
@@ -1749,6 +1750,7 @@ class WorkspaceApi {
       body: JSON.stringify({
         network: this.workspaceId,
         source: 'human:user',
+        ...(input.issueId ? { issue_id: input.issueId } : {}),
         title: input.title,
         description: input.description ?? '',
         status: input.status ?? 'backlog',

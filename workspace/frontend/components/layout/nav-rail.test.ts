@@ -37,8 +37,9 @@ it('shows workspace navigation to a member with no owned agents without adding s
   const root = createRoot(host);
   try {
     await act(async () => root.render(React.createElement(NavRail)));
-    for (const label of ['views.files', 'views.knowledge', 'views.tasks', 'views.inbox', 'collab.viewAgents']) expect(host.textContent).toContain(label);
+    for (const label of ['views.files', 'views.knowledge', 'views.issues', 'views.inbox', 'collab.viewAgents']) expect(host.textContent).toContain(label);
     expect(host.textContent).not.toContain('shared');
+    expect(host.textContent).not.toContain('views.tasks');
     const services = [...host.querySelectorAll('button')].find(b => b.textContent === 'collab.viewAgents')!;
     await act(async () => services.click());
     expect(state.openView).toHaveBeenCalledWith('agents');

@@ -5,6 +5,7 @@ import type { Messages } from './en-US';
  * one that no longer exists in English — fails the build.
  */
 export const messages: Messages = {
+  issueWork: {"edit": "编辑智能体工作", "delete": "删除智能体工作","threads": "关联会话","add": "添加智能体工作", "setupHint": "为此议题准备智能体或工作流。点击运行后才会开始执行。", "hint": "在此跟踪智能体进度。运行完成不会自动关闭议题。", "empty": "暂无运行。可添加智能体或工作流，或在讨论中提及智能体。", "openIssue": "打开议题", "runs": "运行记录", "back": "返回议题"},
   messageAgentAccess: {"owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请共享 {agent}。批准后，你可以与该智能体私聊并将其加入讨论。已有的私人对话仍然保持私密。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
   artifactPanel: {

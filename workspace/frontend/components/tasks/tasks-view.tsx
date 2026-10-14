@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  KanbanSquare,
   Plus,
-  RefreshCw,
   Trash2,
   Pencil,
   UserPlus,
@@ -19,8 +17,6 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
-import { DetailHeader } from '@/components/layout/app-header';
-import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
@@ -38,7 +34,7 @@ import { TaskChatPopup } from './task-chat-popup';
 
 // ── Card ──────────────────────────────────────────────────────────────────
 
-function TaskCard({
+export function TaskCard({
   task,
   onSetAssignee,
   onRun,
@@ -72,7 +68,7 @@ function TaskCard({
   return (
     <div
       onClick={openable ? onOpenChat : isBacklog ? onEdit : undefined}
-      title={openable ? t('tasks.openChat') : isBacklog ? t('tasks.editTaskTitle') : undefined}
+      title={openable ? t('tasks.openChat') : isBacklog ? t('issueWork.edit') : undefined}
       className={cn(
         'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
         openable || isBacklog ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
@@ -96,7 +92,7 @@ function TaskCard({
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="-m-1 p-1 text-muted-foreground hover:text-foreground"
-              title={t('tasks.editTaskTitle')}
+              title={t('issueWork.edit')}
             >
               <Pencil className="size-3.5" />
             </button>
@@ -104,7 +100,7 @@ function TaskCard({
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
             className="-m-1 p-1 text-muted-foreground hover:text-rose-500"
-            title={t('tasks.deleteTask')}
+            title={t('issueWork.delete')}
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -329,11 +325,15 @@ function BoardColumn({
 
 // ── Board ─────────────────────────────────────────────────────────────────
 
-export function TasksView() {
-  const { tasks, refreshTasks, createTask, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
+export function TasksView({ onNewIssue, onOpenIssue }: { onNewIssue: () => void; onOpenIssue: (id: string) => void }) {
+  const { tasks, refreshTasks, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
   const t = useT();
 
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (action: () => Promise<unknown>) => {
+    setError('');
+    try { await action(); } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+  };
   const [editTask, setEditTask] = useState<KanbanTask | null>(null);
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
 
@@ -372,40 +372,23 @@ export function TasksView() {
 
   const renderCards = (items: KanbanTask[]) =>
     items.map((task) => (
+      <div key={task.id} className="space-y-1">
+      {task.issueId && <button className="text-xs text-muted-foreground hover:text-foreground hover:underline" onClick={() => onOpenIssue(task.issueId!)}>{t('issueWork.openIssue')}</button>}
       <TaskCard
-        key={task.id}
         task={task}
         onSetAssignee={(agent) => updateTask(task.id, { assignee: agent })}
-        onRun={() => runTask(task.id)}
-        onStop={() => stopTask(task.id)}
+        onRun={() => void act(() => runTask(task.id))}
+        onStop={() => void act(() => stopTask(task.id))}
         onOpenChat={() => setChatTask(task)}
         onEdit={() => setEditTask(task)}
         onDelete={() => deleteTask(task.id)}
       />
+      </div>
     ));
 
   return (
     <div className="h-full flex flex-col">
-      <DetailHeader
-        title={<>
-          <KanbanSquare className="size-4 text-foreground" />
-          <h2 className="text-sm font-semibold">{t('views.tasks')}</h2>
-        </>}
-      >
-        <Button size="sm" onClick={() => setNewTaskOpen(true)} className="gap-1.5">
-          <Plus className="size-3.5" />
-          {t('tasks.newTask')}
-        </Button>
-        <button
-          onClick={refreshTasks}
-          className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-        </button>
-      </DetailHeader>
-
-      <FeatureTourBanner feature="tasks" />
-
+      {error && <p role="alert" className="px-4 pt-3 text-sm text-destructive">{error}</p>}
       {/* Board — four equal columns in lifecycle order (Backlog → In Progress →
           Needs attention → Done). Stacks vertically on mobile with whole-board
           scroll; on ≥sm each column scrolls within a fixed height. */}
@@ -416,18 +399,18 @@ export function TasksView() {
             title={t('tasks.col.backlog')}
             count={backlog.length}
             canAdd
-            onAdd={() => setNewTaskOpen(true)}
+            onAdd={() => onNewIssue()}
             className="sm:flex-1 sm:min-w-0"
           >
             {/* The primary add affordance: a big, unmissable button that opens
                 the full create dialog (title/description/context/run-with). */}
             <Button
               size="lg"
-              onClick={() => setNewTaskOpen(true)}
+              onClick={() => onNewIssue()}
               className="w-full gap-1.5 shrink-0"
             >
               <Plus className="size-4" />
-              {t('tasks.newTask')}
+              {t('issues.newIssue')}
             </Button>
             {renderCards(backlog)}
           </BoardColumn>
@@ -468,17 +451,13 @@ export function TasksView() {
       </div>
 
       <NewTaskDialog
-        open={newTaskOpen || !!editTask}
+        open={!!editTask}
         onOpenChange={(o) => {
-          if (!o) { setNewTaskOpen(false); setEditTask(null); }
+          if (!o) { setEditTask(null); }
         }}
         task={editTask}
-        onSubmit={({ title, description, assignee, workflowId, knowledgeIds, fileIds }) => {
-          if (editTask) {
-            updateTask(editTask.id, { title, description, assignee, workflowId, knowledgeIds, fileIds });
-          } else {
-            createTask({ title, description, assignee, workflowId, knowledgeIds, fileIds, status: 'backlog' });
-          }
+        onSubmit={async (input) => {
+          if (editTask) await updateTask(editTask.id, input);
         }}
       />
 

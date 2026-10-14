@@ -1,5 +1,6 @@
 'use client';
 
+import { IssueWork } from './issue-work';
 import { resourcePath } from '@/lib/resource-link';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -323,6 +324,7 @@ export function IssueDiscussion({
                   </p>
                 )}
               </article>
+              <IssueWork issueId={id} title={issue.title} />
               <section aria-label={t('issues.discussion')}>
                 <div className="mb-6 flex items-center gap-2 border-b border-border/70 pb-3">
                   <MessageSquare className="size-3.5 text-muted-foreground" />
@@ -572,7 +574,7 @@ export function IssueDiscussion({
                 <section className="border-t border-border/60 pt-5">
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <h2 className="text-[11px] font-medium text-muted-foreground">
-                      {t('issues.agentWork')}
+                      {t('issueWork.threads')}
                       <span className="ml-2 tabular-nums">
                         {issue.threads.length || ''}
                       </span>

@@ -231,6 +231,7 @@ interface NewTaskDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Existing task to edit; null/undefined = create a new one. */
   task?: KanbanTask | null;
+  issueTitle?: string;
   onSubmit: (input: {
     title: string;
     description: string;
@@ -242,19 +243,21 @@ interface NewTaskDialogProps {
     knowledgeIds: string[];
     /** Workspace files attached (uploaded on pick). */
     fileIds: string[];
-  }) => void;
+  }) => void | Promise<unknown>;
 }
 
 // Radix Select reserves the empty string for "nothing selected", so the
 // unassigned choice needs its own sentinel value.
 const UNASSIGNED = '__unassigned__';
 
-export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDialogProps) {
+export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }: NewTaskDialogProps) {
   const t = useT();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const isEdit = !!task;
 
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [runWith, setRunWith] = useState<'agent' | 'workflow'>('agent');
@@ -265,7 +268,8 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
 
   useEffect(() => {
     if (open) {
-      setTitle(task?.title ?? '');
+      setError('');
+      setTitle(task?.title ?? issueTitle ?? '');
       setDescription(task?.description ?? '');
       setRunWith(task?.workflowId ? 'workflow' : 'agent');
       setAssignee(task?.assignee ?? UNASSIGNED);
@@ -275,30 +279,35 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
     }
   }, [open, task]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Description is the task; the title is an optional board label — when
     // empty, the backend derives a "first few words…" preview from the
     // description (and re-derives on edit).
-    if (!description.trim()) return;
-    onSubmit({
-      title: title.trim(),
-      description: description.trim(),
-      assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
-      workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
-      knowledgeIds,
-      fileIds,
-    });
-    onOpenChange(false);
+    if (!description.trim() || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
+        workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
+        knowledgeIds,
+        fileIds,
+      });
+      onOpenChange(false);
+    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader className="space-y-2 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">{t(isEdit ? 'tasks.editTaskTitle' : 'tasks.newTaskTitle')}</DialogTitle>
+          <DialogTitle className="text-xl">{t(isEdit ? 'issueWork.edit' : issueTitle ? 'issueWork.add' : 'tasks.newTaskTitle')}</DialogTitle>
           {!isEdit && (
             <DialogDescription className="text-sm leading-relaxed">
-              {t('tasks.newTaskDescription')}
+              {t(issueTitle ? 'issueWork.setupHint' : 'tasks.newTaskDescription')}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -386,12 +395,13 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
           </div>
         </DialogBody>
 
+        {error && <p role="alert" className="px-7 text-sm text-destructive">{error}</p>}
         <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
-          <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="min-w-24" disabled={saving} onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleSubmit} disabled={!description.trim()}>
-            {t(isEdit ? 'common.save' : 'tasks.create')}
+          <Button className="min-w-24" onClick={handleSubmit} disabled={saving || !description.trim()}>
+            {t(saving ? 'common.saving' : isEdit ? 'common.save' : 'tasks.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

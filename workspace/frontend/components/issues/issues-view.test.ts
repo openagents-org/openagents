@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messages } from '@/lib/i18n/messages/en-US';
 import { translate } from '@/lib/i18n/translate';
-import type { IssueDetail } from '@/lib/types';
+import type { IssueDetail, KanbanTask } from '@/lib/types';
 
 const mocks = vi.hoisted(() => ({
   ws: {
@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
     currentUser: { id: 'alice-id', name: 'Alice' },
     agents: [] as unknown[],
     sessions: [],
-    tasks: [],
+    tasks: [] as KanbanTask[],
+    workflows: [], knowledge: [], files: [],
+    createTask: vi.fn(), runTask: vi.fn(), updateTask: vi.fn(), stopTask: vi.fn(), deleteTask: vi.fn(),
     refreshTasks: vi.fn(),
   },
   api: {
@@ -125,6 +127,7 @@ async function openIssue() {
 }
 
 beforeEach(() => {
+  mocks.ws.tasks = [];
   vi.useFakeTimers();
   vi.clearAllMocks();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -352,4 +355,47 @@ it('searches the assignee picker and saves a selected person', async () => {
   await click(choice);
   expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ assignee: 'human:bob@example.com' }));
   expect(document.querySelector('input[aria-label="Search people or your agents…"]')).toBeNull();
+});
+
+
+it('prepares work within the issue without starting it', async () => {
+  mocks.ws.createTask.mockResolvedValue({ id: 'run-1' });
+  await openIssue();
+  await click(button('Add agent work'));
+  const dialog = host.querySelector('[role="dialog"]')!;
+  await fill(dialog.querySelector('textarea')!, 'Investigate the drop');
+  await click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Create')!);
+  expect(mocks.ws.createTask).toHaveBeenCalledWith(expect.objectContaining({ issueId: issue.id, title: issue.title, description: 'Investigate the drop', status: 'backlog' }));
+  expect(mocks.ws.runTask).not.toHaveBeenCalled();
+});
+
+it('runs linked work without changing the issue status', async () => {
+  mocks.ws.tasks = [{ id: 'run-1', issueId: issue.id, title: 'Investigate', description: '', status: 'backlog', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: null } as unknown as KanbanTask];
+  mocks.ws.runTask.mockResolvedValue(undefined);
+  await openIssue();
+  await click(button('Run'));
+  expect(mocks.ws.runTask).toHaveBeenCalledWith('run-1');
+  expect(mocks.api.updateIssue).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Completing a run does not close the issue');
+});
+
+it('keeps existing standalone work reachable inside Issues', async () => {
+  mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
+  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  expect(host.textContent).toContain('Existing task');
+  expect(host.textContent).toContain('New issue');
+  expect(host.textContent).not.toContain('New task');
+});
+
+
+it('keeps the work draft when preparing a run fails', async () => {
+  mocks.ws.createTask.mockRejectedValueOnce(new Error('Could not save work'));
+  await openIssue();
+  await click(button('Add agent work'));
+  const dialog = host.querySelector('[role="dialog"]')!;
+  await fill(dialog.querySelector('textarea')!, 'Keep my investigation notes');
+  await click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Create')!);
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(dialog.querySelector('textarea')!.value).toBe('Keep my investigation notes');
+  expect(dialog.textContent).toContain('Could not save work');
 });

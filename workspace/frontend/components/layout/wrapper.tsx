@@ -26,7 +26,6 @@ import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/conne
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { IssuesView } from '@/components/issues/issues-view';
-import { TasksView } from '@/components/tasks/tasks-view';
 import { WorkflowsView } from '@/components/workflows/workflows-view';
 import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
@@ -99,7 +98,7 @@ export function Wrapper() {
     const update = async () => {
       const url = new URL(window.location.href);
       const workspaceSlug = decodeURIComponent(url.pathname.split('/')[1]);
-      if (viewMode === 'issues') return;
+      if (viewMode === 'issues' || viewMode === 'tasks') return;
       if (viewMode === 'files' || viewMode === 'knowledge') {
         url.pathname = resourcePath(workspaceSlug, viewMode, viewMode === 'files' ? selectedFileId : selectedKnowledgeId);
       } else if (viewMode === 'threads' && currentSessionId) {
@@ -186,7 +185,7 @@ export function Wrapper() {
             <div className="h-full bg-background overflow-hidden"><IssuesView /></div>
           ) : viewMode === 'tasks' ? (
             <div className="h-full bg-background overflow-hidden">
-              <TasksView />
+              <IssuesView initialWork />
             </div>
           ) : viewMode === 'workflows' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -329,7 +328,7 @@ export function Wrapper() {
               {visitedViews.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserView /></Activity>}
               {visitedViews.current.has('connect') && <Activity mode={viewMode === 'connect' ? 'visible' : 'hidden'}><ConnectAgentView /></Activity>}
               {visitedViews.current.has('issues') && <Activity mode={viewMode === 'issues' ? 'visible' : 'hidden'}><IssuesView /></Activity>}
-              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><TasksView /></Activity>}
+              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><IssuesView initialWork /></Activity>}
               {visitedViews.current.has('workflows') && <Activity mode={viewMode === 'workflows' ? 'visible' : 'hidden'}><WorkflowsView /></Activity>}
               {visitedViews.current.has('inbox') && <Activity mode={viewMode === 'inbox' ? 'visible' : 'hidden'}><InboxView /></Activity>}
               {visitedViews.current.has('skills') && <Activity mode={viewMode === 'skills' ? 'visible' : 'hidden'}><SkillsView /></Activity>}

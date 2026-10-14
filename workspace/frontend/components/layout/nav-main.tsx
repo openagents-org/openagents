@@ -3,7 +3,7 @@
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import {
-  BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
+  BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -52,7 +52,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           icon: <MessageSquare />,
           count: unreadThreadsTotal,
         },
-    { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText /> },
@@ -63,14 +63,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             icon: <CalendarClock />,
           },
           { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          {
-            mode: 'tasks',
-            label: t('views.tasks'),
-            icon: <KanbanSquare />,
-            // Count only what demands the user: tasks blocked on their input.
-            count: tasks.filter((task) => task.status === 'need_input').length,
-            urgent: true,
-          },
+
           {
             mode: 'inbox',
             label: t('views.inbox'),
@@ -98,7 +91,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={viewMode === item.mode}
+                isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
                 onClick={() => {
                   if (item.mode === 'threads') setThreadFilter('all');
                   openView(item.mode);

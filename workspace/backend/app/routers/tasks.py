@@ -50,6 +50,16 @@ TASK_PRIORITIES = ("low", "normal", "high")
 TASK_CHANNEL_PREFIX = "task:"
 
 
+def _link_issue_work(db, workspace, task):
+    if not task.issue_id or not task.channel_name:
+        return
+    from app.models import Issue, IssueThread
+    issue = db.execute(select(Issue).where(Issue.id == task.issue_id, Issue.workspace_id == workspace.id)).scalar_one_or_none()
+    channel = db.execute(select(Channel).where(Channel.name == task.channel_name, Channel.workspace_id == workspace.id)).scalar_one_or_none()
+    if issue and channel and not db.get(IssueThread, (issue.id, channel.id)):
+        db.add(IssueThread(issue_id=issue.id, channel_id=channel.id))
+
+
 def _task_channel_name(task_id: str) -> str:
     return f"{TASK_CHANNEL_PREFIX}{task_id}"
 
@@ -89,6 +99,7 @@ def _bare_agent(name: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 class CreateTaskRequest(BaseModel):
+    issue_id: Optional[str] = None
     title: str
     description: str = ""
     status: str = "backlog"
@@ -406,7 +417,13 @@ def create_task(
     status = body.status if body.status in TASK_STATUSES else "backlog"
     priority = body.priority if body.priority in TASK_PRIORITIES else "normal"
 
+    if body.issue_id:
+        from app.routers.issues import _access, _issue
+        _access(body.network, db, x_workspace_token, authorization, write=True)
+        _issue(db, workspace, body.issue_id)
+
     task = KanbanTask(
+        issue_id=body.issue_id or None,
         workspace_id=str(workspace.id),
         title=title,
         description=description,
@@ -552,6 +569,7 @@ def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[s
         _emit_event_blocking(create_evt, workspace, db, token=token)
 
     task.channel_name = channel_name
+    _link_issue_work(db, workspace, task)
     task.status = "in_progress"
     task.position = _next_position(db, str(workspace.id), "in_progress")
     db.flush()
@@ -599,6 +617,26 @@ def assign_task(
     ).scalar_one_or_none()
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
+
+    if task.issue_id:
+        from app.routers.issues import _access, _issue, _actor, _viewer
+        from app.services.thread_agent_requests import issue_request_access
+        _access(body.network, db, x_workspace_token, authorization, write=True)
+        issue = _issue(db, workspace, task.issue_id)
+        if issue.status == "closed":
+            return json_response(ResponseCode.BAD_REQUEST, "Reopen the issue before starting work")
+        actor, _ = _actor(db, authorization, body.source or "human:user")
+        body.source = actor
+        viewer = _viewer(db, workspace, x_workspace_token, authorization)
+        names = [_bare_agent(body.agent) or _bare_agent(task.assignee)]
+        if task.workflow_id:
+            workflow = db.execute(select(Workflow).where(Workflow.id == task.workflow_id, Workflow.workspace_id == workspace.id)).scalar_one_or_none()
+            names = [(step.get("assignee") or {}).get("agent") for step in (workflow.steps or []) if (step.get("assignee") or {}).get("kind") == "agent"] if workflow else []
+        if not viewer.machine:
+            for name in filter(None, names):
+                member = db.get(WorkspaceMember, (str(workspace.id), name))
+                if issue_request_access(db, workspace.id, issue, member, actor.removeprefix("human:")) == "no":
+                    return json_response(ResponseCode.FORBIDDEN, f"{name} is not shared with you. Ask its owner to enable sharing in this issue.")
 
     # ── Workflow task: start a WorkflowRun instead of a single-agent kickoff ──
     if task.workflow_id:
@@ -649,6 +687,12 @@ def assign_task(
     else:
         # Reassignment — point the existing channel at the new agent.
         existing_channel.master_agent = agent
+
+    # Establish the issue context before dispatch so its sharing/approval rules
+    # apply to the kickoff, not only subsequent messages.
+    task.channel_name = channel_name
+    _link_issue_work(db, workspace, task)
+    db.flush()
 
     # 2. Post the kickoff message (routes to the agent, starts the work).
     kickoff = Event(

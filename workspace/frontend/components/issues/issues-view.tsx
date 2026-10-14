@@ -1,5 +1,7 @@
 'use client';
 
+import { TasksView } from '@/components/tasks/tasks-view';
+import { useLayout } from '@/components/layout/layout-context';
 import { requestedResource, resourcePath } from '@/lib/resource-link';
 import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -32,18 +34,22 @@ import {
   statusKeys,
 } from './issue-ui';
 
-export function IssuesView() {
+export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
   const { workspace } = useWorkspace();
   // A workspace switch must discard selection and pending requests.
-  return <IssueWorkspace key={workspace?.workspaceId} />;
+  return <IssueWorkspace key={workspace?.workspaceId} initialWork={initialWork} />;
 }
 
-function IssueWorkspace() {
+function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
+  const { tasks = [] } = useWorkspace();
+  const { pendingTaskChannel } = useLayout();
+  const [showWork, setShowWork] = useState(initialWork);
+  useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
   const t = useT();
   const { timeAgo } = useFormatters();
   const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
-    typeof window === 'undefined'
+    initialWork || typeof window === 'undefined'
       ? null
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
@@ -157,6 +163,7 @@ function IssueWorkspace() {
             </span>
           )}
         </div>
+        {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
         {issue.description && (
           <p
             className={cn(
@@ -224,6 +231,13 @@ function IssueWorkspace() {
           {t('issues.newIssue')}
         </Button>
       </DetailHeader>
+      <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
+        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.allIssues')}</Button>
+        <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.agentWork')}
+          {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
+        </Button>
+      </div>
+      {showWork ? <div className="min-h-0 flex-1"><TasksView onNewIssue={() => setCreateOpen(true)} onOpenIssue={selectIssue} /></div> : <>
       <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-5 pt-3 sm:px-8">
         <div
           className="flex items-center gap-5 overflow-x-auto"
@@ -383,6 +397,7 @@ function IssueWorkspace() {
           </div>
         )}
       </div>
+      </>}
       <IssueEditor
         open={createOpen}
         onOpenChange={setCreateOpen}

@@ -220,18 +220,12 @@ export function NavRail() {
       icon: <MessageSquare />,
       count: unreadThreadsTotal,
     },
-    { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
     { mode: 'files', label: t('views.files'), icon: <FileText /> },
     { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
     { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
     { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-    {
-      mode: 'tasks',
-      label: t('views.tasks'),
-      icon: <KanbanSquare />,
-      // Attention dot when a task is blocked waiting on human input.
-      count: tasks.filter((task) => task.status === 'need_input').length,
-    },
+
     {
       mode: 'inbox',
       label: t('views.inbox'),
@@ -330,7 +324,7 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={viewMode === item.mode}
+                    isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
                     onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
                   >
                     {item.icon}
