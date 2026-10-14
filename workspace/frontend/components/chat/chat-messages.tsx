@@ -148,7 +148,11 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 
   // Separate loading indicators (optimistic) from real messages
   const loadingMessages = useMemo(() => messages.filter((m) => m.messageType === 'loading'), [messages]);
-  const realMessages = useMemo(() => messages.filter((m) => m.messageType !== 'loading'), [messages]);
+  // Assignment events dispatch the original request internally; they are not
+  // another conversation message. Keep any actual approval cards visible.
+  const realMessages = useMemo(() => messages.filter((m) =>
+    m.messageType !== 'loading' && (!m.metadata.routing_assignment || m.messageType === 'approval' || !!m.metadata.approval)
+  ), [messages]);
 
   // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
   const filteredMessages = useMemo(() => {

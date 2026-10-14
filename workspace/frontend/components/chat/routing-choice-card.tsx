@@ -8,7 +8,6 @@ import { workspaceApi } from '@/lib/api';
 import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { messagePath } from '@/lib/thread-link';
 
 interface RoutingChoice {
   status: string;
@@ -58,15 +57,4 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
     {busy && <Loader2 aria-label={t('common.saving')} className="ml-2 inline size-3 animate-spin" />}
     {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
   </section>;
-}
-
-export function RoutingAssignmentNotice({ message, agents }: { message: WorkspaceMessage; agents: WorkspaceAgent[] }) {
-  const { workspace } = useWorkspace();
-  const t = useT();
-  const assignment = message.metadata.routing_assignment as { agent?: string; message_id?: string; thread_id?: string } | undefined;
-  if (!assignment?.agent || !assignment.message_id) return null;
-  const agent = agents.find(a => a.agentName === assignment.agent);
-  return <p className="text-xs text-muted-foreground">{t('routing.assigned', { agent: agent ? agentLabel(agent) : assignment.agent })}{' '}
-    <a className="underline underline-offset-2" href={messagePath(workspace?.slug || workspace?.workspaceId || '', assignment.thread_id || message.sessionId, assignment.message_id)}>{t('routing.originalRequest')}</a>
-  </p>;
 }

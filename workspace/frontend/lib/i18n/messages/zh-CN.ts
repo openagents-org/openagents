@@ -101,7 +101,7 @@ export const messages: Messages = {
   routing: { title: '希望哪个智能体来处理？',
     hint: '选择一个智能体处理此请求，或将这条消息保留为普通聊天。',
     dismiss: '忽略分配建议', dismissAction: '忽略',
-    assigned: '已分配给 {agent}。', originalRequest: '查看原始请求',  },
+  },
   issues: {
     chooseAgent: '选择智能体',
     searchAgents: '搜索你的智能体…',

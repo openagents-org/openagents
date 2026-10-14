@@ -298,3 +298,24 @@ def test_assigned_agent_reply_does_not_wake_a_bystander(db, multi_agent_workspac
     db.flush()
     from app.mods.workspace_mod import _human_request_has_assignee
     assert not _human_request_has_assignee(db, ws, ch)
+
+
+@pytest.mark.parametrize('content', ['hey agent worker', 'Hi AGENT-WORKER', 'hello agent_worker!', 'agent worker, can you help?', 'agent-worker'])
+def test_plain_name_address_bypasses_router(db, multi_agent_workspace, monkeypatch, content):
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', False)
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
+        assert route(db, multi_agent_workspace, content) == ['agent-worker']
+        router.assert_not_called()
+
+
+def test_name_matching_requires_full_unique_direct_address():
+    from types import SimpleNamespace
+    from app.mods.workspace_mod import _named_agent_recipient
+    agents = [SimpleNamespace(agent_name='claude-dev', display_name='Code Helper')]
+    assert _named_agent_recipient('hey claude dev', agents) == 'claude-dev'
+    assert _named_agent_recipient('Code Helper, review this', agents) == 'claude-dev'
+    for content in ['hey claude developer', 'claude-dev wrote this', 'I talked to claude-dev', '`hey claude-dev`']:
+        assert _named_agent_recipient(content, agents) is None
+    assert _named_agent_recipient('hey Code Helper', agents, ['Code Helper']) is None
+    agents.append(SimpleNamespace(agent_name='other', display_name='Code Helper'))
+    assert _named_agent_recipient('hey Code Helper', agents) is None

@@ -1176,6 +1176,33 @@ def _explicit_human_mentions(content, known_agents):
     return list(dict.fromkeys(name for name in names if name in known_agents))
 
 
+def _named_agent_recipient(content, members, human_names=()):
+    """Recognize direct salutations, not incidental references to an agent.
+
+    Full names tolerate spaces in place of hyphens/underscores. A shared alias
+    (including a human's name) is ambiguous and must not bypass the router.
+    """
+    def normalize(name):
+        return re.sub(r"[\s_-]+", " ", name.strip()).casefold()
+
+    aliases = {}
+    for member in members:
+        for name in (member.agent_name, member.display_name):
+            if name:
+                aliases.setdefault(normalize(name), set()).add(member.agent_name)
+    for name in human_names:
+        if name:
+            aliases.setdefault(normalize(name), set()).add(None)
+    matches = set()
+    for alias, owners in aliases.items():
+        pattern = r"[\s_-]+".join(re.escape(part) for part in alias.split())
+        greeting = rf"^\s*(?:hey|hi|hello)\s+{pattern}(?=\s|[,!:?，：！]|$)"
+        addressed = rf"^\s*{pattern}(?=\s*[,!:?，：！]|$)"
+        if re.search(greeting, content, re.IGNORECASE) or re.search(addressed, content, re.IGNORECASE):
+            matches.update(owners)
+    return next(iter(matches)) if len(matches) == 1 and None not in matches else None
+
+
 def _has_response_mode(channel) -> bool:
     # Direct chats and dedicated job streams keep their existing execution semantics.
     return not channel.name.startswith(("dm:", "routine:", "routines:", "task:"))
@@ -1235,6 +1262,16 @@ async def _conversation_targets(event, channel, db, workspace, known_agents):
         return []
     if len(actual) == 1 and len(people) <= 1:
         return candidates  # Direct conversation, even if the agent is offline.
+    from app.models import WorkspaceCollaborator
+    humans = db.execute(select(WorkspaceCollaborator).where(
+        WorkspaceCollaborator.workspace_id == workspace.id,
+        WorkspaceCollaborator.email.in_(people),
+    )).scalars().all()
+    human_names = [name for person in humans for name in (person.display_name, person.email)]
+    named = _named_agent_recipient(content, members, human_names)
+    if named and named in candidates:
+        event.metadata["routing_decision"] = "assign"
+        return [named]
     from app.config import config
     if not config.ROUTER_LLM_ENABLED:
         event.metadata["router_unavailable"] = True
