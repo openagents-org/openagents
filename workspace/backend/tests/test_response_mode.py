@@ -87,8 +87,10 @@ def test_proactive_router_error_does_not_wake_fallback(db, multi_agent_workspace
 
 @pytest.mark.parametrize('single', [False, True])
 def test_proactive_classifies_single_and_multi_agent_threads(db, multi_agent_workspace, single):
+    ch = multi_agent_workspace['channel']
+    db.add(ChannelHumanMember(channel_id=ch.id, user_email='sam@example.com'))
+    db.flush()
     if single:
-        ch = multi_agent_workspace['channel']
         db.query(ChannelMember).filter_by(channel_id=ch.id, agent_name='agent-worker').delete()
         db.expire(ch, ['participants'])
     with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock, return_value=[]) as router:
@@ -141,10 +143,10 @@ def test_passive_overrides_master_for_explicit_recipient(db, multi_agent_workspa
     assert route(db, multi_agent_workspace, '@agent-master @agent-worker help') == ['agent-master', 'agent-worker']
 
 
-def test_proactive_nonleading_reference_is_classified(db, multi_agent_workspace):
+def test_proactive_nonleading_mention_routes_directly(db, multi_agent_workspace):
     with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock, return_value=[]) as router:
-        assert route(db, multi_agent_workspace, 'Sam, see @agent-worker for background') == ['__no_response__']
-        router.assert_awaited_once()
+        assert route(db, multi_agent_workspace, 'Please ask @agent-worker to review this') == ['agent-worker']
+        router.assert_not_called()
 
 
 @pytest.mark.parametrize('stored_mode', ['dynamic', 'master'])
@@ -218,3 +220,54 @@ def test_all_never_invokes_agent_router(db, multi_agent_workspace, mode):
     with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
         assert route(db, multi_agent_workspace, '@All please review') == ['__no_response__']
         router.assert_not_called()
+
+
+def test_one_human_one_agent_bypasses_router_even_when_offline(db, multi_agent_workspace):
+    ch = multi_agent_workspace['channel']
+    db.query(ChannelMember).filter_by(channel_id=ch.id, agent_name='agent-worker').delete()
+    db.expire(ch, ['participants'])
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
+        assert route(db, multi_agent_workspace, 'Please help me') == ['agent-master']
+        router.assert_not_called()
+
+
+def test_no_agents_bypasses_router(db, multi_agent_workspace):
+    ch = multi_agent_workspace['channel']
+    db.query(ChannelMember).filter_by(channel_id=ch.id).delete()
+    db.expire(ch, ['participants'])
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
+        assert route(db, multi_agent_workspace, 'Hello team') == ['__no_response__']
+        router.assert_not_called()
+
+
+@pytest.mark.parametrize('decision', ['ask', 'bad answer', 'next:unknown', 'stop'])
+@pytest.mark.parametrize('multiple_people', [True, False])
+def test_uncertainty_prompts_sender_but_clear_group_conversation_does_not(db, multi_agent_workspace, decision, multiple_people):
+    ch, ws = multi_agent_workspace['channel'], multi_agent_workspace['workspace']
+    if multiple_people:
+        db.add(ChannelHumanMember(channel_id=ch.id, user_email='sam@example.com'))
+        db.flush()
+    event = _make_event('human:user', f'channel/{ch.name}', 'I want to publish a blog')
+    event.payload['sender_email'] = ws.creator_email
+    model = MagicMock()
+    model.messages.create.return_value = _mock_anthropic_response(decision)
+    ctx = PipelineContext(network_id=str(ws.id), agent_address=event.source, db=db, workspace=ws)
+    with patch('app.mods.workspace_mod._get_llm_client', return_value=(model, 'anthropic')):
+        result = _run(_handle_message_posted(event, ctx))
+    assert result.metadata['target_agents'] == ['__no_response__']
+    if decision == 'stop' and multiple_people:
+        assert 'routing_choice' not in result.metadata
+    else:
+        choice = result.metadata['routing_choice']
+        assert choice['status'] == 'pending'
+        assert choice['requester_email'] == ws.creator_email
+        assert set(choice['candidates']) == {'agent-master', 'agent-worker'}
+
+
+def test_router_unavailable_produces_a_choice(db, multi_agent_workspace, monkeypatch):
+    ch, ws = multi_agent_workspace['channel'], multi_agent_workspace['workspace']
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', False)
+    event = _make_event('human:user', f'channel/{ch.name}', 'Need help')
+    event.payload['sender_email'] = ws.creator_email
+    ctx = PipelineContext(network_id=str(ws.id), agent_address=event.source, db=db, workspace=ws)
+    assert _run(_handle_message_posted(event, ctx)).metadata['routing_choice']['status'] == 'pending'

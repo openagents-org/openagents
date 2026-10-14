@@ -21,6 +21,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
+import { RoutingChoiceCard, RoutingAssignmentNotice } from './routing-choice-card';
 import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
 import { isHtmlAttachment } from '@/lib/brief';
@@ -267,11 +268,12 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed [&_.markdown-content>*:last-child]:mb-0">
-              {approval ? <ApprovalCard approval={approval} /> : <>
+              {approval ? <ApprovalCard approval={approval} /> : message.metadata.routing_assignment ? <RoutingAssignmentNotice message={message} agents={agents} /> : <>
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} />
               </>}
             </div>
+            {!approval && <RoutingChoiceCard message={message} agents={agents} />}
             {!approval && <MessageReactions messageId={message.messageId} onReply={onMentionPerson && mentionEmail ? () => onMentionPerson(mentionEmail.toLowerCase()) : undefined} />}
           </div>
         </div>

@@ -105,6 +105,10 @@ export const messages = {
   },
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
+  routing: { title: 'Who should work on this?',
+    hint: 'Choose an agent to handle your request, or leave this as conversation.',
+    dismiss: 'Dismiss assignment suggestion', justChatting: 'Just chatting',
+    assigned: 'Assigned to {agent}.', originalRequest: 'View original request',  },
   issues: {
     chooseAgent: 'Choose an agent',
     searchAgents: 'Search your agents…',

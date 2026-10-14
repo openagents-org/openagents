@@ -1477,6 +1477,12 @@ class WorkspaceApi {
   // Low-level ONM event API
   // ---------------------------------------------------------------------------
 
+  async resolveRoutingChoice(messageId: string, agent: string | null): Promise<{ status: string; agent?: string }> {
+    return this.request(`/v1/events/${encodeURIComponent(messageId)}/routing?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'POST', body: JSON.stringify({ agent }),
+    });
+  }
+
   /** Send an event through the mod pipeline. */
   async sendEvent(event: {
     type: string;

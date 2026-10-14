@@ -500,6 +500,106 @@ def send_event(
     })
 
 
+class RoutingChoiceRequest(BaseModel):
+    agent: Optional[str] = None  # null dismisses the pending request
+
+
+@router.post("/events/{event_id}/routing")
+def resolve_routing_choice(
+    event_id: str,
+    body: RoutingChoiceRequest,
+    network: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Only the original sender can assign/dismiss their pending message.
+
+    Lock the original event so double-clicks and retries cannot start two runs.
+    The follow-up goes through the normal auth, sharing, and approval pipeline.
+    """
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from app.models import WorkspaceMember
+    from app.services.visibility import resolve_viewer, can_view_channel
+    from app.services.thread_agent_requests import request_access
+    from app.services.workflow import get_active_run
+    workspace = db.execute(select(Workspace).where(_workspace_filter(network))).scalar_one_or_none()
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        raise HTTPException(403, "No access to this workspace")
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in as the message sender")
+    original = db.execute(select(EventRecord).where(
+        EventRecord.id == event_id, EventRecord.network_id == workspace.id,
+        EventRecord.type == "workspace.message.posted",
+    ).with_for_update()).scalar_one_or_none()
+    choice = (original.metadata_ or {}).get("routing_choice") if original else None
+    if not isinstance(choice, dict) or not original.target.startswith("channel/"):
+        raise HTTPException(404, "Assignment request not found")
+    if viewer.email.lower() != str(choice.get("requester_email", "")).lower():
+        raise HTTPException(403, "Only the message sender can choose an agent")
+    channel = db.execute(select(Channel).where(Channel.workspace_id == workspace.id,
+        Channel.name == original.target[8:], Channel.status == "active")).scalar_one_or_none()
+    if not channel or not can_view_channel(db, str(workspace.id), viewer, channel):
+        raise HTTPException(403, "No access to this thread")
+    if choice.get("status") != "pending":
+        return success_response(choice)
+    updated = dict(choice)
+    if body.agent is None:
+        updated["status"] = "dismissed"
+        original.metadata_ = {**(original.metadata_ or {}), "routing_choice": updated}
+        db.commit()
+        _invalidate_poll_cache(str(workspace.id), original.type)
+        return success_response(updated)
+    member = db.get(WorkspaceMember, (str(workspace.id), body.agent))
+    if (body.agent not in choice.get("candidates", []) or not member or member.status == "removed"
+            or not db.get(ChannelMember, (channel.id, body.agent))
+            or request_access(db, str(workspace.id), channel, member, viewer.email.lower()) == "no"):
+        raise HTTPException(403, "This agent is no longer available to you in this thread")
+    if get_active_run(db, str(workspace.id), channel.name):
+        raise HTTPException(409, "A workflow is now running in this thread")
+    payload = deepcopy(original.payload or {})
+    payload.update({"sender_email": viewer.email.lower(), "sender_id": viewer.email.lower(),
+                    "message_type": "chat"})
+    event = Event(type="workspace.message.posted", source=f"human:{viewer.email.lower()}",
+        target=original.target, visibility=original.visibility or "channel", payload=payload,
+        metadata={"routing_assignment": {"message_id": original.id, "agent": body.agent, "thread_id": channel.id}})
+    updated.update(status="assigned", agent=body.agent, assignment_event_id=event.id)
+    original.metadata_ = {**(original.metadata_ or {}), "routing_choice": updated}
+    context = PipelineContext(network_id=str(workspace.id), agent_address=event.source,
+        db=db, workspace=workspace, token=x_workspace_token, bearer_token=_extract_bearer(authorization),
+        routing_assignment_agent=body.agent)
+    try:
+        result = asyncio.run(pipeline.process(event, context))
+        if result is None:
+            raise HTTPException(403, "Could not assign this request")
+        db.commit()
+    except EventRejected as exc:
+        db.rollback()
+        raise HTTPException(403, exc.reason or "Could not assign this request") from exc
+    except Exception:
+        db.rollback()
+        raise
+    _invalidate_poll_cache(str(workspace.id), result.type)
+    snapshot = {"id": result.id, "type": result.type, "source": result.source,
+                "target": result.target, "payload": result.payload, "metadata": result.metadata,
+                "timestamp": result.timestamp}
+    try:
+        cache.publish_event(
+            f"ws:{workspace.id}:events",
+            _json.dumps(snapshot, default=str, separators=(",", ":")).encode(),
+        )
+    except Exception:
+        pass
+    from app.services.cloud_agent import invoke_cloud_agents
+    from app.services.push import fanout_for_event
+    background_tasks.add_task(invoke_cloud_agents, str(workspace.id), snapshot)
+    background_tasks.add_task(fanout_for_event, str(workspace.id), snapshot)
+    return success_response(updated)
+
+
 # ---------------------------------------------------------------------------
 # GET /v1/events — poll events
 # ---------------------------------------------------------------------------
