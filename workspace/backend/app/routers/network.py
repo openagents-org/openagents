@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.config import config
@@ -603,7 +603,10 @@ def discover(
 
     visible_channels = [c for c in channels_rows if c.name not in hidden_channels]
     activity = thread_activity(db, str(workspace.id), visible_channels, markers, viewer.email)
-    from app.models import ThreadPin
+    from app.models import ThreadPin, ChannelHumanMember
+    human_counts = dict(db.execute(select(ChannelHumanMember.channel_id, func.count()).where(
+        ChannelHumanMember.channel_id.in_([c.id for c in visible_channels])
+    ).group_by(ChannelHumanMember.channel_id)).all())
     pinned_channels = set(db.execute(select(ThreadPin.channel_id).join(Channel).where(
         Channel.workspace_id == workspace.id, ThreadPin.user_email == viewer.email,
     )).scalars()) if viewer.kind == "human" and viewer.email else set()
@@ -617,6 +620,8 @@ def discover(
             "address": target_key,
             **activity.get(c.name, {}),
             "title": c.title,
+            "icon": c.icon,
+            "human_count": human_counts.get(c.id, 0),
             "master": c.master_agent,
             "orchestration_mode": "workflow" if c.orchestration_mode == "workflow" else "dynamic",
             "response_mode": c.response_mode or "proactive",

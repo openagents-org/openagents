@@ -5,6 +5,7 @@ import type { Messages } from './en-US';
  * one that no longer exists in English — fails the build.
  */
 export const messages: Messages = {
+  messageAgentAccess: {"owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请共享 {agent}。批准后，你可以与该智能体私聊并将其加入讨论。已有的私人对话仍然保持私密。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
   artifactPanel: {
     browserClosed: "此浏览器会话已结束",
@@ -179,6 +180,10 @@ export const messages: Messages = {
     unreadMessages: '{count} 条未读消息',
     memberOnline: '在线',
     members: '成员',
+    unreadCount: '{count} 条未读',
+    agentSettings: '{name} 的设置',
+    viewAllMembers: '查看所有成员',
+    moreMembers: '还有 {count} 位成员',
     newHumanDM: '新建私信',
     searchMembers: '按姓名或邮箱搜索…',
     noMembersFound: '未找到成员',
@@ -199,6 +204,12 @@ export const messages: Messages = {
   },
 
   threadSettings: {
+    icon: '会话图标',
+    resetIcon: '使用默认图标',
+    iconFailed: '无法保存会话图标。',
+    peopleAndAgents: '成员与智能体',
+    groupThread: '群聊',
+
     sharingNo: "不允许",
     sharingYes: "允许",
     sharingApproval: "需要批准",
@@ -252,6 +263,8 @@ export const messages: Messages = {
   },
 
   notifications: {
+    resolvedRequest: '此审批请求已处理。',
+
     title: '通知',
     unreadCount: '{count} 条未读',
     markAllRead: '全部标为已读',
@@ -647,6 +660,7 @@ export const messages: Messages = {
   },
 
   knowledge: {
+    export: '导出', exportText: '纯文本', exportPrint: '打印 / 另存为 PDF', exportFailed: '导出失败，请重试。',
     title: '知识库',
     refresh: '刷新知识库',
     newEntry: '新建条目',
@@ -676,6 +690,9 @@ export const messages: Messages = {
   files: {
     title: '文件',
     recentFiles: '最近的文件',
+    allFiles: '全部文件',
+    groupPdf: 'PDF',
+    noMatchesHint: '请尝试其他分类或搜索词。',
     newTopLevelFolder: '新建顶层文件夹',
     searchFoldersPlaceholder: '搜索文件夹…',
     searchFoldersLabel: '搜索文件夹',
@@ -1240,6 +1257,9 @@ export const messages: Messages = {
   },
 
   threads: {
+    dmActions: '私聊操作',
+    preferenceFailed: '无法保存偏好设置。',
+
     tabChannels: '频道',
     channel: '频道',
     markAsChannel: '标记为频道',
@@ -2868,6 +2888,10 @@ export const messages: Messages = {
 
   // ── 权限模型 v1.1 ── “谁可以使用这个智能体”（取代 个人/团队）
   reactions: {
+    copyLink: '复制消息链接',
+    linkFailed: '无法复制消息链接。',
+    linkMissing: '此消息不可用。',
+
     reply: "回复", add: '添加表情回应', choose: '选择表情', count: '{emoji} · {count} 人回应', failed: '无法保存表情回应，请重试。' },
   services: { title: '共享智能体服务', subtitle: '与你共享的可复用服务。每项服务都有独立的指令和使用者。', experimental: '实验功能 — 服务及其行为可能会调整。', create: '创建服务', edit: '编辑服务', name: '服务名称', agent: '运行此服务的智能体', description: '描述', instructions: '服务指令', examples: '请求示例（每行一条）', inputs: '请求者需要提供的信息', approver: '审批每个请求', noApproval: '无需审批', audience: '谁可以使用此服务', save: '保存服务', request: '发起请求', search: '搜索服务…', empty: '还没有与你共享的服务。', sharing: '共享', agentSharing: '共享智能体', agentSharingHint: '直接访问允许他人与该智能体聊天并将其加入讨论。服务使用者在“服务”中单独管理。', owner: '所有者', failed: '操作失败，请重试。', requestPlaceholder: '描述你需要此服务完成的工作…', },
   agentAccess: {

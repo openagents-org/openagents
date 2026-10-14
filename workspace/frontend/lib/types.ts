@@ -212,6 +212,8 @@ export interface WorkspaceCustomSkill {
 }
 
 export interface WorkspaceSession {
+  icon?: string | null;
+  humanCount?: number;
   unreadCount?: number;
   readAt?: number;
   completionAt?: number | null;
@@ -659,6 +661,7 @@ export interface NotificationItem {
   kind: string | null;
   /** Id of the thing to act on (e.g. an approval id) — makes the row actionable. */
   actionRef: string | null;
+  approvalStatus?: string | null;
   /** Who it is addressed to; null = the whole workspace. */
   recipientEmail: string | null;
   createdAt: string | null;
@@ -821,6 +824,8 @@ export interface NetworkAgent {
 }
 
 export interface NetworkChannel {
+  icon?: string | null;
+  human_count?: number;
   unread_count?: number;
   read_at?: number;
   completion_at?: number | null;
@@ -887,6 +892,8 @@ export interface MessagePollResponse {
 }
 
 export interface DMConversation {
+  pinned?: boolean;
+  starred?: boolean;
   agents: [string, string];
   lastMessage: { content: string; sender: string; timestamp: number };
   messageCount: number;
@@ -968,6 +975,8 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     status: ch.status || 'active',
     starred: ch.starred || false,
     pinned: ch.pinned || false,
+    icon: ch.icon,
+    humanCount: ch.human_count,
     isChannel: ch.is_channel || false,
     participants: ch.participants,
     master: ch.master,
@@ -1098,7 +1107,7 @@ export interface ChannelParticipants {
   visibility: ChannelVisibility;
   director_email: string | null;
   humans: { email: string; display_name: string | null; joined_at: string | null }[];
-  agents: { agent_name: string; display_name: string | null; owner_email: string | null; visibility: AgentVisibility }[];
+  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean }[];
 }
 
 /** POST /v1/channels/{channel}/participants — either joined right away or
@@ -1291,6 +1300,7 @@ export interface PrivateThreadMeta {
 
 /** PATCH /v1/channels/{name} — the owner-facing access fields. */
 export interface ChannelAccessUpdate {
+  icon?: string | null;
   visibility?: 'private' | 'public';
   participantsCanInvite?: boolean;
   membersCanAddAgents?: boolean;
@@ -1415,7 +1425,7 @@ export interface IssueDetail extends WorkspaceIssue {
   agent_sharing_mode?: 'no' | 'yes' | 'approval';
   comments: IssueComment[];
   threads: IssueThread[];
-  participants: { source: string; name: string }[];
+  participants: { source: string; name: string; owner_email?: string | null; owner_name?: string | null; request_access?: 'yes' | 'approval' | 'no' }[];
 }
 
 export interface AgentService {

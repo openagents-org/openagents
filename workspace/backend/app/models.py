@@ -199,6 +199,7 @@ class Channel(Base):
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)              # e.g. "session-{uuid}"
     service_id = Column(Text, ForeignKey("agent_services.id", ondelete="SET NULL"), nullable=True)
+    icon = Column(Text, nullable=True)
     pinned_artifact = Column(JSONB, nullable=True)  # {kind: file|knowledge|browser, id}
     title = Column(Text, nullable=True)
     title_manually_set = Column(Boolean, default=False, server_default=text("FALSE"))
@@ -1496,6 +1497,15 @@ class DirectThreadLink(Base):
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     session_key = Column(Text, nullable=False)
     __table_args__ = (UniqueConstraint("workspace_id", "session_key", name="uq_direct_thread_link"),)
+
+
+class DirectThreadPreference(Base):
+    """Personal navigation preferences; never change DM visibility."""
+    __tablename__ = 'direct_thread_preferences'
+    thread_id = Column(UUID(as_uuid=False), ForeignKey('direct_thread_links.id', ondelete='CASCADE'), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    pinned = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
+    starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
 
 
 class ProjectPreviewTicket(Base):

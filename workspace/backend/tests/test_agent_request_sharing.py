@@ -97,3 +97,32 @@ def test_issue_preference_and_approval_are_independent_of_thread(client, workspa
     assert decide(client, workspace, approval).status_code == 200
     db.refresh(approval)
     assert db.get(EventRecord, approval.resolution_event_id).metadata_['target_agents'] == ['agent-alpha']
+
+
+def test_notification_reports_resolved_approval(client,workspace,private_agent,db):
+    setting(client,workspace,'approval'); post(client,workspace)
+    approval=pending(db,workspace)
+    def notices():
+        return client.get('/v1/notifications',params={'network':workspace['id']},headers=_bearer('mia',workspace)).json()['data']['notifications']
+    row=next(n for n in notices() if n['action_ref']==approval.id)
+    assert row['approval_status']=='pending'
+    assert decide(client,workspace,approval).status_code==200
+    assert next(n for n in notices() if n['action_ref']==approval.id)['approval_status']=='approved'
+
+
+def test_issue_lists_owner_and_effective_access(client,workspace,private_agent,db):
+    issue=client.post(f"/v1/issues?network={workspace['id']}",headers=_bearer('mia',workspace),json={'title':'Visible access'}).json()['data']['id']
+    base=f"/v1/issues/{issue}"
+    client.post(base+f"/participants?network={workspace['id']}",headers=_bearer('mia',workspace),json={'participants':[{'kind':'agent','id':'agent-alpha'}]})
+    def agent(user):
+        data=client.get(base+f"?network={workspace['id']}",headers=_bearer(user,workspace)).json()['data']
+        return next(p for p in data['participants'] if p['source']=='openagents:agent-alpha')
+    assert agent('mia')['request_access']=='yes'
+    assert agent('vic')['owner_email']=='mia@acme.test'
+    assert agent('vic')['request_access']=='no'
+    added=client.post(base+f"/participants?network={workspace['id']}",headers=_bearer('mia',workspace),json={'participants':[{'kind':'human','id':'vic@acme.test'}]})
+    assert added.status_code==200,added.text
+    setting(client,workspace,'approval',issue)
+    assert agent('vic')['request_access']=='approval'
+    setting(client,workspace,'yes',issue)
+    assert agent('vic')['request_access']=='yes'

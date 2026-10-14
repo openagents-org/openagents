@@ -10,6 +10,7 @@ import type { TeamMember } from '@/lib/types';
  * sessions may not be allowed to read the team — they get an empty roster.
  */
 const cache = new Map<string, Promise<TeamMember[]>>();
+const handledProfileEvents = new WeakSet<Event>();
 
 export function loadTeamRoster(workspaceId: string): Promise<TeamMember[]> {
   let p = cache.get(workspaceId);
@@ -30,11 +31,20 @@ export function useTeamRoster(): TeamMember[] {
   useEffect(() => {
     if (!workspaceId) return;
     let active = true;
-    loadTeamRoster(workspaceId).then((members) => {
-      if (active) setTeam({ id: workspaceId, members });
-    });
+    const refresh = (invalidate = false) => {
+      if (invalidate) cache.delete(workspaceId);
+      void loadTeamRoster(workspaceId).then(members => { if (active) setTeam({ id: workspaceId, members }); });
+    };
+    refresh();
+    const onProfile = (event: Event) => {
+      const invalidate = !handledProfileEvents.has(event);
+      handledProfileEvents.add(event);
+      refresh(invalidate);
+    };
+    window.addEventListener('workspace-profile-updated', onProfile);
     return () => {
       active = false;
+      window.removeEventListener('workspace-profile-updated', onProfile);
     };
   }, [workspaceId]);
   return team.id === workspaceId ? team.members : [];

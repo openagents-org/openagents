@@ -1,4 +1,5 @@
 'use client';
+import { isRoutineSession } from '@/lib/conversation-list';
 
 import { useEffect, useState } from 'react';
 import { MessageSquare, Search } from 'lucide-react';
@@ -37,7 +38,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const threads = sessions.filter((s) => !s.sessionId.startsWith('routine:'));
+  const threads = sessions.filter((s) => !isRoutineSession(s));
   const recentAgents = agents.filter(isRecentAgent);
 
   const run = (fn: () => void) => {

@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentOwnershipBadge, AgentSharingAction } from './agent-message-access';
+import { CopyMessageLink } from './copy-message-link';
 import { MessageReactions } from './message-reactions';
 import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
@@ -235,7 +237,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             <User className="size-3.5 text-zinc-700" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               {onMentionPerson && mentionEmail ? (
                 <button type="button" onClick={() => onMentionPerson(mentionEmail.toLowerCase())}
                   className="text-sm font-semibold text-foreground cursor-pointer hover:underline focus-visible:underline"
@@ -285,20 +287,11 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
       <div className="flex items-start gap-3">
         <AgentAvatar name={message.senderName} size={28} className="mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="truncate text-sm font-semibold text-foreground">
               {agent ? agentLabel(agent) : message.senderName}
             </span>
-            {agent && (
-              <span className={cn(
-                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold',
-                agent.role === 'master'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                  : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-              )}>
-                {agent.role}
-              </span>
-            )}
+            {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
               <span className="text-[11px] text-muted-foreground">{timestamp}</span>
             )}
@@ -337,7 +330,9 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             )}
 
             {/* Action bar — revealed on hover, as in ChatGPT */}
-            <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+              <AgentSharingAction agentName={message.senderName} />
+              <CopyMessageLink messageId={message.messageId} />
               <Button
                 variant="ghost"
                 size="sm"

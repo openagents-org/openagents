@@ -11,6 +11,17 @@ export function threadLink(origin: string, workspace: string, thread: string): s
   return new URL(threadPath(workspace, thread), origin).toString();
 }
 
+export function messageLink(origin: string, workspace: string, thread: string, message: string): string {
+  const url = new URL(threadLink(origin, workspace, thread));
+  url.searchParams.set('message', message);
+  return url.toString();
+}
+
+export function requestedMessageId(search: string): string | null {
+  const value = new URLSearchParams(search).get('message');
+  return value && value.length <= 256 ? value : null;
+}
+
 /** Read canonical paths, while continuing to accept previously shared links. */
 export function requestedThreadId(location: string): string | null {
   try {

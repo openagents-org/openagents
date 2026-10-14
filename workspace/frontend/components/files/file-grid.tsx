@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   Search, Upload, FileX, ChevronRight, ArrowLeft, RotateCcw, Trash2, FolderOpen, PanelLeft,
   MoreHorizontal, Share2, Globe, Lock, MessagesSquare,
-  LayoutGrid, List, ArrowDownWideNarrow, ListFilter, X,
+  LayoutGrid, List, ArrowDownWideNarrow, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -50,26 +50,7 @@ const SORT_LABEL_KEYS: Record<SortKey, MessageKey> = {
   size: 'files.sortSize',
 };
 
-/**
- * How many files the no-folder view shows.
- *
- * A starting point rather than an index: past the first screenful you're not
- * scanning any more, you're looking for something, and the folder tree and its
- * search are what that is.
- */
-const RECENT_LIMIT = 50;
-
-/**
- * The detail pane: the files inside whatever the folder panel has selected.
- *
- * The folder panel is the persistent tree; this pane shows the direct contents
- * of the selected folder, including its immediate subfolders.
- *
- * With nothing picked it shows the newest files in the workspace instead of an
- * empty root. That listing is a starting point, not a place: it can't be
- * uploaded into, and each row carries the folder it actually lives in, because
- * a flat dump you could mistake for a folder is one you'd try to act on.
- */
+/** Browse all accessible files, or a folder, with visible type categories. */
 export function FileGrid() {
   const {
     files, selectedFileId, setSelectedFileId, deleteFile, refreshFiles,
@@ -126,55 +107,22 @@ export function FileGrid() {
   /** A folder is picked, so there is a folder's worth of things to act on. */
   const hasFolder = Boolean(currentPath);
 
-  /**
-   * What's on screen with no folder picked: the newest files in the workspace,
-   * wherever they live.
-   *
-   * The pane used to sit empty here telling you to pick something, which spent
-   * the whole width on an instruction. What you want on opening Files is
-   * usually the thing you or an agent just put there, and that's one list away
-   * — every file is already loaded to draw the folder tree, so this is a sort
-   * and a slice rather than a fetch.
-   *
-   * It's a starting point, not a place: there's no folder to upload into, no
-   * subfolders to open, and the folder each file belongs to rides along on
-   * every row so the list can't be mistaken for one.
-   */
-  const recentFiles = useMemo(() => {
-    if (currentPath) return [] as FileEntry[];
-    return getFilesUnderPath(files, '')
-      .sort((a, b) => {
-        const at = a.file.createdAt ? new Date(a.file.createdAt).getTime() : 0;
-        const bt = b.file.createdAt ? new Date(b.file.createdAt).getTime() : 0;
-        return bt - at || a.displayName.localeCompare(b.displayName);
-      })
-      .slice(0, RECENT_LIMIT)
-      // The name alone, with the folder shown beside it — a row of full paths
-      // truncates to the folder and hides the filename it's there for.
-      .map((entry) => ({ ...entry, displayName: basename(entry.file.filename) }));
-  }, [files, currentPath]);
+  // Search the full accessible collection, including older files.
+  const allFiles = useMemo(() => getFilesUnderPath(files, '').map(entry => ({
+    ...entry, displayName: basename(entry.file.filename),
+  })), [files]);
 
-  /**
-   * What's in the folder on screen: its subfolders, and the files sitting
-   * directly in it. One level, like the folder itself — a file two folders
-   * down belongs to the folder it's in, not to this listing.
-   *
-   * Search narrows this listing and nothing else. It's a filter on the folder
-   * you're standing in, not a way out of it: a query that pulled in matches
-   * from folders you can't see would leave you looking at a list you can't act
-   * on — you can't upload into it, and the header above it would be describing
-   * a folder that half the rows don't belong to.
-   */
   const contents = useMemo(() => {
-    if (!currentPath) return { folders: [] as FolderEntry[], files: recentFiles };
-    const { folders, files: direct } = getFolderContents(files, currentPath);
+    const { folders, files: direct } = currentPath
+      ? getFolderContents(files, currentPath)
+      : { folders: [] as FolderEntry[], files: allFiles };
     if (!search) return { folders, files: direct };
     const q = search.toLowerCase();
     return {
       folders: folders.filter((folder) => folder.name.toLowerCase().includes(q)),
       files: direct.filter((e) => e.displayName.toLowerCase().includes(q)),
     };
-  }, [files, currentPath, search, recentFiles]);
+  }, [files, currentPath, search, allFiles]);
 
   /** The files this listing can show — what the filter menu counts, so a
    *  listed type always has something behind it. */
@@ -201,10 +149,6 @@ export function FileGrid() {
       : scopedFiles.filter(
           (e) => getFileFilterGroup(e.file.contentType, e.file.filename) === typeFilter,
         );
-
-    // The recent list is already in the only order it has: newest first is what
-    // makes it "recent", and the sort control is hidden with no folder picked.
-    if (!currentPath) return scoped;
 
     return [...scoped].sort((a, b) => {
       if (sort === 'size') {
@@ -263,11 +207,6 @@ export function FileGrid() {
     });
   }, [pendingUploads, currentPath, search, contents.files, typeFilter]);
 
-  const activeTypeLabel = typeFilter === 'folders'
-    ? t('files.folders')
-    : activeFilter
-    ? t(activeFilter.labelKey)
-    : t('files.allTypes');
   const itemCount = folderEntries.length + entries.length + uploadsHere.length;
   const isEmpty = itemCount === 0;
 
@@ -446,7 +385,7 @@ export function FileGrid() {
                     <PanelLeft className="size-4" />
                   </Button>
                 )}
-                <span className="shrink-0 px-1.5 py-0.5 font-medium">{t('files.recentFiles')}</span>
+                <span className="shrink-0 px-1.5 py-0.5 font-medium">{t('files.allFiles')}</span>
               </>
             ) : (
               <>
@@ -488,75 +427,6 @@ export function FileGrid() {
           </div>
         }
       >
-        {/* Everything here needs a list to act on, so it all waits for one:
-            searching, sorting and filtering nothing are equally no-ops. */}
-        {hasFolder && (
-          <>
-            {/* On a narrow screen the search box shares this row with the
-                breadcrumbs, and at 224px wide it wins — the path, back button
-                included, gets squeezed to nothing. So below `md` it moves to
-                its own row under the header and only the icon actions stay
-                here. See {@link searchField}. */}
-            <div className="hidden md:block">{searchField}</div>
-
-            {/* Type filter — only the kinds actually present, each with its
-                count. An empty "Presentations" row is a dead end, not a
-                filter. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t('files.filterByType')}
-                  className={cn(
-                    'shrink-0 gap-1.5',
-                    typeFilter !== 'all' ? 'text-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  <ListFilter
-                    className="size-4"
-                    style={
-                      activeFilter
-                        ? { color: activeFilter.color }
-                        : typeFilter === 'folders'
-                        ? { color: '#f59e0b' }
-                        : undefined
-                    }
-                  />
-                  <span className="hidden lg:inline">{activeTypeLabel}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuRadioGroup
-                  value={typeFilter}
-                  onValueChange={(v) => setTypeFilter(v as TypeFilter)}
-                >
-                  <DropdownMenuRadioItem value="all">
-                    <span className="flex-1">{t('files.allTypes')}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {contents.folders.length + scopedFiles.length}
-                    </span>
-                  </DropdownMenuRadioItem>
-                  {contents.folders.length > 0 && (
-                    <DropdownMenuRadioItem value="folders">
-                      <span className="flex-1">{t('files.folders')}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {contents.folders.length}
-                      </span>
-                    </DropdownMenuRadioItem>
-                  )}
-                  {FILE_FILTER_GROUPS.filter((group) => typeCounts.get(group.id)).map((group) => (
-                    <DropdownMenuRadioItem key={group.id} value={group.id}>
-                      <span className="flex-1">{t(group.labelKey)}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {typeCounts.get(group.id)}
-                      </span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             {/* Sort */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -576,8 +446,6 @@ export function FileGrid() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-          </>
-        )}
 
         {/* Outside the block above: grid-or-list is how you like to read a
             listing rather than something about this folder, so it belongs to
@@ -629,15 +497,29 @@ export function FileGrid() {
         />
       </DetailHeader>
 
-      {/* Search, on the narrow screens where it can't share the toolbar row */}
-      {hasFolder && (
-        <div className="shrink-0 border-b border-border px-3 py-2 md:hidden">
+      <div className="shrink-0 space-y-3 border-b border-border/60 bg-muted/10 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">{t('files.filterByType')}</span>
           {searchField}
         </div>
-      )}
+        <div className="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={t('files.filterByType')}>
+          {[
+            { id: 'all', label: t('files.allTypes'), count: scopedFiles.length + contents.folders.length },
+            ...(contents.folders.length ? [{ id: 'folders', label: t('files.folders'), count: contents.folders.length }] : []),
+            ...FILE_FILTER_GROUPS.map(group => ({ id: group.id, label: t(group.labelKey), count: typeCounts.get(group.id) || 0 })),
+          ].filter(category => category.id === 'all' || category.count > 0 || category.id === typeFilter).map(category => (
+            <button key={category.id} type="button" aria-pressed={typeFilter === category.id} onClick={() => setTypeFilter(category.id as TypeFilter)} className={cn(
+              'flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              typeFilter === category.id ? 'border-foreground/15 bg-foreground text-background' : 'border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}>
+              {category.label}<span className="text-[10px] tabular-nums opacity-65">{category.count}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Grid content */}
-      {!hasFolder && isEmpty ? (
+      {!hasFolder && allFiles.length === 0 ? (
         /* Nothing to be recent about — a workspace with no files at all. The
            one move that gets you out of it, and on mobile, where the folder
            panel is a separate pane, the way to reach it. */
@@ -654,7 +536,7 @@ export function FileGrid() {
             )}
           </div>
         </div>
-      ) : hasFolder && isEmpty ? (
+      ) : isEmpty ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <div className="flex flex-col items-center gap-3 px-6 text-center">
             <FileX className="size-16 opacity-20" />
@@ -668,7 +550,7 @@ export function FileGrid() {
                 : t('files.folderEmpty')}
             </p>
             <p className="max-w-md text-xs text-balance">
-              {typeFilter === 'folders'
+              {!hasFolder ? t('files.noMatchesHint') : typeFilter === 'folders'
                 ? search
                   ? t('files.noSubfolderMatches')
                   : t('files.noSubfolders')

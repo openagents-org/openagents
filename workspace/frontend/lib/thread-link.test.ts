@@ -24,3 +24,12 @@ it('continues to resolve old query links and rejects inaccessible path links', (
   expect(resolveThreadLink('/team/threads/private', ['public'], 'human:me@example.com')).toBeNull();
   expect(resolveThreadLink('/team/threads/%ZZ', [], 'human:me@example.com')).toBeNull();
 });
+
+
+it('message links encode the exact target without credentials', async () => {
+  const { messageLink, requestedMessageId } = await import('./thread-link');
+  const url = new URL(messageLink('https://workspace.test', 'acme', 'thread-id', 'event#123&456'));
+  expect(url.pathname).toBe('/acme/threads/thread-id');
+  expect(requestedMessageId(url.search)).toBe('event#123&456');
+  expect([...url.searchParams.keys()]).toEqual(['message']);
+});

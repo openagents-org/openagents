@@ -84,3 +84,5 @@ it('searches a large roster and preserves selections across filters', async () =
   await act(async () => button('newThread.start').click());
   expect(create).toHaveBeenCalledWith({ participants: ['agent-14'], humanParticipants: [], resumeFrom: undefined, visibility: 'private' });
 });
+
+vi.mock('@/hooks/use-team-roster', () => ({ useTeamRoster: () => [] }));

@@ -1,6 +1,9 @@
 'use client';
 
+import { requestedMessageId } from '@/lib/thread-link';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { AgentMessageAccessProvider } from './agent-message-access';
 import { MessageReactionsProvider } from './message-reactions';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
@@ -118,6 +121,11 @@ interface ChatMessagesProps {
 
 function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson }: ChatMessagesProps) {
   const t = useT();
+  const [targetMessage, setTargetMessage] = useState(() => typeof window === 'undefined' ? null : requestedMessageId(window.location.search));
+  const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
+  const targetPendingRef = useRef(targetMessage);
+  targetPendingRef.current = targetMessage;
+  const lastTargetPageRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -231,7 +239,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   const settlingRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
-    if (totalCount === 0) return;
+    if (totalCount === 0 || targetPendingRef.current) return;
     // Why a loop and not a single scrollTop=scrollHeight: the virtualizer
     // estimates every unmeasured row at 80px, so one corrective pin lands at
     // the *estimated* bottom. The real bottom rows (tall markdown, tables) are
@@ -364,6 +372,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 
       // Infinite scroll: load older messages when near the top
       if (
+        !targetPendingRef.current &&
         userScrolledUpRef.current &&
         el.scrollTop < 100 &&
         hasOlder &&
@@ -418,6 +427,40 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
       el.removeEventListener('keydown', onKeyDown);
     };
   }, [hasOlder, loadingOlder, loadOlder]);
+
+  useEffect(() => {
+    if (!targetMessage || !realMessages.length || loadingOlder) return;
+    userScrolledUpRef.current = true;
+    settlingRef.current = false;
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    const index = groups.findIndex(group => group.type === 'chat' ? group.message.messageId === targetMessage : group.messages.some(message => message.messageId === targetMessage));
+    if (index >= 0) {
+      let frame = 0;
+      let stable = 0;
+      let lastTop = -1;
+      let id = 0;
+      const settle = () => {
+        virtualizer.scrollToIndex(index, { align: 'center' });
+        const top = containerRef.current?.scrollTop ?? 0;
+        stable = top === lastTop ? stable + 1 : 0;
+        lastTop = top;
+        if (++frame < 60 && stable < 4) { id = requestAnimationFrame(settle); return; }
+        setHighlightedMessage(groupKey(groups[index]));
+        setTargetMessage(null);
+      };
+      id = requestAnimationFrame(settle);
+      return () => cancelAnimationFrame(id);
+    }
+    if (hasOlder && loadOlder) {
+      const page = realMessages[0].messageId;
+      if (lastTargetPageRef.current === page) return;
+      lastTargetPageRef.current = page;
+      void loadOlder().catch(() => { setTargetMessage(null); toast.error(t('reactions.linkMissing')); });
+    } else {
+      setTargetMessage(null);
+      toast.error(t('reactions.linkMissing'));
+    }
+  }, [targetMessage, realMessages, groups, hasOlder, loadingOlder, loadOlder, virtualizer, t]);
 
   return (
     <div className="relative flex-1 min-h-0">
@@ -494,6 +537,8 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
             return (
               <div
                 key={groupKey(group)}
+                data-message-id={groupKey(group)}
+                className={highlightedMessage === groupKey(group) ? "rounded-md bg-primary/10 ring-1 ring-inset ring-primary/30" : undefined}
                 ref={virtualizer.measureElement}
                 data-index={index}
                 style={{
@@ -554,5 +599,5 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 }
 
 export function ChatMessages(props: ChatMessagesProps) {
-  return <MessageReactionsProvider messages={props.messages}><ChatMessagesContent key={props.messages[0]?.sessionId} {...props} /></MessageReactionsProvider>;
+  return <AgentMessageAccessProvider><MessageReactionsProvider messages={props.messages}><ChatMessagesContent key={props.messages[0]?.sessionId} {...props} /></MessageReactionsProvider></AgentMessageAccessProvider>;
 }

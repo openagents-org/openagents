@@ -1,6 +1,6 @@
 'use client';
 
-import { isIssueWorkSession } from '@/lib/conversation-list';
+import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMe } from '@/hooks/use-me';
@@ -272,6 +272,7 @@ interface WorkspaceContextValue {
   /** Anything unread the Threads view shows (listed threads or DMs) — the
    *  nav item's attention dot. */
   hasUnreadInThreads: boolean;
+  unreadThreadsTotal: number;
   markSessionRead: (sessionId: string) => void;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -382,6 +383,10 @@ export function WorkspaceProvider({
   // focus from the user. Cleared on read.
   const skipFocusRef = useRef(false);
   const setCurrentSessionId = useCallback((id: string | null, options?: { skipFocus?: boolean }) => {
+    if (currentSessionIdRef.current && currentSessionIdRef.current !== id && typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('message')) { url.searchParams.delete('message'); window.history.replaceState(window.history.state, '', url); }
+    }
     if (options?.skipFocus) skipFocusRef.current = true;
     _setCurrentSessionId(id);
     if (id) {
@@ -1475,7 +1480,7 @@ export function WorkspaceProvider({
           const toMs = (s: WorkspaceSession) =>
             s.lastEventAt || (s.createdAt ? new Date(s.createdAt).getTime() : 0);
           const newest = [...channelSessions]
-            .filter((s) => s.status === 'active' && !isIssueWorkSession(s) && !s.sessionId.startsWith('routine:'))
+            .filter((s) => s.status === 'active' && !isIssueWorkSession(s) && !isRoutineSession(s))
             .sort((a, b) => toMs(b) - toMs(a))[0];
           if (newest) {
             setCurrentSessionId(newest.sessionId);
@@ -1615,12 +1620,18 @@ export function WorkspaceProvider({
   const hasUnreadInThreads = useMemo(
     () => unreadDmSessionIds.size > 0 || sessions.some((s) =>
       s.status === 'active' &&
-      !s.sessionId.startsWith('routine:') &&
+      !isRoutineSession(s) &&
       !s.sessionId.startsWith('task:') &&
       !isIssueWorkSession(s) &&
       unreadSessionIds.has(s.sessionId)),
     [sessions, unreadSessionIds, unreadDmSessionIds],
   );
+
+  const unreadThreadsTotal = useMemo(() =>
+    sessions.filter(s => s.status === 'active' && !isRoutineSession(s) && !isIssueWorkSession(s) && !s.sessionId.startsWith('task:') && !s.sessionId.startsWith('dm:'))
+      .reduce((sum, s) => sum + (unreadThreadCounts[s.sessionId] || (unreadSessionIds.has(s.sessionId) ? 1 : 0)), 0)
+      + Array.from(unreadDmSessionIds).reduce((sum, id) => sum + (unreadDmCounts[id] || 1), 0),
+    [sessions, unreadThreadCounts, unreadSessionIds, unreadDmCounts, unreadDmSessionIds]);
 
   // Baseline DMs first seen in this browser at their last message, and keep the
   // open DM read as messages arrive (server time can run ahead of ours).
@@ -2095,6 +2106,7 @@ export function WorkspaceProvider({
         unreadDmSessionIds,
         unreadDmCounts,
         hasUnreadInThreads,
+        unreadThreadsTotal,
         markSessionRead,
         refreshNotifications,
         markNotificationRead,

@@ -6,7 +6,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
   BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Monitor, Settings, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -48,7 +48,7 @@ interface RailItem {
   label: string;
   icon: React.ReactNode;
   /** Show an attention dot — unread threads, unread notifications */
-  unread?: boolean;
+  count?: number;
 }
 
 const RAIL_SNAP_POINT = (RAIL_WIDTH_COLLAPSED + RAIL_WIDTH_EXPANDED) / 2;
@@ -198,7 +198,7 @@ export function NavRail() {
     viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
-    workspace, agents, hasUnreadInThreads, unreadNotificationCount, pendingApprovalsByAgent,
+    workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
     onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts,
   } = useWorkspace();
   const t = useT();
@@ -211,14 +211,14 @@ export function NavRail() {
   const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
-  const hasUnreadThreads = hasUnreadInThreads;
+
 
   const items: RailItem[] = [
     {
       mode: 'threads',
       label: t('views.threads'),
       icon: <MessageSquare />,
-      unread: hasUnreadThreads,
+      count: unreadThreadsTotal,
     },
     { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
     { mode: 'files', label: t('views.files'), icon: <FileText /> },
@@ -230,13 +230,13 @@ export function NavRail() {
       label: t('views.tasks'),
       icon: <KanbanSquare />,
       // Attention dot when a task is blocked waiting on human input.
-      unread: tasks.some((task) => task.status === 'need_input'),
+      count: tasks.filter((task) => task.status === 'need_input').length,
     },
     {
       mode: 'inbox',
       label: t('views.inbox'),
       icon: <Inbox />,
-      unread: unreadNotificationCount > 0,
+      count: unreadNotificationCount,
     },
     { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
     { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
@@ -335,16 +335,8 @@ export function NavRail() {
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
-                    {item.unread && (
-                      <span
-                        className={cn(
-                          'absolute size-1.5 rounded-full',
-                          showLabels ? 'top-1/2 right-2 -translate-y-1/2' : 'top-0.5 right-0.5',
-                          item.mode === 'inbox' ? 'bg-destructive' : 'bg-primary',
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
+                    {!!item.count && <span className={cn('shrink-0 rounded-full px-1.5 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute -right-1 -top-1', item.mode === 'inbox' ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -389,9 +381,9 @@ export function NavRail() {
               >
                 <SidebarMenu className="gap-0.5">
                   {recentAgents.map((agent) => (
-                    <SidebarMenuItem key={agent.agentName}>
+                    <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
-                        className={cn(!showLabels && 'justify-center!')}
+                        className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
                         aria-label={agentLabel(agent)}
                         tooltip={{ children: agentLabel(agent), hidden: showLabels }}
                         onClick={() => {
@@ -414,6 +406,7 @@ export function NavRail() {
                         {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
+                      <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>

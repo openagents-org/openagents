@@ -3,12 +3,14 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
+vi.mock('./agent-message-access', () => ({ AgentMessageAccessProvider: ({ children }: any) => children }));
 vi.mock('./message-reactions', () => ({ MessageReactionsProvider: ({ children }: any) => children }));
 vi.mock('./chat-message', () => ({ ChatMessage: () => null }));
 vi.mock('./intermediate-steps', () => ({ IntermediateSteps: () => null }));
 vi.mock('./thinking-message', () => ({ ThinkingMessage: () => null }));
 vi.mock('./working-bubble', () => ({ WorkingBubble: () => null }));
-vi.mock('@tanstack/react-virtual', () => ({ useVirtualizer: () => ({ getTotalSize: () => 1000, getVirtualItems: () => [] }) }));
+const scrollToIndex = vi.hoisted(() => vi.fn());
+vi.mock('@tanstack/react-virtual', () => ({ useVirtualizer: () => ({ scrollToIndex, getTotalSize: () => 1000, getVirtualItems: () => [] }) }));
 import { ChatMessages } from './chat-messages';
 let host: HTMLDivElement, root: Root;
 let frames: Map<number, FrameRequestCallback>, sequence: number;
@@ -28,6 +30,8 @@ async function resize() { await act(async () => observers.forEach(callback => ca
 const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop');
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  window.history.replaceState(null, '', '/');
+  scrollToIndex.mockClear();
   height = 1000; frames = new Map(); sequence = 0; observers = new Set();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++sequence, callback); return sequence; });
   vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
@@ -68,4 +72,18 @@ it('resets user scroll intent when switching threads and cleans up pending work'
   await act(async () => observers.forEach(callback => callback()));
   await act(async () => root.render(null));
   expect(frames.size).toBe(0); expect(observers.size).toBe(0);
+});
+
+
+it('loads earlier history for a message link and scrolls to its row instead of the bottom', async () => {
+  window.history.replaceState(null, '', '/?message=older');
+  const loadOlder = vi.fn().mockResolvedValue(undefined);
+  await act(async () => root.render(React.createElement(ChatMessages, { messages: [message()], showAllSteps: false, hasOlder: true, loadOlder })));
+  await flush();
+  expect(loadOlder).toHaveBeenCalledTimes(1);
+  expect(viewport().scrollTop).toBe(0);
+  await act(async () => root.render(React.createElement(ChatMessages, { messages: [{...message(),messageId:'older'},message()], showAllSteps: false, hasOlder: false, loadOlder })));
+  await flush();
+  expect(scrollToIndex).toHaveBeenCalledWith(0,{align:'center'});
+  expect(viewport().scrollTop).toBe(0);
 });

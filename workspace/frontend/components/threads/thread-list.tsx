@@ -5,10 +5,10 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
   MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, RefreshCw, Search,
-  SlidersHorizontal, Star, Trash2, User, Wrench, X,
+  SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { channelSessions, isIssueWorkSession, mergeConversationRows } from '@/lib/conversation-list';
+import { channelSessions, isIssueWorkSession, isRoutineSession, mergeConversationRows } from '@/lib/conversation-list';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -16,6 +16,8 @@ import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
 import { addressName, dmCounterpart, dmSessionId, isMyAddress, LEGACY_HUMAN, myAddress } from '@/lib/dm';
+import { HumanAvatar } from '@/components/chat/human-avatar';
+import { onlineMemberNames } from '@/lib/sidebar-members';
 import { useHumanNames, useTeamRoster } from '@/hooks/use-team-roster';
 import { displayHumanMentions, filterMentionPeople } from '@/lib/people-mentions';
 import { humanColor } from '@/lib/human-color';
@@ -73,7 +75,14 @@ const TABS: { id: FilterTab; labelKey: MessageKey }[] = [
 
 type SortOrder = 'recent' | 'oldest' | 'title';
 
-function AvatarStack({ agents, max = 3 }: { agents: WorkspaceAgent[]; max?: number }) {
+function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; session: WorkspaceSession; max?: number }) {
+  const t = useT();
+  if (session.icon) return <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-lg" aria-label={t('threadSettings.icon')}>{session.icon}</span>;
+  if ((session.humanCount || 0) > 1 || ((session.humanCount || 0) > 0 && agents.length > 0)) {
+    return <span className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" title={t(agents.length ? 'threadSettings.peopleAndAgents' : 'threadSettings.groupThread')}>
+      <Users className="size-4" />{agents.length > 0 && <Bot className="absolute -bottom-1 -right-1 size-3.5 rounded bg-background p-0.5 ring-1 ring-border" />}
+    </span>;
+  }
   const shown = agents.slice(0, max);
   const extra = agents.length - max;
 
@@ -228,7 +237,7 @@ function ThreadRow({
       </div>
 
       <div className="mt-0.5 shrink-0">
-        <AvatarStack agents={participants} />
+        <AvatarStack agents={participants} session={session} />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -312,7 +321,7 @@ export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
     activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
-    unreadSessionIds, unreadThreadCounts, unreadDmSessionIds, unreadDmCounts, unreadSignals, refreshAgents, refreshDMConversations, currentUser,
+    unreadSessionIds, unreadThreadCounts, unreadDmSessionIds, unreadDmCounts, unreadSignals, refreshAgents, refreshDMConversations, currentUser, onlineUsers,
   } = useWorkspace();
   const me = myAddress(currentUser);
   const humanNames = useHumanNames();
@@ -373,7 +382,7 @@ export function ThreadList() {
         s.status !== 'deleted' && !isIssueWorkSession(s) &&
         // Task working threads live on the Kanban board, not the thread list.
         !s.sessionId.startsWith('task:') && !s.sessionId.startsWith('dm:') &&
-        (!s.sessionId.startsWith('routine:') || s.sessionId === currentSessionId))
+        !isRoutineSession(s))
       .sort((a, b) => {
         if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
         if (sortOrder === 'title') return (a.title || '').localeCompare(b.title || '');
@@ -435,8 +444,9 @@ export function ThreadList() {
     hitsByChannel.has(`dm:${c.agents[0]},${c.agents[1]}`)) : visibleDMs;
   const allRows = mergeConversationRows(visibleSessions, matchingDMs, sortOrder, dmTitle);
   const sortedDMRows = mergeConversationRows([], matchingDMs, sortOrder, dmTitle);
+  const starredRows = mergeConversationRows(visibleSessions, matchingDMs.filter(dm => dm.starred), sortOrder, dmTitle);
   const shortcutIds = isSearching ? [] : filter === 'all' ? allRows.map(r => r.id)
-    : filter === 'dms' ? sortedDMRows.map(r => r.id) : visibleSessions.map(s => s.sessionId);
+    : filter === 'dms' ? sortedDMRows.map(r => r.id) : filter === 'starred' ? starredRows.map(r => r.id) : visibleSessions.map(s => s.sessionId);
 
   const unreadThreadCount = activeSessions.filter((s) => unreadSessionIds.has(s.sessionId)).length;
   const dmRowId = (agents: readonly string[]) => `dm:${agents[0]},${agents[1]}`;
@@ -449,7 +459,7 @@ export function ThreadList() {
   const tabCount: Record<FilterTab, number | undefined> = {
     all: unreadCount,
     channels: channels.filter((s) => unreadSessionIds.has(s.sessionId)).length,
-    starred: starredSessions.length,
+    starred: starredSessions.length + visibleDMs.filter(dm => dm.starred).length,
     archived: archivedSessions.length,
     dms: unreadDmCount,
   };
@@ -692,6 +702,7 @@ export function ThreadList() {
   // cached per workspace; token-only sessions may not have team access, in
   // which case the picker just shows agents).
   const team = useTeamRoster();
+  const onlinePeople = useMemo(() => onlineMemberNames(team, onlineUsers), [team, onlineUsers]);
   const dmPeople = useMemo(
     () => [...(me !== LEGACY_HUMAN ? [{ email: addressName(me), name: t('threads.you') }] : []), ...filterMentionPeople(team, '', currentUser.id.includes('@') ? currentUser.id : null)],
     [team, currentUser.id, me, t],
@@ -758,6 +769,15 @@ export function ThreadList() {
     );
   };
 
+  const [pendingDm, setPendingDm] = useState<string | null>(null);
+  const changeDMPreference = async (id: string, update: { pinned?: boolean; starred?: boolean }) => {
+    if (pendingDm) return;
+    setPendingDm(id);
+    try { await workspaceApi.updateDMPreference(id, update); await refreshDMConversations(); }
+    catch { toast.error(t('threads.preferenceFailed')); }
+    finally { setPendingDm(null); }
+  };
+
   const renderDMRows = (rows: DMConversation[], offset = 0) =>
     rows.map((convo, idx) => {
       const dmId = dmRowId(convo.agents);
@@ -786,13 +806,14 @@ export function ThreadList() {
           tabIndex={0}
           onClick={() => selectSession(dmId)}
           onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               selectSession(dmId);
             }
           }}
           className={cn(
-            'flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
+            'group/dm flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
             'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
             currentSessionId === dmId
               ? 'rounded-md border-transparent bg-black/5.5 ring-1 ring-inset ring-black/25 dark:bg-white/9 dark:ring-white/30'
@@ -810,10 +831,10 @@ export function ThreadList() {
             </div>
           ) : counterpartIsPerson ? (
             <div
-              className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
-              style={{ backgroundColor: humanColor(rawTitle) }}
+              className="relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
             >
-              <User className="size-3.5 text-zinc-700" />
+              <HumanAvatar email={counterpart ? addressName(counterpart) : rawTitle} />
+              {counterpart && (counterpart === me || onlinePeople.has(addressName(counterpart).toLowerCase())) && <span className="absolute bottom-0 right-0 size-2 rounded-full bg-emerald-500 ring-2 ring-background" aria-label={t('agents.online')} title={t('agents.online')} />}
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">
@@ -823,6 +844,8 @@ export function ThreadList() {
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-0.5 flex items-center justify-between gap-1">
               <span className={cn('truncate text-sm leading-tight text-foreground', isUnread ? 'font-semibold' : 'font-medium')}>
+                {convo.pinned && <Pin className="mr-1 inline size-3 text-muted-foreground" aria-label={t('threads.pin')} />}
+                {convo.starred && <Star className="mr-1 inline size-3 fill-amber-400 text-amber-400" aria-label={t('threads.star')} />}
                 {title}
               </span>
               <div className="flex shrink-0 items-center gap-1">
@@ -831,6 +854,13 @@ export function ThreadList() {
                     ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
                     : ''}
                 </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><button type="button" aria-label={t('threads.dmActions')} disabled={pendingDm === dmId} onClick={e => e.stopPropagation()} className="rounded p-1 opacity-0 hover:bg-muted group-hover/dm:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"><MoreVertical className="size-3.5" /></button></DropdownMenuTrigger>
+                  <DropdownMenuContent onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {signalCount > 0 && <DmUnreadMarker count={signalCount} />}
                 {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
               </div>
@@ -1038,6 +1068,8 @@ export function ThreadList() {
                   {!isSearching && renderNewDmButton()}
                   {sortedDMRows.length === 0 ? emptyState('dms') : sortedDMRows.map((row, idx) => row.kind === 'dm' ? renderDMRows([row.dm], idx) : null)}
                 </>
+              ) : tab.id === 'starred' ? (
+                starredRows.length === 0 ? emptyState('starred') : starredRows.map((row, idx) => row.kind === 'thread' ? renderSessionRows([row.thread], false, idx) : renderDMRows([row.dm], idx))
               ) : visibleSessions.length === 0 ? (
                 emptyState(tab.id)
               ) : (

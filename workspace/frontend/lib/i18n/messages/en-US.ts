@@ -11,6 +11,7 @@
  */
 
 export const messages = {
+  messageAgentAccess: {"owner": "Owned by {name}", "yours": "Your agent", "shared": "Shared with you", "approval": "Requires approval", "notShared": "Not shared with you", "request": "Request access", "requested": "Access requested", "requestTitle": "Request access to {agent}", "requestHint": "Ask {owner} to share {agent} with you. If approved, you can chat directly with this agent and add it to threads. Existing private conversations remain private.", "sent": "Request sent to the agent owner", "failed": "Could not request access. Please try again."},
   webProject: {"kind": "Web project","upload": "Upload web project", "update": "Update project", "choose": "Choose project folder", "name": "Project name", "entry": "Entry page", "files": "files", "keepsSharing": "Keeps the existing link and sharing.", "threadSharing": "Shared with this thread.", "private": "Only visible to you until shared.", "help": "Choose a static site folder. Use relative links for images, styles, scripts, and data. Hidden files and dependency folders are excluded.", "noHtml": "This folder needs an HTML entry page.", "publish": "Publish project", "published": "Project published", "preview": "Web project preview"},
   artifactPanel: {
     browserClosed: "This browser session has ended",
@@ -186,6 +187,10 @@ export const messages = {
     unreadMessages: '{count} unread messages',
     memberOnline: 'Online',
     members: 'Members',
+    unreadCount: '{count} unread',
+    agentSettings: 'Settings for {name}',
+    viewAllMembers: 'View all members',
+    moreMembers: '+{count} more members',
     newHumanDM: 'New direct message',
     searchMembers: 'Search people by name or email…',
     noMembersFound: 'No people found',
@@ -206,6 +211,12 @@ export const messages = {
   },
 
   threadSettings: {
+    icon: 'Thread icon',
+    resetIcon: 'Use default',
+    iconFailed: 'Could not save the thread icon.',
+    peopleAndAgents: 'People and agents',
+    groupThread: 'Group conversation',
+
     sharingNo: "No",
     sharingYes: "Yes",
     sharingApproval: "Requires approval",
@@ -259,6 +270,8 @@ export const messages = {
   },
 
   notifications: {
+    resolvedRequest: 'This approval request has been resolved.',
+
     title: 'Notifications',
     unreadCount: '{count} unread',
     markAllRead: 'Mark all as read',
@@ -658,6 +671,7 @@ export const messages = {
   },
 
   knowledge: {
+    export: 'Export', exportText: 'Plain text', exportPrint: 'Print / Save as PDF', exportFailed: 'Could not export this knowledge. Please try again.',
     title: 'Knowledge',
     refresh: 'Refresh knowledge',
     newEntry: 'New entry',
@@ -687,6 +701,9 @@ export const messages = {
   files: {
     title: 'Files',
     recentFiles: 'Recent files',
+    allFiles: 'All files',
+    groupPdf: 'PDFs',
+    noMatchesHint: 'Try another category or search term.',
     newTopLevelFolder: 'New top-level folder',
     searchFoldersPlaceholder: 'Search folders…',
     searchFoldersLabel: 'Search folders',
@@ -1264,6 +1281,9 @@ export const messages = {
   },
 
   threads: {
+    dmActions: 'Direct message actions',
+    preferenceFailed: 'Could not save your preference.',
+
     tabChannels: 'Channels',
     channel: 'Channel',
     markAsChannel: 'Mark as channel',
@@ -2921,6 +2941,10 @@ export const messages = {
 
   // ── Permission model v1.1 ── "Who can use this agent" (replaces personal/team)
   reactions: {
+    copyLink: 'Copy message link',
+    linkFailed: 'Could not copy the message link.',
+    linkMissing: 'This message is unavailable.',
+
     reply: "Reply", add: 'Add reaction', choose: 'Choose an emoji', count: '{emoji} · {count} reactions', failed: 'Could not save your reaction. Please try again.' },
   services: { title: 'Shared agent services', subtitle: 'Reusable services shared with you. Each service has its own instructions and audience.', experimental: 'Experimental — services and their behavior may change.', create: 'Create service', edit: 'Edit service', name: 'Service name', agent: 'Runs on your agent', description: 'Description', instructions: 'Service instructions', examples: 'Example requests (one per line)', inputs: 'What the requester should provide', approver: 'Approve each request', noApproval: 'No approval required', audience: 'Who can use this service', save: 'Save service', request: 'Start a request', search: 'Search services…', empty: 'No services shared with you yet.', sharing: 'Sharing', agentSharing: 'Share agent', agentSharingHint: 'Direct access lets people chat with this agent and add it to threads. Service audiences are managed separately in Services.', owner: 'Owner', failed: 'Could not complete the action. Please try again.', requestPlaceholder: 'Describe what you need from this service…', },
   agentAccess: {

@@ -62,7 +62,7 @@ class CreateNotificationRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _serialize_notification(n: NotificationRecord) -> dict:
+def _serialize_notification(n: NotificationRecord, approval_status=None) -> dict:
     return {
         "id": n.id,
         "title": n.title,
@@ -80,6 +80,7 @@ def _serialize_notification(n: NotificationRecord) -> dict:
         # the whole workspace).
         "kind": n.kind,
         "action_ref": n.action_ref,
+        "approval_status": approval_status,
         "recipient_email": n.recipient_email,
         "created_at": n.created_at.isoformat() if n.created_at else None,
         "read_at": n.read_at.isoformat() if n.read_at else None,
@@ -216,8 +217,13 @@ def list_notifications(
         )
     ).scalar() or 0
 
+    from app.models import ApprovalRequest
+    approval_statuses = dict(db.execute(select(ApprovalRequest.id, ApprovalRequest.status).where(
+        ApprovalRequest.workspace_id == ws_id,
+        ApprovalRequest.id.in_([n.action_ref for n in rows if n.action_ref]),
+    )).all())
     return success_response({
-        "notifications": [_serialize_notification(n) for n in rows],
+        "notifications": [_serialize_notification(n, approval_statuses.get(n.action_ref)) for n in rows],
         "unread_count": unread_count,
     })
 

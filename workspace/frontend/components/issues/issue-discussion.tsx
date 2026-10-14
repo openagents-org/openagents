@@ -537,9 +537,20 @@ export function IssueDiscussion({
                     {Array.from(people, ([person, name]) => (
                       <div key={person} className="flex items-center gap-2.5" title={name}>
                         <IssueAvatar source={person} name={name} size={26} />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">{name}</span>
+                        <span className="min-w-0 flex-1 text-xs font-medium">
+                          <span className="block truncate">{name}</span>
+                          {person.startsWith('openagents:') && (() => {
+                            const participant = issue.participants.find(item => item.source === person);
+                            if (!participant?.request_access) return null;
+                            const mine = participant.owner_email?.toLowerCase() === currentUser.id.toLowerCase();
+                            const label = mine ? t('messageAgentAccess.yours') : participant.request_access === 'yes' ? t('messageAgentAccess.shared') : participant.request_access === 'approval' ? t('messageAgentAccess.approval') : t('messageAgentAccess.notShared');
+                            return <span className="mt-1 block space-y-0.5 text-[10px] font-normal text-muted-foreground">
+                              {participant.owner_email && <span className="block truncate" title={participant.owner_name || participant.owner_email}>{t('messageAgentAccess.owner', { name: participant.owner_name || participant.owner_email })}</span>}
+                              <span className="inline-block rounded bg-muted px-1.5 py-0.5">{label}</span>
+                            </span>;
+                          })()}
+                        </span>
                         {person.startsWith('openagents:') && <>
-                          <span className="text-[10px] text-muted-foreground">{t('newThread.agent')}</span>
                           <button type="button" disabled={busy} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('issues.removeAgent', { name })} title={t('issues.removeAgent', { name })}
                             onClick={() => void mutate(() => workspaceApi.removeIssueAgent(id, person.slice('openagents:'.length)))}><X className="size-3.5" /></button>
                         </>}

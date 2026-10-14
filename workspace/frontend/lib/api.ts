@@ -1574,6 +1574,8 @@ class WorkspaceApi {
       agents: [string, string];
       last_message: { content: string; sender: string; timestamp: number };
       message_count: number;
+      pinned?: boolean;
+      starred?: boolean;
       unread_count: number | null;
       read_at: number | null;
     }> }>(`/v1/events/conversations?${params}`);
@@ -1581,6 +1583,8 @@ class WorkspaceApi {
       agents: c.agents,
       lastMessage: c.last_message,
       messageCount: c.message_count,
+      pinned: c.pinned,
+      starred: c.starred,
       unreadCount: c.unread_count,
       readAt: c.read_at,
     }));
@@ -2081,6 +2085,7 @@ class WorkspaceApi {
       status: (n.status || 'active') as string,
       kind: (n.kind ?? null) as string | null,
       actionRef: (n.action_ref ?? null) as string | null,
+      approvalStatus: (n.approval_status ?? null) as string | null,
       recipientEmail: (n.recipient_email ?? null) as string | null,
       createdAt: (n.created_at || null) as string | null,
       readAt: (n.read_at || null) as string | null,
@@ -2201,6 +2206,12 @@ class WorkspaceApi {
   // ── v1.1 M1/M2 — thread privacy, participants, sharing, agent directory ─────
 
   /** Who is in a thread — the humans on its ACL and the agents in it. */
+  async requestAgentSharing(channel: string, agent: string): Promise<ApprovalRequest> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/sharing-requests`, {
+      method: 'POST', body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
   async getChannelParticipants(channel: string): Promise<ChannelParticipants> {
     const params = new URLSearchParams({ network: this.requireWorkspace() });
     return this.request<ChannelParticipants>(`/v1/channels/${encodeURIComponent(channel)}/participants?${params}`);
@@ -2434,6 +2445,11 @@ class WorkspaceApi {
   }
 
   /** The owner's default preview; resource permissions still apply. */
+  async updateDMPreference(sessionId: string, update: { pinned?: boolean; starred?: boolean }): Promise<unknown> {
+    const link = await this.getThreadLink(sessionId);
+    return this.request(`/v1/thread-links/${link.id}/preferences`, { method: 'PATCH', body: JSON.stringify({ network: this.requireWorkspace(), ...update }) });
+  }
+
   async getThreadLink(sessionId: string): Promise<{ id: string; session_id: string }> {
     return this.request('/v1/thread-links', { method: 'POST', body: JSON.stringify({ network: this.requireWorkspace(), session_id: sessionId }) });
   }
@@ -2468,6 +2484,7 @@ class WorkspaceApi {
 
   async updateChannelAccess(channel: string, update: ChannelAccessUpdate): Promise<unknown> {
     const body: Record<string, unknown> = { network: this.requireWorkspace() };
+    if (update.icon !== undefined) body.icon = update.icon;
     if (update.visibility !== undefined) body.visibility = update.visibility;
     if (update.participantsCanInvite !== undefined) body.participants_can_invite = update.participantsCanInvite;
     if (update.membersCanAddAgents !== undefined) body.members_can_add_agents = update.membersCanAddAgents;

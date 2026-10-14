@@ -79,6 +79,7 @@ export function NotificationCard({
   const senderLabel = senderAgent
     ? agentLabel(senderAgent)
     : (fromPerson ? (humanNames[agentName.toLowerCase()] ?? agentName) : agentName);
+  resolved = resolved || Boolean(notification.approvalStatus && notification.approvalStatus !== 'pending');
   const actionKind = inboxActionKind(notification);
   const actionable = actionKind !== null && Boolean(onToggle);
 
@@ -127,7 +128,7 @@ export function NotificationCard({
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-          {notification.message}
+          {resolved && notification.approvalStatus ? t('notifications.resolvedRequest') : notification.message}
         </p>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-[10px] text-muted-foreground">{senderLabel}</span>

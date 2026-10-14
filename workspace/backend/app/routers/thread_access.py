@@ -16,7 +16,7 @@ import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,7 @@ router = APIRouter(prefix="/v1", tags=["thread-access"])
 
 class ThreadAccessPatch(BaseModel):
     network: str
+    icon: Optional[str] = Field(default=None, max_length=32)
     visibility: Optional[str] = None
     participants_can_invite: Optional[bool] = None
     members_can_add_agents: Optional[bool] = None
@@ -61,6 +62,7 @@ def channel_access_summary(db: Session, ch: Channel) -> dict:
     return {
         "name": ch.name,
         "title": ch.title or ch.name,
+        "icon": ch.icon,
         "visibility": normalize_visibility(ch.visibility, "public") or "public",
         "owner_email": _norm(ch.owner_email),
         "participants_can_invite": bool(ch.participants_can_invite),
@@ -101,6 +103,15 @@ def update_thread_access(
     from app.services.access_model import can_manage_thread_settings
     manage = can_manage_thread_settings(db, ctx.viewer, ch)
     changed = {}
+
+    if 'icon' in body.model_fields_set:
+        if not ctx.viewer.is_human or not owner:
+            return json_response(ResponseCode.FORBIDDEN, 'Only the thread owner can change its icon')
+        icon = body.icon.strip() if body.icon else None
+        if icon and any(ord(c) < 32 for c in icon):
+            return json_response(ResponseCode.BAD_REQUEST, 'Invalid thread icon')
+        ch.icon = icon or None
+        changed['icon'] = ch.icon
 
     if body.visibility is not None:
         vis = normalize_visibility(body.visibility)
@@ -305,6 +316,44 @@ def update_my_agent_sharing(
     return success_response({"enabled": setting.enabled, "mode": setting.mode})
 
 
+class AgentSharingRequest(BaseModel):
+    network: str
+
+
+@router.post("/channels/{channel}/agents/{agent}/sharing-requests")
+def request_agent_sharing(channel: str, agent: str, body: AgentSharingRequest,
+    db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)):
+    from app.models import WorkspaceMember, ChannelMember
+    from app.services import agent_sharing_requests, approvals
+    from app.services.thread_agent_requests import request_access
+    ctx, err = _load(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    if ctx.viewer.kind != "human" or not ctx.viewer.email:
+        return json_response(ResponseCode.FORBIDDEN, "Sign in to request agent sharing")
+    ch = _get_channel(db, ctx, channel)
+    if ch is None or not can_view_channel(db, ctx.wid, ctx.viewer, ch):
+        return json_response(ResponseCode.NOT_FOUND, "Thread not found")
+    # Serialize requests for this agent, including concurrent double clicks.
+    member = db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == ctx.wid,
+        WorkspaceMember.agent_name == agent).with_for_update()).scalar_one_or_none()
+    people = channel_participant_emails(db, ch)
+    owner = _norm(member.owner_email) if member else None
+    if (not member or member.status == "removed" or not owner or ch.service_id
+            or ctx.viewer.email not in people or owner not in people
+            or not _is_workspace_member(db, ctx.workspace, ctx.viewer.email)
+            or not db.get(ChannelMember, (ch.id, agent))):
+        return json_response(ResponseCode.FORBIDDEN, "Join a thread with this agent and its owner to request sharing")
+    if request_access(db, ctx.wid, ch, member, ctx.viewer.email) != "no":
+        return json_response(ResponseCode.BAD_REQUEST, "You already have access to this agent in this thread")
+    names = _display_names(db, [ctx.viewer.email])
+    request = agent_sharing_requests.create_request(db, ctx.workspace, ch, member,
+        ctx.viewer.email, names.get(ctx.viewer.email) or ctx.viewer.email)
+    db.commit()
+    return success_response(approvals.serialize_with_owner(db, request))
+
+
 class ArtifactReference(BaseModel):
     kind: Literal["file", "knowledge", "browser"]
     id: str
@@ -444,3 +493,45 @@ def resolve_thread_link(thread_id: str, network: str = Query(...), db: Session =
     if link is not None and _direct_link_key(ctx, link.session_key):
         return success_response({'id': thread_id, 'session_id': link.session_key})
     return json_response(ResponseCode.NOT_FOUND, 'Thread not found')
+
+
+class DirectPreferencePatch(BaseModel):
+    network: str
+    pinned: Optional[bool] = None
+    starred: Optional[bool] = None
+
+
+@router.patch('/thread-links/{thread_id}/preferences')
+def update_direct_preferences(thread_id: str, body: DirectPreferencePatch, db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    from uuid import UUID
+    from app.models import DirectThreadLink, DirectThreadPreference
+    from sqlalchemy.exc import IntegrityError
+    ctx, err = _load(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    if not ctx.viewer.is_human or not ctx.viewer.email:
+        return json_response(ResponseCode.FORBIDDEN, 'Sign in to save personal preferences')
+    try:
+        thread_id = str(UUID(thread_id))
+    except ValueError:
+        return json_response(ResponseCode.NOT_FOUND, 'Thread not found')
+    link = db.execute(select(DirectThreadLink).where(DirectThreadLink.id == thread_id, DirectThreadLink.workspace_id == ctx.wid)).scalar_one_or_none()
+    if link is None or not _direct_link_key(ctx, link.session_key):
+        return json_response(ResponseCode.NOT_FOUND, 'Thread not found')
+    key = {'thread_id': thread_id, 'user_email': ctx.viewer.email}
+    pref = db.get(DirectThreadPreference, key)
+    if pref is None:
+        try:
+            with db.begin_nested():
+                pref = DirectThreadPreference(**key)
+                db.add(pref)
+                db.flush()
+        except IntegrityError:
+            pref = db.get(DirectThreadPreference, key)
+    if body.pinned is not None:
+        pref.pinned = body.pinned
+    if body.starred is not None:
+        pref.starred = body.starred
+    db.commit()
+    return success_response({'pinned': pref.pinned, 'starred': pref.starred})

@@ -602,6 +602,11 @@ def resolve(
     approval.note = (note or "").strip() or None
     db.flush()
 
+    if approval.kind == "agent_sharing_request":
+        from app.services.agent_sharing_requests import resolve_request
+        resolve_request(db, workspace, approval, actor_id, actor_label)
+        return approval
+
     if approval.kind in ("service_request", "thread_agent_request", "issue_agent_request"):
         from app.services.service_requests import release_request
         release_request(db, workspace, approval, actor_label)

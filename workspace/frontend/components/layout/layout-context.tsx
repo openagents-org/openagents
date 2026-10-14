@@ -50,7 +50,7 @@ const EMPTY_NARROWING = { path: '', typeFilter: 'all' as FileTypeFilter, query: 
 
 const DEFAULT_FILES_BROWSE: FilesBrowseState = {
   view: 'grid',
-  sort: 'name',
+  sort: 'recent',
   narrowing: EMPTY_NARROWING,
 };
 

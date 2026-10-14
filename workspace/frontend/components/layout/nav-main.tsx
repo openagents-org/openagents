@@ -1,6 +1,6 @@
 'use client';
 
-import { isIssueWorkSession } from '@/lib/conversation-list';
+import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import {
   BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
@@ -35,7 +35,7 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, hasUnreadInThreads } = useWorkspace();
+  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal } = useWorkspace();
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
@@ -50,21 +50,19 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           mode: 'threads',
           label: t('views.threads'),
           icon: <MessageSquare />,
-          count: sessions.filter((s) => !isIssueWorkSession(s) && !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
-          unread: hasUnreadInThreads,
+          count: unreadThreadsTotal,
         },
     { mode: 'issues', label: t('views.issues'), icon: <CircleDot /> },
     ...(hasAgents
       ? ([
-          { mode: 'files', label: t('views.files'), icon: <FileText />, count: countFiles(files) },
-          { mode: 'browser', label: t('views.browser'), icon: <Globe />, count: browserTabs.length },
+          { mode: 'files', label: t('views.files'), icon: <FileText /> },
+          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
           {
             mode: 'routines',
             label: t('views.routines'),
             icon: <CalendarClock />,
-            count: routines.filter((r) => r.status === 'active').length,
           },
-          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen />, count: knowledge.length },
+          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
           {
             mode: 'tasks',
             label: t('views.tasks'),
@@ -84,7 +82,6 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             mode: 'workflows',
             label: t('views.workflows'),
             icon: <Waypoints />,
-            count: workflows.length,
           },
           // v1.1 M2: team specialists directory
           { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
@@ -110,9 +107,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
               >
                 {item.icon}
                 <span>{item.label}</span>
-                {item.unread && (
-                  <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('threads.unread')} />
-                )}
+
               </SidebarMenuButton>
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">

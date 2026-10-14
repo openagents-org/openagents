@@ -12,6 +12,7 @@ import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
+import { KnowledgeExport } from './knowledge-export';
 import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
 import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
@@ -113,6 +114,7 @@ export function KnowledgeView() {
           </h2>
         </>}
       >
+        <KnowledgeExport entry={entry} />
         <CopyResourceLink view="knowledge" id={entry.id} />
         <ArtifactSharePopover
           kind="knowledge"

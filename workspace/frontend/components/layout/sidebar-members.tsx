@@ -1,12 +1,12 @@
 'use client';
 import { DmUnreadBadge } from './dm-unread-badge';
 import { useState } from 'react';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Users, ChevronRight } from 'lucide-react';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from './layout-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
-import { sidebarMembers } from '@/lib/sidebar-members';
+import { sidebarMembers, onlineMemberNames } from '@/lib/sidebar-members';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '@/components/ui/responsive-dialog';
@@ -24,6 +24,10 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   const [query, setQuery] = useState('');
   const me = myAddress(currentUser);
   const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name);
+  const online = onlineMemberNames(team, onlineUsers);
+  const shownEmails = new Set(members.map(person => person.email));
+  const moreCount = team.filter(person => !shownEmails.has(person.email.toLowerCase())).length;
+  const memberLabel = (email: string, name: string) => email.toLowerCase() === currentUser.id.toLowerCase() ? `${name} (${t('threads.you')})` : name;
   const candidates = team.filter(person => `${person.displayName || ''} ${person.email}`.toLowerCase().includes(query.trim().toLowerCase()));
   const startDM = (email: string) => {
     setSelectedAgentName(null);
@@ -39,21 +43,25 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
       </div>
       <SidebarGroupContent><SidebarMenu className="gap-0.5">
         {members.map(person => <SidebarMenuItem key={person.email}>
-          <SidebarMenuButton className={cn(!showLabels && 'justify-center!', !person.hasHistory && 'text-muted-foreground opacity-55')} aria-label={person.email === currentUser.id.toLowerCase() ? t('threads.you') : person.name} tooltip={{ children: person.email === currentUser.id.toLowerCase() ? t('threads.you') : person.name, hidden: showLabels }} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
+          <SidebarMenuButton className={cn(!showLabels && 'justify-center!', !person.hasHistory && 'text-muted-foreground opacity-55')} aria-label={memberLabel(person.email, person.name)} tooltip={{ children: memberLabel(person.email, person.name), hidden: showLabels }} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
             <span className="relative shrink-0"><HumanAvatar email={person.email} />{person.online && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />}</span>
-            {showLabels && <span className="truncate">{person.email === currentUser.id.toLowerCase() ? t('threads.you') : person.name}</span>}
+            {showLabels && <span className="flex min-w-0 items-center gap-1"><span className="truncate">{person.name}</span>{person.email === currentUser.id.toLowerCase() && <span className="shrink-0 text-xs text-muted-foreground">({t('threads.you')})</span>}</span>}
             <DmUnreadBadge count={unreadDmCounts[dmSessionId(me, `human:${person.email}`)]} compact={!showLabels} />
           </SidebarMenuButton>
         </SidebarMenuItem>)}
-      </SidebarMenu></SidebarGroupContent>
+      </SidebarMenu>
+        {team.length > 0 && <button type="button" onClick={() => { setQuery(''); setOpen(true); }} className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title={t('nav.viewAllMembers')} aria-label={t('nav.viewAllMembers')}>
+          {showLabels && <span className="flex-1 text-left">{moreCount > 0 ? t('nav.moreMembers', { count: moreCount }) : t('nav.viewAllMembers')}</span>}<ChevronRight className="size-3.5 shrink-0" />
+        </button>}
+      </SidebarGroupContent>
     </SidebarGroup>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-md">
-      <DialogHeader><DialogTitle>{t('nav.newHumanDM')}</DialogTitle></DialogHeader>
+      <DialogHeader><DialogTitle>{t('nav.members')} · {team.length}</DialogTitle></DialogHeader>
       <DialogBody className="space-y-3">
         <Input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={t('nav.searchMembers')} />
         <div className="max-h-80 overflow-y-auto">
           {candidates.map(person => <button key={person.email} className="flex w-full items-center gap-3 rounded-md p-2 text-left hover:bg-muted" onClick={() => startDM(person.email)}>
-            <HumanAvatar email={person.email} /><span className="min-w-0"><span className="block truncate text-sm font-medium">{person.email.toLowerCase() === currentUser.id.toLowerCase() ? t('threads.you') : person.displayName || person.email}</span>{person.displayName && <span className="block truncate text-xs text-muted-foreground">{person.email}</span>}</span>
+            <span className="relative shrink-0"><HumanAvatar email={person.email} />{(online.has(person.email.toLowerCase()) || person.email.toLowerCase() === currentUser.id.toLowerCase()) && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-background" aria-label={t('agents.online')} />}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{memberLabel(person.email, person.displayName || (person.email.toLowerCase() === currentUser.id.toLowerCase() ? currentUser.name : '') || person.email)}</span>{person.displayName && <span className="block truncate text-xs text-muted-foreground">{person.email}</span>}</span>
           </button>)}
           {!candidates.length && <p className="p-2 text-sm text-muted-foreground">{t('nav.noMembersFound')}</p>}
         </div>

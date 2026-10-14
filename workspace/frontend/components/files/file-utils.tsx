@@ -157,6 +157,7 @@ export function getFileTypeMeta(contentType: string | undefined, filename: strin
 
 export type FileFilterGroup =
   | 'documents'
+  | 'pdf'
   | 'sheets'
   | 'slides'
   | 'images'
@@ -182,14 +183,15 @@ export type FileTypeFilter = FileFilterGroup | 'folders' | 'all';
 export type FileSortKey = 'name' | 'recent' | 'size';
 
 export const FILE_FILTER_GROUPS: FileFilterGroupMeta[] = [
-  { id: 'documents', labelKey: 'files.groupDocuments', kinds: ['pdf', 'doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
+  { id: 'web', labelKey: 'files.groupWeb', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
+  { id: 'documents', labelKey: 'files.groupDocuments', kinds: ['doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
+  { id: 'pdf', labelKey: 'files.groupPdf', kinds: ['pdf'], icon: FileText, color: 'var(--file-pdf)' },
   { id: 'sheets', labelKey: 'files.groupSheets', kinds: ['sheet'], icon: FileSpreadsheet, color: 'var(--file-sheet)' },
   { id: 'slides', labelKey: 'files.groupSlides', kinds: ['slides'], icon: Presentation, color: 'var(--file-slides)' },
   { id: 'images', labelKey: 'files.groupImages', kinds: ['image'], icon: ImageIcon, color: 'var(--file-image)' },
   { id: 'audio', labelKey: 'files.groupAudio', kinds: ['audio'], icon: Music, color: 'var(--file-audio)' },
   { id: 'video', labelKey: 'files.groupVideo', kinds: ['video'], icon: Video, color: 'var(--file-video)' },
   { id: 'code', labelKey: 'files.groupCode', kinds: ['code'], icon: FileCode, color: 'var(--file-code)' },
-  { id: 'web', labelKey: 'files.groupWeb', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
   { id: 'archives', labelKey: 'files.groupArchives', kinds: ['archive'], icon: FileArchive, color: 'var(--file-archive)' },
   { id: 'other', labelKey: 'files.groupOther', kinds: ['unknown'], icon: FileIcon, color: 'var(--file-unknown)' },
 ];

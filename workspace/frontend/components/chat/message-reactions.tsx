@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { CopyMessageLink } from './copy-message-link';
 import { Reply, SmilePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
@@ -63,6 +64,7 @@ export function MessageReactions({ messageId, onReply }: {messageId:string; onRe
     <div className={`absolute right-0 top-1 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'}`}>
     <button type="button" aria-label={t('reactions.add')} title={t('reactions.add')} aria-expanded={open} disabled={busy} onClick={()=>setOpen(!open)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><SmilePlus className="size-3.5" /></button>
     {onReply && <button type="button" aria-label={t('reactions.reply')} title={t('reactions.reply')} onClick={onReply} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><Reply className="size-3.5" /></button>}
+    <CopyMessageLink messageId={messageId} />
     </div>
     {open&&<div role="group" aria-label={t('reactions.choose')} className="flex flex-wrap gap-0.5 rounded-lg border bg-background p-1">{emojis.map(emoji=><button key={emoji} aria-label={emoji} disabled={busy} onClick={()=>void toggle(emoji)} className="rounded px-1.5 py-1 hover:bg-muted">{emoji}</button>)}</div>}
   </div>;

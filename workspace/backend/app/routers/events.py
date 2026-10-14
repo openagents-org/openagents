@@ -968,6 +968,14 @@ def list_conversations(
 
     pairs = db.execute(base).all()
 
+    from app.models import DirectThreadLink, DirectThreadPreference
+    preferences = {}
+    if viewer.is_human and viewer.email:
+        preferences = {key: pref for key, pref in db.execute(
+            select(DirectThreadLink.session_key, DirectThreadPreference).join(
+                DirectThreadPreference, DirectThreadPreference.thread_id == DirectThreadLink.id
+            ).where(DirectThreadLink.workspace_id == workspace.id, DirectThreadPreference.user_email == viewer.email)
+        ).all()}
     # For each pair, fetch the actual latest event
     conversations = []
     for row in pairs:
@@ -1009,6 +1017,8 @@ def list_conversations(
                 )) or 0
             conversations.append({
                 "agents": [row.agent_a, row.agent_b],
+                "pinned": bool(preferences.get(session_id) and preferences[session_id].pinned),
+                "starred": bool(preferences.get(session_id) and preferences[session_id].starred),
                 "last_message": {
                     "content": payload.get("content", ""),
                     "sender": latest_event.source,

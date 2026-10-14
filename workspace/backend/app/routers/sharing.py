@@ -362,6 +362,10 @@ def list_participants(
             ).scalars().all()
         }
     usable = agent_usable_by(db, ctx.wid, agent_names)
+    from app.services.thread_agent_requests import request_access
+    from app.services.agent_sharing_requests import pending_request
+    people = channel_participant_emails(db, ch)
+    owner_names = _display_names(db, [m.owner_email for m in members.values() if m.owner_email])
     agents = []
     for name in agent_names:
         m = members.get(name)
@@ -371,6 +375,12 @@ def list_participants(
             "owner_email": m.owner_email if m else None,
             "visibility": legacy_agent_visibility(usable.get(name, {})),
             "usable_by": usable.get(name),
+            "owner_display_name": owner_names.get(_norm(m.owner_email)) if m else None,
+            "request_access": request_access(db, ctx.wid, ch, m, ctx.viewer.email),
+            "can_request_sharing": bool(m and m.status != "removed" and ctx.viewer.kind == "human"
+                and ctx.viewer.email in people and _norm(m.owner_email) in people
+                and _norm(m.owner_email) != ctx.viewer.email and not ch.service_id),
+            "sharing_requested": bool(ctx.viewer.email and pending_request(db, ctx.wid, ch.name, name, ctx.viewer.email)),
         })
 
     from app.models import ChannelAgentSharing

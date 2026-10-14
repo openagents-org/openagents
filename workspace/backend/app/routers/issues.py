@@ -426,10 +426,21 @@ def get_issue(
             "kind": "approval", "content": approval.action, "source_event_id": None,
             "created_at": _iso(approval.created_at), "approval": serialize_with_owner(db, approval)})
     discussion.sort(key=lambda item: (item["created_at"], item["id"]))
+    from app.services.thread_agent_requests import issue_request_access
+    participants = [dict(person) for person in _participants(db, issue, channels)]
+    for person in participants:
+        if not person["source"].startswith("openagents:"):
+            continue
+        member = db.get(WorkspaceMember, (str(workspace.id), person["source"].split(":", 1)[1]))
+        owner = member.owner_email if member else None
+        user = db.execute(select(User).where(User.email == owner)).scalar_one_or_none() if owner else None
+        person.update(owner_email=owner, owner_name=(user.display_name if user else None),
+            request_access=issue_request_access(db, workspace.id, issue, member, viewer.email))
+
     return success_response(
         _serialize(issue)
         | {
-            "participants": _participants(db, issue, channels),
+            "participants": participants,
             "comments": discussion,
             "agent_sharing_mode": (db.get(IssueAgentSharing, (issue.id, viewer.email)).mode if viewer.email and db.get(IssueAgentSharing, (issue.id, viewer.email)) else "no"),
             "threads": [
@@ -597,7 +608,9 @@ def add_comment(
         for name in targets:
             member = db.get(WorkspaceMember, (str(workspace.id), name))
             if not viewer.machine and issue_request_access(db, workspace.id, issue, member, actor.removeprefix("human:")) == "no":
-                owner = member.owner_email if member else "the owner"
+                owner_email = member.owner_email if member else None
+                owner_user = db.execute(select(User).where(User.email == owner_email)).scalar_one_or_none() if owner_email else None
+                owner = (owner_user.display_name if owner_user else None) or owner_email or "the owner"
                 result["dispatch_error"] = f"Your comment was posted, but {name} wasn’t asked to work. Ask {owner} to enable sharing or require approval in this issue’s Details."
             else:
                 allowed_targets.append(name)

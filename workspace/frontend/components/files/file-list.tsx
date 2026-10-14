@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react"
 import {
   Search,
-  Clock,
+  Files,
   FolderOpen,
   Folder,
   FolderPlus,
@@ -344,9 +344,9 @@ export function FileList() {
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
             )}
           >
-            <Clock className="size-4 shrink-0 text-muted-foreground" />
+            <Files className="size-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate text-[13px] font-medium">
-              {t("files.recentFiles")}
+              {t("files.allFiles")}
             </span>
           </button>
         )}

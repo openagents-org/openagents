@@ -25,7 +25,9 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const { refreshAgents } = useWorkspace();
+  const { refreshAgents, currentUser } = useWorkspace();
+  const [iconDraft, setIconDraft] = useState(session.icon || '');
+  useEffect(() => { setIconDraft(session.icon || ''); }, [session.icon, open]);
   const owner = participants?.owner_email || threadOwnerEmail(session);
   const ownerPerson = participants?.humans.find(person => person.email.toLowerCase() === owner?.toLowerCase());
   const access = useThreadAccess(session.sessionId);
@@ -41,6 +43,14 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
       .catch(() => { if (active) setLoadFailed(true); });
     return () => { active = false; };
   }, [open, session.sessionId, attempt]);
+
+  const saveIcon = async (icon: string | null) => {
+    if (busy) return;
+    setBusy(true);
+    try { await workspaceApi.updateChannelAccess(session.sessionId, { icon }); await refreshAgents(); setIconDraft(icon || ''); }
+    catch { toast.error(t('threadSettings.iconFailed')); }
+    finally { setBusy(false); }
+  };
 
   const changePermission = async (kind: 'people' | 'agents', value: boolean) => {
     if (!manage || busy) return;
@@ -98,6 +108,11 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
           </DialogHeader>
           <DialogBody className="space-y-5 pb-5">
               <p className="truncate text-sm font-medium">{session.title}</p>
+              {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="thread-icon">{t('threadSettings.icon')}</label>
+                <div className="flex flex-wrap gap-1">{['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'].map(icon => <button type="button" key={icon} disabled={busy} aria-label={icon} aria-pressed={session.icon === icon} onClick={() => void saveIcon(icon)} className="rounded-md border p-2 text-lg hover:bg-muted aria-pressed:bg-muted">{icon}</button>)}</div>
+                <div className="flex gap-2"><input id="thread-icon" aria-label={t('threadSettings.icon')} maxLength={32} value={iconDraft} onChange={e => setIconDraft(e.target.value)} className="min-w-0 flex-1 rounded-md border bg-background px-2 text-sm" /><Button size="sm" disabled={busy || !iconDraft.trim()} onClick={() => void saveIcon(iconDraft.trim())}>{t('common.save')}</Button><Button size="sm" variant="outline" disabled={busy || !session.icon} onClick={() => void saveIcon(null)}>{t('threadSettings.resetIcon')}</Button></div>
+              </div>}
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm">{t('threadSettings.owner')}</span>
                 {owner ? <div className="flex min-w-0 items-center gap-2" title={owner}>

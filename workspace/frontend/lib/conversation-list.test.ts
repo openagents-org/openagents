@@ -42,3 +42,10 @@ it('keeps automatic issue work out of conversation tabs even when pinned, rename
   // Filtering navigation must not remove the session needed by issue links.
   expect(sessions).toContain(execution);
 });
+
+
+it('keeps pinned DMs above other conversations and excludes routine queues', () => {
+  const pinned = { ...dm, pinned: true, lastMessage: { ...dm.lastMessage, timestamp: 1 } };
+  const routine = { ...thread, sessionId: 'routines:posthog-analyst', starred: true };
+  expect(mergeConversationRows([routine,thread],[pinned],'recent',()=> 'Sam').map(r=>r.kind)).toEqual(['dm','thread']);
+});

@@ -18,6 +18,7 @@ import type { ApprovalRequest } from '@/lib/types';
 
 const KIND_KEYS: Record<string, MessageKey> = {
   service_request: 'approvals.kinds.service_request',
+  agent_sharing_request: 'approvals.kinds.agentAccess',
   thread_agent_request: 'approvals.kinds.agentAccess',
   issue_agent_request: 'approvals.kinds.agentAccess',
   deploy: 'approvals.kinds.deploy',
