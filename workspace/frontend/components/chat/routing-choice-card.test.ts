@@ -44,7 +44,7 @@ it('assigns the original message once and hides the prompt after success', async
 it('dismisses without requesting an agent', async () => {
   mocks.resolve.mockResolvedValue({ status: 'dismissed' });
   await render();
-  await act(async () => button('Just chatting').click());
+  await act(async () => button('Dismiss').click());
   expect(mocks.resolve).toHaveBeenCalledWith('event-1', null);
   expect(host.textContent).toBe('');
 });

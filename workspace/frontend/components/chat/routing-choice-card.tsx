@@ -54,7 +54,7 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
         </button>;
       })}
     </div>
-    <button type="button" disabled={busy} onClick={() => void choose(null)} className="mt-2 text-[11px] text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50">{t('routing.justChatting')}</button>
+    <button type="button" disabled={busy} onClick={() => void choose(null)} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50"><X aria-hidden="true" className="size-3.5" />{t('routing.dismissAction')}</button>
     {busy && <Loader2 aria-label={t('common.saving')} className="ml-2 inline size-3 animate-spin" />}
     {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
   </section>;
