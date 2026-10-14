@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useDragScroll } from './use-drag-scroll';
 import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -17,6 +18,8 @@ import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 /** A small, bounded shelf: conversation resources without taking over the chat. */
 export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, instruction: string) => void }) {
   const t = useT();
+  const artifactDrag = useDragScroll();
+  const agentDrag = useDragScroll();
   const { agents, files, browserTabs, currentSessionId, sessions } = useWorkspace();
   const { selectedArtifact, setSelectedAgentName } = useLayout();
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
@@ -50,7 +53,7 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
       </div>
       {!collapsed && <>
         <TabsContent value="agents" className="mt-0 min-w-0">
-          <ul ref={agentRow} aria-label={t('threadResources.agents')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <ul {...agentDrag} ref={agentRow} aria-label={t('threadResources.agents')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {members.map(agent => <li key={agent.agentName} className="flex w-64 shrink-0 snap-start items-center gap-2 rounded-lg border bg-background p-2">
               <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left hover:bg-muted/50" title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}>
                 <span className="shrink-0"><AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus /></span>
@@ -72,7 +75,7 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
           </form>}
         </TabsContent>
         <TabsContent value="artifacts" className="mt-0 min-w-0">
-          <ul ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <ul {...artifactDrag} ref={artifactRow} aria-label={t('artifactPanel.title')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
               <span className="relative flex h-16 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-500"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-[10px]">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span>
                 <BrowserThumbnail tabId={tab.id} pageUrl={tab.url} title={tab.title || tab.url} enabled={!tab.asleep} className="absolute inset-0 h-full border-0" />

@@ -66,3 +66,62 @@ it('can collapse the shelf without losing the tab controls', async () => {
   expect(host.querySelector('ul')).toBeNull();
   expect(host.querySelectorAll('[role=tab]')).toHaveLength(2);
 });
+
+const pointer = (target: Element, type: string, x: number, options: { button?: number; buttons?: number; pointerType?: string } = {}) => {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: options.button ?? 0, buttons: options.buttons ?? 1 });
+  Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: options.pointerType ?? 'mouse' } });
+  target.dispatchEvent(event);
+};
+const prepareDrag = (row: HTMLUListElement) => {
+  let captured = false;
+  row.setPointerCapture = vi.fn(() => { captured = true; });
+  row.hasPointerCapture = vi.fn(() => captured);
+  row.releasePointerCapture = vi.fn(() => { captured = false; });
+  row.scrollLeft = 100;
+};
+it.each(['artifacts', 'agents'])('drags %s without opening a card, and preserves normal clicks', async section => {
+  if (section === 'agents') await act(async () => host.querySelectorAll('[role=tab]')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+  const row = host.querySelector<HTMLUListElement>('ul')!;
+  const card = row.querySelector('button')!;
+  prepareDrag(row);
+  const opened = vi.fn(); window.addEventListener('workspace:open-artifact', opened);
+  const action = section === 'agents' ? mocks.profile : opened;
+  try {
+    await act(async () => { pointer(card, 'pointerdown', 200); pointer(card, 'pointermove', 160); });
+    expect(row.scrollLeft).toBe(140);
+    expect(row.dataset.dragging).toBe('true');
+    expect(row.style.scrollSnapType).toBe('none');
+    await act(async () => {
+      pointer(row, 'pointerup', 160, { buttons: 0 });
+      card.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    expect(action).not.toHaveBeenCalled();
+    expect(row.dataset.dragging).toBeUndefined();
+    expect(row.style.scrollSnapType).toBe('');
+    expect(row.releasePointerCapture).toHaveBeenCalledWith(1);
+    await act(async () => {
+      pointer(card, 'pointerdown', 160); pointer(card, 'pointermove', 162);
+      pointer(card, 'pointerup', 162, { buttons: 0 });
+      card.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(row.scrollLeft).toBe(140);
+  } finally { window.removeEventListener('workspace:open-artifact', opened); }
+});
+it('leaves touch and right-button gestures native and cleans up a cancelled drag', async () => {
+  const row = host.querySelector<HTMLUListElement>('ul')!;
+  prepareDrag(row);
+  await act(async () => {
+    pointer(row, 'pointerdown', 200, { pointerType: 'touch' });
+    pointer(row, 'pointermove', 100, { pointerType: 'touch' });
+    pointer(row, 'pointerdown', 200, { button: 2, buttons: 2 });
+    pointer(row, 'pointermove', 100, { buttons: 2 });
+  });
+  expect(row.scrollLeft).toBe(100);
+  expect(row.setPointerCapture).not.toHaveBeenCalled();
+  await act(async () => { pointer(row, 'pointerdown', 200); pointer(row, 'pointermove', 180); pointer(row, 'pointercancel', 180); });
+  expect(row.dataset.dragging).toBeUndefined();
+  expect(row.style.scrollSnapType).toBe('');
+  await act(async () => pointer(row, 'pointermove', 100));
+  expect(row.scrollLeft).toBe(120);
+});
