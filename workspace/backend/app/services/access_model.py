@@ -304,8 +304,12 @@ def resolve_principal(db: Session, workspace: Union[Workspace, str, None], token
                 )
             ).scalar_one_or_none()
             if member is not None:
+                if ws is not None and ws.legacy_machine_access and not member.owner_email:
+                    return Principal("machine", agent_name=member.agent_name, workspace_id=wid)
                 return Principal("agent", agent_name=member.agent_name, owner_email=member.owner_email,
                                  workspace_id=wid)
+        return Principal("machine", workspace_id=wid)
+    if ws is not None and ws.legacy_machine_access and not ws.password_hash and not ws.require_login:
         return Principal("machine", workspace_id=wid)
     return Principal("human", email=None, workspace_id=wid)
 

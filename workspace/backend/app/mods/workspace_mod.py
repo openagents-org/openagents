@@ -121,9 +121,22 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
     working_dir = event.payload.get("working_dir") if event.payload else None
     # Resolve from authenticated credentials, never caller-supplied node_id.
     from app.access import resolve_machine_token
+    from app.services.legacy_ownership import workspace_owner_email
     _, connection = resolve_machine_token(db, ctx.extra.get("token"))
+    # Pre-v1.1 launchers can keep the shared workspace credential. Bind only
+    # to migrated connections of this workspace; never trust arbitrary node_id.
+    if connection is None and ctx.extra.get("token") and ctx.extra.get("token") == workspace.password_hash:
+        legacy_id = existing.node_id if existing and existing.node_id else (event.payload or {}).get('node_id')
+        if legacy_id:
+            from app.models import Node
+            try:
+                legacy_id = str(_uuid.UUID(str(legacy_id)))
+            except (ValueError, TypeError, AttributeError):
+                raise EventRejected("workspace_mod", "invalid_connection")
+            connection = db.execute(select(Node).where(Node.id == legacy_id,
+                Node.workspace_id == workspace.id, Node.legacy_workspace_token.is_(True))).scalar_one_or_none()
     node_id = str(connection.id) if connection else None
-    if connection and not connection.owner_email:
+    if connection and not connection.owner_email and not workspace.legacy_machine_access:
         raise EventRejected("workspace_mod", "connection_owner_required")
     if existing and existing.node_id and existing.node_id != node_id:
         raise EventRejected("workspace_mod", "agent_connection_mismatch")
@@ -150,6 +163,8 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
         if node_id:
             existing.node_id = node_id
             existing.owner_email = connection.owner_email
+        if not existing.owner_email:
+            existing.owner_email = workspace_owner_email(db, workspace)
         if prior_session and prior_session != new_session_id:
             logger.info(
                 "workspace_mod: rotated session for %s in %s (prior session revoked)",
@@ -189,7 +204,7 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
             server_host=server_host,
             working_dir=working_dir,
             node_id=node_id,
-            owner_email=connection.owner_email if connection else workspace.creator_email,
+            owner_email=connection.owner_email if connection else workspace_owner_email(db, workspace),
             visibility="personal",
             status="online",
             last_heartbeat=now,

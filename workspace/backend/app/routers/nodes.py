@@ -90,7 +90,13 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
 
 def _machine_token_ok(token, workspace, node) -> bool:
     """Only this connection's credential may operate its private device."""
-    return bool(token and node is not None and node.owner_email and node.token and token == node.token)
+    if not token or node is None:
+        return False
+    allowed_owner = node.owner_email or workspace.legacy_machine_access
+    return bool(allowed_owner and (
+        (node.token and token == node.token) or
+        (node.legacy_workspace_token and workspace.password_hash and token == workspace.password_hash)
+    ))
 
 
 def _can_access_connection(db, workspace, node, token, authorization):

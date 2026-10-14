@@ -20,7 +20,10 @@ vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 let root: Root;
 const send = vi.fn();
-const participants = (emails: string[]) => ({ humans: emails.map(email => ({ email })) }) as Awaited<ReturnType<typeof workspaceApi.getChannelParticipants>>;
+const participants = (emails: string[]): Awaited<ReturnType<typeof workspaceApi.getChannelParticipants>> => ({
+  channel: 'thread', visibility: 'private', director_email: null,
+  humans: emails.map(email => ({ email, display_name: null, joined_at: null })), agents: [],
+});
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(workspaceApi.getChannelParticipants).mockResolvedValue(participants(['me@example.com', 'sam@example.com']));

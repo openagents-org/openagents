@@ -486,33 +486,43 @@ def claim_workspace(
     workspace_id: str,
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(None),
+    x_workspace_token: Optional[str] = Header(None),
 ):
     """
     Claim ownership of a workspace.
 
-    Requires a valid Firebase bearer token. Sets creator_email on the workspace
-    so the user can access it without a workspace token.
+    An unclaimed workspace requires both a verified person and its shared
+    workspace credential. Device credentials do not prove workspace ownership.
     """
-    bearer = _extract_bearer(authorization)
-    if not bearer:
-        return json_response(ResponseCode.UNAUTHORIZED, "Bearer token required")
-
-    from app.firebase_auth import verify_firebase_token
-    email = verify_firebase_token(bearer)
-    if not email:
+    user = resolve_current_user(db, authorization)
+    if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid or expired token")
+    email = user.email
 
     workspace = db.execute(
-        select(Workspace).where(_workspace_filter(workspace_id))
+        select(Workspace).where(_workspace_filter(workspace_id)).with_for_update()
     ).scalar_one_or_none()
 
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
-    if workspace.creator_email and workspace.creator_email != email:
+    from app.services.legacy_ownership import workspace_owner_email, inherit_unowned_resources
+    owner = workspace_owner_email(db, workspace)
+    if owner and owner != email:
         return json_response(ResponseCode.FORBIDDEN, "Workspace already claimed by another user")
 
+    if not owner and not (workspace.password_hash and x_workspace_token and
+            secrets.compare_digest(workspace.password_hash, x_workspace_token)):
+        return json_response(ResponseCode.FORBIDDEN, "The existing workspace token is required to claim ownership")
+
     workspace.creator_email = email
+    membership = db.get(WorkspaceMembership, (workspace.id, user.id))
+    if membership is None:
+        db.add(WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role="owner"))
+    else:
+        membership.role = "owner"
+    inherit_unowned_resources(db, workspace, email)
+    workspace.legacy_machine_access = False
     db.commit()
     db.refresh(workspace)
 

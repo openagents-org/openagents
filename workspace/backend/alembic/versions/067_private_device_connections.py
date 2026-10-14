@@ -1,7 +1,7 @@
 """Private device connections with explicit owners and private agent defaults.
 
-Unattributed legacy connections require an explicit migration mapping; never
-guess ownership from workspace administration or a hosted agent.
+Existing connections inherit the recorded workspace owner when pairing history
+is absent. Ownerless legacy workspaces retain their existing machine access.
 """
 from alembic import op, context
 import json
@@ -35,13 +35,13 @@ def upgrade():
         if not eligible:
             raise RuntimeError('Device owner must be a current workspace member')
         bind.execute(sa.text('UPDATE nodes SET owner_email=:email WHERE id=:id'), {'id': connection_id, 'email': email})
-    if bind.execute(sa.text('SELECT 1 FROM nodes WHERE owner_email IS NULL LIMIT 1')).first():
-        raise RuntimeError('Assign legacy connections explicitly with -x device_owners before migrating')
-    op.alter_column('nodes', 'owner_email', nullable=False)
+    from app.migration_support.ownership_v11 import backfill
+    backfill(bind, grandfather_nodes=True)
     op.drop_constraint('uq_node_workspace_key', 'nodes', type_='unique')
     op.create_unique_constraint('uq_node_workspace_key_owner', 'nodes', ['workspace_id', 'node_key', 'owner_email'])
     op.execute("""UPDATE workspace_members m SET owner_email = n.owner_email
-                  FROM nodes n WHERE m.node_id = n.id AND n.owner_email IS NOT NULL""")
+                  FROM nodes n WHERE m.node_id = n.id AND n.owner_email IS NOT NULL
+                  AND nullif(trim(m.owner_email), '') IS NULL""")
     op.alter_column('workspace_members', 'visibility', server_default='personal')
     # Only automatic grants are retired. Explicit owner-created shares survive.
     op.execute("""UPDATE resource_grants SET revoked_at = now()

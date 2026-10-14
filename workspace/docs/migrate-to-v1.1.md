@@ -2,7 +2,7 @@
 
 Updated: October 14, 2026. Audience: deployment operators and workspace owners.
 
-This note covers the implementation on `feat/workspace-v1-1-collab`, reviewed at commit `6fe36d611`, with Alembic head **`080`**. “v1.1” here means the Workspace collaboration release; it is not the npm connector version or the backend package version. Pin the reviewed application commit and migrate the database to its matching revision.
+This note covers the implementation on `feat/workspace-v1-1-collab`, with the backward-compatibility rollout changes and Alembic head **`081`**. “v1.1” here means the Workspace collaboration release; it is not the npm connector version or the backend package version. Pin the reviewed application commit and migrate the database to its matching revision.
 
 The recommended sequence is: rehearse on a restored PostgreSQL database, confirm device ownership and sharing changes, take a cutover backup, migrate once, deploy the matching backend and frontend, then validate access and agent routing.
 
@@ -21,10 +21,10 @@ The earlier [permission-model specification](permission-model-v1.md) describes a
 
 ## 2. Before scheduling the upgrade
 
-- Record the running application revision and `alembic current`. From **`workspace/backend`**, run `alembic heads`; this release has one head, `080`. A database newer than this checkout needs a matching newer checkout, not a downgrade.
+- Record the running application revision and `alembic current`. From **`workspace/backend`**, run `alembic heads`; this release has one head, `081`. A database newer than this checkout needs a matching newer checkout, not a downgrade.
 - Back up PostgreSQL, file storage (local volume or object storage), deployment configuration and required secrets. Verify restoration on an isolated database. Database backups alone do not contain uploaded file bytes.
 - Rehearse the entire upgrade on that restored database. Isolate outbound notifications, routine execution and agent connections so the rehearsal cannot start real work.
-- Agree on an owner for every legacy device connection. Also review agents that have no device and no owner; migration `067` only assigns agent owners from linked devices.
+- Review the recorded workspace owners. Unowned connections and agents inherit an actual workspace owner; ownerless legacy workspaces remain operational with their existing credentials. An administrator or ordinary teammate is not automatically promoted to owner.
 - Inventory agent grants and confirm who should retain direct access after automatic grants are removed. Check the special `070` conversion below before proceeding.
 - Keep the existing authentication project, session signing secret, storage configuration and database endpoint. Configure `NEXT_PUBLIC_API_URL` before building the frontend; it is a build-time value. Confirm `CORS_ORIGINS` includes the deployed UI origin.
 - For proactive routing, configure `ROUTER_LLM_ENABLED=true` and a working provider, model and key using `ROUTER_LLM_PROVIDER`, `ROUTER_LLM_MODEL`, `ROUTER_LLM_API_KEY` and, when needed, `ROUTER_LLM_BASE_URL`. The Anthropic key is a fallback. Validate the configured model on representative conversations; the feature flag alone does not prove routing works.
@@ -35,9 +35,13 @@ Use the deployment's normal secret injection. Do not paste credentials into this
 
 ### Device ownership: revision `067`
 
-The migration derives a device owner from its latest redeemed pairing code with a nonempty `created_by`. Any connection left without an owner blocks the migration. This check covers all rows in `nodes`, not just currently online devices.
+The migration derives a device owner from its latest redeemed pairing code with a nonempty `created_by`. Connections still missing an owner inherit the workspace creator if their explicit membership has not demoted them, otherwise the oldest actual owner membership. Unlinked agents without owners inherit the same workspace owner. Explicit device and agent ownership is preserved.
 
-For unresolved connections, supply a JSON map from **connection UUID** to the confirmed owner's email. The mapped owner must be a current workspace member with role `owner`, `admin` or `member`. Do not infer ownership from whoever administers the workspace.
+Ownerless pre-upgrade workspaces are marked for legacy machine access. Their device tokens, shared workspace tokens and existing sessions remain valid; no sign-in, re-pairing or token rotation is required to keep running. Existing device rows allow their original shared workspace credential, while newly paired devices require their private device credential. Signed-in users never inherit machine privileges from a token accompanying their identity.
+
+Revision `081` provides the owner inheritance backfill for deployments already at `080`; it does not broaden existing private device credentials on those deployments.
+
+For optional, human-confirmed corrections, supply a JSON map from **connection UUID** to the confirmed owner's email. The mapped owner must be a current workspace member with role `owner`, `admin` or `member`. Do not use an arbitrary administrator or teammate as the owner.
 
 For a pre-`067` database that already has the device tables, this read-only query helps review the inferred owners:
 
@@ -58,6 +62,12 @@ ORDER BY n.workspace_id, n.id;
 ```
 
 Review inferred owners as well as missing ones. The explicit mapping can override an incorrect inference. Save the confirmed mapping securely for rehearsal and cutover. If the database already passed `067`, this migration argument will not reassign devices; use the supported ownership workflow instead.
+
+### Claiming an ownerless legacy workspace
+
+An authenticated person can call `POST /v1/workspaces/{id}/claim` with their bearer token and the existing shared credential in `X-Workspace-Token`. Both are required for an unclaimed workspace; a device token or the workspace URL alone is insufficient. The claim records an owner membership, assigns previously unowned devices and agents, and ends anonymous machine compatibility without rotating existing credentials. Existing device and agent owners are not replaced. Competing claims are serialized.
+
+A completely open legacy workspace with no shared credential keeps running but requires operator-assisted ownership verification; it cannot be claimed merely by knowing its URL. Do not guess its owner.
 
 ### Sharing changes: revisions `067`, `068` and `072`
 
@@ -89,21 +99,21 @@ alembic heads
 After taking and verifying the cutover backup, run exactly one migration job. Choose the appropriate command:
 
 ```bash
-# No unresolved or incorrect device ownership, or already past revision 067:
-alembic upgrade 080
+# Normal upgrade; legacy ownerless connections remain operational:
+alembic upgrade 081
 ```
 
 ```bash
 # When crossing 067 with confirmed legacy ownership assignments:
 # Replace both example values with the reviewed connection UUID and owner.
-alembic -x 'device_owners={"CONNECTION_UUID":"owner@example.com"}' upgrade 080
+alembic -x 'device_owners={"CONNECTION_UUID":"owner@example.com"}' upgrade 081
 ```
 
 If migration fails, keep maintenance in place, inspect the error and check `alembic current` before retrying. Fix the cause; do not use `alembic stamp` to hide a missing migration. Some migrations inspect and backfill live data, so generated offline SQL is not a substitute for rehearsal against PostgreSQL.
 
 After successful migration:
 
-1. Confirm `alembic current` reports `080` and matches `alembic heads`.
+1. Confirm `alembic current` reports `081` and matches `alembic heads`.
 2. Start the matching backend and check `/health`, then authenticated workspace discovery and message retrieval. Health alone does not verify permissions or routing.
 3. Deploy the frontend built from the same reviewed release with the correct API URL. Reload existing browser clients to remove stale UI code.
 4. Validate a pilot workspace with its owner and a teammate before reopening normal traffic and automation.
@@ -115,6 +125,7 @@ After successful migration:
 
 Use a dedicated test conversation and intentional test requests for checks that start work.
 
+- **Legacy continuity:** reconnect both an owned and ownerless legacy agent with its existing credentials, check device heartbeats and command polling, and verify that newly paired private devices still reject shared credentials. Test claims with valid and invalid credentials.
 - **Access:** the owner can see their devices and private resources. A teammate sees only public, participating or explicitly shared resources. Verify an unshared agent cannot be invoked and an approved shared agent can.
 - **Data:** historical threads, DMs, uploaded files and knowledge remain accessible to the right people. Inspect missing owners and intended public/private visibility. Confirm preview-specific service grants only changed where intended.
 - **Routing:** a clear task without an @mention reaches the appropriate executor; a review request reaches the reviewer; direct mentions work; human-to-human chat and casual uploads do not generate unwanted work. Test approval-gated and passive threads separately. Give executor and reviewer distinct descriptions.
@@ -131,6 +142,6 @@ For a full rollback, stop writes and automated jobs, preserve a copy of the fail
 
 ## Scope of verification
 
-The migration graph was checked locally and has one head at `080`. The current implementation passed 106 focused routing/backend tests, 14 frontend tests and frontend type checking during the preceding work. Read-only live routing probes covered the reported work request and casual uploads. These checks do **not** constitute a production PostgreSQL migration rehearsal. No production migration is performed by writing this note.
+The migration graph was checked locally and has one head at `081`. Run the focused backend compatibility, private-device, access, routing and network suites, the full frontend suite, and frontend type checking against the exact rollout commit. Record actual results in the deployment report. These checks do **not** constitute a production PostgreSQL migration rehearsal. No production migration is performed by writing this note.
 
 Source references: [migration files](../backend/alembic/versions/), [backend configuration](../backend/app/config.py), [Railway deployment](../backend/railway.toml), [container entrypoint](../backend/entrypoint.sh), [personal file paths](../backend/app/services/personal_files.py), [connector identity](../../packages/agent-connector/src/workspace-client.js).
