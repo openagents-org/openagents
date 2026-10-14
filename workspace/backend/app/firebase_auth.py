@@ -2,11 +2,11 @@
 """
 Identity token verification for workspace user authentication.
 
-Verifies the ID token an end user obtained from their login provider — either
-Google (via Firebase, used on workspace.openagents.org) or Sign in with Apple
-(used by the OpenAgents Go iOS app for App Store guideline 4.8 login parity) —
-and resolves it to the user's email. Used alongside workspace-token auth, not
-as a replacement.
+Verifies the ID token an end user obtained from their login provider — Google
+(via Firebase, used on workspace.openagents.org), Sign in with Apple (used by
+the OpenAgents Go iOS app for App Store guideline 4.8 login parity), or a
+locally issued OIDC Workspace session. Used alongside workspace-token auth,
+not as a replacement.
 
 Call `verify_identity_token()` for the provider-agnostic path; the
 `verify_firebase_token()` / `verify_apple_token()` helpers remain for callers
@@ -261,17 +261,34 @@ def mint_workspace_session(claims: dict, auth_time: Optional[int] = None) -> tup
 
     now = int(time.time())
     exp = now + max(1, config.WORKSPACE_SESSION_TTL_DAYS) * 86400
+    identity_provider = claims.get("identity_provider") or claims.get("provider") or "firebase"
+    email_value = claims.get("email")
+    email = email_value.strip().lower() if isinstance(email_value, str) else ""
+    if not email:
+        raise RuntimeError("Verified identity has no email")
+    subject = claims.get("subject") or claims.get("sub")
+    if not subject:
+        subject = claims.get("firebase_uid") or email
+    if not subject:
+        raise RuntimeError("Verified identity has no stable subject")
+
     payload = {
         "iss": _SESSION_ISSUER,
-        "sub": claims.get("firebase_uid") or claims["email"],
-        "email": claims["email"],
+        "sub": subject,
         "iat": now,
         "exp": exp,
         "auth_time": auth_time if auth_time is not None else now,
         "jti": secrets.token_urlsafe(16),
+        "email": email,
     }
     if claims.get("firebase_uid"):
         payload["firebase_uid"] = claims["firebase_uid"]
+    if identity_provider != "firebase":
+        payload["identity_provider"] = identity_provider
+    if claims.get("issuer"):
+        payload["issuer"] = claims["issuer"]
+    if identity_provider == "oidc" and claims.get("subject"):
+        payload["subject"] = claims["subject"]
     if claims.get("display_name"):
         payload["name"] = claims["display_name"]
     if claims.get("email_verified"):
@@ -288,8 +305,8 @@ def renew_workspace_session(token: str) -> Optional[tuple]:
     reaches the expiry and never has to ask the user to sign in again.
 
     Returns (token, expires_at_epoch_seconds, claims), or None when the session
-    is not ours, fails verification, has expired, or was started more than
-    WORKSPACE_SESSION_MAX_AGE_DAYS ago.
+    is not ours, fails verification, has expired, was started more than
+    WORKSPACE_SESSION_MAX_AGE_DAYS ago, or is an OIDC session.
     """
     if not workspace_session_enabled():
         return None
@@ -306,6 +323,16 @@ def renew_workspace_session(token: str) -> Optional[tuple]:
     except Exception as e:
         logger.warning("firebase_auth: workspace session renewal rejected: %s", e)
         return None
+
+    # An OIDC session is re-established by signing in again, never renewed.
+    # Renewal rebuilds its claims from the email alone, which would drop
+    # issuer/subject and hand the browser a copy of a token that is meant to
+    # live only in an HttpOnly cookie — and that then resolves through the
+    # legacy email path instead of the OIDC identity it came from.
+    if decoded.get("identity_provider") == "oidc":
+        logger.info("firebase_auth: refusing to renew an OIDC session")
+        return None
+
     email = (decoded.get("email") or "").strip().lower()
     if not email:
         return None
@@ -360,27 +387,39 @@ def verify_workspace_session(token: str) -> Optional[dict]:
             config.WORKSPACE_SESSION_SECRET,
             algorithms=[_SESSION_ALG],
             issuer=_SESSION_ISSUER,
-            options={"require": ["exp", "iss", "email"]},
+            options={"require": ["exp", "iss", "sub"]},
         )
     except Exception as e:
         logger.warning("firebase_auth: workspace session verification failed: %s", e)
         return None
-    email = (decoded.get("email") or "").strip().lower()
+    identity_provider = decoded.get("identity_provider") or "firebase"
+    if identity_provider == "oidc" and (not decoded.get("issuer") or not decoded.get("subject")):
+        return None
+    email_value = decoded.get("email")
+    email = email_value.strip().lower() if isinstance(email_value, str) else None
     if not email:
         return None
-    return {
+    result = {
         "provider": "workspace_session",
         "email": email,
         "firebase_uid": decoded.get("firebase_uid"),
         "display_name": decoded.get("name"),
-        "email_verified": decoded.get("email_verified") is True,
     }
+    if "email_verified" in decoded:
+        result["email_verified"] = decoded.get("email_verified") is True
+    if identity_provider != "firebase":
+        result["identity_provider"] = identity_provider
+    if decoded.get("issuer"):
+        result["issuer"] = decoded["issuer"]
+    if decoded.get("subject"):
+        result["subject"] = decoded["subject"]
+    return result
 
 
 def verify_identity_token(token: str) -> Optional[str]:
     """
     Verify an end-user identity token from any supported login provider and
-    return the user's email.
+    return the user's email when present.
 
     A workspace-issued session (see mint_workspace_session) is recognised by
     its issuer and verified locally; otherwise tries Firebase/Google first (the
@@ -388,13 +427,8 @@ def verify_identity_token(token: str) -> Optional[str]:
     if no provider accepts the token. This is the provider-agnostic entry point
     new callers should use.
     """
-    if looks_like_workspace_session(token):
-        claims = verify_workspace_session(token)
-        return claims["email"] if claims else None
-    email = verify_firebase_token(token)
-    if email:
-        return email
-    return verify_apple_token(token)
+    claims = verify_identity_claims(token)
+    return claims.get("email") if claims else None
 
 
 def verify_firebase_claims(token: str) -> Optional[dict]:
@@ -493,10 +527,11 @@ def verify_apple_claims(token: str) -> Optional[dict]:
 def verify_identity_claims(token: str) -> Optional[dict]:
     """Provider-agnostic identity verification returning persisted claims.
 
-    Tries Firebase/Google then Sign in with Apple. Returns a dict with keys
-    email, firebase_uid, apple_sub, display_name, provider (missing-provider
-    ids are None), or None if neither provider accepts the token. This is the
-    entry point for user-row resolution (app/access.py)."""
+    Tries a locally issued Workspace session, then Firebase/Google, then Sign
+    in with Apple. OIDC browser callbacks mint the local session after Authlib
+    validates the provider tokens; raw provider access tokens are not accepted
+    as Workspace bearers. Returns None if no provider accepts the token.
+    """
     if looks_like_workspace_session(token):
         return verify_workspace_session(token)
     claims = verify_firebase_claims(token)

@@ -44,7 +44,7 @@ function fileToAvatarDataUrl(file: File): Promise<string> {
 
 export default function ProfileSettingsPage() {
   const t = useT();
-  const { user, idToken, loading: authLoading, signIn } = useOpenAgentsAuth();
+  const { user, idToken, isAuthenticated, loading: authLoading, authMode, signIn } = useOpenAgentsAuth();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useState<AccountProfile | null>(null);
@@ -54,7 +54,7 @@ export default function ProfileSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!idToken) return;
+    if (!isAuthenticated) return;
     let cancelled = false;
     getAccountProfile(idToken)
       .then((p) => {
@@ -65,7 +65,7 @@ export default function ProfileSettingsPage() {
       .catch(() => { if (!cancelled) toast.error(t('admin.loadFailed')); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idToken]);
+  }, [idToken, isAuthenticated]);
 
   if (!authLoading && !user) {
     return (
@@ -73,7 +73,7 @@ export default function ProfileSettingsPage() {
         <SectionHeader title={t('profile.title')} description={t('profile.description')} />
         <div className="flex flex-col items-start gap-3 rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">{t('profile.signInPrompt')}</p>
-          <Button size="sm" onClick={() => goToCentralLogin(signIn)}>
+          <Button size="sm" onClick={() => goToCentralLogin(signIn, authMode)}>
             <LogIn className="size-4" />
             {t('userMenu.signIn')}
           </Button>
@@ -110,7 +110,7 @@ export default function ProfileSettingsPage() {
     name.trim() !== (profile.displayName || '') || avatarDraft !== null;
 
   const save = async () => {
-    if (!idToken || !name.trim()) return;
+    if (!isAuthenticated || !name.trim()) return;
     setSaving(true);
     try {
       const updated = await updateAccountProfile(idToken, {

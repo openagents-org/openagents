@@ -10,12 +10,13 @@ the app. Auth is the user's identity bearer token (Authorization: Bearer <id>)
 — NOT a workspace token — because deletion spans every workspace the user
 touched, so it can't be scoped to a single workspace's token.
 
-Scope of deletion: the user is identified only by email (the app has no
-app-managed credential; identity is delegated to Google / Apple). We purge every
-row keyed to that email — workspace collaborator memberships, channel human
-memberships, and registered device push tokens — across all workspaces. We do
-NOT delete whole workspaces the user created, since those may hold other
-collaborators' data; their `creator_email` is left intact.
+Scope of deletion: the verified identity is resolved to a user row, then
+workspace memberships and email-keyed access data are removed. We do NOT delete
+whole workspaces the user created, since those may hold other collaborators'
+data; their `creator_email` is kept, and a workspace that has none because the
+address was unverified gets the deleted account's address back so it is not
+left ownerless. A later verified sign-in may create a fresh account row,
+matching the existing deletion behavior.
 """
 
 import logging
@@ -28,7 +29,6 @@ from sqlalchemy.orm import Session
 
 from app.access import provision_workspace, reconcile_memberships, resolve_current_user
 from app.database import get_db
-from app.firebase_auth import verify_identity_token
 from app.models import (
     ChannelHumanMember,
     DeviceToken,
@@ -37,21 +37,10 @@ from app.models import (
     WorkspaceMembership,
 )
 from app.response import ResponseCode, json_response, success_response
-from app.routers.network import _extract_bearer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Account"])
-
-
-def _authed_email(authorization: Optional[str]) -> Optional[str]:
-    """Resolve the calling user's normalized email from the identity bearer,
-    or None if absent/invalid."""
-    bearer = _extract_bearer(authorization)
-    if not bearer:
-        return None
-    email = verify_identity_token(bearer)
-    return email.strip().lower() if email else None
 
 
 @router.get("/account/workspaces")
@@ -67,9 +56,9 @@ def list_account_workspaces(
     brand-new user with no memberships — auto-provisions an empty workspace they
     own (Overleaf-style first run). This is why a GET writes.
 
-    Each entry includes the workspace's shared access token (`token`) so the
-    client can connect directly; the caller is a verified member, which is
-    exactly who is entitled to that token.
+    Each entry includes the workspace's shared access token (`token`) when the
+    current identity is allowed to use it; OIDC human sessions receive `null`
+    and use the browser cookie instead.
     """
     user = resolve_current_user(db, authorization)
     if not user:
@@ -80,9 +69,7 @@ def list_account_workspaces(
 
     # Brand-new user (no access anywhere) → give them an empty workspace to own.
     has_membership = db.execute(
-        select(WorkspaceMembership.workspace_id)
-        .where(WorkspaceMembership.user_id == user.id)
-        .limit(1)
+        select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == user.id).limit(1)
     ).first()
     if not has_membership:
         provision_workspace(db, user)
@@ -99,6 +86,7 @@ def list_account_workspaces(
         .order_by(Workspace.last_activity_at.desc())
     ).all()
 
+    oidc_request = bool(user.oidc_issuer)
     results = [
         {
             "workspaceId": str(ws.id),
@@ -109,7 +97,7 @@ def list_account_workspaces(
             # null for an open workspace with no token set. Withheld from viewers
             # so they open the workspace bearer-only (read access) and can't use
             # the token to bypass the read-only role.
-            "token": None if role == "viewer" else ws.password_hash,
+            "token": None if role == "viewer" or oidc_request else ws.password_hash,
             "role": role,
             "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
         }
@@ -207,44 +195,80 @@ def delete_account(
 ):
     """Delete all data belonging to the calling user.
 
-    Identifies the user from the verified identity token's email, then removes
-    every email-keyed row across all workspaces. Idempotent: a second call (or a
-    user with no stored data) succeeds with zero deletions.
+    Removes workspace memberships and email-keyed access rows, then deletes the
+    user row so a later verified sign-in starts a fresh account. Idempotent.
     """
-    bearer = _extract_bearer(authorization)
-    if not bearer:
-        return json_response(ResponseCode.UNAUTHORIZED, "Missing identity token")
-
-    email = verify_identity_token(bearer)
-    if not email:
+    user = resolve_current_user(db, authorization)
+    if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    email_lower = user.email
 
-    email_lower = email.strip().lower()
+    # A workspace whose creator_email is null (an OIDC user with an unverified
+    # email must not have one, since the address would then grant access) would
+    # otherwise be ownerless and ownerless workspaces are claimable by the next
+    # signed-in caller. Put the address back before the account goes away, so
+    # only a verified sign-in for it can take ownership again.
+    owned_workspaces = db.execute(
+        select(WorkspaceMembership.workspace_id).where(
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.role == "owner",
+        )
+    ).all()
+    for (workspace_id,) in owned_workspaces:
+        workspace = db.get(Workspace, workspace_id)
+        if workspace is None or workspace.creator_email is not None:
+            continue
+        owner_count = db.execute(
+            select(WorkspaceMembership.user_id).where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.role == "owner",
+            )
+        ).all()
+        if len(owner_count) <= 1:
+            workspace.creator_email = email_lower
 
-    collaborators_deleted = db.query(WorkspaceCollaborator).filter(
-        WorkspaceCollaborator.email == email_lower
-    ).delete(synchronize_session=False)
+    memberships_deleted = (
+        db.query(WorkspaceMembership).filter(WorkspaceMembership.user_id == user.id).delete(synchronize_session=False)
+    )
 
-    channel_memberships_deleted = db.query(ChannelHumanMember).filter(
-        ChannelHumanMember.user_email == email_lower
-    ).delete(synchronize_session=False)
+    collaborators_deleted = 0
+    channel_memberships_deleted = 0
+    devices_deleted = 0
+    if email_lower:
+        collaborators_deleted = (
+            db.query(WorkspaceCollaborator)
+            .filter(WorkspaceCollaborator.email == email_lower)
+            .delete(synchronize_session=False)
+        )
+        channel_memberships_deleted = (
+            db.query(ChannelHumanMember)
+            .filter(ChannelHumanMember.user_email == email_lower)
+            .delete(synchronize_session=False)
+        )
+        devices_deleted = (
+            db.query(DeviceToken).filter(DeviceToken.user_email == email_lower).delete(synchronize_session=False)
+        )
 
-    devices_deleted = db.query(DeviceToken).filter(
-        DeviceToken.user_email == email_lower
-    ).delete(synchronize_session=False)
-
+    db.delete(user)
     db.commit()
 
     logger.info(
-        "account: deleted account for %s (collaborators=%s channel_members=%s devices=%s)",
-        email_lower, collaborators_deleted, channel_memberships_deleted, devices_deleted,
+        "account: deleted account for %s (memberships=%s collaborators=%s channel_members=%s devices=%s)",
+        email_lower,
+        memberships_deleted,
+        collaborators_deleted,
+        channel_memberships_deleted,
+        devices_deleted,
     )
 
-    return success_response({
-        "email": email_lower,
-        "deleted": {
-            "collaborators": collaborators_deleted,
-            "channel_memberships": channel_memberships_deleted,
-            "devices": devices_deleted,
-        },
-    })
+    return success_response(
+        {
+            "email": email_lower,
+            "deleted": {
+                "memberships": memberships_deleted,
+                "collaborators": collaborators_deleted,
+                "channel_memberships": channel_memberships_deleted,
+                "devices": devices_deleted,
+            },
+        }
+    )

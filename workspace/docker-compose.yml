@@ -21,9 +21,24 @@ services:
       dockerfile: backend.Dockerfile
     environment:
       DATABASE_URL: postgresql://postgres:dev@db:5432/openagents_workspace
-      AUTH_MODE: workspace_token
+      AUTH_MODE: ${AUTH_MODE:-workspace_token}
       IDENTITY_MODE: standalone
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000}
+      WORKSPACE_SESSION_SECRET: ${WORKSPACE_SESSION_SECRET:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email}
+      OIDC_EMAIL_CLAIM: ${OIDC_EMAIL_CLAIM:-email}
+      OIDC_NAME_CLAIM: ${OIDC_NAME_CLAIM:-name}
+      OIDC_REQUIRE_EMAIL_VERIFICATION: ${OIDC_REQUIRE_EMAIL_VERIFICATION:-true}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_TOKEN_ENDPOINT_AUTH_METHOD: ${OIDC_TOKEN_ENDPOINT_AUTH_METHOD:-client_secret_basic}
+      OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-Company SSO}
+      OIDC_COOKIE_SECURE: ${OIDC_COOKIE_SECURE:-false}
+      OIDC_ALLOW_INSECURE_HTTP: ${OIDC_ALLOW_INSECURE_HTTP:-true}
     ports:
       - "8000:8000"
     depends_on:
