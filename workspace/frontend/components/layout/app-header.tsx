@@ -30,22 +30,35 @@ function HeaderSlot({
   id: string
   children: React.ReactNode
 }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  // Portal into a node of our own rather than the slot itself, so the view's
+  // header content can be detached as a whole. Views are kept mounted behind
+  // <Activity mode="hidden"> (see Wrapper), which only hides the view's own
+  // DOM — anything portalled into the shared header would stay on screen, and
+  // be dead to clicks. Hiding tears down layout effects in the same commit, so
+  // detaching here takes the content out of the header immediately.
+  const nodeRef = useRef<HTMLElement | null>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
 
-  // Activity keeps hidden views mounted, including their portals. Give each
-  // portal its own host and detach it on layout-effect cleanup so an inactive
-  // view cannot suppress the fallback title or leave hidden toolbar controls.
   useLayoutEffect(() => {
-    const target = document.getElementById(id)
-    if (!target) return
-    const host = document.createElement("div")
-    host.className = "contents"
-    target.appendChild(host)
-    setSlot(host)
-    return () => host.remove()
-  }, [id])
+    if (!nodeRef.current) {
+      nodeRef.current = document.createElement("div")
+      nodeRef.current.className = "contents"
+    }
+    setContainer(nodeRef.current)
+    return () => nodeRef.current?.remove()
+  }, [])
 
-  return slot ? createPortal(children, slot) : null
+  // The header renders before any detail view, so the slot exists by the time
+  // this effect runs; re-checking on every render keeps it correct across
+  // view switches that remount the header.
+  useLayoutEffect(() => {
+    const slot = document.getElementById(id)
+    if (container && slot && container.parentElement !== slot) {
+      slot.appendChild(container)
+    }
+  })
+
+  return container ? createPortal(children, container) : null
 }
 
 /**

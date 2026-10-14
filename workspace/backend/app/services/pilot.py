@@ -179,6 +179,10 @@ def eligibility(db: Session, user: User) -> dict:
     # address is not a blocker here (apply_grant stamps it). Blocked domains are.
     if campaign.ineligible_reason(user) == "blocked":
         reasons.append("Email domain is blocked or disposable — no credits can be granted to this account.")
+    elif campaign.ineligible_reason(user) == "uncommon_mailbox":
+        reasons.append("Email is not at a common mailbox provider (CAMPAIGN_ALLOWED_EMAIL_DOMAINS) — no credits can be granted to this account.")
+    if acct is None and campaign.mailbox_taken(db, user):
+        reasons.append("Email is an alias (+tag or Gmail dots) of a mailbox that already has a credit account — one credit account per mailbox.")
 
     return {
         "found": True,

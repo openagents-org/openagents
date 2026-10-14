@@ -43,7 +43,7 @@ vi.mock('@/lib/i18n', () => ({
 }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => async () => true, usePrompt: () => async () => null }));
 vi.mock('sonner', () => ({ toast: { success: () => {}, error: () => {} } }));
-vi.mock('@/components/tours/feature-tours', () => ({ FeatureTourBanner: () => null }));
+vi.mock('@/components/tours/feature-tour-banner', () => ({ FeatureTourBanner: () => null }));
 vi.mock('@/components/layout/app-header', () => ({
   DetailHeader: ({ title, children }: { title: unknown; children?: unknown }) =>
     createElement('div', { 'data-slot': 'detail-header' }, title as never, children as never),

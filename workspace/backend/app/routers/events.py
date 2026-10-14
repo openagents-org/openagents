@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import and_, case, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app import cache
 from app.database import SessionLocal, get_db
@@ -1374,6 +1375,29 @@ class _StreamVisibility:
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 
+def _authorize_event_stream(network, effective_token, authorization, channel=None):
+    """Keep pool checkout, auth queries, and cleanup off the event loop."""
+    db = SessionLocal()
+    try:
+        workspace = db.execute(
+            select(Workspace).where(_workspace_filter(network))
+        ).scalar_one_or_none()
+        if not workspace:
+            return None, json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, effective_token, authorization):
+            return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+        workspace_id = str(workspace.id)
+        from app.services.visibility import hidden_channel_names, resolve_viewer
+        viewer = resolve_viewer(db, workspace, effective_token, authorization)
+        dm_scope = _dm_viewer_scope(viewer) if getattr(viewer, "kind", None) == "human" else None
+        hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
+        if dm_scope and channel and channel in hidden:
+            return None, json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+        return (workspace_id, viewer, dm_scope, hidden), None
+    finally:
+        db.close()
+
+
 @router.get("/events/stream")
 async def stream_events(
     request: Request,
@@ -1399,30 +1423,12 @@ async def stream_events(
     if not authorization and access_token:
         authorization = f"Bearer {access_token}"
 
-    # Verify access with a SHORT-LIVED session that is closed BEFORE we start
-    # streaming. SSE streams live for minutes/hours; a Depends(get_db) session
-    # would stay checked out — and idle-in-transaction, from the verify query
-    # below — for the whole stream, pinning a pooled connection per client and
-    # exhausting the pool. The generator below reads only from Redis, so no DB
-    # session is needed once access is verified.
-    db = SessionLocal()
-    try:
-        workspace = db.execute(
-            select(Workspace).where(_workspace_filter(network))
-        ).scalar_one_or_none()
-        if not workspace:
-            return json_response(ResponseCode.NOT_FOUND, "Network not found")
-        if not _verify_workspace_access(workspace, effective_token, authorization):
-            return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
-        workspace_id = str(workspace.id)
-        from app.services.visibility import hidden_channel_names, resolve_viewer
-        viewer = resolve_viewer(db, workspace, effective_token, authorization)
-        dm_scope = _dm_viewer_scope(viewer) if getattr(viewer, "kind", None) == "human" else None
-        hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
-        if dm_scope and channel and channel in hidden:
-            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
-    finally:
-        db.close()
+    scope, error = await run_in_threadpool(
+        _authorize_event_stream, network, effective_token, authorization, channel,
+    )
+    if error is not None:
+        return error
+    workspace_id, viewer, dm_scope, hidden = scope
     target_prefix = f"channel/{channel}" if channel else None
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 

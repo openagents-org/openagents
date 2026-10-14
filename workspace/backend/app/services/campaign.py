@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,67 @@ def email_blocked(email: Optional[str]) -> bool:
     return bool(_DISPOSABLE_DOMAIN_RE.search(domain))
 
 
+def _allowed_domains() -> set[str]:
+    return {
+        d.strip().lower()
+        for d in (config.CAMPAIGN_ALLOWED_EMAIL_DOMAINS or "").split(",")
+        if d.strip()
+    }
+
+
+def mailbox_allowed(email: Optional[str]) -> bool:
+    """True when the address is at a common mailbox provider (exact domain
+    match against CAMPAIGN_ALLOWED_EMAIL_DOMAINS). An empty allowlist means
+    the restriction is off and every address passes."""
+    allowed = _allowed_domains()
+    if not allowed:
+        return True
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return "@" in (email or "") and domain in allowed
+
+
+_GMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+
+
+def canonical_mailbox(email: Optional[str]) -> Optional[str]:
+    """The real inbox behind an address (decision 2026-10-10): drop the
+    "+tag" of the local part everywhere, and the dots of Gmail local parts
+    (googlemail.com folds into gmail.com). So
+    andreaswegerer72344+x1@outlook.com and s.s.bv.c@gmail.com map to
+    andreaswegerer72344@outlook.com and ssbvc@gmail.com."""
+    e = (email or "").strip().lower()
+    if "@" not in e:
+        return None
+    local, domain = e.rsplit("@", 1)
+    local = local.split("+", 1)[0]
+    if domain in _GMAIL_DOMAINS:
+        local, domain = local.replace(".", ""), "gmail.com"
+    if not local or not domain:
+        return None
+    return f"{local}@{domain}"
+
+
+def mailbox_taken(db: Session, user: User) -> bool:
+    """True when ANOTHER user whose address is the same real inbox already
+    holds a campaign account — one credit account per inbox. Checked only
+    before a key is minted, so it runs once per user and never takes credits
+    away from an existing key holder."""
+    canon = canonical_mailbox(user.email)
+    if not canon:
+        return False
+    local, domain = canon.rsplit("@", 1)
+    domains = list(_GMAIL_DOMAINS) if domain == "gmail.com" else [domain]
+    # Narrow in SQL (same domain, same first character — a tag or a dot
+    # never comes first), then compare canonical forms in Python.
+    rows = db.execute(
+        select(User.id, User.email)
+        .join(CampaignAccount, CampaignAccount.user_id == User.id)
+        .where(User.id != user.id)
+        .where(or_(*[func.lower(User.email).like(f"{local[0]}%@{d}") for d in domains]))
+    ).all()
+    return any(canonical_mailbox(e) == canon for _, e in rows)
+
+
 def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> bool:
     """Ask openagents.org whether this account's address is confirmed and stamp
     the user if so. Returns True when the user is verified afterwards.
@@ -152,7 +213,8 @@ def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> b
 
 
 def ineligible_reason(user: Optional[User]) -> Optional[str]:
-    """None when the user may receive credits, else "blocked" | "unverified".
+    """None when the user may receive credits, else "blocked" |
+    "uncommon_mailbox" | "unverified".
 
     "unverified" here means the address is not verified — the caller decides
     what that allows: nothing beyond CAMPAIGN_UNVERIFIED_ALLOWANCE_USD on the
@@ -160,6 +222,8 @@ def ineligible_reason(user: Optional[User]) -> Optional[str]:
     """
     if user is None or email_blocked(user.email):
         return "blocked"
+    if not mailbox_allowed(user.email):
+        return "uncommon_mailbox"
     if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
         return "unverified"
     return None
@@ -208,6 +272,9 @@ def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
     signup = MILESTONE_AMOUNTS["signup"]
     if grant_block(db, user, signup):
         return None  # blocked address, or unverified with no allowance: no key
+    if mailbox_taken(db, user):
+        logger.info("campaign: %s is an alias of a mailbox that already has credits; no key", user.id)
+        return None
     try:
         r = httpx.post(
             f"{config.CAMPAIGN_GATEWAY_URL}/admin/keys",
@@ -580,6 +647,12 @@ def status_payload(db: Session, user: User) -> dict:
     reason = ineligible_reason(user)
     if reason == "blocked":
         return {"enabled": False}  # hide the whole campaign for blocked addresses
+    if reason == "uncommon_mailbox" and db.get(CampaignAccount, user.id) is None:
+        # Never earned anything: nothing to show. Users who already hold a key
+        # keep seeing it (and their usage) below; grant_block stops new grants.
+        return {"enabled": False}
+    if db.get(CampaignAccount, user.id) is None and mailbox_taken(db, user):
+        return {"enabled": False}  # alias of an inbox that already has credits
     # Unverified: the key and the first rewards (within the allowance) still
     # arrive; the payload carries the flag so the UI shows a verify banner on
     # top of the normal checklist. Grants past the allowance are refused by

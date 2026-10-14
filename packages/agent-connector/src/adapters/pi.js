@@ -24,7 +24,8 @@
  *
  * Verified against pi 0.83.0 (engines.node >= 22.19.0). Because that engine
  * floor is above what a user's ambient Node may satisfy, a resolved JS entry
- * point is launched with the launcher's own portable Node (v22.22.3) and
+ * point is launched with the launcher's own portable Node (v24, or v22 on
+ * macOS before 13.5) and
  * preflight refuses to start on anything older.
  */
 

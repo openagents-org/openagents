@@ -78,6 +78,8 @@ import type {
 import { eventToMessage } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+/** Deadline for the static catalogs the Connect Agent view loads (and retries). */
+const CATALOG_TIMEOUT_MS = 15_000;
 
 /** Map a snake_case custom-skill entry from the backend to camelCase. */
 function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
@@ -175,6 +177,15 @@ class WorkspaceApi {
     this.workspaceId = workspaceId;
     this.token = token;
     this.bearerToken = bearerToken || '';
+  }
+
+  /**
+   * The workspace token this client was configured with, when it is for
+   * `workspaceId` — lets a page opened from the workspace reuse the token the
+   * workspace already resolved instead of looking it up over the network.
+   */
+  tokenFor(workspaceId: string): string | null {
+    return this.workspaceId === workspaceId && this.token ? this.token : null;
   }
 
   setBearerToken(bearerToken: string) {
@@ -1279,7 +1290,9 @@ class WorkspaceApi {
 
   /** Fetch the catalog of supported agent client types. */
   async getAgentCatalog(): Promise<AgentCatalogEntry[]> {
-    return this.request<AgentCatalogEntry[]>('/v1/agent-catalog');
+    // Bounded, so a slow backend fails the attempt (and the caller retries)
+    // instead of leaving the add-agent gallery waiting indefinitely.
+    return this.request<AgentCatalogEntry[]>('/v1/agent-catalog', { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
   }
 
   /** Fetch full detail for one agent type (install/uninstall + supported models). */
@@ -1334,10 +1347,10 @@ class WorkspaceApi {
   }
 
   /** Probe a saved credential: no model → list models; with model → validate. */
-  async probeModelAccess(accessId: string, model?: string): Promise<ModelProbeResult> {
+  async probeModelAccess(accessId: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult> {
     return this.request<ModelProbeResult>(`/v1/model-access/${encodeURIComponent(accessId)}/probe`, {
       method: 'POST',
-      body: JSON.stringify({ network: this.requireWorkspace(), ...(model ? { model } : {}) }),
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(model ? { model } : {}), ...(protocol ? { protocol } : {}) }),
     });
   }
 
@@ -1357,7 +1370,7 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
 
   async getCloudProviders(): Promise<CloudAgentProvider[]> {
-    const res = await this.request<{ providers: CloudAgentProvider[] }>('/v1/cloud-agents/providers');
+    const res = await this.request<{ providers: CloudAgentProvider[] }>('/v1/cloud-agents/providers', { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
     return res.providers;
   }
 
