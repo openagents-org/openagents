@@ -41,7 +41,7 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
     </PopoverTrigger>
-    <PopoverContent align="start" sideOffset={6} className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 shadow-xl" onEscapeKeyDown={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
+    <PopoverContent align="start" sideOffset={6} className="z-70 w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 shadow-xl" onEscapeKeyDown={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
       <Command loop className="rounded-lg! [&_[data-slot=command-input-wrapper]]:h-11 [&_[data-slot=command-input-wrapper]]:px-3">
         <CommandInput autoFocus aria-label={t('issues.searchAssignees')} placeholder={t(agentsOnly ? 'issues.searchAgents' : 'issues.searchAssignees')} className="text-xs" />
         <CommandList className="max-h-64 p-1.5">
