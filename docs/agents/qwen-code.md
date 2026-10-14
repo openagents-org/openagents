@@ -48,8 +48,22 @@ OAuth login. The agent runs on an OpenAI-compatible key:
 | Field | Passed to the CLI as | Notes |
 |---|---|---|
 | `LLM_API_KEY` | `OPENAI_API_KEY` (environment) | Required. Never put in argv. |
-| `LLM_BASE_URL` | `OPENAI_BASE_URL` | Blank means Model Studio China, `https://dashscope.aliyuncs.com/compatible-mode/v1`. |
-| `LLM_MODEL` | `--model` and `OPENAI_MODEL` | Blank means the CLI's default (`qwen3.7-max` on Model Studio). The workspace's model picker overrides it. |
+| `LLM_BASE_URL` | `OPENAI_BASE_URL` | Required, prefilled with Model Studio China, `https://dashscope.aliyuncs.com/compatible-mode/v1`. |
+| `LLM_MODEL` | `--model` and `OPENAI_MODEL` | Required. The launcher's picker lists what the base URL serves. The workspace's model picker overrides it. |
+
+Both the base URL and the model are required in the launcher, for two reasons:
+
+- Left to itself, the CLI runs `qwen3.7-max`, the most expensive tier, and a
+  Coding Plan account may not offer it at all.
+- The launcher's "Test connection" probes whatever the form holds. With a
+  blank model it tried the endpoint's first listed model, which an account may
+  not be entitled to (a 403 that reads as a broken key). With a blank base URL
+  it probed api.openai.com, while the agent itself would have used Model
+  Studio.
+
+The workspace's own agent form can still create the agent with only a key
+(the model left on "Auto"). The adapter then sends a blank base URL to Model
+Studio and lets the CLI pick its default model.
 
 Base URLs for the common keys:
 
@@ -90,7 +104,13 @@ project's `.qwen/settings.json` still override it.
 | `memory.enableManagedAutoMemory` | `false` | See below. |
 | `memory.enableManagedAutoDream` | `false` | Background memory consolidation, same reason. |
 | `general.enableAutoUpdate` | `false` | A self-update would replace the CLI, and the stream format the adapter parses, in the middle of a run. |
-| `privacy.usageStatisticsEnabled` | `false` | The agent is not a person. |
+
+Nothing else is changed. Settings a headless run does not depend on, such as
+usage statistics, are left to the user.
+
+The CLI writes a `"$version"` stamp back into this file the first time it
+loads it. The adapter treats that stamp as no change, so the file is written
+once rather than on every turn.
 
 **Why auto-memory is off.** When it is on, every turn ends with a
 "memory extractor" subagent, and the run's `result` frame waits for it to

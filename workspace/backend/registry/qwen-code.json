@@ -48,7 +48,7 @@
       "OPENAI_API_KEY"
     ],
     "saved_env_key": "LLM_API_KEY",
-    "not_ready_message": "Not configured — set an API key (press e). Qwen Code has no CLI sign-in; a Model Studio (DashScope) key works with the default base URL."
+    "not_ready_message": "Not configured — set an API key and a model (press e). Qwen Code has no CLI sign-in; a Model Studio (DashScope) key works with the prefilled base URL."
   },
   "env_config": [
     {
@@ -59,15 +59,15 @@
     },
     {
       "name": "LLM_BASE_URL",
-      "description": "OpenAI-compatible base URL. Model Studio China: https://dashscope.aliyuncs.com/compatible-mode/v1 — International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 — Coding Plan: https://coding.dashscope.aliyuncs.com/v1",
-      "required": false,
+      "description": "OpenAI-compatible base URL, prefilled with Model Studio China. International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 — Coding Plan: https://coding.dashscope.aliyuncs.com/v1 (international: https://coding-intl.dashscope.aliyuncs.com/v1)",
+      "required": true,
       "default": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "placeholder": "https://dashscope.aliyuncs.com/compatible-mode/v1"
     },
     {
       "name": "LLM_MODEL",
-      "description": "Model id, e.g. qwen3.8-flash or qwen3.7-max. Leave blank for the CLI's default.",
-      "required": false,
+      "description": "Model id, e.g. qwen3.8-flash. Pick one the base URL serves — Coding Plan offers a shorter list than Model Studio.",
+      "required": true,
       "placeholder": "qwen3.8-flash"
     }
   ],

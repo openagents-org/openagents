@@ -16,6 +16,7 @@ const {
   parseFrame,
   qwenSystemDefaultsSource,
   redactArgs,
+  sameQwenSettings,
   redactSecrets,
   resolveQwenCredentials,
 } = require('../src/adapters/qwen-code-stream');
@@ -109,11 +110,25 @@ describe('qwen-code settings layer', () => {
     assert.equal(d.general.enableAutoUpdate, false);
   });
 
+  it('changes nothing a headless run does not depend on', () => {
+    // Usage statistics and the like are the user's call.
+    assert.deepEqual(Object.keys(buildQwenSystemDefaults(null)).sort(), ['general', 'memory']);
+  });
+
   it("lets a machine-wide system-defaults file win key by key", () => {
     const d = buildQwenSystemDefaults({ memory: { enableManagedAutoMemory: true }, ui: { theme: 'x' } });
     assert.equal(d.memory.enableManagedAutoMemory, true);
     assert.equal(d.memory.enableManagedAutoDream, false);
     assert.equal(d.ui.theme, 'x');
+  });
+
+  it('treats the version stamp the CLI writes back as no change', () => {
+    const desired = buildQwenSystemDefaults(null);
+    const stamped = { ...JSON.parse(JSON.stringify(desired)), $version: 4 };
+    assert.equal(sameQwenSettings(stamped, desired), true);
+    stamped.memory.enableManagedAutoMemory = true;
+    assert.equal(sameQwenSettings(stamped, desired), false);
+    assert.equal(sameQwenSettings(null, desired), false);
   });
 
   it("finds the CLI's own system-defaults file", () => {

@@ -221,6 +221,17 @@ describe('QwenCodeAdapter — registration', () => {
     const rules = Object.fromEntries(entry.resolve_env.rules.map((r) => [r.from, r.to]));
     assert.deepEqual(rules, { LLM_API_KEY: 'OPENAI_API_KEY', LLM_BASE_URL: 'OPENAI_BASE_URL', LLM_MODEL: 'OPENAI_MODEL' });
   });
+
+  it('asks for the model and base URL, with the base URL prefilled', () => {
+    // A blank model ran the CLI's most expensive default, and a blank field
+    // made the launcher's connection test probe something the agent never uses.
+    const fields = Object.fromEntries(
+      require('../registry.json').find((e) => e.name === 'qwen-code').env_config.map((f) => [f.name, f]),
+    );
+    assert.equal(fields.LLM_MODEL.required, true);
+    assert.equal(fields.LLM_BASE_URL.required, true);
+    assert.equal(fields.LLM_BASE_URL.default, 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+  });
 });
 
 describe('QwenCodeAdapter — headless invocation', () => {
@@ -480,6 +491,26 @@ describe('QwenCodeAdapter — settings layer file', () => {
       const written = JSON.parse(fs.readFileSync(target, 'utf-8'));
       assert.equal(written.memory.enableManagedAutoMemory, true);
       assert.equal(written.memory.enableManagedAutoDream, false);
+    } finally {
+      os.homedir = realHome;
+    }
+  });
+
+  it('leaves the file alone once the CLI has stamped its version into it', () => {
+    // The CLI migrates the settings file it loads and writes "$version" back.
+    // Rewriting over that every run would make it migrate and write again.
+    const a = makeAdapter();
+    delete a._writeSystemDefaults;
+    const home = path.join(tmpRoot, 'home-stamp');
+    const realHome = os.homedir;
+    os.homedir = () => home;
+    try {
+      const target = a._writeSystemDefaults();
+      const stamped = { ...JSON.parse(fs.readFileSync(target, 'utf-8')), $version: 4 };
+      fs.writeFileSync(target, JSON.stringify(stamped));
+      const before = fs.readFileSync(target, 'utf-8');
+      assert.equal(a._writeSystemDefaults(), target);
+      assert.equal(fs.readFileSync(target, 'utf-8'), before);
     } finally {
       os.homedir = realHome;
     }

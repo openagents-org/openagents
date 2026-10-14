@@ -63,6 +63,7 @@ const {
   redactArgs,
   redactSecrets,
   resolveQwenCredentials,
+  sameQwenSettings,
   truncate,
   QWEN_MIN_VERSION,
 } = require('./qwen-code-stream');
@@ -537,10 +538,13 @@ class QwenCodeAdapter extends BaseAdapter {
           return null;
         }
       }
-      const content = JSON.stringify(buildQwenSystemDefaults(existing), null, 2);
+      const desired = buildQwenSystemDefaults(existing);
       let current = null;
-      try { current = fs.readFileSync(target, 'utf-8'); } catch {}
-      if (current !== content) {
+      try { current = JSON.parse(fs.readFileSync(target, 'utf-8')); } catch {}
+      // The CLI stamps `$version` into the file after loading it; only a real
+      // difference is worth a rewrite (see sameQwenSettings).
+      if (!sameQwenSettings(current, desired)) {
+        const content = JSON.stringify(desired, null, 2);
         fs.mkdirSync(path.dirname(target), { recursive: true });
         // Atomic replace: another channel's run may be reading it right now.
         const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;

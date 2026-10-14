@@ -239,9 +239,11 @@ function buildQwenChildEnv(baseEnv = {}, { creds = {}, defaultsPath = '' } = {})
 /**
  * Settings this adapter needs that have no command-line flag.
  *
- * Loaded as Qwen Code's lowest-precedence "system defaults" scope, so the
- * user's own settings.json (and a project's .qwen/settings.json) still win:
- * someone who wants auto-memory back turns it on there.
+ * Only what a headless run depends on is here — anything else is the user's
+ * call, not the adapter's. Loaded as Qwen Code's lowest-precedence "system
+ * defaults" scope, so the user's own settings.json (and a project's
+ * .qwen/settings.json) still win: someone who wants auto-memory back turns it
+ * on there.
  */
 const QWEN_SETTINGS_DEFAULTS = {
   memory: {
@@ -255,10 +257,6 @@ const QWEN_SETTINGS_DEFAULTS = {
     // under a daemon that is mid-run. Upgrades go through the launcher.
     enableAutoUpdate: false,
     disableAutoUpdate: true,
-  },
-  privacy: {
-    // The agent is not a person; nothing here should phone home about it.
-    usageStatisticsEnabled: false,
   },
 };
 
@@ -280,6 +278,29 @@ function deepMerge(base, over) {
  */
 function buildQwenSystemDefaults(existing = null) {
   return deepMerge(QWEN_SETTINGS_DEFAULTS, isPlainObject(existing) ? existing : {});
+}
+
+function canonicalJson(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (isPlainObject(v)) {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
+/**
+ * True when a settings file already holds `desired`.
+ *
+ * The CLI migrates any settings file it loads and writes the result back,
+ * stamping a top-level `$version` (verified: our file came back with
+ * `"$version": 4`). That stamp is not a difference — rewriting over it would
+ * only make the CLI migrate and write again on the next run, while another
+ * channel's run may be reading the file.
+ */
+function sameQwenSettings(onDisk, desired) {
+  if (!isPlainObject(onDisk) || !isPlainObject(desired)) return false;
+  const strip = (o) => { const { $version, ...rest } = o; return rest; };
+  return canonicalJson(strip(onDisk)) === canonicalJson(strip(desired));
 }
 
 /**
@@ -668,6 +689,7 @@ module.exports = {
   resolveQwenCredentials,
   buildQwenChildEnv,
   buildQwenSystemDefaults,
+  sameQwenSettings,
   qwenSystemDefaultsSource,
   buildQwenArgs,
   parseFrame,
