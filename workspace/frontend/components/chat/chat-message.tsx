@@ -21,6 +21,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
+import { ReplyCitation, type ReplyCitationData } from './reply-citation';
 import { RoutingChoiceCard } from './routing-choice-card';
 import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
@@ -142,9 +143,11 @@ interface ChatMessageProps {
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
   onSuggestion?: (text: string) => void;
   onMentionPerson?: (email: string) => void;
+  onReply?: (message: WorkspaceMessage) => void;
+  onRecall?: (message: WorkspaceMessage) => Promise<void>;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onRecall }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
@@ -268,13 +271,20 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               )}
             </div>
             <div className="mt-0.5 text-sm leading-relaxed [&_.markdown-content>*:last-child]:mb-0">
-              {approval ? <ApprovalCard approval={approval} /> : <>
+              {message.metadata.recalled ? <p className="text-xs italic text-muted-foreground">{t('messageReply.recalled')}</p> : approval ? <ApprovalCard approval={approval} /> : <>
+                <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} />
               </>}
             </div>
-            {!approval && <RoutingChoiceCard message={message} agents={agents} />}
-            {!approval && <MessageReactions messageId={message.messageId} onReply={onMentionPerson && mentionEmail ? () => onMentionPerson(mentionEmail.toLowerCase()) : undefined} />}
+            {!approval && !message.metadata.recalled && <RoutingChoiceCard message={message} agents={agents} />}
+            {!approval && !message.metadata.recalled && <MessageReactions messageId={message.messageId}
+              onReply={onReply ? () => onReply(message) : undefined}
+              onRecall={isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
+                && message.targetAgents?.length === 1 && message.targetAgents[0] === '__no_response__'
+                && !message.metadata.routing_assignment && !message.metadata.approval_id
+                && (message.metadata.routing_choice as { status?: string } | undefined)?.status !== 'assigned'
+                ? () => onRecall(message) : undefined} />}
           </div>
         </div>
       </div>
@@ -309,6 +319,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               </>
             ) : (
               <>
+                <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
                 <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
                 <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />

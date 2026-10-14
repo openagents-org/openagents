@@ -926,6 +926,7 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
       ...(event.metadata || {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.todos ? { todos: payload.todos } : {}),
+      recalled_message_id: event.type === 'workspace.message.recalled' ? payload.recalled_message_id : undefined,
       // Approval request / resolution — the chat renders a card from this.
       ...(payload.approval ? { approval: payload.approval } : {}),
     },

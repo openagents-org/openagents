@@ -6,6 +6,7 @@ import { ChatMessages } from './chat-messages';
 import { YumiGuide } from './yumi-guide';
 import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
+import { ReplyCitation, citationFor } from './reply-citation';
 import { ThreadStatusBar } from './thread-status-bar';
 import { EmptyConversation, EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -266,6 +267,8 @@ export function ChatView() {
   // scrollKey triggers scroll-to-bottom: incremented on user send + backfill completion
   const [scrollKey, setScrollKey] = useState(0);
   const [focusKey, setFocusKey] = useState(0);
+  const [replyTargets, setReplyTargets] = useState<Record<string, WorkspaceMessage | undefined>>({});
+  const replyTarget = currentSessionId ? replyTargets[currentSessionId] : undefined;
 
   // v1.1 M5 — "Request revision" on an artifact card (and anything else that
   // wants to hand the person a starting sentence) replaces this thread's draft
@@ -488,6 +491,8 @@ export function ChatView() {
       if (!currentSessionId) return;
       if (!currentUser.id || !currentUser.name.trim()) return;
 
+      const replyingTo = replyTarget;
+      setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }));
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
       const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
@@ -502,7 +507,7 @@ export function ChatView() {
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: {},
+        metadata: replyingTo ? { reply_to: citationFor(replyingTo) } : {},
       };
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
@@ -542,7 +547,7 @@ export function ChatView() {
         if (isDM && dmCounterpart) {
           // Direct message — targeted at the counterpart address, not a
           // channel. Attachments/mentions aren't supported in DMs yet.
-          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr);
+          await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr, replyingTo?.messageId);
           capture('message_sent', { dm: true });
           // A legacy `human:user` conversation: the new message is stored under
           // the viewer's own address, so follow it to the canonical session.
@@ -578,6 +583,7 @@ export function ChatView() {
           attachments,
           currentUser.id,
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
+          replyingTo?.messageId,
         );
         // The server can also suppress replies (for example, the director rule).
         if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
@@ -591,6 +597,7 @@ export function ChatView() {
         });
         forceRefresh();
       } catch (err) {
+        if (replyingTo) setReplyTargets(previous => ({ ...previous, [currentSessionId]: previous[currentSessionId] || replyingTo }));
         // Remove optimistic messages on error
         setOptimisticMessages((prev) =>
           prev.filter(
@@ -613,7 +620,7 @@ export function ChatView() {
         }
       }
     },
-    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
+    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
@@ -999,6 +1006,14 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
+            onReply={(!isDM || dmWritable) ? (message) => {
+              setReplyTargets(previous => ({ ...previous, [currentSessionId]: message }));
+              const email = (message.senderAddress || '').replace(/^human:/, '');
+              if (email.includes('@') && !currentDraft.includes(`@${email}`)) {
+                handleDraftChange(`${currentDraft}${currentDraft && !/\s$/.test(currentDraft) ? ' ' : ''}@${email} `);
+              }
+              setFocusKey(key => key + 1);
+            } : undefined}
             onMentionPerson={(!isDM || dmWritable) ? (email) => {
               const separator = currentDraft && !/\s$/.test(currentDraft) ? ' ' : '';
               handleDraftChange(`${currentDraft}${separator}@${email} `);
@@ -1020,6 +1035,7 @@ export function ChatView() {
         {(!isDM || dmWritable) && (
           <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
             {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
+            {replyTarget && <ReplyCitation citation={citationFor(replyTarget)} onCancel={() => setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }))} />}
             <ChatInput conversationId={currentSessionId}
               onSend={handleSend}
               agents={agents}

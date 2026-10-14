@@ -319,6 +319,9 @@ def send_event(
         return json_response(ResponseCode.BAD_REQUEST, "Missing required field: network")
 
     # Resolve workspace
+    if body.type == "workspace.message.recalled":
+        return json_response(ResponseCode.FORBIDDEN, "Use the message recall endpoint")
+
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(body.network))
     ).scalar_one_or_none()
@@ -498,6 +501,87 @@ def send_event(
         "timestamp": result.timestamp,
         "metadata": result.metadata,
     })
+
+
+@router.post("/events/{event_id}/recall")
+def recall_message(
+    event_id: str, network: str, db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
+):
+    """Withdraw only the sender's unassigned human message; never cancel agent work."""
+    import time
+    from fastapi import HTTPException
+    from app.models import ApprovalRequest
+    from app.services.visibility import resolve_viewer, can_view_channel
+    workspace = db.execute(select(Workspace).where(_workspace_filter(network))).scalar_one_or_none()
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        raise HTTPException(403, "No access to this workspace")
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in as the message sender")
+    original = db.execute(select(EventRecord).where(
+        EventRecord.id == event_id, EventRecord.network_id == workspace.id,
+        EventRecord.type == "workspace.message.posted",
+    ).with_for_update()).scalar_one_or_none()
+    if not original or original.source.lower() != f"human:{viewer.email.lower()}":
+        raise HTTPException(403, "Only the sender can recall this message")
+    if original.target.startswith("channel/"):
+        channel = db.execute(select(Channel).where(Channel.workspace_id == workspace.id,
+            Channel.name == original.target[8:])).scalar_one_or_none()
+        if not channel or not can_view_channel(db, str(workspace.id), viewer, channel):
+            raise HTTPException(403, "No access to this thread")
+    metadata = dict(original.metadata_ or {})
+    if metadata.get("recalled"):
+        return success_response({"message_id": original.id, "recalled": True})
+    choice = metadata.get("routing_choice") or {}
+    if ((original.payload or {}).get("message_type", "chat") != "chat"
+            or metadata.get("target_agents") != ["__no_response__"]
+            or metadata.get("routing_assignment") or metadata.get("approval_id")
+            or choice.get("status") == "assigned"):
+        raise HTTPException(409, "Messages assigned to an agent cannot be recalled")
+    approval = db.execute(select(ApprovalRequest.id).where(
+        ApprovalRequest.workspace_id == workspace.id,
+        ApprovalRequest.policy_requirements["trigger_event_id"].astext == original.id,
+    ).limit(1)).first()
+    agent_reply = db.execute(select(EventRecord.id).where(
+        EventRecord.network_id == workspace.id, EventRecord.source.like("openagents:%"),
+        EventRecord.metadata_["in_reply_to"].astext == original.id,
+    ).limit(1)).first()
+    if approval or agent_reply:
+        raise HTTPException(409, "This message has already started agent work")
+    metadata.update(recalled=True, recalled_at=int(time.time() * 1000))
+    metadata.pop("reply_to", None)
+    if choice:
+        metadata["routing_choice"] = {**choice, "status": "dismissed"}
+    original.metadata_ = metadata
+    # Remove the withdrawn content and attachments from future history reads.
+    original.payload = {key: value for key, value in (original.payload or {}).items()
+                        if key not in ("content", "attachments", "reply_to")}
+    original.payload["content"] = ""
+    citations = db.execute(select(EventRecord).where(EventRecord.network_id == workspace.id,
+        EventRecord.metadata_["reply_to"]["message_id"].astext == original.id)).scalars().all()
+    for reply in citations:
+        reply.metadata_ = {**reply.metadata_, "reply_to": {
+            **reply.metadata_["reply_to"], "content": "", "recalled": True,
+        }}
+    # A fresh event lets incremental pollers update already-loaded messages.
+    notice = Event(type="workspace.message.recalled", source=original.source,
+        target=original.target, visibility=original.visibility or "channel",
+        payload={"message_type": "recall", "recalled_message_id": original.id},
+        metadata={"target_agents": ["__no_response__"]})
+    db.add(EventRecord(id=notice.id, network_id=str(workspace.id), type=notice.type,
+        source=notice.source, target=notice.target, visibility=original.visibility,
+        payload=notice.payload, metadata_=notice.metadata, timestamp=notice.timestamp))
+    db.commit()
+    _invalidate_poll_cache(str(workspace.id), "workspace.message.posted")
+    snapshot = {"id": notice.id, "type": notice.type, "source": notice.source,
+        "target": notice.target, "payload": notice.payload, "metadata": notice.metadata,
+        "timestamp": notice.timestamp}
+    try:
+        cache.publish_event(f"ws:{workspace.id}:events", _json.dumps(snapshot, default=str).encode())
+    except Exception:
+        pass
+    return success_response({"message_id": original.id, "recalled": True})
 
 
 class RoutingChoiceRequest(BaseModel):

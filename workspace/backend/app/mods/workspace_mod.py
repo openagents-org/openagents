@@ -1973,6 +1973,9 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         if requester:
             event.metadata["requester_email"] = requester
 
+    event.metadata.pop("recalled", None)
+    event.metadata.pop("recalled_at", None)
+    event.metadata.pop("recalled_message_id", None)
     event.metadata.pop("routing_assignment", None)
     event.metadata.pop("routing_choice", None)
     event.metadata.pop("routing_decision", None)
@@ -2038,6 +2041,10 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         if not _cvc(db, str(workspace.id), _Viewer(False, _sender_email), channel):
             logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)
             raise EventRejected("workspace_mod", "private_thread")
+
+    if event.source.startswith("human:"):
+        from app.services.message_replies import attach_reply
+        attach_reply(event, db, workspace, channel)
 
     if channel is not None and channel.service_id and event.source.startswith("human:"):
         from app.models import AgentService

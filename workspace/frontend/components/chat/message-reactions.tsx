@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CopyMessageLink } from './copy-message-link';
-import { Reply, SmilePlus } from 'lucide-react';
+import { Reply, SmilePlus, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -44,7 +44,7 @@ export function MessageReactionsProvider({ messages, children }: { messages: Wor
   return <Context.Provider value={{rows:data.key===key?data.rows:{},update,enabled}}>{children}</Context.Provider>;
 }
 
-export function MessageReactions({ messageId, onReply }: {messageId:string; onReply?:()=>void}) {
+export function MessageReactions({ messageId, onReply, onRecall }: {messageId:string; onReply?:()=>void; onRecall?:()=>Promise<void>}) {
   const context=useContext(Context);
   const t=useT();
   const [open,setOpen]=useState(false);
@@ -63,6 +63,12 @@ export function MessageReactions({ messageId, onReply }: {messageId:string; onRe
     {rows.map(row=><button key={row.emoji} disabled={busy} onClick={()=>void toggle(row.emoji)} aria-pressed={row.mine} aria-label={t('reactions.count',{emoji:row.emoji,count:row.count})} className={`rounded-full border px-2 py-0.5 text-xs ${row.mine?'border-primary/40 bg-primary/10':'bg-muted/30 hover:bg-muted'}`}>{row.emoji} {row.count}</button>)}
     <div className={`absolute right-0 top-1 z-10 flex items-center gap-0.5 rounded-md border bg-background p-0.5 shadow-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'}`}>
     <button type="button" aria-label={t('reactions.add')} title={t('reactions.add')} aria-expanded={open} disabled={busy} onClick={()=>setOpen(!open)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><SmilePlus className="size-3.5" /></button>
+    {onRecall && <button type="button" aria-label={t('messageReply.recall')} title={t('messageReply.recall')} disabled={busy} onClick={async () => {
+      if (pending.current) return;
+      pending.current = true; setBusy(true);
+      try { await onRecall(); } catch (error) { toast.error(error instanceof Error ? error.message : t('messageReply.recallFailed')); }
+      finally { pending.current = false; setBusy(false); }
+    }} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"><Undo2 className="size-3.5" /></button>}
     {onReply && <button type="button" aria-label={t('reactions.reply')} title={t('reactions.reply')} onClick={onReply} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><Reply className="size-3.5" /></button>}
     <CopyMessageLink messageId={messageId} />
     </div>

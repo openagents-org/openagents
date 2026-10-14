@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
 import { User } from 'lucide-react';
 import { useTeamRoster } from '@/hooks/use-team-roster';
-import { useThreadMentionEmails } from '@/hooks/use-thread-mention-emails';
+import { useThreadMentionParticipants } from '@/hooks/use-thread-mention-emails';
 import { extractMentionedAgents, extractMentionedHumans, filterMentionPeople, type MentionPerson } from '@/lib/people-mentions';
 import { humanColor } from '@/lib/human-color';
 import { humanMentionDisplay, editHumanMentionDraft, updateHumanMentionDraft } from './composer-human-mentions';
@@ -74,7 +74,8 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const dragCountRef = React.useRef(0);
   const team = useTeamRoster();
-  const participantEmails = useThreadMentionEmails(conversationId, showMentions);
+  const participants = useThreadMentionParticipants(conversationId, showMentions);
+  const participantEmails = participants.emails;
   const threadPeople = team.filter(person => participantEmails.includes(person.email.toLowerCase()));
   const mentionPeople = React.useMemo(() => team.map((m) => ({
     email: m.email,
@@ -140,6 +141,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
   // always the agent name.
   const AVAILABILITY_RANK: Record<AgentAvailability, number> = { online: 0, busy: 1, waiting: 2, device_offline: 3, offline: 4 };
   const filteredAgents = agents
+    .filter(a => participants.agents.includes(a.agentName))
     .filter(
       (a) => (a.status === 'online' || isRecentAgent(a)) && (
         a.agentName.toLowerCase().includes(mentionFilter.toLowerCase()) ||

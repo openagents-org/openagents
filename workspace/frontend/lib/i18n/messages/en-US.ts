@@ -105,6 +105,7 @@ export const messages = {
   },
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
+  messageReply: { to: 'Replying to {name}', cancel: 'Cancel reply', attachment: 'Attachment', recalled: 'Message recalled', recall: 'Recall message', recallFailed: 'This message could not be recalled.' },
   routing: { title: 'Who should work on this?',
     hint: 'Choose an agent to handle your request, or leave this as conversation.',
     dismiss: 'Dismiss assignment suggestion', dismissAction: 'Dismiss',

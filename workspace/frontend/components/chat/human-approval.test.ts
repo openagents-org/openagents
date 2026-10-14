@@ -11,7 +11,7 @@ vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: mocks.email, role: 'me
 vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({ 'sam@example.com': 'Sam Okafor' }), useTeamRoster: () => [{ email:'sam@example.com',displayName:'Sam Okafor' },{ email:'maya@example.com',displayName:'Maya Chen' }] }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, args?: Record<string,string>) => key + (args ? ' ' + Object.values(args).join(' ') : ''), useFormatters: () => ({ formatTime: () => '08:22' }) }));
 vi.mock('./markdown-content', () => ({ MarkdownContent: ({ content }: any) => React.createElement('p',null,content) }));
-vi.mock('./message-reactions', () => ({ MessageReactions: () => React.createElement('span',null,'reaction controls') }));
+vi.mock('./message-reactions', () => ({ MessageReactions: ({ onReply, onRecall }: any) => React.createElement('span',null,'reaction controls', onReply && React.createElement('button', { onClick: onReply }, 'Reply'), onRecall && React.createElement('button', { onClick: onRecall }, 'Recall')) }));
 import { ChatMessage } from './chat-message';
 const raw = { id:'approval-1', channel_name:'general', requested_by:'claude-dev', kind:'thread_agent_request', action:'Start a task with claude-dev', details:'@claude-dev hey', required_role:'any', assignee_email:'maya@example.com', status:'pending', policy_requirements:{ members:['maya@example.com'], approved_by:[], role_required:null, role_approved:false } };
 const message = eventToMessage({ id:'request-message', source:'human:sam@example.com', target:'channel/general', timestamp:1, payload:{ message_type:'approval',content:'plain fallback kind: thread_agent_request',approval:raw } } as any);
@@ -39,4 +39,24 @@ it('shows the request to Sam without giving him the owner’s decision buttons',
   expect(host.textContent).toContain('Start a task with claude-dev');
   expect(Array.from(host.querySelectorAll('button')).some(b=>b.textContent==='approvals.approve'||b.textContent==='approvals.reject')).toBe(false);
   expect(mocks.resolveApproval).not.toHaveBeenCalled();
+});
+
+it('Reply selects the exact original message instead of merely mentioning its author', async () => {
+  const chat = { ...message, messageType: 'chat', content: 'Which release?', metadata: {} };
+  const reply = vi.fn(), mention = vi.fn();
+  await act(async () => root.render(React.createElement(ChatMessage, { message: chat, onReply: reply, onMentionPerson: mention })));
+  await act(async () => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Reply')!.click());
+  expect(reply).toHaveBeenCalledWith(chat);
+  expect(mention).not.toHaveBeenCalled();
+});
+it('offers Recall only for your unassigned messages and hides the withdrawn body', async () => {
+  const chat = { ...message, messageType: 'chat', senderId: mocks.email, content: 'Withdraw this', targetAgents: ['__no_response__'], metadata: {} };
+  const recall = vi.fn();
+  await act(async () => root.render(React.createElement(ChatMessage, { message: chat, onRecall: recall })));
+  expect(host.textContent).toContain('Recall');
+  await act(async () => root.render(React.createElement(ChatMessage, { message: { ...chat, targetAgents: ['claude-dev'] }, onRecall: recall })));
+  expect(host.textContent).not.toContain('Recall');
+  await act(async () => root.render(React.createElement(ChatMessage, { message: { ...chat, metadata: { recalled: true } }, onRecall: recall })));
+  expect(host.textContent).not.toContain('Withdraw this');
+  expect(host.textContent).not.toContain('reaction controls');
 });

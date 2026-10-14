@@ -649,6 +649,7 @@ class WorkspaceApi {
     senderId?: string,
     /** Emails of people @mentioned — the backend notifies each of them. */
     mentionedHumans?: string[],
+    replyTo?: string,
   ): Promise<ONMEvent> {
     return this.sendEvent({
       type: 'workspace.message.posted',
@@ -660,6 +661,7 @@ class WorkspaceApi {
         ...(senderId ? { sender_id: senderId } : {}),
         ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
         sender_name: senderName,
+        ...(replyTo ? { reply_to: replyTo } : {}),
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
         ...(mentionedHumans && mentionedHumans.length > 0 ? { mentioned_humans: mentionedHumans } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
@@ -687,6 +689,7 @@ class WorkspaceApi {
     senderName = 'user',
     senderId?: string,
     source = 'human:user',
+    replyTo?: string,
   ): Promise<ONMEvent> {
     const isAgent = counterpart.startsWith('openagents:');
     return this.sendEvent({
@@ -695,6 +698,7 @@ class WorkspaceApi {
       target: counterpart,
       payload: {
         content,
+        ...(replyTo ? { reply_to: replyTo } : {}),
         sender_type: 'human',
         ...(senderId ? { sender_id: senderId } : {}),
         ...(senderId?.includes('@') ? { sender_email: senderId } : {}),
@@ -1476,6 +1480,10 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
   // Low-level ONM event API
   // ---------------------------------------------------------------------------
+
+  async recallMessage(messageId: string): Promise<{ recalled: boolean }> {
+    return this.request(`/v1/events/${encodeURIComponent(messageId)}/recall?network=${encodeURIComponent(this.requireWorkspace())}`, { method: 'POST' });
+  }
 
   async resolveRoutingChoice(messageId: string, agent: string | null): Promise<{ status: string; agent?: string }> {
     return this.request(`/v1/events/${encodeURIComponent(messageId)}/routing?network=${encodeURIComponent(this.requireWorkspace())}`, {

@@ -1,6 +1,8 @@
 'use client';
 
+import { applyMessageRecalls } from '@/lib/message-recall';
 import { requestedMessageId } from '@/lib/thread-link';
+import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AgentMessageAccessProvider } from './agent-message-access';
@@ -117,9 +119,10 @@ interface ChatMessagesProps {
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
   onSuggestion?: (text: string) => void;
   onMentionPerson?: (email: string) => void;
+  onReply?: (message: WorkspaceMessage) => void;
 }
 
-function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson }: ChatMessagesProps) {
+function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply }: ChatMessagesProps) {
   const t = useT();
   const [targetMessage, setTargetMessage] = useState(() => typeof window === 'undefined' ? null : requestedMessageId(window.location.href));
   const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
@@ -147,12 +150,18 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   const userScrolledUpRef = useRef(false);
 
   // Separate loading indicators (optimistic) from real messages
-  const loadingMessages = useMemo(() => messages.filter((m) => m.messageType === 'loading'), [messages]);
+  const [locallyRecalled, setLocallyRecalled] = useState<Set<string>>(new Set());
+  const visibleMessages = useMemo(() => applyMessageRecalls(messages, locallyRecalled), [messages, locallyRecalled]);
+  const recall = async (message: WorkspaceMessage) => {
+    await workspaceApi.recallMessage(message.messageId);
+    setLocallyRecalled(previous => new Set([...previous, message.messageId]));
+  };
+  const loadingMessages = useMemo(() => visibleMessages.filter((m) => m.messageType === 'loading'), [visibleMessages]);
   // Assignment events dispatch the original request internally; they are not
   // another conversation message. Keep any actual approval cards visible.
-  const realMessages = useMemo(() => messages.filter((m) =>
-    m.messageType !== 'loading' && (!m.metadata.routing_assignment || m.messageType === 'approval' || !!m.metadata.approval)
-  ), [messages]);
+  const realMessages = useMemo(() => visibleMessages.filter((m) =>
+    m.messageType !== 'loading' && (!m.metadata?.routing_assignment || m.messageType === 'approval' || !!m.metadata?.approval)
+  ), [visibleMessages]);
 
   // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
   const filteredMessages = useMemo(() => {
@@ -564,6 +573,8 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
                       isLast={index === groups.length - 1}
                       onSuggestion={onSuggestion}
                       onMentionPerson={onMentionPerson}
+                      onReply={onReply}
+                      onRecall={recall}
                     />
                   ) : group.type === 'thinking' ? (
                     <ThinkingMessage

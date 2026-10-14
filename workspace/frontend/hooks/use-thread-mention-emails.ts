@@ -7,11 +7,11 @@ import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useWorkspace } from '@/lib/workspace-context';
 
 /** Suggestions follow actual membership, not everyone who can view a public thread. */
-export function useThreadMentionEmails(channel: string | null, pickerOpen: boolean): string[] {
+export function useThreadMentionParticipants(channel: string | null, pickerOpen: boolean): { emails: string[]; agents: string[] } {
   const { workspace, currentUser } = useWorkspace();
   const key = JSON.stringify([workspace?.workspaceId, currentUser.id, channel]);
   const isDM = channel?.startsWith('dm:');
-  const [state, setState] = useState<{ key: string; emails: string[] } | null>(null);
+  const [state, setState] = useState<{ key: string; emails: string[]; agents: string[] } | null>(null);
 
   useEffect(() => {
     if (!channel || isDM) return;
@@ -21,7 +21,7 @@ export function useThreadMentionEmails(channel: string | null, pickerOpen: boole
       const version = ++request;
       try {
         const data = await workspaceApi.getChannelParticipants(channel);
-        if (active && version === request) setState({ key, emails: data.humans.map(p => p.email.toLowerCase()) });
+        if (active && version === request) setState({ key, emails: data.humans.map(p => p.email.toLowerCase()), agents: data.agents.filter(a => a.request_access === 'yes' || a.request_access === 'approval').map(a => a.agent_name) });
       } catch {
         if (active && version === request) setState(null);
       }
@@ -39,6 +39,10 @@ export function useThreadMentionEmails(channel: string | null, pickerOpen: boole
     };
   }, [channel, isDM, key, pickerOpen]);
 
-  if (isDM) return dmPair(channel).filter(p => p.startsWith('human:')).map(p => p.slice(6).toLowerCase());
-  return state?.key === key ? state.emails : [];
+  if (isDM) return { emails: dmPair(channel).filter(p => p.startsWith('human:')).map(p => p.slice(6).toLowerCase()), agents: dmPair(channel).filter(p => p.startsWith('openagents:')).map(p => p.slice(11)) };
+  return state?.key === key ? state : { emails: [], agents: [] };
+}
+
+export function useThreadMentionEmails(channel: string | null, pickerOpen: boolean): string[] {
+  return useThreadMentionParticipants(channel, pickerOpen).emails;
 }
