@@ -17,7 +17,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
 from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
@@ -477,7 +476,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 
-class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
+class NoTransformCompressionHeadersMiddleware:
     """Tell intermediate CDNs (Railway's Fastly layer) not to decompress
     our gzipped responses.
 
@@ -492,18 +491,28 @@ class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
     share across clients.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Don't override if the handler already set cache-control explicitly.
-        if "cache-control" not in response.headers:
-            response.headers["cache-control"] = "private, no-transform, max-age=0"
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_cache_policy(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                if not any(k.lower() == b"cache-control" for k, _ in headers):
+                    headers.append((b"cache-control", b"private, no-transform, max-age=0"))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache_policy)
 
 
 app.add_middleware(NoTransformCompressionHeadersMiddleware)
 
 
-class UserAgentLogMiddleware(BaseHTTPMiddleware):
+class UserAgentLogMiddleware:
     """Log User-Agent on every POST so we can tell which client (iPhone
     URLSession vs Mac vs Chrome) is calling each mutating endpoint.
     GETs are excluded because /v1/events polling would drown the logs.
@@ -511,16 +520,21 @@ class UserAgentLogMiddleware(BaseHTTPMiddleware):
     /v1/devices/register call from the iPhone.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.method == "POST":
-            logger.info(
-                "POST %s ua=%s status=%s",
-                request.url.path,
-                request.headers.get("user-agent", "<none>"),
-                response.status_code,
-            )
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        user_agent = next((v.decode("latin-1") for k, v in scope.get("headers", [])
+                           if k.lower() == b"user-agent"), "<none>")
+
+        async def send_with_log(message):
+            if message["type"] == "http.response.start":
+                logger.info("POST %s ua=%s status=%s", scope["path"], user_agent, message["status"])
+            await send(message)
+
+        await self.app(scope, receive, send_with_log)
 
 
 app.add_middleware(UserAgentLogMiddleware)

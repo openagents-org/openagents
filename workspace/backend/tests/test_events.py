@@ -604,3 +604,19 @@ class TestPollResolveCache:
         monkeypatch.setattr(visibility, 'resolve_viewer', resolve)
         client.get('/v1/events', params=params, headers={**headers, **extra_headers})
         assert calls
+
+    def test_identified_poll_reuses_freshly_loaded_workspace(self, client, workspace, db, monkeypatch):
+        from sqlalchemy import event
+        self._use_memory_cache(monkeypatch)
+        queries = []
+        def capture(conn, cursor, statement, *args):
+            if 'FROM workspaces' in statement:
+                queries.append(statement)
+        event.listen(db.bind, 'before_cursor_execute', capture)
+        try:
+            r = client.get('/v1/events', params={'network':workspace['id']}, headers={
+                'X-Workspace-Token':workspace['token'], 'X-Agent-Name':'identified-agent'})
+        finally:
+            event.remove(db.bind, 'before_cursor_execute', capture)
+        assert r.status_code == 200
+        assert len(queries) == 1

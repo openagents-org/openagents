@@ -159,8 +159,10 @@ def _resolve_and_auth_cached(db, network, token, authorization):
     workspace-token path from Redis so the hot poll path never touches
     Postgres when the client is already at head.
 
-    Returns ``(workspace_id, error_response, legacy_machine)``. The last flag
-    is true only for a verified shared token without a bearer or agent identity.
+    Returns ``(workspace_id, error_response, legacy_machine, workspace)``.
+    legacy_machine is true only for a verified shared token without a bearer
+    or agent identity. Retain a freshly loaded workspace for principal resolution
+    so device-token and human cache misses do not load it a second time.
 
     Only the workspace-token path (the one agents use, `token ==
     password_hash`) is cache-served. Bearer/collaborator auth, cache misses,
@@ -183,18 +185,18 @@ def _resolve_and_auth_cached(db, network, token, authorization):
             ph_sha = meta.get("ph_sha")
             if ph_sha is None:
                 # Public workspace (no password) — token path grants access.
-                return meta["id"], None, False
+                return meta["id"], None, False, None
             if token and hashlib.sha256(token.encode("utf-8")).hexdigest() == ph_sha:
-                return meta["id"], None, machine_only
+                return meta["id"], None, machine_only, None
             # token missing/mismatch → fall through for bearer/collaborator auth
 
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(network))
     ).scalar_one_or_none()
     if not workspace:
-        return None, json_response(ResponseCode.NOT_FOUND, "Network not found"), False
+        return None, json_response(ResponseCode.NOT_FOUND, "Network not found"), False, None
     if not _verify_workspace_access(workspace, token, authorization):
-        return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials"), False
+        return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials"), False, None
 
     ph = workspace.password_hash
     meta = {
@@ -205,7 +207,7 @@ def _resolve_and_auth_cached(db, network, token, authorization):
         cache.set_bytes(ck, _json.dumps(meta).encode("utf-8"), ttl_seconds=30.0)
     except Exception:
         pass
-    return str(workspace.id), None, bool(machine_only and ph and token == ph)
+    return str(workspace.id), None, bool(machine_only and ph and token == ph), workspace
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +723,7 @@ def poll_events(
     # path so an at-head poll (the common idle case) never checks out a Postgres
     # connection — the DB `SELECT workspace` used to run on every poll, before
     # the cache, so even a cached-empty response cost a pooled connection.
-    workspace_id, err, legacy_machine = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
+    workspace_id, err, legacy_machine, resolved_workspace = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
     if err is not None:
         return err
 
@@ -732,7 +734,8 @@ def poll_events(
     from app.services.visibility import hidden_channel_targets, resolve_viewer
     from app.services.access_model import Principal
     viewer = (Principal("machine", workspace_id=workspace_id) if legacy_machine else
-              resolve_viewer(db, str(workspace_id), x_workspace_token, authorization))
+              resolve_viewer(db, resolved_workspace if resolved_workspace is not None else str(workspace_id),
+                             x_workspace_token, authorization))
     hidden_targets = hidden_channel_targets(db, workspace_id, viewer) if viewer.is_human else set()
     if hidden_targets:
         if channel and f"channel/{channel}" in hidden_targets:
