@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
+from app.access import repeats_machine_token, resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
 from app.config import config
 from app.database import get_db
 from app.models import Node, NodeCommand, NodePairingCode, Workspace
@@ -101,7 +101,7 @@ def _machine_token_ok(token, workspace, node) -> bool:
 
 def _can_access_connection(db, workspace, node, token, authorization):
     # An authenticated human never inherits the accompanying machine credential.
-    if authorization:
+    if authorization and not repeats_machine_token(token, authorization):
         user = resolve_current_user(db, authorization)
         return bool(_is_owner(user, node.owner_email) and
                     resolve_user_role(db, workspace, authorization) is not None)

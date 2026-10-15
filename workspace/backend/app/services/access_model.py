@@ -292,7 +292,8 @@ def resolve_principal(db: Session, workspace: Union[Workspace, str, None], token
             role = resolve_user_role(db, ws, authorization)
         return Principal("human", email=email, role=role, workspace_id=wid)
     # A failed/expired person credential must never become a privileged machine.
-    if authorization:
+    from app.access import repeats_machine_token
+    if authorization and not repeats_machine_token(token, authorization):
         return Principal("human", email=None, workspace_id=wid)
     if token and is_machine_caller(ws, token, db):
         name = _clean_agent_name(agent_name) or get_request_agent_name()

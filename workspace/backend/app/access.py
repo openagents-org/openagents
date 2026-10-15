@@ -59,6 +59,16 @@ def extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+def repeats_machine_token(token: Optional[str], authorization: Optional[str]) -> bool:
+    """Older machine clients repeat X-Workspace-Token as a Bearer header.
+
+    This only identifies the wire format; callers must still validate the
+    credential against the requested workspace or connection.
+    """
+    bearer = extract_bearer(authorization)
+    return bool(token and bearer and secrets.compare_digest(token.encode(), bearer.encode()))
+
+
 def role_at_least(role: Optional[str], min_role: Optional[str]) -> bool:
     """True if `role` meets or exceeds `min_role` (None min_role = any role)."""
     if min_role is None:
@@ -328,7 +338,7 @@ def verify_workspace_access(
     if workspace.status == "deleted":
         return False
     # A presented person identity is authoritative, even with a workspace token.
-    if authorization:
+    if authorization and not repeats_machine_token(token, authorization):
         if db is None:
             db = SqlaSession.object_session(workspace)
         role = resolve_user_role(db, workspace, authorization) if db is not None else None
