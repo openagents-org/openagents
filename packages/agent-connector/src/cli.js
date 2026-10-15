@@ -474,7 +474,6 @@ async function cmdConnect(connector, flags, positional) {
 
     // Connect agent
     connector.connectWorkspace(name, slug);
-  if (chosen) connector.config.updateAgent(name, { node_id: chosen.node_id });
     print(`'${name}' connected to workspace '${wsName}'`);
     // Manual token connection is being retired in favor of device pairing.
     // It keeps working (backward compatibility is deliberate); this is the

@@ -595,12 +595,12 @@ describe('Daemon', () => {
   it('_nodeHeartbeat clears the pairing when the workspace 404s the node', async () => {
     await withPairings([P1], async (cleared) => {
       const daemon = heartbeatDaemon();
-      daemon._nodeClients.set('w1', {
+      daemon._nodeClients.set('n1', {
         nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
       });
       await daemon._nodeHeartbeat();
       assert.deepEqual(cleared, ['w1'], 'a 404 should clear that pairing');
-      assert.equal(daemon._nodeClients.has('w1'), false, 'the stale client should be dropped');
+      assert.equal(daemon._nodeClients.has('n1'), false, 'the stale client should be dropped');
     });
   });
 
@@ -610,10 +610,10 @@ describe('Daemon', () => {
       const client = {
         nodeHeartbeat: async () => { const e = new Error('temporary'); e.status = 503; throw e; },
       };
-      daemon._nodeClients.set('w1', client);
+      daemon._nodeClients.set('n1', client);
       await daemon._nodeHeartbeat();
       assert.deepEqual(cleared, [], 'a transient failure must not clear the pairing');
-      assert.equal(daemon._nodeClients.get('w1'), client, 'the client is retained for retry');
+      assert.equal(daemon._nodeClients.get('n1'), client, 'the client is retained for retry');
     });
   });
 
@@ -622,7 +622,7 @@ describe('Daemon', () => {
   it('_nodeHeartbeat keeps the pairing on a 404 the backend did not write', async () => {
     await withPairings([P1], async (cleared) => {
       const daemon = heartbeatDaemon();
-      daemon._nodeClients.set('w1', {
+      daemon._nodeClients.set('n1', {
         nodeHeartbeat: async () => { const e = new Error('Application not found'); e.status = 404; throw e; },
       });
       await daemon._nodeHeartbeat();
@@ -637,7 +637,7 @@ describe('Daemon', () => {
       const daemon = heartbeatDaemon();
       const seen = [];
       for (const [ws, node] of [['w1', 'n1'], ['w2', 'n2']]) {
-        daemon._nodeClients.set(ws, {
+        daemon._nodeClients.set(ws === 'w1' ? 'n1' : 'n2', {
           nodeHeartbeat: async (nodeId, token) => { seen.push([nodeId, token]); return {}; },
         });
         void node;
@@ -652,10 +652,10 @@ describe('Daemon', () => {
     await withPairings([P1, P2], async (cleared) => {
       const daemon = heartbeatDaemon();
       let reachedW2 = false;
-      daemon._nodeClients.set('w1', {
+      daemon._nodeClients.set('n1', {
         nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
       });
-      daemon._nodeClients.set('w2', {
+      daemon._nodeClients.set('n2', {
         nodeHeartbeat: async () => { reachedW2 = true; return {}; },
       });
       await daemon._nodeHeartbeat();
@@ -671,7 +671,7 @@ describe('Daemon', () => {
       daemon._buildRoster = (n) => [{ name: `agent-for-${n.workspace_slug}` }];
       const rosters = {};
       for (const ws of ['w1', 'w2']) {
-        daemon._nodeClients.set(ws, {
+        daemon._nodeClients.set(ws === 'w1' ? 'n1' : 'n2', {
           nodeHeartbeat: async (_id, _tok, info) => { rosters[ws] = info.agents; return {}; },
         });
       }
@@ -691,7 +691,7 @@ describe('Daemon', () => {
       return { code: 0, stdout: '', stderr: '' };
     };
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
     const wd = path.join(tmpDir, 'wd');
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
@@ -702,7 +702,7 @@ describe('Daemon', () => {
     assert.deepEqual(calls[1], ['env', 'claude', '--set', 'LLM_API_KEY=sk-x']);
     // Bind by SLUG: the daemon knows which workspace the command came from,
     // so there is no token to pass and no /v1/token/resolve to fail.
-    assert.deepEqual(calls[5], ['connect', 'coder', '--workspace', 'ws-slug']);
+    assert.deepEqual(calls[5], ['connect', 'coder', '--workspace', 'ws-slug', '--connection', 'n1']);
     assert.deepEqual(config.getAgent('coder').env, {
       LLM_API_KEY: 'sk-x',
       LLM_BASE_URL: 'https://relay.example/v1',
@@ -717,7 +717,7 @@ describe('Daemon', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
-    daemon._nodeClients.set('w1', { nodeCommandResult: async () => {} });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async () => {} });
     // Sandbox HOME so the managed folder is created under tmp, not the real home.
     const origHome = process.env.HOME;
     process.env.HOME = tmpDir;
@@ -751,7 +751,7 @@ describe('Daemon', () => {
     daemon._refreshRuntimes = async () => { refreshed = true; daemon._runtimes = [{ type: 'claude' }]; };
     daemon._nodeHeartbeat = async () => {};
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'c4', action: 'detect_runtimes', args: {} },
@@ -799,7 +799,7 @@ describe('Daemon', () => {
     const probed = [];
     daemon._probeAgent = async (name) => { probed.push(name); return null; };
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash', apiKey: 'sk-new', baseUrl: 'https://relay.example/v1' } },
@@ -847,7 +847,7 @@ describe('Daemon', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     fs.mkdirSync(path.join(tmpDir, 'proj'));
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
       { commandId: 'cd', action: 'list_dir', args: { path: tmpDir } },
@@ -863,7 +863,7 @@ describe('Daemon', () => {
     if (agent.name !== 'stranger') config.setAgentNetwork(agent.name, 'ws1');
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     const requests = [];
     const realFetch = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
@@ -931,7 +931,7 @@ describe('Daemon', () => {
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
     daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'c2', action: 'stop_agent', args: { name: 'coder' } },
@@ -948,7 +948,7 @@ describe('Daemon', () => {
     let ranAgn = false;
     daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
     let reported = null;
-    daemon._nodeClients.set('w1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
       { commandId: 'cx', action: 'stop_agent', args: { name: 'foreign' } },
