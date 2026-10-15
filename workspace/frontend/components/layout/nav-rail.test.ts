@@ -9,7 +9,7 @@ vi.mock('./layout-context', () => ({ useLayout: () => ({
   viewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null,
 }), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 180 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online' }],
+  unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
   currentUser: { id: 'sam@example.com' }, tasks: [], onlineUsers: [], pendingApprovalsByAgent: {}, unreadDmCounts: {},
 }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
@@ -32,13 +32,14 @@ vi.mock('@/components/campaign/campaign-sidebar-card', () => ({ CampaignSidebarC
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 
-it('shows workspace navigation to a member with no owned agents without adding shared agents to My agents', async () => {
+it('shows shared agents alongside workspace navigation for a member with no owned agents', async () => {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   try {
     await act(async () => root.render(React.createElement(NavRail)));
     for (const label of ['views.files', 'views.knowledge', 'views.issues', 'views.inbox', 'collab.viewAgents']) expect(host.textContent).toContain(label);
-    expect(host.textContent).not.toContain('shared');
+    expect(host.textContent).toContain('shared');
+    expect(host.textContent).toContain('nav.agentsWithCount');
     expect(host.textContent).not.toContain('views.tasks');
     const services = [...host.querySelectorAll('button')].find(b => b.textContent === 'collab.viewAgents')!;
     await act(async () => services.click());

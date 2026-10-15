@@ -1,7 +1,10 @@
 import type { WorkspaceAgent } from './types';
 
-/** The personal roster never includes other people's or unclaimed agents. */
-export function ownedSidebarAgents(agents: WorkspaceAgent[], email: string) {
-  const owner = email.trim().toLowerCase();
-  return owner ? agents.filter((agent) => agent.ownerEmail?.trim().toLowerCase() === owner && agent.status !== 'removed') : [];
+/** Owned agents and agents the server permits this viewer to contact directly. */
+export function sidebarAgents(agents: WorkspaceAgent[], email: string) {
+  const viewer = email.trim().toLowerCase();
+  if (!viewer) return [];
+  return agents.filter((agent) => agent.status !== 'removed' && (
+    agent.ownerEmail?.trim().toLowerCase() === viewer || agent.canStartThread === true
+  ));
 }

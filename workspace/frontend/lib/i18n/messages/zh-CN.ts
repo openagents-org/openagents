@@ -204,7 +204,7 @@ export const messages: Messages = {
     noMembersFound: '未找到成员',
     thisComputer: '此电脑',
     collaboration: '协作',
-    agentsWithCount: '我的智能体({online}/{total})',
+    agentsWithCount: '智能体({online}/{total})',
     onlineWithCount: '在线({count})',
     you: '{name}(你)',
     workspaceFallback: '工作区',
