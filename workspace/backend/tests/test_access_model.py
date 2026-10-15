@@ -399,3 +399,59 @@ class TestPrincipals:
         assert ("human", "gus@acme.test") in kinds and ("agent", "deploy-bot") in kinds
         assert [m["principal_id"] for m in am.group_members(db, w["ws"], w["guest_group"])] == ["gus@acme.test"]
         assert [m["principal_id"] for m in am.group_members(db, w["ws"], w["team"])] == ["vic@acme.test"]
+
+
+class TestFileQueryBatching:
+    @pytest.mark.parametrize('person', ['mia', 'vic', 'adam', 'gus', 'anon', 'deploy_bot', 'orphan_bot', 'machine'])
+    def test_sql_visibility_and_batch_metadata_match_existing_rules(self, db, world, person):
+        w = world
+        _channel(db, w['wid'], 'private-batch', owner='mia@acme.test', humans=['mia@acme.test'])
+        _channel(db, w['wid'], 'public-batch', visibility='public')
+        records = []
+        for owner in ['human:mia@acme.test', 'human:vic@acme.test', 'openagents:deploy-bot', 'openagents:orphan-bot', 'human:user']:
+            for visibility in ['private', 'public', 'team', ' PUBLIC ', None, '', 'unknown']:
+                for channel in ['private-batch', 'public-batch', 'deleted-thread', None]:
+                    records.append(_file(db, w['wid'], str(len(records)), owner=owner, visibility=visibility, channel=channel))
+        _grant(db, w['wid'], 'file', records[0].id, 'group', w['team'].id, rights=['read', 'share'])
+        _grant(db, w['wid'], 'file', records[1].id, 'human', 'vic@acme.test', rights=['act'])
+        _grant(db, w['wid'], 'file', records[2].id, 'human', 'vic@acme.test', rights=['read'], revoked_at=datetime.now(timezone.utc))
+        _grant(db, w['wid'], 'file', records[3].id, 'human', 'vic@acme.test', rights=['share'], expires_at=datetime.now(timezone.utc) - timedelta(days=1))
+        principal = w[person]
+        expected = {r.id for r in am.filter_files(db, w['wid'], principal, records)}
+        actual = set(db.execute(select(FileRecord.id).where(FileRecord.workspace_id == w['wid'], am.file_read_clause(db, w['wid'], principal))).scalars())
+        assert actual == expected
+        metadata = am.file_metadata_many(db, w['wid'], principal, records)
+        for record in records:
+            assert metadata[record.id] == am.resource_meta(db, w['wid'], principal, am.resource_for_file(record))
+
+    def test_metadata_query_count_does_not_grow_with_files(self, db, world):
+        from sqlalchemy import event
+        w = world
+        _channel(db, w['wid'], 'batch-count', owner='mia@acme.test')
+        records = [_file(db, w['wid'], f'count-{i}', owner='openagents:deploy-bot', visibility=None, channel='batch-count') for i in range(80)]
+        # Load ORM attributes before measuring only metadata queries.
+        records = db.execute(select(FileRecord).where(FileRecord.workspace_id == w['wid'])).scalars().all()
+        statements = []
+        def capture(*args): statements.append(args[2])
+        event.listen(db.bind, 'before_cursor_execute', capture)
+        try:
+            result = am.file_metadata_many(db, w['wid'], w['vic'], records)
+        finally:
+            event.remove(db.bind, 'before_cursor_execute', capture)
+        assert len(result) == 80
+        assert len(statements) <= 6
+        assert all(not m['can_manage'] for m in result.values())
+
+    def test_list_pagination_counts_only_visible_matching_files(self, client, db, world, workspace, monkeypatch):
+        w = world
+        _channel(db, w['wid'], 'paged', visibility='public')
+        for i in range(25):
+            _file(db, w['wid'], f'page-{i}', owner='openagents:deploy-bot', visibility='private' if i % 2 else 'public', channel='paged')
+        _file(db, w['wid'], 'other-channel', owner='human:vic@acme.test', visibility='public', channel='other')
+        monkeypatch.setattr('app.routers.files._viewer_for', lambda *args: w['vic'])
+        r = client.get('/v1/files', params={'network':w['wid'], 'channel_name':'paged', 'limit':5, 'offset':5}, headers={'X-Workspace-Token':workspace['token']})
+        assert r.status_code == 200
+        data = r.json()['data']
+        assert data['total'] == 13
+        assert len(data['files']) == 5
+        assert all(f['visibility'] == 'public' and f['channel_name'] == 'paged' for f in data['files'])
