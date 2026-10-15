@@ -1258,7 +1258,7 @@ def latest_per_channel(
     Return the most recent event per channel in a single query.
 
     Replaces N separate pollEvents calls for thread list previews.
-    Uses a SQL window function to efficiently pick the latest event per target.
+    Uses indexed per-target lookups on PostgreSQL, with a SQLite fallback.
     """
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(network))
@@ -1270,38 +1270,21 @@ def latest_per_channel(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    # Window function: ROW_NUMBER() OVER (PARTITION BY target ORDER BY timestamp DESC)
-    row_num = func.row_number().over(
-        partition_by=EventRecord.target,
-        order_by=EventRecord.timestamp.desc(),
-    ).label("rn")
-
-    inner = (
-        select(EventRecord, row_num)
-        .where(
-            EventRecord.network_id == workspace.id,
-            EventRecord.target.startswith("channel/"),
-        )
-    )
-
-    if type:
-        inner = inner.where(EventRecord.type.startswith(type))
-
     # Visibility: a person gets no preview of a private thread they cannot
     # see, nor of a DM they are not a side of (same rules as GET /v1/events).
     # Machines / identified agents keep every channel. No response cache here.
     from app.services.visibility import hidden_channel_targets, resolve_viewer
+    from app.services.channel_previews import latest_channel_query
+    visibility_filters = []
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     if getattr(viewer, "kind", None) == "human":
         hidden_targets = hidden_channel_targets(db, str(workspace.id), viewer)
         if hidden_targets:
-            inner = inner.where(EventRecord.target.notin_(list(hidden_targets)))
-        inner = inner.where(_dm_privacy_clause(viewer.email))
+            visibility_filters.append(EventRecord.target.notin_(list(hidden_targets)))
+        visibility_filters.append(_dm_privacy_clause(viewer.email))
 
-    inner = inner.subquery()
-
-    # Select only the first row per partition
-    query = select(inner).where(inner.c.rn == 1)
+    query = latest_channel_query(workspace.id, type, visibility_filters,
+                                 postgres=db.get_bind().dialect.name == 'postgresql')
     rows = db.execute(query).all()
 
     channels = {}
