@@ -70,6 +70,12 @@ class EventRecord(Base):
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),
         Index("idx_events_channel_latest", "network_id", "target", timestamp.desc(), id.desc(),
               postgresql_where=text("target LIKE 'channel/%'")),
+        Index("idx_events_poll_message", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.message.posted%'")),
+        Index("idx_events_poll_control", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.agent.control%'")),
+        Index("idx_events_poll_tool_result", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.tool_result%'")),
     )
 
 

@@ -26,6 +26,7 @@ from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
+from app.services.poll_queries import event_type_filter, resume_cursor, stream_head
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -840,251 +841,245 @@ def poll_events(
                         except Exception:
                             pass
 
-    query = select(EventRecord).where(EventRecord.network_id == workspace_id)
-    if hidden_targets:
-        query = query.where(EventRecord.target.notin_(list(hidden_targets)))
-    if dm_scope:
-        query = query.where(_dm_privacy_clause(_dm_addresses(viewer)))
+    def load_response():
+        query = select(EventRecord).where(EventRecord.network_id == workspace_id)
+        if hidden_targets:
+            query = query.where(EventRecord.target.notin_(list(hidden_targets)))
+        if dm_scope:
+            query = query.where(_dm_privacy_clause(_dm_addresses(viewer)))
 
-    # Filter events to only channels where the agent is a member
-    if member:
-        member_channel_names = db.execute(
-            select(Channel.name).where(
-                Channel.workspace_id == workspace_id,
-                Channel.id.in_(
-                    select(ChannelMember.channel_id).where(ChannelMember.agent_name == member)
+        # Filter events to only channels where the agent is a member
+        if member:
+            member_channel_names = db.execute(
+                select(Channel.name).where(
+                    Channel.workspace_id == workspace_id,
+                    Channel.id.in_(
+                        select(ChannelMember.channel_id).where(ChannelMember.agent_name == member)
+                    ),
+                )
+            ).scalars().all()
+            channel_targets = [f"channel/{name}" for name in member_channel_names]
+            if channel_targets:
+                query = query.where(EventRecord.target.in_(channel_targets))
+            else:
+                # Agent is not a member of any channel — return empty
+                return success_response({"events": [], "has_more": False})
+
+        if conversation:
+            parts = [p.strip() for p in conversation.split(",", 1)]
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                return json_response(ResponseCode.BAD_REQUEST, "conversation must be two comma-separated addresses")
+            a, b = parts
+            query = query.where(
+                EventRecord.visibility == "direct",
+                ~EventRecord.target.startswith("channel/"),
+                or_(
+                    and_(EventRecord.source == a, EventRecord.target == b),
+                    and_(EventRecord.source == b, EventRecord.target == a),
                 ),
             )
-        ).scalars().all()
-        channel_targets = [f"channel/{name}" for name in member_channel_names]
-        if channel_targets:
-            query = query.where(EventRecord.target.in_(channel_targets))
-        else:
-            # Agent is not a member of any channel — return empty
-            return success_response({"events": [], "has_more": False})
 
-    if conversation:
-        parts = [p.strip() for p in conversation.split(",", 1)]
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            return json_response(ResponseCode.BAD_REQUEST, "conversation must be two comma-separated addresses")
-        a, b = parts
-        query = query.where(
-            EventRecord.visibility == "direct",
-            ~EventRecord.target.startswith("channel/"),
-            or_(
-                and_(EventRecord.source == a, EventRecord.target == b),
-                and_(EventRecord.source == b, EventRecord.target == a),
-            ),
-        )
-
-    if after:
-        cursor_row = db.execute(
-            select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == after)
-        ).one_or_none()
-        if cursor_row is not None:
-            # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp
-            query = query.where(
-                or_(
-                    EventRecord.timestamp > cursor_row.timestamp,
-                    and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id > cursor_row.id),
+        after_position = None
+        if after:
+            cursor_row = db.execute(
+                select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == after)
+            ).one_or_none()
+            if cursor_row is not None:
+                after_position = {"id": cursor_row.id, "timestamp": cursor_row.timestamp}
+                # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp
+                query = query.where(
+                    or_(
+                        EventRecord.timestamp > cursor_row.timestamp,
+                        and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id > cursor_row.id),
+                    )
                 )
-            )
 
-    if before:
-        cursor_row = db.execute(
-            select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == before)
-        ).one_or_none()
-        if cursor_row is not None:
-            query = query.where(
-                or_(
-                    EventRecord.timestamp < cursor_row.timestamp,
-                    and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id < cursor_row.id),
+        if before:
+            cursor_row = db.execute(
+                select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == before)
+            ).one_or_none()
+            if cursor_row is not None:
+                query = query.where(
+                    or_(
+                        EventRecord.timestamp < cursor_row.timestamp,
+                        and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id < cursor_row.id),
+                    )
                 )
-            )
 
-    if target:
-        query = query.where(EventRecord.target == target)
+        if target:
+            query = query.where(EventRecord.target == target)
 
-    if channel:
-        query = query.where(EventRecord.target == f"channel/{channel}")
-
-    if type:
-        query = query.where(EventRecord.type.startswith(type))
-
-    if exclude_message_types:
-        excluded = [t.strip() for t in exclude_message_types.split(",") if t.strip()]
-        if excluded:
-            # payload->>'message_type' — NULL (missing key / non-message event)
-            # must be kept, so the NOT IN check alone is not enough.
-            message_type = EventRecord.payload["message_type"].as_string()
-            query = query.where(
-                or_(message_type.is_(None), message_type.notin_(excluded))
-            )
-
-    if target_agents:
-        # Return only events routed to this agent — mirrors the adapter's
-        # client-side `target_agents` filter so agents stop pulling the whole
-        # network's traffic and discarding ~(N-1)/N of it.
-        #
-        # The set matches exactly what the adapter keeps (verified against live
-        # traffic — this filter == the client filter for every agent):
-        #   • events whose metadata.target_agents contains this agent, PLUS
-        #   • *untargeted human* messages (no target_agents key) — the adapter
-        #     broadcasts those.
-        # Untargeted *agent/system* messages are the bulk of a busy workspace's
-        # traffic (agent-to-agent chatter) and the adapter always discards them
-        # when they carry no target list, so returning them was the difference
-        # between "filter is correct" and "filter actually reduces load". They
-        # are excluded here. Events targeted at *other* agents and the
-        # `["__no_response__"]` sentinel are excluded too.
-        if db.bind.dialect.name == "postgresql":
-            # `@>` array containment (GIN-friendly); `? 'target_agents'` detects
-            # the untargeted case, scoped to human senders.
-            query = query.where(
-                or_(
-                    EventRecord.metadata_.contains({"target_agents": [target_agents]}),
-                    and_(
-                        EventRecord.source.startswith("human:"),
-                        ~EventRecord.metadata_.has_key("target_agents"),
-                    ),
-                )
-            )
-        else:
-            # SQLite (tests): no JSONB operators — fall back to a text match.
-            # Over-inclusive on the containment side but safe; the adapter
-            # re-filters client-side.
-            meta_text = cast(EventRecord.metadata_, Text)
-            query = query.where(
-                or_(
-                    meta_text.like(f'%"{target_agents}"%'),
-                    and_(
-                        EventRecord.source.startswith("human:"),
-                        meta_text.notlike('%target_agents%'),
-                    ),
-                )
-            )
-
-    if search:
-        # Search within payload JSON for content field (works with both JSONB and JSON)
-        query = query.where(
-            cast(EventRecord.payload, Text).ilike(f"%{search}%")
-        )
-
-    # Head-cursor snapshot for target_agents polls. When we filter to one
-    # agent's events, the last *returned* event can lag far behind the stream
-    # tip (most traffic is for other agents), so a naive "cursor = last event"
-    # would make the agent re-scan the same range every poll — reintroducing
-    # the O(traffic) scan we're trying to remove. Capture the tip of the
-    # *unfiltered* (network+type[+channel/target]) stream BEFORE running the
-    # main query so the client can skip past other agents' events once it has
-    # drained its own. Snapshotting first guarantees we never advance past an
-    # event the main query didn't get to see (at worst a harmless re-scan).
-    head_id_snapshot = None
-    if target_agents:
-        head_q = select(EventRecord.id).where(EventRecord.network_id == workspace_id)
-        if type:
-            head_q = head_q.where(EventRecord.type.startswith(type))
         if channel:
-            head_q = head_q.where(EventRecord.target == f"channel/{channel}")
-        elif target:
-            head_q = head_q.where(EventRecord.target == target)
-        head_id_snapshot = db.execute(
-            head_q.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(1)
-        ).scalar()
+            query = query.where(EventRecord.target == f"channel/{channel}")
 
-    if sort == "desc":
-        query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
-    else:
-        query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
-    rows = db.execute(query).scalars().all()
+        if type:
+            query = query.where(event_type_filter(type))
 
-    has_more = len(rows) > limit
-    events = rows[:limit]
+        if exclude_message_types:
+            excluded = [t.strip() for t in exclude_message_types.split(",") if t.strip()]
+            if excluded:
+                # payload->>'message_type' — NULL (missing key / non-message event)
+                # must be kept, so the NOT IN check alone is not enough.
+                message_type = EventRecord.payload["message_type"].as_string()
+                query = query.where(
+                    or_(message_type.is_(None), message_type.notin_(excluded))
+                )
 
-    composing = False
-    if not search and not conversation:
-        from app.composing import has_any_composing
-        composing = has_any_composing(workspace_id)
-
-    response_data = {
-        "events": [
-            {
-                "id": e.id,
-                "type": e.type,
-                "source": e.source,
-                "target": e.target,
-                "payload": e.payload,
-                "metadata": e.metadata_,
-                "timestamp": e.timestamp,
-                "visibility": e.visibility,
-            }
-            for e in events
-        ],
-        "has_more": has_more,
-        "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
-        "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
-    }
-    if target_agents:
-        # Cursor the agent should resume from. If more of *its own* events
-        # remain (has_more), continue from the last one returned; otherwise
-        # jump to the stream tip so it skips past other agents' traffic
-        # instead of re-scanning it next poll. Additive field — older clients
-        # ignore it and fall back to newest_id.
-        next_cursor = response_data["newest_id"]
-        if not has_more and head_id_snapshot:
-            next_cursor = head_id_snapshot
-        response_data["next_cursor"] = next_cursor
-    if composing:
-        response_data["composing"] = True
-
-    response = success_response(response_data)
-
-    # Populate cache for subsequent polls within the TTL window.
-    # success_response returns a dict; Redis stores the serialized JSON.
-    if cache_key is not None and isinstance(response, dict):
-        try:
-            import json as _json
-            serialized = _json.dumps(
-                response, default=str, separators=(",", ":")
-            ).encode("utf-8")
-            # Level 1: exact-match cache (includes cursor). Slightly
-            # longer TTL helps dedup adjacent polls from the same agent.
-            cache.set_bytes(cache_key, serialized, ttl_seconds=1.5)
-
-            # Level 2 maintenance — track the head cursor for these
-            # filters, and cache the "empty" response when the client was
-            # already at head.
-            if head_tracker_key is not None:
-                newest_id = response.get("data", {}).get("newest_id")
-                if events and newest_id:
-                    # Update head tracker — newest_id is the tip we just saw.
-                    # Longer TTL because head updates are cheap and we want
-                    # subsequent at-head checks to find it.
-                    cache.set_bytes(
-                        head_tracker_key,
-                        str(newest_id).encode("utf-8"),
-                        ttl_seconds=30.0,
+        if target_agents:
+            # Return only events routed to this agent — mirrors the adapter's
+            # client-side `target_agents` filter so agents stop pulling the whole
+            # network's traffic and discarding ~(N-1)/N of it.
+            #
+            # The set matches exactly what the adapter keeps (verified against live
+            # traffic — this filter == the client filter for every agent):
+            #   • events whose metadata.target_agents contains this agent, PLUS
+            #   • *untargeted human* messages (no target_agents key) — the adapter
+            #     broadcasts those.
+            # Untargeted *agent/system* messages are the bulk of a busy workspace's
+            # traffic (agent-to-agent chatter) and the adapter always discards them
+            # when they carry no target list, so returning them was the difference
+            # between "filter is correct" and "filter actually reduces load". They
+            # are excluded here. Events targeted at *other* agents and the
+            # `["__no_response__"]` sentinel are excluded too.
+            if db.bind.dialect.name == "postgresql":
+                # `@>` array containment (GIN-friendly); `? 'target_agents'` detects
+                # the untargeted case, scoped to human senders.
+                query = query.where(
+                    or_(
+                        EventRecord.metadata_.contains({"target_agents": [target_agents]}),
+                        and_(
+                            EventRecord.source.startswith("human:"),
+                            ~EventRecord.metadata_.has_key("target_agents"),
+                        ),
                     )
-                elif not events and incoming_after:
-                    # DB returned empty AND the client had a cursor. This
-                    # confirms "after = head" for this filter. Populate
-                    # both the head tracker (so other clients can match)
-                    # and the shared at-head empty response.
-                    filter_hash = head_tracker_key.split(":")[-1]
-                    cache.set_bytes(
-                        head_tracker_key,
-                        incoming_after.encode("utf-8"),
-                        ttl_seconds=30.0,
+                )
+            else:
+                # SQLite (tests): no JSONB operators — fall back to a text match.
+                # Over-inclusive on the containment side but safe; the adapter
+                # re-filters client-side.
+                meta_text = cast(EventRecord.metadata_, Text)
+                query = query.where(
+                    or_(
+                        meta_text.like(f'%"{target_agents}"%'),
+                        and_(
+                            EventRecord.source.startswith("human:"),
+                            meta_text.notlike('%target_agents%'),
+                        ),
                     )
-                    cache.set_bytes(
-                        "v1events:athead:" + filter_hash,
-                        serialized,
-                        ttl_seconds=1.5,
-                    )
-        except Exception:
-            pass
+                )
 
-    return response
+        if search:
+            # Search within payload JSON for content field (works with both JSONB and JSON)
+            query = query.where(
+                cast(EventRecord.payload, Text).ilike(f"%{search}%")
+            )
+
+        # Head-cursor snapshot for target_agents polls. When we filter to one
+        # agent's events, the last *returned* event can lag far behind the stream
+        # tip (most traffic is for other agents), so a naive "cursor = last event"
+        # would make the agent re-scan the same range every poll — reintroducing
+        # the O(traffic) scan we're trying to remove. Capture the tip of the
+        # *unfiltered* (network+type[+channel/target]) stream BEFORE running the
+        # main query so the client can skip past other agents' events once it has
+        # drained its own. Snapshotting first guarantees we never advance past an
+        # event the main query didn't get to see (at worst a harmless re-scan).
+        head_snapshot = stream_head(db, workspace_id, type, channel, target) if target_agents else None
+
+        if sort == "desc":
+            query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
+        else:
+            query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
+        rows = db.execute(query).scalars().all()
+
+        has_more = len(rows) > limit
+        events = rows[:limit]
+
+        composing = False
+        if not search and not conversation:
+            from app.composing import has_any_composing
+            composing = has_any_composing(workspace_id)
+
+        response_data = {
+            "events": [
+                {
+                    "id": e.id,
+                    "type": e.type,
+                    "source": e.source,
+                    "target": e.target,
+                    "payload": e.payload,
+                    "metadata": e.metadata_,
+                    "timestamp": e.timestamp,
+                    "visibility": e.visibility,
+                }
+                for e in events
+            ],
+            "has_more": has_more,
+            "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
+            "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
+        }
+        if target_agents:
+            # Cursor the agent should resume from. If more of *its own* events
+            # remain (has_more), continue from the last one returned; otherwise
+            # jump to the stream tip so it skips past other agents' traffic
+            # instead of re-scanning it next poll. Additive field — older clients
+            # ignore it and fall back to newest_id.
+            next_cursor = response_data["newest_id"]
+            if not has_more:
+                newest = (events[0] if sort == "desc" else events[-1]) if events else None
+                next_cursor = resume_cursor(head_snapshot,
+                    {"id": newest.id, "timestamp": newest.timestamp} if newest else None,
+                    after_position)
+            response_data["next_cursor"] = next_cursor
+        if composing:
+            response_data["composing"] = True
+
+        response = success_response(response_data)
+
+        # Populate cache for subsequent polls within the TTL window.
+        # success_response returns a dict; Redis stores the serialized JSON.
+        if cache_key is not None and isinstance(response, dict):
+            try:
+                import json as _json
+                serialized = _json.dumps(
+                    response, default=str, separators=(",", ":")
+                ).encode("utf-8")
+                # The outer singleflight helper stores the exact response.
+                # Level 2 maintenance — track the head cursor for these
+                # filters, and cache the "empty" response when the client was
+                # already at head.
+                if head_tracker_key is not None:
+                    newest_id = response.get("data", {}).get("newest_id")
+                    if events and newest_id:
+                        # Update head tracker — newest_id is the tip we just saw.
+                        # Longer TTL because head updates are cheap and we want
+                        # subsequent at-head checks to find it.
+                        cache.set_bytes(
+                            head_tracker_key,
+                            str(newest_id).encode("utf-8"),
+                            ttl_seconds=30.0,
+                        )
+                    elif not events and incoming_after:
+                        # DB returned empty AND the client had a cursor. This
+                        # confirms "after = head" for this filter. Populate
+                        # both the head tracker (so other clients can match)
+                        # and the shared at-head empty response.
+                        filter_hash = head_tracker_key.split(":")[-1]
+                        cache.set_bytes(
+                            head_tracker_key,
+                            incoming_after.encode("utf-8"),
+                            ttl_seconds=30.0,
+                        )
+                        cache.set_bytes(
+                            "v1events:athead:" + filter_hash,
+                            serialized,
+                            ttl_seconds=1.5,
+                        )
+            except Exception:
+                pass
+
+        return response
+
+    return cache.json_singleflight(cache_key, 1.5, load_response, cache_if=lambda value: isinstance(value, dict))
 
 
 # ---------------------------------------------------------------------------
