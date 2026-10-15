@@ -24,6 +24,7 @@ from app.models import NotificationRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
 from app.services.notify import notify
+from app.services.unread_window import unread_cutoff_ms
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +189,12 @@ def list_notifications(
             if not (viewer.is_human and viewer.email):
                 return success_response({"notifications": [], "unread_count": 0})
             person_filters.append(NotificationRecord.recipient_email == viewer.email)
+            # Old message signals must not reintroduce expired unread badges.
+            # Ordinary inbox/approval notifications keep their existing scope.
+            person_filters.append(or_(
+                NotificationRecord.kind.notin_(SIGNAL_KINDS),
+                NotificationRecord.created_at >= datetime.fromtimestamp(unread_cutoff_ms() / 1000, timezone.utc),
+            ))
         person_filters.append(NotificationRecord.kind.in_(wanted_kinds))
     else:
         person_filters.append(or_(

@@ -19,6 +19,7 @@ import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { dmCounterpart, isMyAddress, myAddress } from './dm';
 import { dmUnreadCounts } from './dm-unread';
 import { threadUnreadState } from './thread-unread';
+import { unreadCutoffMs } from './unread-window';
 import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
@@ -1626,10 +1627,12 @@ export function WorkspaceProvider({
   ), [dmConversations, myDmAddress, currentSessionId, lastReadBySession, unreadSignals]);
   const unreadDmSessionIds = useMemo(() => {
     const unread = new Set<string>();
+    const cutoff = unreadCutoffMs();
     for (const convo of dmConversations) {
       const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
       if (id === currentSessionId) continue;
       if (!dmCounterpart(convo.agents, myDmAddress)) continue; // not the viewer's DM
+      if (convo.lastMessage.timestamp < cutoff) continue;
       if (unreadSignals[id]?.dms) { unread.add(id); continue; }
       const readAt = lastReadBySession[id];
       if (readAt === undefined) continue; // baselined below

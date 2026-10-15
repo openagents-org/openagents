@@ -9,6 +9,12 @@ ME = 'adam@acme.test'
 OTHER = 'mia@acme.test'
 
 
+@pytest.fixture(autouse=True)
+def frozen_unread_clock(monkeypatch):
+    from app.services.unread_window import UNREAD_WINDOW_MS
+    monkeypatch.setattr('app.services.unread_window.time', lambda: UNREAD_WINDOW_MS / 1000)
+
+
 def event(db, workspace, channel, source, timestamp, *, kind='chat', metadata=None, payload=None, visibility='channel'):
     row = EventRecord(id=str(uuid.uuid4()), network_id=workspace['id'], target=f'channel/{channel}',
                       source=source, type='workspace.message.posted', timestamp=timestamp,
@@ -45,6 +51,23 @@ def test_requester_survives_human_conversation_and_can_follow_explicit_parent(db
     assert reply_requester(db, workspace['id'], 'openagents:agent-alpha', f'channel/{ch}', {'in_reply_to': original.id}) == ME
     assert reply_requester(db, workspace['id'], 'openagents:unknown', f'channel/{ch}', {}) is None
     assert reply_requester(db, workspace['id'], 'openagents:agent-alpha', 'channel/another', {'in_reply_to': newer.id}) is None
+
+
+def test_thirty_day_boundary_preserves_read_marker_and_history(db, workspace, monkeypatch):
+    from app.services.unread_window import UNREAD_WINDOW_MS
+    cutoff = 1_800_000_000_000
+    monkeypatch.setattr('app.services.unread_window.time', lambda: (cutoff + UNREAD_WINDOW_MS) / 1000)
+    ch = db.query(Channel).filter_by(workspace_id=workspace['id']).first()
+    for at in (cutoff - 1, cutoff, cutoff + 1):
+        event(db, workspace, ch.name, 'openagents:agent-alpha', at, metadata={'requester_email': ME})
+    got = thread_activity(db, workspace['id'], [ch], {ch.name: 100}, ME)[ch.name]
+    assert got == {'read_at': 100, 'unread_count': 2, 'completion_at': cutoff + 1}
+    assert thread_activity(db, workspace['id'], [ch], {ch.name: cutoff}, ME)[ch.name]['unread_count'] == 1
+    assert db.query(EventRecord).filter_by(network_id=workspace['id']).filter(EventRecord.timestamp == cutoff - 1).count() == 1
+    # A rolling window expires existing unread messages without marking them read.
+    monkeypatch.setattr('app.services.unread_window.time', lambda: (cutoff + UNREAD_WINDOW_MS + 2) / 1000)
+    assert thread_activity(db, workspace['id'], [ch], {ch.name: 100}, ME)[ch.name] == {
+        'read_at': 100, 'unread_count': 0, 'completion_at': None}
 
 
 def test_discovery_activity_is_scoped_to_signed_in_person(client, workspace, db, people):

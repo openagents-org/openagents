@@ -397,6 +397,25 @@ class TestSignalsNotInbox:
         # Someone else never sees Adam's signals.
         assert self._list(client, workspace, "vic", "&kinds=dm,mention")["notifications"] == []
 
+    def test_expired_message_signals_do_not_count_but_inbox_history_remains(self, client, workspace, people, db, monkeypatch):
+        from datetime import datetime, timezone
+        from app.services.unread_window import UNREAD_WINDOW_MS
+        cutoff = 1_800_000_000_000
+        monkeypatch.setattr('app.services.unread_window.time', lambda: (cutoff + UNREAD_WINDOW_MS) / 1000)
+        for name, kind, timestamp in [('old-dm', 'dm', cutoff - 1), ('old-mention', 'mention', cutoff - 1),
+                                      ('boundary', 'dm', cutoff), ('old-inbox', None, cutoff - 1)]:
+            db.add(NotificationRecord(id=name, workspace_id=workspace['id'], created_by='human:' + MIA,
+                title=name, message='test', kind=kind, recipient_email=ADAM,
+                created_at=datetime.fromtimestamp(timestamp / 1000, timezone.utc)))
+        db.commit()
+        signals = self._list(client, workspace, 'adam', '&kinds=dm,mention&is_read=false')
+        assert [n['id'] for n in signals['notifications']] == ['boundary']
+        assert signals['unread_count'] == 1
+        inbox = self._list(client, workspace, 'adam')
+        assert [n['id'] for n in inbox['notifications']] == ['old-inbox']
+        assert inbox['unread_count'] == 1
+        assert db.query(NotificationRecord).filter_by(workspace_id=workspace['id']).count() == 4
+
     def test_read_channel_clears_signals_for_that_channel_only(self, client, workspace, people, db, pushes):
         _thread(client, workspace, name="sig1", by="mia", visibility="workspace")
         _thread(client, workspace, name="sig2", by="mia", visibility="workspace")
@@ -413,12 +432,15 @@ class TestSignalsNotInbox:
         assert self._list(client, workspace, "adam", "&kinds=dm&is_read=false")["unread_count"] == 1
 
 
-def test_conversation_unread_counts_incoming_messages_since_read(client, workspace, people, db):
+def test_conversation_unread_counts_incoming_messages_since_read(client, workspace, people, db, monkeypatch):
     import json
+    from app.services.unread_window import UNREAD_WINDOW_MS
+    monkeypatch.setattr('app.services.unread_window.time', lambda: (UNREAD_WINDOW_MS + 200) / 1000)
     me, other = f"human:{ADAM}", f"human:{MIA}"
     agent = "openagents:agent-alpha"
     for source, target, ts, event_type in [
         (other, me, 100, "workspace.message.posted"),
+        (other, me, 199, "workspace.message.posted"),
         (other, me, 200, "workspace.message.posted"),
         (other, me, 201, "workspace.message.posted"),
         (me, other, 202, "workspace.message.posted"),
@@ -440,6 +462,7 @@ def test_conversation_unread_counts_incoming_messages_since_read(client, workspa
     assert rows[pair_id(me, other)]['unread_count'] == 2
     assert rows[pair_id(me, agent)]['unread_count'] == 1
     assert rows[pair_id(me, other)]['read_at'] == 100
+    assert rows[pair_id(me, other)]['message_count'] == 5  # history still includes old messages
     assert pair_id(other, f'human:{VIC}') not in rows
     markers = {key: 300 for key in markers}
     r = client.get('/v1/events/conversations', params={'network': workspace['id'], 'read_at': json.dumps(markers)}, headers=_as('adam', workspace))
