@@ -3,6 +3,7 @@ import json
 from sqlalchemy import and_, or_, select, text
 from app.models import EventRecord
 from app.services.message_identity import human_sender_email
+from app.services.unread_window import unread_cutoff_ms
 
 _PYTHON_WHITESPACE = ''.join(chr(i) for i in range(0x3001) if chr(i).isspace())
 
@@ -65,16 +66,17 @@ def thread_activity(db, workspace_id, channels, markers, viewer_email):
     result = {name: {'read_at': at, 'unread_count': 0, 'completion_at': None} for name, at in markers.items()}
     if not markers:
         return result
+    cutoff = unread_cutoff_ms()
     viewer_email = (viewer_email or '').lower()
     if db.get_bind().dialect.name == 'postgresql':
-        query, params = _unread_summary_query(workspace_id, markers, viewer_email)
+        query, params = _unread_summary_query(workspace_id, markers, viewer_email, cutoff)
         for target, count, completion in db.execute(text(query), params):
             entry = result[target.removeprefix('channel/')]
             entry.update(unread_count=count, completion_at=completion)
         return result
     # SQLite deployments retain the same semantics without PostgreSQL JSONB.
     # Production returns only aggregate rows, never full historical messages.
-    return _thread_activity_python(db, workspace_id, markers, viewer_email, result)
+    return _thread_activity_python(db, workspace_id, markers, viewer_email, result, cutoff)
 
 
 def _json_truthy(expression):
@@ -83,14 +85,15 @@ def _json_truthy(expression):
     return f"COALESCE({expression} NOT IN ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '\"\"'::jsonb, '[]'::jsonb, '{{}}'::jsonb), false)"
 
 
-def _unread_summary_query(workspace_id, markers, viewer_email):
+def _unread_summary_query(workspace_id, markers, viewer_email, cutoff):
     """Indexed per-channel aggregates; keep each channel's exact read marker.
 
     LATERAL bounds each scan by workspace/target/type/timestamp, matching the
-    existing events index. A historical cap would silently lose unread counts;
-    messages at or before the person's marker are already excluded.
+    existing events index. Only messages in the last 30 days and after the
+    person's read marker count; the response echoes the original marker so
+    clients can reject stale results without treating the cutoff as a read.
     """
-    params = {'workspace_id': str(workspace_id), 'viewer_email': viewer_email,
+    params = {'workspace_id': str(workspace_id), 'viewer_email': viewer_email, 'cutoff': cutoff,
               # Match str.strip(), including Unicode whitespace, in SQL btrim.
               'strip_chars': _PYTHON_WHITESPACE}
     values = []
@@ -128,6 +131,7 @@ def _unread_summary_query(workspace_id, markers, viewer_email):
               AND e.target = marker.target
               AND e.type = 'workspace.message.posted'
               AND e.timestamp > marker.read_at
+              AND e.timestamp >= :cutoff
               AND e.visibility != 'direct'
               AND (NOT {_json_truthy(message_type)} OR {message_type} = '"chat"'::jsonb)
               AND {_json_truthy("e.payload->'content'")}
@@ -137,11 +141,12 @@ def _unread_summary_query(workspace_id, markers, viewer_email):
     return query, params
 
 
-def _thread_activity_python(db, workspace_id, markers, viewer_email, result):
+def _thread_activity_python(db, workspace_id, markers, viewer_email, result, cutoff):
     events = db.execute(select(EventRecord).where(
         EventRecord.network_id == workspace_id,
         EventRecord.type == 'workspace.message.posted',
         EventRecord.visibility != 'direct',
+        EventRecord.timestamp >= cutoff,
         or_(*(and_(EventRecord.target == f'channel/{name}', EventRecord.timestamp > at) for name, at in markers.items())),
     )).scalars()
     for event in events:

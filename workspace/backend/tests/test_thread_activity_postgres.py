@@ -21,6 +21,12 @@ OTHER_WID = '22222222-2222-4222-8222-222222222222'
 ME = 'adam@acme.test'
 
 
+@pytest.fixture(autouse=True)
+def frozen_unread_clock(monkeypatch):
+    from app.services.unread_window import UNREAD_WINDOW_MS
+    monkeypatch.setattr('app.services.unread_window.time', lambda: UNREAD_WINDOW_MS / 1000)
+
+
 @pytest.fixture
 def pg():
     from app.config import config
@@ -130,9 +136,17 @@ def test_anonymous_viewer_has_no_self_exclusion_or_completion(pg):
     assert summarize(pg, rows, viewer=None)['a'] == {'read_at': 100, 'unread_count': 2, 'completion_at': None}
 
 
-def test_historical_unread_counts_are_not_capped(pg):
-    rows = [message(), dict(message(), timestamp=1800000000000)]
-    assert summarize(pg, rows)['a']['unread_count'] == 2
+def test_thirty_day_window_and_read_marker_boundaries(pg, monkeypatch):
+    from app.services.unread_window import UNREAD_WINDOW_MS
+    cutoff = 1_800_000_000_000
+    monkeypatch.setattr('app.services.unread_window.time', lambda: (cutoff + UNREAD_WINDOW_MS) / 1000)
+    rows = [dict(message(), timestamp=at, metadata={'requester_email': ME})
+            for at in (cutoff - 1, cutoff, cutoff + 1)]
+    assert summarize(pg, rows)['a'] == {'read_at': 100, 'unread_count': 2, 'completion_at': cutoff + 1}
+    assert summarize(pg, rows, {'a': cutoff})['a']['unread_count'] == 1
+    assert summarize(pg, rows, {'a': cutoff + 1})['a']['unread_count'] == 0
+    monkeypatch.setattr('app.services.unread_window.time', lambda: (cutoff + UNREAD_WINDOW_MS + 2) / 1000)
+    assert summarize(pg, rows)['a'] == {'read_at': 100, 'unread_count': 0, 'completion_at': None}
 
 
 def test_no_visible_markers_does_not_query_database():

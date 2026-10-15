@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UNREAD_WINDOW_MS } from './unread-window';
 import {
   signalVersionKey,
   diffNewSignals,
@@ -11,6 +12,8 @@ import {
 import type { NotificationItem } from './types';
 
 let seq = 0;
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-15T00:00:00Z')); });
+afterEach(() => vi.restoreAllMocks());
 function sig(overrides: Partial<NotificationItem> = {}): NotificationItem {
   seq += 1;
   return {
@@ -43,6 +46,13 @@ describe('signalKind', () => {
 });
 
 describe('groupSignals', () => {
+  it('counts signals at the 30-day boundary but expires older mentions and DMs', () => {
+    const cutoff = Date.now() - UNREAD_WINDOW_MS;
+    const recent = sig({ createdAt: new Date(cutoff).toISOString() });
+    const old = sig({ createdAt: new Date(cutoff - 1).toISOString() });
+    expect(groupSignals([old, recent])[recent.channelName!].dms).toBe(1);
+    expect(groupSignals([{ ...old, kind: 'mention' }])).toEqual({});
+  });
   it('counts mentions and dms per channel and keeps the newest', () => {
     const a = sig({ kind: 'mention', channelName: 'release-2.4', createdAt: '2026-10-10T10:00:00Z' });
     const b = sig({ kind: 'mention', channelName: 'release-2.4', createdAt: '2026-10-10T11:00:00Z' });

@@ -1,4 +1,5 @@
 import type { NotificationItem } from './types';
+import { unreadCutoffMs } from './unread-window';
 
 /**
  * Slack-style signals: DMs and @mentions.
@@ -31,10 +32,11 @@ const ts = (n: NotificationItem) => (n.createdAt ? new Date(n.createdAt).getTime
 /** Unread DM / mention rows grouped by the channel they point at. */
 export function groupSignals(signals: readonly NotificationItem[]): UnreadSignals {
   const out: UnreadSignals = {};
+  const cutoff = unreadCutoffMs();
   for (const n of signals) {
     const kind = signalKind(n);
     const channel = n.channelName;
-    if (!kind || !channel || n.isRead) continue;
+    if (!kind || !channel || n.isRead || ts(n) < cutoff) continue;
     const entry = out[channel] ?? { mentions: 0, dms: 0, latest: n };
     if (kind === 'mention') entry.mentions += 1;
     else entry.dms += 1;

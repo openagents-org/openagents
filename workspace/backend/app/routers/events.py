@@ -25,6 +25,7 @@ from app.models import Channel, ChannelMember, EventRecord, Node, Workspace
 from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
+from app.services.unread_window import unread_cutoff_ms
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -1127,6 +1128,7 @@ def list_conversations(
     except (ValueError, TypeError):
         return json_response(ResponseCode.BAD_REQUEST, "Invalid DM read markers")
 
+    unread_cutoff = unread_cutoff_ms()
     # Build a subquery to find the latest event per conversation pair.
     # Normalize pairs so (A→B) and (B→A) are the same conversation.
     # Use case() instead of func.least/greatest for SQLite compatibility.
@@ -1215,6 +1217,7 @@ def list_conversations(
                         EventRecord.payload["message_type"].as_string().notin_(["thinking", "status", "todos"]),
                     ),
                     EventRecord.timestamp > last_read,
+                    EventRecord.timestamp >= unread_cutoff,
                     EventRecord.target.in_(own_addresses),
                     ~EventRecord.source.in_(own_addresses),
                     or_(
