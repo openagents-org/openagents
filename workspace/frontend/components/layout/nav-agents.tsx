@@ -15,7 +15,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { ownedSidebarAgents } from '@/lib/sidebar-agents';
+import { sidebarAgents } from '@/lib/sidebar-agents';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -37,7 +37,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const [open, setOpen] = useState(true);
 
-  const recentAgents = useMemo(() => ownedSidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
+  const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
   const onlineCount = recentAgents.filter((a) => a.status === 'online').length;
 
   if (recentAgents.length === 0 && onlineUsers.length === 0) return null;

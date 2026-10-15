@@ -26,7 +26,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { ownedSidebarAgents } from '@/lib/sidebar-agents';
+import { sidebarAgents } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -204,7 +204,7 @@ export function NavRail() {
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
 
-  const recentAgents = ownedSidebarAgents(agents, currentUser.id);
+  const recentAgents = sidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;

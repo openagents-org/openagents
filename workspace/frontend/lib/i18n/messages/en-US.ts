@@ -211,7 +211,7 @@ export const messages = {
     noMembersFound: 'No people found',
     thisComputer: 'This Computer',
     collaboration: 'Collaboration',
-    agentsWithCount: 'My agents ({online}/{total})',
+    agentsWithCount: 'Agents ({online}/{total})',
     onlineWithCount: 'Online ({count})',
     you: '{name} (you)',
     workspaceFallback: 'Workspace',
