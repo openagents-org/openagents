@@ -212,6 +212,7 @@ describe('MiMo Code — the config a run starts with', () => {
     assert.equal(env.LLM_API_KEY, undefined);
     assert.equal(env.MIMOCODE_EXPERIMENTAL_CRON, '0');
     assert.equal(env.MIMOCODE_DISABLE_CLAUDE_CODE_MCP, '1');
+    assert.equal(env.MIMOCODE_DISABLE_CLAUDE_CODE_PROMPT, '1');
     assert.equal(env.MIMOCODE_DISABLE_AUTOUPDATE, '1');
     assert.equal(env.PATH, '/bin');
     const cfg = JSON.parse(env.MIMOCODE_CONFIG_CONTENT);

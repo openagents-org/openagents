@@ -27,8 +27,9 @@
  *   - Stop: the CLI has no signal handling and dies at once, while each shell
  *     command it started runs in a session of its own — outside the CLI's
  *     process group — and is left running. Stop walks the process tree.
- *   - Claude Code's MCP servers (~/.claude.json), which MiMo imports by
- *     default, are not started (MIMOCODE_DISABLE_CLAUDE_CODE_MCP=1).
+ *   - Claude Code's MCP servers (~/.claude.json) and its CLAUDE.md, which
+ *     MiMo imports by default, are left out (MIMOCODE_DISABLE_CLAUDE_CODE_MCP,
+ *     MIMOCODE_DISABLE_CLAUDE_CODE_PROMPT).
  *   - Its scheduler is turned off (MIMOCODE_EXPERIMENTAL_CRON=0): a one-shot
  *     run cannot fire a schedule, and while on it creates `.mimocode/` in the
  *     project, which the next run then installs MiMo's plugin package into.
@@ -291,8 +292,10 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
       MIMOCODE_EXPERIMENTAL_CRON: '0',
       MIMOCODE_DISABLE_AUTOUPDATE: '1',
       // MiMo otherwise starts every MCP server in Claude Code's ~/.claude.json
-      // on each run and offers its tools to the model.
+      // on each run and offers its tools to the model, and puts Claude Code's
+      // ~/.claude/CLAUDE.md in the system prompt. MiMo's own AGENTS.md still loads.
       MIMOCODE_DISABLE_CLAUDE_CODE_MCP: '1',
+      MIMOCODE_DISABLE_CLAUDE_CODE_PROMPT: '1',
     };
   }
 

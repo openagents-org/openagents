@@ -42,6 +42,7 @@ function startModel() {
         url: req.url,
         authorization: req.headers.authorization || '',
         model: json.model,
+        claudeMd: body.includes('CLAUDE-CODE-ONLY-INSTRUCTION'),
         tools: (json.tools || []).map((t) => (t.function && t.function.name) || t.name),
         headers: req.headers,
       });
@@ -90,6 +91,8 @@ function conflictingHome(dir, base) {
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({
     mcpServers: { 'claude-only': { type: 'stdio', command: process.execPath, args: ['-e', `require('fs').writeFileSync(${JSON.stringify(path.join(dir, 'claude-mcp-started'))}, '1')`] } },
   }));
+  fs.mkdirSync(path.join(home, '.claude'));
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'CLAUDE-CODE-ONLY-INSTRUCTION');
   return home;
 }
 
@@ -149,6 +152,7 @@ function assertOnlyAgentEndpoint(requests) {
     assert.equal(r.authorization, 'Bearer agent-key');
     assert.equal(r.model, 'agent-model');
     assert.equal(r.headers['x-saved'], undefined);
+    assert.equal(r.claudeMd, false, "Claude Code's CLAUDE.md not in the prompt");
   }
 }
 
