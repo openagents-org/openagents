@@ -16,6 +16,9 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => h.ws }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
+vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'user@example.test', role: 'owner' }) }));
+vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}), useTeamRoster: () => [] }));
+vi.mock('./work-brief', () => ({ useBrief: () => ({ brief: null }) }));
 vi.mock('@/lib/analytics', () => ({ capture: () => {} }));
 vi.mock('@/hooks/use-composing-signal', () => ({
   useComposingSignal: () => ({ notifyFocus: () => {}, notifyBlur: () => {}, notifyTyping: () => {} }),
@@ -26,7 +29,7 @@ vi.mock('@/components/layout/layout-context', () => ({
 vi.mock('@/lib/api', () => ({
   workspaceApi: {
     listNodes: async () => [],
-    sendMessage: async () => ({}),
+    sendMessage: async (sessionId: string, content: string) => ({ id: 'a3', source: 'human:user-1', target: `channel/${sessionId}`, type: 'workspace.message.posted', timestamp: Date.now(), visibility: 'channel', payload: { content }, metadata: { target_agents: ['bot'] } }),
     loadMessageHistory: async () => ({ events: [], has_more: false }),
     pollMessages: async () => ({ messages: [], hasMore: false }),
   },
@@ -56,6 +59,8 @@ vi.mock('./chat-input', () => ({
 }));
 vi.mock('./yumi-guide', () => ({ YumiGuide: () => null }));
 vi.mock('./yumi-dm-intro', () => ({ YumiDmIntro: () => null }));
+vi.mock('./human-profile', () => ({ HumanProfile: () => null }));
+vi.mock('./thread-resources', () => ({ ThreadResources: () => null }));
 vi.mock('./thread-status-bar', () => ({ ThreadStatusBar: () => null }));
 vi.mock('./empty-state', () => ({ EmptyState: () => null }));
 vi.mock('./share-dialog', () => ({ ShareDialog: () => null }));

@@ -30,8 +30,12 @@ const ROLE_RANK: Record<WorkspaceRole, number> = { viewer: 0, member: 1, admin: 
 
 /** True when the caller may change workspace settings (admin or above). */
 export function canAdminister(me: WorkspaceMe | null): boolean {
-  if (!me?.effectiveRole) return false;
-  return ROLE_RANK[me.effectiveRole] >= ROLE_RANK.admin;
+  const role = me?.authenticated ? me.role : me?.effectiveRole;
+  return !!role && ROLE_RANK[role] >= ROLE_RANK.admin;
+}
+
+export function canAccessSettingsSection(me: WorkspaceMe | null, section: string): boolean {
+  return !!me && (['profile', 'preferences', 'api-credits'].includes(section) || canAdminister(me));
 }
 
 export const AdminSettingsContext = createContext<AdminSettingsValue | null>(null);

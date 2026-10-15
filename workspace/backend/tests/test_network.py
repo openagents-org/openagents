@@ -5,6 +5,7 @@ These endpoints emit events through the mod pipeline.
 """
 
 import pytest
+from tests.test_visibility import people
 
 
 class TestJoinNetwork:
@@ -281,7 +282,7 @@ class TestDiscover:
         names = [a["address"] for a in agents]
         assert "openagents:agent-beta" in names
 
-    def test_discover_reports_node_id_for_node_agents(self, client, workspace):
+    def test_discover_reports_node_id_for_node_agents(self, client, workspace, people):
         """An agent that joined with a node token carries that node's id.
 
         Clients group agents by device from this field; without it they have to
@@ -289,7 +290,7 @@ class TestDiscover:
         """
         code = client.post(
             f"/v1/workspaces/{workspace['id']}/pairing-codes",
-            headers={"X-Workspace-Token": workspace["token"]},
+            headers={"Authorization": "Bearer mia", "X-Workspace-Token": workspace["token"]},
         ).json()["data"]["code"]
         redeemed = client.post("/v1/nodes/redeem", json={
             "code": code, "node_key": "dev-discover", "hostname": "mbp",

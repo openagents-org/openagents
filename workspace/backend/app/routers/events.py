@@ -60,6 +60,7 @@ def _poll_filter_hash(
     sort: str = "asc",
     limit=50,
     exclude_message_types: str = "",
+    viewer_scope: str = "",
 ) -> str:
     """Canonical per-filter hash, shared by poll_events (head/at-head key
     construction) and _poll_cache_keys_for (invalidation) so the two can
@@ -76,6 +77,11 @@ def _poll_filter_hash(
     ]
     if exclude_message_types:
         parts.append(exclude_message_types)
+    if viewer_scope:
+        # Person-scoped results (DM privacy) — one person's cached page must
+        # never be served to another. Appended only when set so the machine
+        # hashes enumerated by _poll_cache_keys_for stay unchanged.
+        parts.append("viewer=" + viewer_scope)
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -210,6 +216,88 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+def _is_person_address(col):
+    """SQL: the address is a person identified by email (`human:<email>`)."""
+    return and_(col.startswith("human:"), col.like("%@%"))
+
+
+def _dm_addresses(viewer) -> Optional[list]:
+    """Addresses that count as "me" for DM privacy, or None for no filter.
+
+    A person: their `human:<email>` (an anonymous visitor: none, so they see
+    only unattributed DMs). An identified agent: its own `openagents:<name>`
+    plus its human owner's address — agents inherit what their owner can see.
+    Machine callers without an identity keep full read (legacy).
+    """
+    kind = getattr(viewer, "kind", None)
+    if kind == "human":
+        return [f"human:{viewer.email}"] if viewer.email else []
+    if kind == "agent" and getattr(viewer, "agent_name", None):
+        out = [f"openagents:{viewer.agent_name}"]
+        if getattr(viewer, "owner_email", None):
+            out.append(f"human:{viewer.owner_email}")
+        return out
+    return None
+
+
+def _dm_privacy_clause(viewer_email):
+    """Rows a person may read, as far as direct messages are concerned.
+
+    Non-direct events are untouched. A direct event is readable when the
+    viewer is one of its two sides, or when neither side is a person with an
+    email — agent↔agent DMs, and legacy `human:user` DMs which cannot be
+    attributed to anyone (kept so existing history does not disappear).
+    """
+    # Accepts a person's email (legacy call shape) or a list of addresses
+    # from _dm_addresses().
+    if isinstance(viewer_email, (list, tuple)):
+        mine = [a for a in viewer_email if a]
+    else:
+        mine = [f"human:{viewer_email}"] if viewer_email else []
+    allowed = [
+        EventRecord.visibility.is_(None),
+        EventRecord.visibility != "direct",
+        and_(~_is_person_address(EventRecord.source), ~_is_person_address(EventRecord.target)),
+    ]
+    if mine:
+        allowed += [EventRecord.source.in_(mine), EventRecord.target.in_(mine)]
+    return or_(*allowed)
+
+
+def _dm_viewer_scope(viewer) -> Optional[str]:
+    """The identity DM privacy filters on, or None when it does not apply.
+
+    Applies to people (signed in, or an anonymous visitor of an open
+    workspace — who may see only unattributed DMs) and to identified agents
+    (their own DMs and their owner's). Machines without identity keep full read.
+    """
+    kind = getattr(viewer, "kind", None)
+    if kind == "human":
+        return viewer.email or "anonymous"
+    if kind == "agent" and getattr(viewer, "agent_name", None):
+        return "agent:" + viewer.agent_name
+    return None
+
+
+def _attribute_direct_sender(db, workspace, token, authorization, source, payload):
+    """Return (source, payload) for a direct message, rewritten to the
+    signed-in person's own address when the caller is a person."""
+    from app.services.access_model import agent_name_from_source
+    from app.services.visibility import resolve_viewer
+    try:
+        viewer = resolve_viewer(db, workspace, token, authorization,
+                                agent_name=agent_name_from_source(source))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("events: could not resolve DM sender: %s", e)
+        return source, payload
+    if viewer.kind != "human" or not viewer.email:
+        return source, payload
+    payload = dict(payload or {})
+    payload["sender_email"] = viewer.email
+    payload["sender_id"] = viewer.email
+    return f"human:{viewer.email}", payload
+
+
 @router.post("/events")
 def send_event(
     body: SendEventRequest,
@@ -232,6 +320,9 @@ def send_event(
         return json_response(ResponseCode.BAD_REQUEST, "Missing required field: network")
 
     # Resolve workspace
+    if body.type == "workspace.message.recalled":
+        return json_response(ResponseCode.FORBIDDEN, "Use the message recall endpoint")
+
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(body.network))
     ).scalar_one_or_none()
@@ -239,12 +330,57 @@ def send_event(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
+    # v1.1 visibility: a person may not post into a private thread they are
+    # not a participant of (machines are exempt; the pipeline auth mod still
+    # runs its own checks after this).
+    if body.target and str(body.target).startswith("channel/"):
+        from app.services.access_model import agent_name_from_source
+        from app.services.visibility import can_view_channel_name, resolve_viewer
+        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization,
+                                 agent_name=agent_name_from_source(body.source))
+        if _viewer.is_human and not can_view_channel_name(
+            db, str(workspace.id), _viewer, str(body.target)[len("channel/"):]
+        ):
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+
+    # Direct messages are attributed to the real sender. The web client posts
+    # people's DMs as `source="human:user"`, which made them unreachable for
+    # the recipient (their conversation query looks for `human:<email>`) and
+    # unattributable for privacy checks. A signed-in person is always stored
+    # as themselves, whatever source the client sent; machine / agent callers
+    # keep the source they declared (agents reply to `event.source`).
+    source = body.source
+    payload = body.payload
+    if (body.visibility or "") == "direct" or body.type in ("network.channel.create", "workspace.message.posted"):
+        source, payload = _attribute_direct_sender(db, workspace, x_workspace_token, authorization,
+                                                   source, payload)
+        if body.type == "network.channel.create":
+            # The browser's generic human:user source is not an identity.
+            # Always bind a new thread to the authenticated creator, even when
+            # its selected human_participants list omits them. Never trust an
+            # owner supplied by a signed-in client over that identity.
+            from app.services.visibility import resolve_viewer
+            creator = resolve_viewer(db, workspace, x_workspace_token, authorization)
+            if creator.kind == "human" and creator.email:
+                payload = dict(payload or {})
+                payload["creator_email"] = creator.email
+                payload["owner_email"] = creator.email
+                from app.services.access_model import can_start_agent_thread
+                from app.models import WorkspaceMember
+                names = list(payload.get("participants") or [])
+                if payload.get("master"):
+                    names.append(payload["master"])
+                for name in names:
+                    member = db.get(WorkspaceMember, (str(workspace.id), name))
+                    if not member or member.status == "removed" or not can_start_agent_thread(db, str(workspace.id), creator, member):
+                        return json_response(ResponseCode.FORBIDDEN, "You do not have direct access to this agent")
+
     # Build ONM Event
     event = Event(
         type=body.type,
-        source=body.source,
+        source=source,
         target=body.target,
-        payload=body.payload,
+        payload=payload,
         metadata=body.metadata or {},
         visibility=body.visibility or "channel",
         network=str(workspace.id),
@@ -253,7 +389,7 @@ def send_event(
     # Build pipeline context — extra kwargs become context.extra dict
     context = PipelineContext(
         network_id=str(workspace.id),
-        agent_address=body.source,
+        agent_address=source,
         db=db,
         workspace=workspace,
         token=x_workspace_token,
@@ -298,8 +434,20 @@ def send_event(
         "payload": result.payload,
         "metadata": result.metadata,
         "timestamp": result.timestamp,
+        "visibility": getattr(getattr(result, "visibility", None), "value", None)
+        or str(getattr(result, "visibility", None) or body.visibility or "channel"),
     }
     background_tasks.add_task(fanout_for_event, str(workspace.id), event_snapshot)
+
+    # Slack-like person notifications: a DM to a person, or an @mention of a
+    # person in a thread, files an inbox notification addressed to them (and
+    # pushes to their devices). Best-effort — never breaks event creation.
+    if result.type == "workspace.message.posted":
+        try:
+            from app.services.people_notify import notify_people_for_event
+            notify_people_for_event(db, workspace, event_snapshot)
+        except Exception as e:  # pragma: no cover - notify_people_for_event never raises
+            logger.warning("events: people notifications failed: %s", e)
 
     # Invalidate poll cache head-trackers for this workspace so that
     # agents polling with `after=<head>` don't keep getting a stale
@@ -356,6 +504,187 @@ def send_event(
     })
 
 
+@router.post("/events/{event_id}/recall")
+def recall_message(
+    event_id: str, network: str, db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
+):
+    """Withdraw only the sender's unassigned human message; never cancel agent work."""
+    import time
+    from fastapi import HTTPException
+    from app.models import ApprovalRequest
+    from app.services.visibility import resolve_viewer, can_view_channel
+    workspace = db.execute(select(Workspace).where(_workspace_filter(network))).scalar_one_or_none()
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        raise HTTPException(403, "No access to this workspace")
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in as the message sender")
+    original = db.execute(select(EventRecord).where(
+        EventRecord.id == event_id, EventRecord.network_id == workspace.id,
+        EventRecord.type == "workspace.message.posted",
+    ).with_for_update()).scalar_one_or_none()
+    if not original or original.source.lower() != f"human:{viewer.email.lower()}":
+        raise HTTPException(403, "Only the sender can recall this message")
+    if original.target.startswith("channel/"):
+        channel = db.execute(select(Channel).where(Channel.workspace_id == workspace.id,
+            Channel.name == original.target[8:])).scalar_one_or_none()
+        if not channel or not can_view_channel(db, str(workspace.id), viewer, channel):
+            raise HTTPException(403, "No access to this thread")
+    metadata = dict(original.metadata_ or {})
+    if metadata.get("recalled"):
+        return success_response({"message_id": original.id, "recalled": True})
+    choice = metadata.get("routing_choice") or {}
+    if ((original.payload or {}).get("message_type", "chat") != "chat"
+            or metadata.get("target_agents") != ["__no_response__"]
+            or metadata.get("routing_assignment") or metadata.get("approval_id")
+            or choice.get("status") == "assigned"):
+        raise HTTPException(409, "Messages assigned to an agent cannot be recalled")
+    approval = db.execute(select(ApprovalRequest.id).where(
+        ApprovalRequest.workspace_id == workspace.id,
+        ApprovalRequest.policy_requirements["trigger_event_id"].astext == original.id,
+    ).limit(1)).first()
+    agent_reply = db.execute(select(EventRecord.id).where(
+        EventRecord.network_id == workspace.id, EventRecord.source.like("openagents:%"),
+        EventRecord.metadata_["in_reply_to"].astext == original.id,
+    ).limit(1)).first()
+    if approval or agent_reply:
+        raise HTTPException(409, "This message has already started agent work")
+    metadata.update(recalled=True, recalled_at=int(time.time() * 1000))
+    metadata.pop("reply_to", None)
+    if choice:
+        metadata["routing_choice"] = {**choice, "status": "dismissed"}
+    original.metadata_ = metadata
+    # Remove the withdrawn content and attachments from future history reads.
+    original.payload = {key: value for key, value in (original.payload or {}).items()
+                        if key not in ("content", "attachments", "reply_to")}
+    original.payload["content"] = ""
+    citations = db.execute(select(EventRecord).where(EventRecord.network_id == workspace.id,
+        EventRecord.metadata_["reply_to"]["message_id"].astext == original.id)).scalars().all()
+    for reply in citations:
+        reply.metadata_ = {**reply.metadata_, "reply_to": {
+            **reply.metadata_["reply_to"], "content": "", "recalled": True,
+        }}
+    # A fresh event lets incremental pollers update already-loaded messages.
+    notice = Event(type="workspace.message.recalled", source=original.source,
+        target=original.target, visibility=original.visibility or "channel",
+        payload={"message_type": "recall", "recalled_message_id": original.id},
+        metadata={"target_agents": ["__no_response__"]})
+    db.add(EventRecord(id=notice.id, network_id=str(workspace.id), type=notice.type,
+        source=notice.source, target=notice.target, visibility=original.visibility,
+        payload=notice.payload, metadata_=notice.metadata, timestamp=notice.timestamp))
+    db.commit()
+    _invalidate_poll_cache(str(workspace.id), "workspace.message.posted")
+    snapshot = {"id": notice.id, "type": notice.type, "source": notice.source,
+        "target": notice.target, "payload": notice.payload, "metadata": notice.metadata,
+        "timestamp": notice.timestamp}
+    try:
+        cache.publish_event(f"ws:{workspace.id}:events", _json.dumps(snapshot, default=str).encode())
+    except Exception:
+        pass
+    return success_response({"message_id": original.id, "recalled": True})
+
+
+class RoutingChoiceRequest(BaseModel):
+    agent: Optional[str] = None  # null dismisses the pending request
+
+
+@router.post("/events/{event_id}/routing")
+def resolve_routing_choice(
+    event_id: str,
+    body: RoutingChoiceRequest,
+    network: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Only the original sender can assign/dismiss their pending message.
+
+    Lock the original event so double-clicks and retries cannot start two runs.
+    The follow-up goes through the normal auth, sharing, and approval pipeline.
+    """
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from app.models import WorkspaceMember
+    from app.services.visibility import resolve_viewer, can_view_channel
+    from app.services.thread_agent_requests import request_access
+    from app.services.workflow import get_active_run
+    workspace = db.execute(select(Workspace).where(_workspace_filter(network))).scalar_one_or_none()
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        raise HTTPException(403, "No access to this workspace")
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in as the message sender")
+    original = db.execute(select(EventRecord).where(
+        EventRecord.id == event_id, EventRecord.network_id == workspace.id,
+        EventRecord.type == "workspace.message.posted",
+    ).with_for_update()).scalar_one_or_none()
+    choice = (original.metadata_ or {}).get("routing_choice") if original else None
+    if not isinstance(choice, dict) or not original.target.startswith("channel/"):
+        raise HTTPException(404, "Assignment request not found")
+    if viewer.email.lower() != str(choice.get("requester_email", "")).lower():
+        raise HTTPException(403, "Only the message sender can choose an agent")
+    channel = db.execute(select(Channel).where(Channel.workspace_id == workspace.id,
+        Channel.name == original.target[8:], Channel.status == "active")).scalar_one_or_none()
+    if not channel or not can_view_channel(db, str(workspace.id), viewer, channel):
+        raise HTTPException(403, "No access to this thread")
+    if choice.get("status") != "pending":
+        return success_response(choice)
+    updated = dict(choice)
+    if body.agent is None:
+        updated["status"] = "dismissed"
+        original.metadata_ = {**(original.metadata_ or {}), "routing_choice": updated}
+        db.commit()
+        _invalidate_poll_cache(str(workspace.id), original.type)
+        return success_response(updated)
+    member = db.get(WorkspaceMember, (str(workspace.id), body.agent))
+    if (body.agent not in choice.get("candidates", []) or not member or member.status == "removed"
+            or not db.get(ChannelMember, (channel.id, body.agent))
+            or request_access(db, str(workspace.id), channel, member, viewer.email.lower()) == "no"):
+        raise HTTPException(403, "This agent is no longer available to you in this thread")
+    if get_active_run(db, str(workspace.id), channel.name):
+        raise HTTPException(409, "A workflow is now running in this thread")
+    payload = deepcopy(original.payload or {})
+    payload.update({"sender_email": viewer.email.lower(), "sender_id": viewer.email.lower(),
+                    "message_type": "chat"})
+    event = Event(type="workspace.message.posted", source=f"human:{viewer.email.lower()}",
+        target=original.target, visibility=original.visibility or "channel", payload=payload,
+        metadata={"routing_assignment": {"message_id": original.id, "agent": body.agent, "thread_id": channel.id}})
+    updated.update(status="assigned", agent=body.agent, assignment_event_id=event.id)
+    original.metadata_ = {**(original.metadata_ or {}), "routing_choice": updated}
+    context = PipelineContext(network_id=str(workspace.id), agent_address=event.source,
+        db=db, workspace=workspace, token=x_workspace_token, bearer_token=_extract_bearer(authorization),
+        routing_assignment_agent=body.agent)
+    try:
+        result = asyncio.run(pipeline.process(event, context))
+        if result is None:
+            raise HTTPException(403, "Could not assign this request")
+        db.commit()
+    except EventRejected as exc:
+        db.rollback()
+        raise HTTPException(403, exc.reason or "Could not assign this request") from exc
+    except Exception:
+        db.rollback()
+        raise
+    _invalidate_poll_cache(str(workspace.id), result.type)
+    snapshot = {"id": result.id, "type": result.type, "source": result.source,
+                "target": result.target, "payload": result.payload, "metadata": result.metadata,
+                "timestamp": result.timestamp}
+    try:
+        cache.publish_event(
+            f"ws:{workspace.id}:events",
+            _json.dumps(snapshot, default=str, separators=(",", ":")).encode(),
+        )
+    except Exception:
+        pass
+    from app.services.cloud_agent import invoke_cloud_agents
+    from app.services.push import fanout_for_event
+    background_tasks.add_task(invoke_cloud_agents, str(workspace.id), snapshot)
+    background_tasks.add_task(fanout_for_event, str(workspace.id), snapshot)
+    return success_response(updated)
+
+
 # ---------------------------------------------------------------------------
 # GET /v1/events — poll events
 # ---------------------------------------------------------------------------
@@ -393,6 +722,24 @@ def poll_events(
     if err is not None:
         return err
 
+    # v1.1 visibility: people do not read private threads they are not in.
+    # Machines (token-only callers: agents, daemons) are exempt. Deny a
+    # single-thread read up front; for cross-thread reads exclude the hidden
+    # targets and bypass the identity-blind poll cache.
+    from app.services.visibility import hidden_channel_targets, resolve_viewer
+    viewer = resolve_viewer(db, str(workspace_id), x_workspace_token, authorization)
+    hidden_targets = hidden_channel_targets(db, workspace_id, viewer) if viewer.is_human else set()
+    if hidden_targets:
+        if channel and f"channel/{channel}" in hidden_targets:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+        if target and target in hidden_targets:
+            return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+
+    # DM privacy: a person reads only the direct messages they are a side of
+    # (plus unattributable agent↔agent / legacy ones). The scope joins every
+    # cache key below so pages are never shared between people.
+    dm_scope = _dm_viewer_scope(viewer)
+
     # Two-level read-through cache for poll traffic.
     #
     # Level 1: FULL key (includes `after`/`before` cursor). Dedupes identical
@@ -418,7 +765,7 @@ def poll_events(
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
     # cache for these polls, same as `member`; the filtered query is cheap.
-    if not search and not member and not target_agents:
+    if not search and not member and not target_agents and not hidden_targets:
         key_parts = [
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
@@ -427,6 +774,8 @@ def poll_events(
         ]
         if exclude_message_types:
             key_parts.append(exclude_message_types)
+        if dm_scope:
+            key_parts.append("viewer=" + dm_scope)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
@@ -437,6 +786,7 @@ def poll_events(
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
             sort or "asc", limit, exclude_message_types or "",
+            dm_scope or "",
         )
         head_tracker_key = "v1events:head:" + filter_hash
 
@@ -468,6 +818,10 @@ def poll_events(
                             pass
 
     query = select(EventRecord).where(EventRecord.network_id == workspace_id)
+    if hidden_targets:
+        query = query.where(EventRecord.target.notin_(list(hidden_targets)))
+    if dm_scope:
+        query = query.where(_dm_privacy_clause(_dm_addresses(viewer)))
 
     # Filter events to only channels where the agent is a member
     if member:
@@ -719,6 +1073,7 @@ def list_conversations(
     network: str = Query(..., description="Network (workspace) ID or slug"),
     agent: Optional[str] = Query(None, description="Filter to conversations involving this agent"),
     limit: int = Query(20, ge=1, le=100),
+    read_at: Optional[str] = Query(None, max_length=32768, description="JSON map of DM session IDs to last-read timestamps"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -739,6 +1094,17 @@ def list_conversations(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    try:
+        read_markers = _json.loads(read_at) if read_at else {}
+        if not isinstance(read_markers, dict) or any(
+            not isinstance(key, str) or not key.startswith("dm:")
+            or type(value) is not int or value < 0 or value > 9007199254740991
+            for key, value in read_markers.items()
+        ):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid DM read markers")
+
     # Build a subquery to find the latest event per conversation pair.
     # Normalize pairs so (A→B) and (B→A) are the same conversation.
     # Use case() instead of func.least/greatest for SQLite compatibility.
@@ -751,6 +1117,16 @@ def list_conversations(
         else_=EventRecord.target,
     )
 
+    # Direct routing is also used for agent control traffic. Only posted
+    # messages form conversations; the internal system actor is never a DM peer.
+    conversation_events = (
+        EventRecord.network_id == workspace.id,
+        EventRecord.visibility == "direct",
+        EventRecord.type == "workspace.message.posted",
+        func.lower(EventRecord.source) != "human:system",
+        func.lower(EventRecord.target) != "human:system",
+        ~EventRecord.target.startswith("channel/"),
+    )
     base = (
         select(
             lesser.label("agent_a"),
@@ -758,12 +1134,7 @@ def list_conversations(
             func.max(EventRecord.timestamp).label("last_ts"),
             func.count().label("msg_count"),
         )
-        .where(
-            EventRecord.network_id == workspace.id,
-            EventRecord.visibility == "direct",
-            # Exclude channel targets — those are not DMs
-            ~EventRecord.target.startswith("channel/"),
-        )
+        .where(*conversation_events)
     )
 
     if agent:
@@ -771,17 +1142,32 @@ def list_conversations(
             or_(EventRecord.source == agent, EventRecord.target == agent)
         )
 
+    # DM privacy: a person lists only the pairs they are part of, plus
+    # agent↔agent / legacy unattributed pairs. Machines see every pair.
+    from app.services.visibility import resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _dm_viewer_scope(viewer):
+        base = base.where(_dm_privacy_clause(_dm_addresses(viewer)))
+
     base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
 
     pairs = db.execute(base).all()
 
+    from app.models import DirectThreadLink, DirectThreadPreference
+    preferences = {}
+    if viewer.is_human and viewer.email:
+        preferences = {key: pref for key, pref in db.execute(
+            select(DirectThreadLink.session_key, DirectThreadPreference).join(
+                DirectThreadPreference, DirectThreadPreference.thread_id == DirectThreadLink.id
+            ).where(DirectThreadLink.workspace_id == workspace.id, DirectThreadPreference.user_email == viewer.email)
+        ).all()}
     # For each pair, fetch the actual latest event
     conversations = []
     for row in pairs:
         latest_event = db.execute(
             select(EventRecord)
             .where(
-                EventRecord.network_id == workspace.id,
+                *conversation_events,
                 EventRecord.timestamp == row.last_ts,
                 or_(
                     and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
@@ -793,14 +1179,39 @@ def list_conversations(
 
         if latest_event:
             payload = latest_event.payload or {}
+            session_id = f"dm:{row.agent_a},{row.agent_b}"
+            last_read = read_markers.get(session_id)
+            own_addresses = (_dm_addresses(viewer) or []) + ["human:user"]
+            unread_count = None
+            if last_read is not None:
+                unread_count = db.scalar(select(func.count()).select_from(EventRecord).where(
+                    EventRecord.network_id == workspace.id,
+                    EventRecord.visibility == "direct",
+                    EventRecord.type == "workspace.message.posted",
+                    or_(
+                        EventRecord.payload["message_type"].as_string().is_(None),
+                        EventRecord.payload["message_type"].as_string().notin_(["thinking", "status", "todos"]),
+                    ),
+                    EventRecord.timestamp > last_read,
+                    EventRecord.target.in_(own_addresses),
+                    ~EventRecord.source.in_(own_addresses),
+                    or_(
+                        and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
+                        and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
+                    ),
+                )) or 0
             conversations.append({
                 "agents": [row.agent_a, row.agent_b],
+                "pinned": bool(preferences.get(session_id) and preferences[session_id].pinned),
+                "starred": bool(preferences.get(session_id) and preferences[session_id].starred),
                 "last_message": {
                     "content": payload.get("content", ""),
                     "sender": latest_event.source,
                     "timestamp": latest_event.timestamp,
                 },
                 "message_count": row.msg_count,
+                "unread_count": unread_count,
+                "read_at": last_read,
             })
 
     return success_response({"conversations": conversations})
@@ -851,6 +1262,17 @@ def latest_per_channel(
     if type:
         inner = inner.where(EventRecord.type.startswith(type))
 
+    # Visibility: a person gets no preview of a private thread they cannot
+    # see, nor of a DM they are not a side of (same rules as GET /v1/events).
+    # Machines / identified agents keep every channel. No response cache here.
+    from app.services.visibility import hidden_channel_targets, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if getattr(viewer, "kind", None) == "human":
+        hidden_targets = hidden_channel_targets(db, str(workspace.id), viewer)
+        if hidden_targets:
+            inner = inner.where(EventRecord.target.notin_(list(hidden_targets)))
+        inner = inner.where(_dm_privacy_clause(viewer.email))
+
     inner = inner.subquery()
 
     # Select only the first row per partition
@@ -875,10 +1297,85 @@ def latest_per_channel(
 
 
 # ---------------------------------------------------------------------------
+# Per-event visibility (shared by the stream; mirrors the SQL filters above)
+# ---------------------------------------------------------------------------
+
+def _is_person_addr(address) -> bool:
+    return isinstance(address, str) and address.startswith("human:") and "@" in address
+
+
+def _event_visible_to(event: dict, viewer_email: Optional[str], hidden_channels) -> bool:
+    """Python twin of `hidden_channel_targets` + `_dm_privacy_clause`.
+
+    Events published without a `visibility` field (some producers omit it)
+    are treated as direct when they do not target a channel — the safe side.
+    """
+    target = str(event.get("target") or "")
+    if target.startswith("channel/"):
+        return target[len("channel/"):] not in hidden_channels
+    if str(event.get("type") or "").startswith("network.channel."):
+        # Thread lifecycle events (create / update / …) name the thread in
+        # the payload; a private thread's creation must not leak either.
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        name = payload.get("name") or payload.get("channel") or payload.get("channel_name")
+        if isinstance(name, str) and name.startswith("channel/"):
+            name = name[len("channel/"):]
+        if name and name in hidden_channels:
+            return False
+    vis = event.get("visibility")
+    if vis not in (None, "", "direct"):
+        return True
+    source = str(event.get("source") or "")
+    me = f"human:{viewer_email}" if viewer_email else None
+    if me and me in (source, target):
+        return True
+    return not (_is_person_addr(source) or _is_person_addr(target))
+
+
+def _load_hidden_channel_names(workspace_id: str, viewer) -> set:
+    db = SessionLocal()
+    try:
+        from app.services.visibility import hidden_channel_names
+        return set(hidden_channel_names(db, workspace_id, viewer))
+    finally:
+        db.close()
+
+
+class _StreamVisibility:
+    """A person's stream filter: hidden thread names are loaded at connect
+    and refreshed every REFRESH_SECONDS or when a `network.channel.*` event
+    passes (thread created / access changed), so the per-event check needs
+    no database round trip."""
+
+    REFRESH_SECONDS = 30.0
+
+    def __init__(self, workspace_id: str, viewer, hidden):
+        self.workspace_id = workspace_id
+        self.viewer = viewer
+        self.email = viewer.email
+        self.hidden = set(hidden)
+        self._loaded_at = asyncio.get_event_loop().time()
+
+    async def maybe_refresh(self, event: dict) -> None:
+        now = asyncio.get_event_loop().time()
+        etype = str(event.get("type") or "")
+        if not (etype.startswith("network.channel.") or now - self._loaded_at >= self.REFRESH_SECONDS):
+            return
+        try:
+            self.hidden = await asyncio.to_thread(_load_hidden_channel_names, self.workspace_id, self.viewer)
+        except Exception as e:  # keep the previous set; never kill the stream
+            logger.warning("stream: hidden-thread refresh failed: %s", e)
+        self._loaded_at = now
+
+    def allows(self, event: dict) -> bool:
+        return _event_visible_to(event, self.email, self.hidden)
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 
-def _authorize_event_stream(network, effective_token, authorization):
+def _authorize_event_stream(network, effective_token, authorization, channel=None):
     """Keep pool checkout, auth queries, and cleanup off the event loop."""
     db = SessionLocal()
     try:
@@ -889,7 +1386,14 @@ def _authorize_event_stream(network, effective_token, authorization):
             return None, json_response(ResponseCode.NOT_FOUND, "Network not found")
         if not _verify_workspace_access(workspace, effective_token, authorization):
             return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
-        return str(workspace.id), None
+        workspace_id = str(workspace.id)
+        from app.services.visibility import hidden_channel_names, resolve_viewer
+        viewer = resolve_viewer(db, workspace, effective_token, authorization)
+        dm_scope = _dm_viewer_scope(viewer) if getattr(viewer, "kind", None) == "human" else None
+        hidden = set(hidden_channel_names(db, workspace_id, viewer)) if dm_scope else set()
+        if dm_scope and channel and channel in hidden:
+            return None, json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+        return (workspace_id, viewer, dm_scope, hidden), None
     finally:
         db.close()
 
@@ -900,6 +1404,7 @@ async def stream_events(
     network: str = Query(...),
     channel: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
+    access_token: Optional[str] = Query(None, description="Bearer token for browsers (EventSource cannot set headers); identifies the signed-in person"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -908,15 +1413,24 @@ async def stream_events(
     Uses Redis pub/sub under the hood. Falls back gracefully — if Redis
     is unavailable the connection closes and the client should fall back
     to polling.
+
+    Visibility matches polling: the viewer is resolved once at connect (a
+    bearer — header or `access_token` — wins over the workspace token). For a
+    person, private threads they cannot see and DMs they are not a side of are
+    never streamed. Machines / identified agents receive everything.
     """
     effective_token = x_workspace_token or token
+    if not authorization and access_token:
+        authorization = f"Bearer {access_token}"
 
-    workspace_id, error = await run_in_threadpool(
-        _authorize_event_stream, network, effective_token, authorization,
+    scope, error = await run_in_threadpool(
+        _authorize_event_stream, network, effective_token, authorization, channel,
     )
     if error is not None:
         return error
+    workspace_id, viewer, dm_scope, hidden = scope
     target_prefix = f"channel/{channel}" if channel else None
+    stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 
     async def event_generator():
         keepalive_interval = 30
@@ -935,7 +1449,11 @@ async def stream_events(
             if data is not None:
                 try:
                     event = _json.loads(data)
-                    if not (target_prefix and event.get("target", "") != target_prefix):
+                    if stream_filter is not None:
+                        await stream_filter.maybe_refresh(event)
+                    if stream_filter is not None and not stream_filter.allows(event):
+                        pass
+                    elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")
                         yield f"id: {event_id}\ndata: {data.decode()}\n\n"
                         last_keepalive = asyncio.get_event_loop().time()

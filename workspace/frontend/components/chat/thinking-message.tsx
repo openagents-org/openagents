@@ -1,5 +1,6 @@
 'use client';
 
+import { AgentOwnershipBadge } from './agent-message-access';
 import { memo } from 'react';
 import { Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -46,16 +47,7 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
               <Brain className="size-3.5" />
               thinking
             </span>
-            {agent && (
-              <span className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0',
-                agent.role === 'master'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                  : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-              )}>
-                {agent.role}
-              </span>
-            )}
+            {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
               <span className="text-xs text-muted-foreground">{timestamp}</span>
             )}

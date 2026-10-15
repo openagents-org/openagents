@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 # Role hierarchy, highest to lowest. Token/machine access is treated as
 # owner-equivalent for min-role checks (fully trusted credential).
-ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+ROLE_RANK = {"guest": 0, "viewer": 1, "member": 2, "admin": 3, "owner": 4}
 
 
 def _now() -> datetime:
@@ -267,7 +267,8 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
         return "owner"
     for c in (workspace.collaborators or []):
         if c.email == email:
-            return "member" if (c.role or "editor") == "editor" else "viewer"
+            r = c.role or "editor"
+            return "member" if r == "editor" else ("guest" if r == "guest" else "viewer")
     return None
 
 
@@ -326,6 +327,12 @@ def verify_workspace_access(
     # 0. Deleted: no credential opens it.
     if workspace.status == "deleted":
         return False
+    # A presented person identity is authoritative, even with a workspace token.
+    if authorization:
+        if db is None:
+            db = SqlaSession.object_session(workspace)
+        role = resolve_user_role(db, workspace, authorization) if db is not None else None
+        return role is not None and role_at_least(role, min_role)
 
     # 1. Machine / legacy workspace token — fully trusted.
     if workspace.password_hash and token and token == workspace.password_hash:

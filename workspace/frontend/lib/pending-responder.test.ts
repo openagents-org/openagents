@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { pendingResponderName } from './pending-responder';
+import { pendingResponderName, expectsAgentResponse } from './pending-responder';
+
+describe('expectsAgentResponse', () => {
+  const base = { content: 'hello', mentions: [], mentionedHumans: [] };
+  it('does not show agent activity for a person-only mention, even without roster metadata', () => {
+    expect(expectsAgentResponse({ ...base, content: '@sam@demo.acenta.ai hey' })).toBe(false);
+    expect(expectsAgentResponse({ ...base, content: '@Sam Weber hey', mentionedHumans: ['sam@demo.acenta.ai'] })).toBe(false);
+  });
+  it('still expects replies when an agent is explicitly mentioned alongside a person', () => {
+    expect(expectsAgentResponse({ ...base, content: '@sam@demo.acenta.ai @claude-dev hey', mentions: ['claude-dev'], mentionedHumans: ['sam@demo.acenta.ai'] })).toBe(true);
+  });
+  it('preserves default routing and distinguishes human DMs from agent DMs', () => {
+    expect(expectsAgentResponse(base)).toBe(true);
+    expect(expectsAgentResponse({ ...base, content: 'email sam@demo.acenta.ai' })).toBe(true);
+    expect(expectsAgentResponse({ ...base, mentions: ['claude-dev'], dmCounterpart: 'human:sam@demo.acenta.ai' })).toBe(false);
+    expect(expectsAgentResponse({ ...base, content: '@sam@demo.acenta.ai', dmCounterpart: 'openagents:claude-dev' })).toBe(true);
+  });
+});
 
 const agents = [
   { agentName: 'cherie-bot' }, // workspace master, not in the thread
@@ -61,4 +78,19 @@ describe('pendingResponderName', () => {
   it('stays unattributed when the thread has no known agent', () => {
     expect(pendingResponderName({ agents, participants: [] })).toBe('');
   });
+});
+
+it('only predicts leading mentions while thread response routing is pending', () => {
+  for (const responseMode of ['proactive', 'passive'] as const) {
+    const options = { responseMode, mentions: ['claude-dev'], mentionedHumans: [] };
+    expect(expectsAgentResponse({ ...options, content: '@claude-dev help' })).toBe(true);
+    expect(expectsAgentResponse({ ...options, content: 'look at @claude-dev' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: '@claude-dev@example.com hi' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: 'Sam, are you there?' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: 'hi', dmCounterpart: 'claude-dev' })).toBe(true);
+  }
+});
+
+it('does not show an agent reply placeholder for @all', () => {
+  expect(expectsAgentResponse({ content: '@All hello', mentions: [], mentionedHumans: [] })).toBe(false);
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import {
@@ -108,13 +109,18 @@ const ATTACH_ACCEPT =
 export function AttachmentPicker({
   value,
   onChange,
+  disabled = false,
+  onUploadingChange,
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
+  disabled?: boolean;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const t = useT();
   const { files } = useWorkspace();
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadingRef = useRef(false);
   // Files uploaded in this dialog session — the workspace `files` list may not
   // have refreshed yet, so keep our own record for names/thumbnails.
   const [uploaded, setUploaded] = useState<WorkspaceFile[]>([]);
@@ -126,7 +132,9 @@ export function AttachmentPicker({
 
   const addFiles = async (list: FileList | File[]) => {
     const picked = Array.from(list);
-    if (picked.length === 0) return;
+    if (picked.length === 0 || disabled || uploadingRef.current) return;
+    uploadingRef.current = true;
+    onUploadingChange?.(true);
     setError(null);
     const previews: { name: string; preview?: string }[] = picked.map((f) => ({
       name: f.name,
@@ -134,12 +142,16 @@ export function AttachmentPicker({
     }));
     setPending((p) => [...p, ...previews]);
     try {
-      const results = await Promise.all(picked.map((f) => workspaceApi.uploadFile(f)));
+      const outcomes = await Promise.allSettled(picked.map((f) => workspaceApi.uploadFile(f)));
+      const results = outcomes.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
       setUploaded((u) => [...u, ...results]);
       onChange([...value, ...results.map((r) => r.id)]);
+      if (outcomes.some(result => result.status === 'rejected')) setError(t('tasks.attachFailed'));
     } catch {
       setError(t('tasks.attachFailed'));
     } finally {
+      uploadingRef.current = false;
+      onUploadingChange?.(false);
       previews.forEach((pv) => pv.preview && URL.revokeObjectURL(pv.preview));
       setPending((p) => p.filter((x) => !previews.includes(x)));
     }
@@ -163,7 +175,7 @@ export function AttachmentPicker({
             return (
               <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
                 {isImage && f ? (
-                  <img src={workspaceApi.getFileUrl(f.id)} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
+                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
                 ) : (
                   <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
                     <FileIcon className="size-4 text-muted-foreground" />
@@ -174,6 +186,7 @@ export function AttachmentPicker({
                 )}
                 <button
                   type="button"
+                  disabled={disabled || pending.length > 0}
                   onClick={() => remove(id)}
                   className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                   title={t('common.remove')}
@@ -203,6 +216,7 @@ export function AttachmentPicker({
 
       <button
         type="button"
+        disabled={disabled || pending.length > 0}
         onClick={() => inputRef.current?.click()}
         className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
       >
@@ -210,6 +224,8 @@ export function AttachmentPicker({
         {t('tasks.attachAdd')}
       </button>
       <input
+        disabled={disabled || pending.length > 0}
+        aria-label={t('tasks.fieldAttachments')}
         ref={inputRef}
         type="file"
         multiple
@@ -230,6 +246,7 @@ interface NewTaskDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Existing task to edit; null/undefined = create a new one. */
   task?: KanbanTask | null;
+  issueTitle?: string;
   onSubmit: (input: {
     title: string;
     description: string;
@@ -241,19 +258,21 @@ interface NewTaskDialogProps {
     knowledgeIds: string[];
     /** Workspace files attached (uploaded on pick). */
     fileIds: string[];
-  }) => void;
+  }) => void | Promise<unknown>;
 }
 
 // Radix Select reserves the empty string for "nothing selected", so the
 // unassigned choice needs its own sentinel value.
 const UNASSIGNED = '__unassigned__';
 
-export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDialogProps) {
+export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }: NewTaskDialogProps) {
   const t = useT();
   const { agents, workflows } = useWorkspace();
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const isEdit = !!task;
 
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [runWith, setRunWith] = useState<'agent' | 'workflow'>('agent');
@@ -264,7 +283,8 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
 
   useEffect(() => {
     if (open) {
-      setTitle(task?.title ?? '');
+      setError('');
+      setTitle(task?.title ?? issueTitle ?? '');
       setDescription(task?.description ?? '');
       setRunWith(task?.workflowId ? 'workflow' : 'agent');
       setAssignee(task?.assignee ?? UNASSIGNED);
@@ -274,30 +294,35 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
     }
   }, [open, task]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Description is the task; the title is an optional board label — when
     // empty, the backend derives a "first few words…" preview from the
     // description (and re-derives on edit).
-    if (!description.trim()) return;
-    onSubmit({
-      title: title.trim(),
-      description: description.trim(),
-      assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
-      workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
-      knowledgeIds,
-      fileIds,
-    });
-    onOpenChange(false);
+    if (!description.trim() || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        assignee: runWith === 'agent' && assignee !== UNASSIGNED ? assignee : null,
+        workflowId: runWith === 'workflow' && workflowId !== UNASSIGNED ? workflowId : null,
+        knowledgeIds,
+        fileIds,
+      });
+      onOpenChange(false);
+    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader className="space-y-2 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">{t(isEdit ? 'tasks.editTaskTitle' : 'tasks.newTaskTitle')}</DialogTitle>
+          <DialogTitle className="text-xl">{t(isEdit ? 'issueWork.edit' : issueTitle ? 'issueWork.add' : 'tasks.newTaskTitle')}</DialogTitle>
           {!isEdit && (
             <DialogDescription className="text-sm leading-relaxed">
-              {t('tasks.newTaskDescription')}
+              {t(issueTitle ? 'issueWork.setupHint' : 'tasks.newTaskDescription')}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -385,12 +410,13 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit }: NewTaskDia
           </div>
         </DialogBody>
 
+        {error && <p role="alert" className="px-7 text-sm text-destructive">{error}</p>}
         <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
-          <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="min-w-24" disabled={saving} onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleSubmit} disabled={!description.trim()}>
-            {t(isEdit ? 'common.save' : 'tasks.create')}
+          <Button className="min-w-24" onClick={handleSubmit} disabled={saving || !description.trim()}>
+            {t(saving ? 'common.saving' : isEdit ? 'common.save' : 'tasks.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

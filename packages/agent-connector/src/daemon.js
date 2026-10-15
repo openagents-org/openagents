@@ -122,7 +122,7 @@ class Daemon {
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
     this._displayNameInterval = null;    // pulls workspace-side renames back
-    this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
+    this._nodeClients = new Map();       // node_id -> WorkspaceClient, one per private connection
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
     this._runtimesInterval = null;
@@ -347,7 +347,7 @@ class Daemon {
       if (!info || !info.networkRef || info._credRestartPending) continue;
       if (!this._adapters || !this._adapters[name]) continue;
       let fresh = null;
-      try { fresh = this._resolveAgentNetwork(info.networkRef); } catch { /* keep running on the current token */ }
+      try { fresh = this._resolveAgentNetwork(info.networkRef, info.connectionId); } catch { /* keep running on the current token */ }
       if (!fresh || !fresh.token || fresh.token === info.credentialToken) continue;
       // Flag on the CURRENT info object: restartAgent replaces it with a fresh
       // one on relaunch, so the flag cannot wedge the watch permanently.
@@ -362,10 +362,10 @@ class Daemon {
 
   /** The WorkspaceClient for one pairing, created on first use and reused. */
   _nodeClientFor(n) {
-    let client = this._nodeClients.get(n.workspace_id);
+    let client = this._nodeClients.get(n.node_id);
     if (!client) {
       client = new WorkspaceClient(n.endpoint);
-      this._nodeClients.set(n.workspace_id, client);
+      this._nodeClients.set(n.node_id, client);
     }
     return client;
   }
@@ -389,8 +389,8 @@ class Daemon {
       // is unreachable, and taking that as the workspace's word unpaired every
       // workspace on the device at once.
       if (_nodeGone(err)) {
-        try { nodeCfg.clearPairing(n.workspace_id); } catch {}
-        this._nodeClients.delete(n.workspace_id);
+        try { nodeCfg.clearPairing(n.workspace_id, n.node_id); } catch {}
+        this._nodeClients.delete(n.node_id);
         this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);
       }
       return;  // nothing more to do for this pairing this tick
@@ -459,7 +459,13 @@ class Daemon {
    */
   _agentOnNodeWorkspace(a, node) {
     if (!a || !a.network || !node) return false;
-    return a.network === node.workspace_slug || a.network === node.workspace_id;
+    if (a.network !== node.workspace_slug && a.network !== node.workspace_id) return false;
+    if (a.node_id) return a.node_id === node.node_id;
+    // Legacy agents may bind automatically only when the workspace is unambiguous.
+    const candidates = require('./node-config').listPairings().filter(
+      (p) => p.workspace_id === node.workspace_id && p.workspace_id,
+    );
+    return candidates.length <= 1;
   }
 
   /**
@@ -746,7 +752,7 @@ async _runNodeCommand(n, cmd) {
         // pass and no /v1/token/resolve round-trip to fail (the outage class
         // that used to break remote installs).
         const r2 = await this._runAgn([
-          'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+          'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
         ]);
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
         ok = true;
@@ -786,7 +792,7 @@ async _runNodeCommand(n, cmd) {
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
           this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
-            'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+            'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
           ]);
           if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
         } else {
@@ -1292,15 +1298,18 @@ async _runNodeCommand(n, cmd) {
    * fallback. Fields from the network entry win for display (name), the
    * pairing wins for credentials (token/endpoint).
    */
-  _resolveAgentNetwork(ref) {
+  _resolveAgentNetwork(ref, nodeId) {
     const network =
       this.config.getNetworks().find((n) => n.slug === ref || n.id === ref) ||
       null;
     let pairing = null;
     try {
-      pairing = require('./node-config')
-        .listPairings()
-        .find((p) => p.workspace_slug === ref || p.workspace_id === ref) || null;
+      const candidates = require('./node-config').listPairings()
+        .filter((p) => p.workspace_slug === ref || p.workspace_id === ref);
+      pairing = candidates.find((p) => !nodeId || p.node_id === nodeId) || null;
+      if ((nodeId && !pairing) || (!nodeId && candidates.length > 1)) {
+        return { ...(network || {}), token: null };
+      }
     } catch {}
     if (!network && !pairing) return null;
     return {
@@ -1344,7 +1353,7 @@ async _runNodeCommand(n, cmd) {
     // Workspace-connected agents use the adapter loop (poll + CLI per message).
     // Local-only agents use the spawn loop (long-running child process).
     const network = agentCfg.network
-      ? this._resolveAgentNetwork(agentCfg.network)
+      ? this._resolveAgentNetwork(agentCfg.network, agentCfg.node_id)
       : null;
 
     if (network && !network.token) {
@@ -1363,6 +1372,7 @@ async _runNodeCommand(n, cmd) {
       // Remember which credential this adapter runs with, so the rotation
       // watch can restart it when a re-pair hands the workspace a new token.
       info.networkRef = agentCfg.network;
+      info.connectionId = agentCfg.node_id;
       info.credentialToken = network.token;
       this._adapterLoop(name, agentCfg, info, network);
     } else {

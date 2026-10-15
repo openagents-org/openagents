@@ -197,10 +197,9 @@ class TestChannelOrchestrationMode:
     def test_default_mode_is_dynamic(self, client, workspace):
         assert workspace["channel"].get("orchestrationMode") == "dynamic"
 
-    def test_set_master_mode(self, client, workspace):
+    def test_removed_master_mode_is_rejected(self, client, workspace):
         resp = self._patch(client, workspace, {"orchestration_mode": "master"})
-        assert resp.status_code == 200
-        assert resp.json()["data"]["orchestrationMode"] == "master"
+        assert resp.status_code == 400
 
     def test_set_workflow_mode_with_instruction_round_trips(self, client, workspace):
         plan = "First @agent-alpha writes tests, then reviews."

@@ -21,6 +21,12 @@ Outbound (workspace → platform): ``routers/events.send_event`` and the cloud
     back to a ``*name*:`` prefix without it); Telegram has no per-message
     identity, so the name is always prefixed.
 
+Browser previews (workspace → Slack): when an agent drives the shared cloud
+    browser inside a Slack-bridged thread, ``services/browser_preview`` posts
+    a screenshot + live-view link into the bound Slack conversation using the
+    ``resolve_binding_for_channel`` / ``slack_upload_file`` /
+    ``slack_post_blocks`` helpers below.
+
 Failures are logged and recorded on the binding (``last_error``) but never
 raised back into the request that triggered them.
 """
@@ -264,6 +270,41 @@ def _display_name(source: str) -> Optional[str]:
     return None
 
 
+def resolve_binding_for_channel(
+    workspace_id: str, channel_name: str,
+) -> Optional[tuple[IntegrationBinding, str]]:
+    """The active binding an ``ext-…`` channel is bridged through.
+
+    Returns ``(binding, external_chat_id)`` or ``None`` when the channel is
+    not a bridged one, the binding is gone/disabled, or the lookup failed.
+    Opens its own session (callers are background tasks) and never raises —
+    a DB blip here must not surface into the request that scheduled the work.
+    Shared by :func:`relay_for_event` and the browser-preview poster.
+    """
+    parsed = parse_channel_name(channel_name or "")
+    if parsed is None:
+        return None
+    platform, binding8, chat_id = parsed
+    db = SessionLocal()
+    try:
+        bindings = db.execute(
+            select(IntegrationBinding).where(
+                IntegrationBinding.workspace_id == workspace_id,
+                IntegrationBinding.platform == platform,
+                IntegrationBinding.status == "active",
+            )
+        ).scalars().all()
+        binding = next((b for b in bindings if str(b.id)[:8] == binding8), None)
+    except Exception:
+        logger.exception("integrations: binding lookup failed for %s", channel_name)
+        return None
+    finally:
+        db.close()
+    if binding is None:
+        return None
+    return binding, chat_id
+
+
 def relay_for_event(workspace_id: str, event: dict) -> None:
     """Relay a workspace message to the external platform, if applicable.
 
@@ -289,30 +330,11 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     if not content:
         return
 
-    parsed = parse_channel_name(target[len("channel/"):])
-    if parsed is None:
+    resolved = resolve_binding_for_channel(workspace_id, target[len("channel/"):])
+    if resolved is None:
         return
-    platform, binding8, chat_id = parsed
-
-    # Never raise out of a background task — a DB blip here must not surface
-    # into the request (or test) that scheduled the relay.
-    db = SessionLocal()
-    try:
-        bindings = db.execute(
-            select(IntegrationBinding).where(
-                IntegrationBinding.workspace_id == workspace_id,
-                IntegrationBinding.platform == platform,
-                IntegrationBinding.status == "active",
-            )
-        ).scalars().all()
-        binding = next((b for b in bindings if str(b.id)[:8] == binding8), None)
-    except Exception:
-        logger.exception("integrations: relay binding lookup failed")
-        return
-    finally:
-        db.close()
-    if binding is None:
-        return
+    binding, chat_id = resolved
+    platform = binding.platform
 
     error: Optional[str] = None
     try:
@@ -366,6 +388,78 @@ def _send_slack(bot_token: str, channel_id: str, sender: str, content: str,
             if data.get("ok"):
                 return
         raise RuntimeError(f"slack chat.postMessage: {data.get('error', resp.status_code)}")
+
+
+def slack_post_blocks(bot_token: str, channel_id: str, text: str, blocks: list,
+                      thread_ts: Optional[str] = None) -> dict:
+    """``chat.postMessage`` with a Block Kit body (``text`` is the notification
+    fallback). Returns the Slack response; raises RuntimeError on ``ok: false``."""
+    body: dict = {
+        "channel": channel_id,
+        "text": text,
+        "blocks": blocks,
+        "unfurl_links": False,
+        "unfurl_media": False,
+    }
+    if thread_ts:
+        body["thread_ts"] = thread_ts
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {bot_token}"},
+            json=body,
+        )
+        data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"slack chat.postMessage: {data.get('error', resp.status_code)}")
+    return data
+
+
+def slack_upload_file(bot_token: str, channel_id: str, content: bytes, *,
+                      filename: str, title: str, initial_comment: str,
+                      thread_ts: Optional[str] = None,
+                      content_type: str = "image/png") -> dict:
+    """Share a file into a Slack conversation via the external-upload flow
+    (``files.upload`` is retired): ``files.getUploadURLExternal`` → POST the
+    bytes to the returned URL → ``files.completeUploadExternal`` with the
+    channel + comment. Needs the ``files:write`` scope; a token without it
+    fails at step 1 with ``missing_scope`` (raised as RuntimeError so the
+    caller can fall back to a plain message). Returns the completion response.
+    """
+    headers = {"Authorization": f"Bearer {bot_token}"}
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.get(
+            "https://slack.com/api/files.getUploadURLExternal",
+            headers=headers,
+            params={"filename": filename, "length": len(content)},
+        )
+        data = resp.json()
+        if not data.get("ok") or not data.get("upload_url") or not data.get("file_id"):
+            raise RuntimeError(
+                f"slack files.getUploadURLExternal: {data.get('error', resp.status_code)}"
+            )
+        upload_url, file_id = data["upload_url"], data["file_id"]
+
+        up = client.post(upload_url, files={"file": (filename, content, content_type)})
+        if up.status_code // 100 != 2:
+            raise RuntimeError(f"slack upload_url: HTTP {up.status_code}")
+
+        complete: dict = {
+            "files": [{"id": file_id, "title": title}],
+            "channel_id": channel_id,
+            "initial_comment": initial_comment,
+        }
+        if thread_ts:
+            complete["thread_ts"] = thread_ts
+        resp = client.post(
+            "https://slack.com/api/files.completeUploadExternal",
+            headers=headers,
+            json=complete,
+        )
+        data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"slack files.completeUploadExternal: {data.get('error', resp.status_code)}")
+    return data
 
 
 # ---------------------------------------------------------------------------

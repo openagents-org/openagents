@@ -8,12 +8,14 @@ const api = vi.hoisted(() => Object.fromEntries([
   'configure', 'getWorkspace', 'discover', 'listFiles', 'listTrash',
   'listBrowserTabs', 'listBrowserContexts', 'listTodos', 'listTasks',
   'listWorkflows', 'listRoutines', 'listKnowledge', 'listNotifications',
-  'listConversations', 'latestPerChannel',
+  'listConversations', 'latestPerChannel', 'listApprovals',
 ].map((name) => [name, vi.fn()])));
 
 vi.mock('./api', () => ({ workspaceApi: api }));
 vi.mock('./analytics', () => ({ capture: vi.fn(), group: vi.fn() }));
+vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('./openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: null }) }));
+vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));
 vi.mock('./identity', () => ({
   getStoredIdentity: () => ({ id: '', name: '' }),
   generateUserId: () => '', storeIdentity: vi.fn(),

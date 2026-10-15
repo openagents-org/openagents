@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Path, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import or_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -62,7 +62,7 @@ class CreateNotificationRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _serialize_notification(n: NotificationRecord) -> dict:
+def _serialize_notification(n: NotificationRecord, approval_status=None) -> dict:
     return {
         "id": n.id,
         "title": n.title,
@@ -74,6 +74,14 @@ def _serialize_notification(n: NotificationRecord) -> dict:
         "thread_id": n.thread_id,
         "link_url": n.link_url,
         "status": n.status,
+        # v1.1 — what the row is about, so the inbox can render it as an
+        # actionable card: `kind` (approval | ...), the id
+        # of the thing to act on, and the person it is addressed to (None =
+        # the whole workspace).
+        "kind": n.kind,
+        "action_ref": n.action_ref,
+        "approval_status": approval_status,
+        "recipient_email": n.recipient_email,
         "created_at": n.created_at.isoformat() if n.created_at else None,
         "read_at": n.read_at.isoformat() if n.read_at else None,
     }
@@ -126,6 +134,13 @@ def create_notification(
 # GET /v1/notifications
 # ---------------------------------------------------------------------------
 
+# DM / @mention signals (services/people_notify) are personal unread markers,
+# not inbox items: the web app turns them into desktop notifications and
+# unread highlights (Slack-style). The inbox list and its unread count leave
+# them out unless a caller asks for them with `kinds=`.
+SIGNAL_KINDS = ("dm", "mention")
+
+
 @router.get("/notifications")
 def list_notifications(
     network: str = Query(...),
@@ -133,11 +148,13 @@ def list_notifications(
     is_read: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    kinds: Optional[str] = Query(None, description="Comma-separated kinds, e.g. dm,mention (signals)"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """List notifications for the workspace."""
+    """List notifications for the workspace (the inbox), or — with
+    `kinds=dm,mention` — the caller's own DM / mention signals."""
     workspace = _resolve_workspace(db, network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
@@ -146,8 +163,41 @@ def list_notifications(
 
     ws_id = str(workspace.id)
 
+    # v1.1: a person sees workspace-wide rows plus rows addressed to them,
+    # never rows about threads they cannot read. Machines see everything.
+    from sqlalchemy import or_
+    from app.services.visibility import hidden_channel_names, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    person_filters = []
+    if viewer.is_human:
+        person_filters.append(or_(
+            NotificationRecord.recipient_email.is_(None),
+            NotificationRecord.recipient_email == (viewer.email or ""),
+        ))
+        hidden = hidden_channel_names(db, ws_id, viewer)
+        if hidden:
+            person_filters.append(or_(
+                NotificationRecord.channel_name.is_(None),
+                NotificationRecord.channel_name.notin_(list(hidden)),
+            ))
+
+    wanted_kinds = [k.strip().lower() for k in (kinds or "").split(",") if k.strip()]
+    if wanted_kinds:
+        if any(k in SIGNAL_KINDS for k in wanted_kinds):
+            # Signals are personal: only rows addressed to the signed-in caller.
+            if not (viewer.is_human and viewer.email):
+                return success_response({"notifications": [], "unread_count": 0})
+            person_filters.append(NotificationRecord.recipient_email == viewer.email)
+        person_filters.append(NotificationRecord.kind.in_(wanted_kinds))
+    else:
+        person_filters.append(or_(
+            NotificationRecord.kind.is_(None),
+            NotificationRecord.kind.notin_(SIGNAL_KINDS),
+        ))
+
     query = select(NotificationRecord).where(
         NotificationRecord.workspace_id == ws_id,
+        *person_filters,
     )
     if status:
         query = query.where(NotificationRecord.status == status)
@@ -163,11 +213,17 @@ def list_notifications(
             NotificationRecord.workspace_id == ws_id,
             NotificationRecord.status == "active",
             NotificationRecord.is_read == False,  # noqa: E712
+            *person_filters,
         )
     ).scalar() or 0
 
+    from app.models import ApprovalRequest
+    approval_statuses = dict(db.execute(select(ApprovalRequest.id, ApprovalRequest.status).where(
+        ApprovalRequest.workspace_id == ws_id,
+        ApprovalRequest.id.in_([n.action_ref for n in rows if n.action_ref]),
+    )).all())
     return success_response({
-        "notifications": [_serialize_notification(n) for n in rows],
+        "notifications": [_serialize_notification(n, approval_statuses.get(n.action_ref)) for n in rows],
         "unread_count": unread_count,
     })
 
@@ -266,6 +322,7 @@ def mark_all_notifications_read(
             NotificationRecord.workspace_id == str(workspace.id),
             NotificationRecord.is_read == False,  # noqa: E712
             NotificationRecord.status == "active",
+            or_(NotificationRecord.kind.is_(None), NotificationRecord.kind.notin_(SIGNAL_KINDS)),
         )
         .values(is_read=True, read_at=now)
         .returning(NotificationRecord.id)
@@ -273,6 +330,45 @@ def mark_all_notifications_read(
     db.commit()
 
     return success_response({"updated_count": len(result)})
+
+
+# ---------------------------------------------------------------------------
+# PATCH /v1/notifications/read-channel — opening a thread / DM clears its
+# DM and mention signals for the caller.
+# ---------------------------------------------------------------------------
+
+@router.patch("/notifications/read-channel")
+def mark_channel_signals_read(
+    network: str = Query(...),
+    channel: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _resolve_workspace(db, network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    from app.services.visibility import resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if not (viewer.is_human and viewer.email):
+        return success_response({"marked": 0})
+    now = datetime.now(timezone.utc)
+    result = db.execute(
+        update(NotificationRecord)
+        .where(
+            NotificationRecord.workspace_id == str(workspace.id),
+            NotificationRecord.recipient_email == viewer.email,
+            NotificationRecord.channel_name == channel,
+            NotificationRecord.kind.in_(SIGNAL_KINDS),
+            NotificationRecord.is_read == False,  # noqa: E712
+        )
+        .values(is_read=True, read_at=now)
+        .returning(NotificationRecord.id)
+    ).fetchall()
+    db.commit()
+    return success_response({"marked": len(result)})
 
 
 # ---------------------------------------------------------------------------

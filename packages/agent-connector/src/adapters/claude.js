@@ -657,7 +657,12 @@ class ClaudeAdapter extends BaseAdapter {
           type: 'stdio',
           command: mcpCommand,
           args: mcpFinalArgs,
-          env: { OA_WORKSPACE_TOKEN: this.token },
+          env: {
+            OA_WORKSPACE_TOKEN: this.token,
+            // v1.1: who asked, so escalation tools can address the owner.
+            ...(this.requesterEmailFor && this.requesterEmailFor(channelName)
+              ? { OPENAGENTS_REQUESTER_EMAIL: this.requesterEmailFor(channelName) } : {}),
+          },
         },
       },
     };

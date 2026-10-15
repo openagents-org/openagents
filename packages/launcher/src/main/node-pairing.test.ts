@@ -74,6 +74,23 @@ describe("pairing history", () => {
     token: "t-shared",
   }
 
+  it("keeps separate owners in one workspace and removes only the chosen connection", () => {
+    const mia = { ...shared, node_id: "mia-node", owner_email: "mia@example.com" }
+    const adam = { ...shared, node_id: "adam-node", owner_email: "adam@example.com", token: "adam-token" }
+    recordPairing("dev-1", mia)
+    recordPairing("dev-1", adam)
+    expect(listPairings()).toHaveLength(2)
+    expect(() => clearPairing(shared.workspace_id)).toThrow("specific device connection")
+    revokePairing(shared.workspace_id, ["mia-agent"], mia.node_id)
+    expect(listPairings()).toMatchObject([adam])
+    expect(listRevocations()).toMatchObject([{ owner_email: mia.owner_email, agents: ["mia-agent"] }])
+    recordPairing("dev-1", adam)
+    expect(listRevocations()).toHaveLength(1)
+    recordPairing("dev-1", { ...mia, node_id: "mia-reconnected" })
+    expect(listRevocations()).toEqual([])
+    expect(listPairings()).toHaveLength(2)
+  })
+
   it("records the first pairing and mirrors it at the top level", () => {
     recordPairing("dev-1", shared)
     const record = loadNode()
