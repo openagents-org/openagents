@@ -78,12 +78,17 @@ function conflictingHome(dir, base) {
     model_groups: { lite: 'saved/m1', standard: 'saved/m1' },
     provider: {
       saved: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/saved/v1`, apiKey: 'saved-key' }, models: { m1: {} } },
-      openagents: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/saved/v1`, apiKey: 'same-id-key' }, models: { 'agent-model': { id: 'renamed-by-user' } } },
+      xiaomi: { options: { headers: { Authorization: 'Bearer header-key', 'X-Saved': '1' } } },
+      openagents: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/saved/v1`, apiKey: 'same-id-key', headers: { Authorization: 'Bearer header-key', 'X-Saved': '1' } }, models: { 'agent-model': { id: 'renamed-by-user' } } },
     },
   }));
   fs.writeFileSync(path.join(data, 'auth.json'), JSON.stringify({
     xiaomi: { type: 'api', key: 'signed-in-key', metadata: { uid: '1', base_url: `${base}/saved/v1` } },
     openagents: { type: 'api', key: 'stored-key' },
+  }));
+  // Claude Code's MCP config, which MiMo imports unless told not to.
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({
+    mcpServers: { 'claude-only': { type: 'stdio', command: process.execPath, args: ['-e', `require('fs').writeFileSync(${JSON.stringify(path.join(dir, 'claude-mcp-started'))}, '1')`] } },
   }));
   return home;
 }
@@ -128,7 +133,7 @@ async function runTurn(prompt, { provider = 'openagents' } = {}) {
       adapter._route = () => ({ ...route, providerId: 'xiaomi', modelRef: 'xiaomi/agent-model' });
     }
     const reply = await adapter._runOpencode(prompt, 'thread');
-    return { reply, requests, files: fs.readdirSync(work) };
+    return { reply, requests, files: fs.readdirSync(work), claudeMcpStarted: fs.existsSync(path.join(dir, 'claude-mcp-started')) };
   } finally {
     process.env.HOME = savedHome;
     server.closeAllConnections();
@@ -152,13 +157,14 @@ const skip = !cli && 'Set MIMO_CODE_TEST_CLI to a MiMo Code executable';
 describe('MiMo Code CLI — a run goes only where the agent says', () => {
   for (const provider of ['openagents', 'xiaomi']) {
     it(`sends every request to the agent endpoint with the agent key (${provider} provider)`, { skip, timeout: 120000 }, async () => {
-      const { reply, requests, files } = await runTurn('Reply PONG.', { provider });
+      const { reply, requests, files, claudeMcpStarted } = await runTurn('Reply PONG.', { provider });
       assert.equal(reply, 'PONG');
       assertOnlyAgentEndpoint(requests);
       assert.equal(requests.length, 1, 'no second request to title the session');
       assert.ok(requests[0].tools.some((t) => t.startsWith('openagents-workspace_workspace_')), 'workspace MCP tools offered');
       assert.equal(requests[0].tools.includes('cron'), false, 'scheduler off');
       assert.deepEqual(files, [], 'nothing written into the project');
+      assert.equal(claudeMcpStarted, false, "Claude Code's MCP servers not started");
     });
   }
 

@@ -121,9 +121,12 @@ function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
 
   if (route.mode === 'key') {
     // `id` is set explicitly: a model entry of the same name in the user's own
-    // provider config could otherwise rename what is sent upstream.
+    // provider config could otherwise rename what is sent upstream. `headers`
+    // is cleared for the same reason — objects merge, so headers the user set
+    // on this provider were sent with every request, and an `Authorization`
+    // among them replaced the agent's key.
     const models = { [route.model]: { id: route.model, name: route.model } };
-    const options = { baseURL: route.baseURL, apiKey: route.apiKey };
+    const options = { baseURL: route.baseURL, apiKey: route.apiKey, headers: null };
     config.provider = {
       [route.providerId]: route.providerId === XIAOMI_PROVIDER
         ? { options, models }

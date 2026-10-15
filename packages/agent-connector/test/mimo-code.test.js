@@ -176,7 +176,7 @@ describe('MiMo Code — the config a run starts with', () => {
     assert.deepEqual(cfg.agent, { general: { model: ref }, explore: { model: ref } });
     assert.deepEqual(cfg.provider, {
       xiaomi: {
-        options: { baseURL: 'https://api.xiaomimimo.com/v1', apiKey: 'sk-agent' },
+        options: { baseURL: 'https://api.xiaomimimo.com/v1', apiKey: 'sk-agent', headers: null },
         models: { 'mimo-v2.6-pro': { id: 'mimo-v2.6-pro', name: 'mimo-v2.6-pro' } },
       },
     });
@@ -186,7 +186,7 @@ describe('MiMo Code — the config a run starts with', () => {
     const route = runtime.resolveMimoRoute({ LLM_API_KEY: 'k', LLM_BASE_URL: 'http://127.0.0.1:1/v1', LLM_MODEL: 'm' });
     const p = runtime.buildMimoRunConfig(route).provider.openagents;
     assert.equal(p.npm, '@ai-sdk/openai-compatible');
-    assert.deepEqual(p.options, { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k' });
+    assert.deepEqual(p.options, { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k', headers: null });
   });
 
   it('declares no provider on a sign-in, only pins to it', () => {
@@ -211,6 +211,7 @@ describe('MiMo Code — the config a run starts with', () => {
     const env = adapter._spawnEnv('thread');
     assert.equal(env.LLM_API_KEY, undefined);
     assert.equal(env.MIMOCODE_EXPERIMENTAL_CRON, '0');
+    assert.equal(env.MIMOCODE_DISABLE_CLAUDE_CODE_MCP, '1');
     assert.equal(env.MIMOCODE_DISABLE_AUTOUPDATE, '1');
     assert.equal(env.PATH, '/bin');
     const cfg = JSON.parse(env.MIMOCODE_CONFIG_CONTENT);
