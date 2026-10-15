@@ -2,15 +2,24 @@
 """Workflow engine: kickoff + step advancement.
 
 Drives the state machine directly via ``run_advance`` (session-injected) so the
-tests don't need the background-task path or an LLM — with no router key the
-step-complete judge advances and gates fall through, which is exactly the
-sequential path we assert here.
+tests don't need the background-task path or a live LLM. Completion judgments
+are explicit test inputs; unavailable judgments must leave the run waiting.
 """
 
+from unittest.mock import Mock
+
+import pytest
 from sqlalchemy import select
 
 from app.models import KanbanTask, WorkflowRun
 from app.services.workflow import run_advance
+
+
+@pytest.fixture(autouse=True)
+def completion_judge(monkeypatch):
+    judge = Mock(return_value="done")
+    monkeypatch.setattr("app.services.workflow._judge", judge)
+    return judge
 
 
 def _headers(workspace):
@@ -47,7 +56,8 @@ def _run_task_with_workflow(client, workspace, workflow):
         json={"network": workspace["id"]},
         headers=_headers(workspace),
     ).json()["data"]
-    assert run["status"] == "in_progress"
+    expected_status = "need_input" if workflow["steps"][0]["assignee"]["kind"] == "human" else "in_progress"
+    assert run["status"] == expected_status
     assert run["channel_name"] == f"task:{task['id']}"
     return task, f"task:{task['id']}"
 
@@ -57,7 +67,7 @@ def _agent_msg(channel, content="done"):
 
 
 def _human_msg(channel, content="looks good"):
-    return {"target": f"channel/{channel}", "source": "human:user", "payload": {"content": content}}
+    return {"target": f"channel/{channel}", "source": "human:alice", "payload": {"content": content}}
 
 
 class TestWorkflowRun:
@@ -222,3 +232,70 @@ class TestWorkflowRun:
         db.expire_all()
         run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
         assert run.status == "done"
+
+
+class TestWorkflowCompletionGuards:
+    def test_human_conversation_does_not_start_deploy(self, client, workspace, db, completion_judge):
+        review = _human_step("Approve production deploy", human=None)
+        wf = _make_workflow(client, workspace, [review, _agent_step("Deploy and monitor")])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        completion_judge.return_value = "working"
+        message = _human_msg(channel, "Maya can you take this up")
+        assert run_advance(db, workspace["id"], message) is False
+        completion_judge.assert_called_once()
+        prompt = completion_judge.call_args.args[0]
+        assert message["payload"]["content"] in prompt
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.current_step == wf["steps"][0]["id"]
+        assert run.status == "running"
+
+    def test_only_named_human_can_complete_step(self, client, workspace, db, completion_judge):
+        wf = _make_workflow(client, workspace, [_human_step("Review", human="alice")])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        message = _human_msg(channel, "Approved")
+        message["source"] = "human:bob"
+        assert run_advance(db, workspace["id"], message) is False
+        completion_judge.assert_not_called()
+        message["source"] = "human:alice"
+        assert run_advance(db, workspace["id"], message) is True
+
+    @pytest.mark.parametrize("message_type", ["thinking", "status", "todos"])
+    def test_intermediate_agent_output_never_completes_run(self, client, workspace, db, completion_judge, message_type):
+        wf = _make_workflow(client, workspace, [_agent_step("Deploy and monitor")])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        message = _agent_msg(channel, "I will check approval and deploy")
+        message["payload"]["message_type"] = message_type
+        assert run_advance(db, workspace["id"], message) is False
+        completion_judge.assert_not_called()
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "running"
+
+    @pytest.mark.parametrize("step", [_agent_step("Deploy"), _human_step("Approve")])
+    @pytest.mark.parametrize("verdict", [None, "", "not done", "working", "done or working"])
+    def test_failed_or_uncertain_judgment_keeps_step_waiting(self, client, workspace, db, completion_judge, step, verdict):
+        wf = _make_workflow(client, workspace, [step])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        completion_judge.return_value = verdict
+        msg = _human_msg(channel) if step["assignee"]["kind"] == "human" else _agent_msg(channel)
+        assert run_advance(db, workspace["id"], msg) is False
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "running"
+
+    def test_blocked_final_reply_does_not_finish_workflow(self, client, workspace, db, completion_judge):
+        wf = _make_workflow(client, workspace, [_agent_step("Deploy and monitor")])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        completion_judge.return_value = "working"
+        assert run_advance(db, workspace["id"], _agent_msg(channel, "Cannot deploy: approval is pending.")) is False
+
+
+    @pytest.mark.parametrize("assignee", ["alice@example.test", "Alice Example"])
+    def test_named_human_resolves_legacy_web_sender(self, client, workspace, db, assignee):
+        from app.models import User
+        db.add(User(email="alice@example.test", display_name="Alice Example"))
+        db.commit()
+        wf = _make_workflow(client, workspace, [_human_step("Review", human=assignee)])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        message = _human_msg(channel, "I reviewed and approve the draft")
+        message["source"] = "human:user"
+        message["payload"]["sender_id"] = "alice@example.test"
+        assert run_advance(db, workspace["id"], message) is True

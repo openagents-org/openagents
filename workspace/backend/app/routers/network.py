@@ -16,11 +16,11 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.config import config
@@ -62,6 +62,11 @@ class HeartbeatRequest(BaseModel):
     agent_name: str
     network: str
     session_id: Optional[str] = None  # issued by /v1/join; mismatch → session_revoked
+    # v1.1 M3 — live presence detail from the connector. All optional so an
+    # older connector's heartbeat leaves the stored values untouched.
+    presence_state: Optional[str] = None       # "idle" | "working"
+    busy_channels: Optional[List[str]] = None  # channels with a run in progress
+    queue_depth: Optional[int] = None          # queued messages across channels
 
 class ComposingRequest(BaseModel):
     network: str
@@ -158,6 +163,49 @@ async def _emit_event(event: Event, workspace, db: Session, token: str = None):
         return None
     db.commit()
     return result
+
+
+def runtime_status_by_node(db: Session, workspace, now: Optional[datetime] = None) -> dict:
+    """{node_id: {"status": online|offline, "name": ...}} for the workspace's
+    devices — the "runtime offline" signal. Shared by /v1/discover and the
+    agent directory (routers/sharing.py) so both derive it the same way."""
+    from app.models import Node
+    now = now or datetime.now(timezone.utc)
+    node_rows = db.execute(select(Node).where(Node.workspace_id == workspace.id)).scalars().all()
+    runtime_by_id = {}
+    for n in node_rows:
+        hb = n.last_heartbeat
+        if hb is not None and hb.tzinfo is None:
+            hb = hb.replace(tzinfo=timezone.utc)
+        alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
+        runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
+    return runtime_by_id
+
+
+def effective_agent_status(member: WorkspaceMember, now: Optional[datetime] = None) -> str:
+    """online/offline for an agent row: a stale heartbeat means offline even
+    when the row still says online (cloud agents have no heartbeat)."""
+    now = now or datetime.now(timezone.utc)
+    status = member.status
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    if not is_cloud and member.last_heartbeat:
+        heartbeat = member.last_heartbeat
+        if heartbeat.tzinfo is None:
+            heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+        if (now - heartbeat) > AGENT_TIMEOUT:
+            status = "offline"
+    return status
+
+
+def agent_runtime_fields(member: WorkspaceMember, runtime_by_id: dict, viewer=None) -> dict:
+    """runtime_status / runtime_name for an agent given runtime_status_by_node().
+    Cloud agents are always "online"; agents with no node report None."""
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    rt = runtime_by_id.get(str(member.node_id)) or {}
+    return {
+        "runtime_status": rt.get("status") if (member.node_id and not is_cloud) else ("online" if is_cloud else None),
+        "runtime_name": rt.get("name") if member.node_id and (viewer is None or viewer.machine or viewer.email == member.owner_email) else None,
+    }
 
 
 def _emit_event_blocking(event: Event, workspace, db: Session, token: str = None):
@@ -364,6 +412,11 @@ def heartbeat(
         payload={
             "agent_name": body.agent_name,
             "session_id": body.session_id,
+            # Presence detail (v1.1 M3); keys are present only when sent so
+            # _handle_ping can tell "idle" from "connector too old to say".
+            **({"presence_state": body.presence_state} if body.presence_state is not None else {}),
+            **({"busy_channels": body.busy_channels} if body.busy_channels is not None else {}),
+            **({"queue_depth": body.queue_depth} if body.queue_depth is not None else {}),
         },
     )
 
@@ -441,6 +494,7 @@ def resolve_token(
 @router.get("/discover")
 def discover(
     network: str = Query(..., description="Network (workspace) ID"),
+    read_at: Optional[str] = Query(None, max_length=32768),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -453,7 +507,18 @@ def discover(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    from app.services.thread_activity import read_markers, thread_activity
+    try:
+        markers = read_markers(read_at)
+    except (ValueError, TypeError):
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid read_at")
+
     now = datetime.now(timezone.utc)
+
+    # v1.1 visibility: a signed-in person does not see private threads they
+    # are not in, nor personal agents they were not granted. Machines see all.
+    from app.services.visibility import hidden_agent_names, hidden_channel_names, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
 
     # Hide removed agents — removal is a soft-delete (status='removed') so a
     # re-add can reactivate them. Offline members are intentionally kept: the
@@ -477,16 +542,20 @@ def discover(
         ).scalars().all()
     }
 
+    hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
+    # Runtime (device) liveness for the "runtime offline" signal.
+    runtime_by_id = runtime_status_by_node(db, workspace, now)
+    from app.services.access_model import agent_usable_by, legacy_agent_visibility, normalize_visibility, can_start_agent_thread
+    usable = agent_usable_by(db, str(workspace.id), [m.agent_name for m in members])
+    from app.services.thread_agent_requests import shared_agent_names
+    thread_shared = shared_agent_names(db, workspace.id)
+
     agents = []
     for m in members:
-        status = m.status
+        if m.agent_name in hidden_agents:
+            continue
+        status = effective_agent_status(m, now)
         is_cloud = (m.agent_type or "").startswith("cloud:")
-        if not is_cloud and m.last_heartbeat:
-            heartbeat = m.last_heartbeat
-            if heartbeat.tzinfo is None:
-                heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-            if (now - heartbeat) > AGENT_TIMEOUT:
-                status = "offline"
         agents.append({
             "address": f"openagents:{m.agent_name}",
             "display_name": m.display_name,
@@ -494,19 +563,37 @@ def discover(
             "status": status,
             "agent_type": m.agent_type,
             "builtin": (m.agent_type or "") == "cloud:openagents",
-            "server_host": m.server_host,
+            "server_host": m.server_host if viewer.machine or viewer.email == m.owner_email else None,
             # The device this agent runs on, stamped at join time. Null for
             # cloud agents and manual-token joins. Clients use it to group
             # agents by node without reverse-matching names from /v1/nodes.
-            "node_id": m.node_id,
-            "working_dir": m.working_dir,
+            "node_id": m.node_id if viewer.machine or viewer.email == m.owner_email else None,
+            "working_dir": m.working_dir if viewer.machine or viewer.email == m.owner_email else None,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
             "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
+            # ── v1.1 ──
+            "owner_email": m.owner_email,
+            # Deprecated personal/team flag: mirrors the `everyone` grant.
+            "visibility": legacy_agent_visibility(usable.get(m.agent_name, {})),
+            "usable_by": usable.get(m.agent_name),
+            "is_shared": m.agent_name in thread_shared or any(usable.get(m.agent_name, {}).values()),
+            "can_start_thread": can_start_agent_thread(db, str(workspace.id), viewer, m),
+            "purpose": m.purpose,
+            "example_requests": m.example_requests or [],
+            "required_inputs": m.required_inputs,
+            "cost_owner": m.cost_owner,
+            "presence_state": m.presence_state,
+            "busy_channels": m.busy_channels or [],
+            "queue_depth": m.queue_depth or 0,
+            # "online" / "offline" for the device this agent runs on; None when
+            # the agent has no node (cloud agents, manual-token joins).
+            **agent_runtime_fields(m, runtime_by_id, viewer),
         })
 
+    hidden_channels = hidden_channel_names(db, str(workspace.id), viewer)
     channels_rows = db.execute(
         select(Channel).where(
             Channel.workspace_id == workspace.id,
@@ -514,15 +601,30 @@ def discover(
         )
     ).scalars().all()
 
+    visible_channels = [c for c in channels_rows if c.name not in hidden_channels]
+    activity = thread_activity(db, str(workspace.id), visible_channels, markers, viewer.email)
+    from app.models import ThreadPin, ChannelHumanMember
+    human_counts = dict(db.execute(select(ChannelHumanMember.channel_id, func.count()).where(
+        ChannelHumanMember.channel_id.in_([c.id for c in visible_channels])
+    ).group_by(ChannelHumanMember.channel_id)).all())
+    pinned_channels = set(db.execute(select(ThreadPin.channel_id).join(Channel).where(
+        Channel.workspace_id == workspace.id, ThreadPin.user_email == viewer.email,
+    )).scalars()) if viewer.kind == "human" and viewer.email else set()
     channels = []
     for c in channels_rows:
+        if c.name in hidden_channels:
+            continue
         target_key = f"channel/{c.name}"
         created_at_ts = int(c.created_at.timestamp() * 1000) if c.created_at else None
         channels.append({
             "address": target_key,
+            **activity.get(c.name, {}),
             "title": c.title,
+            "icon": c.icon,
+            "human_count": human_counts.get(c.id, 0),
             "master": c.master_agent,
-            "orchestration_mode": c.orchestration_mode or "dynamic",
+            "orchestration_mode": "workflow" if c.orchestration_mode == "workflow" else "dynamic",
+            "response_mode": c.response_mode or "proactive",
             "orchestration_instruction": c.orchestration_instruction,
             "workflow_id": c.workflow_id,
             "participants": [p.agent_name for p in (c.participants or [])],
@@ -530,6 +632,14 @@ def discover(
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
+            "pinned": c.id in pinned_channels,
+            "is_channel": bool(c.is_channel),
+            "visibility": normalize_visibility(c.visibility, "public") or "public",
+            "owner_email": c.owner_email,
+            "participants_can_invite": bool(c.participants_can_invite),
+            "members_can_add_agents": bool(c.members_can_add_agents),
+            "director_email": c.director_email,
+            "created_by": c.created_by,
         })
 
     return success_response({

@@ -1,11 +1,12 @@
 'use client';
+import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
 import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Monitor, PlusSquare, Sparkles, Users, Waypoints,
+  BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
+  Inbox, KanbanSquare, MessageSquare, Monitor, Settings, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -22,9 +23,13 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
-import { agentLabel, isRecentAgent } from '@/lib/helpers';
+import { agentLabel } from '@/lib/helpers';
+import { ownedSidebarAgents } from '@/lib/sidebar-agents';
+import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import {
   useLayout,
@@ -34,8 +39,8 @@ import {
 } from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
-import { QrcodeMenu } from './qrcode-menu';
 import { UserMenu } from './user-menu';
+import { SidebarMembers } from './sidebar-members';
 import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 
 interface RailItem {
@@ -43,7 +48,7 @@ interface RailItem {
   label: string;
   icon: React.ReactNode;
   /** Show an attention dot — unread threads, unread notifications */
-  unread?: boolean;
+  count?: number;
 }
 
 const RAIL_SNAP_POINT = (RAIL_WIDTH_COLLAPSED + RAIL_WIDTH_EXPANDED) / 2;
@@ -190,61 +195,47 @@ function RailResizeHandle() {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
+    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
-    workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
-    onlineUsers, currentUser, tasks, setCurrentSessionId,
+    workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
+    onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
 
-  const recentAgents = agents.filter(isRecentAgent);
+  const recentAgents = ownedSidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
   const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
 
-  // Only threads the list actually shows may light the rail. Counting archived
-  // and routine sessions too — as `unreadSessionIds` does on its own — leaves
-  // the dot stuck on with nothing unread anywhere the user can see.
-  const hasUnreadThreads = sessions.some(
-    (s) =>
-      s.status === 'active' &&
-      !s.sessionId.startsWith('routine:') &&
-      unreadSessionIds.has(s.sessionId),
-  );
+  // Unread threads, @mentions and DMs — only what the Threads view lists.
+
 
   const items: RailItem[] = [
     {
       mode: 'threads',
       label: t('views.threads'),
       icon: <MessageSquare />,
-      unread: hasUnreadThreads,
+      count: unreadThreadsTotal,
     },
-    ...(hasAgents
-      ? ([
-          { mode: 'files', label: t('views.files'), icon: <FileText /> },
-          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
-          { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
-          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          {
-            mode: 'tasks',
-            label: t('views.tasks'),
-            icon: <KanbanSquare />,
-            // Attention dot when a task is blocked waiting on human input.
-            unread: tasks.some((task) => task.status === 'need_input'),
-          },
-          { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
-          {
-            mode: 'inbox',
-            label: t('views.inbox'),
-            icon: <Inbox />,
-            unread: unreadNotificationCount > 0,
-          },
-          { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
-        ] as RailItem[])
-      : []),
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
+    { mode: 'files', label: t('views.files'), icon: <FileText /> },
+    { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
+    { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
+    { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
+
+    {
+      mode: 'inbox',
+      label: t('views.inbox'),
+      icon: <Inbox />,
+      count: unreadNotificationCount,
+    },
+    { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+    { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
+    // v1.1 M2: team specialists directory
+    { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
   ];
 
   const isConnectActive = viewMode === 'connect';
@@ -333,21 +324,13 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={viewMode === item.mode}
-                    onClick={() => openView(item.mode)}
+                    isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
+                    onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
-                    {item.unread && (
-                      <span
-                        className={cn(
-                          'absolute size-1.5 rounded-full',
-                          showLabels ? 'top-1/2 right-2 -translate-y-1/2' : 'top-0.5 right-0.5',
-                          item.mode === 'inbox' ? 'bg-destructive' : 'bg-primary',
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
+                    {!!item.count && <span className={cn('shrink-0 rounded-full px-1.5 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute -right-1 -top-1', (item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -392,31 +375,32 @@ export function NavRail() {
               >
                 <SidebarMenu className="gap-0.5">
                   {recentAgents.map((agent) => (
-                    <SidebarMenuItem key={agent.agentName}>
+                    <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
-                        className={cn(!showLabels && 'justify-center!')}
+                        className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
                         aria-label={agentLabel(agent)}
                         tooltip={{ children: agentLabel(agent), hidden: showLabels }}
                         onClick={() => {
-                          // Clicking a person anticipates a conversation: open
-                          // the DM with them in the middle and dock their
-                          // profile beside it. Same canonical sorted-pair id
-                          // as thread-list's startDM.
-                          const pair = ['human:user', `openagents:${agent.agentName}`].sort();
-                          setCurrentSessionId(`dm:${pair[0]},${pair[1]}`);
+                          setSelectedAgentName(null);
+                          setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                           openView('threads');
-                          setSelectedAgentName(agent.agentName);
+                          setThreadFilter('dms');
+                          openMobileDetail();
                         }}
                       >
                         <AgentAvatar
                           name={agent.agentName}
                           size={20}
-                          status={agent.status}
+                          status={agentPresence(agent.status, pendingApprovalsByAgent, agent.agentName)}
                           showStatus
                           className="[&_svg]:size-full!"
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
+                        {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
+                        {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
+                        <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
+                      <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -425,64 +409,7 @@ export function NavRail() {
           </>
         )}
 
-        {/* Humans currently in the workspace. Collapsed there is no room for a
-            name, so each becomes an initial chip carrying the name in its
-            tooltip — the same trade the agent avatars make. */}
-        {onlineUsers.length > 0 && (
-          <>
-            <div className="px-3">
-              <Separator />
-            </div>
-            <SidebarGroup className="px-1.5">
-              {showLabels && (
-                <SidebarGroupLabel className="px-2">
-                  <Users className="me-1 size-3" />
-                  {t('nav.onlineWithCount', { count: onlineUsers.length })}
-                </SidebarGroupLabel>
-              )}
-              <SidebarGroupContent>
-                <SidebarMenu className="gap-0.5">
-                  {onlineUsers.map((user) => {
-                    const label =
-                      user.id === currentUser.id ? t('nav.you', { name: user.name }) : user.name;
-
-                    return (
-                      <SidebarMenuItem key={user.id}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div
-                              className={cn(
-                                'flex h-8 items-center gap-2 rounded-md text-sm',
-                                showLabels ? 'px-2' : 'justify-center',
-                              )}
-                            >
-                              {showLabels ? (
-                                <>
-                                  <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-                                  <span className="min-w-0 truncate text-foreground">
-                                    {label}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="relative flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase text-muted-foreground">
-                                  {user.name.trim().charAt(0) || '?'}
-                                  <span className="absolute -end-0.5 -bottom-0.5 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />
-                                </span>
-                              )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" hidden={showLabels}>
-                            {label}
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
+        <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
       {/* Connect agent + global tools */}
@@ -537,7 +464,7 @@ export function NavRail() {
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
-          <QrcodeMenu side="right" align="end" />
+          {showLabels && <div className="flex-1" aria-hidden="true" />}
           <UserMenu side="right" align="end" />
         </div>
 

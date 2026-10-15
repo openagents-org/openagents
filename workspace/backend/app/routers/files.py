@@ -42,12 +42,66 @@ from app.routers.network import (
     _resolve_workspace,
     _verify_workspace_access,
 )
+from app.services.access_model import (
+    agent_name_from_source,
+    allowed,
+    can_manage,
+    can_read_file,
+    filter_files,
+    normalize_visibility,
+    resource_for_file,
+    resource_meta,
+)
+from app.services.visibility import resolve_viewer
+from app.services.personal_files import default_file_folder
 from app.storage import get_file_store
 from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Files"])
+
+
+# ---------------------------------------------------------------------------
+# Permission model (v1.1): owner + visibility on every record.
+#
+#   owner       "human:<email>" (signed-in person) | "openagents:<agent>"
+#               (identified agent) | the legacy `source` string for machines
+#   visibility  "private" | "public" | NULL = inherit from channel_name.
+#               Default: people and identified agents → private (in a thread:
+#               inherit); legacy machine callers → public.
+# ---------------------------------------------------------------------------
+
+def _viewer_for(db, workspace, token, authorization, source=None):
+    return resolve_viewer(db, workspace, token, authorization, agent_name=agent_name_from_source(source))
+
+
+def _owner_for(viewer, source: Optional[str]) -> Optional[str]:
+    if viewer.kind == "human" and viewer.email:
+        return f"human:{viewer.email}"
+    if viewer.kind == "agent":
+        return f"openagents:{viewer.agent_name}"
+    src = (source or "").strip()
+    return src or None
+
+
+def _visibility_for(viewer, channel_name: Optional[str], requested: Optional[str]) -> Optional[str]:
+    if requested == "inherit" and channel_name:
+        return None
+    v = normalize_visibility(requested)
+    if v in ("private", "public"):
+        return v
+    if viewer.machine:
+        return "public"
+    return None if channel_name else "private"
+
+
+def _access_meta(db, workspace_id, viewer, record: FileRecord) -> dict:
+    return resource_meta(db, str(workspace_id), viewer, resource_for_file(record))
+
+
+def _visible(db, workspace_id, viewer, records):
+    return records if viewer.machine else filter_files(db, str(workspace_id), viewer, records)
 
 # Content types safe to render inline in the workspace origin. Raster images
 # only — NOT image/svg+xml (scriptable) and NOT text/html.
@@ -61,8 +115,8 @@ INLINE_SAFE_CONTENT_TYPES = {
 }
 
 
-def _organize_filename(filename: str, content_type: str) -> str:
-    """Put uploaded files into uploaded_files/ with a timestamped name."""
+def _organize_filename(filename: str, content_type: str, folder: Optional[str] = None) -> str:
+    """Use the personal default for bare names, preserving explicit destinations."""
     # Already in a folder — don't reorganize
     if "/" in filename:
         return filename
@@ -82,7 +136,7 @@ def _organize_filename(filename: str, content_type: str) -> str:
     # Clean up the name part (keep it short, remove special chars)
     clean_name = re.sub(r"[^\w\-.]", "_", name_part)[:60]
 
-    return f"uploaded_files/{timestamp}_{clean_name}{ext}"
+    return f"{folder or 'uploaded_files'}/{timestamp}_{clean_name}{ext}"
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +153,7 @@ class Base64UploadRequest(BaseModel):
     source: Optional[str] = "human:user"
     post_to_channel: bool = False       # also post a chat message with the file attached
     caption: Optional[str] = None       # message text when post_to_channel is set
+    visibility: Optional[str] = None    # private | public | None = default
 
 
 class FromUrlUploadRequest(BaseModel):
@@ -111,6 +166,7 @@ class FromUrlUploadRequest(BaseModel):
     url: str
     network: str
     filename: Optional[str] = None
+    visibility: Optional[str] = None    # private | public | None = default
     channel_name: Optional[str] = None
     source: Optional[str] = "human:user"
     post_to_channel: bool = False
@@ -210,6 +266,7 @@ async def create_folder(
     except ValueError as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, request.source)
     db.add(FileRecord(
         id=file_id,
         workspace_id=str(workspace.id),
@@ -218,6 +275,8 @@ async def create_folder(
         size=0,
         storage_key=storage_key,
         uploaded_by=request.source or "human:user",
+        owner=_owner_for(_viewer, request.source),
+        visibility="public",  # folders are shared structure; files carry their own
     ))
 
     # Commit the mutation before emitting: _emit_event only commits on the
@@ -352,6 +411,7 @@ async def upload_file(
     network: Optional[str] = Form(None),
     channel_name: Optional[str] = Form(None),
     source: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None),
     # Auth headers
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -367,7 +427,7 @@ async def upload_file(
         # Multipart upload
         data = await file.read()
         content_type = file.content_type or "application/octet-stream"
-        filename = _organize_filename(file.filename, content_type)
+        filename = file.filename
         uploaded_by = source or "human:user"
         network_id = network
     else:
@@ -388,6 +448,8 @@ async def upload_file(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, source)
+    filename = _organize_filename(filename, content_type, default_file_folder(db, workspace.id, _viewer, channel_name))
     # Save to storage backend (use basename for physical storage, full path for DB)
     file_id = str(uuid.uuid4())
     store = get_file_store()
@@ -401,6 +463,7 @@ async def upload_file(
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
     # Insert DB record
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, source)
     record = FileRecord(
         id=file_id,
         workspace_id=str(workspace.id),
@@ -410,6 +473,8 @@ async def upload_file(
         storage_key=storage_key,
         uploaded_by=uploaded_by,
         channel_name=channel_name,
+        owner=_owner_for(_viewer, uploaded_by),
+        visibility=_visibility_for(_viewer, channel_name, visibility),
     )
     db.add(record)
 
@@ -433,7 +498,9 @@ async def upload_file(
         "content_type": content_type,
         "size": len(data),
         "uploaded_by": uploaded_by,
+        "channel_name": channel_name,
         "created_at": record.created_at.isoformat() if record.created_at else None,
+        **_access_meta(db, workspace.id, _viewer, record),
     })
 
 
@@ -501,7 +568,8 @@ async def upload_file_base64(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    organized_filename = _organize_filename(body.filename, body.content_type)
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    organized_filename = _organize_filename(body.filename, body.content_type, default_file_folder(db, workspace.id, _viewer, body.channel_name))
 
     file_id = str(uuid.uuid4())
     store = get_file_store()
@@ -514,6 +582,7 @@ async def upload_file_base64(
     except ValueError as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
     record = FileRecord(
         id=file_id,
         workspace_id=str(workspace.id),
@@ -523,6 +592,8 @@ async def upload_file_base64(
         storage_key=storage_key,
         uploaded_by=body.source or "human:user",
         channel_name=body.channel_name,
+        owner=_owner_for(_viewer, body.source),
+        visibility=_visibility_for(_viewer, body.channel_name, body.visibility),
     )
     db.add(record)
 
@@ -549,8 +620,10 @@ async def upload_file_base64(
         "content_type": body.content_type,
         "size": len(data),
         "uploaded_by": body.source or "human:user",
+        "channel_name": body.channel_name,
         "created_at": record.created_at.isoformat() if record.created_at else None,
         "posted_to_channel": posted,
+        **_access_meta(db, workspace.id, _viewer, record),
     })
 
 
@@ -626,7 +699,8 @@ async def upload_file_from_url(
         )
 
     filename = body.filename or (parsed.path.rsplit("/", 1)[-1] or "download")
-    organized_filename = _organize_filename(filename, content_type)
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    organized_filename = _organize_filename(filename, content_type, default_file_folder(db, workspace.id, _viewer, body.channel_name))
 
     file_id = str(uuid.uuid4())
     store = get_file_store()
@@ -639,6 +713,7 @@ async def upload_file_from_url(
     except ValueError as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
     record = FileRecord(
         id=file_id,
         workspace_id=str(workspace.id),
@@ -648,6 +723,8 @@ async def upload_file_from_url(
         storage_key=storage_key,
         uploaded_by=body.source or "human:user",
         channel_name=body.channel_name,
+        owner=_owner_for(_viewer, body.source),
+        visibility=_visibility_for(_viewer, body.channel_name, body.visibility),
     )
     db.add(record)
 
@@ -675,8 +752,10 @@ async def upload_file_from_url(
         "content_type": content_type,
         "size": len(data),
         "uploaded_by": body.source or "human:user",
+        "channel_name": body.channel_name,
         "source_url": body.url,
         "posted_to_channel": posted,
+        **_access_meta(db, workspace.id, _viewer, record),
     })
 
 
@@ -738,6 +817,7 @@ async def upload_files_to_folder(
     path: str = Form("", description="Destination folder; empty is the root"),
     source: Optional[str] = Form(None),
     channel_name: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None),
     on_conflict: str = Form("rename", description="rename | replace | error"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -775,6 +855,9 @@ async def upload_files_to_folder(
         return json_response(ResponseCode.BAD_REQUEST, "No files in the request")
 
     uploaded_by = source or "human:user"
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, source)
+    _owner = _owner_for(_viewer, uploaded_by)
+    _vis = _visibility_for(_viewer, channel_name, visibility)
     store = get_file_store()
     loop = asyncio.get_event_loop()
 
@@ -843,6 +926,8 @@ async def upload_files_to_folder(
             storage_key=storage_key,
             uploaded_by=uploaded_by,
             channel_name=channel_name,
+            owner=_owner,
+            visibility=_vis,
         )
         db.add(record)
         db.flush()
@@ -864,7 +949,8 @@ async def upload_files_to_folder(
         ))
 
         kind = kind_for(target, content_type)
-        payload = _file_payload(record, _basename(target), kind, KIND_GROUPS[kind])
+        payload = _file_payload(record, _basename(target), kind, KIND_GROUPS[kind],
+                                _access_meta(db, workspace.id, _viewer, record))
         payload["replaced"] = replaced
         payload["renamed_from"] = name if _basename(target) != name else None
         uploaded.append(payload)
@@ -1099,7 +1185,8 @@ def list_trash(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    entries = _trash_entries(_trashed_records(db, str(workspace.id)))
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    entries = _trash_entries(_visible(db, workspace.id, _viewer, _trashed_records(db, str(workspace.id))))
     page = entries[offset:offset + limit]
 
     return success_response({
@@ -1301,15 +1388,23 @@ def list_files(
         query = query.where(FileRecord.channel_name == channel_name)
     if uploaded_by:
         query = query.where(FileRecord.uploaded_by == uploaded_by)
-    query = query.order_by(FileRecord.created_at.desc()).offset(offset).limit(limit)
-    rows = db.execute(query).scalars().all()
+    query = query.order_by(FileRecord.created_at.desc())
 
-    total = db.execute(
-        select(func.count())
-        .select_from(FileRecord)
-        .where(FileRecord.workspace_id == str(workspace.id))
-        .where(FileRecord.status == status)
-    ).scalar()
+    # Permission model: a person / identified agent sees owner ∪ grants ∪
+    # public ∪ files inheriting from a thread they can read. Machines see all.
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if _viewer.machine:
+        rows = db.execute(query.offset(offset).limit(limit)).scalars().all()
+        total = db.execute(
+            select(func.count())
+            .select_from(FileRecord)
+            .where(FileRecord.workspace_id == str(workspace.id))
+            .where(FileRecord.status == status)
+        ).scalar()
+    else:
+        visible = _visible(db, workspace.id, _viewer, db.execute(query).scalars().all())
+        total = len(visible)
+        rows = visible[offset:offset + limit]
 
     return success_response({
         "files": [
@@ -1322,6 +1417,7 @@ def list_files(
                 "channel_name": f.channel_name,
                 "status": f.status,
                 "created_at": f.created_at.isoformat() if f.created_at else None,
+                **_access_meta(db, workspace.id, _viewer, f),
             }
             for f in rows
         ],
@@ -1346,8 +1442,9 @@ def list_files(
 # a file ID.
 # ---------------------------------------------------------------------------
 
-def _file_payload(record: FileRecord, relative: str, kind: str, group: str) -> dict:
+def _file_payload(record: FileRecord, relative: str, kind: str, group: str, meta: Optional[dict] = None) -> dict:
     return {
+        **(meta or {}),
         "id": record.id,
         "filename": record.filename,
         "relative_name": relative,
@@ -1436,7 +1533,8 @@ def browse_files(
         # single character — and "uploaded_files/" is a real folder here.
         query = query.where(FileRecord.filename.startswith(f"{folder}/", autoescape=True))
 
-    records = db.execute(query).scalars().all()
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    records = _visible(db, workspace.id, _viewer, db.execute(query).scalars().all())
 
     # The subtree is fetched whole and walked here. Folder counts need every
     # descendant record anyway, and type classification can't be expressed in
@@ -1524,7 +1622,7 @@ def browse_files(
         "recursive": recursive,
         "folders": folders,
         "folder_total": len(folders),
-        "files": [_file_payload(*entry) for entry in page],
+        "files": [_file_payload(*entry, _access_meta(db, workspace.id, _viewer, entry[0])) for entry in page],
         "total": len(matched),
         "scope_total": sum(type_counts.values()),
         "type_counts": type_counts,
@@ -1536,6 +1634,59 @@ def browse_files(
 # ---------------------------------------------------------------------------
 # GET /v1/files/{file_id}/info — file metadata (no download)
 # ---------------------------------------------------------------------------
+
+class FileAccessPatch(BaseModel):
+    """PATCH /v1/files/{id}: visibility 'private' | 'public' | 'inherit'
+    (inherit = follow the thread; only for files attached to one)."""
+    network: str
+    visibility: Optional[str] = None
+
+
+@router.patch("/files/{file_id}")
+def update_file_access(
+    file_id: str,
+    body: FileAccessPatch,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Owner / admin (or a holder of the share right) changes a file's visibility."""
+    record = db.execute(
+        select(FileRecord).where(FileRecord.id == file_id)
+    ).scalar_one_or_none()
+    if not record or record.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "File not found")
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace or str(workspace.id) != str(record.workspace_id):
+        return json_response(ResponseCode.NOT_FOUND, "File not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not can_manage(db, _viewer, resource_for_file(record), str(workspace.id)):
+        return json_response(ResponseCode.FORBIDDEN, "Only the file's owner or an admin can change who sees it")
+    if body.visibility is not None:
+        raw = (body.visibility or "").strip().lower()
+        if raw in ("inherit", "", "null"):
+            if not record.channel_name:
+                return json_response(ResponseCode.BAD_REQUEST, "Only files attached to a thread can inherit its visibility")
+            record.visibility = None
+        else:
+            vis = normalize_visibility(raw)
+            if vis not in ("private", "public"):
+                return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private', 'public' or 'inherit'")
+            record.visibility = vis
+    db.commit()
+    return success_response({
+        "id": record.id,
+        "filename": record.filename,
+        "content_type": record.content_type,
+        "size": record.size,
+        "uploaded_by": record.uploaded_by,
+        "channel_name": record.channel_name,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        **_access_meta(db, workspace.id, _viewer, record),
+    })
+
 
 @router.get("/files/{file_id}/info")
 def file_info(
@@ -1559,6 +1710,10 @@ def file_info(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not can_read_file(db, str(workspace.id), _viewer, record):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this file")
+
     return success_response({
         "id": record.id,
         "filename": record.filename,
@@ -1567,6 +1722,7 @@ def file_info(
         "uploaded_by": record.uploaded_by,
         "channel_name": record.channel_name,
         "created_at": record.created_at.isoformat() if record.created_at else None,
+        **_access_meta(db, workspace.id, _viewer, record),
     })
 
 
@@ -1605,6 +1761,10 @@ async def download_file(
     effective_token = x_workspace_token or token
     if not _verify_workspace_access(workspace, effective_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    _viewer = _viewer_for(db, workspace, effective_token, authorization)
+    if not can_read_file(db, str(workspace.id), _viewer, record):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this file")
 
     store = get_file_store()
     loop = asyncio.get_event_loop()
@@ -1674,6 +1834,10 @@ async def delete_file(
 
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not allowed(db, _viewer, resource_for_file(record), "act", str(workspace.id)):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this file")
 
     record.status = "deleted"
 

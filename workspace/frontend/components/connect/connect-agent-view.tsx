@@ -12,6 +12,7 @@ import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { desktopHost } from '@/lib/desktop-host';
+import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { capture } from '@/lib/analytics';
@@ -115,7 +116,7 @@ export function ConnectAgentView({
   const isDesktop = desktopHost() !== null;
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
-  const activeTab = isDesktop ? 'node' : selectedTab;
+  const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -386,8 +387,6 @@ export function ConnectAgentView({
           {([
             { id: 'node', icon: Server, label: t('connect.tabNode') },
             { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
-            // Manual connection is being retired — kept last, with a notice.
-            { id: 'local', icon: Terminal, label: t('connect.tabLocal') },
           ] as const).map((tab) => {
             const active = activeTab === tab.id;
             const Icon = tab.icon;
@@ -427,35 +426,6 @@ export function ConnectAgentView({
           <div className="flex items-center justify-center py-16 text-muted-foreground">
             <Loader2 className="size-4 animate-spin mr-2" />
             <span className="text-xs">{t('common.loading')}</span>
-          </div>
-        ) : activeTab === 'local' ? (
-          <div>
-            {/* Retirement notice — manual connection is on its way out. */}
-            <div className="mx-auto max-w-2xl px-6 pt-5">
-              <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
-                <Terminal className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">{t('connect.manualRetireTitle')}</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t('connect.manualRetireBody')}</p>
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0" onClick={() => setSelectedTab('node')}>
-                  {t('connect.manualRetireCta')}
-                </Button>
-              </div>
-            </div>
-            <LocalAgentsTab
-              catalog={catalog}
-              catalogState={catalogState}
-              selectedAgent={selectedAgent}
-              selectedEntry={selectedCatalogEntry}
-              onSelectAgent={setSelectedAgent}
-              token={token}
-              maskedToken={maskedToken}
-              tokenCopied={tokenCopied}
-              onCopyToken={handleCopyToken}
-              isCopied={isCopied}
-              copyToClipboard={copyToClipboard}
-            />
           </div>
         ) : activeTab === 'node' ? (
           <NodesTab
@@ -881,6 +851,7 @@ function NodeCard({
               <span className="text-[15px] font-semibold truncate">{node.name}</span>
               <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">{deviceLabel(t, node.deviceType)}</span>
             </div>
+            <div className="mt-1 text-[10px] text-muted-foreground">{t('connect.nodePrivateConnection')}</div>
             {agents.length > 0 ? (
               /* Agent preview: overlapping type logos + running count */
               <div className="flex items-center gap-2 mt-1.5">
@@ -1093,6 +1064,7 @@ function NodeCard({
                       <Button size="sm" variant="ghost" disabled={busy} onClick={() => onEditAgent(a)}>
                         <Pencil className="size-3.5 mr-1" />{t('connect.nodeEdit')}
                       </Button>
+                      <AgentSharingButton agentName={a.name} />
                       <span className="flex-1" />
                       <button
                         onClick={() => queue('remove_agent', { name: a.name })}
@@ -2128,12 +2100,7 @@ export function FirstRunOnboarding() {
                   <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground/60">
-                {t('onboarding.manualRetiringNote')}{' '}
-                <button onClick={() => setAlt('local')} className="underline underline-offset-2 hover:text-foreground transition-colors">
-                  {t('onboarding.manualRetiringLink')}
-                </button>
-              </p>
+
             </>
           )}
         </div>

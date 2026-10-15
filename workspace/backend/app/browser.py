@@ -421,6 +421,25 @@ class BrowserManager:
                 result = await page.evaluate(expression)
                 return {"result": result}
 
+    async def human_input(self, tab_id: str, command: dict) -> dict:
+        """Forward a gesture on a scaled screenshot to the same local page."""
+        page = self._get_page(tab_id)
+        async with self._get_lock(tab_id):
+            kind = command['kind']
+            if kind == 'click':
+                viewport = page.viewport_size
+                if not viewport:
+                    viewport = await page.evaluate('({width: innerWidth, height: innerHeight})')
+                await page.mouse.click(min(command['x'] * viewport['width'], viewport['width'] - 1),
+                                       min(command['y'] * viewport['height'], viewport['height'] - 1))
+            elif kind == 'text':
+                await page.keyboard.insert_text(command['text'])
+            elif kind == 'key':
+                await page.keyboard.press(command['key'])
+            elif kind == 'scroll':
+                await page.mouse.wheel(command['delta_x'], command['delta_y'])
+            return {'url': page.url, 'title': await page.title()}
+
     async def screenshot(self, tab_id: str) -> bytes:
         """Take a PNG screenshot of the tab."""
         if self._is_cloud_tab(tab_id):

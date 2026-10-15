@@ -90,8 +90,16 @@ class ChannelUpdateRequest(BaseModel):
     title: Optional[str] = None
     status: Optional[str] = None
     starred: Optional[bool] = None
+    pinned: Optional[bool] = None
+    is_channel: Optional[bool] = None
+    # v1.1: "private" (owner + participants + grants) | "public" (every
+    # collaborator). "workspace" is accepted as an alias for "public".
+    visibility: Optional[str] = None
+    # v1.1: who directs the work in a shared thread ("" clears).
+    director_email: Optional[str] = None
     master_agent: Optional[str] = None  # Reassign channel master
-    orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
+    response_mode: Optional[str] = None
+    orchestration_mode: Optional[str] = None  # "dynamic" | "workflow"
     orchestration_instruction: Optional[str] = None  # legacy free-text plan
     workflow_id: Optional[str] = None  # structured workflow to drive this thread ("" clears)
     auto_title: bool = False  # When True, title update is from auto-titling (don't mark as manually set)
@@ -132,7 +140,13 @@ def _mask_bf_key(key: str | None) -> str | None:
     return key[:4] + "..."
 
 
-def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
+def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, authorization=None) -> dict:
+    from sqlalchemy.orm import object_session
+    from app.services.access_model import resolve_principal, hidden_agent_names
+    db = object_session(ws)
+    viewer = resolve_principal(db, ws, token, authorization)
+    hidden = hidden_agent_names(db, str(ws.id), viewer, members)
+    members = [m for m in members if m.agent_name not in hidden]
     agents = []
     for m in members:
         status = m.status
@@ -151,7 +165,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
             "agentType": m.agent_type,
             "status": status,
             "description": m.description,
-            "workingDir": m.working_dir,
+            "workingDir": m.working_dir if viewer.machine or viewer.email == m.owner_email else None,
             "model": m.model,
             "builtin": (m.agent_type or "") == "cloud:openagents",
             "lastHeartbeatAt": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
@@ -186,13 +200,20 @@ def _format_channel(ch: Channel) -> dict:
         "titleManuallySet": bool(ch.title_manually_set),
         "createdBy": ch.created_by,
         "masterAgent": ch.master_agent,
-        "orchestrationMode": ch.orchestration_mode or "dynamic",
+        "orchestrationMode": "workflow" if ch.orchestration_mode == "workflow" else "dynamic",
+        "responseMode": ch.response_mode or "proactive",
         "orchestrationInstruction": ch.orchestration_instruction,
         "workflowId": ch.workflow_id,
         "resumeFrom": ch.resume_from,
         "status": ch.status,
         "starred": bool(ch.starred),
+        "isChannel": bool(ch.is_channel),
         "participants": [p.agent_name for p in (ch.participants or [])],
+        "visibility": "private" if (ch.visibility or "") == "private" else "public",
+        "ownerEmail": ch.owner_email,
+        "participantsCanInvite": bool(ch.participants_can_invite),
+        "membersCanAddAgents": bool(ch.members_can_add_agents),
+        "directorEmail": ch.director_email,
         "createdAt": ch.created_at.isoformat() if ch.created_at else None,
     }
 
@@ -266,6 +287,7 @@ def create_workspace(
         member = WorkspaceMember(
             workspace_id=workspace.id,
             agent_name=body.agent_name,
+            owner_email=creator_email,
             role="master",
             agent_type=body.agent_type,
             status="online",
@@ -388,7 +410,7 @@ def get_workspace(
     ).scalars().all()
 
     now = datetime.now(timezone.utc)
-    return success_response(_format_workspace(workspace, members, now))
+    return success_response(_format_workspace(workspace, members, now, x_workspace_token, authorization))
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +435,10 @@ def update_workspace(
 
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    from app.access import verify_workspace_access
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Admin role required to change workspace settings")
 
     if body.name is not None:
         workspace.name = body.name
@@ -448,7 +474,7 @@ def update_workspace(
     ).scalars().all()
 
     now = datetime.now(timezone.utc)
-    return success_response(_format_workspace(workspace, members, now))
+    return success_response(_format_workspace(workspace, members, now, x_workspace_token, authorization))
 
 
 # ---------------------------------------------------------------------------
@@ -460,33 +486,43 @@ def claim_workspace(
     workspace_id: str,
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(None),
+    x_workspace_token: Optional[str] = Header(None),
 ):
     """
     Claim ownership of a workspace.
 
-    Requires a valid Firebase bearer token. Sets creator_email on the workspace
-    so the user can access it without a workspace token.
+    An unclaimed workspace requires both a verified person and its shared
+    workspace credential. Device credentials do not prove workspace ownership.
     """
-    bearer = _extract_bearer(authorization)
-    if not bearer:
-        return json_response(ResponseCode.UNAUTHORIZED, "Bearer token required")
-
-    from app.firebase_auth import verify_firebase_token
-    email = verify_firebase_token(bearer)
-    if not email:
+    user = resolve_current_user(db, authorization)
+    if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid or expired token")
+    email = user.email
 
     workspace = db.execute(
-        select(Workspace).where(_workspace_filter(workspace_id))
+        select(Workspace).where(_workspace_filter(workspace_id)).with_for_update()
     ).scalar_one_or_none()
 
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
-    if workspace.creator_email and workspace.creator_email != email:
+    from app.services.legacy_ownership import workspace_owner_email, inherit_unowned_resources
+    owner = workspace_owner_email(db, workspace)
+    if owner and owner != email:
         return json_response(ResponseCode.FORBIDDEN, "Workspace already claimed by another user")
 
+    if not owner and not (workspace.password_hash and x_workspace_token and
+            secrets.compare_digest(workspace.password_hash, x_workspace_token)):
+        return json_response(ResponseCode.FORBIDDEN, "The existing workspace token is required to claim ownership")
+
     workspace.creator_email = email
+    membership = db.get(WorkspaceMembership, (workspace.id, user.id))
+    if membership is None:
+        db.add(WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role="owner"))
+    else:
+        membership.role = "owner"
+    inherit_unowned_resources(db, workspace, email)
+    workspace.legacy_machine_access = False
     db.commit()
     db.refresh(workspace)
 
@@ -495,7 +531,7 @@ def claim_workspace(
     ).scalars().all()
 
     now = datetime.now(timezone.utc)
-    return success_response(_format_workspace(workspace, members, now))
+    return success_response(_format_workspace(workspace, members, now, None, authorization))
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +560,10 @@ def rotate_token(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
+    from app.access import verify_workspace_access
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
+        return json_response(ResponseCode.FORBIDDEN, "Admin role required to rotate the workspace token")
+
     new_token = secrets.token_urlsafe(32)
     workspace.password_hash = new_token
     db.commit()
@@ -532,6 +572,23 @@ def rotate_token(
         "workspace_id": str(workspace.id),
         "token": new_token,
     })
+
+
+
+def _connection_management_error(db, workspace, member, token, authorization):
+    if member.node_id:
+        from app.models import Node
+        from app.routers.nodes import _can_access_connection
+        node = db.get(Node, member.node_id)
+        if not node or not _can_access_connection(db, workspace, node, token, authorization):
+            return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage this agent")
+    elif authorization and member.owner_email:
+        # Unpairing a device does not make its agents available for takeover.
+        from app.services.visibility import resolve_viewer
+        viewer = resolve_viewer(db, workspace, token, authorization)
+        if viewer.email != member.owner_email.strip().lower():
+            return json_response(ResponseCode.FORBIDDEN, "Only the agent owner can manage this agent")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +623,9 @@ def remove_member(
 
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     db.delete(member)
     db.commit()
@@ -580,6 +640,19 @@ def remove_member(
 class MemberUpdateRequest(BaseModel):
     description: Optional[str] = None
     role: Optional[str] = None
+    # ── v1.1 ownership + specialist profile (owner/admin/machine only) ──
+    owner_email: Optional[str] = None          # "" clears
+    # DEPRECATED (permission model v1.1): accepted and ignored. What an agent
+    # can be used for is exactly its grants — see /v1/grants.
+    visibility: Optional[str] = None
+    purpose: Optional[str] = None
+    example_requests: Optional[List[str]] = None
+    required_inputs: Optional[str] = None
+    shared_instructions: Optional[str] = None
+    allowed_knowledge: Optional[List[str]] = None
+    request_approver_email: Optional[str] = None  # empty string disables request approval
+    cost_owner: Optional[str] = None           # "owner" | "workspace" | "requester" | ""
+
     enabled_skills: Optional[Dict[str, bool]] = None
     # Display label, any script. Empty string clears it (falls back to agent_name).
     display_name: Optional[str] = None
@@ -618,6 +691,71 @@ def update_member(
 
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
+
+    if member.node_id:
+        from app.models import Node
+        from app.routers.nodes import _can_access_connection
+        connection = db.get(Node, member.node_id)
+        if not connection or not _can_access_connection(db, workspace, connection, x_workspace_token, authorization):
+            return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage this agent")
+        if body.owner_email is not None and body.owner_email.strip().lower() != connection.owner_email:
+            return json_response(ResponseCode.BAD_REQUEST, "Agent ownership is inherited from its device connection")
+
+    if body.request_approver_email is not None:
+        from app.access import resolve_user_role, role_at_least
+        from app.services.visibility import resolve_viewer
+        viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+        role = resolve_user_role(db, workspace, authorization) if viewer.is_human else None
+        is_owner = bool(viewer.email) and (member.owner_email or "").lower() == viewer.email
+        if not viewer.is_human or not (is_owner or role_at_least(role, "admin")):
+            return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin may set request approval")
+        reviewer = body.request_approver_email.strip().lower()
+        if reviewer:
+            eligible = db.execute(select(User.email).join(WorkspaceMembership, WorkspaceMembership.user_id == User.id).where(
+                WorkspaceMembership.workspace_id == workspace.id, func.lower(User.email) == reviewer,
+                WorkspaceMembership.role.in_(["member", "admin", "owner"]))).scalar_one_or_none()
+            if not eligible:
+                return json_response(ResponseCode.BAD_REQUEST, "Choose a current workspace member, admin or owner")
+        member.request_approver_email = reviewer or None
+
+    # v1.1: ownership and the shared profile may only be edited by a machine,
+    # an admin/owner, or the agent's own owner. A member may *claim* an
+    # unowned agent by setting owner_email to themselves.
+    owner_fields = ("owner_email", "purpose", "example_requests",
+                    "required_inputs", "shared_instructions", "allowed_knowledge", "cost_owner")
+    if any(getattr(body, f) is not None for f in owner_fields):
+        from app.access import resolve_user_role, role_at_least
+        from app.services.visibility import resolve_viewer
+        _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+        _role = resolve_user_role(db, workspace, authorization) if _viewer.is_human else "owner"
+        _is_owner = bool(_viewer.email) and (member.owner_email or "").lower() == _viewer.email
+        _claim = (
+            body.owner_email is not None and not member.owner_email and _viewer.email
+            and body.owner_email.strip().lower() == _viewer.email
+        )
+        if not (_viewer.machine or role_at_least(_role, "admin") or _is_owner or _claim):
+            return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin may change this")
+        if body.owner_email is not None:
+            member.owner_email = body.owner_email.strip().lower() or None
+        if body.purpose is not None:
+            member.purpose = body.purpose.strip() or None
+        if body.example_requests is not None:
+            member.example_requests = [x.strip() for x in body.example_requests if x and x.strip()][:12] or None
+        if body.required_inputs is not None:
+            member.required_inputs = body.required_inputs.strip() or None
+        if body.shared_instructions is not None:
+            member.shared_instructions = body.shared_instructions.strip() or None
+        if body.allowed_knowledge is not None:
+            member.allowed_knowledge = [x.strip() for x in body.allowed_knowledge if x and x.strip()] or None
+        if body.cost_owner is not None:
+            co = body.cost_owner.strip().lower()
+            if co and co not in ("owner", "workspace", "requester"):
+                return json_response(ResponseCode.BAD_REQUEST, "cost_owner must be owner | workspace | requester")
+            member.cost_owner = co or None
 
     if body.display_name is not None:
         display_name = body.display_name.strip()
@@ -757,6 +895,9 @@ def generate_member_description(
     ).scalar_one_or_none()
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     if not _get_router_api_key():
         return json_response(
@@ -973,6 +1114,9 @@ def install_skill(
     ).scalar_one_or_none()
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     # Built-in catalog first; then fall back to this workspace's custom skills.
     skill = find_skill(body.skill_id)
@@ -1177,6 +1321,9 @@ def uninstall_skill(
     ).scalar_one_or_none()
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     skills_data = dict(member.enabled_skills or {})
     installed = [s for s in skills_data.get("installed", []) if s != body.skill_id]
@@ -1398,10 +1545,39 @@ def update_channel(
         select(Channel).where(
             Channel.workspace_id == workspace.id,
             Channel.name == channel_name,
-        )
+        ).with_for_update()
     ).scalar_one_or_none()
     if not channel:
         return json_response(ResponseCode.NOT_FOUND, "Channel not found")
+
+    from app.services.access_model import (
+        add_channel_participant, can_view_channel, resolve_principal as resolve_viewer,
+        can_manage_thread_settings, normalize_visibility,
+    )
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if not can_view_channel(db, str(workspace.id), viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+    if body.pinned is not None and (viewer.kind != "human" or not viewer.email):
+        return json_response(ResponseCode.FORBIDDEN, "Sign in to pin a thread")
+    protected = any(value is not None for value in (
+        body.title, body.status, body.master_agent, body.visibility, body.director_email, body.is_channel,
+        body.response_mode, body.orchestration_mode, body.orchestration_instruction, body.workflow_id,
+    ))
+    if protected and not can_manage_thread_settings(db, viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "Only the thread owner or an admin in this thread can change its settings")
+    if body.orchestration_mode is not None and body.orchestration_mode.strip().lower() not in ("dynamic", "workflow"):
+        return json_response(ResponseCode.BAD_REQUEST, "Choose proactive, passive, or a workflow; master mode is no longer supported")
+    if body.master_agent is not None:
+        return json_response(ResponseCode.BAD_REQUEST, "Master mode is no longer supported")
+    if body.visibility is not None:
+        vis = normalize_visibility(body.visibility)
+        if vis not in ("private", "public"):
+            return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private' or 'public'")
+        channel.visibility = vis
+        if vis == "private" and channel.owner_email:
+            add_channel_participant(db, channel, channel.owner_email)
+    if body.director_email is not None:
+        channel.director_email = body.director_email.strip().lower() or None
 
     if body.title is not None:
         channel.title = body.title
@@ -1409,21 +1585,42 @@ def update_channel(
             channel.title_manually_set = True
     if body.status is not None:
         channel.status = body.status
+    if body.is_channel is not None:
+        channel.is_channel = body.is_channel
     if body.starred is not None:
         channel.starred = body.starred
     if body.master_agent is not None:
         channel.master_agent = body.master_agent
+    if body.response_mode is not None:
+        response_mode = body.response_mode.strip().lower()
+        if response_mode not in ("proactive", "passive"):
+            return json_response(ResponseCode.BAD_REQUEST, "Invalid response_mode")
+        channel.response_mode = response_mode
+        if body.orchestration_mode != "workflow" and not (body.workflow_id or "").strip():
+            from app.services.workflow import cancel_run
+            cancel_run(db, str(workspace.id), channel.name)
+            channel.orchestration_mode = "dynamic"
+            channel.workflow_id = None
     if body.orchestration_mode is not None:
         mode = body.orchestration_mode.strip().lower()
-        if mode not in ("dynamic", "master", "workflow"):
+        if mode not in ("dynamic", "workflow"):
             return json_response(ResponseCode.BAD_REQUEST, "Invalid orchestration_mode")
+        if mode == "dynamic":
+            from app.services.workflow import cancel_run
+            cancel_run(db, str(workspace.id), channel.name)
+            channel.workflow_id = None
         channel.orchestration_mode = mode
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
     if body.workflow_id is not None:
         wid = body.workflow_id.strip()
+        if wid != (channel.workflow_id or "") or not wid:
+            from app.services.workflow import cancel_run
+            cancel_run(db, str(workspace.id), channel.name)
         channel.workflow_id = wid or None
+        if not wid:
+            channel.orchestration_mode = "dynamic"
         if wid:
             # Picking a workflow puts the thread in workflow mode and starts a
             # run (idempotent — an already-running run is left alone).
@@ -1441,9 +1638,17 @@ def update_channel(
                 if get_active_run(db, str(workspace.id), channel.name) is None:
                     start_run(db, workspace, channel.name, workflow, prev_output="")
 
+    if body.pinned is not None:
+        from app.models import ThreadPin
+        pin = db.get(ThreadPin, (channel.id, viewer.email))
+        if body.pinned and pin is None:
+            db.add(ThreadPin(channel_id=channel.id, user_email=viewer.email))
+        elif not body.pinned and pin is not None:
+            db.delete(pin)
+
     db.commit()
     db.refresh(channel)
-    return success_response(_format_channel(channel))
+    return success_response(_format_channel(channel) | ({"pinned": body.pinned} if body.pinned is not None else {}))
 
 
 # ---------------------------------------------------------------------------
@@ -1712,10 +1917,15 @@ def _team_rows(db: Session, workspace_id: str) -> List[dict]:
         .where(WorkspaceMembership.workspace_id == workspace_id)
         .order_by(WorkspaceMembership.created_at.asc())
     ).all()
+    # Older clients stored names on workspace collaborators before profiles.
+    workspace_names = dict(db.execute(
+        select(WorkspaceCollaborator.email, WorkspaceCollaborator.display_name)
+        .where(WorkspaceCollaborator.workspace_id == workspace_id)
+    ).all())
     return [
         {
             "email": email,
-            "displayName": display_name,
+            "displayName": (display_name or "").strip() or (workspace_names.get(email) or "").strip() or None,
             "avatarUrl": avatar_url,
             "role": role,
             "joinedAt": created_at.isoformat() if created_at else None,
@@ -1955,7 +2165,7 @@ def get_me(
             db.commit()  # persist the lazily created/refreshed User row
 
     effective_role = role
-    if token_access or open_workspace:
+    if not authorization and (token_access or open_workspace):
         effective_role = "owner"
 
     return success_response({
@@ -1981,6 +2191,51 @@ def get_me(
 class InviteCreateRequest(BaseModel):
     email: Optional[str] = None  # bound invite; None = open shareable link
     role: str = Field(default="member", pattern=r"^(admin|member|viewer)$")
+    # v1.1: where the invitee lands after accepting — the agent, thread or
+    # task that motivated the invite. Accepting also grants access to it
+    # (thread ACL row / agent grant), see app/routers/invites.py.
+    target_kind: Optional[str] = Field(default=None, pattern=r"^(agent|channel|task)$")
+    target_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+def _validate_invite_target(db: Session, workspace: Workspace, kind: Optional[str], target_id: Optional[str]):
+    """Return an error response when the invite's target does not exist."""
+    if not kind:
+        return None
+    target_id = (target_id or "").strip()
+    if not target_id:
+        return json_response(ResponseCode.BAD_REQUEST, "target_id is required with target_kind")
+    if kind == "channel":
+        row = db.execute(
+            select(Channel.id).where(
+                Channel.workspace_id == workspace.id,
+                Channel.name == target_id,
+                Channel.status != "deleted",
+            )
+        ).first()
+        label = "Thread"
+    elif kind == "agent":
+        row = db.execute(
+            select(WorkspaceMember.agent_name).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name == target_id,
+                WorkspaceMember.status != "removed",
+            )
+        ).first()
+        label = "Agent"
+    else:  # task
+        from app.models import KanbanTask
+        row = db.execute(
+            select(KanbanTask.id).where(
+                KanbanTask.workspace_id == workspace.id,
+                KanbanTask.id == target_id,
+            )
+        ).first()
+        label = "Task"
+    if row is None:
+        return json_response(ResponseCode.NOT_FOUND, f"{label} not found")
+    return None
 
 
 def _invite_status(inv: WorkspaceInvite) -> str:
@@ -2007,6 +2262,9 @@ def _invite_row(inv: WorkspaceInvite) -> dict:
         "createdAt": inv.created_at.isoformat() if inv.created_at else None,
         "expiresAt": inv.expires_at.isoformat() if inv.expires_at else None,
         "acceptedBy": inv.accepted_by,
+        "targetKind": inv.target_kind,
+        "targetId": inv.target_id,
+        "note": inv.note,
     }
 
 
@@ -2032,6 +2290,10 @@ def create_invite(
     if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
         return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can create invites")
 
+    target_error = _validate_invite_target(db, workspace, body.target_kind, body.target_id)
+    if target_error is not None:
+        return target_error
+
     inviter = resolve_current_user(db, authorization)
     email = (body.email or "").strip().lower() or None
     invite = WorkspaceInvite(
@@ -2041,6 +2303,9 @@ def create_invite(
         role=body.role,
         created_by=inviter.email if inviter else None,
         expires_at=datetime.now(timezone.utc) + timedelta(days=config.INVITE_TTL_DAYS),
+        target_kind=body.target_kind,
+        target_id=(body.target_id or "").strip() or None if body.target_kind else None,
+        note=(body.note or "").strip() or None,
     )
     db.add(invite)
     db.commit()
@@ -2132,15 +2397,16 @@ def create_pairing_code(
     authorization: Optional[str] = Header(None),
 ):
     """Generate a short-lived, single-use code to connect a node (device) to this
-    workspace. Owner/admin only (a workspace-token holder also qualifies). The
+    workspace. Requires a signed-in member, who owns the connection. The
     launcher redeems it at POST /v1/nodes/redeem."""
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(workspace_id))
     ).scalar_one_or_none()
     if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
-    if not verify_workspace_access(workspace, x_workspace_token, authorization, db=db, min_role="admin"):
-        return json_response(ResponseCode.FORBIDDEN, "Only an owner or admin can create pairing codes")
+    creator = resolve_current_user(db, authorization)
+    if not creator or not verify_workspace_access(workspace, None, authorization, db=db, min_role="member"):
+        return json_response(ResponseCode.FORBIDDEN, "Sign in as a workspace member to connect your device")
 
     from app.models import NodePairingCode
     from app.routers.nodes import generate_pairing_code, format_pairing_code, PAIRING_TTL

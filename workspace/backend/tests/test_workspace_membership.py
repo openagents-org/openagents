@@ -534,3 +534,67 @@ class TestViewerToken:
 
         al = [w for w in client.get("/v1/account/workspaces", headers=_auth("al")).json()["data"] if w["workspaceId"] == wid][0]
         assert al["role"] == "owner" and al["token"] is not None
+
+
+def test_team_names_use_workspace_fallback_without_overriding_profile(db):
+    from app.routers.workspaces import _team_rows
+
+    ws = Workspace(name="Names", slug="team-name-fallback")
+    other = Workspace(name="Other", slug="other-team-name-fallback")
+    db.add_all([ws, other]); db.flush()
+    for email, profile, local_name in [
+        ("named@example.com", "Current Name", "Old Name"),
+        ("legacy@example.com", None, "Legacy Name"),
+        ("blank@example.com", "  ", "Workspace Name"),
+        ("unknown@example.com", None, None),
+    ]:
+        user = User(email=email, display_name=profile)
+        db.add(user); db.flush()
+        db.add(WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="member"))
+        db.add(WorkspaceCollaborator(workspace_id=ws.id, email=email, display_name=local_name))
+    db.add(WorkspaceCollaborator(workspace_id=other.id, email="unknown@example.com", display_name="Other workspace name"))
+    db.commit()
+    names = {row["email"]: row["displayName"] for row in _team_rows(db, ws.id)}
+    assert names == {
+        "named@example.com": "Current Name",
+        "legacy@example.com": "Legacy Name",
+        "blank@example.com": "Workspace Name",
+        "unknown@example.com": None,
+    }
+
+class TestSettingsRoleBoundary:
+    def _setup(self, client, monkeypatch, role="member"):
+        _stub_identity(monkeypatch, {"owner": _claims("owner@x.com"), "sam": _claims("sam@x.com")})
+        data = client.post("/v1/workspaces", json={"name": "Settings boundary"}, headers=_auth("owner")).json()["data"]
+        wid = data["workspaceId"]
+        assert client.post(f"/v1/workspaces/{wid}/team", json={"email": "sam@x.com", "role": role}, headers=_auth("owner")).status_code == 200
+        return wid, data["token"]
+
+    def test_member_with_saved_token_stays_member_and_cannot_edit(self, client, monkeypatch):
+        wid, token = self._setup(client, monkeypatch)
+        headers = {**_auth("sam"), "X-Workspace-Token": token}
+        me = client.get(f"/v1/workspaces/{wid}/me", headers=headers).json()["data"]
+        assert me["role"] == me["effectiveRole"] == "member"
+        for body in ({"name": "Changed"}, {"settings": {"monitorMode": True}}, {"status": "deleted"}, {"require_login": False}):
+            assert client.patch(f"/v1/workspaces/{wid}", json=body, headers=headers).status_code == 403
+        assert client.post(f"/v1/workspaces/{wid}/rotate-token", headers=headers).status_code == 403
+        assert client.post(f"/v1/workspaces/{wid}/invites", json={"role": "member"}, headers=headers).status_code == 403
+        ws = client.get(f"/v1/workspaces/{wid}", headers=_auth("owner")).json()["data"]
+        assert ws["name"] == "Settings boundary"
+        assert client.get(f"/v1/workspaces/{wid}", headers={"X-Workspace-Token": token}).status_code == 200
+
+    def test_members_and_viewers_receive_no_machine_token(self, client, monkeypatch):
+        for role in ("member", "viewer"):
+            wid, _ = self._setup(client, monkeypatch, role)
+            rows = client.get("/v1/account/workspaces", headers=_auth("sam")).json()["data"]
+            listed = next(ws for ws in rows if ws["workspaceId"] == wid)
+            assert listed["token"] is None
+            assert client.get(f"/v1/workspaces/{wid}", headers=_auth("sam")).status_code == 200
+
+    def test_admin_can_edit_and_rotate_token(self, client, monkeypatch):
+        wid, token = self._setup(client, monkeypatch, "admin")
+        headers = {**_auth("sam"), "X-Workspace-Token": token}
+        me = client.get(f"/v1/workspaces/{wid}/me", headers=headers).json()["data"]
+        assert me["effectiveRole"] == "admin"
+        assert client.patch(f"/v1/workspaces/{wid}", json={"name": "Updated"}, headers=headers).status_code == 200
+        assert client.post(f"/v1/workspaces/{wid}/rotate-token", headers=headers).status_code == 200

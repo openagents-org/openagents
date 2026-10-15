@@ -94,7 +94,7 @@ def db():
 
 
 @pytest.fixture
-def workspace(client):
+def workspace(client, db):
     """Create a workspace and return its details (id, slug, token)."""
     resp = client.post("/v1/workspaces", json={
         "name": "Test Workspace",
@@ -103,6 +103,12 @@ def workspace(client):
     })
     assert resp.status_code == 200
     data = resp.json()["data"]
+    # Most legacy workspace tests use a shared starter agent; make sharing explicit.
+    from app.services.access_model import get_or_create_builtin_groups, create_grant
+    everyone = get_or_create_builtin_groups(db, data['workspaceId'])['everyone']
+    create_grant(db, data['workspaceId'], resource_kind='agent', resource_id='agent-alpha',
+                 grantee_kind='group', grantee_id=everyone.id, rights=['act'], granted_by='test@example.com')
+    db.commit()
     return {
         "id": data["workspaceId"],
         "slug": data["slug"],

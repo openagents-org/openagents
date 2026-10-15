@@ -18,7 +18,7 @@ from sqlalchemy import and_, or_, select
 
 from app.config import config
 from app.database import SessionLocal
-from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
+from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace, WorkspaceMember
 from app.services.cloud_providers import (
     audio_generation,
     chat_completion,
@@ -239,12 +239,8 @@ async def _invoke_chat_agent(
     )
 
     await _post_response(
-        db,
-        workspace_id,
-        channel_target,
-        agent_name,
-        response_text,
-        depth,
+        db, workspace_id, channel_target, agent_name,
+        response_text, depth, in_reply_to=event_data.get("id"),
         trigger_source=event_data.get("source"),
     )
 
@@ -413,14 +409,9 @@ async def _invoke_assistant_agent(
         explicit_targets = yumi.delegation_targets(final_text, members, agent_name)
 
     await _post_response(
-        db,
-        workspace_id,
-        channel_target,
-        agent_name,
-        final_text,
-        depth,
+        db, workspace_id, channel_target, agent_name, final_text, depth,
+        explicit_targets=explicit_targets, in_reply_to=event_data.get("id"),
         trigger_source=event_data.get("source"),
-        explicit_targets=explicit_targets,
     )
 
 
@@ -491,16 +482,14 @@ async def _invoke_image_agent(
         channel_target,
         agent_name,
         f"Here's the generated image for: *{instruction[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
+        attachments=[{
+            "file_id": file_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size": len(image_bytes),
+        }],
         trigger_source=event_data.get("source"),
-        attachments=[
-            {
-                "file_id": file_id,
-                "filename": filename,
-                "content_type": content_type,
-                "size": len(image_bytes),
-            }
-        ],
     )
 
 
@@ -550,16 +539,14 @@ async def _invoke_audio_agent(
         channel_target,
         agent_name,
         f"Generated speech for: *{text[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
+        attachments=[{
+            "file_id": file_id,
+            "filename": filename,
+            "content_type": f"audio/{audio_format}",
+            "size": len(audio_bytes),
+        }],
         trigger_source=event_data.get("source"),
-        attachments=[
-            {
-                "file_id": file_id,
-                "filename": filename,
-                "content_type": f"audio/{audio_format}",
-                "size": len(audio_bytes),
-            }
-        ],
     )
 
 
@@ -827,7 +814,14 @@ async def _upload_image(
 
     file_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"uploaded_files/{timestamp}_generated.{image_format}"
+    from app.services.personal_files import default_file_folder
+    from app.services.access_model import Principal
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.agent_name == agent_name,
+    )).scalar_one_or_none()
+    viewer = Principal("agent", agent_name=agent_name, owner_email=member.owner_email if member else None, workspace_id=workspace_id)
+    folder = default_file_folder(db, workspace_id, viewer, channel_target.removeprefix("channel/")) or "uploaded_files"
+    filename = f"{folder}/{timestamp}_generated.{image_format}"
     storage_name = f"{timestamp}_generated.{image_format}"
 
     store = get_file_store()
@@ -852,6 +846,8 @@ async def _upload_image(
         storage_key=storage_key,
         uploaded_by=f"openagents:{agent_name}",
         channel_name=channel_name,
+        owner=f"openagents:{agent_name}",
+        visibility=None if channel_name else "public",
     )
     db.add(record)
     db.flush()
@@ -869,6 +865,7 @@ async def _post_response(
     attachments: Optional[list] = None,
     explicit_targets: Optional[list] = None,
     status_kind: str = "completed",
+    in_reply_to: Optional[str] = None,
     trigger_source: Optional[str] = None,
 ) -> None:
     """Post the cloud agent's response back through the event pipeline.
@@ -904,6 +901,8 @@ async def _post_response(
         payload["attachments"] = attachments
 
     metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
+    if in_reply_to:
+        metadata["in_reply_to"] = in_reply_to
     if explicit_targets is not None:
         metadata["explicit_targets"] = list(explicit_targets)
     if reply_visibility == "direct" and reply_target.startswith("openagents:"):
@@ -1061,8 +1060,8 @@ async def _post_error_message(
             agent_name,
             f"[Error] {error_text}",
             depth=0,
-            trigger_source=event_data.get("source"),
-            status_kind="failed",
+            status_kind="failed", in_reply_to=event_data.get("id"),
+        trigger_source=event_data.get("source"),
         )
     except Exception:
         logger.exception("cloud_agent: failed to post error message for %s", agent_name)

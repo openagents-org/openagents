@@ -20,7 +20,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as Po
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, app_version, auth, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, watches, workflows, workspaces
+from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -526,6 +526,43 @@ class UserAgentLogMiddleware(BaseHTTPMiddleware):
 app.add_middleware(UserAgentLogMiddleware)
 
 
+class AgentIdentityMiddleware:
+    """Pure-ASGI: stash the agent identity of a machine call (header
+    `X-Agent-Name`, else `source=openagents:<name>` in the query string) in a
+    ContextVar so access_model.resolve_principal can pick it up without every
+    router growing a new parameter. A human bearer always wins over it."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from urllib.parse import parse_qs
+
+        from app.services.access_model import (
+            agent_name_from_request,
+            reset_request_agent_name,
+            set_request_agent_name,
+        )
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        query = {}
+        try:
+            raw = scope.get("query_string") or b""
+            if b"source=" in raw:
+                query = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="replace")).items() if v}
+        except Exception:
+            query = {}
+        token = set_request_agent_name(agent_name_from_request(headers, query))
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            reset_request_agent_name(token)
+
+
+app.add_middleware(AgentIdentityMiddleware)
+
+
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing
 # from a bare 422. Triggered any time FastAPI rejects a request body
@@ -551,8 +588,17 @@ async def _log_validation_errors(request: Request, exc: RequestValidationError):
 
 
 # Routers
+app.include_router(reactions.router)
+app.include_router(agent_services.router)
 app.include_router(account.router)
 app.include_router(app_version.router)
+app.include_router(approvals.router)
+app.include_router(sharing.router)
+app.include_router(groups.router)
+app.include_router(grants.router)
+app.include_router(thread_access.router)
+app.include_router(agent_profile.router)
+app.include_router(briefs.router)
 app.include_router(auth.router)
 app.include_router(campaign.router)
 app.include_router(pilot.router)
@@ -563,17 +609,20 @@ app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
+app.include_router(web_projects.router)
 app.include_router(integrations.router)
 app.include_router(invites.router)
 app.include_router(knowledge.router)
 app.include_router(model_access.router)
 app.include_router(network.router)
 app.include_router(nodes.router)
+app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay after devices.router
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)
+app.include_router(issues.router)
 app.include_router(tasks.router)
 app.include_router(todos.router)
 app.include_router(workflows.router)

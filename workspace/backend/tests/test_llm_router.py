@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.models import Channel, ChannelMember, EventRecord, WorkspaceMember, Workspace
-from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
+from app.mods.workspace_mod import _route_with_llm, _handle_message_posted
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import PipelineContext
 
@@ -213,71 +213,6 @@ class TestRouteWithLLM:
         assert result == [], "self-loop must be rejected"
 
 
-class TestMasterMode:
-    """Deterministic 'master' orchestration mode — no LLM. Star topology:
-    humans and sub-agents route to the master; the master delegates via
-    @mention."""
-
-    def test_human_routes_to_master(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("human:user", "channel/session-test", "please do the thing")
-        assert _master_targets(event, ch, []) == ["agent-master"]
-
-    def test_sub_agent_returns_to_master(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        # agent-worker (a sub-agent) reports back → routes to the master hub
-        event = _make_event("openagents:agent-worker", "channel/session-test", "here are my results")
-        assert _master_targets(event, ch, []) == ["agent-master"]
-
-    def test_master_delegates_via_mention(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "@agent-worker please handle this")
-        assert _master_targets(event, ch, ["agent-worker"]) == ["agent-worker"]
-
-    def test_master_no_mention_stops(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        # Master answered the human directly (no delegation) → stop
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "Here is the answer directly.")
-        assert _master_targets(event, ch, []) == []
-
-    def test_master_self_mention_excluded(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "@agent-master note to self")
-        assert _master_targets(event, ch, ["agent-master"]) == []
-
-    def test_no_master_returns_empty(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        ch.master_agent = None
-        db.flush()
-        event = _make_event("human:user", "channel/session-test", "hello")
-        assert _master_targets(event, ch, []) == []
-
-    def test_handle_message_posted_master_mode_human(self, db, multi_agent_workspace):
-        """End-to-end: mode='master', human message → target the master,
-        with no LLM call involved."""
-        ws = multi_agent_workspace["workspace"]
-        ch = multi_agent_workspace["channel"]
-        ch.orchestration_mode = "master"
-        db.flush()
-        event = _make_event("human:user", "channel/session-test", "kick things off")
-        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
-        out = _run(_handle_message_posted(event, ctx))
-        assert out.metadata.get("target_agents") == ["agent-master"]
-
-    def test_handle_message_posted_master_mode_subagent_returns(self, db, multi_agent_workspace):
-        ws = multi_agent_workspace["workspace"]
-        ch = multi_agent_workspace["channel"]
-        ch.orchestration_mode = "master"
-        db.flush()
-        event = _make_event("openagents:agent-worker", "channel/session-test", "done, results attached")
-        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
-        out = _run(_handle_message_posted(event, ctx))
-        assert out.metadata.get("target_agents") == ["agent-master"]
-
-
 class TestHumanMentionDeterministicRouting:
     """A human @mention is an explicit addressing decision (#333).
 
@@ -351,9 +286,8 @@ class TestHumanMentionDeterministicRouting:
         assert out.metadata.get("target_agents") == ["agent-master"]
         mock_router.assert_called_once()
 
-    def test_master_mode_human_mention_still_routes_to_master(self, db, multi_agent_workspace):
-        """Master mode keeps its star topology: the hub owns every human
-        request, mention or not."""
+    def test_legacy_master_mode_honors_explicit_recipient(self, db, multi_agent_workspace):
+        """Retired master mode uses normal addressing semantics."""
         ws = multi_agent_workspace["workspace"]
         ch = multi_agent_workspace["channel"]
         ch.orchestration_mode = "master"
@@ -361,7 +295,7 @@ class TestHumanMentionDeterministicRouting:
         event = _make_event("human:user", "channel/session-test", "@agent-worker can you check the logs?")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
-        assert out.metadata.get("target_agents") == ["agent-master"]
+        assert out.metadata.get("target_agents") == ["agent-worker"]
 
 
 class TestWorkflowMode:
@@ -470,13 +404,10 @@ class TestMessagePostedTargetAgents:
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
-    def test_human_message_always_routed_even_if_router_says_stop(
+    def test_proactive_human_message_stays_silent_when_router_says_stop(
         self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace,
     ):
-        """A human message must never fall through to the sentinel.
-        If the router mistakenly says 'stop' for a human question, the
-        safety net routes to the master/fallback so the user gets a reply.
-        """
+        """The router can identify human conversation and choose no agent."""
         from app.mods.workspace_mod import _handle_message_posted
         from openagents.core.onm_mods import PipelineContext
 
@@ -489,8 +420,7 @@ class TestMessagePostedTargetAgents:
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
 
         out = _run(_handle_message_posted(event, ctx))
-        # Master is the fallback; must NOT be the sentinel
-        assert out.metadata.get("target_agents") == ["agent-master"]
+        assert out.metadata.get("target_agents") == ["__no_response__"]
 
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
@@ -536,11 +466,10 @@ class TestMessagePostedTargetAgents:
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
-    def test_human_message_routed_to_fallback_on_llm_failure(
+    def test_proactive_human_message_stays_silent_on_llm_failure(
         self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace,
     ):
-        """LLM router exception on a human message → fallback target, not sentinel.
-        Humans must always get a response, even if routing fails."""
+        """A failed classifier must not arbitrarily interrupt a human conversation."""
         from app.mods.workspace_mod import _handle_message_posted
         from openagents.core.onm_mods import PipelineContext
 
@@ -553,7 +482,7 @@ class TestMessagePostedTargetAgents:
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
 
         out = _run(_handle_message_posted(event, ctx))
-        assert out.metadata.get("target_agents") == ["agent-master"]
+        assert out.metadata.get("target_agents") == ["__no_response__"]
 
 
 class TestStopRestsTheThread:
@@ -666,7 +595,7 @@ class TestStopRestsTheThread:
         db.flush()
         self._stop(db, ws, 2_000)
 
-        event = _make_event("human:user", "channel/session-test", "kick things off")
+        event = _make_event("human:user", "channel/session-test", "@agent-master kick things off")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
 

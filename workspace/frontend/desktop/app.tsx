@@ -157,6 +157,62 @@ const ROUTES: RouteTable = [
   settingsRoute('/:workspaceId/settings/profile', SettingsProfile),
   settingsRoute('/:workspaceId/settings/security', SettingsSecurity),
   {
+    pattern: '/:workspaceId/files',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/files/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/knowledge',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/knowledge/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/issues',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/issues/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/threads/:threadId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
     pattern: '/:workspaceId',
     mountKey: workspaceKey,
     render: (params) => (

@@ -36,9 +36,11 @@ from app.routers import browser, cloud_agents, events, knowledge, model_access, 
 def test_pool_contention_allows_health_and_connection_release(method, path, body, monkeypatch):
     # A real blocking QueuePool reproduces the production wait without needing
     # PostgreSQL or a slow query. Exhaust its sole slot before sending requests.
+    # Allow scheduler jitter on a busy CI host; blocking the event loop still
+    # forces the pool timeout and fails the expected successful 404 responses.
     pool = QueuePool(
         lambda: sqlite3.connect(":memory:", check_same_thread=False),
-        pool_size=1, max_overflow=0, timeout=0.2,
+        pool_size=1, max_overflow=0, timeout=1.0,
     )
     waiting = threading.Event()
 

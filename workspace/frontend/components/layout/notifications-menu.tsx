@@ -5,6 +5,7 @@ import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NotificationCard } from '@/components/inbox/inbox-view';
+import { inboxSessionTarget } from '@/lib/inbox';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { NotificationItem } from '@/lib/types';
@@ -49,8 +50,9 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
 
   const handleNavigate = (notification: NotificationItem) => {
     if (!notification.isRead) markNotificationRead(notification.id);
-    if (notification.channelName && sessions.some((s) => s.sessionId === notification.channelName)) {
-      setCurrentSessionId(notification.channelName);
+    const target = inboxSessionTarget(notification, (id) => sessions.some((s) => s.sessionId === id));
+    if (target) {
+      setCurrentSessionId(target);
       openView('threads');
     }
     setOpen(false);
