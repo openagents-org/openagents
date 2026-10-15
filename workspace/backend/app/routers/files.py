@@ -1726,7 +1726,7 @@ def file_info(
 # ---------------------------------------------------------------------------
 
 @router.get("/files/{file_id}")
-async def download_file(
+def download_file(
     file_id: str,
     token: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
@@ -1762,9 +1762,10 @@ async def download_file(
         return json_response(ResponseCode.FORBIDDEN, "No access to this file")
 
     store = get_file_store()
-    loop = asyncio.get_event_loop()
     try:
-        data = await loop.run_in_executor(None, store.read, record.storage_key)
+        # This synchronous route runs in FastAPI's bounded worker pool, so
+        # both database authorization and storage reads leave the event loop free.
+        data = store.read(record.storage_key)
     except FileNotFoundError:
         return json_response(ResponseCode.NOT_FOUND, "File data not found in storage")
 
