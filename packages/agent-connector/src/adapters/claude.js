@@ -22,7 +22,7 @@ const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
-const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
+const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
@@ -827,6 +827,11 @@ class ClaudeAdapter extends BaseAdapter {
       watchdogTimer: null,
       awaitingToolResult: false,
       userStopped: false,
+      // Background tasks (run_in_background Bash, background sub-agents) the
+      // CLI reports as still running, from its `background_tasks_changed`
+      // events. Killing the process kills them too, and a plan nudge sent
+      // while they run makes the agent re-announce work it is waiting on.
+      backgroundTasks: 0,
     };
 
     if (proc.stderr) {
@@ -933,10 +938,19 @@ class ClaudeAdapter extends BaseAdapter {
             try { await this.sendResponse(pp.msgChannel, trailing); } catch {}
           }
           pp.lastResponseText.length = 0;
+          // The plan nudge was held back while background work ran (see
+          // _queueTodoNudge); once the last task has reported, pick it up.
+          if (!event.is_error && pp.backgroundTasks === 0) {
+            await this._resumePlanAfterBackground(pp.msgChannel);
+          }
         }
       } else if (eventType === 'system') {
         const subtype = event.subtype || '';
         const message = event.message || '';
+        if (subtype === 'background_tasks_changed') {
+          pp.backgroundTasks = Array.isArray(event.tasks) ? event.tasks.length : 0;
+          return;
+        }
         if (subtype.includes('compact') || String(message).toLowerCase().includes('compact')) {
           await this.sendStatus(pp.msgChannel, String(message) || 'Compacting conversation...');
         }
@@ -1127,22 +1141,109 @@ class ClaudeAdapter extends BaseAdapter {
   /** Queue a reminder about unfinished todos (skipped when this turn IS one). */
   async _queueTodoNudge(msgChannel, msg) {
     if (msg._todoNudge) return;
+    const nudge = await this._buildTodoNudge(msgChannel);
+    if (!nudge) return;
+    if (!this._channelQueues[msgChannel]) this._channelQueues[msgChannel] = [];
+    if (this._channelQueues[msgChannel].some((m) => m._todoNudge)) return;
+    this._channelQueues[msgChannel].push(nudge);
+  }
+
+  /**
+   * The "you have N remaining tasks" message, or null when there is nothing
+   * to nudge: no unfinished todos, a stop in progress, or background work
+   * still running in this channel's process (the agent has said it is waiting
+   * on it; nudging made it re-announce the plan — and, combined with a
+   * restart, re-launch work that had been killed). The nudge is picked up
+   * again once the background tasks report (_resumePlanAfterBackground).
+   */
+  async _buildTodoNudge(msgChannel) {
     // A stop ends the plan, it does not pause it. When the stop lands while
     // this turn is finishing, nudging here is what handed the agent its own
     // "please continue" right after it announced it had stopped.
-    if (this._stoppingChannels.has(msgChannel)) return;
+    if (this._stoppingChannels.has(msgChannel)) return null;
+    const pp = this._persistentProcs[msgChannel];
+    if (pp && pp.alive && pp.backgroundTasks > 0) {
+      this._log(`Holding the plan nudge for ${msgChannel} — ${pp.backgroundTasks} background task(s) still running`);
+      return null;
+    }
     try {
       const remaining = await this.getRemainingTodos(msgChannel);
-      if (remaining.length > 0) {
-        const items = remaining.map((t) => `- ${t.content}`).join('\n');
-        const nudge = `You have ${remaining.length} remaining task(s) from your plan:\n${items}\n\nPlease continue working on them.`;
-        if (!this._channelQueues[msgChannel]) this._channelQueues[msgChannel] = [];
-        this._channelQueues[msgChannel].push({
-          content: nudge, senderType: 'system', senderName: 'system:todos',
-          sessionId: msgChannel, messageType: 'chat', _todoNudge: true,
-        });
-      }
-    } catch {}
+      if (remaining.length === 0) return null;
+      const items = remaining.map((t) => `- ${t.content}`).join('\n');
+      return {
+        content: `You have ${remaining.length} remaining task(s) from your plan:\n${items}\n\nPlease continue working on them.`,
+        senderType: 'system', senderName: 'system:todos',
+        sessionId: msgChannel, messageType: 'chat', _todoNudge: true,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Background work finished and the CLI wrapped it up on its own. If the
+   * plan still has open items, continue it now — queued behind a running
+   * turn, or as its own turn when the channel is idle.
+   */
+  async _resumePlanAfterBackground(msgChannel) {
+    const nudge = await this._buildTodoNudge(msgChannel);
+    if (!nudge) return;
+    if (this._channelBusy.has(msgChannel)) {
+      if (!this._channelQueues[msgChannel]) this._channelQueues[msgChannel] = [];
+      if (!this._channelQueues[msgChannel].some((m) => m._todoNudge)) this._channelQueues[msgChannel].push(nudge);
+      return;
+    }
+    this._channelWorker(msgChannel, nudge);
+  }
+
+  /**
+   * The pinned decision log / glossary, rendered exactly as in the system
+   * prompt, framed as replacing the copy the running session started with.
+   * Returns '' when nothing is pinned.
+   */
+  _pinnedUpdatePreamble(msgChannel, decisionLog, glossary) {
+    const sections = buildPinnedSections({
+      toolMode: this.toolMode,
+      channelName: msgChannel,
+      mode: this._mode,
+      decisionLog,
+      glossary,
+    }).join('').trim();
+    if (!sections) return '';
+    return '[Pinned knowledge was updated since this session started. The ' +
+      'sections below replace the earlier versions in your instructions — ' +
+      'treat them as current.]\n\n' + sections;
+  }
+
+  /**
+   * Wait for the next `result` on an already-addressed process without
+   * writing anything to it. If the process stays completely silent for
+   * `quietMs` there is no second turn coming; resolve with { quiet: true } so
+   * the caller falls back to the ordinary empty-outcome handling. Once output
+   * starts, the regular watchdog takes over.
+   */
+  _awaitNextTurn(pp, quietMs = 20_000) {
+    const startedAt = Date.now();
+    return new Promise((resolve) => {
+      let quietTimer = null;
+      const finish = (r) => {
+        if (quietTimer) { clearInterval(quietTimer); quietTimer = null; }
+        this._stopWatchdog(pp);
+        resolve(r);
+      };
+      pp.messageResolve = finish;
+      quietTimer = setInterval(() => {
+        if (pp.lastStdoutTime > startedAt) {
+          clearInterval(quietTimer);
+          quietTimer = null;
+          this._startWatchdog(pp);
+        } else if (Date.now() - startedAt >= quietMs) {
+          pp.messageResolve = null;
+          finish({ quiet: true });
+        }
+      }, 500);
+      if (quietTimer.unref) quietTimer.unref();
+    });
   }
 
   async _handleMessage(msg) {
@@ -1222,22 +1323,34 @@ class ClaudeAdapter extends BaseAdapter {
       const modeStale = existingPP.spawnMode !== this._mode;
       const pinnedStale = pinnedHash !== null && existingPP.pinnedHash !== pinnedHash;
       const modelStale = (existingPP.spawnModel || null) !== (this.workspaceModel || null);
-      if (modeStale || pinnedStale || modelStale) {
+      if (modeStale || modelStale) {
         // Kill it and fall through to a fresh spawn: --resume keeps the
         // conversation (it lives in the CLI transcript), while the new spawn
-        // carries the current mode and re-pins the current knowledge.
+        // carries the current mode / model flags (and the current pins).
         this._log(modeStale
           ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
-          : modelStale
-            ? `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`
-            : `Pinned knowledge changed for ${msgChannel} — respawning with resume to re-pin it`);
+          : `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`);
         await this._killPersistentProc(msgChannel);
       } else {
-        this._log(`Reusing persistent process for ${msgChannel}`);
+        // A pinned-knowledge change no longer restarts the process. Agents
+        // edit the decision log themselves on nearly every decision, and the
+        // restart killed whatever they had running in the background (a
+        // sub-agent mid-build) and replayed into a false "agent hit an error".
+        // The new version rides in with this message instead and supersedes
+        // the copy baked into the system prompt.
+        let turnContent = content;
+        if (pinnedStale) {
+          const update = this._pinnedUpdatePreamble(msgChannel, decisionLogOpt, glossaryOpt);
+          if (update) turnContent = `${update}\n\n---\n\n${content}`;
+          existingPP.pinnedHash = pinnedHash;
+          this._log(`Pinned knowledge changed for ${msgChannel} — passing the update to the running session`);
+        } else {
+          this._log(`Reusing persistent process for ${msgChannel}`);
+        }
         if (await this._bailOnStopDuringTurn(msgChannel)) return;
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
-        const result = await this._sendToPersistentProc(existingPP, content);
+        const result = await this._sendToPersistentProc(existingPP, turnContent);
         if (existingPP.userStopped) {
           await this._finishUserStop(msgChannel);
           return;
@@ -1319,9 +1432,22 @@ class ClaudeAdapter extends BaseAdapter {
         ]);
         pp.spawnMode = this._mode;
         pp.spawnModel = this.workspaceModel || null;
+        const resumed = attempt === 0 && !!this._channelSessions[msgChannel];
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
-        const result = await this._sendToPersistentProc(pp, effectiveContent);
+        let result = await this._sendToPersistentProc(pp, effectiveContent);
+
+        // A resumed session can first report something left over from before
+        // the restart — typically a background task that died with the old
+        // process — as a turn with no text and no error. That is not this
+        // message's answer: wait for the real turn instead of posting "the
+        // agent hit an error" and throwing the session away.
+        if (resumed && result.resultEvent && !pp.userStopped
+            && !pp.everPostedAnything && !pp.lastErrorText
+            && !this._composeFinalResponse(pp)) {
+          this._log(`Empty leftover result after resume for ${msgChannel} — waiting for the real turn`);
+          result = await this._awaitNextTurn(pp);
+        }
 
         if (pp.userStopped) {
           await this._finishUserStop(msgChannel);

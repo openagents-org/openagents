@@ -35,3 +35,13 @@ it('keeps captions, multiple attachments, and the local DM session identity', ()
   expect(pending[0].metadata.attachments).toHaveLength(2);
   expect(pending[0].sessionId).toBe('dm:human:ann,human:sam');
 });
+
+
+it('shows a proactive waiting bubble only after the server selects an agent', () => {
+  const sent = { ...event, metadata: { target_agents: ['worker'] } } as ONMEvent;
+  const pending = acknowledgeMessage([user], user.messageId, loading.messageId, sent, loading);
+  expect(pending.map(m => m.messageType)).toEqual(['chat', 'loading']);
+  expect(pending[1].senderName).toBe('worker');
+  expect(pending[1].metadata._requestId).toBe(sent.id);
+  expect(acknowledgeMessage([user], user.messageId, loading.messageId, event, loading)).toHaveLength(1);
+});

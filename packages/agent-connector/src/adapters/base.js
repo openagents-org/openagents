@@ -122,6 +122,18 @@ const CURSOR_RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
 
+// ── Control-poller deadlines ──
+// The control poller is one chain of awaits, and it is the only thing that
+// delivers Stop. When a link in it never settles — it has: a control poll
+// whose response was cut off mid-body — the agent goes on working and
+// answering while every later control event sits unread until the daemon
+// restarts, and nothing in the log says so. So neither the fetch nor a
+// handler is awaited without a bound. A handler that overruns is not
+// cancelled or re-run; the poller only stops waiting for it.
+const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
+const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
+const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
+
 /**
  * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
  * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
@@ -207,6 +219,8 @@ class BaseAdapter {
     this.workspaceModel = null;
     this._lastControlId = null;
     this._controlWake = null;
+    this._CONTROL_POLL_DEADLINE_MS = CONTROL_POLL_DEADLINE_MS;
+    this._CONTROL_ACTION_DEADLINE_MS = CONTROL_ACTION_DEADLINE_MS;
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
@@ -281,6 +295,9 @@ class BaseAdapter {
     // Runs of identical background failures (see failure-streak.js).
     this._pollFailures = new FailureStreak();
     this._heartbeatFailures = new FailureStreak();
+    // The control poller (Stop, mode changes) fails silently otherwise: its
+    // errors are caught so the loop keeps going, and nothing else logs them.
+    this._controlFailures = new FailureStreak();
   }
 
   // ------------------------------------------------------------------
@@ -611,10 +628,16 @@ class BaseAdapter {
 
   async _pollControl() {
     try {
-      const events = await this.client.pollControl(
-        this.workspaceId, this.agentName, this.token,
-        { after: this._lastControlId }
+      const events = await this._withinControlDeadline(
+        this.client.pollControl(
+          this.workspaceId, this.agentName, this.token,
+          { after: this._lastControlId }
+        ),
+        this._CONTROL_POLL_DEADLINE_MS, 'control poll',
       );
+      // A poll abandoned at its deadline delivered nothing; the cursor has
+      // not moved, so the next one asks for the same events again.
+      if (events === CONTROL_DEADLINE_HIT) return;
       for (const ev of events) {
         if (ev.id) this._lastControlId = ev.id;
         const payload = ev.payload || {};
@@ -630,12 +653,48 @@ class BaseAdapter {
           // Handled here for every adapter, never by an override: a stop has
           // to stay inside the channel it names, and each adapter used to
           // decide that for itself — several stopped every channel.
-          await this._handleUserStop(payload.channel || null);
+          await this._withinControlDeadline(
+            this._handleUserStop(payload.channel || null),
+            this._CONTROL_ACTION_DEADLINE_MS, `stop for ${payload.channel || 'every channel'}`,
+          );
         } else {
-          await this._onControlAction(action, payload);
+          await this._withinControlDeadline(
+            this._onControlAction(action, payload),
+            this._CONTROL_ACTION_DEADLINE_MS, `control action '${action}'`,
+          );
         }
       }
-    } catch {}
+      const recovered = this._controlFailures.succeed();
+      if (recovered) {
+        this._log(`Control poll recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+      }
+    } catch (e) {
+      // Keep polling, but leave a trace: a control channel that keeps failing
+      // means Stop and mode changes are not reaching this agent.
+      if (this._controlFailures.fail()) {
+        const count = this._controlFailures.count;
+        const streak = count > 1 ? ` (consecutive failures: ${count})` : '';
+        this._log(`Control poll failed: ${e && e.message}${streak}`, isTransientNetworkError(e) ? 'warn' : 'error');
+      }
+    }
+  }
+
+  /**
+   * Await `work` for at most `ms`. Resolves to CONTROL_DEADLINE_HIT when the
+   * deadline wins; `work` is left to finish, or not, on its own.
+   */
+  _withinControlDeadline(work, ms, what) {
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        this._log(`Control poller: ${what} still pending after ${Math.round(ms / 1000)}s — polling on without it`, 'warn');
+        resolve(CONTROL_DEADLINE_HIT);
+      }, ms);
+    });
+    return Promise.race([
+      Promise.resolve(work).finally(() => clearTimeout(timer)),
+      deadline,
+    ]);
   }
 
   /**

@@ -8,6 +8,10 @@ routers, and adding first-class user/membership resolution on top of the
 verified identity token.
 
 Access rules (evaluated in order):
+  0. A deleted workspace admits nobody, whatever they hold. Its token and its
+     memberships outlive the soft delete in the database, so without this a
+     client that still had the token kept working in a workspace its owner had
+     removed and never learned it was gone.
   1. Workspace token — `X-Workspace-Token` == `workspace.password_hash`.
      The MACHINE credential (agents, daemons, adapters, iOS, legacy share
      links). Always accepted regardless of `require_login`.
@@ -320,6 +324,9 @@ def verify_workspace_access(
     (owner|admin|member|viewer) gates identity-based access; token (machine)
     access is fully trusted and bypasses the role check.
     """
+    # 0. Deleted: no credential opens it.
+    if workspace.status == "deleted":
+        return False
     # A presented person identity is authoritative, even with a workspace token.
     if authorization:
         if db is None:

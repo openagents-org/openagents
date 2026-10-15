@@ -40,6 +40,7 @@ import { subscribeComposerPrefill } from './composer-prefill';
 import { useMe } from '@/hooks/use-me';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { myAddress, dmPair, dmCounterpart as dmCounterpartOf, dmSessionId } from '@/lib/dm';
+import { nextOptimisticExpiry, pendingOptimisticMessages } from '@/lib/optimistic-messages';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -51,6 +52,37 @@ const cacheLastSeenId = new Map<string, string>();
 // Browser etc. unmounts ChatView, so drafts held in component state or a ref
 // were lost on the way back.
 const draftStore: Record<string, string> = {};
+// Module-level optimistic messages (the sent message + "…" waiting bubble) per
+// thread, keyed `${workspaceId}:${sessionId}` — DM ids like `dm:a,b` repeat
+// across workspaces. ChatView unmounts on mobile (thread list pane) and on a
+// detour through Files/Browser, so component state alone lost the bubble.
+// Each thread holds at most one send (2 entries); empty threads are deleted.
+const optimisticStore = new Map<string, WorkspaceMessage[]>();
+
+function readOptimistic(workspaceKey: string): WorkspaceMessage[] {
+  const prefix = `${workspaceKey}:`;
+  const all: WorkspaceMessage[] = [];
+  optimisticStore.forEach((msgs, key) => {
+    if (key.startsWith(prefix)) all.push(...msgs);
+  });
+  return all;
+}
+
+function writeOptimistic(workspaceKey: string, msgs: WorkspaceMessage[]) {
+  const prefix = `${workspaceKey}:`;
+  Array.from(optimisticStore.keys()).forEach((key) => {
+    if (key.startsWith(prefix)) optimisticStore.delete(key);
+  });
+  for (const m of msgs) {
+    const key = `${prefix}${m.sessionId}`;
+    optimisticStore.set(key, [...(optimisticStore.get(key) ?? []), m]);
+  }
+}
+
+/** Test hook: forget every stored optimistic message. */
+export function resetOptimisticStoreForTests() {
+  optimisticStore.clear();
+}
 
 function parseDMSession(sessionId: string | null): [string, string] | null {
   if (!sessionId?.startsWith('dm:')) return null;
@@ -254,8 +286,37 @@ export function ChatView() {
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // Optimistic message state for instant feedback
-  const [optimisticMessages, setOptimisticMessages] = useState<WorkspaceMessage[]>([]);
+  // Optimistic message state for instant feedback. Holds the pending messages
+  // of every thread (each carries its sessionId), not just the open one —
+  // wiping it on a thread switch dropped the "…" waiting bubble, so a thread
+  // the agent had not acknowledged yet looked idle on the way back.
+  // Seeded from and written through to optimisticStore so it survives an unmount.
+  const workspaceKey = workspace?.workspaceId ?? '';
+  const workspaceKeyRef = useRef(workspaceKey);
+  workspaceKeyRef.current = workspaceKey;
+  const [optimisticMessages, setOptimisticState] = useState<WorkspaceMessage[]>(() => readOptimistic(workspaceKey));
+  // The store is the source of truth, so updates still land after an unmount
+  // (e.g. a failed send whose request settles once the user has left).
+  const setOptimisticMessages = useCallback((update: (prev: WorkspaceMessage[]) => WorkspaceMessage[]) => {
+    const key = workspaceKeyRef.current;
+    const prev = readOptimistic(key);
+    const next = update(prev);
+    if (next === prev) return;
+    writeOptimistic(key, next);
+    setOptimisticState(next);
+  }, []);
+  useEffect(() => {
+    setOptimisticState(readOptimistic(workspaceKey));
+  }, [workspaceKey]);
+  // The thread whose optimistic messages may be shown. Trails currentSessionId
+  // by one render (set in the switch effect below), in step with the polling
+  // hook swapping in that thread's messages. On the render in between the
+  // list is empty and must stay empty: that is what remounts ChatMessages and
+  // lands the thread at the bottom. A lone bubble would keep it mounted, and
+  // the real messages arriving above it would read as older history being
+  // prepended — which never scrolls.
+  // Starts at null so a remount takes the same one-render delay as a switch.
+  const [optimisticSessionId, setOptimisticSessionId] = useState<string | null>(null);
   // scrollKey triggers scroll-to-bottom: incremented on user send + backfill completion
   const [scrollKey, setScrollKey] = useState(0);
   const [focusKey, setFocusKey] = useState(0);
@@ -302,8 +363,8 @@ export function ChatView() {
     // Restore draft for new session
     setCurrentDraft(currentSessionId ? (draftStore[currentSessionId] ?? '') : '');
     prevSessionIdRef.current = currentSessionId;
-    // Clear optimistic messages when switching sessions
-    setOptimisticMessages([]);
+    // Bring back this session's pending optimistic messages, if any
+    setOptimisticSessionId(currentSessionId);
     // Focus the input when switching threads — unless the switch was made
     // via a keyboard shortcut (e.g. 1-9 from the sidebar), in which case
     // the user wanted to navigate, not start typing.
@@ -363,21 +424,39 @@ export function ChatView() {
     : brief?.directorEmail && myEmail && brief.directorEmail !== myEmail
       ? t('brief.composerHint')
       : null;
+  // Optimistic messages the server has not confirmed yet, for the current session only:
+  // 1. the optimistic user msg, until the real user message arrives from the server
+  // 2. the optimistic loading msg, until any real agent message arrives after the user msg
+  const optimisticShown = !!currentSessionId && optimisticSessionId === currentSessionId;
+  // Bumped when a shown optimistic entry expires (see the timer below).
+  const [expiryTick, setExpiryTick] = useState(0);
   const sessionOptimisticMessages = useMemo(
-    () => currentSessionId ? messagesForSession(currentSessionId, optimisticMessages) : [],
-    [currentSessionId, optimisticMessages]
+    () => optimisticShown
+      ? pendingOptimisticMessages(messagesForSession(currentSessionId, optimisticMessages), sessionMessages)
+      : [],
+    [optimisticShown, currentSessionId, optimisticMessages, sessionMessages, expiryTick] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // Reconcile by server identity, never by text (uploads rename filenames,
-  // and a repeated "hi" must not match an older message).
+  // Drop the confirmed ones from state so they cannot reappear later
   useEffect(() => {
-    const remaining = pendingMessagesForDisplay(sessionMessages, sessionOptimisticMessages);
-    if (remaining.length !== sessionOptimisticMessages.length) {
-      const keep = new Set(remaining.map(m => m.messageId));
-      setOptimisticMessages(prev => prev.filter(m => m.sessionId !== currentSessionId || keep.has(m.messageId)));
-    }
-  }, [sessionMessages, sessionOptimisticMessages, currentSessionId]);
+    if (!optimisticShown) return;
+    const pendingIds = new Set(sessionOptimisticMessages.map((m) => m.messageId));
+    setOptimisticMessages((prev) => {
+      const next = prev.filter((m) => m.sessionId !== currentSessionId || pendingIds.has(m.messageId));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [optimisticShown, currentSessionId, sessionOptimisticMessages, setOptimisticMessages]);
 
+  // Re-check when the oldest shown entry expires, so a bubble whose reply
+  // never arrives goes away even if nothing else re-renders the thread.
+  useEffect(() => {
+    const at = nextOptimisticExpiry(sessionOptimisticMessages);
+    if (at === null) return;
+    const timer = setTimeout(() => setExpiryTick((t) => t + 1), Math.max(0, at - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [sessionOptimisticMessages]);
+
+  // Merge real messages with optimistic messages for display
   const displayMessages = useMemo(
     () => [...sessionMessages, ...pendingMessagesForDisplay(sessionMessages, sessionOptimisticMessages)],
     [sessionMessages, sessionOptimisticMessages]
@@ -510,7 +589,7 @@ export function ChatView() {
           // Direct message — targeted at the counterpart address, not a
           // channel. Attachments/mentions aren't supported in DMs yet.
           const sent = await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr, replyingTo?.messageId);
-          setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent));
+          setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
           capture('message_sent', { dm: true });
           // A legacy `human:user` conversation: the new message is stored under
           // the viewer's own address, so follow it to the canonical session.
@@ -550,7 +629,7 @@ export function ChatView() {
         );
         // The server can also suppress replies (for example, the director rule).
         if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
-        setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent));
+        setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
           has_mentions: mentions.length > 0,

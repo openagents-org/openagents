@@ -309,6 +309,16 @@ class TestGenerateMemberDescription:
         )
         assert resp.status_code == 404
 
+    def test_deleted_workspace_token_is_refused_everywhere(self, client, workspace):
+        """The token outlives the soft delete in the database; it must not keep
+        opening the workspace through the routes that resolve it by id alone."""
+        headers = {"X-Workspace-Token": workspace["token"]}
+        before = client.get(f"/v1/discover?network={workspace['id']}", headers=headers)
+        assert before.status_code == 200, before.text
+        client.delete(f"/v1/workspaces/{workspace['id']}", headers=headers)
+        after = client.get(f"/v1/discover?network={workspace['id']}", headers=headers)
+        assert after.status_code == 401
+
     def test_delete_already_deleted_workspace_returns_404(self, client, workspace):
         """A second DELETE on an already-deleted workspace returns 404."""
         headers = {"X-Workspace-Token": workspace["token"]}

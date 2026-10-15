@@ -1123,6 +1123,7 @@ export const messages: Messages = {
     modelAccessLabel: '名称(可选)',
     modelAccessVerify: '验证 Key',
     modelAccessKeyOk: 'Key 可用——共有 {count} 个模型',
+    modelAccessKeyUnverified: '该地址未提供模型列表，暂无法确认 Key。可先保存，配置智能体时选择模型再测试。',
     modelAccessSave: '保存',
     modelAccessSaved: '已保存模型访问',
     modelAccessSaveFailed: '无法保存模型访问',
@@ -1491,6 +1492,17 @@ export const messages: Messages = {
     title: '未找到该工作区。',
   },
 
+  maintenance: {
+    upcomingTitle: '计划升级：',
+    upcoming:
+      'OpenAgents Workspace 将于太平洋时间 10 月 14 日 12:00–13:00 从 v1.0 升级到 v1.1。期间服务将暂停约一小时，服务恢复后你的智能体会自动重新连接。',
+    upcomingWithLocal:
+      'OpenAgents Workspace 将于 {local}（太平洋时间 10 月 14 日 12:00–13:00）从 v1.0 升级到 v1.1。期间服务将暂停约一小时，服务恢复后你的智能体会自动重新连接。',
+    activeTitle: '正在升级：',
+    active: 'OpenAgents Workspace 正在升级到 v1.1，服务暂时不可用，预计 {end} 前恢复。服务恢复后你的智能体会自动重新连接。',
+    dismiss: '关闭',
+  },
+
   shared: {
     title: '分享的对话',
     notFoundError: '该分享的对话不存在或已被移除。',
@@ -1671,7 +1683,7 @@ export const messages: Messages = {
     nodeAgentType: '类型',
     nodeAgentKeyOptional: 'API 密钥（可选）',
     nodeKeyConfiguredHint: '已配置密钥 {masked}。留空则保持不变，输入新密钥则替换。',
-    nodeProviderLockedHint: '{label} 已安装在设备上，但尚未登录。{label} 只能使用其官方账号 — 其他提供商或中转的 API 密钥无法使用。',
+    nodeProviderLockedHint: '{label} 已安装在设备上，但尚未登录（与 {label} 编辑器的登录相互独立）。{label} 只能使用其官方账号 — 其他提供商或中转的 API 密钥无法使用。',
     nodeProviderLockedHow: '如何连接 {label}',
     nodeProviderLockedLogin: '方式一 — 在设备上登录：在设备上打开终端并运行',
     nodeProviderLockedKey: '方式二 — 在下方粘贴 {label} 的 API 密钥。请在官方账号设置中创建：',
@@ -1764,6 +1776,7 @@ export const messages: Messages = {
     byokChooseModel: '选择模型…',
     byokModelsLive: '此 Key 可用 {count} 个模型',
     byokModelsCatalog: '无法从提供商获取模型列表——已显示已知模型',
+    byokModelsUnavailable: '该地址未提供模型列表——请直接填写模型名并测试',
     byokKeyInvalid: '提供商拒绝了此 API Key',
     byokTest: '测试模型',
     byokTesting: '测试中…',
@@ -2025,6 +2038,7 @@ export const messages: Messages = {
     modelLiveLoading: '正在读取 {host} 提供的模型…',
     modelLiveHint: '列表来自该智能体连接的端点 {host}。',
     modelLiveFailed: '无法读取模型列表：{error}',
+    modelAccountHint: '列表来自该智能体登录的账号，由它自己的 CLI 提供。',
     modelLoading: '正在加载可用模型…',
     modelRetry: '重试',
     modelEnterCustom: '手动输入模型 ID…',

@@ -243,8 +243,13 @@ def exchange_custom_token(custom_token: str) -> Optional[dict]:
     return verify_firebase_claims(id_token)
 
 
-def mint_workspace_session(claims: dict) -> tuple:
+def mint_workspace_session(claims: dict, auth_time: Optional[int] = None) -> tuple:
     """Mint a workspace session JWT for verified identity claims.
+
+    `auth_time` is when the user actually signed in (epoch seconds). A fresh
+    sign-in leaves it unset and it becomes now; a renewal carries the original
+    forward, which is what lets renew_workspace_session cap a session's total
+    life.
 
     Returns (token, expires_at_epoch_seconds). Raises RuntimeError when no
     WORKSPACE_SESSION_SECRET is configured — callers must check
@@ -262,6 +267,7 @@ def mint_workspace_session(claims: dict) -> tuple:
         "email": claims["email"],
         "iat": now,
         "exp": exp,
+        "auth_time": auth_time if auth_time is not None else now,
         "jti": secrets.token_urlsafe(16),
     }
     if claims.get("firebase_uid"):
@@ -272,6 +278,55 @@ def mint_workspace_session(claims: dict) -> tuple:
         payload["email_verified"] = True
     token = jwt.encode(payload, config.WORKSPACE_SESSION_SECRET, algorithm=_SESSION_ALG)
     return token, exp
+
+
+def renew_workspace_session(token: str) -> Optional[tuple]:
+    """Trade a still-valid workspace session for a fresh one.
+
+    The new session carries the same identity and the original sign-in time,
+    with a full TTL from now — so a client that renews while it is in use never
+    reaches the expiry and never has to ask the user to sign in again.
+
+    Returns (token, expires_at_epoch_seconds, claims), or None when the session
+    is not ours, fails verification, has expired, or was started more than
+    WORKSPACE_SESSION_MAX_AGE_DAYS ago.
+    """
+    if not workspace_session_enabled():
+        return None
+    try:
+        import jwt
+
+        decoded = jwt.decode(
+            token,
+            config.WORKSPACE_SESSION_SECRET,
+            algorithms=[_SESSION_ALG],
+            issuer=_SESSION_ISSUER,
+            options={"require": ["exp", "iss", "email"]},
+        )
+    except Exception as e:
+        logger.warning("firebase_auth: workspace session renewal rejected: %s", e)
+        return None
+    email = (decoded.get("email") or "").strip().lower()
+    if not email:
+        return None
+
+    # Sessions minted before auth_time existed fall back to their own iat.
+    auth_time = decoded.get("auth_time") or decoded.get("iat")
+    if not isinstance(auth_time, int):
+        return None
+    max_age = max(1, config.WORKSPACE_SESSION_MAX_AGE_DAYS) * 86400
+    if int(time.time()) - auth_time > max_age:
+        logger.info("firebase_auth: workspace session for %s is past its maximum age", email)
+        return None
+
+    claims = {
+        "email": email,
+        "firebase_uid": decoded.get("firebase_uid"),
+        "display_name": decoded.get("name"),
+        "email_verified": decoded.get("email_verified") is True,
+    }
+    new_token, exp = mint_workspace_session(claims, auth_time=auth_time)
+    return new_token, exp, claims
 
 
 def looks_like_workspace_session(token: str) -> bool:

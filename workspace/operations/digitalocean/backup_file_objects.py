@@ -38,11 +38,14 @@ old = {r['key']: r for r in json.loads(old_path.read_text()).get('objects', [])}
 def copy(key):
     name = hashlib.sha256(key.encode()).hexdigest()
     path = root / 'objects' / name
-    if key in old and path.exists() and old[key].get('sha256'):
-        return old[key]
+    args = {}
+    if key in old and path.exists() and old[key].get('etag'):
+        args['IfNoneMatch'] = old[key]['etag']
     try:
-        response = s3.get_object(Bucket=env['S3_BUCKET'], Key=key)
+        response = s3.get_object(Bucket=env['S3_BUCKET'], Key=key, **args)
     except ClientError as error:
+        if error.response['Error']['Code'] == '304' and key in old:
+            return old[key]
         return {'key': key, 'error': error.response['Error']['Code']}
     digest = hashlib.sha256()
     with path.with_suffix('.partial').open('wb') as out, response['Body'] as body:

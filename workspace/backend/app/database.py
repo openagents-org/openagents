@@ -56,7 +56,7 @@ _pool_kwargs = (
     # Blocking DB work must run in the threadpool, including DB phases of
     # async handlers. A pool wait on the event loop also delays DB cleanup.
     # Keep pool_timeout short (2s) so exhausted pools don't tie up threads.
-    else {"pool_pre_ping": True, "pool_size": 40, "max_overflow": 8, "pool_recycle": 300, "pool_timeout": 2, "poolclass": QueuePool}
+    else {"pool_pre_ping": True, "pool_size": int(os.environ.get("DB_POOL_SIZE", "40")), "max_overflow": int(os.environ.get("DB_MAX_OVERFLOW", "8")), "pool_recycle": 300, "pool_timeout": 2, "poolclass": QueuePool}
 )
 
 # Keep the TCP connection alive to survive NAT / firewall idle timeouts

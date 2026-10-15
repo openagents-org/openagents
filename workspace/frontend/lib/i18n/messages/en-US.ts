@@ -1140,6 +1140,7 @@ export const messages = {
     modelAccessLabel: 'Label (optional)',
     modelAccessVerify: 'Verify key',
     modelAccessKeyOk: 'Key works — {count} models available',
+    modelAccessKeyUnverified: 'This endpoint doesn’t list models, so the key couldn’t be confirmed. Save it, then pick a model and test it when setting up an agent.',
     modelAccessSave: 'Save',
     modelAccessSaved: 'Model access saved',
     modelAccessSaveFailed: 'Could not save model access',
@@ -1524,6 +1525,18 @@ export const messages = {
     title: 'Workspace not found.',
   },
 
+  maintenance: {
+    upcomingTitle: 'Scheduled upgrade:',
+    upcoming:
+      'OpenAgents Workspace will be upgraded from v1.0 to v1.1 on Oct 14, 12:00–1:00 PM PT. The service will be paused for about an hour; your agents will reconnect automatically once it is back.',
+    upcomingWithLocal:
+      'OpenAgents Workspace will be upgraded from v1.0 to v1.1 on Oct 14, 12:00–1:00 PM PT ({local} your time). The service will be paused for about an hour; your agents will reconnect automatically once it is back.',
+    activeTitle: 'Upgrade in progress:',
+    active:
+      'OpenAgents Workspace is being upgraded to v1.1 and is temporarily unavailable until about {end}. Your agents will reconnect automatically once the service is back.',
+    dismiss: 'Dismiss',
+  },
+
   shared: {
     title: 'Shared Conversation',
     notFoundError: 'This shared conversation could not be found or has been removed.',
@@ -1706,7 +1719,7 @@ export const messages = {
     nodeAgentType: 'Type',
     nodeAgentKeyOptional: 'API key (optional)',
     nodeKeyConfiguredHint: 'Key {masked} is configured. Leave blank to keep it; enter a new key to replace it.',
-    nodeProviderLockedHint: '{label} is installed on the device but not signed in. {label} only works with its own account — API keys from other providers or relays will not work.',
+    nodeProviderLockedHint: '{label} is installed on the device but not signed in (this is separate from signing in to the {label} editor). {label} only works with its own account — API keys from other providers or relays will not work.',
     nodeProviderLockedHow: 'How to connect {label}',
     nodeProviderLockedLogin: 'Option 1 — sign in on the device: open a terminal on the device and run',
     nodeProviderLockedKey: 'Option 2 — paste a {label} API key below. Create one in your account settings at',
@@ -1799,6 +1812,7 @@ export const messages = {
     byokChooseModel: 'Choose a model…',
     byokModelsLive: '{count} models available to this key',
     byokModelsCatalog: 'Couldn’t list models from the provider — showing known models instead',
+    byokModelsUnavailable: 'This endpoint doesn’t list models — enter a model name and test it',
     byokKeyInvalid: 'The provider rejected this API key',
     byokTest: 'Test model',
     byokTesting: 'Testing…',
@@ -2063,6 +2077,7 @@ export const messages = {
     modelLiveLoading: 'Reading the models {host} serves…',
     modelLiveHint: 'Models served by {host}, the endpoint this agent calls.',
     modelLiveFailed: 'Could not read the model list: {error}',
+    modelAccountHint: 'Models this agent’s own CLI offers the account it is signed in to.',
     modelLoading: 'Loading available models…',
     modelRetry: 'Retry',
     modelEnterCustom: 'Enter a model id…',

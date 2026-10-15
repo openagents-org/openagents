@@ -259,3 +259,43 @@ class TestNodeRuntimes:
         assert res.status_code == 200
         hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["device_token"])).json()["data"]
         assert hist[0]["result"]["data"]["dirs"] == ["ubuntu"]
+
+
+def _soft_delete(db, workspace_id):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).one()
+    ws.status = "deleted"
+    db.commit()
+
+
+class TestDeletedWorkspaceRefusesNodes:
+    """A soft-deleted workspace's token (shared or per-node) must not keep a
+    daemon heartbeating or reporting results into it."""
+
+    def test_heartbeat_refused_after_delete(self, client, db):
+        ws = _make_workspace(client)
+        code = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_tok(ws["token"])).json()["data"]["code"]
+        redeemed = client.post("/v1/nodes/redeem", json={"code": code, "node_key": "d1"}).json()["data"]
+        node_id = redeemed["nodeId"]
+        assert client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["token"])).status_code == 200
+
+        _soft_delete(db, ws["workspaceId"])
+
+        r = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["token"]))
+        assert r.status_code == 404
+        # The node's own token is refused too.
+        r = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(redeemed["token"]))
+        assert r.status_code == 404
+
+    def test_command_result_refused_after_delete(self, client, db):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        cmd_id = client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "stop_agent", "args": {"name": "coder"}},
+            headers=_tok(ws["token"]),
+        ).json()["data"]["commandId"]
+
+        _soft_delete(db, ws["workspaceId"])
+
+        r = client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True}, headers=_tok(ws["token"]))
+        assert r.status_code == 404

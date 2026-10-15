@@ -329,7 +329,7 @@
     },
     "check_ready": {
       "binary": "agent",
-      "not_ready_message": "Cursor is installed but not signed in — run `cursor-agent login` on the device, or set a CURSOR_API_KEY from cursor.com/settings. Third-party or relay API keys do not work with Cursor.",
+      "not_ready_message": "Cursor is installed but not signed in — run `cursor-agent login` on the device (this is separate from signing in to the Cursor editor), or set a CURSOR_API_KEY from cursor.com/settings. Third-party or relay API keys do not work with Cursor.",
       "env_vars": [
         "CURSOR_API_KEY"
       ],
@@ -337,7 +337,11 @@
       "creds_key": "authInfo",
       "creds_no_parse": true,
       "unverifiable": true,
-      "login_command": "cursor-agent login"
+      "login_command": "cursor-agent login",
+      "status_args": [
+        "status"
+      ],
+      "logged_out_pattern": "not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated"
     },
     "env_config": [
       {
@@ -1323,9 +1327,11 @@
       "env_vars": [
         "GEMINI_API_KEY"
       ],
+      "credential_target": "gemini:antigravity",
+      "unverifiable": true,
       "saved_env_key": "GEMINI_API_KEY",
       "login_command": "agy",
-      "not_ready_message": "Needs sign-in — run `agy` to sign in with Google, or set GEMINI_API_KEY.",
+      "not_ready_message": "Sign-in not confirmed. Run `agy` in a terminal to sign in with Google, or set GEMINI_API_KEY. On Windows the sign-in is detected once it lands in Credential Manager; elsewhere agy keeps it out of reach, so it is confirmed when you run a task.",
       "auth_detected_labels": {
         "cli_login": "Google account sign-in detected",
         "api_key": "API key detected"
