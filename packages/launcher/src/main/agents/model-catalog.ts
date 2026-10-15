@@ -517,6 +517,15 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     // Left blank, the adapter runs the first model this list names.
     recommend: (models) => models[0]?.id,
   },
+  // MiMo Code's adapter sends a blank base URL to MiMo's API, so the picker
+  // lists from there too.
+  "mimo-code": {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    defaultBase: "https://api.xiaomimimo.com/v1",
+  },
 }
 
 /**

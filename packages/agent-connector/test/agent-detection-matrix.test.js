@@ -78,6 +78,9 @@ const LOC = {
   // Huawei's CodeArts installer (install.sh and install.ps1 alike) unpacks into
   // ~/.codeartsdoer/installers and puts that dir on PATH itself.
   codearts: '.codeartsdoer/installers',
+  // Xiaomi's MiMo Code installer (install.sh and install.ps1 alike) drops the
+  // binary into ~/.mimocode/bin and edits PATH through the shell rc / user Path.
+  mimo: '.mimocode/bin',
   // `claude install` (the native build) relocates the CLI here and reaches it
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
@@ -150,6 +153,7 @@ const WHERE = {
     [LOC.codebuddyNative, 'CodeBuddy native install', 'installer'],
   ],
   codearts: [[LOC.codearts, 'CodeArts install.sh / install.ps1', 'installer']],
+  'mimo-code': [[LOC.mimo, 'mimo.xiaomi.com/install (.sh / .ps1)', 'installer']],
   codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm']],
   commandcode: [[LOC.bun, 'bun install -g', 'npm']],
   copilot: [

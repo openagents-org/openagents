@@ -1016,6 +1016,19 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // MiMo Code (`mimo-code`): Xiaomi's terminal coding agent, installed by
+  // Xiaomi's own script into ~/.mimocode/bin (binary `mimo`). Like CodeArts it
+  // is OpenCode underneath and the core adapter extends OpenCodeAdapter. It
+  // runs on the registry's LLM_* fields — a MiMo API key with the prefilled
+  // base URL, or any OpenAI-compatible endpoint. MiMo's own Xiaomi-account
+  // sign-in (`mimo providers login`) is honored by the adapter when no key is
+  // set, but has no login button or probe here. See docs/agents/mimo-code.md.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the mimo-code adapter
+  // degrades to "unsupported" rather than a broken install.
+  "mimo-code",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of
