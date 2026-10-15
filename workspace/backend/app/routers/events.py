@@ -21,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app import cache
 from app.database import SessionLocal, get_db
-from app.models import Channel, ChannelMember, EventRecord, Workspace
+from app.models import Channel, ChannelMember, EventRecord, Node, Workspace
 from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
@@ -160,8 +160,9 @@ def _resolve_and_auth_cached(db, network, token, authorization):
     Postgres when the client is already at head.
 
     Returns ``(workspace_id, error_response, legacy_machine, workspace)``.
-    legacy_machine is true only for a verified shared token without a bearer
-    or agent identity. Retain a freshly loaded workspace for principal resolution
+    legacy_machine is true only for a verified machine token without a bearer
+    or agent identity. Device credentials are revalidated in the DB on each poll.
+    Retain a freshly loaded workspace for principal resolution
     so device-token and human cache misses do not load it a second time.
 
     Only the workspace-token path (the one agents use, `token ==
@@ -189,6 +190,19 @@ def _resolve_and_auth_cached(db, network, token, authorization):
             if token and hashlib.sha256(token.encode("utf-8")).hexdigest() == ph_sha:
                 return meta["id"], None, machine_only, None
             # token missing/mismatch → fall through for bearer/collaborator auth
+
+    if machine_only and token:
+        # Device credentials are checked live on every poll. Resolve their
+        # workspace and validate the credential in one query instead of loading
+        # a Workspace (plus collaborators) and looking up the device twice.
+        # Identified agents and people still take full principal resolution.
+        device_workspace_id = db.execute(
+            select(Node.workspace_id)
+            .join(Workspace, Workspace.id == Node.workspace_id)
+            .where(Node.token == token, _workspace_filter(network), Workspace.status != "deleted")
+        ).scalar_one_or_none()
+        if device_workspace_id is not None:
+            return str(device_workspace_id), None, True, None
 
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(network))

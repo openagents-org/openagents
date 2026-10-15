@@ -620,3 +620,44 @@ class TestPollResolveCache:
             event.remove(db.bind, 'before_cursor_execute', capture)
         assert r.status_code == 200
         assert len(queries) == 1
+
+    def test_warm_device_poll_checks_credential_with_one_query(self, client, workspace, db, monkeypatch):
+        from sqlalchemy import event
+        from app.models import Node
+        self._use_memory_cache(monkeypatch)
+        node = Node(workspace_id=workspace['id'], node_key='poll-device', token='device-poll-secret')
+        db.add(node)
+        db.commit()
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token': 'device-poll-secret'}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        queries = []
+        def capture(conn, cursor, statement, *args):
+            queries.append(statement)
+        event.listen(db.bind, 'before_cursor_execute', capture)
+        try:
+            assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        finally:
+            event.remove(db.bind, 'before_cursor_execute', capture)
+        assert len(queries) == 1
+        assert 'nodes' in queries[0] and 'workspaces' in queries[0]
+        # Cached event data must not preserve access after credential rotation.
+        node.token = 'rotated-device-secret'
+        db.commit()
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 401
+
+    def test_device_poll_cannot_open_deleted_or_other_workspace(self, client, workspace, db, monkeypatch):
+        from app.models import Node, Workspace
+        self._use_memory_cache(monkeypatch)
+        other = Workspace(name='Another workspace', slug='other-device-workspace', password_hash='other-secret')
+        db.add(other)
+        db.flush()
+        db.add(Node(workspace_id=other.id, node_key='other-device', token='other-device-token'))
+        db.commit()
+        headers = {'X-Workspace-Token': 'other-device-token'}
+        assert client.get('/v1/events', params={'network':workspace['id']}, headers=headers).status_code == 401
+        # Warm the event cache before deleting the workspace.
+        assert client.get('/v1/events', params={'network':other.id}, headers=headers).status_code == 200
+        other.status = 'deleted'
+        db.commit()
+        assert client.get('/v1/events', params={'network':other.id}, headers=headers).status_code == 401
