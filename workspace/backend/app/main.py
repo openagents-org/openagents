@@ -415,25 +415,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
-    logger.info("LIFESPAN: creating timer task")
-    timer_task = asyncio.create_task(_timer_loop())
-
-    # One-off browser sweep at boot: sessions leaked before a restart (or
-    # closes that failed mid-deploy) get released now instead of waiting
-    # for the first periodic maintenance cycle.
-    from app.browser_maintenance import sweep_browser_tabs
-    startup_browser_sweep = asyncio.create_task(sweep_browser_tabs())  # noqa: F841 — keep ref so it isn't GC'd
+    background_tasks = []
+    # Additional HTTP replicas can share the database/cache without adding
+    # schedulers. At least one deployment must retain background jobs.
+    if os.environ.get("BACKGROUND_JOBS_ENABLED", "true").strip().lower() in ("1", "true", "yes"):
+        logger.info("LIFESPAN: creating background tasks")
+        background_tasks.append(asyncio.create_task(_timer_loop()))
+        from app.browser_maintenance import sweep_browser_tabs
+        background_tasks.append(asyncio.create_task(sweep_browser_tabs()))
+    else:
+        logger.info("LIFESPAN: background jobs disabled on this replica")
 
     logger.info("LIFESPAN: yielding (startup complete)")
-    yield
-    timer_task.cancel()
     try:
-        await timer_task
-    except asyncio.CancelledError:
-        pass
-    # Shutdown: close Playwright browser
-    from app.browser import BrowserManager
-    await BrowserManager.get().shutdown()
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        # Shutdown: close Playwright browser
+        from app.browser import BrowserManager
+        await BrowserManager.get().shutdown()
 
 
 app = FastAPI(
