@@ -280,3 +280,6 @@ workspace/backend/secrets/
 
 # End-to-end test credentials (tests/end_to_end/agents.example.json is the template)
 tests/end_to_end/agents.config.json
+
+# Reviewed production dependency constraints
+!workspace/backend/requirements.production.lock
