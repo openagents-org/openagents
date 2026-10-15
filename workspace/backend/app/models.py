@@ -68,6 +68,8 @@ class EventRecord(Base):
         Index("idx_events_network_target", "network_id", "target"),
         Index("idx_events_network_timestamp", "network_id", "timestamp"),
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),
+        Index("idx_events_channel_latest", "network_id", "target", timestamp.desc(), id.desc(),
+              postgresql_where=text("target LIKE 'channel/%'")),
     )
 
 
