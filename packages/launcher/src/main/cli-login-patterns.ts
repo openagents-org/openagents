@@ -20,6 +20,11 @@
  *   amp           "Do you want to log in again? [(y)es, (n)o]: "  ← blocks on stdin
  *   hermes        "Running in a non-interactive environment (no TTY detected)."
  *                 → refuses outright; must open a real terminal
+ *   mimo          "Browser didn't open? Use the url below to sign in:\n│  https://platform.xiaomimimo.com/authorize?…"
+ *                 "Paste code here if prompted > "        ← blocks on stdin
+ *                 "Login successful" / "Login failed"
+ *                 "Decryption failed, please retry (2 attempts left)" → asks again
+ *                 "Decryption failed, max retries reached" → gives up, exit 0
  *
  * Kept separate from the orchestrator so the parsing is unit-testable without
  * spawning anything.
@@ -29,6 +34,7 @@
 // needs the same answer to decide whether a separate "use a terminal" action
 // is meaningful. Re-exported so this module stays the one import for callers.
 export {
+  LAUNCHER_OPENS_LOGIN_URL,
   TERMINAL_ONLY_LOGIN,
   loginArgs,
   needsRealTerminal,
@@ -58,7 +64,7 @@ export const LOGIN_SUCCESS =
   /login success|logged in as|successfully (logged|signed) in|authentication successful|you are now (logged|signed) in/i
 
 export const LOGIN_FAILURE =
-  /login failed|authentication failed|invalid code|invalid or expired|authorization (failed|denied)/i
+  /login failed|authentication failed|invalid code|invalid or expired|authorization (failed|denied)|max retries reached/i
 
 /**
  * True when the CLI says it already tried to open a browser itself. Both claude

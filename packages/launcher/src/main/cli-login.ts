@@ -4,6 +4,7 @@ import {
   BROWSER_CLAIMED,
   CODE_PROMPT,
   findAuthUrl,
+  LAUNCHER_OPENS_LOGIN_URL,
   LOGIN_FAILURE,
   LOGIN_SUCCESS,
   loginArgs,
@@ -195,6 +196,7 @@ class LoginSession {
         COLUMNS: "400",
         NO_COLOR: "1",
         FORCE_COLOR: "0",
+        ...LAUNCHER_OPENS_LOGIN_URL[this.type],
       }),
       windowsHide: true,
       shell,
@@ -233,7 +235,11 @@ class LoginSession {
         // Only open it ourselves when the CLI didn't already — claude and
         // cursor-agent both open one, and two tabs of the same PKCE flow is a
         // worse first impression than one.
-        if (!BROWSER_CLAIMED.test(this.buffer)) this.deps.openExternal(url)
+        if (
+          LAUNCHER_OPENS_LOGIN_URL[this.type] ||
+          !BROWSER_CLAIMED.test(this.buffer)
+        )
+          this.deps.openExternal(url)
         this.emit("browser")
       }
     }

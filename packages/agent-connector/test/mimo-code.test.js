@@ -77,17 +77,38 @@ describe('MiMo Code — registry entry', () => {
     assert.equal(entry.install.windows, 'irm https://mimo.xiaomi.com/install.ps1 | iex');
   });
 
-  it('asks for a key, base URL and model, with the base URL prefilled to MiMo', () => {
+  it('takes an optional key, base URL and model, with the base URL prefilled to MiMo', () => {
     const field = (name) => entry.env_config.find((f) => f.name === name);
-    assert.equal(field('LLM_API_KEY').required, true);
+    // A Xiaomi-account sign-in runs with none of them.
+    for (const name of ['LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL']) assert.equal(field(name).required, false, name);
     assert.equal(field('LLM_API_KEY').password, true);
     assert.equal(field('LLM_BASE_URL').default, runtime.MIMO_DEFAULT_BASE_URL);
-    assert.equal(field('LLM_MODEL').required, true);
     assert.equal(entry.check_ready.saved_env_key, 'LLM_API_KEY');
     assert.equal(entry.check_ready.min_version, MiMoCodeAdapter.MIMO_MIN_VERSION);
     // The adapter reads LLM_* itself; a resolve rule would copy the key into
     // a variable MiMo's tools could print.
     assert.equal(entry.resolve_env, undefined);
+  });
+
+  it("is ready on a Xiaomi-account sign-in, read from MiMo's auth.json", () => {
+    assert.equal(entry.check_ready.login_command, 'mimo providers login -p xiaomi');
+    assert.equal(entry.check_ready.creds_file, '~/.local/share/mimocode/auth.json');
+    assert.equal(entry.check_ready.creds_key, 'xiaomi');
+
+    const { Installer } = require('../src/installer');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-mimo-ready-'));
+    try {
+      const auth = path.join(dir, 'auth.json');
+      const inst = new Installer({ getEntry: () => null, getResolveRules: () => [] }, dir);
+      const checkReady = { ...entry.check_ready, creds_file: auth };
+      assert.equal(inst._checkCredsReady(checkReady, 'mimo-code'), false, 'no file');
+      fs.writeFileSync(auth, JSON.stringify({ openai: { type: 'api', key: 'k' } }));
+      assert.equal(inst._checkCredsReady(checkReady, 'mimo-code'), false, 'another provider is not a Xiaomi sign-in');
+      fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'sk', metadata: { uid: '1' } } }));
+      assert.equal(inst._checkCredsReady(checkReady, 'mimo-code'), true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -150,6 +171,8 @@ describe('MiMo Code — where a run goes', () => {
 
     const auth = MiMoCodeAdapter._authFilePath({}, home);
     fs.mkdirSync(path.dirname(auth), { recursive: true });
+    fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: '' } }));
+    assert.equal(makeAdapter({})._credentialState(), 'missing', 'an entry without a key signs nothing in');
     fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'sk', metadata: { uid: '1' } } }));
     assert.equal(makeAdapter({})._credentialState(), 'present');
   });

@@ -43,11 +43,14 @@ Claude Code transcripts (`~/.claude/projects`) into it — about a minute for
 
 ## Configuration
 
+Two ways in: a Xiaomi-account sign-in, or an API key. All three fields are
+optional, because the sign-in needs none of them.
+
 | Variable | Required | Meaning |
 |---|---|---|
-| `LLM_API_KEY` | yes | A MiMo API key (https://platform.xiaomimimo.com), a MiMo Token Plan key, or a key for the endpoint below |
-| `LLM_BASE_URL` | yes, prefilled | `https://api.xiaomimimo.com/v1`. Token Plan: `https://token-plan-cn.xiaomimimo.com/v1` (also `-ams`, `-sgp`). Any OpenAI-compatible endpoint works. |
-| `LLM_MODEL` | yes | Model id, e.g. `mimo-v2.5-pro`; sent upstream as written, a gateway's `vendor/model` ids included |
+| `LLM_API_KEY` | no — blank runs on the sign-in | A MiMo API key (https://platform.xiaomimimo.com), a MiMo Token Plan key, or a key for the endpoint below |
+| `LLM_BASE_URL` | no, prefilled | `https://api.xiaomimimo.com/v1`. Token Plan: `https://token-plan-cn.xiaomimimo.com/v1` (also `-ams`, `-sgp`). Any OpenAI-compatible endpoint works. |
+| `LLM_MODEL` | for a non-MiMo endpoint | Model id, e.g. `mimo-v2.5-pro`; sent upstream as written, a gateway's `vendor/model` ids included |
 
 The workspace's model choice, when set, replaces `LLM_MODEL`.
 
@@ -58,10 +61,38 @@ The workspace's model choice, when set, replaces `LLM_MODEL`.
 - Any other endpoint is declared for the run as an `@ai-sdk/openai-compatible`
   provider named `openagents`; a model is required.
 
+### Xiaomi-account sign-in
+
 With no key, the run uses MiMo Code's own credential — a Xiaomi-account sign-in
-(`mimo providers login`, which stores a key under `xiaomi` in
-`~/.local/share/mimocode/auth.json`) or `XIAOMI_API_KEY`. The launcher has no
-sign-in button or probe for this; it is there for people who already use MiMo.
+or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider, with `mimo-v2.5-pro`
+unless a model is picked (the sign-in tab lists `mimo models xiaomi`, ids
+written `xiaomi/<model>`).
+
+`mimo providers login -p xiaomi` is not an OAuth session. It opens
+`https://platform.xiaomimimo.com/authorize?pk=…` with an X25519 public key; after
+the user signs in, the platform issues the CLI an API key of its own (listed on
+the platform as `mimo-code-cli-key-…`) encrypted to that key, and the CLI stores
+it in `~/.local/share/mimocode/auth.json` (Windows too, under the user profile):
+
+```json
+{ "xiaomi": { "type": "api", "key": "…", "metadata": { "uid": "…", "base_url": "…" } } }
+```
+
+`base_url` is set for a Token Plan account and the CLI routes there itself. The
+key does not expire; deleting it on the platform signs the agent out, which a
+run reports as `auth_failed`.
+
+The page reaches the CLI one of two ways: a redirect to a server the CLI starts
+on localhost, or a code shown on the page to paste back at
+`Paste code here if prompted >` (three tries; then `Decryption failed, max
+retries reached` and exit 0). The CLI opens the browser only with `xdg-open`, and
+the URL it prints is always the paste-a-code one.
+
+The launcher's Sign in runs that command over pipes with `CI=1`, which stops the
+CLI opening a browser, opens the printed URL itself — one tab on every platform
+— and takes the code in the app. Sign-in is read from `auth.json` (a `xiaomi`
+entry holding a key), by the launcher and by the core's `check_ready`
+(`creds_file` + `creds_key`).
 
 ## How a message runs
 
@@ -154,4 +185,7 @@ followed by a stack trace; only the error line is classified.
   pickers offer — including MiMo's ASR/TTS models, which are not chat models.
 - Windows: install layout read from install.ps1; the Stop path there is
   `taskkill /T`, not exercised.
-- The Xiaomi-account sign-in path.
+- A real Xiaomi-account sign-in end to end. The flow, the piped login, the
+  stored entry and the sign-in tab's model list are checked against 0.1.15 and
+  in tests; the platform side — signing in and the code it hands back — is not
+  yet.

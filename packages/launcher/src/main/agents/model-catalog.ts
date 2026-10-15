@@ -31,6 +31,7 @@ import path from "node:path"
 
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { mimoRecommendedModel, parseMimoModels } from "./mimo-signin"
 import { opencodeRecommendedModel } from "./opencode-signin"
 import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
@@ -518,13 +519,18 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     recommend: (models) => models[0]?.id,
   },
   // MiMo Code's adapter sends a blank base URL to MiMo's API, so the picker
-  // lists from there too.
+  // lists from there too. On the sign-in path the CLI's own catalog answers —
+  // it lists signed out as well — and the ids come as `xiaomi/<model>`, which
+  // the adapter runs on the sign-in.
   "mimo-code": {
     envVar: "LLM_MODEL",
     provider: "openai",
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
     defaultBase: "https://api.xiaomimimo.com/v1",
+    cliCommand: { args: ["models", "xiaomi"], parse: parseMimoModels },
+    listsSignedOut: true,
+    recommend: mimoRecommendedModel,
   },
 }
 

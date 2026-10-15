@@ -75,8 +75,8 @@ const FAILURE_MESSAGES = {
   cli_not_executable: 'MiMo Code CLI was found but could not be started. Reinstall it, then retry.',
   unsupported_version: `This MiMo Code version is not supported (requires >= ${MIMO_MIN_VERSION}). Update it with \`mimo upgrade\` and retry.`,
   model_missing: "No model is configured for MiMo Code. Set a model (LLM_MODEL) in this agent's configuration, then retry.",
-  credential_missing: `MiMo Code has no API key. Add one (LLM_API_KEY — a MiMo key from ${KEY_URL}, or a key for the base URL you set) in this agent's configuration, or sign in with \`mimo providers login\`, then retry.`,
-  auth_failed: "The model service rejected MiMo Code's API key. Check LLM_API_KEY, and that it belongs to the base URL you set (a Token Plan key needs its Token Plan base URL), then retry.",
+  credential_missing: `MiMo Code is not signed in and has no API key. Sign in with a Xiaomi account (the agent's Sign in button, or \`mimo providers login -p xiaomi\`), or add an API key (LLM_API_KEY — a MiMo key from ${KEY_URL}, or a key for the base URL you set) in this agent's configuration, then retry.`,
+  auth_failed: "The model service rejected MiMo Code's API key. Check LLM_API_KEY, and that it belongs to the base URL you set (a Token Plan key needs its Token Plan base URL), then retry. Signed in with a Xiaomi account instead? Sign in again — the key that sign-in created may have been deleted on the MiMo platform.",
   provider_not_configured: "MiMo Code has no usable model provider. Check this agent's base URL and model, then retry.",
   model_not_found: 'The configured model was not found or this key cannot use it. Pick one from the model list in this agent\'s configuration, then retry.',
   rate_limited: 'The model service is rate-limiting requests. Wait a moment and retry.',
@@ -145,7 +145,9 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
 
   /**
    * 'present' with a key in this agent's configuration, or with a MiMo
-   * sign-in for the provider the model names. A model on some other provider
+   * sign-in for the provider the model names. A Xiaomi-account sign-in is
+   * stored as an API key the MiMo platform issued for the CLI, under `xiaomi`
+   * in auth.json; an entry without one signs nothing in. A model on some other provider
    * the user set up in MiMo is theirs to vouch for: 'unknown', and the run
    * reports what the CLI says.
    */
@@ -156,7 +158,8 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     if (route.providerId !== 'xiaomi') return 'unknown';
     if (String(env.XIAOMI_API_KEY || '').trim()) return 'present';
     const auth = MiMoCodeAdapter._readAuthFile(env);
-    if (auth && auth.xiaomi) return 'present';
+    const entry = auth && auth.xiaomi;
+    if (entry && typeof entry === 'object' && String(entry.key || '').trim()) return 'present';
     return 'missing';
   }
 

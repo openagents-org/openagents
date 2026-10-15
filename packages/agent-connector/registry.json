@@ -2321,7 +2321,7 @@
     "order": 999,
     "catalog": true,
     "vendor": "Xiaomi MiMo",
-    "tagline": "Xiaomi's terminal coding agent, on a MiMo API key or any OpenAI-compatible endpoint. Installed by Xiaomi's own script.",
+    "tagline": "Xiaomi's terminal coding agent, on a Xiaomi account sign-in, a MiMo API key or any OpenAI-compatible endpoint. Installed by Xiaomi's own script.",
     "logo": {
       "key": "mimo-code"
     },
@@ -2351,26 +2351,29 @@
         "LLM_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "Not configured — set an API key and a model (press e). A MiMo API key works with the prefilled base URL; create one at https://platform.xiaomimimo.com."
+      "creds_file": "~/.local/share/mimocode/auth.json",
+      "creds_key": "xiaomi",
+      "login_command": "mimo providers login -p xiaomi",
+      "not_ready_message": "Not configured — sign in with a Xiaomi account (mimo providers login -p xiaomi), or set an API key (press e). A MiMo API key works with the prefilled base URL; create one at https://platform.xiaomimimo.com."
     },
     "env_config": [
       {
         "name": "LLM_API_KEY",
-        "description": "API key — a MiMo API key from https://platform.xiaomimimo.com, a MiMo Token Plan key (with its Token Plan base URL), or a key for any OpenAI-compatible endpoint set below.",
-        "required": true,
+        "description": "API key — leave blank to run on the Xiaomi account signed in to MiMo Code. Otherwise a MiMo API key from https://platform.xiaomimimo.com, a MiMo Token Plan key (with its Token Plan base URL), or a key for any OpenAI-compatible endpoint set below.",
+        "required": false,
         "password": true
       },
       {
         "name": "LLM_BASE_URL",
-        "description": "OpenAI-compatible base URL, prefilled with MiMo's API. MiMo Token Plan: https://token-plan-cn.xiaomimimo.com/v1 (Europe: token-plan-ams, Singapore: token-plan-sgp). Any other OpenAI-compatible endpoint works too.",
-        "required": true,
+        "description": "OpenAI-compatible base URL for the API key above, prefilled with MiMo's API. MiMo Token Plan: https://token-plan-cn.xiaomimimo.com/v1 (Europe: token-plan-ams, Singapore: token-plan-sgp). Any other OpenAI-compatible endpoint works too. Not used with a Xiaomi account sign-in.",
+        "required": false,
         "default": "https://api.xiaomimimo.com/v1",
         "placeholder": "https://api.xiaomimimo.com/v1"
       },
       {
         "name": "LLM_MODEL",
-        "description": "Model id, e.g. mimo-v2.5-pro. Pick one the base URL serves; the list is loaded from it.",
-        "required": true,
+        "description": "Model id, e.g. mimo-v2.5-pro (the default on MiMo's API and with a Xiaomi sign-in). Required for any other endpoint; the list is loaded from it.",
+        "required": false,
         "placeholder": "mimo-v2.5-pro"
       }
     ],

@@ -28,6 +28,22 @@
 export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode"])
 
 /**
+ * Agents whose printed sign-in URL the launcher opens itself, even though the
+ * CLI's wording claims a browser (see BROWSER_CLAIMED), with the environment
+ * their piped login runs in.
+ *
+ *   mimo-code  `mimo providers login -p xiaomi` prints "Browser didn't open?
+ *              Use the url below to sign in:" whatever happened, and opens the
+ *              browser itself only through `xdg-open` — so on macOS and Windows
+ *              nothing opens. CI=1 stops it trying on Linux too, so every
+ *              platform gets the one tab, on the printed URL: the variant whose
+ *              page shows a code to paste back, which the code prompt takes.
+ */
+export const LAUNCHER_OPENS_LOGIN_URL: Record<string, Record<string, string>> = {
+  "mimo-code": { CI: "1" },
+}
+
+/**
  * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the
  * orchestrator spawns the ABSOLUTE resolved path instead, so the login never
  * depends on the PATH a GUI-launched Electron process happened to inherit (the

@@ -17,6 +17,7 @@ import {
   CODEBUDDY_SESSION_FILES,
   codebuddySessionMatchesRegion,
 } from "./codebuddy-signin"
+import { MIMO_AUTH_FILE, mimoHasXiaomiSignIn } from "./mimo-signin"
 import { OPENCODE_AUTH_FILE, opencodeHasProvider } from "./opencode-signin"
 
 /**
@@ -734,6 +735,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
+  "mimo-code": {
+    // MiMo Code signs in with a Xiaomi account: `mimo providers login -p
+    // xiaomi` opens the MiMo platform's authorize page, and the platform hands
+    // the CLI an API key of its own, stored under `xiaomi` in MiMo's auth.json
+    // (see mimo-signin.ts). `-p xiaomi` skips the provider picker, so the
+    // login pipes: the in-app flow shows the URL and takes the code the page
+    // gives back (LAUNCHER_OPENS_LOGIN_URL). There is no status command, so
+    // sign-in is read off disk like OpenCode's. The registry's LLM_* fields are
+    // already optional, which leaves the key as the alternative.
+    loginCommand: "mimo providers login -p xiaomi",
+    statusArgs: [],
+    credsFiles: [{ path: MIMO_AUTH_FILE, key: "xiaomi" }],
+    credsGuard: mimoHasXiaomiSignIn,
+  },
   cline: {
     // `cline auth` is interactive — it asks which provider, then takes the
     // credential — and there is no `cline auth status` to ask afterwards, so
@@ -1019,10 +1034,9 @@ export const CORE_AGENTS: readonly string[] = [
   // MiMo Code (`mimo-code`): Xiaomi's terminal coding agent, installed by
   // Xiaomi's own script into ~/.mimocode/bin (binary `mimo`). Like CodeArts it
   // is OpenCode underneath and the core adapter extends OpenCodeAdapter. It
-  // runs on the registry's LLM_* fields — a MiMo API key with the prefilled
-  // base URL, or any OpenAI-compatible endpoint. MiMo's own Xiaomi-account
-  // sign-in (`mimo providers login`) is honored by the adapter when no key is
-  // set, but has no login button or probe here. See docs/agents/mimo-code.md.
+  // runs on a Xiaomi-account sign-in (DUAL_LOGIN_AGENTS above) or the
+  // registry's LLM_* fields — a MiMo API key with the prefilled base URL, or
+  // any OpenAI-compatible endpoint. See docs/agents/mimo-code.md.
   //
   // Same core-before-marketplace ordering as the entries above: listing it here
   // only stamps it installable, and addAgent still intersects with the

@@ -33,6 +33,13 @@ const CURSOR_LOGIN =
   "Waiting for browser authentication...\nIf your browser didn't open, use this link:\n" +
   "https://cursor.com/loginDeepControl?challenge=VnvuidaFF1g&uuid=ee041919-af3d&mode=login&redirectTarget=cli\n"
 
+const MIMO_URL =
+  "https://platform.xiaomimimo.com/authorize?pk=MCowBQYDK2VuAyEA8MvkPg8NlkJ8NuEfU2hF2sZhKT5LukHVWfGvoG53Ync" +
+  "&redirect_uri=https%3A%2F%2Fplatform.xiaomimimo.com%2Fauthorize%2Fcode%2Fcallback&kn=mimocode&key_name=mimo-code-cli-key-1ff5fbbe"
+
+/** `mimo providers login -p xiaomi` under pipes, MiMo Code 0.1.15. */
+const MIMO_LOGIN = `┌  Add credential\n│\n●  Browser didn't open? Use the url below to sign in:\n│  ${MIMO_URL}\nPaste code here if prompted > `
+
 const AMP_LOGIN =
   "API key already configured: sgamp_user...\nDo you want to log in again? [(y)es, (n)o]: "
 
@@ -94,6 +101,16 @@ describe("output markers", () => {
       LOGIN_FAILURE.test("Invalid code. Please make sure the full code was copied."),
     ).toBe(true)
     expect(LOGIN_SUCCESS.test(CLAUDE_LOGIN)).toBe(false)
+  })
+
+  it("reads mimo's verdicts, and asks again after a code that did not decrypt", () => {
+    expect(LOGIN_SUCCESS.test("●  Login successful")).toBe(true)
+    expect(LOGIN_FAILURE.test("■  Login failed")).toBe(true)
+    expect(LOGIN_FAILURE.test("■  Decryption failed, max retries reached")).toBe(true)
+    const retry = "■  Decryption failed, please retry (2 attempts left)\nPaste code here if prompted > "
+    expect(LOGIN_FAILURE.test(retry)).toBe(false)
+    expect(CODE_PROMPT.test(retry)).toBe(true)
+    expect(findAuthUrl(MIMO_LOGIN)).toBe(MIMO_URL)
   })
 
   it("knows when the CLI already opened a browser, so we don't open a second tab", () => {
@@ -205,5 +222,62 @@ describe("CliLoginManager.start without a resolved binary", () => {
 
     expect(terminals).toEqual([{ cmd: "agy", type: "antigravity" }])
     expect(events.at(-1)?.phase).toBe("terminal")
+  })
+})
+
+/**
+ * MiMo's login says "Browser didn't open?" whatever happened and only ever
+ * tries xdg-open, so the launcher opens the printed URL itself and runs the CLI
+ * with CI=1, which stops it trying. Driven through a stand-in CLI that prints
+ * what the real one does and reports its environment.
+ */
+describe("CliLoginManager — mimo opens its sign-in URL through the launcher", () => {
+  it("opens the printed URL once, with CI=1 in the CLI's environment, then takes the code", async () => {
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    if (process.platform === "win32") return
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-login-"))
+    const bin = path.join(dir, "mimo")
+    fs.writeFileSync(
+      bin,
+      `#!${process.execPath}\n` +
+        `process.stdout.write(${JSON.stringify(MIMO_LOGIN)})\n` +
+        // Signs in only for the right code, and only if it was told not to
+        // open a browser of its own.
+        `process.stdin.once("data", (d) => { const ok = String(d).trim() === "good" && process.env.CI === "1"; process.stdout.write(ok ? "●  Login successful\\n" : "■  Login failed\\n"); process.exit(0) })\n`,
+    )
+    fs.chmodSync(bin, 0o755)
+
+    const events: CliLoginEvent[] = []
+    const opened: string[] = []
+    const mgr = new CliLoginManager({
+      resolveBinary: () => bin,
+      loginCommandFor: () => "mimo providers login -p xiaomi",
+      childEnv: (extra) => ({ ...process.env, ...extra }),
+      verifyLogin: async () => true,
+      openExternal: (url: string) => {
+        opened.push(url)
+      },
+      openTerminal: () => {},
+      emit: (ev: CliLoginEvent) => {
+        events.push(ev)
+      },
+    })
+    try {
+      mgr.start("mimo-code")
+      const until = async (ok: () => boolean): Promise<void> => {
+        for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 50))
+      }
+      await until(() => events.some((e) => e.phase === "code"))
+      expect(opened).toEqual([MIMO_URL])
+      expect(events.find((e) => e.phase === "browser")?.url).toBe(MIMO_URL)
+      mgr.submitCode("mimo-code", "good")
+      await until(() => events.some((e) => e.phase === "success"))
+      expect(events.at(-1)?.phase).toBe("success")
+    } finally {
+      mgr.disposeAll()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

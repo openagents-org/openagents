@@ -139,6 +139,36 @@ describe("credsVerdict — OpenCode's sign-in store", () => {
   })
 })
 
+describe("credsVerdict — MiMo Code's Xiaomi-account sign-in", () => {
+  const mimo = DUAL_LOGIN_AGENTS["mimo-code"]
+  let home: string
+
+  const store = (body: unknown): void => {
+    const dir = path.join(home, ".local", "share", "mimocode")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(body))
+  }
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  it("reads the key the sign-in stored as signed in", () => {
+    store({ xiaomi: { type: "api", key: "sk-x", metadata: { uid: "1" } } })
+    expect(credsVerdict(mimo, home)).toBe(true)
+  })
+
+  it("does not count another provider's key, or no store at all", () => {
+    store({ openai: { type: "api", key: "sk-x" } })
+    expect(credsVerdict(mimo, home)).toBe(false)
+    fs.rmSync(path.join(home, ".local"), { recursive: true })
+    expect(credsVerdict(mimo, home)).toBe(false)
+  })
+})
+
 describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
   const codebuddy = DUAL_LOGIN_AGENTS.codebuddy
   let home: string
