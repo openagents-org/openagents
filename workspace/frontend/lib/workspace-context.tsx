@@ -19,6 +19,7 @@ import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { dmCounterpart, isMyAddress, myAddress } from './dm';
 import { dmUnreadCounts } from './dm-unread';
 import { threadUnreadState } from './thread-unread';
+import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
@@ -1440,7 +1441,9 @@ export function WorkspaceProvider({
       try {
         const [ws, discovery] = await Promise.all([
           workspaceApi.getWorkspace(),
-          workspaceApi.discover(lastReadRef.current),
+          // Read markers trigger historical unread aggregation. Fetch only
+          // the roster here; background discovery fills in accurate counts.
+          workspaceApi.discover(),
         ]);
         if (cancelled) return;
 
@@ -1733,18 +1736,7 @@ export function WorkspaceProvider({
   const hasActiveAgentsRef = React.useRef(false);
   hasActiveAgentsRef.current = Object.values(lastMessageBySession).some((m) => m.isStatus);
 
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      const delay = hasActiveAgentsRef.current ? 5_000 : 15_000;
-      timeout = setTimeout(async () => {
-        await refreshDiscovery();
-        schedule();
-      }, delay);
-    };
-    schedule();
-    return () => clearTimeout(timeout);
-  }, [refreshDiscovery]);
+  useDiscoveryPolling(refreshDiscovery, !loading && !error, hasActiveAgentsRef);
 
   const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
