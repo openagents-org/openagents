@@ -32,7 +32,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from sqlalchemy import event, func, or_, select
+from sqlalchemy import and_, event, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -989,6 +989,83 @@ def can_read_knowledge(db: Session, workspace_id: str, principal: Principal, ent
     if principal.machine:
         return True
     return allowed(db, principal, resource_for_knowledge(entry), "read", workspace_id)
+
+
+def _owned_file_agents(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
+    """Request-local ownership lookup; never cache authorization across requests."""
+    if principal.kind != "human" or not principal.email:
+        return set()
+    return set(db.execute(select(WorkspaceMember.agent_name).where(
+        WorkspaceMember.workspace_id == str(workspace_id),
+        func.lower(func.trim(WorkspaceMember.owner_email)) == principal.email,
+    )).scalars().all())
+
+
+def file_read_clause(db: Session, workspace_id: str, principal: Principal):
+    """SQL equivalent of filter_files, applied before counting and pagination."""
+    if principal.machine:
+        return true()
+    wid = str(workspace_id)
+    hidden = hidden_channel_names(db, wid, principal)
+    pairs = _identity_pairs(db, wid, principal)
+    granted = thread_shared_agent_names(db, wid, principal)
+    granted.update(g.resource_id for g in grants_for_pairs(db, wid, pairs, "file")
+                   if _has_right(g.rights, "read"))
+    owner = func.coalesce(func.nullif(FileRecord.owner, ""), FileRecord.uploaded_by)
+    visibility = func.lower(func.trim(FileRecord.visibility))
+    inherited = or_(visibility.is_(None), visibility.not_in(list(_VISIBILITY_ALIASES) + ["private"]))
+    clauses = [
+        visibility.in_(["public", "workspace", "team"]),
+        and_(inherited, or_(FileRecord.channel_name.is_(None), FileRecord.channel_name == "",
+                            FileRecord.channel_name.not_in(hidden))),
+        FileRecord.id.in_(granted),
+    ]
+    if principal.kind == "human" and principal.email and "@" in principal.email:
+        clauses.append(and_(func.substr(owner, 1, 6) == "human:",
+                            func.lower(func.trim(func.substr(owner, 7))) == principal.email))
+        clauses.append(owner.in_([f"openagents:{name}" for name in _owned_file_agents(db, wid, principal)]))
+    elif principal.kind == "agent" and principal.agent_name:
+        clauses.append(owner == f"openagents:{principal.agent_name}")
+    return or_(*clauses)
+
+
+def file_metadata_many(db: Session, workspace_id: str, principal: Principal,
+                       records: Sequence[FileRecord]) -> Dict[str, dict]:
+    """Equivalent to resource_meta for files, with bounded batch queries."""
+    if not records:
+        return {}
+    wid = str(workspace_id)
+    resources = [resource_for_file(r) for r in records]
+    channels = {r.channel_name for r in resources if r.visibility is None and r.channel_name}
+    channel_visibility = dict(db.execute(select(Channel.name, Channel.visibility).where(
+        Channel.workspace_id == wid, Channel.name.in_(channels))).all()) if channels else {}
+    manage_all = principal.machine or (principal.kind == "human" and principal.is_admin)
+    owned_agents = _owned_file_agents(db, wid, principal) if not manage_all else set()
+    shared = set()
+    if not manage_all:
+        pairs = _identity_pairs(db, wid, principal)
+        shared = {g.resource_id for g in grants_for_pairs(db, wid, pairs, "file", [r.id for r in resources])
+                  if _has_right(g.rights, "share")}
+    result = {}
+    for resource in resources:
+        owner = resource.owner or ""
+        owned = False
+        if owner.startswith("human:"):
+            email = _norm(owner[6:])
+            owned = bool(email and "@" in email and principal.kind == "human" and principal.email == email)
+        elif owner.startswith("openagents:"):
+            name = owner[11:]
+            owned = ((principal.kind == "agent" and principal.agent_name == name) or
+                     (principal.kind == "human" and name in owned_agents))
+        effective = resource.visibility
+        if effective is None:
+            effective = normalize_visibility(channel_visibility.get(resource.channel_name), "public") or "public"
+        result[resource.id] = {
+            "owner": resource.owner, "owner_label": owner_label_for(resource.owner),
+            "visibility": resource.visibility, "effective_visibility": effective,
+            "can_manage": bool(manage_all or owned or resource.id in shared),
+        }
+    return result
 
 
 def filter_files(db: Session, workspace_id: str, principal: Principal,

@@ -48,6 +48,8 @@ from app.services.access_model import (
     can_manage,
     can_read_file,
     filter_files,
+    file_read_clause,
+    file_metadata_many,
     normalize_visibility,
     resource_for_file,
     resource_meta,
@@ -1393,18 +1395,10 @@ def list_files(
     # Permission model: a person / identified agent sees owner ∪ grants ∪
     # public ∪ files inheriting from a thread they can read. Machines see all.
     _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
-    if _viewer.machine:
-        rows = db.execute(query.offset(offset).limit(limit)).scalars().all()
-        total = db.execute(
-            select(func.count())
-            .select_from(FileRecord)
-            .where(FileRecord.workspace_id == str(workspace.id))
-            .where(FileRecord.status == status)
-        ).scalar()
-    else:
-        visible = _visible(db, workspace.id, _viewer, db.execute(query).scalars().all())
-        total = len(visible)
-        rows = visible[offset:offset + limit]
+    query = query.where(file_read_clause(db, workspace.id, _viewer))
+    total = db.execute(select(func.count()).select_from(query.order_by(None).subquery())).scalar()
+    rows = db.execute(query.offset(offset).limit(limit)).scalars().all()
+    metadata = file_metadata_many(db, workspace.id, _viewer, rows)
 
     return success_response({
         "files": [
@@ -1417,7 +1411,7 @@ def list_files(
                 "channel_name": f.channel_name,
                 "status": f.status,
                 "created_at": f.created_at.isoformat() if f.created_at else None,
-                **_access_meta(db, workspace.id, _viewer, f),
+                **metadata[f.id],
             }
             for f in rows
         ],
@@ -1534,7 +1528,7 @@ def browse_files(
         query = query.where(FileRecord.filename.startswith(f"{folder}/", autoescape=True))
 
     _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
-    records = _visible(db, workspace.id, _viewer, db.execute(query).scalars().all())
+    records = db.execute(query.where(file_read_clause(db, workspace.id, _viewer))).scalars().all()
 
     # The subtree is fetched whole and walked here. Folder counts need every
     # descendant record anyway, and type classification can't be expressed in
@@ -1597,6 +1591,7 @@ def browse_files(
         matched.sort(key=lambda m: m[1].lower(), reverse=descending)
 
     page = matched[offset:offset + limit]
+    metadata = file_metadata_many(db, workspace.id, _viewer, [entry[0] for entry in page])
 
     # Folders are matched by their own name, not by what's inside them: a
     # search for "report" should surface a folder called reports, not every
@@ -1622,7 +1617,7 @@ def browse_files(
         "recursive": recursive,
         "folders": folders,
         "folder_total": len(folders),
-        "files": [_file_payload(*entry, _access_meta(db, workspace.id, _viewer, entry[0])) for entry in page],
+        "files": [_file_payload(*entry, metadata[entry[0].id]) for entry in page],
         "total": len(matched),
         "scope_total": sum(type_counts.values()),
         "type_counts": type_counts,

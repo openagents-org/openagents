@@ -574,3 +574,33 @@ class TestPollResolveCache:
         # token-hash must not let a bad token through (it falls through to DB auth)
         r3 = client.get("/v1/events", params=params, headers={"X-Workspace-Token": "wrong-token"})
         assert r3.status_code == 401
+
+    def test_warm_legacy_machine_poll_never_checks_out_database(self, client, workspace, monkeypatch):
+        self._use_memory_cache(monkeypatch)
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token': workspace['token']}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        from sqlalchemy.orm import Session
+        def unexpected_query(*args, **kwargs):
+            raise AssertionError('A cached legacy machine poll must not query the database')
+        with monkeypatch.context() as patch:
+            patch.setattr(Session, 'execute', unexpected_query)
+            assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+
+    @pytest.mark.parametrize('extra_headers', [
+        {'Authorization':'Bearer expired-person-token'}, {'X-Agent-Name':'identified-agent'},
+    ])
+    def test_warm_poll_never_skips_identity_resolution(self, client, workspace, monkeypatch, extra_headers):
+        self._use_memory_cache(monkeypatch)
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token':workspace['token']}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        from app.services import visibility
+        original = visibility.resolve_viewer
+        calls = []
+        def resolve(*args, **kwargs):
+            calls.append(True)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(visibility, 'resolve_viewer', resolve)
+        client.get('/v1/events', params=params, headers={**headers, **extra_headers})
+        assert calls
