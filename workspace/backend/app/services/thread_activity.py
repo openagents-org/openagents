@@ -1,8 +1,10 @@
 """Viewer-specific thread unread counts and agent-reply attribution."""
 import json
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from app.models import EventRecord
 from app.services.message_identity import human_sender_email
+
+_PYTHON_WHITESPACE = ''.join(chr(i) for i in range(0x3001) if chr(i).isspace())
 
 
 def read_markers(raw):
@@ -63,13 +65,85 @@ def thread_activity(db, workspace_id, channels, markers, viewer_email):
     result = {name: {'read_at': at, 'unread_count': 0, 'completion_at': None} for name, at in markers.items()}
     if not markers:
         return result
+    viewer_email = (viewer_email or '').lower()
+    if db.get_bind().dialect.name == 'postgresql':
+        query, params = _unread_summary_query(workspace_id, markers, viewer_email)
+        for target, count, completion in db.execute(text(query), params):
+            entry = result[target.removeprefix('channel/')]
+            entry.update(unread_count=count, completion_at=completion)
+        return result
+    # SQLite deployments retain the same semantics without PostgreSQL JSONB.
+    # Production returns only aggregate rows, never full historical messages.
+    return _thread_activity_python(db, workspace_id, markers, viewer_email, result)
+
+
+def _json_truthy(expression):
+    # Match Python truthiness for all JSON types, including legacy non-string
+    # content. JSONB numeric equality also handles 0.0 and other zero spellings.
+    return f"COALESCE({expression} NOT IN ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '\"\"'::jsonb, '[]'::jsonb, '{{}}'::jsonb), false)"
+
+
+def _unread_summary_query(workspace_id, markers, viewer_email):
+    """Indexed per-channel aggregates; keep each channel's exact read marker.
+
+    LATERAL bounds each scan by workspace/target/type/timestamp, matching the
+    existing events index. A historical cap would silently lose unread counts;
+    messages at or before the person's marker are already excluded.
+    """
+    params = {'workspace_id': str(workspace_id), 'viewer_email': viewer_email,
+              # Match str.strip(), including Unicode whitespace, in SQL btrim.
+              'strip_chars': _PYTHON_WHITESPACE}
+    values = []
+    for i, (name, at) in enumerate(markers.items()):
+        values.append(f'(CAST(:target_{i} AS text), CAST(:read_{i} AS bigint))')
+        params[f'target_{i}'] = f'channel/{name}'
+        params[f'read_{i}'] = at
+
+    def normalized(expr):
+        return f'lower(btrim({expr}, :strip_chars))'
+
+    candidates = []
+    for field in ("e.payload->'sender_email'", "e.metadata->'sender_email'", "e.payload->'sender_id'"):
+        value = normalized(f"({field}) #>> '{{}}'")
+        # human_sender_email accepts one @, nonempty parts, and no whitespace.
+        candidates.append(f"CASE WHEN jsonb_typeof({field}) = 'string' "
+                          f"AND {value} ~ '^[^@]+@[^@]+$' "
+                          f"AND translate({value}, :strip_chars, '') = {value} THEN {value} END")
+    source_identity = normalized('substring(e.source FROM 7)')
+    sender = (f"CASE WHEN left(e.source, 6) = 'human:' THEN CASE "
+              f"WHEN strpos({source_identity}, '@') > 0 THEN {source_identity} "
+              f"ELSE COALESCE({', '.join(candidates)}) END END")
+    message_type = "e.payload->'message_type'"
+    query = f"""
+        SELECT marker.target, summary.unread_count, summary.completion_at
+        FROM (VALUES {', '.join(values)}) AS marker(target, read_at)
+        CROSS JOIN LATERAL (
+            SELECT count(*) AS unread_count,
+                   max(CASE WHEN :viewer_email != ''
+                            AND left(e.source, 11) = 'openagents:'
+                            AND e.metadata->>'requester_email' = :viewer_email
+                       THEN e.timestamp END) AS completion_at
+            FROM events e
+            WHERE e.network_id = CAST(:workspace_id AS uuid)
+              AND e.target = marker.target
+              AND e.type = 'workspace.message.posted'
+              AND e.timestamp > marker.read_at
+              AND e.visibility != 'direct'
+              AND (NOT {_json_truthy(message_type)} OR {message_type} = '"chat"'::jsonb)
+              AND {_json_truthy("e.payload->'content'")}
+              AND (:viewer_email = '' OR ({sender}) IS DISTINCT FROM :viewer_email)
+        ) AS summary
+    """
+    return query, params
+
+
+def _thread_activity_python(db, workspace_id, markers, viewer_email, result):
     events = db.execute(select(EventRecord).where(
         EventRecord.network_id == workspace_id,
         EventRecord.type == 'workspace.message.posted',
         EventRecord.visibility != 'direct',
         or_(*(and_(EventRecord.target == f'channel/{name}', EventRecord.timestamp > at) for name, at in markers.items())),
     )).scalars()
-    viewer_email = (viewer_email or '').lower()
     for event in events:
         payload = event.payload or {}
         if (payload.get('message_type') or 'chat') != 'chat' or not payload.get('content'):
