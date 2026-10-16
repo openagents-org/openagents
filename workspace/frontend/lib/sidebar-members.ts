@@ -32,7 +32,9 @@ export function sidebarMembers(team: TeamMember[], onlineUsers: OnlineUser[], co
     email, name: roster.get(email)?.displayName || online.get(email) || email,
     online: online.has(email), hasHistory: history.has(email), lastMessageAt: history.get(email) || 0,
   });
-  const self: SidebarMember[] = ownEmail.includes('@') ? [{ email: ownEmail, name: ownName || roster.get(ownEmail)?.displayName || ownEmail, online: true, hasHistory: true, lastMessageAt: 0 }] : [];
+  // The roster carries the profile name, so it wins over a sign-in name that may
+  // be no more than the email the session started with.
+  const self: SidebarMember[] = ownEmail.includes('@') ? [{ email: ownEmail, name: roster.get(ownEmail)?.displayName || ownName || ownEmail, online: true, hasHistory: true, lastMessageAt: 0 }] : [];
   return [
     ...self,
     ...Array.from(history.keys(), row).sort((a, b) => b.lastMessageAt - a.lastMessageAt || a.name.localeCompare(b.name)),

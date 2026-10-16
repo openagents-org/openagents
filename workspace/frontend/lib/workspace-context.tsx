@@ -734,6 +734,18 @@ export function WorkspaceProvider({
   const lastKnownLatestRef = React.useRef<Record<string, { id: string; timestamp: number }>>({});
   const currentSessionIdRef = React.useRef<string | null>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  // Leave the DM with an agent that was just removed: it has nobody left to
+  // answer, yet would otherwise stay open after the agent left every list.
+  const prevAgentNamesRef = useRef<{ workspaceId: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    const names = new Set(agents.map((a) => a.agentName));
+    const previous = prevAgentNamesRef.current;
+    prevAgentNamesRef.current = { workspaceId, names };
+    if (!previous || previous.workspaceId !== workspaceId) return;
+    const counterpart = dmCounterpart(currentSessionIdRef.current, myAddress(currentUserRef.current));
+    const removed = counterpart?.startsWith('openagents:') ? counterpart.slice('openagents:'.length) : null;
+    if (removed && previous.names.has(removed) && !names.has(removed)) setCurrentSessionId(null);
+  }, [agents, workspaceId, setCurrentSessionId]);
   // Track the workspace the default-thread selection last ran for, so a real
   // workspace switch re-selects while a same-workspace re-discover/token refresh
   // keeps the user's current thread.

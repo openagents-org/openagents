@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SectionHeader } from '@/components/settings/section-chrome';
 import { useT } from '@/lib/i18n';
+import { desktopHost } from '@/lib/desktop-host';
 
 /**
  * This-browser-only preferences. They live in localStorage under the same keys
@@ -53,7 +54,7 @@ export default function PreferencesSettingsPage() {
     <div className="space-y-8">
       <SectionHeader
         title={t('admin.preferencesTitle')}
-        description={t('admin.preferencesDescription')}
+        description={t(desktopHost() ? 'admin.preferencesDescriptionDesktop' : 'admin.preferencesDescription')}
       />
 
       <Button variant="outline" onClick={async () => {

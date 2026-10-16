@@ -1279,6 +1279,8 @@ export const messages = {
     preferencesTitle: 'Preferences',
     preferencesDescription:
       'Options for this browser only — they do not affect other members.',
+    preferencesDescriptionDesktop:
+      'Options for this computer only — they do not affect other members.',
   },
 
   profile: {
@@ -1749,6 +1751,9 @@ export const messages = {
     nodeCommandQueued: 'Queued on {node} — it will apply shortly.',
     nodeCommandFailed: 'Could not queue the command.',
     nodeCommandForbidden: 'Only the connection owner can manage its agents.',
+    nodeCommandSignIn: 'Your sign-in has expired. Sign in again and retry.',
+    agentNameTaken: 'This workspace already has an agent named "{name}". Choose another name.',
+    agentOnOtherConnection: '"{name}" runs on another device connection. Manage it from that device.',
     nodeOfflineActionHint: 'Device connection is offline. Agent statuses are from its last report; agents may still be connected separately. Commands will run when the device reconnects.',
     nodeRemoveAgentTitle: 'Remove agent?',
     nodeRemoveAgentBody: 'This stops and removes "{name}" from the device.',
