@@ -26,7 +26,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { sidebarAgents } from '@/lib/sidebar-agents';
+import { sidebarAgents, isOwnedAgent } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -209,6 +209,7 @@ export function NavRail() {
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
+  const firstSharedIndex = onlineAgents.findIndex(agent => !isOwnedAgent(agent, currentUser.id));
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
 
@@ -374,7 +375,11 @@ export function NavRail() {
                 className={cn(showLabels && !agentsOpen && 'hidden')}
               >
                 <SidebarMenu className="gap-0.5">
-                  {onlineAgents.map((agent) => (
+                  {onlineAgents.map((agent, index) => (
+                    <React.Fragment key={agent.agentName}>
+                      {index === firstSharedIndex && <li role="separator" aria-label={t('collab.sharedByOthers')} className="mx-2 mt-2 border-t border-sidebar-border pt-2">
+                        {showLabels && <span className="block pb-1 text-[11px] text-muted-foreground">{t('collab.sharedByOthers')}</span>}
+                      </li>}
                     <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
@@ -397,11 +402,12 @@ export function NavRail() {
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
-                        {showLabels && <AgentRosterHints agent={agent} viewerEmail={currentUser.id} className="ml-auto" />}
+                        {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
                       <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>
                     </SidebarMenuItem>
+                    </React.Fragment>
                   ))}
                 </SidebarMenu>
               </SidebarGroupContent>
