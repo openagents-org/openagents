@@ -376,7 +376,9 @@ class CodexAdapter extends BaseAdapter {
         if (result.stopped) return;
 
         if (result.responseText) {
-          await this.sendResponse(msgChannel, result.responseText);
+          await this.sendResponse(msgChannel, result.responseText, {
+            statusKind: CodexAdapter._endedEarly(result) ? 'error' : 'completed',
+          });
           // A run that said something and then died (turn.failed, non-zero
           // exit) used to post only that opening line as the finished reply,
           // so it read as "Codex says one sentence and stops" with the real

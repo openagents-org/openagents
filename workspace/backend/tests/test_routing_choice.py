@@ -111,3 +111,49 @@ def test_forged_routing_metadata_is_not_trusted(client, workspace, thread):
     assert data['metadata']['routing_choice']['candidates'] == ['agent-alpha', 'agent-beta']
     assert 'routing_assignment' not in data['metadata']
     assert resolve(client, workspace, data, agent='outsider').status_code == 403
+
+
+def continuation_choice(db, workspace, thread, root):
+    event = EventRecord(id='continuation-choice', network_id=workspace['id'],
+        type='workspace.message.posted', source='openagents:agent-alpha', target=f'channel/{thread.name}',
+        visibility='channel', timestamp=root['timestamp'] + 1,
+        payload={'content': 'OAuth is implemented. The review is still outstanding.'},
+        metadata_={'target_agents': ['__no_response__'], 'routing_choice': {
+            'status': 'pending', 'requester_email': 'ann@acme.test', 'candidates': ['agent-beta'],
+            'continuation': True, 'root_id': root['id'], 'task': 'Review OAuth state validation.'}})
+    db.add(event); db.commit()
+    return {'id': event.id}
+
+
+def test_continuation_selection_preserves_request_and_result_once(client, workspace, thread, db):
+    root = post(client, workspace, thread)
+    event = continuation_choice(db, workspace, thread, root)
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        assert resolve(client, workspace, event, user='ben').status_code == 403
+        result = resolve(client, workspace, event)
+        assert result.status_code == 200, result.text
+        assert resolve(client, workspace, event).json() == result.json()
+        assert invoke.call_count == 1
+    dispatch = db.get(EventRecord, result.json()['data']['assignment_event_id'])
+    assert dispatch.source == 'human:ann@acme.test'
+    assert dispatch.metadata_['target_agents'] == ['agent-beta']
+    for text in ['Publish this blog', 'Review OAuth state validation', 'OAuth is implemented']:
+        assert text in dispatch.payload['content']
+
+
+@pytest.mark.parametrize('change', ['new-message', 'stop'])
+def test_old_continuation_choice_cannot_restart_work(client, workspace, thread, db, change):
+    root = post(client, workspace, thread)
+    event = continuation_choice(db, workspace, thread, root)
+    if change == 'new-message':
+        db.add(EventRecord(id='newer-human', network_id=workspace['id'], type='workspace.message.posted',
+            source='human:ann@acme.test', target=f'channel/{thread.name}', timestamp=root['timestamp'] + 2,
+            payload={'content': 'Do something else'}, metadata_={}))
+    else:
+        db.add(EventRecord(id='stop', network_id=workspace['id'], type='workspace.agent.control',
+            source='human:ann@acme.test', target=f'channel/{thread.name}', timestamp=root['timestamp'] + 2,
+            payload={'action': 'stop', 'channel': thread.name}, metadata_={}))
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        assert resolve(client, workspace, event).status_code == 409
+        invoke.assert_not_called()

@@ -80,6 +80,17 @@ def speaker_label(source: str, payload: Optional[dict] = None) -> str:
     return name[:40] or "user"
 
 
+def _coordinated_handoff(metadata):
+    # This metadata is server-authored; workspace_mod strips caller attempts.
+    handoff = metadata.get('orchestration') or {}
+    if not isinstance(handoff, dict):
+        return False
+    step = handoff.get('step')
+    return (config.COMPLETION_ROUTING_ENABLED and handoff.get('action') == 'next'
+            and bool(handoff.get('root_id')) and type(step) is int
+            and 1 <= step <= config.COMPLETION_ROUTING_MAX_HANDOFFS)
+
+
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
     metadata = event_data.get("metadata") or {}
@@ -89,7 +100,7 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
         return
 
     depth = metadata.get("cloud_agent_depth", 0)
-    if depth >= config.CLOUD_AGENT_MAX_DEPTH:
+    if depth >= config.CLOUD_AGENT_MAX_DEPTH and not _coordinated_handoff(metadata):
         logger.warning("cloud_agent: max depth %d reached, skipping", depth)
         return
 
@@ -1045,6 +1056,16 @@ async def _post_response(
         )
     except Exception:
         logger.warning("cloud_agent: failed to schedule watch notify", exc_info=True)
+
+    # Cloud replies do not pass through the HTTP endpoint's background
+    # dispatch hook. Continue the server-authorized chain here as well.
+    # completion_routing owns its persisted per-request handoff limit.
+    if _coordinated_handoff(event.metadata):
+        await invoke_cloud_agents(workspace_id, {
+            'id': event.id, 'type': event.type, 'source': event.source,
+            'target': event.target, 'payload': event.payload,
+            'metadata': event.metadata, 'timestamp': event.timestamp,
+        })
 
 
 async def _post_error_message(

@@ -161,6 +161,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // "@to request…" as plain text and the same record in metadata.handoff;
   // the card renders the record so the sections stay readable.
   const handoff = !approval ? handoffFromMessage(message.metadata) : null;
+  const continuation = message.metadata?.orchestration as { action?: string; agent?: string; task?: string; reason?: string } | undefined;
   const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const [copied, setCopied] = useState(false);
 
@@ -323,6 +324,13 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                 <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
               </>
             )}
+
+            {!approval && continuation?.action === 'next' && typeof continuation.agent === 'string' && <p role="status" className="mt-2 text-xs text-muted-foreground">
+              {t('routing.continuing', { agent: agentLabels[continuation.agent] || continuation.agent })}
+              {typeof continuation.task === 'string' && <> · {continuation.task}</>}
+            </p>}
+            {!approval && continuation?.action === 'wait' && typeof continuation.reason === 'string' && <p role="status" className="mt-2 text-xs text-muted-foreground">{continuation.reason}</p>}
+            {!approval && <RoutingChoiceCard message={message} agents={agents} />}
 
             {review && <div className="mt-2 text-xs text-muted-foreground" role="status">
               {Array.isArray(review.reviewers) && review.reviewers.length > 0 && <p>{t('reviewHandoff.sent', { agents: review.reviewers.map(name => agentLabels[name] || name).join(', ') })}</p>}

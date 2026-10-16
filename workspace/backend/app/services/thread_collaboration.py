@@ -48,9 +48,14 @@ def apply_instructions(event, context):
     if event is None or event.type != 'workspace.message.posted':
         return
     event.metadata.pop('thread_agent_instructions', None)
-    if not config.THREAD_COLLABORATION_ENABLED or not (event.target or '').startswith('channel/'):
+    if not (event.target or '').startswith('channel/'):
         return
     targets = event.metadata.get('target_agents') or []
     if targets:
-        event.metadata['thread_agent_instructions'] = instruction_blocks(context.extra['db'], context.extra['workspace'].id,
-            event.target[len('channel/'):], targets)
+        blocks = instruction_blocks(context.extra['db'], context.extra['workspace'].id,
+            event.target[len('channel/'):], targets) if config.THREAD_COLLABORATION_ENABLED else {}
+        handoff = event.metadata.get('orchestration') or {}
+        if handoff.get('action') == 'next' and handoff.get('agent') in targets:
+            name = handoff['agent']
+            blocks[name] = (blocks.get(name, '') + '\nNext task for this request: ' + handoff['task']).strip()
+        event.metadata['thread_agent_instructions'] = blocks

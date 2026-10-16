@@ -239,6 +239,7 @@ class BaseAdapter {
     // "this turn started after the stop and is meant to run".
     this._channelRunGeneration = {};
     this._channelRequestContent = {};
+    this._channelTriggerId = {};
     // Channels a user stopped whose next turn has not started yet. Everything
     // the send* helpers would post there is dropped: output a killed run was
     // still flushing lands after the stop notice otherwise, and the workspace
@@ -1440,6 +1441,7 @@ class BaseAdapter {
           this._mutedChannels.delete(channel);
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
+          this._channelTriggerId[channel] = current.messageId || null;
           await this._handleMessage(current);
         }
       } catch (e) {
@@ -1448,6 +1450,7 @@ class BaseAdapter {
       }
       delete this._channelRunGeneration[channel];
       delete this._channelRequestContent[channel];
+      delete this._channelTriggerId[channel];
       first = false;
 
       const queue = this._channelQueues[channel];
@@ -1499,8 +1502,13 @@ class BaseAdapter {
    * the per-run MCP server. Never throws.
    */
   _sharedContextEmail(msg) {
-    if (!msg || msg.senderType !== 'human') return null;
-    const raw = msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '';
+    if (!msg) return null;
+    const continuation = msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+    if (msg.senderType !== 'human' && !continuation) return null;
+    // Continuations retain the authenticated original requester so the next
+    // agent applies the same owner-reviewed shared context and tool identity.
+    const raw = continuation ? (msg.metadata.requester_email || '')
+      : (msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '');
     const email = String(raw).trim().toLowerCase();
     return email && email.includes('@') ? email : null;
   }
@@ -1815,7 +1823,7 @@ class BaseAdapter {
    * structured field: an earlier attempt matched the word "completed" in the
    * message text and fired on every bash for-loop that ended in `done`.
    */
-  async sendResponse(channel, content) {
+  async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
     if (this._isMuted(channel)) return;
     try {
       let attachments = [];
@@ -1835,7 +1843,7 @@ class BaseAdapter {
         attachments,
         senderType: 'agent',
         senderName: this.agentName,
-        metadata: { status_kind: 'completed' },
+        metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
         sessionId: this._sessionId,
       });
     } catch (e) {

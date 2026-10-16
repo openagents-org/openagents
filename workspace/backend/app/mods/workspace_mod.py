@@ -2027,6 +2027,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     - Fallback (single-agent threads or router disabled): no routing needed.
     """
     from app.models import Channel, WorkspaceMember
+    from app.config import config
 
     db = ctx.extra["db"]
     workspace = ctx.extra["workspace"]
@@ -2044,6 +2045,8 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     event.metadata.pop("routing_assignment", None)
     event.metadata.pop("routing_choice", None)
     event.metadata.pop("routing_decision", None)
+    event.metadata.pop("orchestration", None)
+    event.metadata.pop("orchestration_state", None)
     content = payload.get("content", "")
     message_type = payload.get("message_type", "chat")
 
@@ -2272,6 +2275,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             channel.name,
         )
         targets = []
+    elif (event.source.startswith("openagents:")
+          and config.COMPLETION_ROUTING_ENABLED and len(real_participants) >= 2
+          and (channel.orchestration_mode or 'dynamic') == 'dynamic'
+          and not channel.service_id
+          and not channel.name.startswith(('task:', 'routine:', 'routines:', 'dm:', 'issue-work-'))):
+        from app.services.completion_routing import completion_targets
+        targets = await completion_targets(db, workspace, channel, event)
     elif conversation_targets is not None:
         targets = conversation_targets
     elif event.source.startswith("human:") and not mentions and _addresses_people_only(event):

@@ -121,6 +121,8 @@ class Config:
     # Enable only after every approval handler has the scoped-access release.
     THREAD_COLLABORATION_ENABLED: bool = os.environ.get("THREAD_COLLABORATION_ENABLED", "false").lower() in ("true", "1", "yes")
     THREAD_AGENT_ACCESS_ENABLED: bool = os.environ.get("THREAD_AGENT_ACCESS_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_ENABLED: bool = os.environ.get("COMPLETION_ROUTING_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_MAX_HANDOFFS: int = max(1, min(20, int(os.environ.get("COMPLETION_ROUTING_MAX_HANDOFFS", "6"))))
     AUTOMATIC_REVIEW_HANDOFF_ENABLED: bool = os.environ.get("AUTOMATIC_REVIEW_HANDOFF_ENABLED", "false").lower() in ("true", "1", "yes")
     ROUTER_LLM_ENABLED: bool = os.environ.get("ROUTER_LLM_ENABLED", "true").lower() in ("true", "1", "yes")
     ROUTER_LLM_PROVIDER: str = os.environ.get("ROUTER_LLM_PROVIDER", "anthropic")  # "anthropic" or "openai"
