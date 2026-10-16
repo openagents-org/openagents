@@ -2352,6 +2352,7 @@
       ],
       "saved_env_key": "LLM_API_KEY",
       "creds_file": "~/.local/share/mimocode/auth.json",
+      "creds_xdg_data_file": "mimocode/auth.json",
       "creds_key": "xiaomi",
       "login_command": "mimo providers login -p xiaomi",
       "not_ready_message": "Not configured — sign in with a Xiaomi account (mimo providers login -p xiaomi), or set an API key (press e). A MiMo API key works with the prefilled base URL; create one at https://platform.xiaomimimo.com."

@@ -110,6 +110,27 @@ describe('MiMo Code — registry entry', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('follows XDG_DATA_HOME to the sign-in, as MiMo and the adapter do', () => {
+    assert.equal(entry.check_ready.creds_xdg_data_file, 'mimocode/auth.json');
+    const { Installer } = require('../src/installer');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-mimo-xdg-'));
+    const saved = process.env.XDG_DATA_HOME;
+    try {
+      process.env.XDG_DATA_HOME = path.join(dir, 'data');
+      const inst = new Installer({ getEntry: () => null, getResolveRules: () => [] }, dir);
+      inst._whichBinary = () => null;
+      assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code'), false);
+      const env = { XDG_DATA_HOME: process.env.XDG_DATA_HOME };
+      const auth = MiMoCodeAdapter._authFilePath(env);
+      fs.mkdirSync(path.dirname(auth), { recursive: true });
+      fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'sk' } }));
+      assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code'), true, 'the file the adapter reads');
+    } finally {
+      if (saved === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = saved;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('MiMo Code — where a run goes', () => {

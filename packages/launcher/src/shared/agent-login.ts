@@ -44,6 +44,17 @@ export const LAUNCHER_OPENS_LOGIN_URL: Record<string, Record<string, string>> = 
 }
 
 /**
+ * Agents whose login exits 0 when it did NOT sign anyone in, so a clean exit
+ * only counts once the sign-in probe agrees.
+ *
+ *   mimo-code  gives up with "Decryption failed, max retries reached" — in the
+ *              language MiMo picks from the time zone (zh, ja, ru, fr, es, …),
+ *              so no pattern catches every wording — and exits 0 without
+ *              writing a credential. Only "Login successful" is always English.
+ */
+export const LOGIN_EXIT_ZERO_UNPROVEN: ReadonlySet<string> = new Set(["mimo-code"])
+
+/**
  * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the
  * orchestrator spawns the ABSOLUTE resolved path instead, so the login never
  * depends on the PATH a GUI-launched Electron process happened to inherit (the

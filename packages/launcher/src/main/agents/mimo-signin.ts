@@ -21,6 +21,9 @@ import type { ModelChoice } from "./model-catalog"
 /** Where the CLI stores its sign-ins, relative to the home dir. */
 export const MIMO_AUTH_FILE = ".local/share/mimocode/auth.json"
 
+/** …and relative to XDG_DATA_HOME, which the CLI follows when it is set. */
+export const MIMO_AUTH_XDG_PATH = "mimocode/auth.json"
+
 /** The provider a Xiaomi-account sign-in is stored under. */
 const XIAOMI = "xiaomi"
 

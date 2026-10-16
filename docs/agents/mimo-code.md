@@ -85,14 +85,20 @@ run reports as `auth_failed`.
 The page reaches the CLI one of two ways: a redirect to a server the CLI starts
 on localhost, or a code shown on the page to paste back at
 `Paste code here if prompted >` (three tries; then `Decryption failed, max
-retries reached` and exit 0). The CLI opens the browser only with `xdg-open`, and
-the URL it prints is always the paste-a-code one.
+retries reached` and exit 0). Those two "Decryption failed" lines are in the
+language MiMo picks from the time zone, then `LANG` (Chinese in China); the
+prompt, `Login successful` and `Login failed` are always English. The CLI opens
+the browser only with `xdg-open`, and the URL it prints is always the
+paste-a-code one.
 
 The launcher's Sign in runs that command over pipes with `CI=1`, which stops the
 CLI opening a browser, opens the printed URL itself — one tab on every platform
-— and takes the code in the app. Sign-in is read from `auth.json` (a `xiaomi`
-entry holding a key), by the launcher and by the core's `check_ready`
-(`creds_file` + `creds_key`).
+— and takes the code in the app. A clean exit counts only with `Login
+successful` or once the sign-in is found on disk, since a failed login exits 0
+too. Sign-in is read from `auth.json` (a `xiaomi` entry holding a key), by the
+launcher and by the core's `check_ready` (`creds_file` + `creds_key`). Like the
+CLI, both look under `$XDG_DATA_HOME/mimocode/` when that is set
+(`creds_xdg_data_file`; an older core reads only the default path).
 
 ## How a message runs
 

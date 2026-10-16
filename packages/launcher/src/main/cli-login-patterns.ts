@@ -25,6 +25,7 @@
  *                 "Login successful" / "Login failed"
  *                 "Decryption failed, please retry (2 attempts left)" → asks again
  *                 "Decryption failed, max retries reached" → gives up, exit 0
+ *                 (the two "Decryption failed" lines are localized; the rest is not)
  *
  * Kept separate from the orchestrator so the parsing is unit-testable without
  * spawning anything.
@@ -35,6 +36,7 @@
 // is meaningful. Re-exported so this module stays the one import for callers.
 export {
   LAUNCHER_OPENS_LOGIN_URL,
+  LOGIN_EXIT_ZERO_UNPROVEN,
   TERMINAL_ONLY_LOGIN,
   loginArgs,
   needsRealTerminal,

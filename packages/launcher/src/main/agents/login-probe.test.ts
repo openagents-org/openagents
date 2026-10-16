@@ -167,6 +167,26 @@ describe("credsVerdict — MiMo Code's Xiaomi-account sign-in", () => {
     fs.rmSync(path.join(home, ".local"), { recursive: true })
     expect(credsVerdict(mimo, home)).toBe(false)
   })
+
+  it("looks under XDG_DATA_HOME when it is set, as the CLI does", () => {
+    const data = path.join(home, "xdg-data")
+    fs.mkdirSync(path.join(data, "mimocode"), { recursive: true })
+    fs.writeFileSync(
+      path.join(data, "mimocode", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.XDG_DATA_HOME
+    try {
+      delete process.env.XDG_DATA_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { XDG_DATA_HOME: data })).toBe(true)
+      process.env.XDG_DATA_HOME = data
+      expect(credsVerdict(mimo, home)).toBe(true)
+    } finally {
+      if (saved === undefined) delete process.env.XDG_DATA_HOME
+      else process.env.XDG_DATA_HOME = saved
+    }
+  })
 })
 
 describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {

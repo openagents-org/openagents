@@ -990,7 +990,7 @@ class Installer {
   _checkCredsReady(checkReady, agentType) {
     if (checkReady.creds_file) {
       try {
-        const credsPath = this._expandHome(checkReady.creds_file, agentType);
+        const credsPath = this._credsFilePath(checkReady, agentType);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
@@ -1014,6 +1014,24 @@ class Installer {
     }
 
     return false;
+  }
+
+  /**
+   * Where `creds_file` is for this machine. A CLI that keeps its sign-in in
+   * the XDG data directory (MiMo Code's auth.json) follows XDG_DATA_HOME when
+   * it is set, so `creds_xdg_data_file` names the file under it and
+   * `creds_file` stays the default — which is also all an older core reads.
+   * Not for a WSL install: the variable here is this side's, not the distro's.
+   */
+  _credsFilePath(checkReady, agentType) {
+    const rel = checkReady.creds_xdg_data_file;
+    const dataHome = String(process.env.XDG_DATA_HOME || '').trim();
+    if (rel && dataHome && path.isAbsolute(dataHome)) {
+      let wsl = false;
+      try { wsl = !!agentType && isWslBinary(this._whichBinary(agentType)); } catch { /* best-effort */ }
+      if (!wsl) return path.join(dataHome, rel);
+    }
+    return this._expandHome(checkReady.creds_file, agentType);
   }
 
   /**
@@ -1061,7 +1079,7 @@ class Installer {
    */
   _credsFileState(checkReady, agentType) {
     if (!checkReady || !checkReady.creds_file) return 'absent';
-    const p = this._expandHome(checkReady.creds_file, agentType);
+    const p = this._credsFilePath(checkReady, agentType);
     let exists = false;
     try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
     if (!exists) return 'absent';

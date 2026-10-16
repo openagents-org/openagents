@@ -5,6 +5,7 @@ import {
   CODE_PROMPT,
   findAuthUrl,
   LAUNCHER_OPENS_LOGIN_URL,
+  LOGIN_EXIT_ZERO_UNPROVEN,
   LOGIN_FAILURE,
   LOGIN_SUCCESS,
   loginArgs,
@@ -100,6 +101,8 @@ class LoginSession {
   private buffer = ""
   private url: string | null = null
   private answeredPrompt = false
+  // The CLI printed its success line. Some exit 0 without one when they failed.
+  private successSeen = false
   private settled = false
   // A terminal was already handed to this session. The fallback has several
   // independent triggers (spawn error, instant exit, no output, the user's own
@@ -251,6 +254,7 @@ class LoginSession {
       return
     }
     if (LOGIN_SUCCESS.test(text)) {
+      this.successSeen = true
       void this.finish()
       return
     }
@@ -271,18 +275,34 @@ class LoginSession {
       )
       return
     }
-    if (code === 0) {
+    if (code === 0 && !LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) {
       void this.finish()
       return
     }
+    // Its success line already settles it; without one, only the probe can.
+    if (code === 0 && this.successSeen) return
     void this.deps
       .verifyLogin(this.type)
       .then((ok) =>
         ok
           ? this.settle("success")
-          : this.settle("failed", firstLine(this.buffer)),
+          : this.settle("failed", this.exitReason()),
       )
-      .catch(() => this.settle("failed", firstLine(this.buffer)))
+      .catch(() => this.settle("failed", this.exitReason()))
+  }
+
+  /**
+   * What to quote when a login ended without signing in. Usually the CLI's
+   * first line; for one that exits 0 on failure, its last — the first is a
+   * banner, and the verdict comes at the end.
+   */
+  private exitReason(): string {
+    if (!LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) return firstLine(this.buffer)
+    const lines = this.buffer
+      .split("\n")
+      .map((l) => l.replace(/^[\s│┌└■●◆◇]+/, "").trim())
+      .filter((l) => l.length > 0 && !CODE_PROMPT.test(l))
+    return lines.at(-1) || ""
   }
 
   /** The user pasted the code the browser showed them. */

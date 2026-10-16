@@ -281,3 +281,63 @@ describe("CliLoginManager — mimo opens its sign-in URL through the launcher", 
     }
   })
 })
+
+/**
+ * MiMo gives up after three bad codes in the language it picks from the time
+ * zone, and exits 0 without writing a credential. A clean exit therefore only
+ * counts once the sign-in probe agrees — however the CLI worded its failure.
+ */
+describe("CliLoginManager — a clean mimo exit is not a sign-in by itself", () => {
+  const run = async (verified: boolean): Promise<CliLoginEvent[]> => {
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-login-"))
+    const bin = path.join(dir, "mimo")
+    fs.writeFileSync(
+      bin,
+      `#!${process.execPath}\n` +
+        `process.stdout.write(${JSON.stringify(MIMO_LOGIN)})\n` +
+        `process.stdin.once("data", () => { process.stdout.write("\\n■  解密失败，已达最大重试次数\\n"); process.exit(0) })\n`,
+    )
+    fs.chmodSync(bin, 0o755)
+    const events: CliLoginEvent[] = []
+    const mgr = new CliLoginManager({
+      resolveBinary: () => bin,
+      loginCommandFor: () => "mimo providers login -p xiaomi",
+      childEnv: (extra) => ({ ...process.env, ...extra }),
+      verifyLogin: async () => verified,
+      openExternal: () => {},
+      openTerminal: () => {},
+      emit: (ev: CliLoginEvent) => {
+        events.push(ev)
+      },
+    })
+    const until = async (ok: () => boolean): Promise<void> => {
+      for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 50))
+    }
+    try {
+      mgr.start("mimo-code")
+      await until(() => events.some((e) => e.phase === "code"))
+      mgr.submitCode("mimo-code", "wrong")
+      await until(() => events.some((e) => e.phase === "success" || e.phase === "failed"))
+    } finally {
+      mgr.disposeAll()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+    return events
+  }
+
+  it("fails, quoting the CLI's last word, when nothing was signed in", async () => {
+    if (process.platform === "win32") return
+    const events = await run(false)
+    expect(events.at(-1)?.phase).toBe("failed")
+    expect(events.at(-1)?.message).toBe("解密失败，已达最大重试次数")
+  })
+
+  it("succeeds when the probe finds the sign-in after all", async () => {
+    if (process.platform === "win32") return
+    const events = await run(true)
+    expect(events.at(-1)?.phase).toBe("success")
+  })
+})
