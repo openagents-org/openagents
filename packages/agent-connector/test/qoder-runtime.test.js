@@ -15,6 +15,7 @@ const {
   installHint,
   interpretQoderFrame,
   parseFrame,
+  parseModelFallback,
   parseProcessTable,
   qoderErrorLine,
   redactArgs,
@@ -139,7 +140,12 @@ describe('qoder argv', () => {
     const args = buildQoderArgs({ mcpConfigPath: '/tmp/m.json' });
     assert.equal(argAfter(args, '--mcp-config'), '/tmp/m.json');
     assert.ok(args.includes('--strict-mcp-config'));
-    assert.ok(!buildQoderArgs({}).includes('--strict-mcp-config'));
+  });
+
+  it("keeps the user's MCP servers out even with no config to inject", () => {
+    const args = buildQoderArgs({});
+    assert.ok(args.includes('--strict-mcp-config'));
+    assert.ok(!args.includes('--mcp-config'));
   });
 
   it('turns the auto-updater off in the flag settings layer', () => {
@@ -206,6 +212,29 @@ describe('qoder stream-json frames', () => {
     const ev = interpretQoderFrame(SIGNED_OUT_RESULT);
     assert.equal(ev.subtype, 'success');
     assert.equal(ev.isError, true);
+  });
+
+  it('pairs tool calls with their results', () => {
+    const call = interpretQoderFrame({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'make' } }] } });
+    assert.equal(call.tools[0].id, 'toolu_1');
+    const done = interpretQoderFrame({ type: 'user', message: { content: [
+      { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' },
+      { type: 'tool_result', content: 'no id' },
+    ] } });
+    assert.deepEqual(done, { kind: 'tool_results', ids: ['toolu_1', null] });
+  });
+
+  it('redacts the exact token from every string of a frame', () => {
+    const pat = 'qd_8f7e6d5c4b3a2910';
+    const tool = interpretQoderFrame({ type: 'assistant', message: { content: [
+      { type: 'text', text: `token ${pat}` },
+      { type: 'tool_use', name: 'Bash', input: { command: `export QODER_PERSONAL_ACCESS_TOKEN=${pat}` } },
+      { type: 'tool_use', name: 'TodoWrite', input: { todos: [{ content: pat }] } },
+    ] } }, [pat]);
+    const result = interpretQoderFrame({ type: 'result', is_error: true, result: pat, errors: [`bad ${pat}`] }, [pat]);
+    const shown = JSON.stringify([tool, result]);
+    assert.ok(!shown.includes(pat), shown);
+    assert.equal(tool.texts[0], 'token [redacted]');
   });
 
   it('ignores frames with nothing for the channel and flags new ones', () => {
@@ -277,6 +306,19 @@ describe('qoder run classification', () => {
   it('picks the error line out of a stack trace', () => {
     assert.match(qoderErrorLine(PAT_REJECTED_STDERR), /^The QODER_PERSONAL_ACCESS_TOKEN environment variable/);
     assert.equal(qoderErrorLine(''), '');
+  });
+});
+
+describe('qoder model fallback', () => {
+  it('reads the fallback warning off stderr', () => {
+    const stderr = 'Model "performance" is not available right now; using "qfmodel" instead. Use /model to choose another model.\n';
+    assert.deepEqual(parseModelFallback(stderr), { requested: 'performance', used: 'qfmodel' });
+  });
+
+  it('is null without a switch', () => {
+    assert.equal(parseModelFallback(''), null);
+    // No catalog default: the CLI keeps the configured model.
+    assert.equal(parseModelFallback('Model "x" is not available right now, and no Qoder catalog default can be selected.'), null);
   });
 });
 
