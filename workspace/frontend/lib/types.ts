@@ -1118,7 +1118,7 @@ export interface ChannelParticipants {
   visibility: ChannelVisibility;
   director_email: string | null;
   humans: { email: string; display_name: string | null; joined_at: string | null }[];
-  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean }[];
+  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean; thread_access_requested?: boolean }[];
 }
 
 /** POST /v1/channels/{channel}/participants — either joined right away or
@@ -1335,6 +1335,9 @@ export interface WorkspaceSession {
 }
 
 export interface ChannelParticipants {
+  collaboration_supported?: boolean;
+  collaboration?: Record<string, { instructions: string; review_after: string | null }>;
+  thread_access_requests_supported?: boolean;
   can_manage?: boolean;
   can_add_people?: boolean;
   can_add_agents?: boolean;

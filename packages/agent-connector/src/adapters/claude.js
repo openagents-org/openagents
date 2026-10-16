@@ -1125,7 +1125,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _postTurnOutcome(pp, msgChannel, finalResponse) {
     if (finalResponse) {
-      try { await this.sendResponse(msgChannel, finalResponse); } catch {}
+      try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed' }); } catch {}
     } else if (pp.lastErrorText) {
       try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
     } else if (!pp.everPostedAnything) {
@@ -1477,7 +1477,7 @@ class ClaudeAdapter extends BaseAdapter {
             if (detail) {
               try { await this.sendError(msgChannel, this._formatClaudeError(detail)); } catch {}
             } else {
-              try { await this.sendResponse(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
+              try { await this.sendError(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
             }
           }
           break;

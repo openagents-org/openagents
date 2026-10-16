@@ -1,7 +1,7 @@
 """Per-thread permission to request work from another person's agent."""
 from sqlalchemy import select
 from app.models import ChannelAgentSharing, ChannelMember
-from app.services.access_model import Principal, explain, resource_for_agent, channel_participant_emails
+from app.services.access_model import Principal, explain, resource_for_agent, channel_participant_emails, active_grants
 
 
 def sharing_mode(setting):
@@ -19,6 +19,13 @@ def request_access(db, workspace_id, channel, member, email):
         return "yes"
     if not channel or channel.service_id:
         return "no"
+    owner = (member.owner_email or "").strip().lower()
+    people = channel_participant_emails(db, channel)
+    if (channel.status != "deleted" and email in people and owner in people
+            and db.get(ChannelMember, (channel.id, member.agent_name))):
+        grants = active_grants(db, str(workspace_id), "thread_agent", f"{channel.id}:{member.agent_name}", ("human", email))
+        if any("act" in (grant.rights or []) and grant.granted_by == f"human:{owner}" for grant in grants):
+            return "yes"
     issue = issue_for_work(db, channel)
     if issue:
         return issue_request_access(db, workspace_id, issue, member, email)

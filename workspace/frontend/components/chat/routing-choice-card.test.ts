@@ -73,3 +73,18 @@ it('dismisses the compact action without expanding or starting work', async () =
   expect(mocks.resolve).toHaveBeenCalledWith('event-1', null);
   expect(host.textContent).toBe('');
 });
+
+it('opens a continuation choice on an agent result and shows the remaining task', async () => {
+  const value = { ...message, senderType: 'agent', metadata: { routing_choice: {
+    status: 'pending', requester_email: 'ann@example.com', candidates: ['reviewer'],
+    continuation: true, reason: 'Review is still needed.', task: 'Check OAuth state validation.',
+  } } } as unknown as WorkspaceMessage;
+  await render(value);
+  expect(host.textContent).toContain('Who should work on this?');
+  expect(host.textContent).toContain('Review is still needed.');
+  expect(host.textContent).toContain('Check OAuth state validation.');
+  mocks.resolve.mockResolvedValue({ status: 'assigned' });
+  await act(async () => button('reviewer').click());
+  expect(mocks.resolve).toHaveBeenCalledWith('event-1', 'reviewer');
+  expect(host.textContent).toBe('');
+});

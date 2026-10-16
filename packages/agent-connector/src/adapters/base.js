@@ -239,6 +239,7 @@ class BaseAdapter {
     // "this turn started after the stop and is meant to run".
     this._channelRunGeneration = {};
     this._channelRequestContent = {};
+    this._channelTriggerId = {};
     // Channels a user stopped whose next turn has not started yet. Everything
     // the send* helpers would post there is dropped: output a killed run was
     // still flushing lands after the stop notice otherwise, and the workspace
@@ -1428,6 +1429,7 @@ class BaseAdapter {
         // instructions (v1.1 M4); the block is prepended to the message.
         // Gated synchronously so messages it cannot apply to (agents,
         // anonymous humans, system) add no extra tick before the stop check.
+        this._applyThreadCollaboration(channel, current);
         if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
@@ -1439,6 +1441,7 @@ class BaseAdapter {
           this._mutedChannels.delete(channel);
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
+          this._channelTriggerId[channel] = current.messageId || null;
           await this._handleMessage(current);
         }
       } catch (e) {
@@ -1447,6 +1450,7 @@ class BaseAdapter {
       }
       delete this._channelRunGeneration[channel];
       delete this._channelRequestContent[channel];
+      delete this._channelTriggerId[channel];
       first = false;
 
       const queue = this._channelQueues[channel];
@@ -1498,14 +1502,28 @@ class BaseAdapter {
    * the per-run MCP server. Never throws.
    */
   _sharedContextEmail(msg) {
-    if (!msg || msg.senderType !== 'human') return null;
-    const raw = msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '';
+    if (!msg) return null;
+    const continuation = msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+    if (msg.senderType !== 'human' && !continuation) return null;
+    // Continuations retain the authenticated original requester so the next
+    // agent applies the same owner-reviewed shared context and tool identity.
+    const raw = continuation ? (msg.metadata.requester_email || '')
+      : (msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '');
     const email = String(raw).trim().toLowerCase();
     return email && email.includes('@') ? email : null;
   }
 
   _sharedContextCandidate(msg) {
     return this._sharedContextEmail(msg) !== null;
+  }
+
+  _applyThreadCollaboration(channel, msg) {
+    if (msg._threadCollaborationApplied || !channel || channel.startsWith('dm:')) return;
+    const instructions = msg.metadata?.thread_agent_instructions?.[this.agentName];
+    if (typeof instructions !== 'string' || !instructions.trim()) return;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = `COLLABORATION INSTRUCTIONS FOR THIS THREAD ONLY (do not carry these into other threads; existing owner restrictions still apply):\n${instructions.slice(0, 10000)}\nEND THREAD INSTRUCTIONS\n\n${msg.content || ''}`;
+    msg._threadCollaborationApplied = true;
   }
 
   async _applySharedContext(channel, msg) {
@@ -1805,7 +1823,7 @@ class BaseAdapter {
    * structured field: an earlier attempt matched the word "completed" in the
    * message text and fired on every bash for-loop that ended in `done`.
    */
-  async sendResponse(channel, content) {
+  async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
     if (this._isMuted(channel)) return;
     try {
       let attachments = [];
@@ -1825,7 +1843,7 @@ class BaseAdapter {
         attachments,
         senderType: 'agent',
         senderName: this.agentName,
-        metadata: { status_kind: 'completed' },
+        metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
         sessionId: this._sessionId,
       });
     } catch (e) {

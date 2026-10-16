@@ -1,5 +1,7 @@
 'use client';
 
+import { ThreadLiveBrowser } from './thread-live-browser';
+import { AgentMessageAccessProvider } from './agent-message-access';
 import { ThreadResources } from './thread-resources';
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
@@ -27,6 +29,7 @@ import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
+import { DmAvatars } from './dm-avatars';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
@@ -533,6 +536,10 @@ export function ChatView() {
       if (!currentUser.id || !currentUser.name.trim()) return;
 
       const replyingTo = replyTarget;
+      if (replyingTo?.senderType === 'agent') {
+        const recipient = normalizeAgentAddress(replyingTo.senderAddress || replyingTo.senderName);
+        if (recipient) mentions = [...new Set([...mentions, recipient])];
+      }
       setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }));
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
@@ -699,7 +706,7 @@ export function ChatView() {
   }
 
   return (
-    <div data-thread-conversation className="flex flex-col h-full">
+    <AgentMessageAccessProvider><div data-thread-conversation className="flex flex-col h-full">
       {/* Thread header — title on desktop lives in the shell's app header */}
       <DetailHeader
         titleInHeader={isDM}
@@ -715,7 +722,7 @@ export function ChatView() {
           )}
           {isDM ? (
             <h2 className="text-sm font-semibold truncate flex items-center gap-1.5">
-              <MessageSquare className="size-3.5 text-muted-foreground" />
+              <DmAvatars addresses={dmCounterpart ? [dmCounterpart] : dmPairAddrs} />
               <button type="button" className="truncate text-left hover:text-primary" disabled={!dmCounterpart} onClick={() => {
                 if (dmCounterpart?.startsWith('openagents:')) setSelectedAgentName(dmCounterpart.slice('openagents:'.length));
                 else if (dmCounterpart?.startsWith('human:')) setProfileEmail(dmCounterpart.slice('human:'.length));
@@ -867,10 +874,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadResources key={currentSessionId} onInstruct={(name, instruction) => {
-        setCurrentDraft(previous => [previous.trimEnd(), `@${name} ${instruction}`].filter(Boolean).join('\n'));
-        setFocusKey(value => value + 1);
-      }} />
+      <ThreadResources key={currentSessionId} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
@@ -950,7 +954,8 @@ export function ChatView() {
       })()}
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+        <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} />
         {/* Yumi guidance — pinned above the thread when the built-in
             assistant is a participant; collapsible, remembered per browser. */}
         {!isDM && (() => {
@@ -987,8 +992,8 @@ export function ChatView() {
             targetSessionId={currentSessionId}
             onReply={(!isDM || dmWritable) ? (message) => {
               setReplyTargets(previous => ({ ...previous, [currentSessionId]: message }));
-              const email = (message.senderAddress || '').replace(/^human:/, '');
-              if (email.includes('@') && !currentDraft.includes(`@${email}`)) {
+              const email = message.senderType === 'agent' ? normalizeAgentAddress(message.senderAddress || message.senderName) : (message.senderAddress || '').replace(/^human:/, '');
+              if (email && (message.senderType === 'agent' || email.includes('@')) && !currentDraft.includes(`@${email}`)) {
                 handleDraftChange(`${currentDraft}${currentDraft && !/\s$/.test(currentDraft) ? ' ' : ''}@${email} `);
               }
               setFocusKey(key => key + 1);
@@ -1054,6 +1059,6 @@ export function ChatView() {
           />
         )}
       </div>
-    </div>
+    </div></AgentMessageAccessProvider>
   );
 }

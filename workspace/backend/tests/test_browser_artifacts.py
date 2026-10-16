@@ -126,3 +126,36 @@ def test_reopen_preserves_browser_artifact_identity(client, db, workspace, setup
     if not fails:
         assert response.json()['data']['id'] == tab.id
     manager.open_tab.assert_awaited_once()
+
+
+@pytest.mark.parametrize("channel", [
+    "dm:human:test@example.com",
+    "dm:human:test@example.com,openagents:agent-alpha",
+    "dm:openagents:agent-alpha,human:test@example.com",
+])
+def test_dm_browser_records_canonical_pair_and_direct_card(db, setup, channel):
+    ws, tab = setup
+    db.add(EventRecord(id="dm-request", network_id=ws.id, type="workspace.message.posted",
+        source="human:test@example.com", target=tab.created_by,
+        payload={"content": "Use the browser"}, timestamp=1))
+    db.commit()
+    for action in ["open", "snapshot"]:
+        asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, channel, action))
+    assert tab.artifact_channels == ["dm:human:test@example.com,openagents:agent-alpha"]
+    previews = [row for row in cards(db, tab) if row.id != "dm-request"]
+    assert len(previews) == 1
+    assert previews[0].target == "human:test@example.com"
+    assert previews[0].metadata_["target_agents"] == ["__no_response__"]
+
+
+@pytest.mark.parametrize("channel", [
+    "dm:human:stranger@example.com",
+    "dm:human:test@example.com,openagents:other-agent",
+    "dm:human:test@example.com,openagents:agent-alpha,human:third@example.com",
+    "dm:channel/private-thread",
+])
+def test_dm_browser_does_not_guess_or_announce_into_unrelated_conversations(db, setup, channel):
+    ws, tab = setup
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, channel, "open"))
+    assert tab.artifact_channels == []
+    assert not cards(db, tab)

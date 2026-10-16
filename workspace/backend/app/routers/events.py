@@ -340,6 +340,9 @@ def send_event(
     if not body.network:
         return json_response(ResponseCode.BAD_REQUEST, "Missing required field: network")
 
+    if body.type == "workspace.thread.collaboration.updated":
+        return json_response(ResponseCode.FORBIDDEN, "Use the thread collaboration settings endpoint")
+
     # Resolve workspace
     if body.type == "workspace.message.recalled":
         return json_response(ResponseCode.FORBIDDEN, "Use the message recall endpoint")
@@ -667,6 +670,15 @@ def resolve_routing_choice(
     if get_active_run(db, str(workspace.id), channel.name):
         raise HTTPException(409, "A workflow is now running in this thread")
     payload = deepcopy(original.payload or {})
+    if choice.get("continuation"):
+        from app.services.completion_routing import latest_human, bounded
+        from app.mods.workspace_mod import _agent_chat_stopped
+        root = latest_human(db, workspace.id, original.target)
+        if not root or root.id != choice.get('root_id') or _agent_chat_stopped(db, workspace, channel):
+            raise HTTPException(409, "This request was stopped or superseded by a newer message")
+        payload = {"content": "Continue this request: " + bounded((root.payload or {}).get('content'))
+                   + "\nNext task: " + str(choice.get('task') or 'Determine and complete the remaining work.')
+                   + "\nLatest agent result (context):\n" + bounded((original.payload or {}).get('content'))}
     payload.update({"sender_email": viewer.email.lower(), "sender_id": viewer.email.lower(),
                     "message_type": "chat"})
     event = Event(type="workspace.message.posted", source=f"human:{viewer.email.lower()}",

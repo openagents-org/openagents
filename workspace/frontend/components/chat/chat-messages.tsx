@@ -7,7 +7,6 @@ import { MESSAGE_TARGET_EVENT, takeMessageTarget } from '@/lib/message-target';
 import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { AgentMessageAccessProvider } from './agent-message-access';
 import { MessageReactionsProvider } from './message-reactions';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
@@ -634,5 +633,5 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 }
 
 export function ChatMessages(props: ChatMessagesProps) {
-  return <AgentMessageAccessProvider><MessageReactionsProvider messages={props.messages}><ChatMessagesContent key={props.messages[0]?.sessionId} {...props} /></MessageReactionsProvider></AgentMessageAccessProvider>;
+  return <MessageReactionsProvider messages={props.messages}><ChatMessagesContent key={props.messages[0]?.sessionId} {...props} /></MessageReactionsProvider>;
 }

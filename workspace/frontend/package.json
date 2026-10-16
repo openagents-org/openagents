@@ -20,6 +20,7 @@
     "date-fns": "^4.1.0",
     "firebase": "^12.10.0",
     "lucide-react": "^0.541.0",
+    "mammoth": "^1.13.0",
     "mermaid": "^11.15.0",
     "motion": "^12.23.12",
     "next": "16.1.1",

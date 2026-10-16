@@ -123,6 +123,20 @@ describe('workspace initial loading', () => {
     expect(state?.error).toBeNull();
   });
 
+  it('reports a failed initial load and retries the full workspace and roster', async () => {
+    essentials();
+    api.discover.mockRejectedValueOnce(new Error('Service busy'));
+    await render();
+    expect(state?.workspaceLoadError).toBe('Service busy');
+    expect(state?.agents).toEqual([]);
+    await act(async () => state?.retryWorkspace());
+    expect(state?.workspaceLoadError).toBeNull();
+    expect(state?.workspace?.name).toBe('Workspace one');
+    expect(state?.agents[0].agentName).toBe('helper');
+    expect(state?.sessions[0].sessionId).toBe('general');
+    expect(api.getWorkspace).toHaveBeenCalledTimes(2);
+  });
+
   it('clears old optional data and ignores late responses after switching workspaces', async () => {
     essentials();
     const oldTabs = deferred<{ tabs: unknown[] }>();

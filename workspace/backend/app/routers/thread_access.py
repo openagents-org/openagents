@@ -320,10 +320,24 @@ class AgentSharingRequest(BaseModel):
     network: str
 
 
+@router.post("/channels/{channel}/agents/{agent}/thread-access-requests")
+def request_thread_agent_access(channel: str, agent: str, body: AgentSharingRequest,
+    db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)):
+    from app.config import config
+    if not config.THREAD_AGENT_ACCESS_ENABLED:
+        return json_response(ResponseCode.FORBIDDEN, "Thread access requests are not enabled yet")
+    return _request_agent_sharing(channel, agent, body, db, x_workspace_token, authorization, thread_only=True)
+
+
 @router.post("/channels/{channel}/agents/{agent}/sharing-requests")
 def request_agent_sharing(channel: str, agent: str, body: AgentSharingRequest,
     db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)):
+    return _request_agent_sharing(channel, agent, body, db, x_workspace_token, authorization)
+
+
+def _request_agent_sharing(channel, agent, body, db, x_workspace_token, authorization, *, thread_only=False):
     from app.models import WorkspaceMember, ChannelMember
     from app.services import agent_sharing_requests, approvals
     from app.services.thread_agent_requests import request_access
@@ -349,7 +363,7 @@ def request_agent_sharing(channel: str, agent: str, body: AgentSharingRequest,
         return json_response(ResponseCode.BAD_REQUEST, "You already have access to this agent in this thread")
     names = _display_names(db, [ctx.viewer.email])
     request = agent_sharing_requests.create_request(db, ctx.workspace, ch, member,
-        ctx.viewer.email, names.get(ctx.viewer.email) or ctx.viewer.email)
+        ctx.viewer.email, names.get(ctx.viewer.email) or ctx.viewer.email, thread_only=thread_only)
     db.commit()
     return success_response(approvals.serialize_with_owner(db, request))
 
@@ -535,3 +549,62 @@ def update_direct_preferences(thread_id: str, body: DirectPreferencePatch, db: S
         pref.starred = body.starred
     db.commit()
     return success_response({'pinned': pref.pinned, 'starred': pref.starred})
+
+
+class ThreadAgentInstructions(BaseModel):
+    network: str
+    instructions: str = Field(default='', max_length=8000)
+    review_after: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.put('/channels/{channel}/agents/{agent}/collaboration')
+def save_thread_agent_instructions(channel: str, agent: str, body: ThreadAgentInstructions,
+    db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)):
+    from app.config import config
+    from app.models import WorkspaceMember, ChannelMember
+    from app.services import thread_collaboration
+    from app.services.access_model import can_manage_thread_settings
+    if not config.THREAD_COLLABORATION_ENABLED:
+        return json_response(ResponseCode.FORBIDDEN, 'Thread collaboration settings are not enabled yet')
+    ctx, err = _load(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    ch = _get_channel(db, ctx, channel)
+    if not ch or not can_view_channel(db, ctx.wid, ctx.viewer, ch):
+        return json_response(ResponseCode.NOT_FOUND, 'Thread not found')
+    ch = db.execute(select(Channel).where(Channel.id == ch.id).with_for_update()).scalar_one()
+    member = db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == ctx.wid,
+        WorkspaceMember.agent_name == agent, WorkspaceMember.status != 'removed')).scalar_one_or_none()
+    if (ctx.viewer.kind != 'human' or not member or ch.service_id
+            or ctx.viewer.email not in channel_participant_emails(db, ch)
+            or not db.get(ChannelMember, (ch.id, agent))
+            or not (can_manage_thread_settings(db, ctx.viewer, ch) or _norm(member.owner_email) == ctx.viewer.email)):
+        return json_response(ResponseCode.FORBIDDEN, 'Only the thread manager or agent owner can edit this role')
+    if body.review_after and (body.review_after == agent or not db.get(ChannelMember, (ch.id, body.review_after))):
+        return json_response(ResponseCode.BAD_REQUEST, 'Choose another agent in this thread to review')
+    values = thread_collaboration.save(db, ctx.wid, ch.name, agent, body.instructions.strip(), body.review_after, ctx.viewer.email)
+    db.commit()
+    return success_response({'agents': values})
+
+
+@router.delete('/channels/{channel}/agents/{agent}/access/{email}')
+def revoke_thread_agent_access(channel: str, agent: str, email: str, network: str = Query(...),
+    db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)):
+    from app.models import WorkspaceMember
+    from app.services.access_model import revoke_grants
+    ctx, err = _load(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    ch = _get_channel(db, ctx, channel)
+    member = db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == ctx.wid,
+        WorkspaceMember.agent_name == agent)).scalar_one_or_none()
+    if not ch or not member or not can_view_channel(db, ctx.wid, ctx.viewer, ch):
+        return json_response(ResponseCode.NOT_FOUND, 'Thread or agent not found')
+    if not ctx.viewer.is_human or _norm(member.owner_email) != ctx.viewer.email:
+        return json_response(ResponseCode.FORBIDDEN, 'Only the agent owner can revoke this access')
+    revoke_grants(db, ctx.wid, resource_kind='thread_agent', resource_id=f'{ch.id}:{agent}',
+        grantee_kind='human', grantee_id=_norm(email), by=ctx.viewer.email)
+    db.commit()
+    return success_response({'revoked': True})

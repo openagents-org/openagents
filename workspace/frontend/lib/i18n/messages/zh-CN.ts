@@ -5,9 +5,18 @@ import type { Messages } from './en-US';
  * one that no longer exists in English — fails the build.
  */
 export const messages: Messages = {
+  threadLiveBrowser: {
+    title: '实时浏览器',
+    expand: '打开完整浏览器',
+    minimize: '最小化浏览器预览',
+    restore: '显示浏览器预览',
+    waiting: '正在等待浏览器画面…',
+  },
   threadResources: {"scrollLeft": "向左滚动", "scrollRight": "向右滚动", "title": "会话资源", "agents": "智能体", "expand": "展开资源", "collapse": "收起资源", "guide": "为每个智能体明确分工：调研、执行或审核。", "noRole": "告诉这个智能体可以如何协助。", "instruct": "添加指令", "instructAgent": "给 {agent} 的指令", "instructions": "智能体指令", "placeholder": "希望它负责什么？说明目标、交付内容和注意事项。", "draftHint": "在消息框中确认后发送。", "addDraft": "加入消息", "cancel": "取消指令", "empty": "此会话中共享的文件和浏览器会话将显示在这里。", "liveBrowser": "实时浏览器", "browsing": "{agent} 正在浏览"},
   issueWork: {"edit": "编辑智能体工作", "delete": "删除智能体工作","threads": "关联会话","add": "添加智能体工作", "setupHint": "为此议题准备智能体或工作流。点击运行后才会开始执行。", "hint": "在此跟踪智能体进度。运行完成不会自动关闭议题。", "empty": "暂无运行。可添加智能体或工作流，或在讨论中提及智能体。", "openIssue": "打开议题", "runs": "运行记录", "back": "返回议题"},
-  messageAgentAccess: {"owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请共享 {agent}。批准后，你可以与该智能体私聊并将其加入讨论。已有的私人对话仍然保持私密。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
+  threadCollaboration: { saved: "已保存此会话的协作职责", reviewAfter: "自动审核", noReview: "不自动审核", onlyHere: "仅对当前会话生效。" },
+  reviewHandoff: { sent: "已交给审核：{agents}", blocked: "审核需要先获得使用权限：{agents}" },
+  messageAgentAccess: {"rolloutPending": "仅限此会话的授权将在服务端协调更新后启用。","owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请仅在此会话中使用 {agent}。批准后不会获得私聊或其他会话的使用权限。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
   artifactPanel: {
     browserClosed: "此浏览器会话已结束",
@@ -102,7 +111,7 @@ export const messages: Messages = {
   },
 
   messageReply: { confirmTitle: "撤回这条消息？", confirmDescription: "这将从会话中为所有人移除此消息及其附件。其他人可能已经看过。此操作无法撤销。", to: '回复 {name}', cancel: '取消回复', attachment: '附件', recalled: '消息已撤回', recall: '撤回消息', recallFailed: '无法撤回此消息。' },
-  routing: { askAgent: '请智能体处理', title: '希望哪个智能体来处理？',
+  routing: { continuing: '由 {agent} 继续处理', askAgent: '请智能体处理', title: '希望哪个智能体来处理？',
     hint: '选择一个智能体处理此请求，或将这条消息保留为普通聊天。',
     dismiss: '忽略分配建议', dismissAction: '忽略',
   },
@@ -116,6 +125,8 @@ export const messages: Messages = {
     searchAssignees: "搜索成员或你的智能体…", noAssignees: "没有匹配的负责人", labelName: "标签名称",
     paused: '已暂停', assignee: '负责人', unassigned: '未分配', labels: '标签', addLabel: '添加标签', removeLabel: '移除 {label}',
     editHint: "更改将与议题的所有参与者共享。",
+    teamIssues: "团队议题",
+    myAgentTasks: "我的智能体任务",
     allIssues: "全部议题",
     noMatchesHint: "试试其他关键词或更改状态筛选。",
     emptyColumn: "暂无议题",
@@ -192,6 +203,12 @@ export const messages: Messages = {
   },
 
   nav: {
+    myAgents: '我的智能体',
+    moreAgentsOnline: '还有 {count} 个在线',
+    viewAllAgents: '查看全部智能体',
+    searchAgents: '搜索智能体…',
+    noAgentsFound: '未找到智能体',
+
     unreadMessages: '{count} 条未读消息',
     memberOnline: '在线',
     members: '成员',
@@ -1854,6 +1871,9 @@ export const messages: Messages = {
     open: '打开',
     opening: '打开中…',
     slotsUsed: '已用 {used}/{max}',
+    sessionCapacityHint: '保存的标签页不限数量。活跃浏览器会话共享账户容量，空闲会话会自动休眠。',
+    workspaceActiveSessions: '当前工作区有 {count} 个活跃会话。',
+    activeSessionLimit: '活跃浏览器会话容量已满。请关闭不再需要的会话，或等待空闲会话休眠后重试。',
     awakeSlots: '最多同时唤醒 {max} 个标签页;闲置 {minutes} 分钟后休眠的标签页不计入。',
     quotaFull: '{max} 个唤醒名额已全部占用。请让一个标签页休眠或关闭,或等待闲置标签页自动休眠({minutes} 分钟)。',
     quotaFullPermanent: '{max} 个永久标签页均在运行,请先让其中一个休眠。',
@@ -1931,6 +1951,7 @@ export const messages: Messages = {
     reconnectHint: '重连——创建新的浏览器会话',
     reconnect: '重连',
     restoreSize: '恢复大小',
+    fullscreenUnavailable: '浏览器无法进入全屏模式。',
     expandFullPage: '展开到整页',
     editUrl: '点击编辑网址',
     expiredTitle: '浏览器会话已过期',
@@ -2554,6 +2575,7 @@ export const messages: Messages = {
   // ── v1.1 M1/M2 — 私密线程、个人智能体、共享、智能体目录 ──────────────────
   collab: {
     shared: "已共享",
+    sharedByOthers: '他人共享的智能体',
     requestApprovalTitle: "逐个审批新任务",
     requestApprovalHint: "新请求须由所选成员批准后才会发送给此智能体。每个新请求都需要单独审批。",
     requestApprovalOff: "无需审批",

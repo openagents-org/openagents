@@ -162,7 +162,7 @@ describe('Codex — partial run that then failed', () => {
       _buildSystemContext: () => 'system context',
       _log: () => {},
       _spawnCodex: async () => result,
-      sendResponse: async (channel, content) => { sent.push({ kind: 'response', content }); },
+      sendResponse: async (channel, content, options) => { sent.push({ kind: 'response', content, options }); },
       sendError: async (channel, content) => { sent.push({ kind: 'error', content }); },
     });
     return { fake, sent };
@@ -177,6 +177,7 @@ describe('Codex — partial run that then failed', () => {
     });
     await fake._handleViaSubprocess('fix it', 'general');
     assert.deepStrictEqual(sent.map((m) => m.kind), ['response', 'error']);
+    assert.equal(sent[0].options.statusKind, 'error');
     assert.ok(sent[1].content.includes('stopped partway'));
     assert.ok(sent[1].content.includes('> stream disconnected before completion'));
   });
@@ -196,6 +197,7 @@ describe('Codex — partial run that then failed', () => {
     });
     await fake._handleViaSubprocess('fix it', 'general');
     assert.deepStrictEqual(sent.map((m) => m.kind), ['response']);
+    assert.equal(sent[0].options.statusKind, 'completed');
   });
 });
 

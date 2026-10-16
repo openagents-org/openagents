@@ -11,9 +11,18 @@
  */
 
 export const messages = {
+  threadLiveBrowser: {
+    title: 'Live browser',
+    expand: 'Open full browser',
+    minimize: 'Minimize browser preview',
+    restore: 'Show browser preview',
+    waiting: 'Waiting for browser preview…',
+  },
   threadResources: {"scrollLeft": "Scroll left", "scrollRight": "Scroll right", "title": "Thread resources", "agents": "Agents", "expand": "Expand resources", "collapse": "Collapse resources", "guide": "Give each agent a focus: research, build, or review.", "noRole": "Tell this agent how it can help.", "instruct": "Give instructions", "instructAgent": "Instructions for {agent}", "instructions": "Agent instructions", "placeholder": "What should this agent handle? Include the goal, expected output, and any limits.", "draftHint": "Review and send from the message box.", "addDraft": "Add to message", "cancel": "Cancel instructions", "empty": "Files and browser sessions shared in this thread appear here.", "liveBrowser": "Live browser", "browsing": "{agent} is browsing"},
   issueWork: {"edit": "Edit agent work", "delete": "Delete agent work","threads": "Linked conversations","add": "Add agent work", "setupHint": "Prepare an agent or workflow run for this issue. Work starts only when you click Run.", "hint": "Agent progress is tracked here. Completing a run does not close the issue.", "empty": "No runs yet. Add work for an agent or workflow, or mention an agent in the discussion.", "openIssue": "Open issue", "runs": "Runs", "back": "Back to issue"},
-  messageAgentAccess: {"owner": "Owned by {name}", "yours": "Your agent", "shared": "Shared with you", "approval": "Requires approval", "notShared": "Not shared with you", "request": "Request access", "requested": "Access requested", "requestTitle": "Request access to {agent}", "requestHint": "Ask {owner} to share {agent} with you. If approved, you can chat directly with this agent and add it to threads. Existing private conversations remain private.", "sent": "Request sent to the agent owner", "failed": "Could not request access. Please try again."},
+  threadCollaboration: { saved: "Thread instructions saved", reviewAfter: "Review after", noReview: "No automatic review", onlyHere: "Applies only to this thread." },
+  reviewHandoff: { sent: "Sent for review: {agents}", blocked: "Review needs access approval: {agents}" },
+  messageAgentAccess: {"rolloutPending": "Thread-only access will be available after the coordinated server update.","owner": "Owned by {name}", "yours": "Your agent", "shared": "Shared with you", "approval": "Requires approval", "notShared": "Not shared with you", "request": "Request access", "requested": "Access requested", "requestTitle": "Request access to {agent}", "requestHint": "Ask {owner} for access to {agent} in this thread only. Approval does not grant direct chat or access in other threads.", "sent": "Request sent to the agent owner", "failed": "Could not request access. Please try again."},
   webProject: {"kind": "Web project","upload": "Upload web project", "update": "Update project", "choose": "Choose project folder", "name": "Project name", "entry": "Entry page", "files": "files", "keepsSharing": "Keeps the existing link and sharing.", "threadSharing": "Shared with this thread.", "private": "Only visible to you until shared.", "help": "Choose a static site folder. Use relative links for images, styles, scripts, and data. Hidden files and dependency folders are excluded.", "noHtml": "This folder needs an HTML entry page.", "publish": "Publish project", "published": "Project published", "preview": "Web project preview"},
   artifactPanel: {
     browserClosed: "This browser session has ended",
@@ -109,7 +118,7 @@ export const messages = {
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   messageReply: { confirmTitle: "Recall this message?", confirmDescription: "This removes the message and its attachments from the conversation for everyone. Others may already have seen it. This cannot be undone.", to: 'Replying to {name}', cancel: 'Cancel reply', attachment: 'Attachment', recalled: 'Message recalled', recall: 'Recall message', recallFailed: 'This message could not be recalled.' },
-  routing: { askAgent: 'Ask an agent', title: 'Who should work on this?',
+  routing: { continuing: 'Continuing with {agent}', askAgent: 'Ask an agent', title: 'Who should work on this?',
     hint: 'Choose an agent to handle your request, or leave this as conversation.',
     dismiss: 'Dismiss assignment suggestion', dismissAction: 'Dismiss',
   },
@@ -123,6 +132,8 @@ export const messages = {
     searchAssignees: "Search people or your agents…", noAssignees: "No matching assignees", labelName: "Label name",
     paused: 'Paused', assignee: 'Assignee', unassigned: 'Unassigned', labels: 'Labels', addLabel: 'Add a label', removeLabel: 'Remove {label}',
     editHint: "Changes are shared with everyone on this issue.",
+    teamIssues: "Team issues",
+    myAgentTasks: "My agent tasks",
     allIssues: "All issues",
     noMatchesHint: "Try another search or change the status filter.",
     emptyColumn: "No issues yet",
@@ -199,6 +210,12 @@ export const messages = {
   },
 
   nav: {
+    myAgents: 'My agents',
+    moreAgentsOnline: '+{count} more online',
+    viewAllAgents: 'View all agents',
+    searchAgents: 'Search agents…',
+    noAgentsFound: 'No agents found',
+
     unreadMessages: '{count} unread messages',
     memberOnline: 'Online',
     members: 'Members',
@@ -1892,6 +1909,9 @@ export const messages = {
     open: 'Open',
     opening: 'Opening…',
     slotsUsed: '{used}/{max} used',
+    sessionCapacityHint: 'Saved tabs are unlimited. Active browser sessions share your account’s capacity; idle sessions sleep automatically.',
+    workspaceActiveSessions: '{count} active in this workspace.',
+    activeSessionLimit: 'All active browser sessions are in use. Close a session you no longer need or wait for an idle session to sleep, then try again.',
     awakeSlots: 'Up to {max} tabs awake at once; idle tabs sleep after {minutes} min and don\'t count.',
     quotaFull: 'All {max} awake slots are in use. Put a tab to sleep or close one, or wait for an idle one to sleep ({minutes} min).',
     quotaFullPermanent: 'All {max} permanent slots are live. Put one to sleep first.',
@@ -1969,6 +1989,7 @@ export const messages = {
     reconnectHint: 'Reconnect — create a new browser session',
     reconnect: 'Reconnect',
     restoreSize: 'Restore size',
+    fullscreenUnavailable: 'Your browser could not enter fullscreen.',
     expandFullPage: 'Expand to full page',
     editUrl: 'Click to edit URL',
     expiredTitle: 'Browser session expired',
@@ -2609,6 +2630,7 @@ export const messages = {
   // ── v1.1 M1/M2 — private threads, personal agents, sharing, directory ──────
   collab: {
     shared: "Shared",
+    sharedByOthers: 'Shared by others',
     requestApprovalTitle: "Approve each new task",
     requestApprovalHint: "New requests wait for the selected person to approve before they reach this agent. Each incoming request needs its own approval.",
     requestApprovalOff: "No approval required",
