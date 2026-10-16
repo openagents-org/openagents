@@ -473,12 +473,11 @@ export function NavRail() {
         <div
           className={cn(
             'flex gap-0.5',
-            showLabels ? 'flex-row items-center px-1' : 'flex-col items-center',
+            showLabels ? 'flex-row items-center justify-evenly px-1' : 'flex-col items-center',
           )}
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
-          {showLabels && <div className="flex-1" aria-hidden="true" />}
           <InviteMemberButton />
           <UserMenu side="right" align="end" />
         </div>
