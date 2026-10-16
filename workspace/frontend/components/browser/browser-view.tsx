@@ -42,7 +42,19 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     closeBrowserTab, navigateBrowserTab, reconnectBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
   } = useWorkspace();
-  const { isMobile, isDetailExpanded, toggleDetailExpanded } = useLayout();
+  const { isMobile } = useLayout();
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const changed = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { toast.error(t("browser.fullscreenUnavailable")); }
+  };
 
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -55,6 +67,9 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [wakingId, setWakingId] = useState<string | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const screenshotRef = useRef<HTMLImageElement>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement>(null);
+  const liveFrameRef = useRef<HTMLIFrameElement>(null);
+  const composingRef = useRef(false);
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
   const refreshFrameRef = useRef<(() => void) | null>(null);
@@ -74,8 +89,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // screenshot refresh: people can still deliberately return to the composer.
   const hasScreenshot = !!screenshotUrl;
   useEffect(() => {
-    if (controlling) screenshotRef.current?.focus({ preventScroll: true });
-    else if (document.activeElement === screenshotRef.current) screenshotRef.current?.blur();
+    if (controlling) (liveFrameRef.current || keyboardRef.current)?.focus({ preventScroll: true });
+    else if (document.activeElement === keyboardRef.current) keyboardRef.current?.blur();
   }, [controlling, hasScreenshot]);
 
   // Validate the live session on mount / tab switch, then keep checking. The
@@ -357,11 +372,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         <div className="mb-1.5 ml-auto hidden shrink-0 items-center gap-2 pl-3 text-[10px] tabular-nums text-muted-foreground md:flex">
           <span
             className="inline-flex items-center gap-1"
-            title={t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
+            title={t('browser.sessionCapacityHint')}
           >
             <Globe className="size-3" />
-            <span className={cn(browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max && 'text-red-500')}>
-              {browserTabLimits.concurrent.used}/{browserTabLimits.concurrent.max}
+            <span>
+              {t('browser.workspaceActiveSessions', { count: browserTabLimits.concurrent.used })}
             </span>
           </span>
         </div>
@@ -470,6 +485,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         </div>
       ) : tab.liveUrl && !reconnecting ? (
         <iframe
+          ref={liveFrameRef}
+          onLoad={() => { if (controlling) liveFrameRef.current?.focus(); }}
           src={embedUrl(tab.liveUrl)}
           tabIndex={controlling ? 0 : -1}
           inert={!controlling}
@@ -483,39 +500,52 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         </div>
       ) : screenshotUrl ? (
         <div className="flex w-full justify-center overflow-auto p-4">
+          <textarea ref={keyboardRef} className="sr-only" tabIndex={controlling ? 0 : -1} disabled={!controlling}
+            aria-label={t('browser.controlInstructions')} autoComplete="off" autoCapitalize="off" spellCheck={false}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={event => {
+              composingRef.current = false;
+              if (controlling && event.data) sendInput({ kind: 'text', text: event.data });
+              event.currentTarget.value = '';
+            }}
+            onInput={event => {
+              if (composingRef.current || !controlling) return;
+              const text = event.currentTarget.value;
+              if (text) sendInput({ kind: 'text', text: text.slice(0, 10000) });
+              event.currentTarget.value = '';
+            }}
+            onKeyDown={event => {
+              if (!controlling) return;
+              event.stopPropagation();
+              if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === 'Escape') { event.currentTarget.blur(); return; }
+              if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
+              if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) return;
+              event.preventDefault();
+              sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key].filter(Boolean).join('+') });
+            }}
+            onKeyUp={event => event.stopPropagation()}
+            onPaste={event => {
+              if (!controlling) return;
+              event.preventDefault(); event.stopPropagation();
+              sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
+            }}
+          />
           <img
             ref={screenshotRef}
             src={screenshotUrl}
             alt={t('browser.screenshotOf', { url: tab.url })}
             className={cn('max-w-full rounded-lg border border-zinc-200 shadow-sm outline-none focus:ring-2 focus:ring-primary dark:border-zinc-700', controlling && 'cursor-pointer')}
             draggable={false}
-            tabIndex={controlling ? 0 : -1}
+            tabIndex={-1}
             role={controlling ? 'application' : undefined}
             aria-label={controlling ? t('browser.controlInstructions') : undefined}
             onClick={(event) => {
               if (!controlling) return;
-              event.currentTarget.focus();
+              keyboardRef.current?.focus({ preventScroll: true });
               const rect = event.currentTarget.getBoundingClientRect();
               sendInput({ kind: 'click', x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
-            }}
-            onKeyDown={(event) => {
-              if (!controlling) return;
-              event.stopPropagation();
-              if (event.nativeEvent.isComposing) return;
-              // Escape leaves the remote canvas, so keyboard users can reach Hand back.
-              if (event.key === 'Escape') { event.currentTarget.blur(); return; }
-              if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
-              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
-              event.preventDefault();
-              if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) sendInput({ kind: 'text', text: event.key });
-              else sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key === ' ' ? 'Space' : event.key].filter(Boolean).join('+') });
-            }}
-            onKeyUp={(event) => { if (controlling) event.stopPropagation(); }}
-            onPaste={(event) => {
-              if (!controlling) return;
-              event.stopPropagation();
-              event.preventDefault();
-              sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
             }}
             onWheel={(event) => {
               if (!controlling) return;
@@ -686,11 +716,12 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       >
         {!isMobile && (
           <button
-            onClick={toggleDetailExpanded}
+            onClick={() => void toggleFullscreen()}
             className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            title={isDetailExpanded ? t('browser.restoreSize') : t('browser.expandFullPage')}
+            aria-label={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
+            title={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
           >
-            {isDetailExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
         )}
       </DetailHeader>}

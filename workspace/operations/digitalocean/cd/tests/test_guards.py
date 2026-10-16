@@ -22,6 +22,22 @@ class MigrationTests(unittest.TestCase):
     def test_current_schema_needs_no_backup(self):
         s=SimpleNamespace(get_heads=lambda:['083'],iterate_revisions=lambda *_:[])
         self.assertEqual(plan(s,['083'])['pending'], [])
+    def test_current_schema_does_not_run_upgrade(self):
+        import json
+        current = {'current': ['083'], 'target': ['083'], 'pending': []}
+        with patch.object(deploy, 'command', return_value=json.dumps(current)) as cmd, \
+             patch.object(deploy, 'migration_command', return_value=['read-plan']), \
+             patch.object(deploy, 'write_private'):
+            deploy.migrate('image')
+            cmd.assert_called_once_with(['read-plan'], capture=True)
+    def test_empty_plan_with_wrong_revision_blocks(self):
+        import json
+        current = {'current': ['082'], 'target': ['083'], 'pending': []}
+        with patch.object(deploy, 'command', return_value=json.dumps(current)), \
+             patch.object(deploy, 'migration_command', return_value=['read-plan']), \
+             patch.object(deploy, 'write_private') as write:
+            with self.assertRaises(RuntimeError): deploy.migrate('image')
+            write.assert_not_called()
 
 
 class CommandGuards(unittest.TestCase):

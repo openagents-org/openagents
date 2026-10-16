@@ -1,6 +1,7 @@
 'use client';
 
 import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
+import { DocxStage } from './docx-stage';
 import { ProjectPreview } from '@/components/artifacts/project-preview';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
 import { useEffect, useMemo, useState } from 'react';
@@ -362,9 +363,7 @@ export function FilePreview() {
   };
 
   const handleDownload = () => {
-    // We can't attach headers to an <a download>, so the tokenised URL opens
-    // in a new tab and the route's Content-Disposition does the rest.
-    window.open(sourceUrl, '_blank');
+    void workspaceApi.downloadFile(file.id, filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
 
   const handleDelete = async () => {
@@ -452,6 +451,10 @@ export function FilePreview() {
             infoOpen={infoOpen}
           />
         );
+
+      case 'doc':
+        if (/\.docx$/i.test(filename)) return <DocxStage key={file.id} fileId={file.id} filename={basename(filename)} size={file.size} onDownload={handleDownload} />;
+        return <UnsupportedStage filename={filename} contentType={contentType} onDownload={handleDownload} />;
 
       case 'pdf':
         return blobUrl ? (

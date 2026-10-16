@@ -13,6 +13,9 @@ interface RoutingChoice {
   status: string;
   requester_email: string;
   candidates: string[];
+  continuation?: boolean;
+  reason?: string;
+  task?: string;
 }
 function choiceFrom(message: WorkspaceMessage): RoutingChoice | null {
   const value = message.metadata.routing_choice as Partial<RoutingChoice> | undefined;
@@ -28,8 +31,8 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => { setExpanded(false); setError(''); }, [message.messageId]);
+  const [expanded, setExpanded] = useState(initial?.continuation === true);
+  useEffect(() => { setExpanded(initial?.continuation === true); setError(''); }, [message.messageId, initial?.continuation]);
   useEffect(() => { setStatus(initial?.status); }, [message.messageId, initial?.status]);
   if (!initial || initial.requester_email.toLowerCase() !== currentUser.id.toLowerCase() || status !== 'pending') return null;
   const choose = async (agent: string | null) => {
@@ -52,7 +55,8 @@ export function RoutingChoiceCard({ message, agents }: { message: WorkspaceMessa
   return <section aria-label={t('routing.title')} className="relative mt-3 max-w-xl rounded-xl border bg-muted/25 p-3">
     <button type="button" aria-label={t('routing.dismiss')} disabled={busy} onClick={() => void choose(null)} className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-50"><X className="size-3.5" /></button>
     <p className="pr-7 text-xs font-medium">{t('routing.title')}</p>
-    <p className="mt-1 pr-5 text-[11px] leading-5 text-muted-foreground">{t('routing.hint')}</p>
+    <p className="mt-1 pr-5 text-[11px] leading-5 text-muted-foreground">{initial.continuation && initial.reason ? initial.reason : t('routing.hint')}</p>
+    {initial.continuation && initial.task && <p className="mt-1 text-xs">{initial.task}</p>}
     <div className="mt-2 flex max-h-48 flex-wrap gap-2 overflow-y-auto">
       {initial.candidates.filter(name => typeof name === 'string').map(name => {
         const agent = agents.find(a => a.agentName === name);

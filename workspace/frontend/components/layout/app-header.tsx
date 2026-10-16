@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Hash, MessageSquare, PanelLeft } from "lucide-react"
+import { Hash, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -16,6 +16,7 @@ import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { DmAvatars } from "@/components/chat/dm-avatars"
 import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
 import { useLayout, type ViewMode } from "./layout-context"
 
@@ -165,7 +166,7 @@ function ThreadTitle() {
       : pair.map(nameLabel).join(" ↔ ")
     return (
       <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
-        <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+        <DmAvatars addresses={counterpart ? [counterpart] : pair} />
         {title}
         {!hasHuman && (
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">

@@ -2,12 +2,14 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ instruct: vi.fn(), profile: vi.fn(), workspace: {
+const mocks = vi.hoisted(() => ({ instruct: vi.fn().mockResolvedValue({}), profile: vi.fn(), workspace: {
   currentSessionId: 'one', sessions: [{ sessionId: 'one', participants: ['scout'] }],
   agents: [{ agentName: 'scout', description: 'Research and verify sources', status: 'online' }, { agentName: 'other', description: 'Elsewhere' }],
   files: [{ id: 'image', filename: 'people/me/photo.png', contentType: 'image/png', size: 30, channelName: 'one' }, { id: 'hidden', filename: 'private.pdf', channelName: 'two' }],
   browserTabs: [{ id: 'live', title: 'XE', url: 'https://www.xe.com', status: 'active', artifactChannels: ['one'], activity: null }],
 } }));
+vi.mock('@/lib/api', () => ({ workspaceApi: { saveThreadCollaboration: mocks.instruct } }));
+vi.mock('./agent-message-access', () => ({ AgentOwnershipBadge: () => null, AgentSharingAction: () => null, useThreadCollaboration: () => ({ roles: {}, supported: true, canEdit: () => true }) }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, params?: any) => params?.agent ? `${key} ${params.agent}` : key }));
@@ -19,7 +21,7 @@ let root: Root, host: HTMLDivElement;
 beforeEach(async () => {
   vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  await act(async () => root.render(React.createElement(ThreadResources, { onInstruct: mocks.instruct })));
+  await act(async () => root.render(React.createElement(ThreadResources)));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 it('defaults to Artifacts first and lets users switch to agent cards to prepare instructions', async () => {
@@ -39,7 +41,7 @@ it('defaults to Artifacts first and lets users switch to agent cards to prepare 
   });
   expect(mocks.instruct).not.toHaveBeenCalled();
   await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
-  expect(mocks.instruct).toHaveBeenCalledWith('scout', 'Check the exchange rate and cite sources');
+  expect(mocks.instruct).toHaveBeenCalledWith('one', 'scout', 'Check the exchange rate and cite sources', null);
 });
 it('switches to artifact cards and opens the correct browser', async () => {
   const artifacts = Array.from(host.querySelectorAll<HTMLButtonElement>('[role=tab]')).find(el => el.textContent?.includes('artifactPanel.title'))!;

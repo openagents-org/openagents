@@ -876,6 +876,19 @@ class WorkspaceApi {
     return response;
   }
 
+  /** Downloads must carry the viewer's bearer credentials, never a bare navigation. */
+  async downloadFile(fileId: string, filename: string): Promise<void> {
+    const response = await this.fetchFile(fileId);
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename.split('/').pop() || 'download';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   /** Get the download URL for a file. */
   getFileUrl(fileId: string): string {
     const params = new URLSearchParams();
@@ -2237,6 +2250,18 @@ class WorkspaceApi {
   /** Who is in a thread — the humans on its ACL and the agents in it. */
   async requestAgentSharing(channel: string, agent: string): Promise<ApprovalRequest> {
     return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/sharing-requests`, {
+      method: 'POST', body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
+  async saveThreadCollaboration(channel: string, agent: string, instructions: string, reviewAfter: string | null): Promise<{ agents: Record<string, { instructions: string; review_after: string | null }> }> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/collaboration`, {
+      method: 'PUT', body: JSON.stringify({ network: this.requireWorkspace(), instructions, review_after: reviewAfter }),
+    });
+  }
+
+  async requestThreadAgentAccess(channel: string, agent: string): Promise<ApprovalRequest> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/thread-access-requests`, {
       method: 'POST', body: JSON.stringify({ network: this.requireWorkspace() }),
     });
   }

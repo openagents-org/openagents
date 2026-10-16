@@ -1,4 +1,5 @@
 'use client';
+import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
@@ -26,7 +27,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { sidebarAgents } from '@/lib/sidebar-agents';
+import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -39,6 +40,7 @@ import {
 } from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
+import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
 import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
@@ -199,7 +201,7 @@ export function NavRail() {
   } = useLayout();
   const {
     workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
-    onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts,
+    onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts, dmConversations,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
@@ -209,6 +211,9 @@ export function NavRail() {
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
+  const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
+  const visibleAgents = groups.flatMap(group => group.shown);
+  const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
 
@@ -339,7 +344,7 @@ export function NavRail() {
         </SidebarGroup>
 
         {/* Agents — avatars stay on the rail so presence is always visible */}
-        {onlineAgents.length > 0 && (
+        {recentAgents.length > 0 && (
           <>
             <div className="px-3">
               <Separator />
@@ -374,7 +379,13 @@ export function NavRail() {
                 className={cn(showLabels && !agentsOpen && 'hidden')}
               >
                 <SidebarMenu className="gap-0.5">
-                  {onlineAgents.map((agent) => (
+                  {visibleAgents.map((agent, index) => (
+                    <React.Fragment key={agent.agentName}>
+                      {index === firstSharedIndex && <li role="separator" aria-label={t('collab.sharedByOthers')} className="mx-2 flex items-center gap-2">
+                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
+                        {showLabels && <span className="shrink-0 text-center text-[10px] leading-5 text-muted-foreground">{t('collab.sharedByOthers')}</span>}
+                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
+                      </li>}
                     <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
@@ -397,12 +408,15 @@ export function NavRail() {
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
-                        {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
+                        {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
                       <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>
                     </SidebarMenuItem>
+                    {groups.map(group => group.shown.at(-1)?.agentName === agent.agentName && group.all.length > group.shown.length ? <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={group.moreOnline} owned={group.owned} showLabels={showLabels} /> : null)}
+                    </React.Fragment>
                   ))}
+                  {groups.filter(group => !group.shown.length && group.all.length).map(group => <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={0} owned={group.owned} showLabels={showLabels} />)}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -459,12 +473,12 @@ export function NavRail() {
         <div
           className={cn(
             'flex gap-0.5',
-            showLabels ? 'flex-row items-center px-1' : 'flex-col items-center',
+            showLabels ? 'flex-row items-center justify-evenly px-1' : 'flex-col items-center',
           )}
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
-          {showLabels && <div className="flex-1" aria-hidden="true" />}
+          <InviteMemberButton />
           <UserMenu side="right" align="end" />
         </div>
 

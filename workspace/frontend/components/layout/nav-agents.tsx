@@ -1,7 +1,8 @@
 'use client';
+import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { ChevronDown, Users } from 'lucide-react';
 import {
   SidebarGroup,
@@ -15,7 +16,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { sidebarAgents } from '@/lib/sidebar-agents';
+import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -33,18 +34,21 @@ import { useLayout } from './layout-context';
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName, openMobileDetail, openView, setThreadFilter } = useLayout();
-  const { agents, onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, pendingApprovalsByAgent } = useWorkspace();
+  const { agents, onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations, pendingApprovalsByAgent } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
 
   const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
+  const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
+  const visibleAgents = groups.flatMap(group => group.shown);
+  const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
 
-  if (onlineAgents.length === 0 && onlineUsers.length === 0) return null;
+  if (recentAgents.length === 0 && onlineUsers.length === 0) return null;
 
   return (
     <>
-      {onlineAgents.length > 0 && (
+      {recentAgents.length > 0 && (
         <SidebarGroup>
           <SidebarGroupLabel
             asChild
@@ -72,13 +76,19 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(!open && 'hidden group-data-[collapsible=icon]:block')}
           >
             <SidebarMenu className="gap-0.25">
-              {onlineAgents.map((agent) => {
+              {visibleAgents.map((agent, index) => {
                 // v1.1 M3: one dot vocabulary everywhere — busy (blue), waiting
                 // for a person (amber), device down (grey with a red ring).
                 const availability = agentAvailability(agent, pendingApprovalsByAgent[agent.agentName] ?? 0);
                 const label = availabilityLabel(t, availability, agent.queueDepth ?? 0);
                 return (
-                  <SidebarMenuItem key={agent.agentName}>
+                  <Fragment key={agent.agentName}>
+                    {index === firstSharedIndex && <li role="separator" aria-label={t('collab.sharedByOthers')} className="mx-2 flex items-center gap-2">
+                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
+                      <span className="shrink-0 text-center text-[10px] leading-5 text-muted-foreground group-data-[collapsible=icon]:hidden">{t('collab.sharedByOthers')}</span>
+                      <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
+                    </li>}
+                  <SidebarMenuItem>
                     <SidebarMenuButton
                       tooltip={`${agentLabel(agent)} · ${label}`}
                       onClick={() => {
@@ -108,13 +118,16 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       </span>
                       <span className="min-w-0 truncate">{agentLabel(agent)}</span>
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
-                      <AgentRosterHints agent={agent} className="ml-auto" />
+                      {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="ml-auto" />}
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
+                  {groups.map(group => group.shown.at(-1)?.agentName === agent.agentName && group.all.length > group.shown.length ? <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={group.moreOnline} owned={group.owned} onNavigate={onNavigate} /> : null)}
+                    </Fragment>
                 );
               })}
-            </SidebarMenu>
+            {groups.filter(group => !group.shown.length && group.all.length).map(group => <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={0} owned={group.owned} onNavigate={onNavigate} />)}
+                </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       )}

@@ -36,10 +36,13 @@ it('focuses the preview on takeover and keeps letters, numbers, and Enter out of
   await render();
   expect(document.activeElement).toBe(composer);
   state.controlling = true; await render();
-  const img = host.querySelector('img')!;
+  const img = host.querySelector('textarea')!;
   expect(document.activeElement).toBe(img);
   for (const key of ['h', 'i', '1', 'Enter']) {
-    await act(async () => img.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    await act(async () => {
+      img.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      if (key.length === 1) { img.value = key; img.dispatchEvent(new InputEvent('input', { bubbles: true, data: key })); }
+    });
     expect(document.activeElement).toBe(img);
   }
   expect(shortcut).not.toHaveBeenCalled();
@@ -49,7 +52,7 @@ it('focuses the preview on takeover and keeps letters, numbers, and Enter out of
 });
 it('does not steal focus back during a frame refresh and releases keyboard focus on hand-back', async () => {
   state.controlling = true; await render();
-  const img = host.querySelector('img')!;
+  const img = host.querySelector('textarea')!;
   composer.focus(); state.revision++; await render();
   expect(document.activeElement).toBe(composer);
   img.focus(); state.controlling = false; await render();
@@ -58,7 +61,7 @@ it('does not steal focus back during a frame refresh and releases keyboard focus
 });
 it('keeps paste and Escape local to the preview', async () => {
   state.controlling = true; await render();
-  const img = host.querySelector('img')!;
+  const img = host.querySelector('textarea')!;
   const paste = new Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(paste, 'clipboardData', { value: { getData: () => '你好' } });
   await act(async () => img.dispatchEvent(paste));
@@ -66,4 +69,17 @@ it('keeps paste and Escape local to the preview', async () => {
   await act(async () => img.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   expect(document.activeElement).not.toBe(img);
   expect(shortcut).not.toHaveBeenCalled();
+});
+
+it('sends committed Chinese composition once without forwarding intermediate keys', async () => {
+  state.controlling = true; await render();
+  const input = host.querySelector('textarea')!;
+  await act(async () => {
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.value = 'ni'; input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
+    input.value = '你好'; input.dispatchEvent(new CompositionEvent('compositionend', { data: '你好', bubbles: true }));
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  });
+  expect(state.input.mock.calls.map(([value]) => value)).toEqual([{ kind: 'text', text: '你好' }]);
 });

@@ -381,6 +381,7 @@ def list_participants(
                 and ctx.viewer.email in people and _norm(m.owner_email) in people
                 and _norm(m.owner_email) != ctx.viewer.email and not ch.service_id),
             "sharing_requested": bool(ctx.viewer.email and pending_request(db, ctx.wid, ch.name, name, ctx.viewer.email)),
+            "thread_access_requested": bool(ctx.viewer.email and pending_request(db, ctx.wid, ch.name, name, ctx.viewer.email, thread_only=True)),
         })
 
     from app.models import ChannelAgentSharing
@@ -389,8 +390,13 @@ def list_participants(
     manage = can_manage_thread_settings(db, ctx.viewer, ch)
     own_agents = [a for a in agents if ctx.viewer.email and _norm(a["owner_email"]) == ctx.viewer.email]
     from app.services.thread_agent_requests import sharing_mode
+    from app.config import config
     sharing = db.get(ChannelAgentSharing, (ch.id, ctx.viewer.email)) if ctx.viewer.email else None
+    from app.services.thread_collaboration import settings as collaboration_settings
     return success_response({
+        "collaboration_supported": config.THREAD_COLLABORATION_ENABLED,
+        "collaboration": collaboration_settings(db, ctx.wid, ch.name) if config.THREAD_COLLABORATION_ENABLED else {},
+        "thread_access_requests_supported": config.THREAD_AGENT_ACCESS_ENABLED,
         "can_manage": manage,
         "can_add_people": _can_manage_channel(db, ctx, ch),
         "can_add_agents": manage or bool(participant and ch.members_can_add_agents),
