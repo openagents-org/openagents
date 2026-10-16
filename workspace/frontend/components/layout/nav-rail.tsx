@@ -208,7 +208,7 @@ export function NavRail() {
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
-  const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
+  const onlineAgents = recentAgents.filter((a) => a.status === 'online');
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
 
@@ -339,7 +339,7 @@ export function NavRail() {
         </SidebarGroup>
 
         {/* Agents — avatars stay on the rail so presence is always visible */}
-        {recentAgents.length > 0 && (
+        {onlineAgents.length > 0 && (
           <>
             <div className="px-3">
               <Separator />
@@ -356,7 +356,7 @@ export function NavRail() {
                     aria-expanded={agentsOpen}
                     aria-controls="rail-agent-list"
                   >
-                    {t('nav.agentsWithCount', { online: onlineAgentCount, total: recentAgents.length })}
+                    {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                     <ChevronDown
                       className={cn(
                         'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -374,7 +374,7 @@ export function NavRail() {
                 className={cn(showLabels && !agentsOpen && 'hidden')}
               >
                 <SidebarMenu className="gap-0.5">
-                  {recentAgents.map((agent) => (
+                  {onlineAgents.map((agent) => (
                     <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
