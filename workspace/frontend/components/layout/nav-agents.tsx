@@ -16,7 +16,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { sidebarAgents, isOwnedAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
+import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -42,7 +42,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
   const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
-  const firstSharedIndex = visibleAgents.findIndex(agent => !isOwnedAgent(agent, currentUser.id));
+  const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
 
   if (recentAgents.length === 0 && onlineUsers.length === 0) return null;
 
@@ -118,7 +118,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       </span>
                       <span className="min-w-0 truncate">{agentLabel(agent)}</span>
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
-                      <AgentRosterHints agent={agent} className="ml-auto" />
+                      <AgentRosterHints agent={agent} showShared={!agent.builtin && isOwnedAgent(agent, currentUser.id)} className="ml-auto" />
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>

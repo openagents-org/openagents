@@ -27,7 +27,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
-import { sidebarAgents, isOwnedAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
+import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -213,7 +213,7 @@ export function NavRail() {
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
   const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
-  const firstSharedIndex = visibleAgents.findIndex(agent => !isOwnedAgent(agent, currentUser.id));
+  const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
 
@@ -408,7 +408,7 @@ export function NavRail() {
                         />
                         {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
-                        {showLabels && <AgentRosterHints agent={agent} className="ml-auto" />}
+                        {showLabels && <AgentRosterHints agent={agent} showShared={!agent.builtin && isOwnedAgent(agent, currentUser.id)} className="ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
                       <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>

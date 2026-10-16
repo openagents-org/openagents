@@ -132,6 +132,8 @@ export const messages = {
     searchAssignees: "Search people or your agents…", noAssignees: "No matching assignees", labelName: "Label name",
     paused: 'Paused', assignee: 'Assignee', unassigned: 'Unassigned', labels: 'Labels', addLabel: 'Add a label', removeLabel: 'Remove {label}',
     editHint: "Changes are shared with everyone on this issue.",
+    teamIssues: "Team issues",
+    myAgentTasks: "My agent tasks",
     allIssues: "All issues",
     noMatchesHint: "Try another search or change the status filter.",
     emptyColumn: "No issues yet",

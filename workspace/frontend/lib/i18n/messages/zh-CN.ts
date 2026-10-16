@@ -125,6 +125,8 @@ export const messages: Messages = {
     searchAssignees: "搜索成员或你的智能体…", noAssignees: "没有匹配的负责人", labelName: "标签名称",
     paused: '已暂停', assignee: '负责人', unassigned: '未分配', labels: '标签', addLabel: '添加标签', removeLabel: '移除 {label}',
     editHint: "更改将与议题的所有参与者共享。",
+    teamIssues: "团队议题",
+    myAgentTasks: "我的智能体任务",
     allIssues: "全部议题",
     noMatchesHint: "试试其他关键词或更改状态筛选。",
     emptyColumn: "暂无议题",

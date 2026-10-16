@@ -66,12 +66,12 @@ export function DeviceOfflineHint({ agent, withLabel = false, className }: { age
 }
 
 /** Badge + marker together, for a row that has room for both. */
-export function AgentRosterHints({ agent, className }: { agent: HintAgent; className?: string }) {
+export function AgentRosterHints({ agent, className, showShared = true }: { agent: HintAgent; className?: string; showShared?: boolean }) {
   const t = useT();
-  if (!agent.isShared && !isDeviceOffline(agent)) return null;
+  if (!(showShared && agent.isShared) && !isDeviceOffline(agent)) return null;
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-1', className)}>
-      {agent.isShared && <Badge variant="info" appearance="light" size="xs" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}
+      {showShared && agent.isShared && <Badge variant="info" appearance="light" size="xs" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}
       <DeviceOfflineHint agent={agent} />
     </span>
   );

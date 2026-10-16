@@ -5,6 +5,11 @@ export function isOwnedAgent(agent: WorkspaceAgent, email: string): boolean {
   return !!viewer && agent.ownerEmail?.trim().toLowerCase() === viewer;
 }
 
+/** Yumi belongs in everyone's own sidebar group, without changing ownership permissions. */
+export function isMySidebarAgent(agent: WorkspaceAgent, email: string): boolean {
+  return agent.builtin === true || isOwnedAgent(agent, email);
+}
+
 /** Owned agents and agents the server permits this viewer to contact directly. */
 export function sidebarAgents(agents: WorkspaceAgent[], email: string) {
   const viewer = email.trim().toLowerCase();
@@ -26,12 +31,12 @@ export function sidebarAgentGroups(agents: WorkspaceAgent[], email: string, conv
       }
     }
   }
-  const permitted = sidebarAgents(agents, email).sort((a, b) =>
+  const permitted = sidebarAgents(agents, email).filter(agent => agent.status === 'online').sort((a, b) =>
     Number(b.status === 'online') - Number(a.status === 'online') ||
     (recency.get(b.agentName) || 0) - (recency.get(a.agentName) || 0) || a.agentName.localeCompare(b.agentName));
   return [true, false].map(owned => {
-    const all = permitted.filter(agent => isOwnedAgent(agent, email) === owned);
-    const shown = all.filter(agent => agent.status === 'online').slice(0, 5);
-    return { owned, all, shown, moreOnline: all.filter(agent => agent.status === 'online').length - shown.length };
+    const all = permitted.filter(agent => isMySidebarAgent(agent, email) === owned);
+    const shown = all.slice(0, 5);
+    return { owned, all, shown, moreOnline: all.length - shown.length };
   });
 }

@@ -232,8 +232,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         </Button>
       </DetailHeader>
       <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
-        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.allIssues')}</Button>
-        <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.agentWork')}
+        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}</Button>
+        <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
           {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
         </Button>
       </div>
