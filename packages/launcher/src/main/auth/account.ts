@@ -106,6 +106,8 @@ export class AccountManager {
   private _session: AccountSession | null = null
   private _loaded = false
   private _pending: Handoff | null = null
+  private _sessionTimer: ReturnType<typeof setTimeout> | null = null
+  private _renewal: { session: AccountSession; promise: Promise<string> } | null = null
 
   constructor(private _deps: AccountDeps) {}
 
@@ -119,6 +121,20 @@ export class AccountManager {
     if (this._loaded) return
     this._loaded = true
     this._session = loadSession()
+    this._scheduleSessionCheck()
+  }
+
+  // An embedded workspace can stay open for days without another main-process
+  // API call. Keep its bearer current and check again after system sleep.
+  private _scheduleSessionCheck(): void {
+    if (this._sessionTimer) clearTimeout(this._sessionTimer)
+    this._sessionTimer = null
+    if (!this._session) return
+    this._sessionTimer = setTimeout(() => {
+      this._sessionTimer = null
+      void this.bearer().catch(() => {}).finally(() => this._scheduleSessionCheck())
+    }, 60_000)
+    this._sessionTimer.unref?.()
   }
 
   private _set(session: AccountSession | null): void {
@@ -126,6 +142,7 @@ export class AccountManager {
     this._loaded = true
     if (session) saveSession(session)
     else clearSession()
+    this._scheduleSessionCheck()
     this._deps.onChange(session ? toAccountInfo(session) : null)
   }
 
@@ -489,15 +506,43 @@ export class AccountManager {
   /**
    * The bearer to send, renewed if it is about to lapse.
    *
-   * A workspace session cannot be renewed — it is minted from a one-time token
-   * and lasts 30 days — so an expired one ends the session outright and the UI
-   * asks for a sign-in. A Firebase ID token renews itself hourly.
+   * Renew workspace sessions during their last day, before the server refuses
+   * them. Firebase ID tokens renew hourly. Truly expired workspace sessions
+   * still require sign-in; no authentication checks are bypassed.
    */
   async bearer(): Promise<string> {
     this._ensureLoaded()
     const session = this._session
     if (!session) throw new Error("NOT_SIGNED_IN")
-    if (isFresh(session)) return session.token
+    if (isFresh(session) && (session.kind !== "workspace" || session.expiresAt - Date.now() / 1000 > 86400)) return session.token
+    if (this._renewal?.session === session) return this._renewal.promise
+    const promise = this._renewSession(session)
+    this._renewal = { session, promise }
+    try { return await promise }
+    finally { if (this._renewal?.promise === promise) this._renewal = null }
+  }
+
+  private async _renewSession(session: AccountSession): Promise<string> {
+    if (session.kind === "workspace" && isFresh(session)) {
+      const res = await authFetch(`${apiBase(this._deps.endpoint())}/v1/auth/session/renew`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.token}` },
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (this._session !== session) throw new Error("SESSION_CHANGED")
+      if (res.status === 401) {
+        this._set(null)
+        throw new Error("SESSION_EXPIRED")
+      }
+      const json = (await res.json().catch(() => null)) as { data?: SessionPayload } | null
+      if (this._session !== session) throw new Error("SESSION_CHANGED")
+      if (!res.ok || !json?.data?.session_token) throw new Error("SESSION_RENEWAL_UNAVAILABLE")
+      const renewed = sessionFrom(json.data)
+      if (renewed.email !== session.email || !Number.isFinite(renewed.expiresAt) || !isFresh(renewed))
+        throw new Error("SESSION_RENEWAL_INVALID")
+      this._set(renewed)
+      return renewed.token
+    }
 
     if (session.kind !== "firebase" || !session.refreshToken) {
       this._set(null)
@@ -505,10 +550,11 @@ export class AccountManager {
     }
     try {
       const renewed = await refreshIdToken(session.refreshToken)
+      if (this._session !== session) throw new Error("SESSION_CHANGED")
       this._set({ ...session, ...renewed, token: renewed.idToken })
       return renewed.idToken
     } catch {
-      this._set(null)
+      if (this._session === session) this._set(null)
       throw new Error("SESSION_EXPIRED")
     }
   }
