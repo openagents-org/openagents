@@ -28,6 +28,21 @@ export function requestedMessageId(location: string): string | null {
   } catch { return null; }
 }
 
+/** An absolute link on one of `origins` to a thread of one of `workspaces` (its slug or id). */
+export function workspaceThreadLink(
+  href: string,
+  origins: readonly string[],
+  workspaces: readonly string[],
+): { thread: string; message: string | null } | null {
+  try {
+    const url = new URL(href);
+    if (!origins.includes(url.origin)) return null;
+    const match = url.pathname.match(/^\/([^/]+)\/threads\/([^/]+)(?:\/messages\/([^/]+))?\/?$/);
+    if (!match || !workspaces.includes(decodeURIComponent(match[1]))) return null;
+    return { thread: decodeURIComponent(match[2]), message: match[3] ? decodeURIComponent(match[3]) : null };
+  } catch { return null; }
+}
+
 /** Read canonical paths, while continuing to accept previously shared links. */
 export function requestedThreadId(location: string): string | null {
   try {

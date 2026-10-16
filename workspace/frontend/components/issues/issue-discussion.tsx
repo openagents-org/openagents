@@ -2,6 +2,7 @@
 
 import { IssueWork } from './issue-work';
 import { resourcePath } from '@/lib/resource-link';
+import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -235,10 +236,9 @@ export function IssueDiscussion({
           onClick={async () => {
             try {
               const url = new URL(
-                window.location.pathname,
-                window.location.origin,
+                resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id),
+                shareOrigin(),
               );
-              url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', id);
               await navigator.clipboard.writeText(url.toString());
               setCopied(true);
             } catch (e) {

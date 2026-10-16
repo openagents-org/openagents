@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { threadLink, resolveThreadLink } from './thread-link';
+import { threadLink, resolveThreadLink, workspaceThreadLink } from './thread-link';
 
 it('creates a stable, encoded live link without copying tokens or other page state', () => {
   const url = threadLink('https://workspace-preview.openagents.org', 'team', 'thread/内测 & review');
@@ -42,4 +42,18 @@ it('reads old message arguments and rejects malformed path IDs', async () => {
   expect(requestedMessageId('/acme/threads/thread-id/messages/%ZZ')).toBeNull();
   expect(requestedMessageId('/acme/threads/thread-id/messages/event/extra')).toBeNull();
   expect(resolveThreadLink('/acme/threads/private/messages/event', ['public'], 'human:me@example.com')).toBeNull();
+});
+it('recognises web links to a thread of this workspace, with or without a message', () => {
+  const origins = ['https://workspace.openagents.org'];
+  expect(workspaceThreadLink('https://workspace.openagents.org/team/threads/abc/messages/m%201', origins, ['team', 'ws-id']))
+    .toEqual({ thread: 'abc', message: 'm 1' });
+  expect(workspaceThreadLink('https://workspace.openagents.org/ws-id/threads/abc', origins, ['team', 'ws-id']))
+    .toEqual({ thread: 'abc', message: null });
+});
+it('leaves other workspaces, other sites and other pages to the browser', () => {
+  const origins = ['https://workspace.openagents.org'];
+  expect(workspaceThreadLink('https://workspace.openagents.org/other/threads/abc', origins, ['team'])).toBeNull();
+  expect(workspaceThreadLink('https://example.com/team/threads/abc', origins, ['team'])).toBeNull();
+  expect(workspaceThreadLink('https://workspace.openagents.org/team/issues/abc', origins, ['team'])).toBeNull();
+  expect(workspaceThreadLink('/team/threads/abc', origins, ['team'])).toBeNull();
 });

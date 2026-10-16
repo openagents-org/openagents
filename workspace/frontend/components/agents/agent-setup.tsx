@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Check, ExternalLink, Loader2, Key, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { nodeCommandErrorKey } from '@/lib/node-command-error';
+import { uniqueAgentName } from '@/lib/agent-name';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,6 +30,8 @@ export interface AgentSetupExtensions {
   workingDirectoryHint?: string;
   workingDirectoryPlaceholder?: string;
   browseFolder?: (current: string) => Promise<string | null>;
+  /** Agent names already used across the workspace, beyond this device's own. */
+  takenNames?: readonly string[];
   /** Sets an existing agent's display name. Offered only where the host can do it. */
   renameAgent?: (name: string, displayName: string) => Promise<void>;
   modelAccessDialog?: (props: { onClose: () => void; onSaved: (entry: ModelAccessEntry) => void }) => React.ReactNode;
@@ -460,6 +464,10 @@ export function AgentSetup({
 }) {
   const t = useT();
   const isEdit = !!editAgent;
+  const takenNames = useMemo(
+    () => new Set([...node.agents.map((agent) => agent.name), ...(extensions?.takenNames ?? [])]),
+    [node.agents, extensions?.takenNames],
+  );
   const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
   const [name, setName] = useState(editAgent?.name ?? '');
   // The label people see, editable after creation — unlike `name`, which is the
@@ -517,7 +525,7 @@ export function AgentSetup({
 
   const pick = (typeName: string) => {
     setSelected(typeName);
-    if (!nameTouched.current) setName(typeName); // seed only while untouched
+    if (!nameTouched.current) setName(uniqueAgentName(typeName, takenNames)); // seed only while untouched
     setWorkingDir('');
     setApiKey('');
     setBaseUrl('');
@@ -682,6 +690,7 @@ export function AgentSetup({
     if (!n || !selected || submitting.current) return;
     if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setError(t('connect.agentNameInvalid')); return; }
     if (!isEdit && node.agents.some((agent) => agent.name === n)) { setError(t('connect.agentNameExists')); return; }
+    if (!isEdit && takenNames.has(n)) { setError(t('connect.agentNameTaken', { name: n })); return; }
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
@@ -742,7 +751,8 @@ export function AgentSetup({
       onBack();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
-      setError(/40[13]/.test(msg) ? t('connect.nodeCommandForbidden') : msg || t('connect.nodeCommandFailed'));
+      const key = nodeCommandErrorKey(msg, !isEdit);
+      setError(key ? t(key, { name: n }) : msg || t('connect.nodeCommandFailed'));
     } finally {
       submitting.current = false;
       setBusy(false);

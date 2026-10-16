@@ -11,6 +11,7 @@ import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
+import { nodeCommandErrorKey } from '@/lib/node-command-error';
 import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
@@ -829,7 +830,8 @@ function NodeCard({
       setTimeout(onChanged, 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
-      toast.error(/40[13]/.test(msg) ? t('connect.nodeCommandForbidden') : t('connect.nodeCommandFailed'));
+      const key = nodeCommandErrorKey(msg);
+      toast.error(key ? t(key, { name: String(args.name ?? '') }) : t('connect.nodeCommandFailed'));
     } finally {
       setBusy(false);
     }
@@ -2336,8 +2338,9 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
 }
 
 function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentProps<typeof AgentSetup>, 'api' | 'extensions'> & { cloudProviders: CloudAgentProvider[] }) {
-  const { workspace } = useWorkspace();
+  const { workspace, agents } = useWorkspace();
   const t = useT();
+  const takenNames = useMemo(() => agents.map((agent) => agent.agentName), [agents]);
   const [localNodeId, setLocalNodeId] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -2349,6 +2352,7 @@ function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentP
   return <AgentSetup {...props} api={workspaceApi}
     contextLabel={<>{workspace?.name} · {t('connect.agentRunsOn', { device: localNodeId === props.node.nodeId ? t('nav.thisComputer') : props.node.name })}</>}
     extensions={{
+      takenNames,
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
       promo: (promo) => CAMPAIGN_PROMO_AGENT_TYPES.has(promo.agentType) ? <CampaignPromoAccess {...promo} /> : null,
     }} />;

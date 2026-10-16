@@ -2,6 +2,8 @@
 
 import { applyMessageRecalls } from '@/lib/message-recall';
 import { requestedMessageId } from '@/lib/thread-link';
+import { desktopHost } from '@/lib/desktop-host';
+import { MESSAGE_TARGET_EVENT, takeMessageTarget } from '@/lib/message-target';
 import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -120,15 +122,33 @@ interface ChatMessagesProps {
   onSuggestion?: (text: string) => void;
   onMentionPerson?: (email: string) => void;
   onReply?: (message: WorkspaceMessage) => void;
+  /** The thread shown, when this is the main view: message links opened in-app scroll here. */
+  targetSessionId?: string | null;
 }
 
-function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply }: ChatMessagesProps) {
+function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, targetSessionId }: ChatMessagesProps) {
   const t = useT();
-  const [targetMessage, setTargetMessage] = useState(() => typeof window === 'undefined' ? null : requestedMessageId(window.location.href));
+  const [targetMessage, setTargetMessage] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    // The desktop app routes in the hash, so its message links live there.
+    return requestedMessageId(desktopHost() ? window.location.hash.slice(1) : window.location.href);
+  });
   const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
   const targetPendingRef = useRef(targetMessage);
   targetPendingRef.current = targetMessage;
   const lastTargetPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (targetSessionId === undefined) return;
+    const take = () => {
+      const id = takeMessageTarget(targetSessionId);
+      if (!id) return;
+      lastTargetPageRef.current = null;
+      setTargetMessage(id);
+    };
+    take();
+    window.addEventListener(MESSAGE_TARGET_EVENT, take);
+    return () => window.removeEventListener(MESSAGE_TARGET_EVENT, take);
+  }, [targetSessionId]);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);

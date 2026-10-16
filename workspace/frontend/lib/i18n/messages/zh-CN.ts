@@ -1255,6 +1255,7 @@ export const messages: Messages = {
 
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',
+    preferencesDescriptionDesktop: '仅对此电脑生效——不影响其他成员。',
   },
 
   profile: {
@@ -1713,6 +1714,9 @@ export const messages: Messages = {
     nodeCommandQueued: '已在 {node} 排队 — 稍后将生效。',
     nodeCommandFailed: '无法排队该命令。',
     nodeCommandForbidden: '只有连接所有者可以管理其智能体。',
+    nodeCommandSignIn: '登录已过期，请重新登录后再试。',
+    agentNameTaken: '工作区中已有名为「{name}」的智能体，请换一个名称。',
+    agentOnOtherConnection: '「{name}」运行在另一个设备连接上，请在那台设备上管理。',
     nodeOfflineActionHint: '节点连接已离线。智能体状态来自节点上次上报；智能体仍可能保持独立连接。命令将在节点重新连接后执行。',
     nodeRemoveAgentTitle: '移除智能体？',
     nodeRemoveAgentBody: '这将停止并从设备移除 “{name}”。',
