@@ -50,27 +50,44 @@ optional, because the sign-in needs none of them.
 |---|---|---|
 | `LLM_API_KEY` | no — blank runs on the sign-in | A MiMo API key (https://platform.xiaomimimo.com), a MiMo Token Plan key, or a key for the endpoint below |
 | `LLM_BASE_URL` | no, prefilled | `https://api.xiaomimimo.com/v1`. Token Plan: `https://token-plan-cn.xiaomimimo.com/v1` (also `-ams`, `-sgp`). Any OpenAI-compatible endpoint works. |
-| `LLM_MODEL` | for a non-MiMo endpoint | Model id, e.g. `mimo-v2.5-pro`; sent upstream as written, a gateway's `vendor/model` ids included |
+| `LLM_MODEL` | for a non-MiMo endpoint | Model id, e.g. `mimo-v2.6-pro`; sent upstream as written, a gateway's `vendor/model` ids included. Blank on MiMo's endpoints: MiMo picks |
 
 The workspace's model choice, when set, replaces `LLM_MODEL`.
 
 - A MiMo endpoint (any `*.xiaomimimo.com` host) runs on MiMo's built-in
   `xiaomi` provider with this key and base URL, which keeps what MiMo's catalog
   knows about each model (context window, reasoning round-trip). With no model
-  set it uses `mimo-v2.5-pro`, the model MiMo selects after a sign-in.
+  set the run passes no `--model` and MiMo picks (see below). A model that is
+  set is declared `status: "beta"`, because MiMo drops every model its catalog
+  marks deprecated — the v2.5 line now — even when the run names it, while the
+  key's API still serves them and the picker lists them from it.
 - Any other endpoint is declared for the run as an `@ai-sdk/openai-compatible`
   provider named `openagents`; a model is required.
 
 ### Xiaomi-account sign-in
 
 With no key, the run uses MiMo Code's own credential — a Xiaomi-account sign-in
-or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider. What a sign-in may run is
-MiMo's catalog filtered by the account: a Token Plan account on 0.1.15 lists
-only `mimo-v2.6-flash`, `mimo-v2.6-pro` and `mimo-v2.6-pro-ultraspeed`, and
-`mimo-v2.5-pro` fails with `Model not found` although the API serves it. So
-there is no default of ours: with no model the run passes no `--model` and MiMo
-picks (the first listed, a flash). The sign-in tab lists `mimo models xiaomi`
-(ids written `xiaomi/<model>`) and preselects the first plain `-pro`.
+or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider. What it may run is MiMo's
+catalog minus what it marks deprecated: on 0.1.15 that is `mimo-v2.6-flash`,
+`mimo-v2.6-pro` and `mimo-v2.6-pro-ultraspeed` (signed in or not — it is not
+per account), and `mimo-v2.5-pro` is `Model not found` although the API serves
+it. So there is no default of ours: with no model the run passes no `--model`
+and MiMo picks (the first listed, a flash). The sign-in tab lists `mimo models
+xiaomi` (ids written `xiaomi/<model>`) and preselects the first plain `-pro`.
+
+### Key and sign-in stay apart
+
+- A key run starts with `MIMOCODE_AUTH_CONTENT={}`, which the CLI reads in place
+  of `auth.json`: a stored sign-in — its key, its Token Plan `base_url` — or any
+  other provider's stored key cannot stand in for the agent's key. A wrong key
+  fails `auth_failed` on a signed-in machine rather than running on the sign-in.
+- A sign-in run gets no key: an agent set up on the sign-in tab carries
+  `OPENAGENTS_AUTH_MODE=cli_login`, and the core drops every key and base URL
+  from its environment, whatever the type has saved.
+- The launcher labels each by its own path (a key reads "API key" whether or not
+  the CLI is signed in; a sign-in agent is judged on the sign-in only), and the
+  model lists come from different places: the key's endpoint, or the CLI.
+- Neither writes to the other: a key run leaves `auth.json` as it was.
 
 `mimo providers login -p xiaomi` is not an OAuth session. It opens
 `https://platform.xiaomimimo.com/authorize?pk=…` with an X25519 public key; after

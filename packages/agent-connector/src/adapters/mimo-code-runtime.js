@@ -13,13 +13,6 @@
 const MIMO_DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
 
 /**
- * What a run on a MiMo API key uses when no model is configured. Only for a
- * key: the run declares the model, so MiMo's API is all that has to serve it.
- * A sign-in has no default of ours — see resolveMimoRoute.
- */
-const MIMO_DEFAULT_MODEL = 'mimo-v2.5-pro';
-
-/**
  * MiMo Code's built-in provider for MiMo's API. Routing a MiMo key through it,
  * rather than through a provider we declare, keeps what the CLI's catalog knows
  * about each model: its context window, and that its reasoning has to be sent
@@ -53,10 +46,10 @@ function isMimoHost(baseUrl) {
  * Without a key the run uses MiMo Code's own credential: a Xiaomi sign-in
  * (`mimo providers login`) or XIAOMI_API_KEY. A model written `provider/model`
  * then names a provider the user set up in MiMo Code and is taken as given.
- * With no model the choice is MiMo's, on the `xiaomi` provider: what a
- * sign-in may run is MiMo's catalog filtered by the account — a Token Plan
- * account signed in on 0.1.15 lists only the v2.6 models, so a fixed default
- * fails there with "Model not found".
+ * On MiMo's own endpoints, a key or a sign-in, no model leaves the choice to
+ * MiMo on the `xiaomi` provider. There is no default of ours: MiMo drops every
+ * model its catalog marks deprecated, and the catalog moves — it marked the
+ * v2.5 line deprecated, after which `mimo-v2.5-pro` was "Model not found".
  *
  * The workspace's model choice, when there is one, replaces LLM_MODEL.
  */
@@ -72,7 +65,6 @@ function resolveMimoRoute(env = {}, workspaceModel = null) {
     if (providerId === XIAOMI_PROVIDER && model.toLowerCase().startsWith(`${XIAOMI_PROVIDER}/`)) {
       model = model.slice(XIAOMI_PROVIDER.length + 1);
     }
-    if (!model && providerId === XIAOMI_PROVIDER) model = MIMO_DEFAULT_MODEL;
     return {
       mode: 'key',
       providerId,
@@ -133,11 +125,19 @@ function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
     // is cleared for the same reason — objects merge, so headers the user set
     // on this provider were sent with every request, and an `Authorization`
     // among them replaced the agent's key.
-    const models = { [route.model]: { id: route.model, name: route.model } };
+    //
+    // A model picked on MiMo's endpoint is marked `beta`: MiMo drops a model
+    // its catalog calls deprecated even when the run declares it, and the API
+    // the key belongs to still serves those (the picker lists them from it).
+    // Choosing one is the user's call. (`active` is not a status MiMo accepts.)
+    const xiaomi = route.providerId === XIAOMI_PROVIDER;
+    const models = route.model
+      ? { [route.model]: { id: route.model, name: route.model, ...(xiaomi ? { status: 'beta' } : {}) } }
+      : undefined;
     const options = { baseURL: route.baseURL, apiKey: route.apiKey, headers: null };
     config.provider = {
-      [route.providerId]: route.providerId === XIAOMI_PROVIDER
-        ? { options, models }
+      [route.providerId]: xiaomi
+        ? { options, ...(models ? { models } : {}) }
         : { npm: '@ai-sdk/openai-compatible', name: 'OpenAgents', options, models },
     };
   }
@@ -233,7 +233,6 @@ function isMissingSession(stderr) {
 
 module.exports = {
   MIMO_DEFAULT_BASE_URL,
-  MIMO_DEFAULT_MODEL,
   XIAOMI_PROVIDER,
   CUSTOM_PROVIDER,
   MCP_SERVER_NAME,

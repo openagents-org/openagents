@@ -139,7 +139,12 @@ describe('MiMo Code — where a run goes', () => {
     assert.equal(r.mode, 'key');
     assert.equal(r.baseURL, 'https://api.xiaomimimo.com/v1');
     assert.equal(r.providerId, 'xiaomi');
-    assert.equal(r.modelRef, `xiaomi/${runtime.MIMO_DEFAULT_MODEL}`);
+    // No model of ours: MiMo's catalog decides what it still runs.
+    assert.equal(r.modelRef, '');
+    const cfg = runtime.buildMimoRunConfig(r);
+    assert.equal(cfg.model, undefined);
+    assert.deepEqual(cfg.provider, { xiaomi: { options: { baseURL: 'https://api.xiaomimimo.com/v1', apiKey: 'k', headers: null } } });
+    assert.equal(makeAdapter({ LLM_API_KEY: 'k' })._modelRequired(), false);
   });
 
   it('keeps Token Plan endpoints on the xiaomi provider and drops a repeated xiaomi/ prefix', () => {
@@ -234,7 +239,8 @@ describe('MiMo Code — the config a run starts with', () => {
     assert.deepEqual(cfg.provider, {
       xiaomi: {
         options: { baseURL: 'https://api.xiaomimimo.com/v1', apiKey: 'sk-agent', headers: null },
-        models: { 'mimo-v2.6-pro': { id: 'mimo-v2.6-pro', name: 'mimo-v2.6-pro' } },
+        // `beta` keeps a model MiMo's catalog has deprecated runnable.
+        models: { 'mimo-v2.6-pro': { id: 'mimo-v2.6-pro', name: 'mimo-v2.6-pro', status: 'beta' } },
       },
     });
   });
@@ -244,6 +250,13 @@ describe('MiMo Code — the config a run starts with', () => {
     const p = runtime.buildMimoRunConfig(route).provider.openagents;
     assert.equal(p.npm, '@ai-sdk/openai-compatible');
     assert.deepEqual(p.options, { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k', headers: null });
+  });
+
+  it("keeps a key run off MiMo's stored sign-ins, and a sign-in run on them", () => {
+    const keyEnv = makeAdapter(KEY)._spawnEnv('thread');
+    assert.equal(keyEnv.MIMOCODE_AUTH_CONTENT, '{}');
+    const signinEnv = makeAdapter({})._spawnEnv('thread');
+    assert.equal(signinEnv.MIMOCODE_AUTH_CONTENT, undefined);
   });
 
   it('declares no provider on a sign-in, only pins to it', () => {

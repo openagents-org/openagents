@@ -2373,9 +2373,9 @@
       },
       {
         "name": "LLM_MODEL",
-        "description": "Model id, e.g. mimo-v2.5-pro (the default on MiMo's API and with a Xiaomi sign-in). Required for any other endpoint; the list is loaded from it.",
+        "description": "Model id, e.g. mimo-v2.6-pro. Optional on MiMo's API and with a Xiaomi sign-in, where MiMo picks when it is blank; required for any other endpoint. The list is loaded from the endpoint.",
         "required": false,
-        "placeholder": "mimo-v2.5-pro"
+        "placeholder": "mimo-v2.6-pro"
       }
     ],
     "workspace_model": true

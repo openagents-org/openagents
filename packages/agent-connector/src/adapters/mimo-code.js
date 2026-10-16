@@ -129,9 +129,9 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     return this._route().modelRef;
   }
 
-  /** A sign-in runs on MiMo's own pick; only a key for another endpoint needs one. */
+  /** MiMo picks on its own endpoints; only another endpoint needs a model named. */
   _modelRequired() {
-    return this._route().mode === 'key';
+    return this._route().providerId !== 'xiaomi';
   }
 
   modelLabel() {
@@ -294,9 +294,16 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
       mcp: this._mcpServer(ch),
       instructions: this._instructionsReady(ch) ? [this._instructionsPath(ch)] : [],
     });
+    const route = this._route();
     return {
       ...env,
       MIMOCODE_CONFIG_CONTENT: JSON.stringify(config),
+      // A key run sees none of MiMo's stored sign-ins: the CLI reads this in
+      // place of auth.json, so a Xiaomi sign-in (its key, its Token Plan
+      // base_url) or another provider's stored key can never stand in for the
+      // agent's own. A sign-in run reads auth.json as usual. MiMo keeps this
+      // variable out of its tools' commands, like the config.
+      ...(route.mode === 'key' ? { MIMOCODE_AUTH_CONTENT: '{}' } : {}),
       MIMOCODE_EXPERIMENTAL_CRON: '0',
       MIMOCODE_DISABLE_AUTOUPDATE: '1',
       // MiMo otherwise starts every MCP server in Claude Code's ~/.claude.json
