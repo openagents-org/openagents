@@ -50,14 +50,15 @@ optional, because the sign-in needs none of them.
 |---|---|---|
 | `LLM_API_KEY` | no — blank runs on the sign-in | A MiMo API key (https://platform.xiaomimimo.com), a MiMo Token Plan key, or a key for the endpoint below |
 | `LLM_BASE_URL` | no, prefilled | `https://api.xiaomimimo.com/v1`. Token Plan: `https://token-plan-cn.xiaomimimo.com/v1` (also `-ams`, `-sgp`). Any OpenAI-compatible endpoint works. |
-| `LLM_MODEL` | for a non-MiMo endpoint | Model id, e.g. `mimo-v2.6-pro`; sent upstream as written, a gateway's `vendor/model` ids included. Blank on MiMo's endpoints: MiMo picks |
+| `LLM_MODEL` | for a non-MiMo endpoint | Model id, e.g. `mimo-v2.6-pro`; sent upstream as written, a gateway's `vendor/model` ids included. Blank on MiMo's endpoints: the first `-pro` model `mimo models xiaomi` lists |
 
 The workspace's model choice, when set, replaces `LLM_MODEL`.
 
 - A MiMo endpoint (any `*.xiaomimimo.com` host) runs on MiMo's built-in
   `xiaomi` provider with this key and base URL, which keeps what MiMo's catalog
   knows about each model (context window, reasoning round-trip). With no model
-  set the run passes no `--model` and MiMo picks (see below). A model that is
+  set the adapter asks `mimo models xiaomi` once and runs the first plain
+  `-pro` model it lists (see below). A model that is
   set is declared `status: "beta"`, because MiMo drops every model its catalog
   marks deprecated — the v2.5 line now — even when the run names it, while the
   key's API still serves them and the picker lists them from it.
@@ -66,28 +67,42 @@ The workspace's model choice, when set, replaces `LLM_MODEL`.
 
 ### Xiaomi-account sign-in
 
-With no key, the run uses MiMo Code's own credential — a Xiaomi-account sign-in
-or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider. What it may run is MiMo's
-catalog minus what it marks deprecated: on 0.1.15 that is `mimo-v2.6-flash`,
-`mimo-v2.6-pro` and `mimo-v2.6-pro-ultraspeed` (signed in or not — it is not
-per account), and `mimo-v2.5-pro` is `Model not found` although the API serves
-it. So there is no default of ours: with no model the run passes no `--model`
-and MiMo picks (the first listed, a flash). The sign-in tab lists `mimo models
-xiaomi` (ids written `xiaomi/<model>`) and preselects the first plain `-pro`.
+With no key, the run is on the Xiaomi-account sign-in. The adapter reads the
+`xiaomi` entry of `auth.json` (its key, and its Token Plan `base_url` if any)
+and declares it for the run exactly as it declares a form key, on the `xiaomi`
+provider. `XIAOMI_API_KEY` is not a way in: it is removed from the CLI's
+environment, and a signed-in agent's core environment drops it too.
+
+What MiMo will run is its catalog minus what it marks deprecated: on 0.1.15
+that is `mimo-v2.6-flash`, `mimo-v2.6-pro` and `mimo-v2.6-pro-ultraspeed`
+(signed in or not — it is not per account), and `mimo-v2.5-pro` is `Model not
+found` unless declared `beta` (see above). So there is no fixed default: with
+no model the adapter asks `mimo models xiaomi` once per agent and pins the
+first plain `-pro` it lists. Leaving the pick to MiMo instead hands it to the
+user's own `model` / `agent.*.model` settings, which name other providers and
+fail. The sign-in tab lists the same command (ids written `xiaomi/<model>`)
+and preselects the same model.
 
 ### Key and sign-in stay apart
 
-- A key run starts with `MIMOCODE_AUTH_CONTENT={}`, which the CLI reads in place
-  of `auth.json`: a stored sign-in — its key, its Token Plan `base_url` — or any
-  other provider's stored key cannot stand in for the agent's key. A wrong key
-  fails `auth_failed` on a signed-in machine rather than running on the sign-in.
-- A sign-in run gets no key: an agent set up on the sign-in tab carries
+- Each run's credential is declared in its own config — the form key, or the
+  sign-in's key read from `auth.json` — with `headers` cleared, and the run
+  starts with `MIMOCODE_AUTH_CONTENT={}`, which the CLI reads in place of
+  `auth.json`. So nothing MiMo has stored or the user configured in MiMo (a
+  `provider.xiaomi.options.apiKey`, an `XIAOMI_API_KEY`, the sign-in under a key
+  run) stands in for it. A wrong form key fails `auth_failed` on a signed-in
+  machine; a sign-in runs even with a wrong `apiKey` in the user's MiMo config.
+  Only a model on a provider of the user's own MiMo setup (`provider/model`)
+  reads `auth.json`, as theirs.
+- A sign-in run gets no form key: an agent set up on the sign-in tab carries
   `OPENAGENTS_AUTH_MODE=cli_login`, and the core drops every key and base URL
-  from its environment, whatever the type has saved.
+  (and `XIAOMI_API_KEY`) from its environment, whatever the type has saved.
 - The launcher labels each by its own path (a key reads "API key" whether or not
   the CLI is signed in; a sign-in agent is judged on the sign-in only), and the
   model lists come from different places: the key's endpoint, or the CLI.
 - Neither writes to the other: a key run leaves `auth.json` as it was.
+- The launcher's Sign in counts only MiMo's `Login successful`: a failed login
+  exits 0, and an earlier sign-in still on disk would satisfy the probe.
 
 `mimo providers login -p xiaomi` is not an OAuth session. It opens
 `https://platform.xiaomimimo.com/authorize?pk=…` with an X25519 public key; after
@@ -114,9 +129,9 @@ paste-a-code one.
 
 The launcher's Sign in runs that command over pipes with `CI=1`, which stops the
 CLI opening a browser, opens the printed URL itself — one tab on every platform
-— and takes the code in the app. A clean exit counts only with `Login
-successful` or once the sign-in is found on disk, since a failed login exits 0
-too. Sign-in is read from `auth.json` (a `xiaomi` entry holding a key), by the
+— and takes the code in the app. Only `Login successful` counts as
+signed in: a failed login exits 0 too, and an earlier sign-in on disk would
+satisfy a probe. Sign-in is read from `auth.json` (a `xiaomi` entry holding a key), by the
 launcher and by the core's `check_ready` (`creds_file` + `creds_key`). Like the
 CLI, both look under `$XDG_DATA_HOME/mimocode/` when that is set
 (`creds_xdg_data_file`; an older core reads only the default path).

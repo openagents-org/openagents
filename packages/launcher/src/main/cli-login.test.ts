@@ -284,8 +284,9 @@ describe("CliLoginManager — mimo opens its sign-in URL through the launcher", 
 
 /**
  * MiMo gives up after three bad codes in the language it picks from the time
- * zone, and exits 0 without writing a credential. A clean exit therefore only
- * counts once the sign-in probe agrees — however the CLI worded its failure.
+ * zone, and exits 0 without writing a credential. Only its success line counts
+ * — however it worded the failure, and whether or not an older sign-in is on
+ * disk for the probe to find.
  */
 describe("CliLoginManager — a clean mimo exit is not a sign-in by itself", () => {
   const run = async (verified: boolean): Promise<CliLoginEvent[]> => {
@@ -335,9 +336,10 @@ describe("CliLoginManager — a clean mimo exit is not a sign-in by itself", () 
     expect(events.at(-1)?.message).toBe("解密失败，已达最大重试次数")
   })
 
-  it("succeeds when the probe finds the sign-in after all", async () => {
+  it("still fails when an earlier sign-in is on disk — the probe proves nothing then", async () => {
     if (process.platform === "win32") return
     const events = await run(true)
-    expect(events.at(-1)?.phase).toBe("success")
+    expect(events.at(-1)?.phase).toBe("failed")
+    expect(events.at(-1)?.message).toBe("解密失败，已达最大重试次数")
   })
 })

@@ -56,9 +56,10 @@ export function parseMimoModels(out: string): ModelChoice[] {
 }
 
 /**
- * The first plain `-pro` model listed, else the first. The list is the
- * account's: a Token Plan sign-in on 0.1.15 lists only the v2.6 models, so no
- * fixed id is safe to name — and left blank, MiMo runs the first one, a flash.
+ * The first plain `-pro` model listed, else the first — what the adapter runs
+ * when no model is set, too. No fixed id is safe to name: MiMo leaves out
+ * every model its catalog marks deprecated, and the catalog moves (on 0.1.15
+ * the v2.5 line went, leaving only the v2.6 models).
  */
 export function mimoRecommendedModel(models: ModelChoice[]): string | undefined {
   return models.find((m) => /-pro$/.test(m.id))?.id ?? models[0]?.id

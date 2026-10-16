@@ -875,7 +875,7 @@ class Installer {
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
     // parsing or logging the token. Additive: agents that don't declare
     // creds_no_parse / creds_path_env get identical behavior to before.
-    const credsFile = this._evaluateCredsFile(checkReady, agentType);
+    const credsFile = this._evaluateCredsFile(checkReady, agentType, savedEnv);
     const credsPathReady = this._checkCredsPathEnv(checkReady, savedEnv, agentType);
 
     let cliReady = false;
@@ -921,7 +921,7 @@ class Installer {
     // agent never needs.
     const credsReady = checkReady.creds_json_has_entries
       ? false
-      : this._checkCredsReady(checkReady, agentType);
+      : this._checkCredsReady(checkReady, agentType, savedEnv);
     if (credsReady || credsFile.ready || credsPathReady) {
       return {
         ready: true,
@@ -987,10 +987,10 @@ class Installer {
     return keys.some((key) => !!(source && source[key]));
   }
 
-  _checkCredsReady(checkReady, agentType) {
+  _checkCredsReady(checkReady, agentType, savedEnv = null) {
     if (checkReady.creds_file) {
       try {
-        const credsPath = this._credsFilePath(checkReady, agentType);
+        const credsPath = this._credsFilePath(checkReady, agentType, savedEnv);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
@@ -1021,11 +1021,13 @@ class Installer {
    * the XDG data directory (MiMo Code's auth.json) follows XDG_DATA_HOME when
    * it is set, so `creds_xdg_data_file` names the file under it and
    * `creds_file` stays the default — which is also all an older core reads.
-   * Not for a WSL install: the variable here is this side's, not the distro's.
+   * The agent's own setting (`savedEnv`, what the CLI is spawned with) comes
+   * before the daemon's. Not for a WSL install: the variable here is this
+   * side's, not the distro's.
    */
-  _credsFilePath(checkReady, agentType) {
+  _credsFilePath(checkReady, agentType, savedEnv = null) {
     const rel = checkReady.creds_xdg_data_file;
-    const dataHome = String(process.env.XDG_DATA_HOME || '').trim();
+    const dataHome = String((savedEnv && savedEnv.XDG_DATA_HOME) || process.env.XDG_DATA_HOME || '').trim();
     if (rel && dataHome && path.isAbsolute(dataHome)) {
       let wsl = false;
       try { wsl = !!agentType && isWslBinary(this._whichBinary(agentType)); } catch { /* best-effort */ }
@@ -1077,9 +1079,9 @@ class Installer {
    * against the running user's home (the daemon/launcher user), not the
    * renderer/browser user.
    */
-  _credsFileState(checkReady, agentType) {
+  _credsFileState(checkReady, agentType, savedEnv = null) {
     if (!checkReady || !checkReady.creds_file) return 'absent';
-    const p = this._credsFilePath(checkReady, agentType);
+    const p = this._credsFilePath(checkReady, agentType, savedEnv);
     let exists = false;
     try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
     if (!exists) return 'absent';
@@ -1118,11 +1120,11 @@ class Installer {
    * parse + match `creds_key` via _checkCredsReady) keep their exact behavior.
    * Returns { ready, unreadable }.
    */
-  _evaluateCredsFile(checkReady, agentType) {
+  _evaluateCredsFile(checkReady, agentType, savedEnv = null) {
     if (!checkReady || !checkReady.creds_file || !checkReady.creds_no_parse) {
       return { ready: false, unreadable: false };
     }
-    const state = this._credsFileState(checkReady, agentType);
+    const state = this._credsFileState(checkReady, agentType, savedEnv);
     return { ready: state === 'present', unreadable: state === 'unreadable' };
   }
 

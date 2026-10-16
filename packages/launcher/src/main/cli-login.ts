@@ -103,6 +103,8 @@ class LoginSession {
   private answeredPrompt = false
   // The CLI printed its success line. Some exit 0 without one when they failed.
   private successSeen = false
+  // Resolves once the CLI's stdout has been read to the end.
+  private outputDrained: Promise<void> = Promise.resolve()
   private settled = false
   // A terminal was already handed to this session. The fallback has several
   // independent triggers (spawn error, instant exit, no output, the user's own
@@ -206,6 +208,13 @@ class LoginSession {
     })
     this.child = child
     this.startedAt = Date.now()
+    const out = child.stdout
+    this.outputDrained = out
+      ? new Promise<void>((resolve) => {
+          out.once("end", () => resolve())
+          out.once("close", () => resolve())
+        })
+      : Promise.resolve()
     child.stdout?.on("data", (d: Buffer) => this.onOutput(String(d)))
     child.stderr?.on("data", (d: Buffer) => this.onOutput(String(d)))
     child.on("error", (e: Error) =>
@@ -275,29 +284,36 @@ class LoginSession {
       )
       return
     }
-    if (code === 0 && !LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) {
+    // A CLI that exits 0 when it failed is believed only on its success line —
+    // not on the probe, which an earlier sign-in still on disk satisfies just
+    // the same. `exit` can come before the last of stdout, so the verdict waits
+    // for it to drain.
+    if (LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) {
+      void Promise.race([this.outputDrained, delay(1_000)]).then(() => {
+        if (this.settled || this.successSeen) return
+        this.settle("failed", this.exitReason())
+      })
+      return
+    }
+    if (code === 0) {
       void this.finish()
       return
     }
-    // Its success line already settles it; without one, only the probe can.
-    if (code === 0 && this.successSeen) return
     void this.deps
       .verifyLogin(this.type)
       .then((ok) =>
         ok
           ? this.settle("success")
-          : this.settle("failed", this.exitReason()),
+          : this.settle("failed", firstLine(this.buffer)),
       )
-      .catch(() => this.settle("failed", this.exitReason()))
+      .catch(() => this.settle("failed", firstLine(this.buffer)))
   }
 
   /**
-   * What to quote when a login ended without signing in. Usually the CLI's
-   * first line; for one that exits 0 on failure, its last — the first is a
-   * banner, and the verdict comes at the end.
+   * What to quote when a CLI that exits 0 on failure ended without signing in:
+   * its last line, since the first is a banner and the verdict comes at the end.
    */
   private exitReason(): string {
-    if (!LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) return firstLine(this.buffer)
     const lines = this.buffer
       .split("\n")
       .map((l) => l.replace(/^[\s│┌└■●◆◇]+/, "").trim())

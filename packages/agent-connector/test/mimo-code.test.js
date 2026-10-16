@@ -111,6 +111,11 @@ describe('MiMo Code — registry entry', () => {
     }
   });
 
+  it("drops XIAOMI_API_KEY with the other credentials of a signed-in agent", () => {
+    const { credentialKeys } = require('../src/env');
+    assert.ok(credentialKeys('mimo-code', null).has('XIAOMI_API_KEY'));
+  });
+
   it('follows XDG_DATA_HOME to the sign-in, as MiMo and the adapter do', () => {
     assert.equal(entry.check_ready.creds_xdg_data_file, 'mimocode/auth.json');
     const { Installer } = require('../src/installer');
@@ -126,6 +131,12 @@ describe('MiMo Code — registry entry', () => {
       fs.mkdirSync(path.dirname(auth), { recursive: true });
       fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'sk' } }));
       assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code'), true, 'the file the adapter reads');
+      // Set on the agent instead of the daemon: the agent's own setting is the
+      // one its CLI runs with.
+      delete process.env.XDG_DATA_HOME;
+      assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code'), false);
+      assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code', env), true);
+      assert.equal(inst._credsFileState({ ...entry.check_ready, creds_no_parse: true }, 'mimo-code', env), 'present');
     } finally {
       if (saved === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = saved;
       fs.rmSync(dir, { recursive: true, force: true });
@@ -205,7 +216,8 @@ describe('MiMo Code — where a run goes', () => {
   it('knows which runs have a credential', () => {
     assert.equal(makeAdapter(KEY)._credentialState(), 'present');
     assert.equal(makeAdapter({})._credentialState(), 'missing');
-    assert.equal(makeAdapter({ XIAOMI_API_KEY: 'x' })._credentialState(), 'present');
+    // XIAOMI_API_KEY is MiMo's own way in, not one of this agent's two.
+    assert.equal(makeAdapter({ XIAOMI_API_KEY: 'x' })._credentialState(), 'missing');
     assert.equal(makeAdapter({ LLM_MODEL: 'myproxy/m' })._credentialState(), 'unknown');
 
     const auth = MiMoCodeAdapter._authFilePath({}, home);
@@ -252,11 +264,44 @@ describe('MiMo Code — the config a run starts with', () => {
     assert.deepEqual(p.options, { baseURL: 'http://127.0.0.1:1/v1', apiKey: 'k', headers: null });
   });
 
-  it("keeps a key run off MiMo's stored sign-ins, and a sign-in run on them", () => {
-    const keyEnv = makeAdapter(KEY)._spawnEnv('thread');
+  it("runs a key and a sign-in each on its own credential, never on what MiMo has stored", () => {
+    const keyEnv = makeAdapter({ ...KEY, XIAOMI_API_KEY: 'env-key' })._spawnEnv('thread');
     assert.equal(keyEnv.MIMOCODE_AUTH_CONTENT, '{}');
-    const signinEnv = makeAdapter({})._spawnEnv('thread');
-    assert.equal(signinEnv.MIMOCODE_AUTH_CONTENT, undefined);
+    assert.equal(keyEnv.XIAOMI_API_KEY, undefined);
+
+    const auth = MiMoCodeAdapter._authFilePath({}, home);
+    fs.mkdirSync(path.dirname(auth), { recursive: true });
+    fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'tp-signed-in', metadata: { uid: '1', base_url: 'https://token-plan-cn.xiaomimimo.com/v1' } } }));
+    const signedIn = makeAdapter({ XIAOMI_API_KEY: 'env-key', LLM_MODEL: 'xiaomi/mimo-v2.6-pro' });
+    const env = signedIn._spawnEnv('thread');
+    assert.equal(env.MIMOCODE_AUTH_CONTENT, '{}', "the sign-in is declared for the run, so the store is not read");
+    assert.equal(env.XIAOMI_API_KEY, undefined);
+    const cfg = JSON.parse(env.MIMOCODE_CONFIG_CONTENT);
+    // Declared like a key: the user's own provider.xiaomi options cannot replace it.
+    assert.deepEqual(cfg.provider.xiaomi.options, { baseURL: 'https://token-plan-cn.xiaomimimo.com/v1', apiKey: 'tp-signed-in', headers: null });
+    assert.equal(cfg.model, 'xiaomi/mimo-v2.6-pro');
+
+    // A provider of the user's own MiMo setup reads MiMo's store, as theirs.
+    assert.equal(makeAdapter({ LLM_MODEL: 'myproxy/m' })._spawnEnv('thread').MIMOCODE_AUTH_CONTENT, undefined);
+  });
+
+  it("asks the CLI for a model when none is set, so the user's own model settings cannot take it", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-mimo-models-'));
+    try {
+      const bin = path.join(dir, 'mimo');
+      fs.writeFileSync(bin, `#!${process.execPath}\nif (process.env.MIMOCODE_AUTH_CONTENT !== '{}') process.exit(1);\nprocess.stdout.write('xiaomi/mimo-v2.6-flash — window 1.05M\\nxiaomi/mimo-v2.6-pro — window 1.05M\\n');\n`);
+      fs.chmodSync(bin, 0o755);
+      const a = makeAdapter({ LLM_API_KEY: 'sk-agent' });
+      a._opencodeBinary = bin;
+      assert.equal(a._resolveModel(), '');
+      await a._ensureFallbackModel();
+      assert.equal(a._resolveModel(), 'xiaomi/mimo-v2.6-pro');
+      const cfg = runtime.buildMimoRunConfig(a._route());
+      assert.equal(cfg.model, 'xiaomi/mimo-v2.6-pro');
+      assert.deepEqual(cfg.agent, { general: { model: 'xiaomi/mimo-v2.6-pro' }, explore: { model: 'xiaomi/mimo-v2.6-pro' } });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('declares no provider on a sign-in, only pins to it', () => {

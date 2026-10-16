@@ -44,13 +44,15 @@ export const LAUNCHER_OPENS_LOGIN_URL: Record<string, Record<string, string>> = 
 }
 
 /**
- * Agents whose login exits 0 when it did NOT sign anyone in, so a clean exit
- * only counts once the sign-in probe agrees.
+ * Agents whose login exits 0 when it did NOT sign anyone in, so only the
+ * CLI's own success line counts — not the exit code, and not the sign-in
+ * probe, which a sign-in made before this login satisfies just as well.
  *
  *   mimo-code  gives up with "Decryption failed, max retries reached" — in the
  *              language MiMo picks from the time zone (zh, ja, ru, fr, es, …),
  *              so no pattern catches every wording — and exits 0 without
- *              writing a credential. Only "Login successful" is always English.
+ *              writing a credential. "Login successful", which every success
+ *              path prints, is always English.
  */
 export const LOGIN_EXIT_ZERO_UNPROVEN: ReadonlySet<string> = new Set(["mimo-code"])
 

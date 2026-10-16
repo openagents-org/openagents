@@ -43,46 +43,61 @@ function isMimoHost(baseUrl) {
  * `vendor/model` ids included — except that a `xiaomi/` prefix on a MiMo
  * endpoint only repeats the provider and is dropped.
  *
- * Without a key the run uses MiMo Code's own credential: a Xiaomi sign-in
- * (`mimo providers login`) or XIAOMI_API_KEY. A model written `provider/model`
- * then names a provider the user set up in MiMo Code and is taken as given.
- * On MiMo's own endpoints, a key or a sign-in, no model leaves the choice to
- * MiMo on the `xiaomi` provider. There is no default of ours: MiMo drops every
- * model its catalog marks deprecated, and the catalog moves — it marked the
- * v2.5 line deprecated, after which `mimo-v2.5-pro` was "Model not found".
+ * Without a key the run is on the Xiaomi-account sign-in (`signIn`, the key
+ * and base URL MiMo stored for it, read by the adapter), declared for the run
+ * exactly as a key is — so nothing the user configured in MiMo, and no
+ * XIAOMI_API_KEY, can stand in for it. A model written `provider/model` with
+ * another provider names one the user set up in MiMo Code (`mode: 'own'`) and
+ * is taken as given.
+ *
+ * On MiMo's endpoints a blank model is `fallbackModel`, which the adapter asks
+ * the CLI for. There is no fixed default: MiMo drops every model its catalog
+ * marks deprecated, and the catalog moves — it marked the v2.5 line deprecated,
+ * after which `mimo-v2.5-pro` was "Model not found".
  *
  * The workspace's model choice, when there is one, replaces LLM_MODEL.
  */
-function resolveMimoRoute(env = {}, workspaceModel = null) {
+function resolveMimoRoute(env = {}, workspaceModel = null, { signIn = null, fallbackModel = '' } = {}) {
   const val = (k) => (env[k] == null ? '' : String(env[k])).trim();
   const apiKey = val('LLM_API_KEY');
   const requested = String(workspaceModel || '').trim() || val('LLM_MODEL');
+  const fallback = String(fallbackModel || '').trim();
+  const bare = (m) => (m.toLowerCase().startsWith(`${XIAOMI_PROVIDER}/`) ? m.slice(XIAOMI_PROVIDER.length + 1) : m);
+  const route = (mode, providerId, model, baseURL, key) => ({
+    mode, providerId, model, modelRef: model ? `${providerId}/${model}` : '', baseURL, apiKey: key,
+  });
 
   if (apiKey) {
     const baseURL = val('LLM_BASE_URL') || MIMO_DEFAULT_BASE_URL;
-    const providerId = isMimoHost(baseURL) ? XIAOMI_PROVIDER : CUSTOM_PROVIDER;
-    let model = requested;
-    if (providerId === XIAOMI_PROVIDER && model.toLowerCase().startsWith(`${XIAOMI_PROVIDER}/`)) {
-      model = model.slice(XIAOMI_PROVIDER.length + 1);
-    }
-    return {
-      mode: 'key',
-      providerId,
-      model,
-      modelRef: model ? `${providerId}/${model}` : '',
-      baseURL,
-      apiKey,
-    };
+    if (!isMimoHost(baseURL)) return route('key', CUSTOM_PROVIDER, requested, baseURL, apiKey);
+    return route('key', XIAOMI_PROVIDER, bare(requested) || bare(fallback), baseURL, apiKey);
   }
 
-  let providerId = XIAOMI_PROVIDER;
-  let model = requested;
-  const slash = model.indexOf('/');
-  if (slash > 0) {
-    providerId = model.slice(0, slash);
-    model = model.slice(slash + 1);
+  const slash = requested.indexOf('/');
+  if (slash > 0 && requested.slice(0, slash).toLowerCase() !== XIAOMI_PROVIDER) {
+    return route('own', requested.slice(0, slash), requested.slice(slash + 1), '', '');
   }
-  return { mode: 'signin', providerId, model, modelRef: model ? `${providerId}/${model}` : '', baseURL: '', apiKey: '' };
+  const key = signIn && signIn.key ? String(signIn.key) : '';
+  const baseURL = key ? (String(signIn.baseURL || '').trim() || MIMO_DEFAULT_BASE_URL) : '';
+  return route('signin', XIAOMI_PROVIDER, bare(requested) || bare(fallback), baseURL, key);
+}
+
+/**
+ * `mimo models xiaomi`: `xiaomi/<model> — window …` per line, deprecated
+ * models already left out. Returns the bare ids.
+ */
+function parseMimoModelList(out) {
+  const ids = [];
+  for (const line of String(out || '').split(/\r?\n/)) {
+    const m = line.trim().match(/^xiaomi\/([\w.-]+)(?:\s|$)/);
+    if (m && !ids.includes(m[1])) ids.push(m[1]);
+  }
+  return ids;
+}
+
+/** The first plain `-pro` model, else the first — the launcher preselects the same. */
+function pickMimoModel(ids) {
+  return (ids || []).find((id) => /-pro$/.test(id)) || (ids || [])[0] || '';
 }
 
 /**
@@ -108,8 +123,8 @@ function resolveMimoRoute(env = {}, workspaceModel = null) {
 function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
   const ref = route.modelRef;
   const config = { enabled_providers: [route.providerId], disabled_providers: [] };
-  // A sign-in with no model leaves the pick to MiMo; the provider pin alone
-  // still keeps every request on it, and a model named elsewhere fails.
+  // With no model (the CLI could not be asked for one) the pick is MiMo's; the
+  // provider pin alone still keeps every request on it.
   if (ref) {
     Object.assign(config, {
       model: ref,
@@ -119,7 +134,9 @@ function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
     });
   }
 
-  if (route.mode === 'key') {
+  // A key, or the sign-in's key, is declared for the run; MiMo's own
+  // credentials are kept out of it (MIMOCODE_AUTH_CONTENT, set by the adapter).
+  if (route.apiKey) {
     // `id` is set explicitly: a model entry of the same name in the user's own
     // provider config could otherwise rename what is sent upstream. `headers`
     // is cleared for the same reason — objects merge, so headers the user set
@@ -238,6 +255,8 @@ module.exports = {
   MCP_SERVER_NAME,
   isMimoHost,
   resolveMimoRoute,
+  parseMimoModelList,
+  pickMimoModel,
   buildMimoRunConfig,
   buildMimoRunArgs,
   descendantsOf,

@@ -37,7 +37,7 @@
 
 'use strict';
 
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -49,6 +49,8 @@ const { whichBinary } = require('../paths');
 const {
   MIMO_DEFAULT_BASE_URL,
   resolveMimoRoute,
+  parseMimoModelList,
+  pickMimoModel,
   buildMimoRunConfig,
   buildMimoRunArgs,
   descendantsOf,
@@ -121,7 +123,45 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
 
   /** Where one run goes — see resolveMimoRoute. */
   _route() {
-    return resolveMimoRoute(this.agentEnv || process.env, this.workspaceModel);
+    const env = this.agentEnv || process.env;
+    return resolveMimoRoute(env, this.workspaceModel, {
+      signIn: MiMoCodeAdapter._readSignIn(env),
+      fallbackModel: this._fallbackModel || '',
+    });
+  }
+
+  /**
+   * The model a run on MiMo's endpoints uses when none is set: what the
+   * launcher would preselect from the CLI's own list (deprecated models are
+   * already left out of it). Asked once. Without it the run would leave the
+   * pick to MiMo, and the user's own `model` / `agent.*.model` settings — on
+   * other providers, so "Model not found" — would take it.
+   */
+  async _ensureFallbackModel() {
+    if (this._fallbackModel) return;
+    const route = this._route();
+    if (route.providerId !== 'xiaomi' || route.model) return;
+    const binary = this._opencodeBinary || this._findOpencodeBinary();
+    if (!binary) return;
+    const env = { ...(this.agentEnv || process.env) };
+    delete env.LLM_API_KEY;
+    delete env.XIAOMI_API_KEY;
+    const out = await new Promise((resolve) => {
+      execFile(binary, ['models', 'xiaomi'], {
+        env: {
+          ...env,
+          MIMOCODE_AUTH_CONTENT: '{}',
+          MIMOCODE_CONFIG_CONTENT: JSON.stringify({ enabled_providers: ['xiaomi'], disabled_providers: [] }),
+          MIMOCODE_DISABLE_AUTOUPDATE: '1',
+        },
+        // The first command on a machine migrates MiMo's database.
+        timeout: 120000,
+        windowsHide: true,
+      }, (err, stdout) => resolve(err ? '' : String(stdout || '')));
+    });
+    this._fallbackModel = pickMimoModel(parseMimoModelList(out));
+    if (this._fallbackModel) this._log(`MiMo Code: no model set — using ${this._fallbackModel}, the first pro model it lists`);
+    else this._log('MiMo Code: no model set and its model list could not be read — MiMo picks');
   }
 
   /** `provider/model`, or '' when none is given for a sign-in or a non-MiMo endpoint. */
@@ -149,23 +189,30 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
   _ensureWorkspaceSkill() {}
 
   /**
-   * 'present' with a key in this agent's configuration, or with a MiMo
-   * sign-in for the provider the model names. A Xiaomi-account sign-in is
-   * stored as an API key the MiMo platform issued for the CLI, under `xiaomi`
-   * in auth.json; an entry without one signs nothing in. A model on some other provider
-   * the user set up in MiMo is theirs to vouch for: 'unknown', and the run
-   * reports what the CLI says.
+   * 'present' with a key in this agent's configuration, or with a
+   * Xiaomi-account sign-in. A model on some other provider the user set up in
+   * MiMo is theirs to vouch for: 'unknown', and the run reports what the CLI
+   * says.
    */
   _credentialState() {
     const route = this._route();
-    if (route.mode === 'key') return 'present';
-    const env = this.agentEnv || process.env;
-    if (route.providerId !== 'xiaomi') return 'unknown';
-    if (String(env.XIAOMI_API_KEY || '').trim()) return 'present';
+    if (route.mode === 'own') return 'unknown';
+    return route.apiKey ? 'present' : 'missing';
+  }
+
+  /**
+   * The Xiaomi-account sign-in: an API key the MiMo platform issued for the
+   * CLI, stored under `xiaomi` in auth.json, with the Token Plan base URL for
+   * an account on one. An entry without a key signs nothing in.
+   */
+  static _readSignIn(env) {
     const auth = MiMoCodeAdapter._readAuthFile(env);
     const entry = auth && auth.xiaomi;
-    if (entry && typeof entry === 'object' && String(entry.key || '').trim()) return 'present';
-    return 'missing';
+    if (!entry || typeof entry !== 'object') return null;
+    const key = String(entry.key || '').trim();
+    if (!key) return null;
+    const meta = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+    return { key, baseURL: String(meta.base_url || '').trim() };
   }
 
   /**
@@ -287,8 +334,11 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
   _spawnEnv(channel) {
     const env = { ...(this.agentEnv || process.env) };
     // The key is in the run config, which MiMo keeps away from its tools'
-    // commands; left in the environment, any `env` the model runs would print it.
+    // commands; left in the environment, any `env` the model runs would print
+    // it. XIAOMI_API_KEY is MiMo's own way in to the provider the run is
+    // pinned to, which neither a key run nor a sign-in run is meant to take.
     delete env.LLM_API_KEY;
+    delete env.XIAOMI_API_KEY;
     const ch = channel || this.channelName;
     const config = buildMimoRunConfig(this._route(), {
       mcp: this._mcpServer(ch),
@@ -298,12 +348,13 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     return {
       ...env,
       MIMOCODE_CONFIG_CONTENT: JSON.stringify(config),
-      // A key run sees none of MiMo's stored sign-ins: the CLI reads this in
-      // place of auth.json, so a Xiaomi sign-in (its key, its Token Plan
-      // base_url) or another provider's stored key can never stand in for the
-      // agent's own. A sign-in run reads auth.json as usual. MiMo keeps this
-      // variable out of its tools' commands, like the config.
-      ...(route.mode === 'key' ? { MIMOCODE_AUTH_CONTENT: '{}' } : {}),
+      // The run's credential is the one declared in its config — the agent's
+      // key, or the sign-in's, read by the adapter. The CLI reads this in place
+      // of auth.json, so nothing MiMo has stored (the sign-in under a key run,
+      // another provider's key under either) stands in for it. Only a run on
+      // a provider of the user's own MiMo setup reads auth.json. MiMo keeps
+      // this variable out of its tools' commands, like the config.
+      ...(route.mode !== 'own' ? { MIMOCODE_AUTH_CONTENT: '{}' } : {}),
       MIMOCODE_EXPERIMENTAL_CRON: '0',
       MIMOCODE_DISABLE_AUTOUPDATE: '1',
       // MiMo otherwise starts every MCP server in Claude Code's ~/.claude.json
@@ -321,6 +372,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
    */
   async _runOpencode(content, msgChannel) {
     await this.getBrowserEnabled();
+    await this._ensureFallbackModel();
     this._writeInstructions(msgChannel);
     try {
       return await super._runOpencode(content, msgChannel);

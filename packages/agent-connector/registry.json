@@ -2373,7 +2373,7 @@
       },
       {
         "name": "LLM_MODEL",
-        "description": "Model id, e.g. mimo-v2.6-pro. Optional on MiMo's API and with a Xiaomi sign-in, where MiMo picks when it is blank; required for any other endpoint. The list is loaded from the endpoint.",
+        "description": "Model id, e.g. mimo-v2.6-pro. Optional on MiMo's API and with a Xiaomi sign-in, where a blank one runs the first pro model MiMo lists; required for any other endpoint. The list is loaded from the endpoint.",
         "required": false,
         "placeholder": "mimo-v2.6-pro"
       }

@@ -79,12 +79,12 @@ function conflictingHome(dir, base) {
     model_groups: { lite: 'saved/m1', standard: 'saved/m1' },
     provider: {
       saved: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/saved/v1`, apiKey: 'saved-key' }, models: { m1: {} } },
-      xiaomi: { options: { headers: { Authorization: 'Bearer header-key', 'X-Saved': '1' } } },
+      xiaomi: { options: { baseURL: `${base}/saved/v1`, apiKey: 'user-config-key', headers: { Authorization: 'Bearer header-key', 'X-Saved': '1' } } },
       openagents: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/saved/v1`, apiKey: 'same-id-key', headers: { Authorization: 'Bearer header-key', 'X-Saved': '1' } }, models: { 'agent-model': { id: 'renamed-by-user' } } },
     },
   }));
   fs.writeFileSync(path.join(data, 'auth.json'), JSON.stringify({
-    xiaomi: { type: 'api', key: 'signed-in-key', metadata: { uid: '1', base_url: `${base}/saved/v1` } },
+    xiaomi: { type: 'api', key: 'signed-in-key', metadata: { uid: '1', base_url: `${base}/signin/v1` } },
     openagents: { type: 'api', key: 'stored-key' },
   }));
   // Claude Code's MCP config, which MiMo imports unless told not to.
@@ -100,7 +100,7 @@ function conflictingHome(dir, base) {
  * Run one turn through the adapter and the real CLI, in a scratch home with
  * conflictingHome's setup. Returns the reply and every request the model saw.
  */
-async function runTurn(prompt, { provider = 'openagents' } = {}) {
+async function runTurn(prompt, { provider = 'openagents', signIn = false, model = 'agent-model' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-mimo-cli-'));
   const savedHome = process.env.HOME;
   const { server, requests } = await startModel();
@@ -113,8 +113,15 @@ async function runTurn(prompt, { provider = 'openagents' } = {}) {
       ...process.env,
       HOME: home, USERPROFILE: home,
       XIAOMI_API_KEY: 'env-xiaomi-key', DASHSCOPE_API_KEY: 'env-dashscope-key', OPENAI_API_KEY: 'env-openai-key',
-      LLM_API_KEY: 'agent-key', LLM_BASE_URL: `${base}/agent/v1`, LLM_MODEL: 'agent-model',
+      LLM_API_KEY: 'agent-key', LLM_BASE_URL: `${base}/agent/v1`, LLM_MODEL: model,
     };
+    // An agent set up on the sign-in tab: the core has dropped its key and
+    // base URL, and it runs on the Xiaomi-account sign-in in auth.json.
+    if (signIn) {
+      delete agentEnv.LLM_API_KEY;
+      delete agentEnv.LLM_BASE_URL;
+    }
+    if (!model) delete agentEnv.LLM_MODEL;
     for (const k of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'MIMOCODE_HOME', 'MIMOCODE_CONFIG']) delete agentEnv[k];
     // The adapter keeps its own files (sessions, the briefing) under the
     // daemon's home; point that at the scratch dir too.
@@ -171,6 +178,28 @@ describe('MiMo Code CLI — a run goes only where the agent says', () => {
       assert.equal(claudeMcpStarted, false, "Claude Code's MCP servers not started");
     });
   }
+
+  it("runs a sign-in on the sign-in's key and base URL, not the user's MiMo config or XIAOMI_API_KEY", { skip, timeout: 120000 }, async () => {
+    const { reply, requests } = await runTurn('Reply PONG.', { signIn: true, model: 'xiaomi/agent-model' });
+    assert.equal(reply, 'PONG');
+    assert.ok(requests.length >= 1);
+    for (const r of requests) {
+      assert.equal(r.url, '/signin/v1/chat/completions');
+      assert.equal(r.authorization, 'Bearer signed-in-key');
+      assert.equal(r.model, 'agent-model');
+      assert.equal(r.headers['x-saved'], undefined);
+    }
+  });
+
+  it("names a model when none is set, so the user's agent.build.model cannot take the run", { skip, timeout: 180000 }, async () => {
+    const { reply, requests } = await runTurn('Reply PONG.', { signIn: true, model: '' });
+    assert.equal(reply, 'PONG');
+    assert.ok(requests.length >= 1);
+    for (const r of requests) {
+      assert.equal(r.url, '/signin/v1/chat/completions');
+      assert.match(r.model, /^mimo-/, 'a model from MiMo\'s own list');
+    }
+  });
 
   it("keeps a subagent on the agent's endpoint despite the user's agent.general.model", { skip, timeout: 120000 }, async () => {
     const { reply, requests } = await runTurn('DELEGATE this to a subagent, then reply.');
