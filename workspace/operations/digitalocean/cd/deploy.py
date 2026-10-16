@@ -220,6 +220,11 @@ def migration_command(image, *args):
 
 def migrate(image):
     plan = json.loads(command(migration_command(image, '/ops/migration_plan.py'), capture=True))
+    if not plan['pending']:
+        if plan['current'] != plan['target']:
+            raise RuntimeError('Schema revision does not match target')
+        write_private(CD / 'migration-last.json', json.dumps(plan))
+        return
     if plan['pending']:
         command(['python3', str(CD / 'backup.py')], timeout=1800)
     command(migration_command(image, '-m', 'alembic', 'upgrade', 'head'), timeout=900)
