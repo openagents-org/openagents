@@ -984,6 +984,7 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
+            targetSessionId={currentSessionId}
             onReply={(!isDM || dmWritable) ? (message) => {
               setReplyTargets(previous => ({ ...previous, [currentSessionId]: message }));
               const email = (message.senderAddress || '').replace(/^human:/, '');

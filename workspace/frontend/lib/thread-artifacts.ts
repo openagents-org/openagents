@@ -1,4 +1,5 @@
 import { WEB_PROJECT_TYPE } from './web-projects';
+import { shareOrigin } from './share-origin';
 import type { BrowserTab, WorkspaceFile } from './types';
 export type ArtifactReference = { kind: 'file' | 'knowledge' | 'browser'; id: string };
 export type ThreadArtifactSetting = { artifact: ArtifactReference | null; unavailable: boolean; can_pin: boolean };
@@ -19,7 +20,8 @@ const isFileReference = (id: string, files: WorkspaceFile[]) => FILE_ID.test(id)
 export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: BrowserTab[], workspace: string): ArtifactReference | null {
   try {
     const url = new URL(href, window.location.href);
-    const local = url.origin === window.location.origin;
+    // In the desktop app, links to the web workspace point at this same workspace.
+    const local = url.origin === window.location.origin || url.origin === shareOrigin();
     if (local) {
       const browserId = url.pathname.match(/^\/v1\/browser\/tabs\/([^/]+)\/?$/);
       if (browserId) {
