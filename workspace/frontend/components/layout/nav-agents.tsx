@@ -108,7 +108,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                       </span>
                       <span className="min-w-0 truncate">{agentLabel(agent)}</span>
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
-                      <AgentRosterHints agent={agent} className="ml-auto" />
+                      <AgentRosterHints agent={agent} viewerEmail={currentUser.id} className="ml-auto" />
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>

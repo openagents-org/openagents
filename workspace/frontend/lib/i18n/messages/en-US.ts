@@ -2604,6 +2604,10 @@ export const messages = {
   // ── v1.1 M1/M2 — private threads, personal agents, sharing, directory ──────
   collab: {
     shared: "Shared",
+    sharedByYou: 'Shared by you',
+    sharedWithYou: 'Shared with you',
+    sharedByYouShort: 'By you',
+    sharedWithYouShort: 'With you',
     requestApprovalTitle: "Approve each new task",
     requestApprovalHint: "New requests wait for the selected person to approve before they reach this agent. Each incoming request needs its own approval.",
     requestApprovalOff: "No approval required",

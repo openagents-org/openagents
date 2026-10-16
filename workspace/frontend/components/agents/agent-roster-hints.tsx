@@ -66,12 +66,18 @@ export function DeviceOfflineHint({ agent, withLabel = false, className }: { age
 }
 
 /** Badge + marker together, for a row that has room for both. */
-export function AgentRosterHints({ agent, ownerDisplay, className }: { agent: HintAgent; ownerDisplay?: string | null; className?: string }) {
+export function AgentRosterHints({ agent, viewerEmail, className }: { agent: HintAgent; viewerEmail?: string; className?: string }) {
   const t = useT();
   if (!agent.isShared && !isDeviceOffline(agent)) return null;
+  const owner = agent.ownerEmail?.trim().toLowerCase();
+  const viewer = viewerEmail?.trim().toLowerCase();
+  const direction = owner && viewer ? (owner === viewer ? 'byYou' : 'withYou') : null;
+  const label = direction === 'byYou' ? t('collab.sharedByYou') : direction === 'withYou' ? t('collab.sharedWithYou') : t('collab.shared');
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-1', className)}>
-      <>{agent.isShared && <Badge variant="info" appearance="light" size="xs" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}</>
+      {agent.isShared && <Badge variant={direction === 'byYou' ? 'success' : 'info'} appearance="light" size="xs" className="shrink-0 font-medium" title={label} aria-label={label}>
+        {direction === 'byYou' ? t('collab.sharedByYouShort') : direction === 'withYou' ? t('collab.sharedWithYouShort') : label}
+      </Badge>}
       <DeviceOfflineHint agent={agent} />
     </span>
   );

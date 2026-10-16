@@ -27,6 +27,7 @@ import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
+import { DmAvatars } from './dm-avatars';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
@@ -715,7 +716,7 @@ export function ChatView() {
           )}
           {isDM ? (
             <h2 className="text-sm font-semibold truncate flex items-center gap-1.5">
-              <MessageSquare className="size-3.5 text-muted-foreground" />
+              <DmAvatars addresses={dmCounterpart ? [dmCounterpart] : dmPairAddrs} />
               <button type="button" className="truncate text-left hover:text-primary" disabled={!dmCounterpart} onClick={() => {
                 if (dmCounterpart?.startsWith('openagents:')) setSelectedAgentName(dmCounterpart.slice('openagents:'.length));
                 else if (dmCounterpart?.startsWith('human:')) setProfileEmail(dmCounterpart.slice('human:'.length));

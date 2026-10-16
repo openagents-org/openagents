@@ -2550,6 +2550,10 @@ export const messages: Messages = {
   // ── v1.1 M1/M2 — 私密线程、个人智能体、共享、智能体目录 ──────────────────
   collab: {
     shared: "已共享",
+    sharedByYou: '你共享给他人的智能体',
+    sharedWithYou: '他人共享给你的智能体',
+    sharedByYouShort: '我共享的',
+    sharedWithYouShort: '共享给我',
     requestApprovalTitle: "逐个审批新任务",
     requestApprovalHint: "新请求须由所选成员批准后才会发送给此智能体。每个新请求都需要单独审批。",
     requestApprovalOff: "无需审批",
