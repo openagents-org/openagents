@@ -470,7 +470,7 @@ class AiderAdapter extends BaseAdapter {
       result = await this._runAider(content, msgChannel);
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
       return;
     }
 
@@ -606,8 +606,10 @@ class AiderAdapter extends BaseAdapter {
         if (code !== 0) {
           let diagnostic = classifyError(stderrText, stdoutText);
           if (!diagnostic) {
+            // Aider's own last line, which on a provider failure quotes the
+            // request it made — redacted before it is posted.
             const tail = (stderrText || stdoutText).split('\n');
-            const detail = tail.length ? tail[tail.length - 1] : '';
+            const detail = this._redact(tail.length ? tail[tail.length - 1] : '');
             diagnostic = `Aider exited with code ${code}.${detail ? ` ${detail}` : ''}`;
           }
           resolve({ text: '', error: diagnostic });

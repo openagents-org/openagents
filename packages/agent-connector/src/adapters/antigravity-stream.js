@@ -13,6 +13,8 @@
  * rather than a tweak to the gemini adapter.
  */
 
+const { redactSecrets } = require('./utils');
+
 /** Build the argv tail (everything after the binary) for one headless run. */
 function buildAgyArgv({ prompt, model, conversationId, skipResume = false } = {}) {
   const args = [
@@ -183,7 +185,7 @@ const TIMEOUT_RE = /print-timeout|timed? ?out/i;
  * "No response generated. Please try again." dead end: the real reason was in
  * stderr all along, so surface it.
  */
-function classifyAgyFailure({ code, stderr, error } = {}) {
+function classifyAgyFailure({ code, stderr, error, secrets = [] } = {}) {
   // The docs describe `result.error` as {type, message}; agy 1.1.17 actually
   // emits a plain string ("authentication failed or timed out"). Take both.
   const err = error && typeof error === 'object' ? error : {};
@@ -231,7 +233,9 @@ function classifyAgyFailure({ code, stderr, error } = {}) {
   if (TIMEOUT_RE.test(text)) {
     return { kind: 'timeout', message: 'Antigravity CLI timed out before producing a response.' };
   }
-  const detail = errText || stderrTail(stderr);
+  // Quoted into the channel, so stripped of secrets first: the agent's own
+  // (`secrets`, by value) and anything shaped like one.
+  const detail = redactSecrets(errText || stderrTail(stderr), secrets);
   if (!detail) {
     return {
       kind: 'unknown',
