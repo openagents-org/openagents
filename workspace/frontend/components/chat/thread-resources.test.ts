@@ -68,6 +68,15 @@ it('can collapse the shelf without losing the tab controls', async () => {
   expect(host.querySelector('ul')).toBeNull();
   expect(host.querySelectorAll('[role=tab]')).toHaveLength(2);
 });
+it('includes a legacy live link in the artifact shelf without saved association', async () => {
+  const original = mocks.workspace.browserTabs;
+  mocks.workspace.browserTabs = [{ ...original[0], artifactChannels: [], liveUrl: 'https://browser.example/live/one' } as any];
+  try {
+    const messages = [{ sessionId: 'one', content: 'Watch https://browser.example/live/one', metadata: {} }] as any;
+    await act(async () => root.render(React.createElement(ThreadResources, { messages })));
+    expect(host.querySelector('[data-browser-thumbnail=live]')).not.toBeNull();
+  } finally { mocks.workspace.browserTabs = original; }
+});
 
 const pointer = (target: Element, type: string, x: number, options: { button?: number; buttons?: number; pointerType?: string } = {}) => {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: options.button ?? 0, buttons: options.buttons ?? 1 });

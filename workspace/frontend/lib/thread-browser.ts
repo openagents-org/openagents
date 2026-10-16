@@ -1,9 +1,32 @@
-import type { BrowserTab } from './types';
+import type { BrowserTab, WorkspaceMessage } from './types';
+
+/** Older connectors share the live URL without sending a thread association.
+ * Match only an exact live URL of an already accessible workspace tab. A page
+ * URL or an agent's presence is not evidence that a tab belongs here. */
+function referencedTabs(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[]): Set<string> {
+  const links = new Set<string>();
+  for (const message of messages) {
+    if (message.sessionId !== channel || message.metadata?.recalled) continue;
+    for (const match of message.content.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
+      try { links.add(new URL(match[0].replace(/[),.;!?]+$/, '')).href); } catch { /* Not a URL. */ }
+    }
+  }
+  return new Set(tabs.filter(tab => {
+    if (!tab.liveUrl) return false;
+    try { return links.has(new URL(tab.liveUrl).href); } catch { return false; }
+  }).map(tab => tab.id));
+}
+
+export function threadBrowserArtifacts(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[] = []): BrowserTab[] {
+  const referenced = referencedTabs(tabs, channel, messages);
+  return tabs.filter(tab => tab.status === 'active' && (tab.artifactChannels?.includes(channel) || referenced.has(tab.id)))
+    .sort((a, b) => timestamp(b) - timestamp(a));
+}
 
 /** The first association is the latest thread driving this shared tab. */
-export function threadBrowserTabs(tabs: BrowserTab[], channel: string): BrowserTab[] {
-  return tabs.filter(tab => tab.status === 'active' && tab.artifactChannels?.[0] === channel)
-    .sort((a, b) => timestamp(b) - timestamp(a));
+export function threadBrowserTabs(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[] = []): BrowserTab[] {
+  return threadBrowserArtifacts(tabs, channel, messages)
+    .filter(tab => !tab.artifactChannels?.length || tab.artifactChannels[0] === channel);
 }
 
 function timestamp(tab: BrowserTab): number {

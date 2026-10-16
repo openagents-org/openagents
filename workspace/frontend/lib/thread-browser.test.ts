@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest';
+import { threadBrowserArtifacts, threadBrowserTabs } from './thread-browser';
+import type { BrowserTab, WorkspaceMessage } from './types';
+
+const tab = { id: 'openreview', status: 'active', artifactChannels: [], url: 'https://openreview.net/', liveUrl: 'https://www.browserfabric.com/live/session-one', createdBy: 'openagents:bot' } as unknown as BrowserTab;
+const message = (content: string, sessionId = 'paper-review') => ({ sessionId, content, metadata: {} }) as WorkspaceMessage;
+
+describe('browser links from connectors without thread association', () => {
+  it('shows the exact published session in both the shelf and live preview', () => {
+    const messages = [message(`OpenReview is ready: [watch live](${tab.liveUrl}).`)];
+    expect(threadBrowserArtifacts([tab], 'paper-review', messages)).toEqual([tab]);
+    expect(threadBrowserTabs([tab], 'paper-review', messages)).toEqual([tab]);
+  });
+  it('does not match a website, a different live session, or another thread', () => {
+    for (const messages of [[message(tab.url)], [message(tab.liveUrl + '-other')], [message(tab.liveUrl!, 'other')]]) {
+      expect(threadBrowserTabs([tab], 'paper-review', messages)).toEqual([]);
+    }
+    expect(threadBrowserTabs([tab], 'paper-review', [{ ...message(tab.liveUrl!), metadata: { recalled: true } }])).toEqual([]);
+  });
+  it('does not follow a linked tab that is now being driven in another thread', () => {
+    const moved = { ...tab, artifactChannels: ['other'] };
+    const messages = [message(tab.liveUrl!)];
+    expect(threadBrowserArtifacts([moved], 'paper-review', messages)).toEqual([moved]);
+    expect(threadBrowserTabs([moved], 'paper-review', messages)).toEqual([]);
+    expect(threadBrowserArtifacts([{ ...tab, status: 'closed' }], 'paper-review', messages)).toEqual([]);
+  });
+});

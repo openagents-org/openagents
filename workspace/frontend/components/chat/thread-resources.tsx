@@ -18,9 +18,11 @@ import { agentLabel } from '@/lib/helpers';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
+import { threadBrowserArtifacts } from '@/lib/thread-browser';
+import type { WorkspaceMessage } from '@/lib/types';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
-export function ThreadResources() {
+export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage[] }) {
   const t = useT();
   const collaboration = useThreadCollaboration();
   const [saving, setSaving] = useState(false);
@@ -32,7 +34,7 @@ export function ThreadResources() {
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
-  const browsers = browserTabs.filter(tab => tab.status === 'active' && tab.artifactChannels?.includes(currentSessionId || ''));
+  const browsers = threadBrowserArtifacts(browserTabs, currentSessionId || '', messages);
   const artifactRow = useRef<HTMLUListElement>(null);
   const agentRow = useRef<HTMLUListElement>(null);
   const scrollRow = (direction: number) => (active === 'agents' ? agentRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });

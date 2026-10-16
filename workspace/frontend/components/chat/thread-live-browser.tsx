@@ -9,17 +9,18 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
 import { threadBrowserTabs } from '@/lib/thread-browser';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
+import type { WorkspaceMessage } from '@/lib/types';
 
 /** Watch only tabs explicitly associated with this conversation, never infer
  * association from an agent name (an agent can work in several threads). */
-export function ThreadLiveBrowser() {
+export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessage[] }) {
   const { browserTabs, currentSessionId, activeSessionIds, refreshBrowserTabs } = useWorkspace();
   const { selectedArtifact, showBrowserPreview } = useLayout();
   const t = useT();
   const [minimized, setMinimized] = useState(false);
   const [frameFailed, setFrameFailed] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
-  const tab = currentSessionId ? threadBrowserTabs(browserTabs, currentSessionId)
+  const tab = currentSessionId ? threadBrowserTabs(browserTabs, currentSessionId, messages)
     .find(tab => !tab.asleep && (isAgentActor(tab.activity?.actor) || isAgentActor(tab.createdBy))) : undefined;
   const working = !!currentSessionId && activeSessionIds.has(currentSessionId);
 

@@ -880,7 +880,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadResources key={currentSessionId} />
+      <ThreadResources key={currentSessionId} messages={displayMessages} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
@@ -961,7 +961,7 @@ export function ChatView() {
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-        <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} />
+        <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} messages={displayMessages} />
         {/* Yumi guidance — pinned above the thread when the built-in
             assistant is a participant; collapsible, remembered per browser. */}
         {!isDM && (() => {

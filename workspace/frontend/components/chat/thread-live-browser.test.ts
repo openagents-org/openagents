@@ -45,6 +45,12 @@ it('uses frequent authenticated screenshots when there is no live stream', async
   h.ws.browserTabs = [{ ...tab(), liveUrl: null }]; await render();
   expect(host.querySelector('[data-thumbnail="tab"]')?.getAttribute('data-refresh')).toBe('2000');
 });
+it('shows an unassociated legacy tab explicitly linked in the current thread', async () => {
+  h.ws.browserTabs = [{ ...tab(), artifactChannels: [] }];
+  const messages = [{ sessionId: 'dm:me,bot', content: 'Watch https://browser.example/live', metadata: {} }] as any;
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://browser.example/live?embed=1');
+});
 it('discovers new browser activity while the agent works, and stops when it finishes', async () => {
   h.ws.activeSessionIds.add('dm:me,bot'); await render();
   expect(h.ws.refreshBrowserTabs).toHaveBeenCalledTimes(1);

@@ -41,7 +41,7 @@ export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: Bro
     }
     const file = files.find(f => href === f.filename || decodeURIComponent(url.pathname) === `/v1/files/${f.id}` || decodeURIComponent(url.pathname).endsWith('/' + f.filename));
     if (file && (local || !/^https?:/i.test(href))) return {kind:'file',id:file.id};
-    const tab = tabs.find(t => t.url === url.href);
+    const tab = tabs.find(t => t.liveUrl === url.href) || tabs.find(t => t.url === url.href);
     return tab ? {kind:'browser',id:tab.id} : null;
   } catch { return null; }
 }
