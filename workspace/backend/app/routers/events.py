@@ -340,6 +340,9 @@ def send_event(
     if not body.network:
         return json_response(ResponseCode.BAD_REQUEST, "Missing required field: network")
 
+    if body.type == "workspace.thread.collaboration.updated":
+        return json_response(ResponseCode.FORBIDDEN, "Use the thread collaboration settings endpoint")
+
     # Resolve workspace
     if body.type == "workspace.message.recalled":
         return json_response(ResponseCode.FORBIDDEN, "Use the message recall endpoint")

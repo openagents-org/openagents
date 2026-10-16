@@ -140,7 +140,8 @@ async def _invoke_single(
     depth: int,
 ) -> None:
     """Invoke a single cloud agent and post the response."""
-    if cloud_config.category == "assistant":
+    from app.services.yumi import YUMI_PROVIDER
+    if cloud_config.provider == YUMI_PROVIDER or cloud_config.category == "assistant":
         await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
     elif cloud_config.category == "image":
         await _invoke_image_agent(db, workspace_id, event_data, cloud_config)
@@ -169,6 +170,9 @@ async def _invoke_chat_agent(
     api_key = cloud_config.api_key
     base_url = cloud_config.base_url
     system_prompt = cloud_config.system_prompt
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt = (system_prompt or "") + "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
     max_tokens = cloud_config.max_tokens
 
     # The char budget covers the whole request, not just history — system
@@ -327,6 +331,9 @@ async def _invoke_assistant_agent(
 
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt += "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
     thread_block = await yumi.thread_context(api, channel_name, trigger_source, trigger_payload)
     if thread_block:
         system_prompt = system_prompt + "\n\n" + thread_block

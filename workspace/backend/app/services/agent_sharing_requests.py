@@ -8,33 +8,35 @@ from app.services.access_model import channel_participant_emails, create_grant
 from app.services.notify import notify, REASON_APPROVAL
 
 KIND = "agent_sharing_request"
+THREAD_KIND = "thread_agent_access_request"
 
 
-def pending_request(db, workspace_id, channel, agent, email):
+def pending_request(db, workspace_id, channel, agent, email, *, thread_only=False):
     return db.execute(select(ApprovalRequest).where(
         ApprovalRequest.workspace_id == workspace_id,
         ApprovalRequest.channel_name == channel,
         ApprovalRequest.requested_by == agent,
-        ApprovalRequest.kind == KIND,
+        ApprovalRequest.kind == (THREAD_KIND if thread_only else KIND),
         ApprovalRequest.status == "pending",
         ApprovalRequest.policy_requirements["share_requester"].as_string() == email,
     )).scalars().first()
 
 
-def create_request(db, workspace, channel, member, requester, requester_label):
-    existing = pending_request(db, str(workspace.id), channel.name, member.agent_name, requester)
+def create_request(db, workspace, channel, member, requester, requester_label, *, thread_only=False):
+    existing = pending_request(db, str(workspace.id), channel.name, member.agent_name, requester, thread_only=thread_only)
     if existing:
         return existing
     owner = member.owner_email.strip().lower()
     agent = member.display_name or member.agent_name
     request = ApprovalRequest(workspace_id=str(workspace.id), channel_name=channel.name,
-        requested_by=member.agent_name, kind=KIND, action=f"Share {agent} with {requester_label}",
-        details=f"Allow {requester_label} to chat directly with {agent} and add it to threads. "
+        requested_by=member.agent_name, kind=THREAD_KIND if thread_only else KIND, action=f"Share {agent} with {requester_label}",
+        details=(f"Allow {requester_label} to request work from {agent} only in this thread. "
+                "This does not grant direct chat, access in other threads, or access to other agents." if thread_only else f"Allow {requester_label} to chat directly with {agent} and add it to threads. "
                 "This shares only this agent, not other agents or existing private conversations. "
-                "You can revoke access in the agent's sharing settings.",
+                "You can revoke access in the agent's sharing settings."),
         required_role="any", assignee_email=owner, status="pending",
         policy_requirements={"members": [owner], "approved_by": [], "role_required": None,
-                             "role_approved": False, "share_requester": requester, "agent_owner": owner})
+                             "role_approved": False, "share_requester": requester, "agent_owner": owner, "share_scope": "thread" if thread_only else "direct"})
     db.add(request)
     db.flush()
     card = Event(type="workspace.message.posted", source=f"human:{requester}",
@@ -72,7 +74,11 @@ def resolve_request(db, workspace, request, actor_id, actor_label):
                 or not db.get(ChannelMember, (channel.id, request.requested_by))
                 or not _is_workspace_member(db, workspace, requester)):
             raise HTTPException(403, "Ownership or thread membership changed; request sharing again")
-        create_grant(db, str(workspace.id), resource_kind="agent", resource_id=member.agent_name,
+        thread_only = request.kind == THREAD_KIND
+        if policy.get("share_scope") == "thread" and not thread_only:
+            raise HTTPException(409, "Thread access requires a thread-scoped request")
+        create_grant(db, str(workspace.id), resource_kind="thread_agent" if thread_only else "agent",
+            resource_id=f"{channel.id}:{member.agent_name}" if thread_only else member.agent_name,
             grantee_kind="human", grantee_id=requester, rights=["read", "act"],
             granted_by=f"human:{owner}", note=f"Approved sharing request {request.id}")
     event = Event(type="workspace.message.posted", source=f"human:{actor_id}",

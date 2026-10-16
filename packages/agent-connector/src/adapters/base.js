@@ -1428,6 +1428,7 @@ class BaseAdapter {
         // instructions (v1.1 M4); the block is prepended to the message.
         // Gated synchronously so messages it cannot apply to (agents,
         // anonymous humans, system) add no extra tick before the stop check.
+        this._applyThreadCollaboration(channel, current);
         if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
@@ -1506,6 +1507,15 @@ class BaseAdapter {
 
   _sharedContextCandidate(msg) {
     return this._sharedContextEmail(msg) !== null;
+  }
+
+  _applyThreadCollaboration(channel, msg) {
+    if (msg._threadCollaborationApplied || !channel || channel.startsWith('dm:')) return;
+    const instructions = msg.metadata?.thread_agent_instructions?.[this.agentName];
+    if (typeof instructions !== 'string' || !instructions.trim()) return;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = `COLLABORATION INSTRUCTIONS FOR THIS THREAD ONLY (do not carry these into other threads; existing owner restrictions still apply):\n${instructions.slice(0, 10000)}\nEND THREAD INSTRUCTIONS\n\n${msg.content || ''}`;
+    msg._threadCollaborationApplied = true;
   }
 
   async _applySharedContext(channel, msg) {

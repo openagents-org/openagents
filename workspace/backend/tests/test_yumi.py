@@ -758,3 +758,16 @@ class TestBuiltinPresence:
         asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], event_data, cfg, 0))
         assert called == []
         assert not [e for e in _events(client, data, ch) if e["source"] == "openagents:yumi"]
+
+
+def test_legacy_yumi_chat_row_uses_server_managed_assistant_runtime():
+    """Old rows must not send their obsolete per-row API keys to the gateway."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from app.services.cloud_agent import _invoke_single
+    legacy = SimpleNamespace(provider='openagents', category='chat', model='old-model', api_key='obsolete')
+    with patch('app.services.cloud_agent._invoke_assistant_agent', new_callable=AsyncMock) as assistant, patch('app.services.cloud_agent._invoke_chat_agent', new_callable=AsyncMock) as chat:
+        asyncio.run(_invoke_single(None, 'workspace', {}, legacy, 0))
+        assistant.assert_awaited_once()
+        chat.assert_not_called()
