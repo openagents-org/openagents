@@ -104,6 +104,45 @@ process.stdin.on('end', () => {
     result({ subtype: 'success', is_error: false, result: 'Survived.' });
     process.exit(0);
   }
+  if (scenario === 'echo_token' || scenario === 'echo_token_error') {
+    // The token is in the CLI's environment, so the shell commands it runs see
+    // it, and the model can repeat it anywhere.
+    const pat = process.env.QODER_PERSONAL_ACCESS_TOKEN;
+    init();
+    say([{ type: 'text', text: 'Your token is ' + pat }]);
+    say([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'export QODER_PERSONAL_ACCESS_TOKEN=' + pat + ' && env' } }]);
+    say([{ type: 'tool_use', id: 't2', name: 'TodoWrite', input: { todos: [{ content: 'rotate ' + pat, status: 'pending' }] } }]);
+    if (scenario === 'echo_token') result({ subtype: 'success', is_error: false, result: 'It is ' + pat });
+    else result({ subtype: 'error_during_execution', is_error: true, errors: ['request failed for ' + pat] });
+    process.exit(scenario === 'echo_token' ? 0 : 1);
+  }
+  if (scenario === 'long_tool') {
+    // A build: nothing on stdout until the tool's result comes back.
+    init();
+    say([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'make' } }]);
+    setTimeout(() => {
+      w({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+      result({ subtype: 'success', is_error: false, result: 'Built.' });
+      process.exit(0);
+    }, 600);
+    return;
+  }
+  if (scenario === 'wedged' || scenario === 'wedged_after_tool') {
+    init();
+    if (scenario === 'wedged_after_tool') {
+      say([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }]);
+      w({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] } });
+    }
+    setInterval(() => {}, 1000);
+    return;
+  }
+  if (scenario === 'model_fallback') {
+    // What 1.1.73 does with a -m the account cannot run.
+    process.stderr.write('Model "' + args[at('-m') + 1] + '" is not available right now; using "qfmodel" instead. Use /model to choose another model.\\n');
+    w({ type: 'system', subtype: 'init', qodercli_version: '1.1.73', session_id: sid, model: 'Qwen3.8-Flash', mcp_servers: [] });
+    result({ subtype: 'success', is_error: false, result: 'OK' });
+    process.exit(0);
+  }
   if (scenario === 'hang') {
     // A long shell command. Like the real Bash tool it runs in a session of
     // its own, so signalling the CLI's process group cannot reach it.
@@ -247,6 +286,15 @@ describe('QoderAdapter — headless invocation', () => {
     assert.ok(!lastRun(b).args.includes('-m'));
   });
 
+  it('keeps MCP isolated when the workspace config cannot be written', async () => {
+    const a = makeAdapter();
+    a._writeMcpConfig = () => null;
+    await send(a);
+    const run = lastRun(a);
+    assert.ok(!run.args.includes('--mcp-config'));
+    assert.ok(run.args.includes('--strict-mcp-config'));
+  });
+
   it("isolates MCP to the workspace server and deletes the token-bearing config", async () => {
     const a = makeAdapter();
     await send(a);
@@ -372,11 +420,71 @@ describe('QoderAdapter — replies', () => {
     assert.ok(!a._captured.logs.join('\n').includes('qd_secret_7a8b9c0d1e'));
   });
 
+  for (const scenario of ['echo_token', 'echo_token_error']) {
+    it(`keeps the token out of everything it posts (${scenario})`, async () => {
+      const pat = 'qd_secret_7a8b9c0d1e';
+      const a = makeAdapter({ scenario, agentEnv: { QODER_PERSONAL_ACCESS_TOKEN: pat } });
+      const todos = [];
+      a.sendTodos = async (_c, t) => { todos.push(t); };
+      await send(a);
+      const posted = JSON.stringify([a._captured, todos]);
+      assert.ok(posted.includes('[redacted]'), 'nothing reached the channel');
+      assert.ok(!posted.includes(pat), posted);
+    });
+  }
+
   it('says the account is out of credits', async () => {
     const a = makeAdapter({ scenario: 'quota' });
     await send(a);
     assert.match(a._captured.error[0], /out of credits/);
   });
+});
+
+describe('QoderAdapter — model fallback', () => {
+  it('reports the model the CLI fell back to, once, and briefs the next turn with it', async () => {
+    const a = makeAdapter({ scenario: 'model_fallback' });
+    a.workspaceModel = 'performance';
+    await send(a);
+    assert.equal(argAfter(lastRun(a), '-m'), 'performance');
+    assert.match(a._captured.response[0], /^OK\n\n_Qoder CLI cannot run the model "performance" on this account and used "Qwen3\.8-Flash" instead/);
+    assert.equal(a.modelLabel(), 'Qwen3.8-Flash');
+
+    await send(a);
+    assert.equal(a._captured.response[1], 'OK', 'the notice is not repeated');
+    assert.match(argAfter(lastRun(a), '--append-system-prompt'), /Model: Qwen3\.8-Flash/);
+
+    a.workspaceModel = 'Qwen3.8-Max';
+    assert.equal(a.modelLabel(), 'Qwen3.8-Max', 'a new pick is shown as is');
+  });
+
+  it('forgets the fallback once the model runs as asked', async () => {
+    const a = makeAdapter({ scenario: 'model_fallback' });
+    a.workspaceModel = 'performance';
+    await send(a);
+    a.agentEnv.FAKE_SCENARIO = 'success';
+    await send(a);
+    assert.equal(a.modelLabel(), 'performance');
+  });
+});
+
+describe('QoderAdapter — watchdog', () => {
+  const fastWatchdog = (a) => { a._watchdogIntervalMs = 25; a._watchdogMax = 4; return a; };
+
+  it('lets a silent tool call run past the idle limit', async () => {
+    const a = fastWatchdog(makeAdapter({ scenario: 'long_tool' }));
+    await send(a);
+    assert.deepEqual(a._captured.response, ['Built.']);
+    assert.ok(!a._captured.logs.some((l) => /killing a wedged run/.test(l)));
+  });
+
+  for (const scenario of ['wedged', 'wedged_after_tool']) {
+    it(`kills a run that goes silent with no tool call out (${scenario})`, async () => {
+      const a = fastWatchdog(makeAdapter({ scenario }));
+      await send(a);
+      assert.ok(a._captured.logs.some((l) => /killing a wedged run/.test(l)));
+      assert.match(a._captured.error[0], /interrupted/);
+    });
+  }
 });
 
 describe('QoderAdapter — stop', { skip: process.platform === 'win32' }, () => {

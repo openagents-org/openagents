@@ -62,7 +62,9 @@ const {
   descendantsOf,
   installHint,
   interpretQoderFrame,
+  modelFallbackNotice,
   parseFrame,
+  parseModelFallback,
   parseProcessTable,
   redactArgs,
   redactSecrets,
@@ -73,7 +75,9 @@ const {
 const IS_WINDOWS = process.platform === 'win32';
 
 // Idle watchdog: with no stdout frame for this long we nudge the channel, and
-// after MAX consecutive silences we kill a run that is probably wedged.
+// after MAX consecutive silences we kill a run that is probably wedged. It
+// pauses while a tool call is out: a build or a slow MCP call is legitimately
+// silent until its result comes back.
 const WATCHDOG_INTERVAL_MS = 15000;
 const WATCHDOG_NUDGE_AT = 2;  // ~30s of silence → "still working"
 const WATCHDOG_MAX = 20;      // ~5 min of silence → kill
@@ -113,12 +117,21 @@ class QoderAdapter extends BaseAdapter {
     );
     this._isWindows = IS_WINDOWS;
     this._versionProbe = null; // { at, bin, version, supported }
+    // { requested, used }: the configured model the CLI last fell back from.
+    this._modelFallback = null;
+    this._watchdogIntervalMs = WATCHDOG_INTERVAL_MS;
+    this._watchdogMax = WATCHDOG_MAX;
     this._loadSessions();
   }
 
-  /** The model passed to the CLI, so the workspace never shows another one. */
+  /**
+   * The model the CLI runs on, so the workspace never shows another one: the
+   * one passed with `-m`, unless the CLI last fell back from it.
+   */
   modelLabel() {
-    return resolveQoderAuth(this.agentEnv, this.edition, this.workspaceModel).model || null;
+    const requested = resolveQoderAuth(this.agentEnv, this.edition, this.workspaceModel).model || null;
+    const fb = this._modelFallback;
+    return fb && requested && fb.requested === requested ? fb.used : requested;
   }
 
   // ------------------------------------------------------------------
@@ -431,8 +444,9 @@ class QoderAdapter extends BaseAdapter {
 
   /**
    * Write the MCP config that gives this run the workspace_* tools, and return
-   * its path (null when the server cannot be located — the run proceeds
-   * without workspace tools). It carries the workspace token, so it is 0600
+   * its path (null when the server cannot be located or the file cannot be
+   * written — the run proceeds without workspace tools, and still without the
+   * user's MCP servers). It carries the workspace token, so it is 0600
    * in an OpenAgents directory, never the project or the CLI's config root,
    * and the caller deletes it when the run ends.
    */
@@ -545,8 +559,8 @@ class QoderAdapter extends BaseAdapter {
    * Run one headless turn and consume its stream-json output. The reply comes
    * off the `result` frame; assistant frames only drive the live ticker.
    *
-   * @returns {Promise<object>} { code, signal, result, sessionId, anyOutput,
-   *   lastAssistantText, apiErrors, userStopped, stderr }
+   * @returns {Promise<object>} { code, signal, result, sessionId, model,
+   *   anyOutput, lastAssistantText, apiErrors, userStopped, stderr }
    */
   _runQoder(channel, bin, args, workingDir, prompt, env = {}, secrets = []) {
     // Stopped while this turn was being prepared: start nothing.
@@ -579,11 +593,13 @@ class QoderAdapter extends BaseAdapter {
       let anyOutput = false;
       let result = null;
       let sessionId = null;
+      let model = null;
       let lastAssistantText = '';
       const apiErrors = [];
       let lastFrameAt = Date.now();
       let silences = 0;
       let lastToolLabel = null;
+      const toolsInFlight = new Set(); // tool_use ids still waiting on a result
       let killedByWatchdog = false;
       let exitInfo = null;
       let closeFallback = null;
@@ -604,14 +620,16 @@ class QoderAdapter extends BaseAdapter {
         silences = 0;
         anyOutput = true;
 
-        const ev = interpretQoderFrame(frame);
+        const ev = interpretQoderFrame(frame, secrets);
         if (ev.kind === 'result') {
+          toolsInFlight.clear();
           result = ev;
           if (ev.sessionId) sessionId = ev.sessionId;
           return;
         }
         if (ev.kind === 'init') {
           if (ev.sessionId) sessionId = ev.sessionId;
+          if (ev.model) model = ev.model;
           for (const s of ev.mcpServers) {
             if (s && s.status && s.status !== 'connected') {
               this._log(`MCP server ${s.name} is ${s.status} — its tools are unavailable this run`);
@@ -629,6 +647,7 @@ class QoderAdapter extends BaseAdapter {
             void this.sendThinking(channel, text).catch(() => {});
           }
           for (const tool of ev.tools) {
+            if (tool.id) toolsInFlight.add(tool.id);
             if (tool.todos) {
               const wsTodos = tool.todos.map((t) => ({
                 content: t.content, status: t.status || 'pending', assignee: t.assignee,
@@ -642,6 +661,12 @@ class QoderAdapter extends BaseAdapter {
               void this.sendStatus(channel, label).catch(() => {});
             }
           }
+          return;
+        }
+        if (ev.kind === 'tool_results') {
+          // A result that names no call can't be matched: stop pausing.
+          if (ev.ids.includes(null)) toolsInFlight.clear();
+          for (const id of ev.ids) toolsInFlight.delete(id);
           return;
         }
         if (ev.kind === 'status') {
@@ -664,6 +689,7 @@ class QoderAdapter extends BaseAdapter {
           signal: killedByWatchdog ? 'SIGKILL' : signal,
           result,
           sessionId,
+          model,
           anyOutput,
           lastAssistantText,
           apiErrors,
@@ -710,17 +736,18 @@ class QoderAdapter extends BaseAdapter {
       });
 
       const watchdog = setInterval(() => {
-        if (Date.now() - lastFrameAt < WATCHDOG_INTERVAL_MS) return;
+        if (toolsInFlight.size) { silences = 0; return; }
+        if (Date.now() - lastFrameAt < this._watchdogIntervalMs) return;
         silences += 1;
         if (silences === WATCHDOG_NUDGE_AT) {
           void this.sendStatus(channel, 'still working...').catch(() => {});
         }
-        if (silences >= WATCHDOG_MAX) {
+        if (silences >= this._watchdogMax) {
           this._log('No output for ~5 minutes — killing a wedged run');
           killedByWatchdog = true;
           void this._stopProcess(proc);
         }
-      }, WATCHDOG_INTERVAL_MS);
+      }, this._watchdogIntervalMs);
 
       try {
         proc.stdin.on('error', () => {});
@@ -804,7 +831,7 @@ class QoderAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName: channel,
       mode: this._mode,
-      model: auth.model || null,
+      model: this.modelLabel(),
       browserEnabled,
       toolMode: 'mcp',
       ...this.pinnedPromptOpts(channel),
@@ -859,6 +886,8 @@ class QoderAdapter extends BaseAdapter {
       }
 
       const verdict = classifyQoderRun(run, this.edition);
+      const fallbackNotice = this._noteModelFallback(auth.model, run);
+      const withNotice = (text) => (fallbackNotice ? `${text}\n\n_${fallbackNotice}_` : text);
 
       if (resumeId && attempt === 0 && (verdict.kind === 'stale_session' || (!verdict.ok && !run.anyOutput && verdict.kind !== 'auth'))) {
         this._log(`Resume of session ${resumeId} failed (${verdict.kind}) — clearing and retrying fresh`);
@@ -877,7 +906,7 @@ class QoderAdapter extends BaseAdapter {
 
       if (verdict.ok) {
         try {
-          await this.sendResponse(channel, finalText || 'No response generated. Please try again.');
+          await this.sendResponse(channel, withNotice(finalText || 'No response generated. Please try again.'));
         } catch {}
         return;
       }
@@ -887,14 +916,34 @@ class QoderAdapter extends BaseAdapter {
       const partial = (run.lastAssistantText || '').trim();
       if (partial && verdict.kind !== 'auth') {
         this._log(`Run reported ${verdict.kind} but returned text; text delivered`);
-        try { await this.sendResponse(channel, `${partial}\n\n_${verdict.userMessage}_`); } catch {}
+        try { await this.sendResponse(channel, withNotice(`${partial}\n\n_${verdict.userMessage}_`)); } catch {}
         return;
       }
 
       this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${redactSecrets(truncate(run.stderr || '', 300), secrets)}`);
-      try { await this.sendError(channel, verdict.userMessage); } catch {}
+      try { await this.sendError(channel, withNotice(verdict.userMessage)); } catch {}
       return;
     }
+  }
+
+  /**
+   * Track a fallback from the configured model, so modelLabel() and the next
+   * briefing name the model that really ran. Returns a notice for the channel
+   * the first time a fallback is seen; null otherwise.
+   */
+  _noteModelFallback(requested, run) {
+    if (!requested || !run.model) return null;
+    const fb = parseModelFallback(run.stderr);
+    if (!fb) {
+      // The model ran as asked (the account gained it, or the pick changed).
+      if (this._modelFallback && this._modelFallback.requested === requested) this._modelFallback = null;
+      return null;
+    }
+    const prev = this._modelFallback;
+    this._modelFallback = { requested, used: run.model };
+    this._log(`${this.edition.label} fell back from model ${requested} to ${run.model} (${fb.used})`);
+    if (prev && prev.requested === requested && prev.used === run.model) return null;
+    return modelFallbackNotice(this.edition, requested, run.model);
   }
 }
 

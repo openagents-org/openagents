@@ -135,11 +135,7 @@ const SECRET_PATTERNS = [
  */
 function redactSecrets(text, values = []) {
   if (text == null) return text;
-  let out = String(text);
-  for (const v of values) {
-    const s = String(v || '');
-    if (s.length >= 8) out = out.split(s).join('[redacted]');
-  }
+  let out = redactValues(String(text), values);
   for (const re of SECRET_PATTERNS) {
     out = out.replace(re, (m) => {
       const eq = m.match(/\s*[:=]\s*/);
@@ -148,6 +144,26 @@ function redactSecrets(text, values = []) {
     });
   }
   return out;
+}
+
+/** Only the exact-value half of redactSecrets: safe on model output. */
+function redactValues(text, values = []) {
+  let out = text;
+  for (const v of values) {
+    const s = String(v || '');
+    if (s.length >= 8) out = out.split(s).join('[redacted]');
+  }
+  return out;
+}
+
+/** redactValues over every string in a parsed frame. */
+function redactFrame(value, values) {
+  if (typeof value === 'string') return redactValues(value, values);
+  if (Array.isArray(value)) return value.map((v) => redactFrame(v, values));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactFrame(v, values)]));
+  }
+  return value;
 }
 
 function truncate(s, n) {
@@ -248,7 +264,9 @@ const QODER_DISALLOWED_TOOLS = [
  *   - `--disallowed-tools` takes ONE comma-separated value: the space-separated
  *     variadic form drops everything after the first name (verified).
  *   - `--strict-mcp-config`: only the workspace server, none of the user's
- *     ~/.qoder/settings.json or project .mcp.json servers.
+ *     ~/.qoder/settings.json or project .mcp.json servers. Passed even with no
+ *     config to inject, where it means no MCP servers at all (verified on
+ *     1.0.45 and 1.1.73).
  *   - plan mode is `--agent Plan` (no Edit/Write) without `--yolo`, so
  *     anything else that needs approval is denied. `--permission-mode plan`
  *     is documented but 1.1.72 does not accept it (falls back to default).
@@ -272,7 +290,8 @@ function buildQoderArgs(o = {}) {
 
   args.push('--settings', JSON.stringify(o.flagSettings || buildQoderFlagSettings()));
 
-  if (o.mcpConfigPath) args.push('--mcp-config', o.mcpConfigPath, '--strict-mcp-config');
+  if (o.mcpConfigPath) args.push('--mcp-config', o.mcpConfigPath);
+  args.push('--strict-mcp-config');
 
   const resume = (o.resumeSessionId || '').trim();
   const fresh = (o.newSessionId || '').trim();
@@ -321,9 +340,15 @@ const IGNORED_FRAMES = new Set(['user', 'stream_event', 'rate_limit_event', 'con
  * error category (authentication_failed, billing_error, rate_limit,
  * invalid_request, server_error, max_output_tokens, unknown) — the CLI's text
  * for it is often a synthetic assistant message, not a model answer.
+ *
+ * `secrets` are the exact values this run holds (the token). The CLI hands its
+ * environment to the shell commands it runs, so the token can come back in any
+ * string of any frame — a command, a reply, an error — and every one of them
+ * may end up in the channel.
  */
-function interpretQoderFrame(frame) {
+function interpretQoderFrame(frame, secrets = []) {
   if (!frame || typeof frame !== 'object') return { kind: 'ignored' };
+  if (secrets.length) frame = redactFrame(frame, secrets);
 
   if (frame.type === 'result') {
     const errors = Array.isArray(frame.errors)
@@ -372,6 +397,7 @@ function interpretQoderFrame(frame) {
         texts.push(block.text.trim());
       } else if (block.type === 'tool_use') {
         tools.push({
+          id: typeof block.id === 'string' ? block.id : null,
           name: typeof block.name === 'string' ? block.name : '',
           preview: toolInputPreview(block.input),
           todos: block.input && Array.isArray(block.input.todos) ? block.input.todos : null,
@@ -382,6 +408,15 @@ function interpretQoderFrame(frame) {
     if (apiError) return { kind: 'assistant', texts: [], tools, apiError, errorText: texts.join('\n') };
     if (!texts.length && !tools.length) return { kind: 'ignored' };
     return { kind: 'assistant', texts, tools, apiError: null, errorText: '' };
+  }
+
+  // A user frame carries the results of the tool calls the run is waiting on.
+  // `ids` holds null for a result that names no call.
+  if (frame.type === 'user') {
+    const blocks = (frame.message && Array.isArray(frame.message.content)) ? frame.message.content : [];
+    const ids = blocks.filter((b) => b && b.type === 'tool_result')
+      .map((b) => (typeof b.tool_use_id === 'string' ? b.tool_use_id : null));
+    if (ids.length) return { kind: 'tool_results', ids };
   }
 
   if (IGNORED_FRAMES.has(frame.type)) return { kind: 'ignored' };
@@ -484,6 +519,26 @@ function classifyQoderRun({ result = null, apiErrors = [], code = null, signal =
 }
 
 // ---------------------------------------------------------------------------
+// Model fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * A `-m` the account cannot run is not an error: the CLI warns on stderr —
+ * `Model "performance" is not available right now; using "qfmodel" instead.` —
+ * and runs on the account default (verified, 1.1.73). Returns the model asked
+ * for and the key it fell back to, or null when there was no fallback.
+ */
+function parseModelFallback(stderr) {
+  const m = String(stderr || '').match(/Model "([^"]+)" is not available right now; using "([^"]+)" instead/);
+  return m ? { requested: m[1], used: m[2] } : null;
+}
+
+function modelFallbackNotice(edition, requested, used) {
+  return `${edition.label} cannot run the model "${requested}" on this account and used "${used}" instead. ` +
+    `Pick one from \`${edition.bin} --list-models\`, or clear the model to use the account default.`;
+}
+
+// ---------------------------------------------------------------------------
 // Process tree
 // ---------------------------------------------------------------------------
 
@@ -548,6 +603,8 @@ module.exports = {
   interpretQoderFrame,
   qoderErrorLine,
   classifyQoderRun,
+  parseModelFallback,
+  modelFallbackNotice,
   descendantsOf,
   parseProcessTable,
 };
