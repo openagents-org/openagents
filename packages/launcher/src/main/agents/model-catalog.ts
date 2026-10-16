@@ -650,6 +650,25 @@ function resolveSource(
   return MODEL_SOURCES[agentType] || null
 }
 
+/**
+ * `env` with the agent's default endpoint filled in when none of its base-URL
+ * variables holds one — the endpoint the agent itself runs against with the
+ * field left blank, and the one its model list asks. The connection test sees
+ * only the form's values, and an untouched field's default is shown but never
+ * lands in them, so a blank base fell through to api.openai.com there: a MiMo
+ * key "verified" against OpenAI and came back 401. Agents whose endpoint
+ * follows a provider field (Pi, OpenWorker) pick their own in the probe.
+ */
+export function withDefaultBase(
+  agentType: string,
+  env: Record<string, string>,
+): Record<string, string> {
+  const source = MODEL_SOURCES[agentType]
+  if (!source?.defaultBase || !source.baseVars.length) return env
+  if (pick(env, source.baseVars)) return env
+  return { ...env, [source.baseVars[0]]: source.defaultBase }
+}
+
 /** The model env var an agent's list applies to, or null if it has none. */
 export function modelEnvVar(
   agentType: string,

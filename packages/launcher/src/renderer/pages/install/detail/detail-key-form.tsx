@@ -91,7 +91,7 @@ export function DetailKeyForm({
     setTesting(true)
     setResult(null)
     try {
-      const r = await window.api.testLLM(values)
+      const r = await window.api.testLLM(values, agentName)
       setResult(
         r.success
           ? {

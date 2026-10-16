@@ -305,7 +305,7 @@ export function useSetupWizard({
     setTestResult(null)
     try {
       await window.api.saveAgentEnv(entry.name, values)
-      const r = await window.api.testLLM(values)
+      const r = await window.api.testLLM(values, entry.name)
       if (r.success) {
         setTestResult({
           ok: true,
