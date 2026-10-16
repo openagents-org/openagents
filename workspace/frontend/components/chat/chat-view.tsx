@@ -13,6 +13,7 @@ import { ThreadStatusBar } from './thread-status-bar';
 import { EmptyConversation, EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
+import { useThreadBrowserMessages } from '@/hooks/use-thread-browser-messages';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
 import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
@@ -464,6 +465,7 @@ export function ChatView() {
     () => [...sessionMessages, ...pendingMessagesForDisplay(sessionMessages, sessionOptimisticMessages)],
     [sessionMessages, sessionOptimisticMessages]
   );
+  const browserMessages = useThreadBrowserMessages(displayMessages);
 
   const startEditingTitle = () => {
     setTitleDraft(currentSession?.title || '');
@@ -880,7 +882,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadResources key={currentSessionId} messages={displayMessages} />
+      <ThreadResources key={currentSessionId} messages={browserMessages} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
@@ -961,7 +963,7 @@ export function ChatView() {
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-        <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} messages={displayMessages} />
+        <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} messages={browserMessages} />
         {/* Yumi guidance — pinned above the thread when the built-in
             assistant is a participant; collapsible, remembered per browser. */}
         {!isDM && (() => {

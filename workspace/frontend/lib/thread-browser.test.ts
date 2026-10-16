@@ -24,4 +24,12 @@ describe('browser links from connectors without thread association', () => {
     expect(threadBrowserTabs([moved], 'paper-review', messages)).toEqual([]);
     expect(threadBrowserArtifacts([{ ...tab, status: 'closed' }], 'paper-review', messages)).toEqual([]);
   });
+  it('uses stable tab IDs from the owning agent tool activity after the live link changes', () => {
+    const stable = { ...tab, id: '9fab4574-be88-4a5f-8b68-17504e4e2712' };
+    const step = { ...message(`Bash curl https://workspace.example/v1/browser/tabs/${stable.id}/snapshot`), messageType: 'status', senderType: 'agent', senderAddress: stable.createdBy };
+    expect(threadBrowserTabs([stable], 'paper-review', [step])).toEqual([stable]);
+    expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, senderAddress: 'openagents:other' }])).toEqual([]);
+    expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, sessionId: 'other' }])).toEqual([]);
+    expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, messageType: 'chat' }])).toEqual([]);
+  });
 });

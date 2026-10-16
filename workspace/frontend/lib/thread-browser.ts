@@ -5,16 +5,24 @@ import type { BrowserTab, WorkspaceMessage } from './types';
  * URL or an agent's presence is not evidence that a tab belongs here. */
 function referencedTabs(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[]): Set<string> {
   const links = new Set<string>();
+  const ids = new Set<string>();
   for (const message of messages) {
     if (message.sessionId !== channel || message.metadata?.recalled) continue;
+    if (message.senderType === 'agent' && message.messageType === 'status') {
+      for (const match of message.content.matchAll(/\/v1\/browser\/tabs\/([0-9a-f-]{36})(?=[/\s?"'`]|$)/gi)) {
+        const tab = tabs.find(tab => tab.id === match[1] && tab.createdBy === message.senderAddress);
+        if (tab) ids.add(tab.id);
+      }
+    }
     for (const match of message.content.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
       try { links.add(new URL(match[0].replace(/[),.;!?]+$/, '')).href); } catch { /* Not a URL. */ }
     }
   }
-  return new Set(tabs.filter(tab => {
+  for (const tab of tabs.filter(tab => {
     if (!tab.liveUrl) return false;
     try { return links.has(new URL(tab.liveUrl).href); } catch { return false; }
-  }).map(tab => tab.id));
+  })) ids.add(tab.id);
+  return ids;
 }
 
 export function threadBrowserArtifacts(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[] = []): BrowserTab[] {
