@@ -168,10 +168,30 @@ function mapKnowledgeEntry(raw: Record<string, unknown>): KnowledgeEntry {
   };
 }
 
+/** A non-2xx API response. `message` keeps the historical
+ *  "API <status>: <body>" text; `status` / `serverMessage` let callers react. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly serverMessage: string;
+  constructor(status: number, body: string) {
+    super(`API ${status}: ${body}`);
+    this.name = 'ApiError';
+    this.status = status;
+    let msg = '';
+    try { msg = (JSON.parse(body) as { message?: string })?.message || ''; } catch { /* not JSON */ }
+    this.serverMessage = msg;
+  }
+}
+
 class WorkspaceApi {
   private token: string = '';
   private bearerToken: string = '';
   private workspaceId: string = '';
+  // Mints a fresh identity token after the server rejected ours (401). Set by
+  // the auth context for Firebase sign-ins; null where the page cannot refresh
+  // (workspace-issued sessions, the desktop host which pushes renewals itself).
+  private bearerRefresher: (() => Promise<string | null>) | null = null;
+  private refreshInFlight: Promise<string | null> | null = null;
 
   configure(workspaceId: string, token: string, bearerToken?: string) {
     this.workspaceId = workspaceId;
@@ -190,6 +210,21 @@ class WorkspaceApi {
 
   setBearerToken(bearerToken: string) {
     this.bearerToken = bearerToken;
+  }
+
+  setBearerRefresher(refresher: (() => Promise<string | null>) | null) {
+    this.bearerRefresher = refresher;
+  }
+
+  /** One refresh at a time, shared by every request that hit a 401 together. */
+  private refreshBearer(): Promise<string | null> {
+    if (!this.bearerRefresher) return Promise.resolve(null);
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = this.bearerRefresher()
+        .catch(() => null)
+        .finally(() => { this.refreshInFlight = null; });
+    }
+    return this.refreshInFlight;
   }
 
   getSSEUrl(channelName: string): string {
@@ -225,13 +260,14 @@ class WorkspaceApi {
     return this.workspaceId;
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
     const authHeaders: Record<string, string> = {};
     if (this.token) {
       authHeaders['X-Workspace-Token'] = this.token;
     }
-    if (this.bearerToken) {
-      authHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
+    const sentBearer = this.bearerToken;
+    if (sentBearer) {
+      authHeaders['Authorization'] = `Bearer ${sentBearer}`;
     }
 
     const url = `${API_URL}${path}`;
@@ -245,9 +281,20 @@ class WorkspaceApi {
       },
     });
 
+    // An identity the server could not verify (usually expired) is rejected
+    // outright since Workspace v1.1 — the workspace token no longer covers
+    // for it. Refresh it once and retry; a second 401 is a real denial.
+    if (res.status === 401 && sentBearer && !retried) {
+      const fresh = await this.refreshBearer();
+      if (fresh && fresh !== sentBearer) {
+        this.bearerToken = fresh;
+        return this.request<T>(path, options, true);
+      }
+    }
+
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`API ${res.status}: ${body}`);
+      throw new ApiError(res.status, body);
     }
 
     const json: ApiResponse<T> = await res.json();

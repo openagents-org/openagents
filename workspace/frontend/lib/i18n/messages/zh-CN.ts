@@ -429,6 +429,7 @@ export const messages: Messages = {
   },
 
   chat: {
+    sendForbidden: '你目前无法在此工作区发送消息：你的账号可能只有查看权限，或登录已过期。请重新登录，或联系工作区管理员开通成员权限。',
     offlineAllAgents: '当前会话没有在线的智能体 —— 你现在发送的消息会在智能体重新连接后得到回复。',
     offlineSomeAgents: '以下智能体已离线，重新连接后才会回复：',
     noRoutinesTitle: '还没有定时任务',

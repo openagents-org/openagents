@@ -436,6 +436,7 @@ export const messages = {
   },
 
   chat: {
+    sendForbidden: 'You can’t post in this workspace right now. Your account may have view-only access, or your sign-in has expired — sign in again, or ask a workspace admin for member access.',
     offlineAllAgents: 'No agent in this thread is online — messages you send now will be answered when an agent reconnects.',
     offlineSomeAgents: 'Offline agents won’t respond until reconnected:',
     noRoutinesTitle: 'No routines yet',

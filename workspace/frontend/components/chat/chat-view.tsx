@@ -14,7 +14,7 @@ import { EmptyConversation, EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
-import { workspaceApi } from '@/lib/api';
+import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -654,11 +654,17 @@ export function ChatView() {
         // Surface the failure — silently dropping the message makes it look
         // like it was sent and then vanished.
         const detail = err instanceof Error && err.message ? ` (${err.message})` : '';
-        toast.error(
-          files.length > 0
-            ? `Failed to send message — attachments could not be uploaded${detail}. Please re-attach and try again.`
-            : `Failed to send message${detail}. Please try again.`
-        );
+        if (err instanceof ApiError && err.status === 401) {
+          // Already retried with a refreshed sign-in (see WorkspaceApi.request):
+          // this account may not post here, or its sign-in can't be renewed.
+          toast.error(t('chat.sendForbidden'));
+        } else {
+          toast.error(
+            files.length > 0
+              ? `Failed to send message — attachments could not be uploaded${detail}. Please re-attach and try again.`
+              : `Failed to send message${detail}. Please try again.`
+          );
+        }
         // Restore the typed text as this thread's draft, unless the user has
         // already started a new draft in the meantime.
         if (content && !draftStore[currentSessionId]) {
