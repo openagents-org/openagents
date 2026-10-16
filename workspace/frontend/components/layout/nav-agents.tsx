@@ -38,13 +38,13 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const [open, setOpen] = useState(true);
 
   const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
-  const onlineCount = recentAgents.filter((a) => a.status === 'online').length;
+  const onlineAgents = recentAgents.filter((a) => a.status === 'online');
 
-  if (recentAgents.length === 0 && onlineUsers.length === 0) return null;
+  if (onlineAgents.length === 0 && onlineUsers.length === 0) return null;
 
   return (
     <>
-      {recentAgents.length > 0 && (
+      {onlineAgents.length > 0 && (
         <SidebarGroup>
           <SidebarGroupLabel
             asChild
@@ -56,7 +56,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
             >
-              {t('nav.agentsWithCount', { online: onlineCount, total: recentAgents.length })}
+              {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
               <ChevronDown
                 className={cn(
                   'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -72,7 +72,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(!open && 'hidden group-data-[collapsible=icon]:block')}
           >
             <SidebarMenu className="gap-0.25">
-              {recentAgents.map((agent) => {
+              {onlineAgents.map((agent) => {
                 // v1.1 M3: one dot vocabulary everywhere — busy (blue), waiting
                 // for a person (amber), device down (grey with a red ring).
                 const availability = agentAvailability(agent, pendingApprovalsByAgent[agent.agentName] ?? 0);
