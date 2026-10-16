@@ -395,9 +395,48 @@ async function probeAgentType(connector, type, opts = {}) {
 
   // ── Live tier 2: direct LLM API call for API-key agents (e.g. OpenClaw) ──
   if (hasApiKey || (entry.install && entry.install.api_only)) {
+    let apiEnv = agentEnv;
+    if (type === 'mimo-code' && agentEnv.LLM_API_KEY) {
+      // The runtime owns MiMo's defaults and provider/model normalization.
+      // Generic API defaults would send a MiMo key/model to OpenAI instead.
+      const { resolveMimoRoute, parseMimoModelList, pickMimoModel } = require('./adapters/mimo-code-runtime');
+      let route = resolveMimoRoute(agentEnv);
+      if (!route.model && route.providerId === 'xiaomi' && health.binary) {
+        const listEnv = { ...env };
+        delete listEnv.LLM_API_KEY;
+        delete listEnv.XIAOMI_API_KEY;
+        const shell = shouldUseShellForBinary(health.binary);
+        const command = shell ? '"' + health.binary + '"' : health.binary;
+        const listed = await runCommand(command, ['models', 'xiaomi'], {
+          env: {
+            ...listEnv,
+            MIMOCODE_AUTH_CONTENT: '{}',
+            MIMOCODE_CONFIG_CONTENT: JSON.stringify({ enabled_providers: ['xiaomi'], disabled_providers: [] }),
+            MIMOCODE_DISABLE_AUTOUPDATE: '1',
+          },
+          timeoutMs,
+          shell,
+        });
+        if (!listed.timedOut && !listed.spawnError && listed.code === 0) {
+          route = resolveMimoRoute(agentEnv, null, {
+            fallbackModel: pickMimoModel(parseMimoModelList(listed.stdout)),
+          });
+        }
+      }
+      if (!route.model) {
+        return done({
+          ok: false, method: 'none', code: CODE.BAD_MODEL,
+          message: 'No model is configured and no default model could be resolved. Select a model and test again.',
+          guidance: buildGuidance(CODE.BAD_MODEL, entry, agentEnv),
+        });
+      }
+      // Match the runtime's credential choice, even if unrelated provider
+      // variables were saved alongside this agent's LLM_* configuration.
+      apiEnv = { LLM_API_KEY: route.apiKey, LLM_BASE_URL: route.baseURL, LLM_MODEL: route.model };
+    }
     const { testLLMConnection } = require('./utils');
     let res;
-    try { res = await testLLMConnection(agentEnv); } catch (e) { res = { success: false, error: e.message }; }
+    try { res = await testLLMConnection(apiEnv); } catch (e) { res = { success: false, error: e.message }; }
     if (res && res.success) {
       return done({
         ok: true, method: 'llm_api', code: CODE.OK,

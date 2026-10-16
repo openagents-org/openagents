@@ -161,6 +161,17 @@ class OpenCodeAdapter extends BaseAdapter {
     return args;
   }
 
+  /**
+   * The text sent on stdin for one turn. A new session carries the workspace
+   * context ahead of the message; a resumed one already holds it.
+   */
+  _composePrompt(content, msgChannel, sessionId) {
+    if (sessionId) return content;
+    this._ensureWorkspaceSkill(msgChannel);
+    const context = this._buildSystemContext(msgChannel);
+    return `${context}\n\n---\n\n${content}`;
+  }
+
   /** Environment the CLI is spawned with. */
 
   /** Test seam for the inactivity watchdog. */
@@ -843,20 +854,12 @@ class OpenCodeAdapter extends BaseAdapter {
     }
     const model = this._resolveModel();
     const sessionId = this._channelSessions[msgChannel];
-    const args = this._buildRunArgs({ runCwd, model, sessionId });
-
-    let fullPrompt;
-    if (sessionId) {
-      fullPrompt = content;
-    } else {
-      this._ensureWorkspaceSkill(msgChannel);
-      const context = this._buildSystemContext(msgChannel);
-      fullPrompt = `${context}\n\n---\n\n${content}`;
-    }
+    const args = this._buildRunArgs({ runCwd, model, sessionId, channel: msgChannel });
+    const fullPrompt = this._composePrompt(content, msgChannel, sessionId);
 
     this._log(`CLI: ${binary} ${args.join(' ')}`);
 
-    const spawnEnv = this._spawnEnv();
+    const spawnEnv = this._spawnEnv(msgChannel);
 
     let spawnBinary = binary;
     let spawnArgs = args;
