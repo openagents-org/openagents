@@ -422,8 +422,9 @@ export interface HostedLoginSpec {
  */
 export const CREDENTIAL_ENV =
   // CODEARTS_CLI_AK is half of the access key pair CodeArts runs on. The form
-  // requires the SK beside it, so the AK can stand for the pair here.
-  /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$|^CODEBUDDY_AUTH_TOKEN$|^CODEARTS_CLI_AK$/
+  // requires the SK beside it, so the AK can stand for the pair here. Qoder's
+  // personal access token is its whole credential, for either edition.
+  /API_KEY$|^CLAUDE_CODE_OAUTH_TOKEN$|^CODEBUDDY_AUTH_TOKEN$|^CODEARTS_CLI_AK$|^QODER(CN)?_PERSONAL_ACCESS_TOKEN$/
 
 /**
  * Agents whose credential requirement depends on one of their OWN settings, so
@@ -756,6 +757,29 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Pick a provider and sign in. Close this window once the CLI confirms it — or press e to set an API key instead.",
   },
+  qoder: {
+    // `qodercli login` prints a device-authorization URL, opens the browser
+    // itself and polls until the sign-in completes, all without a TTY — so it
+    // runs in-app. `qodercli status -o json` reports `"logged_in": true|false`
+    // (exit 0 either way); it exits 1 only when a token in the env is
+    // rejected, which stays unknown. A personal access token in
+    // QODER_PERSONAL_ACCESS_TOKEN takes precedence over the sign-in.
+    loginCommand: "qodercli login",
+    statusArgs: ["status", "-o", "json"],
+    loggedInPattern: /"logged_in"\s*:\s*true/,
+    loggedOutPattern: /"logged_in"\s*:\s*false/,
+    apiKeyEnv: "QODER_PERSONAL_ACCESS_TOKEN",
+  },
+  "qoder-cn": {
+    // The China edition: same commands under its own binary, and a sign-in to
+    // qoder.cn that the international CLI cannot use (nor this one a qoder.com
+    // account). Its token variable carries the edition's QODERCN_ prefix.
+    loginCommand: "qoderclicn login",
+    statusArgs: ["status", "-o", "json"],
+    loggedInPattern: /"logged_in"\s*:\s*true/,
+    loggedOutPattern: /"logged_in"\s*:\s*false/,
+    apiKeyEnv: "QODERCN_PERSONAL_ACCESS_TOKEN",
+  },
 }
 
 /**
@@ -848,6 +872,12 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // marks it `unverifiable` because the core has no per-platform creds path to
   // look at — the launcher does.
   "codebuddy",
+  // Qoder CLI (international and China editions): a `qodercli login` browser
+  // sign-in OR a personal access token. Both registry fields are optional
+  // already; this entry makes the sign-in the first path offered, and
+  // DUAL_LOGIN_AGENTS above gives it a probe (`status -o json`).
+  "qoder",
+  "qoder-cn",
 ])
 
 /**
@@ -1016,6 +1046,20 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // Qoder CLI (`qoder`) and its China edition (`qoder-cn`): installed by
+  // Qoder's own script as a native binary (`qodercli` / `qoderclicn`), no
+  // Node needed. Two agent types rather than one with a region field because
+  // the editions are different binaries with different install scripts,
+  // config roots and accounts — install, detection and the sign-in probe all
+  // key off the binary. Models come from the Qoder account, never from another
+  // provider's key, so the registry marks both provider_locked.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing them
+  // here only stamps them installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the qoder adapters
+  // degrades to "unsupported" rather than a broken install.
+  "qoder",
+  "qoder-cn",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

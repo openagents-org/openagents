@@ -406,6 +406,16 @@ describe('Daemon', () => {
     assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
   });
 
+  it('_buildRoster lists for a Qoder agent on a token: the token is the account', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'qd', type: 'qoder', env: { LLM_API_KEY: 'pat-qoder-123456' } });
+    config.setAgentNetwork('qd', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'qd');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
   /** A daemon whose `agn models` child is played by `reply`; records who was asked. */
   function daemonListingModels(agents, reply) {
     const config = new Config(tmpDir);

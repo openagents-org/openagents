@@ -44,6 +44,9 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    qoder.js          QoderAdapter — Qoder CLI (`qodercli -p -o stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config --strict-mcp-config, token or browser sign-in, Stop kills the whole process tree
+    qoder-cn.js       QoderCnAdapter — the China edition (`qoderclicn`), same adapter with the CN edition table
+    qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities

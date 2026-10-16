@@ -266,6 +266,7 @@ const HOSTED_PLATFORMS: Array<{ vars: string[]; reason: string }> = [
   { vars: ["AMP_API_KEY"], reason: "amp" },
   { vars: ["CURSOR_API_KEY"], reason: "cursor" },
   { vars: ["CODEARTS_CLI_AK", "CODEARTS_CLI_SK"], reason: "codearts" },
+  { vars: ["QODER_PERSONAL_ACCESS_TOKEN", "QODERCN_PERSONAL_ACCESS_TOKEN"], reason: "qoder" },
 ]
 
 type OpenAIProbe = {
