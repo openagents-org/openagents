@@ -82,6 +82,9 @@ const LOC = {
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
   hermesHome: '.hermes/bin',
+  // Qwen Code's standalone installer (install-qwen-standalone.ps1) puts its
+  // qwen.cmd wrapper here; the .sh flavor uses ~/.local/bin.
+  qwenWin: IS_WINDOWS ? 'AppData/Local/qwen-code/bin' : null,
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
@@ -204,6 +207,12 @@ const WHERE = {
     [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
   pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+  'qwen-code': [
+    [LOC.nvm22, 'npm i -g @qwen-code/qwen-code under a node version manager', 'npm'],
+    [LOC.npmDefault, 'npm i -g @qwen-code/qwen-code', 'npm'],
+    [IS_WINDOWS ? null : LOC.localBin, 'install-qwen-standalone.sh', 'installer'],
+    [LOC.qwenWin, 'install-qwen-standalone.ps1', 'installer'],
+  ],
 }
 
 /**
