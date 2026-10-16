@@ -6,7 +6,7 @@ import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
+import { Reply, Copy, Check, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
@@ -40,7 +40,7 @@ interface Attachment {
 }
 
 function isPreviewable(contentType: string, filename: string): boolean {
-  if (isWebProject(contentType, filename)) return true;
+  if (isWebProject(contentType, filename) || /\.docx$/i.test(filename)) return true;
   if (contentType?.startsWith('image/')) return true;
   if (contentType === 'text/html' || /\.html?$/i.test(filename)) return true;
   if (contentType === 'text/markdown' || /\.mdx?$/i.test(filename)) return true;
@@ -117,17 +117,16 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
                 <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
               </button>
             ) : (
-              <a
+              <button
                 key={file.fileId}
-                href={file.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
+                onClick={() => void workspaceApi.downloadFile(file.fileId, file.filename).catch(error => toast.error(error instanceof Error ? error.message : 'Download failed'))}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted hover:bg-muted/80 transition-colors text-sm"
               >
                 <FileIcon className="size-4 text-muted-foreground shrink-0" />
                 <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
                 <Download className="size-3 text-muted-foreground shrink-0" />
-              </a>
+              </button>
             );
           })}
         </div>
@@ -162,6 +161,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // "@to request…" as plain text and the same record in metadata.handoff;
   // the card renders the record so the sections stay readable.
   const handoff = !approval ? handoffFromMessage(message.metadata) : null;
+  const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const [copied, setCopied] = useState(false);
 
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
@@ -324,6 +324,11 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               </>
             )}
 
+            {review && <div className="mt-2 text-xs text-muted-foreground" role="status">
+              {Array.isArray(review.reviewers) && review.reviewers.length > 0 && <p>{t('reviewHandoff.sent', { agents: review.reviewers.map(name => agentLabels[name] || name).join(', ') })}</p>}
+              {Array.isArray(review.blocked) && review.blocked.length > 0 && <p>{t('reviewHandoff.blocked', { agents: review.blocked.map(name => agentLabels[name] || name).join(', ') })}</p>}
+            </div>}
+
             {/* Tap-to-ask chips (e.g. Yumi's seeded welcome). Only on the
                 trailing message: once the user replies, the moment is over. */}
             {isLast && onSuggestion && Array.isArray(message.metadata?.suggestions) && (
@@ -342,6 +347,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
 
             {/* Action bar — revealed on hover, as in ChatGPT */}
             <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+              {onReply && !approval && !message.messageId.startsWith('optimistic-') && <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => onReply(message)} aria-label={t('reactions.reply')}><Reply className="size-3" />{t('reactions.reply')}</Button>}
               <AgentSharingAction agentName={message.senderName} />
               <CopyMessageLink messageId={message.messageId} />
               <Button

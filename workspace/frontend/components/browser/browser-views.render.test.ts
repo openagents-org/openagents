@@ -106,7 +106,7 @@ describe('BrowserView', () => {
     expect(out).toContain('LinkedIn');
     expect(out).toContain('GitHub');
     expect(out).toContain('Docs');
-    expect(out).toMatch(/2\s*\/\s*5/);
+    expect(out).toContain('2 active in this workspace.');
     // address bar + status bar
     expect(out).toContain('https://www.example.com/');
     expect(out).toContain('Cloud browser');

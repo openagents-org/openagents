@@ -1,9 +1,13 @@
 'use client';
 
+import { workspaceApi } from '@/lib/api';
+import { toast } from 'sonner';
+import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useRef, useState } from 'react';
 import { useDragScroll } from './use-drag-scroll';
 import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { AgentOwnershipBadge, AgentSharingAction, useThreadCollaboration } from './agent-message-access';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { FileTile } from '@/components/files/file-utils';
@@ -16,8 +20,11 @@ import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
-export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, instruction: string) => void }) {
+export function ThreadResources() {
   const t = useT();
+  const collaboration = useThreadCollaboration();
+  const [saving, setSaving] = useState(false);
+  const [reviewAfter, setReviewAfter] = useState<string | null>(null);
   const artifactDrag = useDragScroll();
   const agentDrag = useDragScroll();
   const { agents, files, browserTabs, currentSessionId, sessions } = useWorkspace();
@@ -54,24 +61,28 @@ export function ThreadResources({ onInstruct }: { onInstruct: (agent: string, in
       {!collapsed && <>
         <TabsContent value="agents" className="mt-0 min-w-0">
           <ul {...agentDrag} ref={agentRow} aria-label={t('threadResources.agents')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {members.map(agent => <li key={agent.agentName} className="flex w-64 shrink-0 snap-start items-center gap-2 rounded-lg border bg-background p-2">
+            {members.map(agent => <li key={agent.agentName} className="flex w-64 shrink-0 snap-start flex-col items-start gap-1 rounded-lg border bg-background p-2"><div className="flex w-full items-center gap-2">
               <button type="button" onClick={() => setSelectedAgentName(agent.agentName)} className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left hover:bg-muted/50" title={agent.description ? `${agentLabel(agent)} — ${agent.description}` : agentLabel(agent)}>
                 <span className="shrink-0"><AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus /></span>
                 <span className="min-w-0 flex-1 py-0.5">
-                  <span className="block truncate text-xs font-medium leading-4">{agentLabel(agent)}</span>
-                  <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{agent.description?.trim() || t('threadResources.noRole')}</span>
+                  <span className="block truncate text-xs font-medium leading-4">{agentLabel(agent)}</span><AgentOwnershipBadge agent={agent} compact />
+                  <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{collaboration.roles[agent.agentName]?.instructions || agent.description?.trim() || t('threadResources.noRole')}</span>
                 </span>
               </button>
-              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} title={t('threadResources.instruct')} onClick={() => { setEditing(agent.agentName); setInstruction(''); }} className="flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"><PencilLine className="size-3.5" /></button>
-            </li>)}
+              <button type="button" aria-label={t('threadResources.instructAgent', { agent: agentLabel(agent) })} title={t('threadResources.instruct')} onClick={() => { setEditing(agent.agentName); setInstruction(collaboration.roles[agent.agentName]?.instructions || ''); setReviewAfter(collaboration.roles[agent.agentName]?.review_after || null); }} className="flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"><PencilLine className="size-3.5" /></button>
+            </div><AgentSharingAction agentName={agent.agentName} /></li>)}
           </ul>
           {selectedAgent && <form className="mt-2 rounded-lg border bg-background p-2" onSubmit={event => {
-            event.preventDefault(); if (!instruction.trim()) return;
-            onInstruct(selectedAgent.agentName, instruction.trim()); setEditing(null); setInstruction('');
+            event.preventDefault(); if (saving || !currentSessionId || !collaboration.canEdit(selectedAgent)) return;
+            setSaving(true);
+            void workspaceApi.saveThreadCollaboration(currentSessionId, selectedAgent.agentName, instruction.trim(), reviewAfter).then(() => {
+              window.dispatchEvent(new Event(THREAD_PARTICIPANTS_CHANGED)); setEditing(null); toast.success(t('threadCollaboration.saved'));
+            }).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed'))).finally(() => setSaving(false));
           }}>
             <div className="mb-1 flex items-center gap-2 text-xs"><span className="min-w-0 flex-1 truncate font-medium">{t('threadResources.instructAgent', { agent: agentLabel(selectedAgent) })}</span><button type="button" aria-label={t('threadResources.cancel')} onClick={() => setEditing(null)} className="rounded p-1 hover:bg-muted"><X className="size-3" /></button></div>
             <textarea autoFocus value={instruction} onChange={event => setInstruction(event.target.value)} rows={2} aria-label={t('threadResources.instructions')} placeholder={t('threadResources.placeholder')} className="w-full resize-none rounded border bg-transparent px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring" />
-            <div className="mt-1 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{t('threadResources.draftHint')}</span><button type="submit" disabled={!instruction.trim()} className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">{t('threadResources.addDraft')}</button></div>
+            <label className="mt-1 flex items-center gap-2 text-xs">{t('threadCollaboration.reviewAfter')}<select value={reviewAfter || ''} onChange={event => setReviewAfter(event.target.value || null)} className="min-w-0 flex-1 rounded border bg-background p-1"><option value="">{t('threadCollaboration.noReview')}</option>{members.filter(agent => agent.agentName !== selectedAgent.agentName).map(agent => <option key={agent.agentName} value={agent.agentName}>{agentLabel(agent)}</option>)}</select></label>
+            <div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{t(collaboration.supported ? 'threadCollaboration.onlyHere' : 'messageAgentAccess.rolloutPending')}</span><button type="submit" disabled={saving || !collaboration.canEdit(selectedAgent)} className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">{t('common.save')}</button></div>
           </form>}
         </TabsContent>
         <TabsContent value="artifacts" className="mt-0 min-w-0">

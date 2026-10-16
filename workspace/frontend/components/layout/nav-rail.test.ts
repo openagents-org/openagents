@@ -27,6 +27,7 @@ vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('./sidebar-members', () => ({ SidebarMembers: () => null }));
 vi.mock('./search-menu', () => ({ SearchMenu: () => null }));
 vi.mock('./notifications-menu', () => ({ NotificationsMenu: () => null }));
+vi.mock('./invite-member-button', () => ({ InviteMemberButton: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
 vi.mock('@/components/campaign/campaign-sidebar-card', () => ({ CampaignSidebarCard: () => null }));
 vi.stubGlobal('React', React);

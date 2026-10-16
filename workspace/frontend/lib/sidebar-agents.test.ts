@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { sidebarAgents } from './sidebar-agents';
+import { sidebarAgents, sidebarAgentGroups } from './sidebar-agents';
 import type { WorkspaceAgent } from './types';
 
 it('includes owned and directly usable shared agents, including offline agents', () => {
@@ -26,4 +26,14 @@ it('removes a shared agent when its access is revoked without removing owned age
   expect(sidebarAgents(agents, 'me@example.com')).toHaveLength(2);
   expect(sidebarAgents(agents.map((agent) => ({ ...agent, canStartThread: false })), 'me@example.com')
     .map((agent) => agent.agentName)).toEqual(['mine']);
+});
+
+it('bounds each category to five, sorts by DM recency and keeps hidden/offline agents reachable', () => {
+  const agents = Array.from({ length: 16 }, (_, i) => ({ agentName: `agent-${i}`, ownerEmail: i < 7 ? 'me@example.com' : 'other@example.com', status: i === 15 ? 'offline' : 'online', canStartThread: true })) as WorkspaceAgent[];
+  const conversations = [{ agents: ['human:me@example.com', 'openagents:agent-6'], lastMessage: { timestamp: 10 } }, { agents: ['human:me@example.com', 'openagents:agent-14'], lastMessage: { timestamp: 20 } }] as import('./types').DMConversation[];
+  const [mine, shared] = sidebarAgentGroups(agents, 'me@example.com', conversations);
+  expect(mine.shown).toHaveLength(5); expect(shared.shown).toHaveLength(5);
+  expect(mine.shown[0].agentName).toBe('agent-6'); expect(shared.shown[0].agentName).toBe('agent-14');
+  expect(mine.moreOnline).toBe(2); expect(shared.moreOnline).toBe(3);
+  expect(shared.all.at(-1)?.agentName).toBe('agent-15');
 });
