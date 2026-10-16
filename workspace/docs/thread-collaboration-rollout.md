@@ -11,6 +11,14 @@ Prepared October 15, 2026. Production has **not** been changed. Preview and prod
 - Proactive routing keeps the existing choice card for ambiguous requests. Missing role descriptions do not instruct the model to silently stop on a question or greeting addressed to the agents. Explicit human conversations, incidental attachments and test messages can still remain ordinary chat.
 - Legacy Yumi rows with provider `openagents` use the server-managed assistant runtime even if their stored category is `chat`. This avoids obsolete row credentials without modifying existing data. A minimal request using preview's server-managed configuration returned HTTP 200; the affected workspace has a legacy chat row.
 
+## Browser preview follow-up (October 16)
+
+The compact frontend preview is deployed, but DM browser association needs the backend patch in this branch. The previous handler looked up every conversation as a `Channel`, silently skipping connector DM addresses (`dm:<counterpart>`). It now accepts that address or the UI's full pair, verifies a prior direct exchange in the same workspace, saves the canonical pair, and posts the browser artifact directly to the counterpart. It never infers a thread from an agent's presence. Existing channel behavior is preserved.
+
+This patch is staged, not deployed. Include it in the compatible backend release; no migration or backfill is needed. The reported XE tab is already closed and has no association, so the patch does not restore that old live session. Validate a new explicit DM browser request after deployment. Closed sessions retain their new artifact message; live thumbnails only show while the associated tab is awake.
+
+Thread-only access remains staged at the user's latest request. Deploying the browser association fix does not require enabling any thread-access or collaboration flags.
+
 ## Data compatibility
 
 No schema change, migration, backfill or bulk repair is required. New operations write ordinary settings events, approval records and resource grants in existing tables. Do not run migrations or restore backend source mounts. Keep preview background jobs disabled and its existing connection-pool limits unchanged.

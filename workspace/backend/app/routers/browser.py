@@ -28,7 +28,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from app.access import resolve_current_user
@@ -47,7 +47,7 @@ from app.browser_creds import (
 )
 from app.database import get_db
 from app.net_security import UnsafeURLError
-from app.models import BrowserContext, BrowserTab, BrowserUsage, Channel, Workspace
+from app.models import BrowserContext, BrowserTab, BrowserUsage, Channel, EventRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event,
@@ -358,6 +358,36 @@ def _actor_for(tab: BrowserTab, source: Optional[str]) -> str:
     return "openagents:agent"
 
 
+def _browser_conversation(db, workspace_id, actor, channel):
+    """Resolve an explicit thread or DM, never infer one from agent presence."""
+    if channel.startswith("dm:"):
+        # Connectors use dm:<counterpart>; the UI uses the sorted full pair.
+        addresses = channel[3:].split(",")
+        if len(addresses) == 1:
+            addresses.append(actor)
+        if len(addresses) != 2 or actor not in addresses or len(set(addresses)) != 2:
+            return None
+        counterpart = next(address for address in addresses if address != actor)
+        if not counterpart.startswith(("human:", "openagents:")) or not counterpart.split(":", 1)[1]:
+            return None
+        # A tab must refer to a real conversation in this workspace. Merely
+        # claiming another person's address cannot announce work in their DM.
+        exists = db.execute(select(EventRecord.id).where(
+            EventRecord.network_id == str(workspace_id),
+            EventRecord.type == "workspace.message.posted",
+            or_((EventRecord.source == actor) & (EventRecord.target == counterpart),
+                (EventRecord.source == counterpart) & (EventRecord.target == actor)),
+        ).limit(1)).first()
+        if not exists:
+            return None
+        return "dm:" + ",".join(sorted(addresses)), counterpart
+    thread = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace_id),
+        Channel.name == channel, Channel.status != "deleted",
+    )).scalar_one_or_none()
+    return (channel, f"channel/{channel}") if thread else None
+
+
 async def _record_browser_work(db, workspace, tab, actor, channel, action):
     """Attach a stable live preview once per tab/thread, without agent wake-ups.
 
@@ -374,12 +404,10 @@ async def _record_browser_work(db, workspace, tab, actor, channel, action):
     if not channel:
         return
     try:
-        thread = db.execute(select(Channel).where(
-            Channel.workspace_id == str(workspace.id),
-            Channel.name == channel, Channel.status != "deleted",
-        )).scalar_one_or_none()
-        if not thread:
+        conversation = _browser_conversation(db, workspace.id, actor, channel)
+        if not conversation:
             return
+        channel, target = conversation
         remember_tab_channel(tab.id, channel)
         # Serialize first-use announcements; a browser operation can overlap a
         # screenshot/snapshot. Reload the JSON after acquiring the row lock.
@@ -391,7 +419,7 @@ async def _record_browser_work(db, workspace, tab, actor, channel, action):
             return
         tab.artifact_channels = [channel, *channels]
         event = Event(
-            type="workspace.message.posted", source=actor, target=f"channel/{channel}",
+            type="workspace.message.posted", source=actor, target=target,
             payload={"content": f"Using a [live browser tab](/v1/browser/tabs/{tab.id}). Preview it to follow along.", "message_type": "artifact"},
             metadata={"target_agents": ["__no_response__"], "explicit_targets": [], "browser_artifact": tab.id},
         )
