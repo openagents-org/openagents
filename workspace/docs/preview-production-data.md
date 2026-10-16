@@ -10,7 +10,7 @@ Preview feature branch: **`codex/preview`**, based on deployed production commit
 - Backend image: `openagents-backend:release-8eeea530d70c39ca67b25c12b111518330542fc4`, copied from the production host without rebuilding it.
 - Frontend: existing preview development server with editable sources synchronized from `codex/preview`. Production itself is not redeployed by this switch.
 - Credentials: `/opt/openagents-preview/secrets/production-beta.env`, readable only by root. Authentication and file storage configuration match production. No credentials belong in this repository.
-- Background jobs and automatic migrations: disabled/absent in preview. The backend pool is capped at four connections total (two workers, two connections each, no overflow).
+- Background jobs and automatic migrations: disabled/absent in preview. The backend pool is capped at 12 connections total (two workers, six connections each, no overflow).
 - Valkey: disabled in preview because the preview host cannot reach the managed endpoint. The backend supports operation without the cache. Do not open production firewall access or change cache configuration without reviewing the proposed change.
 - Demo login and simulated persona services: stopped and disabled. `/demo-login` returns 404. Normal account login is required by the application's existing authentication policy.
 
@@ -41,3 +41,5 @@ Pre-switch configuration is kept under `/opt/openagents-preview/backups/producti
 5. Leave demo-login/persona services disabled unless the user explicitly wants the old demo behavior back.
 
 Rollback changes where preview connects. It does not undo any writes already made to production through preview. Never restore the old preview database over production.
+
+The initial two-connection pool per worker caused request failures under normal workspace loading. Preview now uses six per worker, matching the production per-worker limit. At adjustment, PostgreSQL had 97 of 200 connections in use. This changes only preview application capacity, not the database schema or database service configuration.

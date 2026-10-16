@@ -9,9 +9,9 @@ services:
         format: raw
     environment:
       BACKGROUND_JOBS_ENABLED: 'false'
-      DB_POOL_SIZE: '2'
+      DB_POOL_SIZE: '6'
       DB_MAX_OVERFLOW: '0'
-      THREADPOOL_TOKENS: '2'
+      THREADPOOL_TOKENS: '6'
       WEB_CONCURRENCY: '2'
       REDIS_URL: ''
     entrypoint: ['uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '8000', '--workers', '2', '--no-access-log']

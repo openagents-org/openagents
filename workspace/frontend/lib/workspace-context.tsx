@@ -180,6 +180,8 @@ interface WorkspaceContextValue {
   setSessionOrchestration: (sessionId: string, updates: { mode?: string; responseMode?: 'proactive' | 'passive'; instruction?: string | null; workflowId?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  workspaceLoadError: string | null;
+  retryWorkspace: () => void;
   refreshAgents: () => Promise<void>;
   refreshFiles: () => Promise<void>;
   /** Queue a batch into `folder` and draw it going up; see {@link PendingUpload}. */
@@ -410,6 +412,9 @@ export function WorkspaceProvider({
     return v;
   }, []);
   const [loading, setLoading] = useState(true);
+  const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryWorkspace = useCallback(() => setLoadAttempt(attempt => attempt + 1), []);
   const [error, setError] = useState<string | null>(null);
   const [lastMessageBySession, setLastMessageBySession] = useState<Record<string, LastMessageInfo>>({});
   const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
@@ -1416,6 +1421,7 @@ export function WorkspaceProvider({
     (async () => {
       setLoading(true);
       setError(null);
+      setWorkspaceLoadError(null);
       // Don't display the previous workspace's optional data while these load.
       filesEpochRef.current += 1;
       setFiles([]);
@@ -1571,14 +1577,16 @@ export function WorkspaceProvider({
         });
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load workspace');
+          const message = e instanceof Error ? e.message : 'Failed to load workspace';
+          setError(message);
+          setWorkspaceLoadError(message);
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [workspaceId, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId, token, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Locally-observed activity. `lastEventAt` is null on some workspaces, so a
   // changed message preview is the other signal that a thread moved. Status
@@ -2039,6 +2047,8 @@ export function WorkspaceProvider({
         setSessionOrchestration,
         renameWorkspace,
         refreshWorkspace,
+        workspaceLoadError,
+        retryWorkspace,
         refreshAgents,
         refreshFiles,
         enqueueUploads,

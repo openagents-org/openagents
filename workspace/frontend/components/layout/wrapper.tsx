@@ -74,6 +74,7 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
+  const t = useT();
   useThreadArtifactPreview();
   useDesktopWorkspaceState();
   useSignalNotifications();
@@ -90,10 +91,10 @@ export function Wrapper() {
     const q = hash.indexOf('?');
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const { workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
   // Resolve a stable identity before writing the URL; never expose DM participants.
   useEffect(() => {
-    if (loading || desktopHost()) return;
+    if (loading || workspaceLoadError || desktopHost()) return;
     let active = true;
     const update = async () => {
       const url = new URL(window.location.href);
@@ -117,7 +118,7 @@ export function Wrapper() {
     };
     void update();
     return () => { active = false; };
-  }, [loading, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
+  }, [loading, workspaceLoadError, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
 
@@ -164,6 +165,14 @@ export function Wrapper() {
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
+  }
+
+  if (workspaceLoadError) {
+    return <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <h1 className="text-lg font-semibold">{t('admin.loadFailed')}</h1>
+      <p className="max-w-md text-sm text-muted-foreground">{t('workspaceGate.loadFailedBody')}</p>
+      <button type="button" onClick={retryWorkspace} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{t('common.retry')}</button>
+    </div>;
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──
