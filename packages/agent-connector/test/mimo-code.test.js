@@ -169,16 +169,29 @@ describe('MiMo Code — where a run goes', () => {
     assert.equal(pf._preflight().category, 'model_missing');
   });
 
+  it("leaves a sign-in with no model to MiMo's pick, still pinned to xiaomi", () => {
+    const route = runtime.resolveMimoRoute({});
+    assert.deepEqual(runtime.buildMimoRunConfig(route), { enabled_providers: ['xiaomi'], disabled_providers: [] });
+    assert.deepEqual(
+      runtime.buildMimoRunArgs({ runCwd: '/work', model: route.modelRef, title: 't' }),
+      ['run', '--format', 'json', '--dangerously-skip-permissions', '--dir', '/work', '--title', 't'],
+    );
+    assert.equal(makeAdapter({})._modelRequired(), false);
+    assert.equal(makeAdapter({ LLM_API_KEY: 'k', LLM_BASE_URL: 'http://127.0.0.1:1/v1' })._modelRequired(), true);
+  });
+
   it("uses the workspace's model choice over LLM_MODEL", () => {
     const r = runtime.resolveMimoRoute({ ...KEY }, 'mimo-v2.5');
     assert.equal(r.modelRef, 'xiaomi/mimo-v2.5');
   });
 
   it("without a key, runs on MiMo Code's own sign-in", () => {
+    // No model of ours: what a sign-in may run depends on the account.
     assert.deepEqual(
       runtime.resolveMimoRoute({}),
-      { mode: 'signin', providerId: 'xiaomi', model: runtime.MIMO_DEFAULT_MODEL, modelRef: `xiaomi/${runtime.MIMO_DEFAULT_MODEL}`, baseURL: '', apiKey: '' },
+      { mode: 'signin', providerId: 'xiaomi', model: '', modelRef: '', baseURL: '', apiKey: '' },
     );
+    assert.equal(runtime.resolveMimoRoute({ LLM_MODEL: 'xiaomi/mimo-v2.6-pro' }).modelRef, 'xiaomi/mimo-v2.6-pro');
     const own = runtime.resolveMimoRoute({ LLM_MODEL: 'myproxy/some-model' });
     assert.equal(own.providerId, 'myproxy');
     assert.equal(own.model, 'some-model');

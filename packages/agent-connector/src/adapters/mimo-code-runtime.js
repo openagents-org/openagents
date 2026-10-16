@@ -13,8 +13,9 @@
 const MIMO_DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1';
 
 /**
- * The model MiMo Code itself selects after a Xiaomi sign-in, and so what a run
- * on MiMo's API uses when no model is configured.
+ * What a run on a MiMo API key uses when no model is configured. Only for a
+ * key: the run declares the model, so MiMo's API is all that has to serve it.
+ * A sign-in has no default of ours — see resolveMimoRoute.
  */
 const MIMO_DEFAULT_MODEL = 'mimo-v2.5-pro';
 
@@ -52,6 +53,10 @@ function isMimoHost(baseUrl) {
  * Without a key the run uses MiMo Code's own credential: a Xiaomi sign-in
  * (`mimo providers login`) or XIAOMI_API_KEY. A model written `provider/model`
  * then names a provider the user set up in MiMo Code and is taken as given.
+ * With no model the choice is MiMo's, on the `xiaomi` provider: what a
+ * sign-in may run is MiMo's catalog filtered by the account — a Token Plan
+ * account signed in on 0.1.15 lists only the v2.6 models, so a fixed default
+ * fails there with "Model not found".
  *
  * The workspace's model choice, when there is one, replaces LLM_MODEL.
  */
@@ -79,13 +84,13 @@ function resolveMimoRoute(env = {}, workspaceModel = null) {
   }
 
   let providerId = XIAOMI_PROVIDER;
-  let model = requested || MIMO_DEFAULT_MODEL;
+  let model = requested;
   const slash = model.indexOf('/');
   if (slash > 0) {
     providerId = model.slice(0, slash);
     model = model.slice(slash + 1);
   }
-  return { mode: 'signin', providerId, model, modelRef: `${providerId}/${model}`, baseURL: '', apiKey: '' };
+  return { mode: 'signin', providerId, model, modelRef: model ? `${providerId}/${model}` : '', baseURL: '', apiKey: '' };
 }
 
 /**
@@ -110,14 +115,17 @@ function resolveMimoRoute(env = {}, workspaceModel = null) {
  */
 function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
   const ref = route.modelRef;
-  const config = {
-    enabled_providers: [route.providerId],
-    disabled_providers: [],
-    model: ref,
-    small_model: ref,
-    model_groups: { lite: ref, standard: ref, ultra: ref },
-    agent: { general: { model: ref }, explore: { model: ref } },
-  };
+  const config = { enabled_providers: [route.providerId], disabled_providers: [] };
+  // A sign-in with no model leaves the pick to MiMo; the provider pin alone
+  // still keeps every request on it, and a model named elsewhere fails.
+  if (ref) {
+    Object.assign(config, {
+      model: ref,
+      small_model: ref,
+      model_groups: { lite: ref, standard: ref, ultra: ref },
+      agent: { general: { model: ref }, explore: { model: ref } },
+    });
+  }
 
   if (route.mode === 'key') {
     // `id` is set explicitly: a model entry of the same name in the user's own
@@ -156,7 +164,8 @@ function buildMimoRunConfig(route, { mcp = null, instructions = [] } = {}) {
  * the permission bypass does not lift.
  */
 function buildMimoRunArgs({ runCwd, model, sessionId = null, title = '', plan = false } = {}) {
-  const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--dir', runCwd, '--model', model];
+  const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--dir', runCwd];
+  if (model) args.push('--model', model);
   if (plan) args.push('--agent', 'plan');
   if (sessionId) args.push('--session', sessionId);
   else if (title) args.push('--title', title);

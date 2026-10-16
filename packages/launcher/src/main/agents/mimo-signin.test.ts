@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  MIMO_SIGNIN_DEFAULT_MODEL,
   mimoHasXiaomiSignIn,
   mimoRecommendedModel,
   parseMimoModels,
@@ -53,9 +52,14 @@ describe("parseMimoModels", () => {
 })
 
 describe("mimoRecommendedModel", () => {
-  it("names the adapter's default when listed, else the first model", () => {
-    expect(mimoRecommendedModel(parseMimoModels(MODELS_OUT))).toBe(MIMO_SIGNIN_DEFAULT_MODEL)
-    expect(mimoRecommendedModel([{ id: "xiaomi/mimo-v2.6-pro" }])).toBe("xiaomi/mimo-v2.6-pro")
+  it("names the first plain pro model, else the first listed", () => {
+    expect(mimoRecommendedModel(parseMimoModels(MODELS_OUT))).toBe("xiaomi/mimo-v2.5-pro")
+    // A Token Plan sign-in, as listed by 0.1.15.
+    const tokenPlan = parseMimoModels(
+      "xiaomi/mimo-v2.6-flash — window 1.05M\nxiaomi/mimo-v2.6-pro — window 1.05M\nxiaomi/mimo-v2.6-pro-ultraspeed — window 1.05M\n",
+    )
+    expect(mimoRecommendedModel(tokenPlan)).toBe("xiaomi/mimo-v2.6-pro")
+    expect(mimoRecommendedModel([{ id: "xiaomi/mimo-v2.6-flash" }])).toBe("xiaomi/mimo-v2.6-flash")
     expect(mimoRecommendedModel([])).toBeUndefined()
   })
 })

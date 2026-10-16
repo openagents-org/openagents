@@ -27,9 +27,6 @@ export const MIMO_AUTH_XDG_PATH = "mimocode/auth.json"
 /** The provider a Xiaomi-account sign-in is stored under. */
 const XIAOMI = "xiaomi"
 
-/** What a run on the sign-in uses when no model is picked (the adapter's default). */
-export const MIMO_SIGNIN_DEFAULT_MODEL = "xiaomi/mimo-v2.5-pro"
-
 /** A `xiaomi` entry that holds a key. Other providers in the store sign nothing in here. */
 export function mimoHasXiaomiSignIn(creds: unknown): boolean {
   if (!creds || typeof creds !== "object" || Array.isArray(creds)) return false
@@ -58,9 +55,11 @@ export function parseMimoModels(out: string): ModelChoice[] {
   return models
 }
 
-/** The adapter's default when the list has it, else the first one listed. */
+/**
+ * The first plain `-pro` model listed, else the first. The list is the
+ * account's: a Token Plan sign-in on 0.1.15 lists only the v2.6 models, so no
+ * fixed id is safe to name — and left blank, MiMo runs the first one, a flash.
+ */
 export function mimoRecommendedModel(models: ModelChoice[]): string | undefined {
-  if (models.some((m) => m.id === MIMO_SIGNIN_DEFAULT_MODEL))
-    return MIMO_SIGNIN_DEFAULT_MODEL
-  return models[0]?.id
+  return models.find((m) => /-pro$/.test(m.id))?.id ?? models[0]?.id
 }

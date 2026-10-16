@@ -124,9 +124,14 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     return resolveMimoRoute(this.agentEnv || process.env, this.workspaceModel);
   }
 
-  /** `provider/model`, or '' when a key is set for an endpoint with no model given. */
+  /** `provider/model`, or '' when none is given for a sign-in or a non-MiMo endpoint. */
   _resolveModel() {
     return this._route().modelRef;
+  }
+
+  /** A sign-in runs on MiMo's own pick; only a key for another endpoint needs one. */
+  _modelRequired() {
+    return this._route().mode === 'key';
   }
 
   modelLabel() {

@@ -64,9 +64,13 @@ The workspace's model choice, when set, replaces `LLM_MODEL`.
 ### Xiaomi-account sign-in
 
 With no key, the run uses MiMo Code's own credential — a Xiaomi-account sign-in
-or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider, with `mimo-v2.5-pro`
-unless a model is picked (the sign-in tab lists `mimo models xiaomi`, ids
-written `xiaomi/<model>`).
+or `XIAOMI_API_KEY` — pinned to the `xiaomi` provider. What a sign-in may run is
+MiMo's catalog filtered by the account: a Token Plan account on 0.1.15 lists
+only `mimo-v2.6-flash`, `mimo-v2.6-pro` and `mimo-v2.6-pro-ultraspeed`, and
+`mimo-v2.5-pro` fails with `Model not found` although the API serves it. So
+there is no default of ours: with no model the run passes no `--model` and MiMo
+picks (the first listed, a flash). The sign-in tab lists `mimo models xiaomi`
+(ids written `xiaomi/<model>`) and preselects the first plain `-pro`.
 
 `mimo providers login -p xiaomi` is not an OAuth session. It opens
 `https://platform.xiaomimimo.com/authorize?pk=…` with an X25519 public key; after
@@ -191,7 +195,10 @@ followed by a stack trace; only the error line is classified.
   pickers offer — including MiMo's ASR/TTS models, which are not chat models.
 - Windows: install layout read from install.ps1; the Stop path there is
   `taskkill /T`, not exercised.
-- A real Xiaomi-account sign-in end to end. The flow, the piped login, the
-  stored entry and the sign-in tab's model list are checked against 0.1.15 and
-  in tests; the platform side — signing in and the code it hands back — is not
-  yet.
+- A Xiaomi-account sign-in of a plain (non-Token Plan) account. A Token Plan
+  account was signed in for real on 0.1.15 — the authorize page, the pasted
+  code, `Login successful`, the stored `tp-` key with its Token Plan
+  `base_url` — and run end to end with no key on `xiaomi/mimo-v2.6-pro` (reply,
+  multi-turn on one session, an MCP tool, Stop and continuing after it) and
+  with no model (MiMo picked `mimo-v2.6-flash`). The core's `check_ready` and
+  the launcher probe both read that `auth.json` as signed in.
