@@ -161,7 +161,7 @@ function buildToolDefs(disabledModules) {
         description:
           'Read a web page as text WITHOUT opening a shared browser tab. Preferred way to read any URL: ' +
           'tries a fast static fetch first, and automatically renders JavaScript-heavy pages (Notion, SPAs) ' +
-          'in a temporary browser session. Only open a shared browser tab (workspace_browser_open) when you ' +
+          'using BrowserFabric. Only open a shared browser tab (workspace_browser_open) when you ' +
           'need to interact with the page (click/type/login) or the result says AUTH_REQUIRED.',
         inputSchema: {
           type: 'object',
@@ -180,7 +180,7 @@ function buildToolDefs(disabledModules) {
       {
         name: 'workspace_browser_open',
         description:
-          'Open a new shared browser tab. Use context_name to open in a persistent browser context ' +
+          'Open a new saved shared browser tab. Reuse existing tabs first. Use context_name to reuse a saved browser context ' +
           '(preserves cookies/login sessions). List contexts with workspace_browser_list_contexts.',
         inputSchema: {
           type: 'object',
@@ -256,7 +256,7 @@ function buildToolDefs(disabledModules) {
       },
       {
         name: 'workspace_browser_close',
-        description: 'Close a shared browser tab.',
+        description: 'Close a shared browser tab only when the user requests it. Do not close after finishing a task; saved tabs are reusable.',
         inputSchema: {
           type: 'object',
           properties: {

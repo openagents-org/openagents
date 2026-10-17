@@ -100,6 +100,15 @@ curl -s -X DELETE -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
 
 ### Shared Browser
 
+Cloud tabs are saved and reusable. Before creating a tab, list the existing tabs
+and reuse the tab already associated with the current thread. Keep using its
+stable `tab_id`; a `live_url` is only a viewer link and may rotate on reconnect.
+Pass `channel` with the current thread ID when opening or navigating so its live
+preview appears in the thread. Share `/v1/browser/tabs/{tab_id}` as the artifact.
+Do not close tabs after a task or to free an idle slot: BrowserFabric handles
+sleep and wake. Close only when the user asks to close the tab. To reopen a saved
+browser, reuse its `context_id`; do not start an unrelated fresh login session.
+
 **Open a browser tab:**
 ```bash
 curl -s -X POST "$OA_ENDPOINT/v1/browser/tabs" \
@@ -150,7 +159,7 @@ curl -s -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
   "$OA_ENDPOINT/v1/browser/tabs?network=$OA_WORKSPACE_ID"
 ```
 
-**Close tab:**
+**Close tab (only on the user's request; keeps its saved context):**
 ```bash
 curl -s -X DELETE -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
   "$OA_ENDPOINT/v1/browser/tabs/{tab_id}"
