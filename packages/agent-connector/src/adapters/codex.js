@@ -329,7 +329,20 @@ class CodexAdapter extends BaseAdapter {
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
 
-      cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
+      cmd.push('--json', '--skip-git-repo-check');
+
+      // Sandbox / approval policy for this turn. Legacy default (unset)
+      // keeps the historical bypass flag; nodes whose codex policy forbids
+      // it can set CODEX_SANDBOX_MODE=read-only|workspace-write to run
+      // under the codex sandbox instead (issue #774).
+      const sandboxMode = String(
+        (this.agentEnv && this.agentEnv.CODEX_SANDBOX_MODE) || '',
+      ).toLowerCase();
+      if (sandboxMode === 'read-only' || sandboxMode === 'workspace-write') {
+        cmd.push('--sandbox', sandboxMode);
+      } else {
+        cmd.push('--dangerously-bypass-approvals-and-sandbox');
+      }
 
       // Model override
       if (effectiveModel) {
