@@ -136,3 +136,16 @@ it('leaves touch and right-button gestures native and cleans up a cancelled drag
   await act(async () => pointer(row, 'pointermove', 100));
   expect(row.scrollLeft).toBe(120);
 });
+
+it('keeps a shared browser in Artifacts after it leaves the active list', async () => {
+  const url = 'https://www.browserfabric.com/live/closed-session';
+  const messages = [{ sessionId: 'one', senderType: 'agent', senderName: 'scout', messageType: 'chat', content: url }] as any;
+  const opened = vi.fn(); window.addEventListener('workspace:open-artifact', opened);
+  try {
+    await act(async () => root.render(React.createElement(ThreadResources, { messages })));
+    const card = Array.from(host.querySelectorAll('button')).find(el => el.textContent?.includes('threadLiveBrowser.shared'))!;
+    expect(card).toBeTruthy();
+    await act(async () => card.click());
+    expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser', id:url});
+  } finally { window.removeEventListener('workspace:open-artifact', opened); }
+});

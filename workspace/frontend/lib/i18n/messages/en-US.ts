@@ -12,6 +12,8 @@
 
 export const messages = {
   threadLiveBrowser: {
+    shared: 'Shared browser',
+    collapse: 'Return to compact preview',
     title: 'Live browser',
     expand: 'Open full browser',
     minimize: 'Minimize browser preview',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { threadBrowserArtifacts, threadBrowserTabs } from './thread-browser';
+import { browserFabricLiveUrl, browserLinksInText, threadBrowserLinks, threadBrowserArtifacts, threadBrowserTabs } from './thread-browser';
 import type { BrowserTab, WorkspaceMessage } from './types';
 
 const tab = { id: 'openreview', status: 'active', artifactChannels: [], url: 'https://openreview.net/', liveUrl: 'https://www.browserfabric.com/live/session-one', createdBy: 'openagents:bot' } as unknown as BrowserTab;
@@ -32,4 +32,16 @@ describe('browser links from connectors without thread association', () => {
     expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, sessionId: 'other' }])).toEqual([]);
     expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, messageType: 'chat' }])).toEqual([]);
   });
+});
+
+it('accepts only BrowserFabric live-view URLs from prose', () => {
+  const url = 'https://www.browserfabric.com/live/session-1';
+  expect(browserLinksInText(`Watch [here](${url}). Or ${url}?embed=1`)).toEqual([url]);
+  expect(browserLinksInText('`' + url + '`')).toEqual([]);
+  for (const bad of ['https://browserfabric.com.evil.test/live/x', 'http://browserfabric.com/live/x', 'https://user@browserfabric.com/live/x', 'https://browserfabric.com/settings', 'https://browserfabric.com:8443/live/x']) expect(browserFabricLiveUrl(bad)).toBeNull();
+});
+it('keeps the newest live link per agent in this thread, excluding recalled and status messages', () => {
+  const msg = (suffix: string, createdAt: string, extra = {}) => ({ ...message('https://browserfabric.com/live/' + suffix), senderType: 'agent', senderName: 'bot', messageType: 'chat', createdAt, ...extra });
+  const messages = [msg('old', '2026-10-15'), msg('new', '2026-10-16'), msg('recalled', '2026-10-17', {metadata:{recalled:true}}), msg('tool', '2026-10-17', {messageType:'status'}), msg('elsewhere', '2026-10-17', {sessionId:'other'})];
+  expect(threadBrowserLinks(messages, 'paper-review')).toEqual(['https://browserfabric.com/live/new']);
 });
