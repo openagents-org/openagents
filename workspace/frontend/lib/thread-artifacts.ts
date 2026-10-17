@@ -1,5 +1,6 @@
 import { WEB_PROJECT_TYPE } from './web-projects';
 import { shareOrigin } from './share-origin';
+import { browserFabricLiveUrl } from './thread-browser';
 import type { BrowserTab, WorkspaceFile } from './types';
 export type ArtifactReference = { kind: 'file' | 'knowledge' | 'browser'; id: string };
 export type ThreadArtifactSetting = { artifact: ArtifactReference | null; unavailable: boolean; can_pin: boolean };
@@ -41,7 +42,9 @@ export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: Bro
     }
     const file = files.find(f => href === f.filename || decodeURIComponent(url.pathname) === `/v1/files/${f.id}` || decodeURIComponent(url.pathname).endsWith('/' + f.filename));
     if (file && (local || !/^https?:/i.test(href))) return {kind:'file',id:file.id};
-    const tab = tabs.find(t => t.url === url.href);
-    return tab ? {kind:'browser',id:tab.id} : null;
+    const tab = tabs.find(t => t.liveUrl === url.href) || tabs.find(t => t.url === url.href);
+    if (tab) return {kind:'browser',id:tab.id};
+    const live = browserFabricLiveUrl(href);
+    return live ? {kind:'browser',id:live} : null;
   } catch { return null; }
 }

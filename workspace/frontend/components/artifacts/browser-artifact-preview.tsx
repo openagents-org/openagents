@@ -9,10 +9,33 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import type { BrowserTab } from '@/lib/types';
+import { browserFabricLiveUrl } from '@/lib/thread-browser';
 
 export function BrowserArtifactPreview({ tabId, revision }: { tabId: string; revision: number }) {
   const { idToken } = useOpenAgentsAuth();
+  const liveUrl = browserFabricLiveUrl(tabId);
+  if (liveUrl) return <LinkedBrowserPreview key={`${liveUrl}:${revision}:${idToken}`} liveUrl={liveUrl} />;
   return <SavedBrowserPreview key={`${tabId}:${revision}:${idToken}`} tabId={tabId} />;
+}
+
+function LinkedBrowserPreview({ liveUrl }: { liveUrl: string }) {
+  const { browserTabs, workspace } = useWorkspace();
+  const t = useT();
+  const [closed, setClosed] = useState<BrowserTab | null>(null);
+  const [checking, setChecking] = useState(true);
+  const active = browserTabs.find(tab => browserFabricLiveUrl(tab.liveUrl || '') === liveUrl);
+  useEffect(() => {
+    if (active) { setChecking(false); return; }
+    let cancelled = false;
+    setChecking(true);
+    void workspaceApi.listBrowserTabs('closed').then(result => {
+      if (!cancelled) setClosed(result.tabs.find(tab => browserFabricLiveUrl(tab.liveUrl || '') === liveUrl) || null);
+    }).catch(() => {}).finally(() => { if (!cancelled) setChecking(false); });
+    return () => { cancelled = true; };
+  }, [liveUrl, active?.id, workspace?.workspaceId]);
+  if (active || closed) return <SavedBrowserPreview key={(active || closed)!.id} tabId={(active || closed)!.id} />;
+  if (checking) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin" /></div>;
+  return <iframe src={`${liveUrl}?embed=1`} title={t('threadLiveBrowser.shared')} referrerPolicy="no-referrer" className="h-full w-full border-0" allow="clipboard-read; clipboard-write" />;
 }
 
 function SavedBrowserPreview({ tabId }: { tabId: string }) {

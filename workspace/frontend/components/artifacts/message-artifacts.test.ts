@@ -39,3 +39,11 @@ it('opens a new live tab by ID before polling discovers it',async()=>{
   await act(async()=>host.querySelector('button')!.click());
   expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser',id});
 });
+
+it('turns a bare live URL into one browser card even without an active tab', async () => {
+  const url = 'https://www.browserfabric.com/live/shared-session';
+  await act(async () => root.render(React.createElement(MessageArtifacts, { content: `Live view: ${url} and [watch](${url})`, attachedIds: [] })));
+  expect(host.querySelectorAll('button')).toHaveLength(1);
+  await act(async () => host.querySelector('button')!.click());
+  expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser', id:url});
+});

@@ -18,9 +18,11 @@ import { agentLabel } from '@/lib/helpers';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
+import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
+import type { WorkspaceMessage } from '@/lib/types';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
-export function ThreadResources() {
+export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage[] }) {
   const t = useT();
   const collaboration = useThreadCollaboration();
   const [saving, setSaving] = useState(false);
@@ -32,7 +34,8 @@ export function ThreadResources() {
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
-  const browsers = browserTabs.filter(tab => tab.status === 'active' && tab.artifactChannels?.includes(currentSessionId || ''));
+  const browsers = threadBrowserArtifacts(browserTabs, currentSessionId || '', messages);
+  const linkedBrowsers = threadBrowserLinks(messages, currentSessionId || '').filter(url => !resolveThreadBrowserLink(url, browserTabs, currentSessionId || '', messages));
   const artifactRow = useRef<HTMLUListElement>(null);
   const agentRow = useRef<HTMLUListElement>(null);
   const scrollRow = (direction: number) => (active === 'agents' ? agentRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
@@ -40,7 +43,7 @@ export function ThreadResources() {
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
-  const artifactCount = documents.length + browsers.length;
+  const artifactCount = documents.length + browsers.length + linkedBrowsers.length;
   if (!members.length && !artifactCount) return null;
   const active = members.length ? section : 'artifacts';
   const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : members.length) > 1;
@@ -93,6 +96,7 @@ export function ThreadResources() {
               </span>
               <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{tab.title || tab.url}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>
             </button></li>)}
+            {linkedBrowsers.map(url => <li key={url} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: url })} className="flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left hover:bg-muted/50"><span className="flex h-20 w-full items-center justify-center rounded bg-muted"><Globe className="size-7 text-emerald-500" /></span><span className="flex w-full items-center justify-between gap-2 text-xs"><span>{t('threadLiveBrowser.shared')}</span><ArrowUpRight className="size-3 shrink-0" /></span></button></li>)}
             {documents.map(file => <li key={file.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'file', id: file.id })} title={projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)} aria-pressed={selectedArtifact?.kind === 'file' && selectedArtifact.id === file.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
               <FileTile file={file} className="h-16 w-full rounded-md shadow-none" />
               <span className="flex w-full min-w-0 items-center gap-1 px-0.5"><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{projectDisplayName(file.filename.split('/').at(-1) || file.filename, file.contentType)}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></span>

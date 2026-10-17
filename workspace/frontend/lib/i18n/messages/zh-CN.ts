@@ -6,6 +6,8 @@ import type { Messages } from './en-US';
  */
 export const messages: Messages = {
   threadLiveBrowser: {
+    shared: '共享浏览器',
+    collapse: '返回小窗预览',
     title: '实时浏览器',
     expand: '打开完整浏览器',
     minimize: '最小化浏览器预览',

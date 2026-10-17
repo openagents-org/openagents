@@ -1187,9 +1187,9 @@ class WorkspaceApi {
   }
 
   /** List active browser tabs, with the per-kind quota the workspace's key allows. */
-  async listBrowserTabs(): Promise<{ tabs: BrowserTab[]; total: number; limits: BrowserTabLimits | null }> {
+  async listBrowserTabs(status: 'active' | 'closed' = 'active'): Promise<{ tabs: BrowserTab[]; total: number; limits: BrowserTabLimits | null }> {
     const result = await this.request<{ tabs: unknown[]; total: number; limits?: Record<string, unknown> }>(
-      `/v1/browser/tabs?network=${this.workspaceId}`
+      `/v1/browser/tabs?network=${this.workspaceId}${status === 'closed' ? '&status=closed' : ''}`
     );
     return {
       tabs: (result.tabs as Record<string, unknown>[]).map((t) => this.mapTab(t)),
