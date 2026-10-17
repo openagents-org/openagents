@@ -212,9 +212,8 @@ class OpenTabRequest(BaseModel):
     network: str
     source: Optional[str] = "human:user"
     context_id: Optional[str] = None          # open with a persistent context (already logged in)
-    # Open as a *permanent* tab straight away: the session is created as a
-    # BrowserFabric persistent session and a saved context is attached, so
-    # login state is kept without the close-and-reopen swap /persist does.
+    # Compatibility field: cloud tabs are always saved, even if an older
+    # client explicitly sends false. Local browser behavior is unchanged.
     persistent: Optional[bool] = None
     name: Optional[str] = None                # label for the new context (defaults to the hostname)
     # Workspace channel (thread) this tab is being driven for. Optional and
@@ -493,6 +492,24 @@ def _default_context_name(url: Optional[str], title: Optional[str]) -> str:
     return "New tab"
 
 
+async def _attach_saved_context(tab, db, manager, *, name=None):
+    """Attach a real BF context to this tab only after remote saving succeeds."""
+    if tab.context_id or not tab.session_id:
+        return
+    context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab.id)
+    from urllib.parse import urlparse
+    context = BrowserContext(
+        workspace_id=str(tab.workspace_id),
+        name=_unique_context_name(db, str(tab.workspace_id), name or _default_context_name(tab.url, tab.title)),
+        bb_context_id=context_id, domain=urlparse(tab.url or "").hostname,
+        created_by=tab.created_by, shared_with=[],
+    )
+    with db.begin_nested():
+        db.add(context)
+        db.flush()
+    tab.context_id = context.id
+
+
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
     """Ensure the browser tab has a live Playwright page.
 
@@ -607,6 +624,11 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     warnings = result.get("warnings") or []
+    if db is not None and not tab.context_id and manager.is_cloud_for(bf_key):
+        try:
+            await _attach_saved_context(tab, db, manager)
+        except Exception:
+            warnings.append("context_save_failed: retry saving this browser context")
     tab.last_error = "; ".join(warnings) if warnings else None
     _touch(tab)
     # Persist the new session/live_url NOW, in its own transaction. Otherwise a
@@ -673,7 +695,7 @@ async def open_tab(
 
     bf_key, bf_source = await _resolve_bf_key(workspace, db)
 
-    open_as_permanent = bool(body.persistent) and not body.context_id
+    open_as_permanent = (manager.is_cloud_for(bf_key) or bool(body.persistent)) and not body.context_id
 
     # No per-kind quota pre-check here: BrowserFabric enforces one limit on
     # concurrently AWAKE tabs, puts idle tabs to sleep itself to make room,
@@ -723,31 +745,25 @@ async def open_tab(
     # UI can show — and wake up later — even if the session dies.
     new_context = None
     if open_as_permanent:
-        new_bb_context_id = None
-        if manager.is_cloud_for(bf_key) and session_id:
+        if manager.is_cloud_for(bf_key):
             try:
-                new_bb_context_id = await manager.create_bb_context(session_id=session_id, tab_id=tab_id)
-            except Exception as e:
-                warnings.append(f"context_save_failed: {e}")
-                logger.warning("save_context failed for new permanent tab %s: %s", tab_id, e)
-        wanted = body.name or _default_context_name(record.url, record.title)
-        domain = None
-        try:
+                await _attach_saved_context(record, db, manager, name=body.name)
+                new_context = db.get(BrowserContext, record.context_id) if record.context_id else None
+            except Exception:
+                # Keep the remote session tracked, but never invent a context
+                # ID or claim that a failed save succeeded.
+                warnings.append("context_save_failed: retry saving this browser context")
+        else:
             from urllib.parse import urlparse
-            domain = urlparse(record.url or "").hostname
-        except Exception:
-            pass
-        new_context = BrowserContext(
-            workspace_id=str(workspace.id),
-            name=_unique_context_name(db, str(workspace.id), wanted),
-            bb_context_id=new_bb_context_id,
-            domain=domain,
-            created_by=body.source or "human:user",
-            shared_with=[],
-        )
-        db.add(new_context)
-        db.flush()
-        record.context_id = new_context.id
+            new_context = BrowserContext(
+                workspace_id=str(workspace.id),
+                name=_unique_context_name(db, str(workspace.id), body.name or _default_context_name(record.url, record.title)),
+                domain=urlparse(record.url or "").hostname,
+                created_by=body.source or "human:user", shared_with=[],
+            )
+            db.add(new_context)
+            db.flush()
+            record.context_id = new_context.id
         if warnings:
             record.last_error = "; ".join(warnings)
 
@@ -1145,6 +1161,16 @@ async def reconnect_tab(
 
     manager = BrowserManager.get()
 
+    # Capture a legacy tab's current login before replacing its remote session.
+    # This is an on-demand operation on this tab, not a database backfill.
+    if not was_closed and tab.session_id and not tab.context_id:
+        try:
+            old_key = resolve_tab_key(tab, workspace)
+            await manager.reconnect(tab.id, tab.session_id, api_key=old_key)
+            await _attach_saved_context(tab, db, manager)
+        except Exception:
+            return json_response(ResponseCode.BAD_REQUEST, "Could not save the current browser session. Retry before reconnecting to avoid losing login state.")
+
     # Release the old session with ITS OWN credential; if the release can't
     # be confirmed (failure or rotated key), leave a tombstone so the
     # sweeper keeps the old session tracked instead of leaking it.
@@ -1188,6 +1214,11 @@ async def reconnect_tab(
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     warnings = result.get("warnings") or []
+    if db is not None and not tab.context_id and manager.is_cloud_for(bf_key):
+        try:
+            await _attach_saved_context(tab, db, manager)
+        except Exception:
+            warnings.append("context_save_failed: retry saving this browser context")
     tab.last_error = "; ".join(warnings) if warnings else None
     tab.status = "active"
     _touch(tab)
@@ -1650,6 +1681,9 @@ async def unpersist_tab(
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    if tab.session_id or BrowserManager.get().is_cloud_for(_stored_bf_key(workspace)):
+        return json_response(ResponseCode.BAD_REQUEST, "Cloud browser tabs are always saved. Close the tab to stop using it; delete its saved context only when you want to remove its login state.")
 
     if not tab.context_id:
         return json_response(ResponseCode.BAD_REQUEST, "Tab is not persistent")

@@ -224,7 +224,10 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactReference | null>(null);
   const openArtifact = useCallback((artifact: ArtifactReference) => {
-    setSelectedArtifact(artifact); setSplitBrowser(true); setShowBrowserPreview(true); setMobilePane('detail');
+    setSelectedArtifact(artifact);
+    if (artifact.kind !== 'browser') setSplitBrowser(true);
+    setShowBrowserPreview(artifact.kind !== 'browser');
+    setMobilePane('detail');
   }, []);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const openNewThread = () => setNewThreadOpen(true);
