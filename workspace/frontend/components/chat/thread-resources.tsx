@@ -18,7 +18,7 @@ import { agentLabel } from '@/lib/helpers';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
-import { browserFabricLiveUrl, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
+import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
 import type { WorkspaceMessage } from '@/lib/types';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
@@ -35,7 +35,7 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
   const browsers = threadBrowserArtifacts(browserTabs, currentSessionId || '', messages);
-  const linkedBrowsers = threadBrowserLinks(messages, currentSessionId || '').filter(url => !browsers.some(tab => browserFabricLiveUrl(tab.liveUrl || '') === url));
+  const linkedBrowsers = threadBrowserLinks(messages, currentSessionId || '').filter(url => !resolveThreadBrowserLink(url, browserTabs, currentSessionId || '', messages));
   const artifactRow = useRef<HTMLUListElement>(null);
   const agentRow = useRef<HTMLUListElement>(null);
   const scrollRow = (direction: number) => (active === 'agents' ? agentRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });

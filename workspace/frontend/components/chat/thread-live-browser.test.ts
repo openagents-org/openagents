@@ -79,3 +79,11 @@ it('discovers new browser activity while the agent works, and stops when it fini
   await act(async () => vi.advanceTimersByTimeAsync(10000));
   expect(h.ws.refreshBrowserTabs).toHaveBeenCalledTimes(2);
 });
+it('opens the current tab when a selected chat link predates a reconnect', async () => {
+  const id = 'ac86e88a-be87-4c2b-b936-43524957a00d';
+  h.ws.browserTabs = [{ ...tab(id), liveUrl: 'https://www.browserfabric.com/live/new-token' }];
+  h.layout.selectedArtifact = { kind: 'browser', id: 'https://www.browserfabric.com/live/old-token' };
+  const messages = [{ sessionId: 'dm:me,bot', senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'chat', content: h.layout.selectedArtifact.id }] as any;
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(id);
+});

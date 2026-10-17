@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { browserFabricLiveUrl, browserLinksInText, threadBrowserLinks, threadBrowserArtifacts, threadBrowserTabs } from './thread-browser';
+import { resolveThreadBrowserLink, browserFabricLiveUrl, browserLinksInText, threadBrowserLinks, threadBrowserArtifacts, threadBrowserTabs } from './thread-browser';
 import type { BrowserTab, WorkspaceMessage } from './types';
 
 const tab = { id: 'openreview', status: 'active', artifactChannels: [], url: 'https://openreview.net/', liveUrl: 'https://www.browserfabric.com/live/session-one', createdBy: 'openagents:bot' } as unknown as BrowserTab;
@@ -44,4 +44,16 @@ it('keeps the newest live link per agent in this thread, excluding recalled and 
   const msg = (suffix: string, createdAt: string, extra = {}) => ({ ...message('https://browserfabric.com/live/' + suffix), senderType: 'agent', senderName: 'bot', messageType: 'chat', createdAt, ...extra });
   const messages = [msg('old', '2026-10-15'), msg('new', '2026-10-16'), msg('recalled', '2026-10-17', {metadata:{recalled:true}}), msg('tool', '2026-10-17', {messageType:'status'}), msg('elsewhere', '2026-10-17', {sessionId:'other'})];
   expect(threadBrowserLinks(messages, 'paper-review')).toEqual(['https://browserfabric.com/live/new']);
+});
+
+it('follows a rotated link only through an unambiguous stable tab in this thread', () => {
+  const current = { ...tab, id: 'ac86e88a-be87-4c2b-b936-43524957a00d', liveUrl: 'https://www.browserfabric.com/live/new-token' };
+  const oldLink = 'https://www.browserfabric.com/live/old-token';
+  const published = { ...message(oldLink), senderType: 'agent', messageType: 'chat', senderAddress: current.createdBy };
+  const tool = { ...message(`/v1/browser/tabs/${current.id}/snapshot`), senderType: 'agent', messageType: 'status', senderAddress: current.createdBy };
+  expect(resolveThreadBrowserLink(oldLink, [current], 'paper-review', [published, tool])).toEqual(current);
+  expect(resolveThreadBrowserLink(oldLink, [current], 'paper-review', [published])).toBeUndefined();
+  expect(resolveThreadBrowserLink(oldLink, [{...current, artifactChannels:['other']}], 'paper-review', [published, tool])).toBeUndefined();
+  const second = {...current, id:'second', artifactChannels:['paper-review']};
+  expect(resolveThreadBrowserLink(oldLink, [current, second], 'paper-review', [published, tool])).toBeUndefined();
 });

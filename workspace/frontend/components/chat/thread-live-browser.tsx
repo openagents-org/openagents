@@ -8,7 +8,7 @@ import { isAgentActor, tabHasFreshAgentActivity } from '@/components/browser/age
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
-import { browserFabricLiveUrl, threadBrowserLinks, threadBrowserTabs } from '@/lib/thread-browser';
+import { browserFabricLiveUrl, resolveThreadBrowserLink, threadBrowserLinks, threadBrowserTabs } from '@/lib/thread-browser';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import type { WorkspaceMessage } from '@/lib/types';
 
@@ -29,7 +29,8 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   // remain accessible as shared browser artifacts, including closed sessions.
   const link = threadBrowserLinks(messages, currentSessionId || '').find(url => !browserTabs.some(tab =>
     browserFabricLiveUrl(tab.liveUrl || '') === url && tab.artifactChannels?.length && tab.artifactChannels[0] !== currentSessionId));
-  const selected = selectedArtifact?.kind === 'browser' ? selectedArtifact.id : null;
+  const selectedRef = selectedArtifact?.kind === 'browser' ? selectedArtifact.id : null;
+  const selected = selectedRef ? resolveThreadBrowserLink(selectedRef, browserTabs, currentSessionId || '', messages)?.id || selectedRef : null;
   const automatic = tab?.id || link;
   const id = selected || (dismissed !== automatic ? automatic : null);
   const interactive = !!selected || !tab;
