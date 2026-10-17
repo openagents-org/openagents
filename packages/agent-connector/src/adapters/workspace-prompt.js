@@ -51,9 +51,10 @@ function buildBrowserDirective(browserEnabled) {
     '- `mcp__openagents-workspace__workspace_browser_list_tabs`\n' +
     '- `mcp__openagents-workspace__workspace_browser_close`\n' +
     '\n' +
-    'Shared browser tabs are a limited per-workspace resource: close your ' +
-    'tab (`workspace_browser_close`) as soon as you are done with it. Idle ' +
-    'tabs are auto-closed after a few minutes.\n\n' +
+    'All cloud tabs are saved and reusable. List and reuse the current thread tab ' +
+    'by its stable tab ID. Do not close it after a task or to free capacity; ' +
+    'BrowserFabric handles idle sleep. Close only when the user requests it. ' +
+    'Live-view links may expire; refresh the tab to get its current live_url.\n\n' +
     'If you don\'t have these MCP tools, use `Bash` + `curl` against ' +
     '`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n' +
     '**FORBIDDEN — do NOT call any of these:**\n' +
@@ -404,7 +405,11 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'When you open a tab, the JSON response includes an `id` (use it in every ' +
       'later call) and, in the cloud, a `live_url` — a link to the live, ' +
       'interactive view of that tab. Share the `live_url` with the user when ' +
-      'they may want to watch or take over (e.g. a login or a CAPTCHA).\n\n'
+      'they may want to watch or take over (e.g. a login or a CAPTCHA). ' +
+      'All cloud tabs are saved and reusable. List and reuse the current thread tab ' +
+      'by its stable tab ID. Do not close it after a task or to free capacity; ' +
+      'BrowserFabric handles idle sleep. Close only when the user requests it. ' +
+      'If a live_url expires, fetch the current link from the same tab.\n\n'
     );
 
     if (!isPlan) {
@@ -424,11 +429,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `"source":"openagents:${agentName}","channel":"${channelName}"}'\n` +
         `Step 2 — read content: ` +
         `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
-        `Step 3 — close tab: ` +
-        `${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID\n` +
-        '(Replace TAB_ID with the `id` from the step 1 response)\n' +
-        'Tabs are a limited per-workspace resource — always close yours when done; ' +
-        'idle tabs are auto-closed after a few minutes.\n\n'
+        '(Replace TAB_ID with the `id` from the step 1 response)\n\n'
       );
     }
 
@@ -448,11 +449,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         ` ${baseUrl}/v1/browser/tabs` +
         ` -d '{"url":"URL","network":"${workspaceId}",` +
         `"source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
-        'Tabs are **temporary** by default (closed after a while idle). Add ' +
-        '`"persistent":true` (and optionally `"name":"…"`) to open a **permanent** ' +
-        'tab whose login state is saved and reusable — humans see the two kinds ' +
-        'separately in their browser. Permanent slots are scarcer: use them only ' +
-        'for logins worth keeping.\n\n' +
+        'Every cloud tab saves its login state. Keep its id for future work.\n\n' +
         '**Navigate:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/navigate` +
@@ -476,13 +473,13 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         ` -d '{"expression":"document.title","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         'The `source` field is how humans watching the shared browser see *who* is ' +
         'acting — include it and `channel` on every tab action. The workspace automatically posts a live browser preview card in this conversation.\n\n' +
-        '**Close tab:**\n' +
+        '**Close tab (only on user request):**\n' +
         `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
         '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +
         'selector is hard to find, use `evaluate` to inspect the DOM first.\n\n' +
-        '**Persistent logins (contexts):** to reuse cookies/login across tabs ' +
-        'and sessions, save the current tab as a named context, then open ' +
-        'future tabs with that `context_id`:\n' +
+        '**Saved logins (contexts):** cloud tabs already have a saved context. ' +
+        'Reuse the existing tab first. If closed, reopen with its `context_id`; ' +
+        'the persist endpoint can also name or save a legacy tab:\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/persist -d '{"name":"my-login"}'\`\n` +
         `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/contexts?network=${workspaceId}\`` +
