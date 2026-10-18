@@ -35,7 +35,7 @@ trap cleanup EXIT
 docker run -d --name "$candidate" -e NODE_ENV=production \
   -p 127.0.0.1::3000 "$image" >/dev/null
 port="$(docker port "$candidate" 3000/tcp | cut -d: -f2)"
-curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 \
+curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 1 \
   "http://127.0.0.1:$port/login" >/dev/null
 
 # Replace only the frontend service. In particular, preserve the deployed
