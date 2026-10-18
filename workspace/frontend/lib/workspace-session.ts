@@ -9,7 +9,7 @@
 // The rest of the app treats that JWT exactly like a Firebase ID token: it is
 // the `Authorization: Bearer` value, and the backend accepts it as an identity.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = (typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org');
 const STORAGE_KEY = 'oa_workspace_session';
 
 export interface WorkspaceSession {
