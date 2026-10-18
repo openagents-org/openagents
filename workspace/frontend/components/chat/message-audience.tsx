@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Bot, Loader2, UserRound, UsersRound } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Bot, Loader2, UserRound, UsersRound } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogDescription } from '@/components/ui/responsive-dialog';
 import { workspaceApi } from '@/lib/api';
@@ -45,7 +45,7 @@ export function MessageAudience({ message, isSender }: { message: WorkspaceMessa
   if (!audience) return null;
   const label = t(audience === 'human' ? 'routing.toHuman' : audience === 'agent' ? 'routing.toAgent' : 'routing.chooseAgent');
   const Icon = audience === 'human' ? UserRound : audience === 'agent' ? Bot : UsersRound;
-  const style = 'inline-flex size-5 shrink-0 items-center justify-center self-center rounded text-muted-foreground/60 transition-colors';
+  const style = 'inline-flex h-5 shrink-0 items-center justify-center gap-0.5 self-center rounded px-0.5 text-muted-foreground/60 transition-colors';
   async function choose(agent: string) {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
@@ -55,10 +55,10 @@ export function MessageAudience({ message, isSender }: { message: WorkspaceMessa
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { submitting.current = false; setBusy(false); }
   }
-  if (audience !== 'human' || !isSender) return <span className={style} role="img" aria-label={label} title={label}><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></span>;
+  if (audience !== 'human' || !isSender) return <span className={style} role="img" aria-label={label} title={label}><ArrowRight aria-hidden="true" className="size-2.5" strokeWidth={1.6} /><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></span>;
   return <>
     <button type="button" className={`${style} hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-ring`}
-      aria-label={label} title={`${label} · ${t('routing.reclassifyHint')}`} onClick={() => setOpen(true)}><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></button>
+      aria-label={label} title={`${label} · ${t('routing.reclassifyHint')}`} onClick={() => setOpen(true)}><ArrowRight aria-hidden="true" className="size-2.5" strokeWidth={1.6} /><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></button>
     <Dialog open={open} onOpenChange={next => { if (!busy) setOpen(next); }}>
       <DialogContent className="gap-0 overflow-hidden sm:max-w-[400px]">
         <DialogHeader className="space-y-2 border-b px-5 pt-5 pb-4 text-start">
