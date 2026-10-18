@@ -179,6 +179,8 @@ def test_sender_can_reclassify_conversation_once(client, workspace, thread, db, 
         first = reclassify(client, workspace, event)
         assert first.status_code == 200, first.text
         assert reclassify(client, workspace, event).json() == first.json()
+        # A stale picker choosing a different agent must retain the first assignment.
+        assert reclassify(client, workspace, event, agent='agent-alpha').json() == first.json()
         assert invoke.call_count == 1
     dispatched = db.get(EventRecord, first.json()['data']['assignment_event_id'])
     assert dispatched.metadata_['target_agents'] == ['agent-beta']

@@ -41,6 +41,7 @@ it('offers only online thread members and reassigns the original message once', 
   await act(async () => { helper.click(); helper.click(); });
   expect(workspaceApi.resolveRoutingChoice).toHaveBeenCalledExactlyOnceWith('m1', 'helper', true);
   expect(host.querySelector('[aria-label="routing.toAgent"]')).not.toBeNull();
+  expect(host.querySelector('button')).toBeNull();
   expect(host.textContent).toBe('');
 });
 it('shows other senders a noninteractive label', async () => {
@@ -49,4 +50,14 @@ it('shows other senders a noninteractive label', async () => {
   expect(host.querySelector('[aria-label="routing.toHuman"]')).not.toBeNull();
   expect(host.textContent).toBe('');
   expect(host.querySelector('button')).toBeNull();
+});
+
+it('keeps already assigned messages read-only for their sender', async () => {
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(React.createElement(MessageAudience, {
+    message: { ...message, metadata: { routing_choice: { status: 'assigned' } } }, isSender: true,
+  })));
+  expect(host.querySelector('[aria-label="routing.toAgent"]')).not.toBeNull();
+  expect(host.querySelector('button')).toBeNull();
+  expect(workspaceApi.discover).not.toHaveBeenCalled();
 });
