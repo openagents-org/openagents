@@ -37,14 +37,16 @@ it('offers only online thread members and reassigns the original message once', 
   await act(async () => (host.querySelector('button') as HTMLButtonElement).click());
   expect(document.body.textContent).not.toContain('offline');
   expect(document.body.textContent).not.toContain('outsider');
-  const helper = [...document.querySelectorAll('button')].find(button => button.textContent === 'helper')!;
+  const helper = [...document.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'helper')!;
   await act(async () => { helper.click(); helper.click(); });
   expect(workspaceApi.resolveRoutingChoice).toHaveBeenCalledExactlyOnceWith('m1', 'helper', true);
-  expect(host.textContent).toBe('routing.toAgent');
+  expect(host.querySelector('[aria-label="routing.toAgent"]')).not.toBeNull();
+  expect(host.textContent).toBe('');
 });
 it('shows other senders a noninteractive label', async () => {
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(React.createElement(MessageAudience, { message, isSender: false })));
-  expect(host.textContent).toBe('routing.toHuman');
+  expect(host.querySelector('[aria-label="routing.toHuman"]')).not.toBeNull();
+  expect(host.textContent).toBe('');
   expect(host.querySelector('button')).toBeNull();
 });

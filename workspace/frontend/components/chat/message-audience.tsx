@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ArrowUpRight, Bot, Loader2, UserRound, UsersRound } from 'lucide-react';
+import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogDescription } from '@/components/ui/responsive-dialog';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -42,7 +44,8 @@ export function MessageAudience({ message, isSender }: { message: WorkspaceMessa
   const audience = assigned ? 'agent' : messageAudience(message);
   if (!audience) return null;
   const label = t(audience === 'human' ? 'routing.toHuman' : audience === 'agent' ? 'routing.toAgent' : 'routing.chooseAgent');
-  const style = 'rounded px-1 text-[10px] font-normal text-muted-foreground/70';
+  const Icon = audience === 'human' ? UserRound : audience === 'agent' ? Bot : UsersRound;
+  const style = 'inline-flex size-5 shrink-0 items-center justify-center self-center rounded text-muted-foreground/60 transition-colors';
   async function choose(agent: string) {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
@@ -52,19 +55,26 @@ export function MessageAudience({ message, isSender }: { message: WorkspaceMessa
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { submitting.current = false; setBusy(false); }
   }
-  if (audience !== 'human' || !isSender) return <span className={style}>{label}</span>;
+  if (audience !== 'human' || !isSender) return <span className={style} role="img" aria-label={label} title={label}><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></span>;
   return <>
     <button type="button" className={`${style} hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-ring`}
-      title={t('routing.reclassifyHint')} onClick={() => setOpen(true)}>{label}</button>
+      aria-label={label} title={`${label} · ${t('routing.reclassifyHint')}`} onClick={() => setOpen(true)}><Icon aria-hidden="true" className="size-3" strokeWidth={1.6} /></button>
     <Dialog open={open} onOpenChange={next => { if (!busy) setOpen(next); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>{t('routing.title')}</DialogTitle><DialogDescription>{t('routing.reclassifyHint')}</DialogDescription></DialogHeader>
-        <DialogBody className="space-y-2">
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          {!options && !error && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
-          {options?.map(agent => <button key={agent.name} type="button" disabled={busy}
-            className="block w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50" onClick={() => void choose(agent.name)}>{agent.label}</button>)}
-          {options?.length === 0 && <p className="text-sm text-muted-foreground">{t('routing.noOnlineAgents')}</p>}
+      <DialogContent className="gap-0 overflow-hidden sm:max-w-[400px]">
+        <DialogHeader className="space-y-2 border-b px-5 pt-5 pb-4 text-start">
+          <DialogTitle className="pr-7 text-base leading-6">{t('routing.assignTitle')}</DialogTitle>
+          <DialogDescription className="pr-5 text-xs leading-5">{t('routing.assignHint')}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-1 p-2 pb-3">
+          {error && <p role="alert" className="px-3 py-2 text-xs text-destructive">{error}</p>}
+          {!options && !error && <div className="flex items-center gap-2 px-3 py-6 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t('common.loading')}</div>}
+          {options?.map(agent => <button key={agent.name} type="button" disabled={busy} aria-label={agent.label}
+            className="group flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" onClick={() => void choose(agent.name)}>
+            <AgentAvatar name={agent.name} size={32} />
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{agent.label}</span><span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-emerald-500/80" />{t('routing.onlineInThread')}</span></span>
+            {busy ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin text-muted-foreground" /> : <ArrowUpRight aria-hidden="true" className="size-4 text-muted-foreground/40 transition-colors group-hover:text-foreground" />}
+          </button>)}
+          {options?.length === 0 && <p className="px-3 py-6 text-center text-xs text-muted-foreground">{t('routing.noOnlineAgents')}</p>}
         </DialogBody>
       </DialogContent>
     </Dialog>
