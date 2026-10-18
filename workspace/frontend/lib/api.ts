@@ -1558,9 +1558,9 @@ class WorkspaceApi {
     return this.request(`/v1/events/${encodeURIComponent(messageId)}/recall?network=${encodeURIComponent(this.requireWorkspace())}`, { method: 'POST' });
   }
 
-  async resolveRoutingChoice(messageId: string, agent: string | null): Promise<{ status: string; agent?: string }> {
+  async resolveRoutingChoice(messageId: string, agent: string | null, reclassify = false): Promise<{ status: string; agent?: string }> {
     return this.request(`/v1/events/${encodeURIComponent(messageId)}/routing?network=${encodeURIComponent(this.requireWorkspace())}`, {
-      method: 'POST', body: JSON.stringify({ agent }),
+      method: 'POST', body: JSON.stringify({ agent, ...(reclassify ? { reclassify: true } : {}) }),
     });
   }
 

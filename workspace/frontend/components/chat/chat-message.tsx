@@ -22,6 +22,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
 import { ReplyCitation, type ReplyCitationData } from './reply-citation';
+import { MessageAudience } from './message-audience';
 import { RoutingChoiceCard } from './routing-choice-card';
 import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
@@ -251,6 +252,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
+              {!approval && <MessageAudience message={message} isSender={isCurrentUser} />}
               {/* v1.1 M5 — information vs execution in directed threads */}
               {message.metadata?.informational === true && (
                 <span
