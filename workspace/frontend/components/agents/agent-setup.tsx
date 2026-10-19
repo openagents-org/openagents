@@ -487,6 +487,7 @@ export function AgentSetup({
   // never sent it.
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState(editAgent?.model ?? '');
+  const [codexWireApi, setCodexWireApi] = useState<'responses' | 'chat'>(editAgent ? (editAgent.codexWireApi || 'chat') : 'responses');
   // When editing an agent that has a key on the node, open the credentials
   // section up front so the masked key (and the keep-if-blank rule) is visible
   // — otherwise the collapsed section reads as "no key saved".
@@ -600,6 +601,9 @@ export function AgentSetup({
       : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState('');
+  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || editAgent?.baseUrlHost);
+  const launcherParts = (node.launcherVersion || '').replace(/^v/, '').split('.').map(Number);
+  const supportsCodexMode = launcherParts[0] > 0 || launcherParts[1] > 2 || (launcherParts[1] === 2 && launcherParts[2] >= 197);
   const [byokCustomModel, setByokCustomModel] = useState(false);
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
@@ -696,6 +700,7 @@ export function AgentSetup({
     // while the agent kept running its old/default OpenAI model.
     if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
     if (byok && byokAccessId && !model.trim()) { setError(t('connect.byokChooseModel')); return; }
+    if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
     const nativeConfig = Object.fromEntries(
@@ -706,7 +711,10 @@ export function AgentSetup({
       setError(t('connect.nodeNativeCredRequired', { field: missingNative.name }));
       return;
     }
-    const configArg = Object.keys(nativeConfig).length ? { config: nativeConfig } : {};
+    const configArg = {
+      ...(Object.keys(nativeConfig).length ? { config: nativeConfig } : {}),
+      ...(customCodex ? { codexWireApi } : {}),
+    };
     submitting.current = true;
     setError(null);
     setBusy(true);
@@ -1045,6 +1053,23 @@ export function AgentSetup({
                   pickAccess(entry.id);
                 },
               })}
+            </div>
+          )}
+
+          {customCodex && (
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">{t('connect.codexMode')}</Label>
+              <Select value={codexWireApi} onValueChange={(v) => setCodexWireApi(v as 'responses' | 'chat')}>
+                <SelectTrigger aria-label={t('connect.codexMode')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="responses">{t('connect.codexModeResponses')}</SelectItem>
+                  <SelectItem value="chat">{t('connect.codexModeChat')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className={cn('text-xs', codexWireApi === 'chat' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                {t(codexWireApi === 'chat' ? 'connect.codexModeChatHint' : 'connect.codexModeResponsesHint')}
+              </p>
+              {codexWireApi === 'responses' && !supportsCodexMode && <p role="alert" className="text-xs text-destructive">{t('connect.codexModeUpdate')}</p>}
             </div>
           )}
 
