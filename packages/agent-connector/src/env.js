@@ -155,6 +155,9 @@ function isCliLogin(agentEnv) {
  */
 const NATIVE_CREDENTIALS = {
   codex: ['CODEX_API_KEY'],
+  // MiMo Code reads a key for its built-in provider from XIAOMI_API_KEY; a
+  // signed-in agent must run on the sign-in, not on that.
+  'mimo-code': ['XIAOMI_API_KEY'],
   gemini: ['GOOGLE_GEMINI_BASE_URL'],
   antigravity: ['GOOGLE_GEMINI_BASE_URL'],
 };

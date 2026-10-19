@@ -17,6 +17,11 @@ import {
   CODEBUDDY_SESSION_FILES,
   codebuddySessionMatchesRegion,
 } from "./codebuddy-signin"
+import {
+  MIMO_AUTH_FILE,
+  MIMO_AUTH_XDG_PATH,
+  mimoHasXiaomiSignIn,
+} from "./mimo-signin"
 import { OPENCODE_AUTH_FILE, opencodeHasProvider } from "./opencode-signin"
 
 /**
@@ -382,7 +387,11 @@ export interface HostedLoginSpec {
   // tried in order; the first hit wins. `key` names a JSON field that has to
   // hold a value. Without it the file only has to exist — unless the spec has a
   // `credsGuard`, which then reads the whole (non-empty) document instead.
-  credsFiles?: Array<{ path: string; key?: string }>
+  //
+  // `xdgDataPath` is for a CLI that keeps the file in the XDG data directory
+  // and follows XDG_DATA_HOME when it is set (MiMo Code): the file is then
+  // looked for there, under that relative path, and `path` is the default.
+  credsFiles?: Array<{ path: string; key?: string; xdgDataPath?: string }>
   /**
    * An extra condition on a creds file that was found and parsed, for a CLI
    * that keeps ONE session covering several services. CodeBuddy is the case:
@@ -734,6 +743,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
+  "mimo-code": {
+    // MiMo Code signs in with a Xiaomi account: `mimo providers login -p
+    // xiaomi` opens the MiMo platform's authorize page, and the platform hands
+    // the CLI an API key of its own, stored under `xiaomi` in MiMo's auth.json
+    // (see mimo-signin.ts). `-p xiaomi` skips the provider picker, so the
+    // login pipes: the in-app flow shows the URL and takes the code the page
+    // gives back (LAUNCHER_OPENS_LOGIN_URL). There is no status command, so
+    // sign-in is read off disk like OpenCode's. The registry's LLM_* fields are
+    // already optional, which leaves the key as the alternative.
+    loginCommand: "mimo providers login -p xiaomi",
+    statusArgs: [],
+    credsFiles: [{ path: MIMO_AUTH_FILE, key: "xiaomi", xdgDataPath: MIMO_AUTH_XDG_PATH }],
+    credsGuard: mimoHasXiaomiSignIn,
+  },
   cline: {
     // `cline auth` is interactive — it asks which provider, then takes the
     // credential — and there is no `cline auth status` to ask afterwards, so
@@ -1016,6 +1039,18 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // MiMo Code (`mimo-code`): Xiaomi's terminal coding agent, installed by
+  // Xiaomi's own script into ~/.mimocode/bin (binary `mimo`). Like CodeArts it
+  // is OpenCode underneath and the core adapter extends OpenCodeAdapter. It
+  // runs on a Xiaomi-account sign-in (DUAL_LOGIN_AGENTS above) or the
+  // registry's LLM_* fields — a MiMo API key with the prefilled base URL, or
+  // any OpenAI-compatible endpoint. See docs/agents/mimo-code.md.
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it here
+  // only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the mimo-code adapter
+  // degrades to "unsupported" rather than a broken install.
+  "mimo-code",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

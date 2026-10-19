@@ -137,8 +137,14 @@ export function credsVerdict(
   env: Record<string, string> = {},
 ): boolean | null {
   let value: boolean | null = false
+  // The agent's own setting first, then the environment the launcher (and so
+  // the daemon and the CLI it spawns) runs in.
+  const dataHome = (env.XDG_DATA_HOME || process.env.XDG_DATA_HOME || "").trim()
   for (const c of spec.credsFiles || []) {
-    const file = path.join(homeDir, c.path)
+    const file =
+      c.xdgDataPath && dataHome && path.isAbsolute(dataHome)
+        ? path.join(dataHome, c.xdgDataPath)
+        : path.join(homeDir, c.path)
     try {
       if (!fs.existsSync(file)) continue
       // Existence is the whole check unless something has to be read out of
