@@ -2013,7 +2013,7 @@ function CloudAgentsTab({
 // browser they happen to be in.
 const WELCOME_FILM_SEEN_KEY = 'oa:welcomeFilmSeen';
 
-export function FirstRunOnboarding() {
+export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {}) {
   const t = useT();
   const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
@@ -2079,6 +2079,7 @@ export function FirstRunOnboarding() {
 
   return (
     <NodeOnboardingStep
+      onDismiss={onDismiss}
       footer={
         <div className="pt-4 text-center space-y-2">
           {/* Onboarding-only: replay the welcome slides (gone once agents exist,
@@ -2158,13 +2159,13 @@ function OnboardingSteps({ current, thisComputer = false }: { current: number; t
  * install options, and the live "waiting" indicator (no tabs, no empty state).
  * Once a device connects it advances to step 3 (add an agent).
  */
-function NodeOnboardingStep({ footer }: { footer?: React.ReactNode }) {
+function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; onDismiss?: () => void }) {
   const host = desktopHost();
   const { workspace } = useWorkspace();
   const [otherDevice, setOtherDevice] = useState(false);
   const [connectedNodeId, setConnectedNodeId] = useState<string | null>(null);
   // Older preload versions can briefly coexist with an updated bundle in dev.
-  if (!host?.getComputerStatus || !workspace) return <RemoteNodeOnboardingStep footer={footer} />;
+  if (!host?.getComputerStatus || !workspace) return <RemoteNodeOnboardingStep footer={footer} onBack={onDismiss} />;
   if (connectedNodeId) return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-hidden"><ConnectAgentView initialTab="node" autoAddAgent preferredNodeId={connectedNodeId} /></div>
