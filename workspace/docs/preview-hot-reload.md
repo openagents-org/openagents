@@ -1,36 +1,26 @@
-# Collaboration preview hot reload
+# Preview frontend deployment
 
-The preview at https://workspace-preview.openagents.org runs the frontend with
-`next dev --webpack --hostname 0.0.0.0 --port 3000` in the existing frontend image.
-Docker builds are not part of the UI iteration workflow.
+Preview now serves an optimized Next.js build. The former development server
+served very large uncached bundles and made workspace startup appear stuck.
+Editable sources still live on the preview host, but changes require a build.
 
-After editing frontend files, run from this checkout:
+From `codex/preview`, run:
 
 ```sh
 bash workspace/scripts/sync-preview-frontend.sh
 ```
 
-Source changes are synced to `/opt/openagents-preview/repo/workspace/frontend`
-on `root@164.92.127.159`. The container mounts that directory at `/app`; dedicated
-volumes preserve Linux dependencies and the development cache. Nginx forwards
-the development WebSocket, so connected pages receive hot updates.
+This synchronizes frontend sources (excluding secrets, dependencies and caches),
+builds a versioned image with preview-specific public configuration, checks its
+login page on a loopback-only candidate port, and replaces only the frontend.
+The deployed backend image, jobs and database settings are preserved. Nginx is
+reloaded after replacement. Failed deployment checks restore the previous
+Compose configuration from `/opt/openagents-preview/backups/frontend-<release>`.
+Old images are retained for rollback. Source files deleted or renamed locally
+must also be removed from the host before building.
 
-The server's `/opt/openagents-preview/docker-compose.override.yml` enables this
-mode automatically. Do not run `docker compose build` for UI changes. Run focused
-local checks; save production builds for explicit release checkpoints. Browser
-verification is not required for routine iterations.
+Do not return the public preview to `next dev` or mount a development `.next`
+cache into the optimized server. Local development can continue using `npm run dev`.
 
-The sync excludes environment files, dependencies, caches, and logs. It does not
-delete remote files; remove a renamed or deleted source file explicitly on the
-preview as part of that change. If dependencies change, sync the lockfile, run
-`docker compose exec frontend npm ci` on the server, then restart only frontend.
-Backend source (`app` and `alembic`) is also mounted from the preview checkout.
-For backend edits, sync only the changed source files, run focused tests in an
-isolated container, apply any migration with the existing image, then recreate
-only backend using `docker compose up -d --no-deps --no-build backend` and reload
-nginx. No Docker build is needed for source-only backend changes either.
-
-The existing production image is retained. To return to it, move the override
-file aside, recreate frontend with `docker compose up -d --no-deps --no-build
-frontend`, and reload nginx. Configuration backups are under
-`/opt/openagents-preview/backups`.
+See [preview-production-data.md](preview-production-data.md) for backend rules:
+preview shares production data, and deployments must not run migrations.

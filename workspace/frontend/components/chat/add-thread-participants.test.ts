@@ -25,7 +25,12 @@ beforeEach(() => {
     { email: 'joined@example.com', displayName: 'Already Joined' },
     { email: 'sam@example.com', displayName: 'Sam' },
   ] as Awaited<ReturnType<typeof workspaceApi.getTeam>>);
-  vi.mocked(workspaceApi.discover).mockResolvedValue({ agents: [{ address: 'openagents:existing-bot' }, { address: 'openagents:helper' }] } as Awaited<ReturnType<typeof workspaceApi.discover>>);
+  vi.mocked(workspaceApi.discover).mockResolvedValue({ agents: [
+    { address: 'openagents:existing-bot', status: 'online' },
+    { address: 'openagents:helper', status: 'online' },
+    { address: 'openagents:offline-bot', status: 'offline' },
+    { address: 'openagents:unknown-bot' },
+  ] } as Awaited<ReturnType<typeof workspaceApi.discover>>);
   vi.mocked(workspaceApi.inviteHumanToChannel).mockResolvedValue({ added: true, email: 'sam@example.com' });
   vi.mocked(workspaceApi.addChannelParticipant).mockResolvedValue();
 });
@@ -46,6 +51,9 @@ it('shows the roster immediately, excludes existing members, and adds selected p
   expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(2);
   expect(document.body.textContent).not.toContain('Already Joined');
   expect(document.body.textContent).not.toContain('existing-bot');
+  expect(document.body.textContent).not.toContain('offline-bot');
+  expect(document.body.textContent).not.toContain('unknown-bot');
+  expect(button('newThread.agents').textContent).toBe('newThread.agents 1');
   await act(async () => button('Sam').click());
   await act(async () => button('helper').click());
   await act(async () => button('newThread.selected').click());

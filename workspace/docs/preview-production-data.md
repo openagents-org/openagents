@@ -8,7 +8,7 @@ Preview feature branch: **`codex/preview`**, based on deployed production commit
 - Production configuration source: the running backend on `134.199.221.208`.
 - Database: managed PostgreSQL, **`openagents_workspace`**, revision **`083`** at cutover. The provider's `defaultdb` is not the application's database.
 - Backend image: `openagents-backend:release-8eeea530d70c39ca67b25c12b111518330542fc4`, copied from the production host without rebuilding it.
-- Frontend: existing preview development server with editable sources synchronized from `codex/preview`. Production itself is not redeployed by this switch.
+- Frontend: optimized Next.js image built from editable sources synchronized from `codex/preview`. The sync script builds and verifies a candidate before replacing the preview frontend; see [preview-hot-reload.md](preview-hot-reload.md). Production itself is not redeployed by this switch.
 - Credentials: `/opt/openagents-preview/secrets/production-beta.env`, readable only by root. Authentication and file storage configuration match production. No credentials belong in this repository.
 - Background jobs and automatic migrations: disabled/absent in preview. The backend pool is capped at 12 connections total (two workers, six connections each, no overflow).
 - Valkey: disabled in preview because the preview host cannot reach the managed endpoint. The backend supports operation without the cache. Do not open production firewall access or change cache configuration without reviewing the proposed change.

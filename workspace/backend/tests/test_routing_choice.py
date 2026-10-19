@@ -157,3 +157,53 @@ def test_old_continuation_choice_cannot_restart_work(client, workspace, thread, 
     with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
         assert resolve(client, workspace, event).status_code == 409
         invoke.assert_not_called()
+
+
+def reclassify(client, ws, event, user='ann', agent='agent-beta'):
+    return client.post(f"/v1/events/{event['id']}/routing?network={ws['id']}", headers=_bearer(user), json={'agent': agent, 'reclassify': True})
+
+
+@pytest.mark.parametrize('dismissed', [False, True])
+def test_sender_can_reclassify_conversation_once(client, workspace, thread, db, dismissed):
+    event = post(client, workspace, thread)
+    original = db.get(EventRecord, event['id'])
+    metadata = dict(original.metadata_)
+    if dismissed:
+        metadata['routing_choice'] = {**metadata['routing_choice'], 'status': 'dismissed'}
+    else:
+        metadata.pop('routing_choice')
+    metadata['routing_decision'] = 'stop'
+    original.metadata_ = metadata
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        first = reclassify(client, workspace, event)
+        assert first.status_code == 200, first.text
+        assert reclassify(client, workspace, event).json() == first.json()
+        # A stale picker choosing a different agent must retain the first assignment.
+        assert reclassify(client, workspace, event, agent='agent-alpha').json() == first.json()
+        assert invoke.call_count == 1
+    dispatched = db.get(EventRecord, first.json()['data']['assignment_event_id'])
+    assert dispatched.metadata_['target_agents'] == ['agent-beta']
+    assert dispatched.payload['content'] == event['payload']['content']
+    assert dispatched.payload['attachments'] == event['payload']['attachments']
+
+
+@pytest.mark.parametrize('change,code', [('other-sender', 403), ('offline', 403), ('left', 403), ('unshared', 403), ('recalled', 409), ('already-routed', 409), ('approval', 409)])
+def test_reclassify_checks_current_eligibility(client, workspace, thread, db, change, code):
+    event = post(client, workspace, thread)
+    original = db.get(EventRecord, event['id'])
+    metadata = dict(original.metadata_)
+    metadata.pop('routing_choice')
+    beta = db.get(WorkspaceMember, (workspace['id'], 'agent-beta'))
+    if change == 'offline': beta.status = 'offline'
+    if change == 'left': db.delete(db.get(ChannelMember, (thread.id, 'agent-beta')))
+    if change == 'unshared': beta.owner_email = 'ben@acme.test'
+    if change == 'recalled': metadata['recalled'] = True
+    if change == 'already-routed': metadata['target_agents'] = ['agent-alpha']
+    if change == 'approval': metadata['approval_id'] = 'pending'
+    original.metadata_ = metadata
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        response = reclassify(client, workspace, event, user='ben' if change == 'other-sender' else 'ann')
+        assert response.status_code == code, response.text
+        invoke.assert_not_called()
