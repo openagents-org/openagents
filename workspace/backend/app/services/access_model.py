@@ -555,6 +555,41 @@ def resource_for_agent(member: WorkspaceMember) -> Resource:
     return Resource("agent", member.agent_name, owner, None, obj=member)
 
 
+def _builtin_assistant_names(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
+    """The server-managed assistant is a workspace service, not a private agent.
+
+    Check both the provisioned member and its server-managed config; an agent
+    merely calling itself Yumi or declaring a cloud type must not qualify.
+    This grants use only, never management or access to other resources.
+    """
+    from app.models import CloudAgentConfig
+    from app.services.yumi import YUMI_AGENT_NAME, YUMI_AGENT_TYPE, YUMI_PROVIDER
+    wid = str(workspace_id)
+    if principal.workspace_id != wid:
+        return set()
+    if principal.kind == "human":
+        ws = db.get(Workspace, wid)
+        if not principal.email or ws is None or not role_for_email(db, ws, principal.email):
+            return set()
+    elif principal.kind == "agent":
+        caller = db.get(WorkspaceMember, (wid, principal.agent_name))
+        if caller is None or caller.status == "removed":
+            return set()
+    else:
+        return set()
+    return set(db.execute(select(WorkspaceMember.agent_name).join(
+        CloudAgentConfig,
+        (CloudAgentConfig.workspace_id == WorkspaceMember.workspace_id)
+        & (CloudAgentConfig.agent_name == WorkspaceMember.agent_name),
+    ).where(
+        WorkspaceMember.workspace_id == wid,
+        WorkspaceMember.agent_name == YUMI_AGENT_NAME,
+        WorkspaceMember.agent_type == YUMI_AGENT_TYPE,
+        WorkspaceMember.status != "removed",
+        CloudAgentConfig.provider == YUMI_PROVIDER,
+    )).scalars().all())
+
+
 def resource_for_file(record: FileRecord) -> Resource:
     owner = record.owner or record.uploaded_by
     vis = normalize_visibility(record.visibility, None)
@@ -802,6 +837,10 @@ def explain(db: Session, principal: Principal, resource: Resource, right: str = 
     if _owner_matches(db, wid, principal, resource.owner):
         return Explanation(True, "owner", "You own this.")
 
+    if (resource.kind == "agent" and resource.id == "yumi" and right in ("read", "act")
+            and resource.id in _builtin_assistant_names(db, wid, principal)):
+        return Explanation(True, "builtin", "The built-in assistant is available in your workspace.")
+
     if resource.visibility == "public" and right in ("read", "act"):
         return Explanation(True, "public", "This is public to everyone in the workspace.")
 
@@ -963,6 +1002,8 @@ def hidden_agent_names(db: Session, workspace_id: str, principal: Principal,
     if principal.kind == "agent" and principal.owner_email:
         emails.add(principal.owner_email)
     granted: Set[str] = thread_shared_agent_names(db, wid, principal)
+    if any(m.agent_name == "yumi" for m in members):
+        granted.update(_builtin_assistant_names(db, wid, principal))
     pairs = _identity_pairs(db, wid, principal)
     for g in grants_for_pairs(db, wid, pairs, "agent", [m.agent_name for m in members]):
         if _has_right(g.rights, "read"):

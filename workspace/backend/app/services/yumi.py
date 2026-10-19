@@ -225,7 +225,7 @@ def seed_welcome_thread(db, workspace) -> bool:
     import time
     import uuid
 
-    from app.models import Channel, ChannelMember, EventRecord
+    from app.models import Channel, ChannelHumanMember, ChannelMember, EventRecord
 
     if not should_provision():
         return False
@@ -244,11 +244,14 @@ def seed_welcome_thread(db, workspace) -> bool:
         title="Welcome",
         created_by=YUMI_AGENT_NAME,
         master_agent=YUMI_AGENT_NAME,
+        owner_email=workspace.creator_email,
         status="active",
     )
     db.add(channel)
     db.flush()
     db.add(ChannelMember(channel_id=channel.id, agent_name=YUMI_AGENT_NAME))
+    if workspace.creator_email:
+        db.add(ChannelHumanMember(channel_id=channel.id, user_email=workspace.creator_email.strip().lower()))
 
     # Persist the greeting directly (same shape as a pipeline-posted Yumi chat
     # message). No SSE publish needed: the workspace was created milliseconds
