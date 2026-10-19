@@ -112,7 +112,7 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         // silently and a nonexistent slug looked like a working (empty)
         // workspace. Probe existence so a typo'd link and a membership gap
         // get distinct, explicit error screens instead.
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+        const apiUrl = (typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org');
         const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
         if (cancelled) return;
         setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });

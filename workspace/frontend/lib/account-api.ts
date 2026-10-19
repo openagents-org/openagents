@@ -4,7 +4,7 @@
 // access into memberships and auto-provisions an empty workspace for brand-new
 // users, so a freshly signed-in user always has at least one entry.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = (typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org');
 
 export interface AccountWorkspace {
   workspaceId: string;

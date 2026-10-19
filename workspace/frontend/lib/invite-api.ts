@@ -3,7 +3,7 @@
 // invitee has no workspace credentials yet — the invite token is the only
 // secret, and accepting authenticates with their identity bearer alone.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = (typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org');
 
 /** What the accept page may show before (and without) login. */
 export interface InvitePeek {
