@@ -1,3 +1,4 @@
+import { getApiBaseUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -77,7 +78,7 @@ import type {
 } from './types';
 import { eventToMessage } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 /** Deadline for the static catalogs the Connect Agent view loads (and retries). */
 const CATALOG_TIMEOUT_MS = 15_000;
 

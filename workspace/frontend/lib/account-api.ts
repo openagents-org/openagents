@@ -1,10 +1,11 @@
+import { getApiBaseUrl } from '@/lib/api-base';
 // Membership Home API — the signed-in user's workspaces, keyed to their
 // verified identity (Firebase/Apple bearer), served by the workspace backend's
 // GET /v1/account/workspaces. That endpoint also reconciles legacy email-based
 // access into memberships and auto-provisions an empty workspace for brand-new
 // users, so a freshly signed-in user always has at least one entry.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 
 export interface AccountWorkspace {
   workspaceId: string;
