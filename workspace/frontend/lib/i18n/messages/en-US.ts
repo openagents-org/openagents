@@ -386,7 +386,7 @@ export const messages = {
 
   yumiGuide: {
     title: 'Yumi can help you get set up',
-    itemConnect: 'Connect a device — Yumi generates a pairing code and walks you through it',
+    itemConnect: 'Connect a device — Yumi guides you to your private pairing code in Connect Agent',
     itemAgents: 'Add agents — local ones (Claude Code, Codex, Gemini CLI…) on your devices, or cloud agents',
     itemManage: 'Manage agents on connected devices — install, start, or stop them remotely',
     itemDebug: 'Debug connections — find out why an agent or device isn’t responding',

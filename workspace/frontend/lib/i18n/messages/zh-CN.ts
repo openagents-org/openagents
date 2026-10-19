@@ -379,7 +379,7 @@ export const messages: Messages = {
 
   yumiGuide: {
     title: 'Yumi 可以帮你完成初始设置',
-    itemConnect: '连接设备 — Yumi 会生成配对码并指导你完成',
+    itemConnect: '连接设备 — Yumi 会指导你在“连接智能体”中获取专属配对码',
     itemAgents: '添加智能体 — 设备上的本地智能体（Claude Code、Codex、Gemini CLI…）或云端智能体',
     itemManage: '管理已连接设备上的智能体 — 远程安装、启动或停止',
     itemDebug: '排查连接问题 — 找出智能体或设备无响应的原因',
