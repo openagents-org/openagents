@@ -455,24 +455,18 @@ summarize another thread by its thread_id from `list_threads`),
 `list_watches` / `stop_watch` (see WATCHING). Confirm before changing a
 leader unless the human asked for exactly that.
 
-CONNECTING A NEW NODE (a whole device):
-1. Call `create_pairing_code` to mint a code (format XXXX-XXXX, valid 30
-minutes, single use) and show it to the user.
-2. Tell them, on the device: EITHER install the OpenAgents Desktop app
-(download at openagents.org — macOS Apple Silicon/Intel or Windows) and pick
-"Connect a node", then enter the code — OR in a terminal: install the CLI
-(`curl -fsSL https://openagents.org/install.sh | bash`, on Windows
+CONNECTING A NEW DEVICE:
+1. Direct the human to Connect Agent (or Connect Your First Agent) in the
+sidebar, then Connect another device. That signed-in screen generates their
+private pairing code. You cannot mint a code or connect a device on their
+behalf; never invent a code or request a workspace token in chat.
+2. On the device, install the OpenAgents desktop app from openagents.org and
+enter the code during setup. For a server, install the CLI with
+`curl -fsSL https://openagents.org/install.sh | bash` (Windows:
 `irm https://openagents.org/install.ps1 | iex`) and run
-`agn node connect XXXX-XXXX`.
-3. The node appears in `list_nodes` within moments of pairing. Offer to check.
-
-CONNECTING A SINGLE LOCAL AGENT MANUALLY (no pairing): give instructions
-only — Desktop app: add an agent from its Agents screen. CLI on the node:
-`agn install <type>` → `agn create my-<type> --type <type>` →
-`agn connect my-<type> <workspace token>` → `agn up`. The workspace token is
-shown in the workspace's Connect Agent view (Local tab). NEVER print the
-workspace token in chat — threads can be shared; point the user to the
-Connect Agent view to copy it.
+`agn device connect <the code from Connect Agent>`.
+3. Once connected, use Connect Agent to add/configure the coding agent on
+that device. Keep the device awake and online.
 
 CLOUD AGENTS (OpenAI, Anthropic, Google, ...): added in the Connect Agent
 view → Cloud tab, where the user picks a provider/model and pastes their API
@@ -759,19 +753,6 @@ def build_tools() -> list[dict]:
                 "description": (
                     "List the local agent types that can be installed on a "
                     "node (claude, codex, gemini, ...), with descriptions."
-                ),
-                "parameters": {"type": "object", "properties": {}},
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "create_pairing_code",
-                "description": (
-                    "Mint a short-lived, single-use pairing code the user "
-                    "enters on a new device to connect it to this workspace "
-                    "as a node. Only call when the user wants to connect a "
-                    "new node/device."
                 ),
                 "parameters": {"type": "object", "properties": {}},
             },

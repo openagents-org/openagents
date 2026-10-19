@@ -379,7 +379,7 @@ export const messages: Messages = {
 
   yumiGuide: {
     title: 'Yumi 可以帮你完成初始设置',
-    itemConnect: '连接设备 — Yumi 会生成配对码并指导你完成',
+    itemConnect: '连接设备 — Yumi 会指导你在“连接智能体”中获取专属配对码',
     itemAgents: '添加智能体 — 设备上的本地智能体（Claude Code、Codex、Gemini CLI…）或云端智能体',
     itemManage: '管理已连接设备上的智能体 — 远程安装、启动或停止',
     itemDebug: '排查连接问题 — 找出智能体或设备无响应的原因',
@@ -388,12 +388,12 @@ export const messages: Messages = {
     collapsedHint: 'Yumi 能做什么？查看指南',
   },
   yumiDmIntro: {
-    greeting: '你好，我是你的工作区向导！我可以帮你连接设备、添加和管理智能体、生成配对码，以及解答关于工作区的任何问题。',
+    greeting: '你好，我是你的工作区向导！我可以帮你连接设备、添加和管理智能体，以及解答关于工作区的任何问题。',
     stepsTitle: '连接你的第一个本地智能体：',
     step1: '在你的设备上下载 OpenAgents 桌面应用，或安装命令行工具（CLI）。',
     step2: '在桌面应用设置过程中输入配对码。',
-    hint: '需要配对码？直接问我 — 我可以当场为你生成一个。',
-    quickPairing: '帮我生成一个配对码',
+    hint: '在侧边栏的“连接智能体”中获取你的专属配对码，我可以指导你完成连接。',
+    quickPairing: '如何连接设备？',
     quickWhat: '你能帮我做什么？',
   },
   featureTours: {
