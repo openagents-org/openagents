@@ -64,6 +64,8 @@ export interface NodeAgent {
   /** Hostname of the endpoint the agent is configured to call. Null or absent:
    * its CLI's default, or a launcher too old to report it. */
   baseUrlHost?: string | null;
+  /** Custom Codex endpoint mode, reported by launcher 0.2.197+. */
+  codexWireApi?: 'responses' | 'chat' | null;
   /** Models the agent's own CLI offers the account it is signed in to (a
    * ChatGPT or Claude subscription). Null or absent: the agent runs on a key
    * or a relay, its CLI has not answered, or the launcher is too old to ask. */

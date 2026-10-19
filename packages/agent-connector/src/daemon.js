@@ -506,6 +506,7 @@ class Daemon {
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
           baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
+          codexWireApi: a.type === 'codex' ? ((a.env && a.env.CODEX_WIRE_API) || typeEnv.CODEX_WIRE_API || 'chat') : null,
           cliModels: listed && listed.models && this._onCliSignIn(a) ? listed.models : null,
           probe: this._probes[a.name] || null,
         });
@@ -621,6 +622,12 @@ class Daemon {
    */
   _saveNodeAgentEnv(name, type, args) {
     const changes = {};
+    if (type === 'codex' && args.codexWireApi !== undefined) {
+      if (!['responses', 'chat'].includes(args.codexWireApi)) {
+        throw new Error('Choose Responses or Chat Completions for Codex');
+      }
+      changes.CODEX_WIRE_API = args.codexWireApi;
+    }
     if (_sentKey(args)) {
       changes.LLM_API_KEY = args.apiKey;
       // A key sent for the agent means it runs on that key: a sign-in marker

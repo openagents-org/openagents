@@ -279,8 +279,8 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, codexWireApi: null, cliModels: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, codexWireApi: 'chat', cliModels: null, probe: null },
       ],
     );
   });
@@ -769,6 +769,21 @@ describe('Daemon', () => {
     const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
     assert.equal(roster[0].model, 'sonnet');
     assert.equal(roster[0].workingDir, '/home/ubuntu/proj');
+  });
+
+  it('saves Codex capability mode per agent and reports it without changing siblings', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coding', type: 'codex' });
+    config.addAgent({ name: 'chat', type: 'codex', env: { CODEX_WIRE_API: 'chat' } });
+    config.setAgentNetwork('coding', 'ws1');
+    config.setAgentNetwork('chat', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'responses' });
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
+    assert.equal(config.getAgent('chat').env.CODEX_WIRE_API, 'chat');
+    assert.deepEqual(daemon._buildRoster({ workspace_slug: 'ws1' }).map((a) => a.codexWireApi), ['responses', 'chat']);
+    assert.throws(() => daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'invalid' }), /Choose Responses/);
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
   });
 
   it('_buildRoster hides agents connected to a different workspace', () => {
