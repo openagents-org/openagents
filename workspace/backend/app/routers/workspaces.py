@@ -34,6 +34,7 @@ from app.database import get_db
 from app.models import (
     Channel,
     ChannelMember,
+    Node,
     User,
     Workspace,
     WorkspaceCollaborator,
@@ -410,7 +411,15 @@ def get_workspace(
     ).scalars().all()
 
     now = datetime.now(timezone.utc)
-    return success_response(_format_workspace(workspace, members, now, x_workspace_token, authorization))
+    data = _format_workspace(workspace, members, now, x_workspace_token, authorization)
+    # Only expose setup state, not other members' private device connections.
+    # Offline devices and agents still count as an existing setup; Yumi does not.
+    has_agent = any((m.agent_type or "") != "cloud:openagents" for m in members)
+    has_device = db.execute(
+        select(Node.id).where(Node.workspace_id == workspace.id).limit(1)
+    ).first() is not None
+    data["needsFirstDevice"] = not has_agent and not has_device
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------

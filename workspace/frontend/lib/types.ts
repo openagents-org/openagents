@@ -1,4 +1,6 @@
 export interface Workspace {
+  /** Workspace-wide setup state; absent until a compatible backend responds. */
+  needsFirstDevice?: boolean;
   workspaceId: string;
   slug: string;
   name: string;

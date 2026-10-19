@@ -1,4 +1,6 @@
 'use client';
+import { FirstDeviceHint } from './first-device-hint';
+import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
@@ -244,7 +246,9 @@ export function NavRail() {
   ];
 
   const isConnectActive = viewMode === 'connect';
-  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const needsFirstDevice = useFirstDeviceGuide();
+  const showFirstDeviceHint = needsFirstDevice && !isConnectActive;
+  const connectLabel = needsFirstDevice ? t('nav.connectFirstDevice') : hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -446,12 +450,14 @@ export function NavRail() {
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
         {showLabels && <CampaignSidebarCard />}
+        {showFirstDeviceHint && <FirstDeviceHint compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(
                 !showLabels && 'justify-center!',
-                !hasAgents &&
+                showFirstDeviceHint && 'ring-1 ring-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                !hasAgents && !showFirstDeviceHint &&
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
               )}

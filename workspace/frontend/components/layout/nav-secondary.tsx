@@ -1,5 +1,7 @@
 'use client';
 
+import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
+import { FirstDeviceHint } from './first-device-hint';
 import { PlusSquare } from 'lucide-react';
 import {
   SidebarGroup,
@@ -23,10 +25,12 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   const isActive = viewMode === 'connect';
-  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const needsFirstDevice = useFirstDeviceGuide();
+  const connectLabel = needsFirstDevice ? t('nav.connectFirstDevice') : hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">
+      {needsFirstDevice && !isActive && <FirstDeviceHint />}
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
