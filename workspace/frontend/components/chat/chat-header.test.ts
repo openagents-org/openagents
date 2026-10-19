@@ -20,7 +20,7 @@ vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/hooks/use-polling', () => ({ useMessagePolling: () => ({ messages: [], generation: 0 }) }));
 vi.mock('@/hooks/use-composing-signal', () => ({ useComposingSignal: () => ({}) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));
-vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}) }));
+vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}), useTeamRoster: () => [] }));
 vi.mock('./work-brief', () => ({ WorkBrief: () => null, useBrief: () => ({}) }));
 vi.mock('./chat-messages', () => ({ ChatMessages: () => null }));
 vi.mock('./chat-input', () => ({ ChatInput: () => null }));
@@ -42,6 +42,7 @@ vi.mock('./add-thread-participants', () => ({
 }));
 
 import { ChatView } from './chat-view';
+import { DialogsProvider } from '@/components/ui/dialogs-provider';
 
 // Next uses the automatic JSX runtime; Vitest needs React for TSX modules.
 vi.stubGlobal('React', React);
@@ -55,7 +56,7 @@ it('keeps exactly one mode and participant control after repeated thread switche
   try {
     for (const sessionId of ['alpha', 'beta', 'alpha', 'beta', 'alpha']) {
       state.currentSessionId = sessionId;
-      await act(async () => { root.render(createElement(ChatView)); });
+      await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
       const header = document.getElementById('app-header-actions')!;
       expect(header.querySelectorAll('[data-control="response-mode"]')).toHaveLength(1);
       expect(header.querySelectorAll('[data-control="add-participants"]')).toHaveLength(1);
@@ -72,14 +73,14 @@ it('opens DM profiles only after clicking the name in the header', async () => {
   const root = createRoot(document.getElementById('root')!);
   try {
     state.currentSessionId = 'dm:human:person@example.com,openagents:scout';
-    await act(async () => { root.render(createElement(ChatView)); });
+    await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
     expect(profile.openAgent).not.toHaveBeenCalled();
     const button = Array.from(document.querySelectorAll<HTMLButtonElement>('#app-header-title button')).find(b => b.textContent === 'scout');
     expect(button).toBeDefined();
     await act(async () => button!.click());
     expect(profile.openAgent).toHaveBeenCalledWith('scout');
     state.currentSessionId = 'dm:human:person@example.com,human:sam@example.com';
-    await act(async () => { root.render(createElement(ChatView)); });
+    await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
     expect(document.querySelector('[data-human-profile]')).toBeNull();
     const person = Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'sam@example.com');
     expect(person).toBeDefined();

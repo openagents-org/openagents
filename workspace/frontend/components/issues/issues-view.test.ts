@@ -294,7 +294,7 @@ describe('shared issues', () => {
 
 it('adds people and agents without starting work, and omits the issue Tasks section', async () => {
   mocks.api.getTeam.mockResolvedValue([{ email: 'bob@example.com', displayName: 'Bob', role: 'member' }]);
-  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:new-agent', display_name: 'New agent' }] });
+  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:new-agent', display_name: 'New agent', status: 'online' }, { address: 'openagents:offline-agent', status: 'offline' }] });
   await openIssue();
   expect(host.textContent).not.toContain('Break out a task');
   await click(button('Add people or agents'));

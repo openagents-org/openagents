@@ -611,6 +611,7 @@ def recall_message(
 
 class RoutingChoiceRequest(BaseModel):
     agent: Optional[str] = None  # null dismisses the pending request
+    reclassify: bool = False  # Explicit sender action on a human-directed message.
 
 
 @router.post("/events/{event_id}/routing")
@@ -644,7 +645,21 @@ def resolve_routing_choice(
         EventRecord.id == event_id, EventRecord.network_id == workspace.id,
         EventRecord.type == "workspace.message.posted",
     ).with_for_update()).scalar_one_or_none()
-    choice = (original.metadata_ or {}).get("routing_choice") if original else None
+    metadata = (original.metadata_ or {}) if original else {}
+    choice = metadata.get("routing_choice")
+    if body.reclassify:
+        if not original or original.source.lower() != f"human:{viewer.email.lower()}":
+            raise HTTPException(403, "Only the message sender can choose an agent")
+        if (not original.target.startswith("channel/") or metadata.get("recalled")
+                or metadata.get("routing_assignment") or metadata.get("approval_id") or metadata.get("approval")
+                or (original.payload or {}).get("message_type", "chat") != "chat"):
+            raise HTTPException(409, "This message cannot be reassigned")
+        # Preserve idempotency when the sender retries the same assignment.
+        already_assigned = isinstance(choice, dict) and choice.get("status") == "assigned"
+        if not already_assigned and (metadata.get("target_agents") != ["__no_response__"] or not body.agent):
+            raise HTTPException(409, "Only human-directed messages can be reassigned")
+        if not already_assigned:
+            choice = {"status": "pending", "requester_email": viewer.email.lower(), "candidates": [body.agent]}
     if not isinstance(choice, dict) or not original.target.startswith("channel/"):
         raise HTTPException(404, "Assignment request not found")
     if viewer.email.lower() != str(choice.get("requester_email", "")).lower():
@@ -664,6 +679,7 @@ def resolve_routing_choice(
         return success_response(updated)
     member = db.get(WorkspaceMember, (str(workspace.id), body.agent))
     if (body.agent not in choice.get("candidates", []) or not member or member.status == "removed"
+            or (body.reclassify and member.status != "online")
             or not db.get(ChannelMember, (channel.id, body.agent))
             or request_access(db, str(workspace.id), channel, member, viewer.email.lower()) == "no"):
         raise HTTPException(403, "This agent is no longer available to you in this thread")
