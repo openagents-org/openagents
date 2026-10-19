@@ -697,6 +697,8 @@ function PairingPanel({
               : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
           </button>
           <p className="text-[11px] text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
+          <p className="text-[11px] text-muted-foreground">{t('connect.nodeCliPairingHint')}</p>
+          <CommandRow command={`agn device connect ${pairing.code}`} />
           {isMobile && (
             <p className="text-[11px] text-muted-foreground">{t('connect.nodeMobileCodeHint')}</p>
           )}

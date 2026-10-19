@@ -1671,6 +1671,7 @@ export const messages: Messages = {
     nodeMobileCodeHint: '配对码 30 分钟后会过期——没关系：在电脑上打开同一页面即可获取新的配对码。',
     nodeStep2Title: '输入配对码',
     nodeStep2Hint: '桌面应用在安装过程中会要求输入此配对码 —— 点击即可复制。',
+    nodeCliPairingHint: '在服务器或终端上，安装命令行工具后运行：',
     nodeStep3Title: '等待设备连接',
     nodeStepOr: '或',
     nodePairingInstall: '安装桌面应用：',

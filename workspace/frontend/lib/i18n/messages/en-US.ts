@@ -1708,6 +1708,7 @@ export const messages = {
     nodeMobileCodeHint: 'Codes expire after 30 minutes — no problem: open this same screen on your laptop to get a fresh one.',
     nodeStep2Title: 'Enter the pairing code',
     nodeStep2Hint: 'The desktop app asks for this code during setup — click to copy.',
+    nodeCliPairingHint: 'On a server or in a terminal, run this after installing the CLI:',
     nodeStep3Title: 'Wait for the device to connect',
     nodeStepOr: 'or',
     nodePairingInstall: 'Install the desktop app:',
