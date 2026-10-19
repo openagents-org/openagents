@@ -395,12 +395,12 @@ export const messages = {
     collapsedHint: 'What can Yumi do? View the guide',
   },
   yumiDmIntro: {
-    greeting: 'Hi, I’m your workspace guide! I can help you connect devices, add and manage agents, create pairing codes, and answer questions about the workspace.',
+    greeting: 'Hi, I’m your workspace guide! I can help you connect devices, add and manage agents, and answer questions about the workspace.',
     stepsTitle: 'To connect your first local agent:',
     step1: 'Download the OpenAgents desktop app, or install the CLI on your device.',
     step2: 'Enter the pairing code when the desktop app asks for it during setup.',
-    hint: 'Need a code? Just ask — I can create a pairing code for you right here.',
-    quickPairing: 'Get me a pairing code',
+    hint: 'Get your private pairing code from Connect Agent in the sidebar. I can walk you through the steps.',
+    quickPairing: 'How do I connect a device?',
     quickWhat: 'What can you help me with?',
   },
   featureTours: {

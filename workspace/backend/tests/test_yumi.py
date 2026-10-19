@@ -783,3 +783,10 @@ def test_identity_welcome_includes_the_new_user(db, yumi_enabled):
     channel = db.execute(select(Channel).where(Channel.workspace_id == ws.id, Channel.name == 'welcome')).scalar_one()
     assert channel.owner_email == user.email
     assert db.get(ChannelHumanMember, (channel.id, user.email)) is not None
+
+
+def test_yumi_does_not_advertise_identity_only_device_pairing():
+    from app.services.yumi import build_tools
+    names = {tool['function']['name'] for tool in build_tools()}
+    assert 'create_pairing_code' not in names
+    assert 'list_nodes' in names
