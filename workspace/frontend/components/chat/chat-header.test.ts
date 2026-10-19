@@ -20,7 +20,7 @@ vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/hooks/use-polling', () => ({ useMessagePolling: () => ({ messages: [], generation: 0 }) }));
 vi.mock('@/hooks/use-composing-signal', () => ({ useComposingSignal: () => ({}) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));
-vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}) }));
+vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}), useTeamRoster: () => [] }));
 vi.mock('./work-brief', () => ({ WorkBrief: () => null, useBrief: () => ({}) }));
 vi.mock('./chat-messages', () => ({ ChatMessages: () => null }));
 vi.mock('./chat-input', () => ({ ChatInput: () => null }));
