@@ -38,6 +38,8 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@csstools/postcss-cascade-layers": "^6.0.2",
+    "@csstools/postcss-oklab-function": "^5.0.15",
     "@tailwindcss/postcss": "^4.1.17",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.3.0",
