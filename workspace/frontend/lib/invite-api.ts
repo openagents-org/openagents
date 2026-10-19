@@ -1,9 +1,10 @@
+import { getApiBaseUrl } from '@/lib/api-base';
 // Invitation API — the invitee's side of workspace invites, served by the
 // public /v1/invites/{token} endpoints. Standalone (not workspaceApi): the
 // invitee has no workspace credentials yet — the invite token is the only
 // secret, and accepting authenticates with their identity bearer alone.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 
 /** What the accept page may show before (and without) login. */
 export interface InvitePeek {
