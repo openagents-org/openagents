@@ -1,0 +1,101 @@
+{
+  "name": "step-code",
+  "label": "Step Code",
+  "description": "StepFun's terminal coding agent for Step models, driven headless",
+  "homepage": "https://github.com/stepfun-ai/Step-Code",
+  "tags": [
+    "stepfun",
+    "coding",
+    "cli",
+    "headless"
+  ],
+  "featured": false,
+  "order": 999,
+  "catalog": true,
+  "vendor": "StepFun",
+  "tagline": "StepFun's terminal coding agent, on a Step Plan sign-in or a Step Platform API key. Installed by StepFun's own script.",
+  "logo": {
+    "key": "step-code"
+  },
+  "builtin": true,
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "step",
+    "verify": "step --version",
+    "verify_win": "step --version",
+    "identify": {
+      "install_dirs": [
+        "$STEP_INSTALL_DIR",
+        "~/.stepcode/bin"
+      ],
+      "version_pattern": "^v?\\d+\\.\\d+\\.\\d+$"
+    },
+    "macos": "curl -fsSL https://static-openapi.stepfun.com/stepcode/install.sh | bash",
+    "linux": "curl -fsSL https://static-openapi.stepfun.com/stepcode/install.sh | bash",
+    "windows": "irm https://static-openapi.stepfun.com/stepcode/install.ps1 | iex"
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.step_code",
+    "class": "StepCodeAdapter"
+  },
+  "launch": null,
+  "check_ready": {
+    "min_version": "0.1.4",
+    "env_vars": [
+      "STEP_API_KEY"
+    ],
+    "saved_env_key": "STEP_API_KEY",
+    "login_command": "step login",
+    "status_args": [
+      "login",
+      "status",
+      "--json"
+    ],
+    "logged_in_pattern": "\"loggedIn\":\\s*true",
+    "logged_out_pattern": "\"loggedIn\":\\s*false",
+    "not_ready_message": "Not signed in — run `step login` in a terminal (Step Plan, mainland China or international), or set a Step Platform API key (press e): https://platform.stepfun.com/interface-key, or platform.stepfun.ai for an international account."
+  },
+  "env_config": [
+    {
+      "name": "STEP_API_KEY",
+      "description": "Step Platform API key — leave blank to use the account signed in with `step login` on this machine. Create one at https://platform.stepfun.com/interface-key (mainland China) or https://platform.stepfun.ai/interface-key (international); a key set here always takes precedence over that sign-in.",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "STEP_BASE_URL",
+      "description": "Base URL for the API key above, prefilled with the mainland China Step Platform. International keys: https://api.stepfun.ai/v1. Any OpenAI-compatible endpoint that serves /v1/models works too. Not used with a `step login` sign-in, whose region comes from the sign-in.",
+      "required": false,
+      "default": "https://api.stepfun.com/v1",
+      "placeholder": "https://api.stepfun.com/v1"
+    },
+    {
+      "name": "STEP_MODEL",
+      "description": "Model id, e.g. step-3.5-flash. Leave blank for Step Code's default; the list is loaded from the endpoint (or from the sign-in).",
+      "required": false,
+      "placeholder": "step-3.5-flash"
+    }
+  ],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "STEP_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "STEP_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "STEP_MODEL"
+      }
+    ]
+  },
+  "workspace_model": true
+}
