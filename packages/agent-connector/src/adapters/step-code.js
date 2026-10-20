@@ -81,6 +81,7 @@ const {
   buildStepConfigToml,
   classifyStepRun,
   classifyStepVersion,
+  credentialValuesIn,
   descendantsOf,
   installHint,
   interpretStepFrame,
@@ -579,6 +580,42 @@ class StepCodeAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * Add the user's saved Step credentials to a run's redaction list, and
+   * return a function that adds them again whenever the files change. A
+   * sign-in run reads auth.json and the account session beside it, and the
+   * CLI rewrites both when it refreshes a token; every value seen stays on
+   * the list, since output from before the refresh can still carry the old
+   * one. A key run never uses them, but its shell tool can print them all the
+   * same.
+   */
+  _trackSavedCredentials(userPaths, secrets) {
+    const files = [userPaths.authPath, userPaths.loginStatePath].filter(Boolean);
+    const seen = new Map();
+    const sync = () => {
+      for (const file of files) {
+        let sig = null;
+        try {
+          const st = fs.statSync(file);
+          sig = `${st.ino}:${st.size}:${st.mtimeMs}`;
+        } catch {}
+        if (seen.get(file) === sig) continue;
+        seen.set(file, sig);
+        if (!sig) continue;
+        let values;
+        try {
+          values = credentialValuesIn(JSON.parse(fs.readFileSync(file, 'utf-8')));
+        } catch {
+          seen.delete(file); // caught mid-write: read it again next time
+          continue;
+        }
+        for (const v of values) if (!secrets.includes(v)) secrets.push(v);
+      }
+    };
+    sync();
+    return sync;
+  }
+
   // ------------------------------------------------------------------
   // Prompt assembly
   // ------------------------------------------------------------------
@@ -622,11 +659,14 @@ class StepCodeAdapter extends BaseAdapter {
    * the reply. An error on an assistant message is held as the turn's error
    * until a later message succeeds — auto-retry produces exactly that order.
    *
+   * `secrets` is redacted by value from every frame and from stderr;
+   * `syncSecrets`, when given, brings it up to date before each read.
+   *
    * @returns {Promise<object>} { code, signal, sessionId, planActive,
    *   finalText, turnError, anyFrame, everPosted, userStopped,
    *   watchdogKilled, stderr, spawnError }
    */
-  _runStep(channel, bin, args, workingDir, prompt, env = {}, secrets = [], { quiet = false } = {}) {
+  _runStep(channel, bin, args, workingDir, prompt, env = {}, secrets = [], { quiet = false, syncSecrets = null } = {}) {
     // Stopped while this turn was being prepared: start nothing.
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
@@ -786,8 +826,14 @@ class StepCodeAdapter extends BaseAdapter {
         resolve(payload);
       };
 
+      const resync = () => {
+        if (!syncSecrets) return;
+        try { syncSecrets(); } catch {}
+      };
+
       const done = () => {
         if (settled) return;
+        resync();
         try { onLines(framer.flush()); } catch {}
         const userStopped = this._stoppingChannels.has(channel);
         this._stoppingChannels.delete(channel);
@@ -814,6 +860,7 @@ class StepCodeAdapter extends BaseAdapter {
       proc.stderr.setEncoding('utf8');
 
       proc.stdout.on('data', (chunk) => {
+        resync();
         let lines;
         try { lines = framer.push(chunk); } catch (e) {
           this._log(`Step Code stream framing error: ${redactSecrets(e && e.message, secrets)}`);
@@ -994,9 +1041,10 @@ class StepCodeAdapter extends BaseAdapter {
       toolsDirExists: this._dirExists(userPaths.toolsDir),
       telemetryDisabled: userConfig.telemetryDisabled,
     });
-    // The key, the workspace token and every credential-named value the shell
-    // tool will be able to print.
+    // The key, the workspace token, every credential-named value the shell
+    // tool will be able to print, and the saved sign-in it can read off disk.
     const secrets = [...new Set([auth.key, this.token, ...secretValuesIn(env)].filter((s) => s && s.length >= 8))];
+    const syncSecrets = this._trackSavedCredentials(userPaths, secrets);
 
     const planMode = this._mode === 'plan';
     const session = this._sessionFor(channel, workingDir);
@@ -1019,7 +1067,7 @@ class StepCodeAdapter extends BaseAdapter {
       if (!planMode && session.planActive && !session.fresh) {
         const toggle = await this._runStep(channel, bin, buildStepArgs({
           sessionDir, sessionId: session.sessionId, model: auth.model, extraExcludedTools,
-        }), workingDir, '/plan', env, secrets, { quiet: true });
+        }), workingDir, '/plan', env, secrets, { quiet: true, syncSecrets });
         if (toggle.userStopped) return;
         if (toggle.planActive === false) this._notePlanState(channel, session.sessionId, false);
         else this._log(`Could not take session ${session.sessionId} out of plan mode — it stays in plan mode this turn`);
@@ -1039,7 +1087,7 @@ class StepCodeAdapter extends BaseAdapter {
         planMode,
         extraExcludedTools,
       });
-      const run = await this._runStep(channel, bin, args, workingDir, prompt, env, secrets);
+      const run = await this._runStep(channel, bin, args, workingDir, prompt, env, secrets, { syncSecrets });
       if (typeof run.planActive === 'boolean') this._notePlanState(channel, session.sessionId, run.planActive);
       if (run.userStopped) return; // the session stays resumable
       if (run.watchdogKilled) {
