@@ -13,6 +13,7 @@ const {
   redactSecrets,
   redactFrame,
   secretValuesIn,
+  credentialValuesIn,
   redactArgs,
   resolveStepAuth,
   stepRegionOf,
@@ -74,6 +75,28 @@ describe('step-code-runtime — redaction', () => {
     assert.deepEqual(values, ['sk-other-123456789']);
   });
 
+  it('takes the secrets out of a saved sign-in, and nothing else', () => {
+    // auth.json after `step login` (Step Plan), with a second provider's key
+    // and an env of its own; the pre-Pi top-level shape; step-login.json.
+    assert.deepEqual(credentialValuesIn({
+      step: { type: 'oauth', access: ' plan-access-0123456789 ', refresh: 'plan-refresh-0123456789', expires: 1, profile: 'step_plan', uid: 'user-0123456789' },
+      other: { type: 'api_key', key: 'other-key-0123456789', env: { CLOUDFLARE_API_KEY: 'cf-key-0123456789', CLOUDFLARE_ACCOUNT_ID: 'account-0123456789' } },
+    }), ['plan-access-0123456789', 'plan-refresh-0123456789', 'other-key-0123456789', 'cf-key-0123456789']);
+    assert.deepEqual(credentialValuesIn({ apiKey: 'legacy-key-0123456789', profile: 'platform_cn' }), ['legacy-key-0123456789']);
+    assert.deepEqual(credentialValuesIn({
+      version: 1, profile: 'step_plan', appId: 'app-0123456789', deviceId: 'device-0123456789',
+      accessToken: 'session-access-0123456789', refreshToken: 'session-refresh-0123456789', accessExpiresAt: 1,
+    }), ['session-access-0123456789', 'session-refresh-0123456789']);
+    assert.deepEqual(credentialValuesIn({ step: { type: 'api_key', key: 'short' } }), []);
+    assert.deepEqual(credentialValuesIn(null), []);
+  });
+
+  it('replaces the longer of two overlapping values whole', () => {
+    const outer = 'token-0123456789-renewed';
+    const out = JSON.stringify(redactFrame({ text: `old token-0123456789, new ${outer}` }, ['token-0123456789', outer]));
+    assert.ok(!out.includes('renewed'), out);
+  });
+
   it('masks key-shaped text and hides the briefing in a logged argv', () => {
     assert.ok(!redactSecrets('Bearer abcdefghijklmnop').includes('abcdefghijklmnop'));
     const logged = redactArgs(['-p', '--session-id', 'abc', '--append-system-prompt', 'long brief', '--model', 'm']);
@@ -123,6 +146,10 @@ describe('step-code-runtime — credentials and regions', () => {
     const moved = userStepPaths({ HOME: home, STEP_CODING_AGENT_DIR: path.resolve('/data/step/agent') });
     assert.equal(moved.authPath, path.join(path.resolve('/data/step'), 'auth.json'));
     assert.equal(userStepPaths({ HOME: home, STEPCODE_AUTH_PATH: '/x/auth.json' }).authPath, '/x/auth.json');
+    // The account session follows auth.json, unless it is placed itself.
+    assert.equal(p.loginStatePath, path.join(home, '.stepcode', 'step-login.json'));
+    assert.equal(userStepPaths({ HOME: home, STEPCODE_AUTH_PATH: path.resolve('/x/auth.json') }).loginStatePath, path.join(path.resolve('/x'), 'step-login.json'));
+    assert.equal(userStepPaths({ HOME: home, STEPCODE_LOGIN_STATE_PATH: '/y/s.json' }).loginStatePath, '/y/s.json');
   });
 
   it("carries the user's telemetry opt-out and shell path, nothing else", () => {

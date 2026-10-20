@@ -2363,9 +2363,9 @@
         "status",
         "--json"
       ],
-      "logged_in_pattern": "\"loggedIn\":\\s*true",
-      "logged_out_pattern": "\"loggedIn\":\\s*false",
-      "not_ready_message": "Not signed in — run `step login` in a terminal (Step Plan, mainland China or international), or set a Step Platform API key (press e): https://platform.stepfun.com/interface-key, or platform.stepfun.ai for an international account."
+      "logged_in_pattern": "\"validity\"\\s*:\\s*\"(?:valid|unavailable)\"",
+      "logged_out_pattern": "\"loggedIn\"\\s*:\\s*false|\"validity\"\\s*:\\s*\"(?:invalid|missing)\"",
+      "not_ready_message": "Not signed in, or the sign-in has expired — run `step login` in a terminal (Step Plan, mainland China or international), or set a Step Platform API key (press e): https://platform.stepfun.com/interface-key, or platform.stepfun.ai for an international account."
     },
     "env_config": [
       {

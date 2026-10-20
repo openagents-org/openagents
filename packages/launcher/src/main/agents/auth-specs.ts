@@ -773,15 +773,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   "step-code": {
     // `step login` is a full-screen picker (Step Plan, mainland China or
     // international, or a Step Platform key) and refuses to run without a TTY,
-    // so it gets a terminal. `step login status --json` reports
-    // `{"loggedIn":true|false,…}` and exits 0 either way; it checks the stored
-    // credential against the model list, so an expired sign-in reads as
-    // signed in with `"validity":"invalid"` until a run says otherwise. A key
-    // in STEP_API_KEY takes precedence over the sign-in.
+    // so it gets a terminal. `step login status --json` exits 0 either way and
+    // checks the stored credential against the model list: `loggedIn` only
+    // says one is stored, `validity` what the endpoint made of it — "valid",
+    // "invalid" (401/403: expired or revoked, so `loggedIn` is still true),
+    // "unavailable" (network error or another status: it could not tell) or
+    // "missing". Only "invalid" and "missing" are signed out; "unavailable"
+    // keeps the credential, as an offline Cursor does. The patterns never
+    // both match, and are the registry's check_ready ones (0.1.4 and 0.1.5
+    // print the same shape). A key in STEP_API_KEY takes precedence over the
+    // sign-in.
     loginCommand: "step login",
     statusArgs: ["login", "status", "--json"],
-    loggedInPattern: /"loggedIn"\s*:\s*true/,
-    loggedOutPattern: /"loggedIn"\s*:\s*false/,
+    loggedInPattern: /"validity"\s*:\s*"(?:valid|unavailable)"/,
+    loggedOutPattern: /"loggedIn"\s*:\s*false|"validity"\s*:\s*"(?:invalid|missing)"/,
     apiKeyEnv: "STEP_API_KEY",
     terminalHint:
       "Pick Step Plan (or Step Plan Oversea) and finish the sign-in in the browser. Close this window once it says you are signed in.",
