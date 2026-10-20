@@ -17,8 +17,9 @@
  *   - the workspace MCP server is the one server started, and its tools come
  *     out under the names the briefing uses;
  *   - nothing is written into the project or the user's rc files;
- *   - sessions resume, plan mode is entered and left again, the key never
- *     reaches the channel, and Stop leaves no process behind.
+ *   - sessions resume, plan mode is entered and left again, neither the key
+ *     nor a saved sign-in reaches the channel, and Stop leaves no process
+ *     behind.
  */
 
 const { describe, it, before, after } = require('node:test');
@@ -34,6 +35,9 @@ const StepCodeAdapter = require('../src/adapters/step-code');
 const cli = process.env.STEP_CODE_TEST_CLI;
 const KEY = 'sk-step-cli-test-form-key-0001';
 const SAVED_KEY = 'sk-step-cli-test-saved-key-0002';
+const LOGIN_ACCESS = 'sk-step-cli-test-login-access-0004';
+const SESSION_ACCESS = 'step-cli-test-session-access-0005';
+const SESSION_REFRESH = 'step-cli-test-session-refresh-0006';
 
 // A stdio MCP server that answers the handshake, offers one tool and records
 // that it ran.
@@ -289,9 +293,35 @@ describe('Step Code CLI (real binary)', { skip: !cli && 'set STEP_CODE_TEST_CLI 
   it('never posts the key the shell tool can see', async () => {
     const a = makeAdapter();
     await send(a, 'TOOL:run_command {"command":"echo the-key-is $STEP_API_KEY"}');
+    await send(a, 'TOOL:run_command {"command":"echo saved-is; cat ~/.stepcode/auth.json"}');
     const posted = JSON.stringify(a._captured);
     assert.ok(posted.includes('the-key-is'), posted);
+    assert.ok(posted.includes('saved-is'), posted);
     assert.ok(!posted.includes(KEY));
+    assert.ok(!posted.includes(SAVED_KEY), posted);
+  });
+
+  it('runs on a saved sign-in without a key, and never posts it', async () => {
+    // A `step login` credential and its account session, in a place of their
+    // own so the key tests' saved key stays where it is; the sign-in's
+    // endpoint is pointed at the local model.
+    const loginDir = path.join(dir, 'login');
+    fs.mkdirSync(loginDir, { recursive: true });
+    const authPath = path.join(loginDir, 'auth.json');
+    fs.writeFileSync(authPath, JSON.stringify({
+      step: { type: 'oauth', access: LOGIN_ACCESS, refresh: 'step-static-credential', expires: 9999999999999, profile: 'platform_cn' },
+    }));
+    fs.writeFileSync(path.join(loginDir, 'step-login.json'), JSON.stringify({
+      version: 1, profile: 'platform_cn', appId: 'app', deviceId: 'device',
+      accessToken: SESSION_ACCESS, refreshToken: SESSION_REFRESH, accessExpiresAt: 4102444800,
+    }));
+    const a = makeAdapter({ agentEnv: { STEP_API_KEY: '', STEPCODE_AUTH_PATH: authPath, STEPCODE_PLATFORM_API_URL: base.replace(/\/v1$/, '') } });
+    await send(a, 'TOOL:run_command {"command":"echo auth-is; cat \\"$STEPCODE_AUTH_PATH\\""}', 'login-thread');
+    await send(a, 'TOOL:run_command {"command":"echo session-is; cat \\"$(dirname \\"$STEPCODE_AUTH_PATH\\")/step-login.json\\""}', 'login-thread');
+    assert.equal(lastChat().auth, `Bearer ${LOGIN_ACCESS}`, 'the run did not use the sign-in');
+    const posted = JSON.stringify(a._captured);
+    assert.ok(posted.includes('auth-is') && posted.includes('session-is'), posted);
+    for (const secret of [LOGIN_ACCESS, SESSION_ACCESS, SESSION_REFRESH]) assert.ok(!posted.includes(secret), posted);
   });
 
   it('reports a rejected key as one', async () => {

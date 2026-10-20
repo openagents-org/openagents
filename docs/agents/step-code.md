@@ -67,8 +67,12 @@ Either path works, and the agent form takes both:
 
 Readiness comes from `step login status --json` —
 `{"loggedIn":true,"loginMethod":"step_plan","validity":"valid"}`, exit 0 either
-way. It checks the credential against the model list, so a sign-in that has
-expired shows `"validity":"invalid"`.
+way (0.1.4 and 0.1.5 alike). `loggedIn` only says a credential is stored; the
+CLI checks it against the model list and `validity` says how that went:
+`valid`, `invalid` (401/403 — expired or revoked, with `loggedIn` still true),
+`unavailable` (network error or another status) or `missing`. `invalid` and
+`missing` read as signed out; `unavailable` keeps the credential, since it
+could not be checked.
 
 Models are listed from the endpoint with a key, and by `step --list-models`
 for a sign-in. The launcher's picker keeps only the endpoint's entries typed
@@ -187,9 +191,13 @@ The idle watchdog (5 minutes without output) pauses while a tool call is out.
 | Malformed base URL | `Step API base URL must be a valid URL`, exit 1 | names the two StepFun URLs |
 
 The CLI hands its environment to its shell commands, so `STEP_API_KEY` is
-visible to `env`. Every string of every frame is redacted by value (the key,
-the workspace token, and any credential-named variable in the run's
-environment) before anything reaches the channel or the log.
+visible to `env`, and a sign-in run's `STEPCODE_AUTH_PATH` names the file
+holding the saved credential. Every string of every frame is redacted by value
+(the key, the workspace token, any credential-named variable in the run's
+environment, and the secrets in the user's `auth.json` and the account session
+`step-login.json` beside it) before anything reaches the channel or the log.
+Those two files are read again whenever they change during a run, so a token
+the CLI renews mid-run is covered too.
 
 ## Testing
 

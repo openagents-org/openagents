@@ -154,6 +154,29 @@ process.stdin.on('end', () => {
     end();
     process.exit(0);
   }
+  if (scenario === 'cat_auth') {
+    // The shell tool printing the saved sign-in and the account session
+    // beside it. With FAKE_REFRESHED the CLI first renews the token, as it
+    // does mid-run when the saved one is about to expire.
+    const authPath = process.env.FAKE_AUTH_FILE;
+    const sessionPath = path.join(path.dirname(authPath), 'step-login.json');
+    const cat = () => fs.readFileSync(authPath, 'utf8') + (fs.existsSync(sessionPath) ? fs.readFileSync(sessionPath, 'utf8') : '');
+    start();
+    const saved = cat();
+    tool('t1', 'run_command', { command: 'cat auth.json' }, saved, true);
+    let now = '';
+    if (process.env.FAKE_REFRESHED) {
+      const doc = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+      doc.step.access = process.env.FAKE_REFRESHED;
+      fs.writeFileSync(authPath, JSON.stringify(doc));
+      now = cat();
+      process.stdout.write('renewed ' + process.env.FAKE_REFRESHED + '\\n');
+      tool('t2', 'run_command', { command: 'cat auth.json' }, now, true);
+    }
+    assistant([{ type: 'text', text: 'Saved: ' + saved + ' Now: ' + now }], 'stop');
+    end();
+    process.exit(0);
+  }
   if (scenario === 'empty') {
     start();
     end();
@@ -619,6 +642,122 @@ describe('StepCodeAdapter — redaction', () => {
     assert.ok(!posted.includes(KEY), posted);
     assert.ok(posted.includes('[redacted]'));
     assert.ok(!a._captured.logs.join('\n').includes(KEY));
+  });
+});
+
+describe('StepCodeAdapter — redaction of the saved sign-in', () => {
+  const ACCESS = 'step-plan-access-0123456789';
+  const RENEWED = 'step-plan-access-renewed-0123456789';
+  const SESSION_ACCESS = 'account-session-access-0123456789';
+  const SESSION_REFRESH = 'account-session-refresh-0123456789';
+  const authFile = () => path.join(homeDir, '.stepcode', 'auth.json');
+
+  /** A `step login` sign-in, as the CLI stores it, in the test user's home. */
+  const signIn = () => {
+    fs.mkdirSync(path.join(homeDir, '.stepcode'), { recursive: true });
+    fs.writeFileSync(authFile(), JSON.stringify({
+      step: { type: 'oauth', access: ACCESS, refresh: 'step-static-credential', expires: 9e15, profile: 'step_plan' },
+    }));
+    fs.writeFileSync(path.join(homeDir, '.stepcode', 'step-login.json'), JSON.stringify({
+      version: 1, profile: 'step_plan', appId: 'app', deviceId: 'device',
+      accessToken: SESSION_ACCESS, refreshToken: SESSION_REFRESH, accessExpiresAt: 4102444800,
+    }));
+  };
+  const leaks = (a, secrets) => {
+    const posted = JSON.stringify([a._captured.thinking, a._captured.status, a._captured.response, a._captured.error]);
+    const logs = a._captured.logs.join('\n');
+    return secrets.filter((s) => posted.includes(s) || logs.includes(s));
+  };
+
+  it('never posts the credential a sign-in run reads, nor its account session', async () => {
+    signIn();
+    const a = makeAdapter({ scenario: 'cat_auth', agentEnv: { FAKE_AUTH_FILE: authFile() } });
+    await send(a);
+    assert.equal(lastRun(a).env.STEPCODE_AUTH_PATH, authFile());
+    assert.deepEqual(leaks(a, [ACCESS, SESSION_ACCESS, SESSION_REFRESH]), []);
+    // Only the secrets go: the rest of the file is still readable.
+    assert.match(a._captured.response[0], /"profile":"step_plan".*\[redacted\]/);
+  });
+
+  it('keeps up with a token the CLI renews during the run', async () => {
+    signIn();
+    const a = makeAdapter({ scenario: 'cat_auth', agentEnv: { FAKE_AUTH_FILE: authFile(), FAKE_REFRESHED: RENEWED } });
+    await send(a);
+    assert.deepEqual(leaks(a, [ACCESS, RENEWED, SESSION_ACCESS, SESSION_REFRESH]), []);
+    assert.ok(a._captured.logs.some((l) => l.includes('renewed [redacted]')), a._captured.logs.join('\n'));
+  });
+
+  it("hides the user's saved sign-in from a key run's shell too", async () => {
+    signIn();
+    const a = makeAdapter({ scenario: 'cat_auth', agentEnv: { LLM_API_KEY: KEY, FAKE_AUTH_FILE: authFile() } });
+    await send(a);
+    assert.equal(lastRun(a).env.STEPCODE_AUTH_PATH, null);
+    assert.deepEqual(leaks(a, [KEY, ACCESS, SESSION_ACCESS, SESSION_REFRESH]), []);
+  });
+});
+
+describe('Step Code readiness — `step login status --json`', () => {
+  const { Installer, clearVersionCache, loginVerdict } = require('../src/installer');
+  const entry = require('../registry.json').find((e) => e.name === 'step-code');
+  // Verbatim from 0.1.4 and 0.1.5 (the two print the same), against an
+  // endpoint answering 200, 401, 503 and nothing at all.
+  const STATUS = {
+    missing: '{"loggedIn":false,"loginMethod":null,"validity":"missing"}',
+    valid: '{"loggedIn":true,"loginMethod":"api_key","profile":"platform_cn","account":"platform_cn","validity":"valid"}',
+    invalid: '{"loggedIn":true,"loginMethod":"api_key","profile":"platform_cn","account":"platform_cn","validity":"invalid"}',
+    down: '{"loggedIn":true,"loginMethod":"api_key","validity":"unavailable","error":"HTTP 503"}',
+    offline: '{"loggedIn":true,"loginMethod":"api_key","validity":"unavailable","error":"network_error"}',
+  };
+  const verdict = (out) => loginVerdict(entry.check_ready, `${out}\n`, 0);
+
+  it('is signed in on a credential the endpoint accepted', () => {
+    assert.equal(verdict(STATUS.valid), true);
+  });
+
+  it('is signed out on a rejected credential, though one is still stored', () => {
+    assert.equal(verdict(STATUS.invalid), false);
+    assert.equal(verdict(STATUS.missing), false);
+  });
+
+  it('keeps a credential it could not check', () => {
+    assert.equal(verdict(STATUS.down), true);
+    assert.equal(verdict(STATUS.offline), true);
+  });
+
+  it('never matches both ways, so the signed-in pattern cannot win by order', () => {
+    const signedIn = new RegExp(entry.check_ready.logged_in_pattern, 'i');
+    const signedOut = new RegExp(entry.check_ready.logged_out_pattern, 'i');
+    for (const [name, out] of Object.entries(STATUS)) {
+      assert.notEqual(signedIn.test(out), signedOut.test(out), name);
+    }
+  });
+
+  it('settles the same way through the installer', { skip: process.platform === 'win32' }, () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-step-status-'));
+    const saved = { STEP_API_KEY: process.env.STEP_API_KEY, LLM_API_KEY: process.env.LLM_API_KEY };
+    delete process.env.STEP_API_KEY;
+    delete process.env.LLM_API_KEY;
+    try {
+      const bin = path.join(dir, 'step');
+      const evaluate = (out) => {
+        fs.writeFileSync(bin, `#!/bin/sh\necho '${out}'\n`, { mode: 0o755 });
+        clearVersionCache();
+        const inst = new Installer({ getEntry: () => entry, getResolveRules: () => [] }, dir);
+        inst.env.getEffective = () => ({});
+        return inst._evaluateReadiness('step-code', entry, bin);
+      };
+      assert.equal(evaluate(STATUS.valid).ready, true);
+      assert.equal(evaluate(STATUS.offline).ready, true);
+      const expired = evaluate(STATUS.invalid);
+      assert.equal(expired.ready, false);
+      assert.equal(expired.auth_status, 'no_credentials');
+      assert.match(expired.message, /expired/);
+      assert.equal(evaluate(STATUS.missing).ready, false);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      clearVersionCache();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
