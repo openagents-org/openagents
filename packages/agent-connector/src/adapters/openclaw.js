@@ -680,6 +680,13 @@ class OpenClawAdapter extends BaseAdapter {
         config.models.providers.custom = {
           baseUrl: baseUrl.replace(/\/+$/, ''),
           apiKey,
+          // Without it OpenClaw tries its stored auth profiles BEFORE this
+          // apiKey (model-auth-provider-config: shouldPreferExplicitConfig-
+          // ApiKeyAuth). A `custom` token profile an older launcher wrote, and
+          // `openclaw doctor --fix` copied into SQLite, then outranks every key
+          // saved since: the test passes on the new key, the run sends the old
+          // one, and the relay answers "Invalid token".
+          auth: 'api-key',
           api: 'openai-completions',
           models: [{ id: model, name: model }],
         };
