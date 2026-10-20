@@ -212,13 +212,15 @@ function redactSecrets(text, values = []) {
   return out;
 }
 
-/** Only the exact-value half of redactSecrets: safe on model output. */
+/**
+ * Only the exact-value half of redactSecrets: safe on model output. Longest
+ * first, so a value that contains another is not left half-replaced.
+ */
 function redactValues(text, values = []) {
   let out = text;
-  for (const v of values) {
-    const s = String(v || '');
-    if (s.length >= 8) out = out.split(s).join('[redacted]');
-  }
+  const list = values.map((v) => String(v || '')).filter((s) => s.length >= 8);
+  if (list.length > 1) list.sort((a, b) => b.length - a.length);
+  for (const s of list) out = out.split(s).join('[redacted]');
   return out;
 }
 
@@ -248,6 +250,33 @@ function secretValuesIn(env = {}) {
   const out = [];
   for (const [k, v] of Object.entries(env || {})) {
     if (typeof v === 'string' && v.length >= 8 && SECRET_ENV_NAME.test(k)) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * Fields of a saved credential document that hold a secret. Only these are
+ * taken: a profile, uid or expiry is not one, and redacting `platform_cn`
+ * would mangle ordinary output.
+ */
+const CREDENTIAL_FIELD = /^(key|api_?key|access|refresh|access_?token|refresh_?token|id_?token|token|secret|client_?secret)$/i;
+
+/**
+ * The secret values in a parsed credential file: auth.json (every provider's
+ * key / access / refresh, and the pre-Pi top-level apiKey) or step-login.json
+ * (the account session's accessToken / refreshToken), plus anything named like
+ * a credential variable in a provider's `env`.
+ */
+function credentialValuesIn(doc, depth = 0) {
+  const out = [];
+  if (!doc || typeof doc !== 'object' || depth > 4) return out;
+  for (const [k, v] of Object.entries(doc)) {
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (s.length >= 8 && (CREDENTIAL_FIELD.test(k) || SECRET_ENV_NAME.test(k))) out.push(s);
+    } else if (v && typeof v === 'object') {
+      out.push(...credentialValuesIn(v, depth + 1));
+    }
   }
   return out;
 }
@@ -349,10 +378,14 @@ function userStepPaths(env = {}, home = '') {
     root = path.join(homeDir, configDirName);
     agentDir = path.join(root, 'agent');
   }
+  const authPath = _val(env, 'STEPCODE_AUTH_PATH') || path.join(root, 'auth.json');
   return {
     root,
     agentDir,
-    authPath: _val(env, 'STEPCODE_AUTH_PATH') || path.join(root, 'auth.json'),
+    authPath,
+    // The account session `step login` stores beside the credential; the CLI
+    // follows a moved auth.json with it.
+    loginStatePath: _val(env, 'STEPCODE_LOGIN_STATE_PATH') || path.join(path.dirname(authPath), 'step-login.json'),
     configPath: path.join(root, 'config.toml'),
     toolsDir: path.join(agentDir, 'bin'),
   };
@@ -826,6 +859,7 @@ module.exports = {
   redactValues,
   redactFrame,
   secretValuesIn,
+  credentialValuesIn,
   truncate,
   redactArgs,
   resolveStepAuth,
