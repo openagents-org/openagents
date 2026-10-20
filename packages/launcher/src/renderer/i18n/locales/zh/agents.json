@@ -391,6 +391,8 @@
     "overviewSubtitle": "查看此设备、工作区连接以及在此运行的智能体。",
     "agentsHere": "此电脑上的智能体",
     "installing": "安装中…",
+    "addedAfterInstall": "{{name}} 已安装并添加。",
+    "addAfterInstallFailed": "{{name}} 安装失败，未能添加：{{message}}",
     "installAndSignIn": "安装并登录",
     "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
     "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",

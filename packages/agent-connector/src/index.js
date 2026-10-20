@@ -100,8 +100,32 @@ class AgentConnector {
   }
 
   addAgent({ name, type, role, path, env }) {
-    this.config.addAgent({ name, type: type || 'openclaw', role: role || 'worker', path, env });
+    const agentType = type || 'openclaw';
+    this.config.addAgent({ name, type: agentType, role: role || 'worker', path, env });
+    // A key entered while ADDING the agent needs the same native side effects
+    // as one saved later: OpenClaw and Hermes read a custom endpoint only from
+    // their own config. Without this a new agent's test passed on the form's
+    // key while the run used a stale one ("401 Invalid token") or none at all
+    // (Hermes falling back to OpenRouter: "401 Missing Authentication header").
+    if (env && Object.keys(env).length) {
+      this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...env });
+    }
     return { success: true };
+  }
+
+  /** Push an agent's endpoint and key into the CLI's own config, for the types that need it. */
+  _configureNativeAuth(agentType, env) {
+    try {
+      if (agentType === 'openclaw') {
+        require('./adapters/openclaw').configureNativeAuth(env);
+      }
+      // Hermes reads a custom endpoint only from its own config.yaml, so the
+      // saved LLM_* values must be pushed through `hermes config set` — the
+      // env file alone leaves it "No inference provider configured".
+      if (agentType === 'hermes') {
+        require('./adapters/hermes').configureNativeAuth(env);
+      }
+    } catch {}
   }
 
   /**
@@ -212,22 +236,7 @@ class AgentConnector {
 
   saveAgentEnv(agentType, env) {
     this.env.save(agentType, env);
-    // Configure native auth for agents that need it (e.g. OpenClaw auth-profiles.json)
-    try {
-      if (agentType === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const saved = this.env.load(agentType);
-        OpenClawAdapter.configureNativeAuth(saved);
-      }
-      // Hermes reads a custom endpoint only from its own config.yaml, so the
-      // saved LLM_* values must be pushed through `hermes config set` — the
-      // env file alone leaves it "No inference provider configured".
-      if (agentType === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const saved = this.env.load(agentType);
-        HermesAdapter.configureNativeAuth(saved);
-      }
-    } catch {}
+    this._configureNativeAuth(agentType, this.env.load(agentType));
     return { success: true };
   }
 
@@ -249,18 +258,8 @@ class AgentConnector {
 
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
-    try {
-      if ((agent.type || 'openclaw') === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const typeEnv = this.env.load(agent.type || 'openclaw');
-        OpenClawAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-      if (agent.type === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const typeEnv = this.env.load('hermes');
-        HermesAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-    } catch {}
+    const agentType = agent.type || 'openclaw';
+    this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...saved });
 
     return { success: true };
   }

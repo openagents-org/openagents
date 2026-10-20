@@ -25,7 +25,7 @@
     "captchaTick": "请先勾选上方的“我是人类”，再重试。"
   },
   "workspaces": {
-    "title": "我的工作区",
+    "title": "全部工作区",
     "retry": "重试"
   },
   "externalOpened": "已在浏览器中打开登录页，请在那里完成后返回。",

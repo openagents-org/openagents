@@ -7,15 +7,15 @@
     "progress": "{{current}} / {{total}}",
     "steps": {
       "dashboard": {
-        "title": "This Computer",
-        "body": "Your device, its connected workspaces and its agents — create, configure, start and stop agents here."
+        "title": "Device Overview",
+        "body": "Your device, the workspaces it has joined and its agents — create, configure, start and stop agents here."
       },
       "install": {
         "title": "Agent Marketplace",
         "body": "Browse, install and update agents here — or have a workspace this device is in install one on it remotely."
       },
       "workspaces": {
-        "title": "Connected Workspaces",
+        "title": "Joined Workspaces",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }

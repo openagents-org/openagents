@@ -1612,6 +1612,8 @@ export const messages = {
     agentNameExists: "An agent with this name already exists on this device. Open its settings or choose another name.",
     agentSaved: "Agent settings saved.",
     agentAdded: "Agent added.",
+    agentDocs: "Docs",
+    agentAddedAfterInstall: "Installing {name} — it will be added when the install finishes. You can keep working meanwhile.",
 
     title: 'Connect Agents',
     tabLocal: 'Manual Connection',

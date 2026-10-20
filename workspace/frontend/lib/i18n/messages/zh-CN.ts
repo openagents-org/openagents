@@ -1575,6 +1575,8 @@ export const messages: Messages = {
     agentNameExists: "此设备上已存在同名智能体。请打开其设置或使用其他名称。",
     agentSaved: "智能体设置已保存。",
     agentAdded: "智能体已添加。",
+    agentDocs: "使用文档",
+    agentAddedAfterInstall: "正在安装 {name}，安装完成后会自动添加，期间可以继续其他操作。",
 
     title: '连接智能体',
     tabLocal: '手动连接',

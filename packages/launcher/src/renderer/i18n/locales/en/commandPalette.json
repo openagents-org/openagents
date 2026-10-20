@@ -11,9 +11,9 @@
     "recent": "Recent"
   },
   "nav": {
-    "dashboard": "This Computer",
+    "dashboard": "Device Overview",
     "chat": "Chat",
-    "workspaces": "Connected Workspaces",
+    "workspaces": "Joined Workspaces",
     "connections": "Connections",
     "credentials": "Credentials",
     "github": "GitHub",

@@ -605,6 +605,10 @@ export class InstallService {
       "--save",
       "--prefix",
       prefixDir,
+      // The audit and funding lookups are extra registry round trips that add
+      // nothing to a runtime install, and on a slow registry they dominate it.
+      "--no-audit",
+      "--no-fund",
       // DSH publishes a very broad graph of small packages with overlapping
       // peer ranges. npm's Arborist can spend minutes backtracking through it
       // (most visibly on Windows) after every registry request has completed,

@@ -25,7 +25,7 @@
     "captchaTick": "Tick \"I am human\" above, then try again."
   },
   "workspaces": {
-    "title": "My Workspaces",
+    "title": "All Workspaces",
     "retry": "Try again"
   },
   "externalOpened": "Sign-in opened in your browser — finish it there and come back.",

@@ -228,3 +228,26 @@ describe('AgentConnector workspace removal', () => {
     assert.equal(connector.config.getAgents().length, 0);
   });
 });
+
+describe('AgentConnector native auth on add', () => {
+  // A key typed while adding an agent must reach the CLI's own config, exactly
+  // like one saved later — otherwise the run uses a stale key or none at all.
+  for (const type of ['openclaw', 'hermes']) {
+    it(`configures ${type} from the env it is added with`, () => {
+      const adapter = require(`../src/adapters/${type}`);
+      const original = adapter.configureNativeAuth;
+      const calls = [];
+      adapter.configureNativeAuth = (env) => { calls.push(env); };
+      try {
+        const connector = new AgentConnector({ configDir: tmpDir });
+        connector.addAgent({ name: `${type}-new`, type, env: { LLM_API_KEY: 'sk-new', LLM_BASE_URL: 'https://relay.example/v1' } });
+        connector.addAgent({ name: `${type}-bare`, type });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].LLM_API_KEY, 'sk-new');
+        assert.equal(calls[0].LLM_BASE_URL, 'https://relay.example/v1');
+      } finally {
+        adapter.configureNativeAuth = original;
+      }
+    });
+  }
+});

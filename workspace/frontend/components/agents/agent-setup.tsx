@@ -17,7 +17,8 @@ import { joinNodePath } from '@/lib/node-path';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
-  enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string }>;
+  /** `deferred`: the create waits on a runtime install and finishes after the form closes; the host reports the outcome. */
+  enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string; deferred?: boolean }>;
   listNodeCommands(nodeId: string): Promise<NodeCommand[]>;
   listModelAccess(): Promise<ModelAccessEntry[]>;
   probeModelAccess(id: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult>;
@@ -474,10 +475,10 @@ export function AgentSetup({
   // agent's identity (config, env files, @mentions) and stays fixed.
   const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');
   const canRename = isEdit && !!extensions?.renameAgent;
-  // Once the user edits the name, picking/switching a type must never overwrite
-  // it — otherwise a typed name like "claudecbd" silently reverts to the type
-  // ("claude"). The type only seeds the name as a convenience default.
-  const nameTouched = useRef(false);
+  // A typed name belongs to the type it was typed for: re-picking that type keeps
+  // it (a typed "claudecbd" must not revert to "claude"), but switching to a
+  // different type reseeds — otherwise "kimi-1019" lands on a DeepSeek agent.
+  const nameTouchedFor = useRef<string | null>(null);
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
   const [apiKey, setApiKey] = useState('');
   // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
@@ -526,7 +527,10 @@ export function AgentSetup({
 
   const pick = (typeName: string) => {
     setSelected(typeName);
-    if (!nameTouched.current) setName(uniqueAgentName(typeName, takenNames)); // seed only while untouched
+    if (nameTouchedFor.current !== typeName) {
+      nameTouchedFor.current = null;
+      setName(uniqueAgentName(typeName, takenNames));
+    }
     setWorkingDir('');
     setApiKey('');
     setBaseUrl('');
@@ -751,9 +755,14 @@ export function AgentSetup({
         // Optimistically show it spinning up in the node card. The commandId
         // lets the placeholder track the REAL install/config progress instead
         // of guessing from a timer.
-        onQueued?.({ name: n, type: selected, commandId: cmd?.commandId });
+        if (cmd?.deferred) {
+          toast.success(t('connect.agentAddedAfterInstall', { name: n }));
+        } else {
+          onQueued?.({ name: n, type: selected, commandId: cmd?.commandId });
+          toast.success(extensions?.local ? t('connect.agentAdded') : t('connect.nodeCommandQueued', { node: node.name }));
+        }
       }
-      toast.success(extensions?.local ? t(isEdit ? 'connect.agentSaved' : 'connect.agentAdded') : t('connect.nodeCommandQueued', { node: node.name }));
+      if (isEdit) toast.success(extensions?.local ? t('connect.agentSaved') : t('connect.nodeCommandQueued', { node: node.name }));
       if (extensions?.local) onChanged();
       else setTimeout(onChanged, 3000);
       onBack();
@@ -811,9 +820,13 @@ export function AgentSetup({
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
                   {badge(selectedStatus)}
+                  {/* Labelled, because a bare arrow beside "Needs login" reads as
+                      "sign in here" — and it opens the agent's docs. */}
                   {selectedEntry.homepage && (
-                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer"
-                       className="text-muted-foreground/50 hover:text-primary transition-colors"><ExternalLink className="size-3.5" /></a>
+                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer" title={selectedEntry.homepage}
+                       className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                      {t('connect.agentDocs')}<ExternalLink className="size-3" />
+                    </a>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
@@ -906,7 +919,7 @@ export function AgentSetup({
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
-            <Input aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            <Input aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {canRename && <p className="text-[11px] text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 

@@ -6,7 +6,7 @@
   },
   "items": {
     "dashboard": {
-      "label": "This Computer",
+      "label": "Device Overview",
       "description": "Your device, workspace connections, and the agents running here."
     },
     "install": {
@@ -18,7 +18,7 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Connected workspaces",
+      "label": "Joined Workspaces",
       "description": "Workspaces this computer has joined as a device"
     },
     "chat": {
@@ -71,6 +71,6 @@
   "themeToggle": "Theme",
   "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
-  "modeLauncher": "This Computer",
+  "modeLauncher": "Device",
   "modeWorkspace": "Workspace"
 }

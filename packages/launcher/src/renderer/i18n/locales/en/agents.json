@@ -392,6 +392,8 @@
     "overviewSubtitle": "Your device, workspace connections, and the agents running here.",
     "agentsHere": "Agents on this computer",
     "installing": "Installing…",
+    "addedAfterInstall": "{{name}} is installed and added.",
+    "addAfterInstallFailed": "{{name}} could not be added because its install failed: {{message}}",
     "installAndSignIn": "Install and sign in",
     "agentUnavailable": "This agent is no longer available. Return to the agent list.",
     "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",

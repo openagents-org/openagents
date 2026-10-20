@@ -2745,6 +2745,7 @@ export class AgentManager extends EventEmitter {
     if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
     const healthCheck = this._connector!.healthCheck as (
       type: string,
+      opts?: { agentEnv?: Record<string, string> },
     ) => unknown
     const core = healthCheck.call(this._connector, type)
     // Dual-auth agents (Claude): fold the CLI sign-in state into the core
@@ -2752,7 +2753,18 @@ export class AgentManager extends EventEmitter {
     // a subscription login (no key) as ready. Adds an explicit `logged_in` flag
     // the renderer reads to distinguish "signed in via CLI" from "has API key".
     if (DUAL_LOGIN_AGENTS[type]) return this._health.dualLoginHealth(type, core)
-    return core
+    // The setup form saves a key on the AGENT, not the type, so the core's
+    // type-level verdict never sees it: Pi answered chats while its card said
+    // "Login required". Judge the type again with what its agents carry.
+    if ((core as { ready?: boolean } | null)?.ready !== false) return core
+    const agentEnv = this._savedTypeEnvForProbe(type)
+    if (!Object.keys(agentEnv).length) return core
+    try {
+      const withAgents = healthCheck.call(this._connector, type, { agentEnv }) as { ready?: boolean } | null
+      return withAgents?.ready ? withAgents : core
+    } catch {
+      return core
+    }
   }
 
   /**
