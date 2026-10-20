@@ -38,6 +38,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
+import { WorkspaceLoadError } from './workspace-load-error';
 
 function WorkspaceLoadingScreen() {
   const t = useT();
@@ -171,11 +172,7 @@ export function Wrapper() {
   }
 
   if (workspaceLoadError) {
-    return <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-lg font-semibold">{t('admin.loadFailed')}</h1>
-      <p className="max-w-md text-sm text-muted-foreground">{t('workspaceGate.loadFailedBody')}</p>
-      <button type="button" onClick={retryWorkspace} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{t('common.retry')}</button>
-    </div>;
+    return <WorkspaceLoadError status={workspaceLoadError.status} onRetry={retryWorkspace} />;
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──

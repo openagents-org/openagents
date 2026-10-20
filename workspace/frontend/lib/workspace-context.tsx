@@ -4,7 +4,7 @@ import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMe } from '@/hooks/use-me';
-import { workspaceApi } from './api';
+import { ApiError, workspaceApi } from './api';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -180,7 +180,7 @@ interface WorkspaceContextValue {
   setSessionOrchestration: (sessionId: string, updates: { mode?: string; responseMode?: 'proactive' | 'passive'; instruction?: string | null; workflowId?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
-  workspaceLoadError: string | null;
+  workspaceLoadError: { message: string; status: number | null } | null;
   retryWorkspace: () => void;
   refreshAgents: () => Promise<void>;
   refreshFiles: () => Promise<void>;
@@ -412,7 +412,7 @@ export function WorkspaceProvider({
     return v;
   }, []);
   const [loading, setLoading] = useState(true);
-  const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
+  const [workspaceLoadError, setWorkspaceLoadError] = useState<{ message: string; status: number | null } | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const retryWorkspace = useCallback(() => setLoadAttempt(attempt => attempt + 1), []);
   const [error, setError] = useState<string | null>(null);
@@ -1591,14 +1591,14 @@ export function WorkspaceProvider({
         if (!cancelled) {
           const message = e instanceof Error ? e.message : 'Failed to load workspace';
           setError(message);
-          setWorkspaceLoadError(message);
+          setWorkspaceLoadError({ message, status: e instanceof ApiError ? e.status : null });
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [workspaceId, token, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId, token, bearerToken, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Locally-observed activity. `lastEventAt` is null on some workspaces, so a
   // changed message preview is the other signal that a thread moved. Status
