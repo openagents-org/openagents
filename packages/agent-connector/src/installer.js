@@ -1204,7 +1204,11 @@ class Installer {
     };
     if (bridgedCommandString(binary, args)) return run(command, { ...opts, shell: true });
     if (process.platform === 'win32') {
-      const own = resolveCursorNodeEntry(binary, opts.env);
+      // The resolver also searches Cursor's default install root, so only
+      // pass Cursor launchers to it. Otherwise an installed Cursor replaces
+      // unrelated CLIs (e.g. `step login status --json`) in health checks.
+      const isCursorLauncher = /^(?:cursor-agent|agent)(?:\.(?:cmd|bat|ps1|exe))?$/i.test(path.basename(binary));
+      const own = isCursorLauncher ? resolveCursorNodeEntry(binary, opts.env) : null;
       if (!own) return run(command, { ...opts, shell: true });
       const [node, entry] = own;
       // What cursor-agent.cmd would have set before handing over to node.
