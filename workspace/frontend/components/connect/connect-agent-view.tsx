@@ -78,6 +78,7 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   qoder:     { bg: 'bg-emerald-500', text: 'text-white' },
   'qoder-cn': { bg: 'bg-emerald-500', text: 'text-white' },
   'qwen-code': { bg: 'bg-violet-700', text: 'text-white' },
+  'step-code': { bg: 'bg-sky-700',   text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
