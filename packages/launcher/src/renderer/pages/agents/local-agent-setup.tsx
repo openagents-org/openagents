@@ -15,6 +15,7 @@ import { isCliLoginDetected, modelsForTab, preferredAuthTab } from "@renderer/li
 import { isCliLogin } from "../../../shared/agent-auth-mode"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types"
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
+import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
@@ -60,7 +61,17 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
   }
   useEffect(() => { let active = true; setError(""); void refresh().catch((err) => { if (active) setError(String(err)) }); return () => { active = false } }, [attempt])
 
-  const api = useMemo<AgentSetupApi>(() => createLocalSetupApi(window.api, () => config.current), [])
+  // A create that waits on an install reports back after this form may be gone, so it reads the latest host callbacks.
+  const host = useRef({ onCreated, onChanged, t })
+  host.current = { onCreated, onChanged, t }
+  const api = useMemo<AgentSetupApi>(() => createLocalSetupApi(window.api, () => config.current, {
+    onCreated: (name) => {
+      showGlobalToast(host.current.t("agents.shared.addedAfterInstall", { name }), "success")
+      host.current.onChanged()
+      host.current.onCreated(name)
+    },
+    onFailed: (name, message) => showGlobalToast(host.current.t("agents.shared.addAfterInstallFailed", { name, message }), "error"),
+  }), [])
   const current = agent && data?.node.agents.find((a) => a.name === agent.name)
   const loadError = error || (data && agent && !current ? t("agents.shared.agentUnavailable") : "")
   return <section className="h-full overflow-y-auto">
