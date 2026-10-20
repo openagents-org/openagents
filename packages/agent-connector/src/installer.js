@@ -29,6 +29,7 @@ const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
 const { nativeBuildFor } = require('./native-build');
 const { classifyClineAuth } = require('./adapters/cline-stream');
+const { identityOf, findOwnInstall, verifyBinary } = require('./binary-identity');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -1530,7 +1531,7 @@ class Installer {
 
     let bootstrapEnv = this._buildShellEnv();
     let installEnv;
-    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && process.platform === 'win32') {
+    if (['hermes', 'qoder', 'qoder-cn', 'step-code'].includes(agentType) && process.platform === 'win32') {
       const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
       cmd = prepared.command;
       bootstrapEnv = prepared.env;
@@ -1632,8 +1633,9 @@ class Installer {
     // Resolve a compatible host and keep inherited PowerShell 7 modules out
     // of Windows PowerShell. Qoder otherwise cannot load Get-FileHash when
     // verifying its download, just as Hermes's uv bootstrap could not load
-    // Get-ExecutionPolicy.
-    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && isWin) {
+    // Get-ExecutionPolicy; Step Code's install.ps1 needs Get-FileHash and
+    // Expand-Archive to verify and unpack its download.
+    if (['hermes', 'qoder', 'qoder-cn', 'step-code'].includes(agentType) && isWin) {
       const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
       rawCmd = prepared.command;
       env = prepared.env;
@@ -2410,6 +2412,23 @@ class Installer {
    */
   _whichBinary(agentType) {
     const entry = this.registry.getEntry(agentType);
+    // An agent whose binary name another program also uses (Step Code's
+    // `step` vs Smallstep's) opts into `install.identify`: its own installer's
+    // dir first, and anything found elsewhere only when its `--version` answers
+    // like the agent. Every other agent is resolved exactly as below.
+    const identify = identityOf(entry);
+    if (identify) {
+      const binary = entry.install.binary || agentType;
+      const own = findOwnInstall(identify, binary);
+      if (own) return own;
+      const found = this._lookupBinary(agentType, entry);
+      return found && verifyBinary(identify, found) !== false ? found : null;
+    }
+    return this._lookupBinary(agentType, entry);
+  }
+
+  /** The PATH / managed-prefix / known-dirs lookup behind _whichBinary. */
+  _lookupBinary(agentType, entry) {
     const binary = entry && entry.install ? entry.install.binary : agentType;
     const aliases = entry && entry.install && Array.isArray(entry.install.binary_aliases)
       ? entry.install.binary_aliases
