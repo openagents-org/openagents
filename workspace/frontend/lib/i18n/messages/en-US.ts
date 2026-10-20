@@ -1590,7 +1590,12 @@ export const messages = {
     notFoundBody: 'No workspace exists at this address. Double-check the link.',
     noAccessTitle: 'No access to this workspace',
     noAccessBody:
-      "Your account isn't a member of this workspace. Ask the owner for an invite, or open it with a token link.",
+      "Your account isn't a member of this workspace. Ask the owner for an invite, or switch to an account that has access.",
+    accessRequiredTitle: 'Sign-in or workspace access required',
+    accessRequiredBody: 'Your session may have expired, or this account may not have access. Sign in with an account that belongs to this workspace, or ask the owner for an invitation.',
+    currentAccount: 'Current account: {email}',
+    chooseAccount: 'Choose another account',
+    serviceFailedBody: 'The workspace service could not complete the request. Please retry.',
     loadFailedTitle: 'Could not check your access',
     loadFailedBody: 'A network error occurred while loading your workspaces. Please retry.',
     goHome: 'Go to my workspaces',

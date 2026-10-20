@@ -164,10 +164,19 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   const signIn = useCallback(async () => {
     const host = desktopHost();
     if (host) { host.signIn(); return; }
-    const { signInWithGoogle, getIdToken } = await import('./firebase');
+    const { signInWithGoogle, getIdToken, getFreshIdToken, getResolvedEmail } = await import('./firebase');
     const firebaseUser = await signInWithGoogle();
     const token = await getIdToken();
-    const email = firebaseUser.email || '';
+    if (!token) throw new Error('Sign-in did not return an identity token');
+    const email = firebaseUser.email || (await getResolvedEmail());
+    // A successful account switch supersedes a stored workspace session too.
+    // That restore path skips Firebase's listener, so install its refresher here.
+    clearWorkspaceSession();
+    workspaceApi.setBearerRefresher(async () => {
+      const fresh = await getFreshIdToken(true);
+      if (fresh) setIdToken(fresh);
+      return fresh;
+    });
     setUser({
       email,
       displayName: firebaseUser.displayName || email,
