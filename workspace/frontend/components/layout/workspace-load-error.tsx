@@ -34,7 +34,7 @@ export function WorkspaceLoadError({ status, onRetry }: {
     }
   }
 
-  return <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+  return <div role="alert" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 overflow-y-auto bg-background p-6 text-center">
     <h1 className="text-lg font-semibold">{title}</h1>
     <p className="max-w-md text-sm text-muted-foreground">{body}</p>
     {accessError && user?.email && <p className="text-sm">{t('workspaceGate.currentAccount', { email: user.email })}</p>}
