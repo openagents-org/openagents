@@ -2,17 +2,17 @@ import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
 import { useShallow } from "zustand/react/shallow"
-import { Trans, useTranslation } from "react-i18next"
-import AgentIcon from "../../components/AgentIcon"
-import { ConfirmDialog, EmptyState } from "../../components/ui-kit"
+import { useTranslation } from "react-i18next"
 import { RenameAgentDialog } from "./components/rename-agent-dialog"
-import { Cpu, FilterX, Plus, SearchX } from "lucide-react"
-import { Button } from "../../components/ui/button"
 import { Card } from "../../components/ui/card"
 import { Skeleton } from "../../components/ui/skeleton"
 import { PageHeader } from "../../components/layout/page-header"
 import type { ToastType } from "../../hooks/useToast"
-import { ComputerSummary } from "./computer-summary"
+import { MarketplaceStats } from "../install/components/marketplace-stats"
+import { useAgentCatalog } from "./use-agent-catalog"
+import { RecommendedAgents } from "./components/recommended-agents"
+import { AgentsEmpty } from "./components/agents-empty"
+import { RemoveAgentDialog } from "./components/remove-agent-dialog"
 const LocalAgentSetup = React.lazy(() => import("./local-agent-setup").then((module) => ({ default: module.LocalAgentSetup })))
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
 import { AgentCard, AddAgentCard } from "./components/agent-card"
@@ -62,6 +62,13 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const mounted = useRef(true)
 
   const [newAgentOpen, setNewAgentOpen] = useState(false)
+  // The type a recommended card asked for; null opens the full type picker.
+  const [setupType, setSetupType] = useState<string | null>(null)
+  const startSetup = (type: string | null): void => {
+    setSetupType(type)
+    setNewAgentOpen(true)
+  }
+  const { catalog, counts: typeCounts, loading: catalogLoading } = useAgentCatalog()
   const [configureOpen, setConfigureOpen] = useState(false)
   const [configureAgent, setConfigureAgent] = useState<{
     name: string
@@ -151,14 +158,14 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   // The dashboard's "New agent" button lands here with the dialog requested.
   useEffect(() => {
     if (pendingCreate !== "agent") return
-    setNewAgentOpen(true)
+    startSetup(null)
     clearPendingCreate()
   }, [pendingCreate, clearPendingCreate])
 
   if (newAgentOpen || (configureOpen && configureAgent)) {
-    return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
+    return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup initialType={setupType ?? undefined} agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
       onManage={(agent) => { setNewAgentOpen(false); setConfigureAgent(agent); setConfigureOpen(true) }}
-      onBack={() => { setNewAgentOpen(false); setConfigureOpen(false); void refresh() }}
+      onBack={() => { setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); void refresh() }}
       onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
   }
 
@@ -168,15 +175,18 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         title={t(overview ? "nav.items.dashboard.label" : "agents.list.title")}
         subtitle={t("agents.shared.overviewSubtitle")}
         actions={
-          <Button variant="default" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
-            <Plus />
-            {t("agents.list.newAgent")}
-          </Button>
+          // Read-only here: the full list is reached through "Browse and
+          // connect more agents", and only through it.
+          catalogLoading ? null : <MarketplaceStats counts={typeCounts} />
         }
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
-        {overview && <ComputerSummary />}
+        <RecommendedAgents
+          catalog={catalog}
+          onInstall={(type) => startSetup(type)}
+          onMore={() => startSetup(null)}
+        />
         <h2 className="mb-4 text-base font-semibold">{t("agents.shared.agentsHere")}</h2>
         <AgentsToolbar
           search={search}
@@ -197,44 +207,12 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
             <SkeletonListItem />
           </div>
         ) : rows.length === 0 ? (
-          // Three reasons a list can be empty, and each gets its own way out:
-          // nothing installed (make one), nothing matching the search (drop
-          // it), nothing in this state (widen the filter). The page used to
-          // print one grey sentence for all three and offer nothing at all.
-          agents.length === 0 ? (
-            <EmptyState
-              icon={<Cpu />}
-              title={t("agents.list.emptyTitle")}
-              description={t("agents.list.empty")}
-              action={{
-                label: t("agents.list.newAgent"),
-                icon: <Plus />,
-                onClick: () => setNewAgentOpen(true),
-              }}
-            />
-          ) : search.trim() ? (
-            <EmptyState
-              icon={<SearchX />}
-              title={t("agents.list.emptyNoMatchTitle")}
-              description={t("agents.list.emptyNoMatch", {
-                query: search.trim(),
-              })}
-              action={{
-                label: t("common.clearSearch"),
-                onClick: () => setSearch(""),
-              }}
-            />
-          ) : (
-            <EmptyState
-              icon={<FilterX />}
-              title={t("agents.list.emptyNoFilterMatchTitle")}
-              description={t("agents.list.emptyNoFilterMatch")}
-              action={{
-                label: t("common.showAll"),
-                onClick: () => setFilter("all"),
-              }}
-            />
-          )
+          <AgentsEmpty
+            hasAny={agents.length > 0}
+            search={search}
+            onClearSearch={() => setSearch("")}
+            onShowAll={() => setFilter("all")}
+          />
         ) : (
           <>
             {view === "list" ? (
@@ -256,7 +234,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
                     {...handlers}
                   />
                 ))}
-                <AddAgentCard onClick={() => setNewAgentOpen(true)} />
+                <AddAgentCard onClick={() => startSetup(null)} />
               </div>
             )}
 
@@ -283,43 +261,14 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         onConnected={refresh}
       />
 
-      <ConfirmDialog
-        open={!!removeTarget}
-        icon={
-          <AgentIcon
-            type={agents.find((a) => a.name === removeTarget)?.type || ""}
-            size={40}
-          />
-        }
-        title={t("agents.list.removeTitle", { name: removeTarget })}
-        description={
-          <Trans
-            i18nKey="agents.list.removeBody"
-            values={{ name: removeTarget }}
-            components={{ 1: <strong className="text-foreground" /> }}
-          />
-        }
-        confirmLabel={t("agents.list.remove")}
-        cancelLabel={t("agents.list.cancel")}
+      <RemoveAgentDialog
+        name={removeTarget}
+        agent={agents.find((a) => a.name === removeTarget)}
         onConfirm={() => {
           if (removeTarget) removeAgent(removeTarget, { fromWorkspace: true })
         }}
         onCancel={() => setRemoveTarget(null)}
-      >
-        {/* Stated, not asked. Leaving the membership behind was never a useful
-            choice: once the agent is gone from here there is no way back to it,
-            so the workspace would keep a member nobody can reach or clean up.
-            `fromWorkspace` is a no-op for an agent that never joined one. */}
-        {agents.find((a) => a.name === removeTarget)?.network && (
-          <p className="m-0 rounded-lg border bg-muted/40 px-3 py-2.5 text-left text-xs leading-relaxed">
-            {t("agents.list.alsoRemovedFromWorkspace", {
-              workspace:
-                agents.find((a) => a.name === removeTarget)?.networkName ||
-                t("agents.list.theWorkspace"),
-            })}
-          </p>
-        )}
-      </ConfirmDialog>
+      />
 
       <RenameAgentDialog
         agent={renameTarget}

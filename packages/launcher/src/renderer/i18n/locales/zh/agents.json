@@ -12,7 +12,7 @@
       "error": "异常"
     },
     "emptyNoMatch": "没有名称匹配「{{query}}」的智能体。",
-    "empty": "选择要在此电脑上使用的智能体。我们会复用已安装的软件，您也可以在准备好后将智能体连接到工作区。",
+    "empty": "从上方的推荐中选择一个智能体，或查看并连接更多智能体。",
     "coreUpdateRequired": "需要更新智能体核心",
     "apiPrefix": "API：{{value}}",
     "modelPrefix": "模型：{{value}}",
@@ -201,8 +201,8 @@
       "error": "错误：{{message}}"
     },
     "emptyTitle": "这台设备还没有加入任何工作区",
-    "emptyBody": "先在「本机工作区」页用配对码加入一个工作区，再回到这里选择。本设备可以同时加入多个工作区。",
-    "goToWorkspaces": "去加入工作区"
+    "getCode": "获取配对码，加入工作区",
+    "addMore": "添加更多工作区"
   },
   "detail": {
     "back": "返回智能体市场",
@@ -382,21 +382,22 @@
     "verifyApiSettingsHint": "保存前检查密钥、接口地址和模型是否可用。",
     "connectionWorks": "连接成功。",
     "connectionFailed": "无法验证连接。",
-    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
-    "loading": "正在读取设备状态…",
-    "connectedCount_other": "已连接 {{count}} 个工作区",
-    "localDescription": "支持本地使用，无需账户。",
-    "deviceSettingsHint": "管理此设备的连接和已安装的软件。",
-    "softwareUpdates": "安装与更新智能体",
-    "overviewSubtitle": "查看此设备、工作区连接以及在此运行的智能体。",
-    "agentsHere": "此电脑上的智能体",
+    "overviewSubtitle": "安装推荐的智能体，或查看并连接更多类型。",
+    "agentsHere": "已连接的智能体",
     "installing": "安装中…",
     "addedAfterInstall": "{{name}} 已安装并添加。",
     "addAfterInstallFailed": "{{name}} 安装失败，未能添加：{{message}}",
     "installAndSignIn": "安装并登录",
     "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
     "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",
-    "homeFolder": "您的主目录"
+    "homeFolder": "您的主目录",
+    "recommended": {
+      "label": "推荐智能体",
+      "prev": "上一个",
+      "next": "下一个",
+      "installNow": "立即安装",
+      "more": "查看并连接更多智能体"
+    }
   },
   "renameDialog": {
     "title": "重命名 {{name}}",

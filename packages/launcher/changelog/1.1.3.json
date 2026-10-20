@@ -23,6 +23,39 @@
         "en": "Press ⌘1–⌘8 (Ctrl+1–Ctrl+8 on Windows) to jump to a tab and ⌘9 (Ctrl+9) for the last one. With five or more tabs open, a menu at the end of the tab bar lists them all along with their shortcuts.",
         "zh": "按 ⌘1–⌘8（Windows 为 Ctrl+1–Ctrl+8）可切换到对应标签，⌘9（Ctrl+9）切换到最后一个标签。打开五个及以上标签时，标签栏末尾会提供菜单，列出全部标签及其快捷键。"
       }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Connect Agents brings agent setup into one place",
+        "zh": "「连接智能体」统一智能体的安装与管理"
+      },
+      "description": {
+        "en": "Device Overview and Agent Marketplace are now a single Connect Agents page. It opens with recommended agents — Codex, Claude, OpenCode and Hermes — each one click from its setup, with Browse and connect more agents for every other type. Agents you add appear straight away under Connected agents, and you can add several of the same type, each with its own name and workspace.",
+        "zh": "「设备概览」与「智能体市场」合并为「连接智能体」页面。页面顶部推荐 Codex、Claude、OpenCode 和 Hermes，点击「立即安装」即可进入对应配置；其他类型可通过「查看并连接更多智能体」添加。添加完成的智能体会立即出现在「已连接的智能体」列表中，同一类型也可以添加多个，分别命名并加入不同的工作区。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Join a workspace straight from the welcome screen",
+        "zh": "从欢迎页直接加入工作区"
+      },
+      "description": {
+        "en": "Use OpenAgents on the welcome screen now goes straight to the pairing code, and the pairing form explains where to get one. When you add an agent to a workspace before this computer has joined any, you can get a code and enter it in the same dialog, and the agent joins that workspace as soon as the code is accepted.",
+        "zh": "欢迎页的「使用OpenAgents」按钮会直接打开配对码输入框，并说明配对码的获取方式。若本机尚未加入任何工作区，把智能体加入工作区时可在同一弹窗中获取并输入配对码，配对成功后智能体随即加入该工作区。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Joined Workspaces shows this device at a glance",
+        "zh": "「本机加入的工作区」页面展示设备概况"
+      },
+      "description": {
+        "en": "Join workspace now sits right under the page title, and a summary below it shows this device and the workspaces it has joined, each one click away.",
+        "zh": "「加入工作区」按钮移至页面标题下方，其下新增设备概况，展示本机名称及已加入的工作区，点击即可打开对应工作区。"
+      }
     }
   ]
 }

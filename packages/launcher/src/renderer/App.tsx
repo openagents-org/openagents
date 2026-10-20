@@ -151,7 +151,11 @@ export default function App(): React.JSX.Element {
       {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
           job={activeJob}
-          onOpen={() => setCurrentTab("install")}
+          onOpen={() => {
+            // Straight to the agent being installed, which shows the progress.
+            useUiStore.getState().setInstallFocusAgent(activeJob.agent)
+            setCurrentTab("install")
+          }}
         />
       )}
 

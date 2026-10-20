@@ -42,7 +42,6 @@ interface TourStep {
 // starts.
 const STEPS: TourStep[] = [
   { tab: "dashboard", anchor: "dashboard", key: "dashboard" },
-  { tab: "install", anchor: "install", key: "install" },
   { tab: "workspaces", anchor: "workspaces", key: "workspaces" },
 ]
 

@@ -1,13 +1,12 @@
 {
   "sections": {
-    "overview": "概览",
     "manage": "管理",
     "system": "系统"
   },
   "items": {
     "dashboard": {
-      "label": "设备概览",
-      "description": "查看此电脑的设备状态、本机加入的工作区以及在此运行的智能体。"
+      "label": "连接智能体",
+      "description": "安装、配置智能体，并把它们连接到工作区"
     },
     "install": {
       "label": "智能体市场",

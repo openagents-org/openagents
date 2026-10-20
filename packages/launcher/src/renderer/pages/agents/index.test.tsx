@@ -231,20 +231,52 @@ describe("ConnectWorkspaceDialog — picking a workspace", () => {
     )
   })
 
-  // Joining is the Workspaces page's job, so with nothing to pick from this
-  // dialog hands the user over to it instead of growing a second pair form.
-  it("sends you to the Workspaces page when this device is in no workspace", async () => {
+  // No second dialog: the code goes in right here, and once it is redeemed
+  // this agent joins the workspace it named in the same step.
+  it("pairs in place and joins the agent when this device is in no workspace", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
         .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      connectNode: vi.fn().mockResolvedValue({
+        connected: true,
+        workspaceSlug: "fresh-ws",
+        workspaceName: "Fresh WS",
+        warning: null,
+      }),
     })
     const user = await openConnectDialog(api)
 
     await screen.findByText(/isn't in any workspace yet/i)
-    await user.click(screen.getByRole("button", { name: /join a workspace/i }))
+    // Getting a code is a separate action: it opens the web app.
+    await user.click(screen.getByRole("button", { name: /get a pairing code/i }))
+    expect(api.openExternal).toHaveBeenCalledWith("https://workspace.openagents.org")
 
-    expect(useUiStore.getState().pendingCreate).toBe("workspace")
+    await user.type(screen.getByRole("textbox", { name: /^pairing code$/i }), "abcd2345")
+    await user.click(screen.getByTestId("ws-pair-submit"))
+
+    await waitFor(() => expect(api.connectNode).toHaveBeenCalledWith("ABCD2345"))
+    await waitFor(() =>
+      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "fresh-ws"),
+    )
+  })
+
+  it("sends you to the Workspaces page to add more", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+    })
+    const user = await openConnectDialog(api)
+
+    await user.click(await screen.findByRole("button", { name: /add more workspaces/i }))
+
+    expect(useUiStore.getState().currentTab).toBe("workspaces")
   })
 
   /**

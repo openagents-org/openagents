@@ -19,8 +19,10 @@ import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
-export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage }: {
+export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChanged, onManage }: {
   agent?: Agent
+  /** Open on this type's form instead of the type picker (a recommended card). */
+  initialType?: string
   onBack: () => void
   onCreated: (name: string) => void
   onManage: (agent: { name: string; type: string }) => void
@@ -78,7 +80,7 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
     {loadError ? <div className="p-8 space-y-4"><p role="alert">{loadError}</p><Button onClick={() => setAttempt((n) => n + 1)}>{t("common.retry")}</Button><Button variant="ghost" onClick={onBack}>{t("common.back")}</Button></div>
       : !data ? <div className="p-12 flex justify-center"><Spinner /></div>
       : <I18nProvider key={locale} initialLocale={locale} hasStoredLocale>
-        <AgentSetup key={agent?.name || "new"} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
+        <AgentSetup key={agent?.name || `new:${initialType || ""}`} initialType={initialType} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
           contextLabel={<>{t("agents.shared.runsHere")}{agent?.networkName || agent?.network ? ` · ${agent.networkName || agent.network}` : ` · ${t("agents.shared.localOnly")}`}</>}
           onBack={onBack} onChanged={() => { void refresh().catch((err) => { if (mounted.current) setError(String(err)) }); onChanged() }}
           onQueued={({ name }) => onCreated(name)}

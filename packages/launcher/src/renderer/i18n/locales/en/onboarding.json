@@ -7,12 +7,8 @@
     "progress": "{{current}} / {{total}}",
     "steps": {
       "dashboard": {
-        "title": "Device Overview",
-        "body": "Your device, the workspaces it has joined and its agents — create, configure, start and stop agents here."
-      },
-      "install": {
-        "title": "Agent Marketplace",
-        "body": "Browse, install and update agents here — or have a workspace this device is in install one on it remotely."
+        "title": "Connect Agents",
+        "body": "Start with a recommended agent, or browse and connect more. Every agent you add is listed below, where you configure, start, stop and add it to a workspace."
       },
       "workspaces": {
         "title": "Joined Workspaces",

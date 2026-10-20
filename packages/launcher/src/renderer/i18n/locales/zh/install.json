@@ -15,7 +15,7 @@
   },
   "status": {
     "installed": "已安装",
-    "update": "可更新",
+    "update": "待更新",
     "available": "未安装",
     "comingSoon": "即将推出"
   },

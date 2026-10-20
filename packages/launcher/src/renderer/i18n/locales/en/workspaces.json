@@ -117,11 +117,9 @@
     "unknown": "—"
   },
   "quickConnect": {
-    "title": "$t(common.actions.addWorkspace)",
-    "subtitle": "Joins a workspace that already exists. This device can belong to several at once — each one takes its own code.",
-    "pairLabel": "Pairing code from the workspace",
+    "title": "Enter a pairing code to join a workspace",
+    "pairLabel": "Pairing code",
     "pairPlaceholder": "XXXX-XXXX",
-    "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 30 minutes.",
     "pairBtn": "Join",
     "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
     "cancel": "Cancel",
@@ -135,7 +133,11 @@
       "dns": "Cannot reach the workspace service. Check your internet connection and try again.",
       "timeout": "Workspace service didn't respond in time. Please try again in a moment."
     },
-    "createOnWeb": "Need a new workspace? Sign in and create one at"
+    "howTo": {
+      "title": "How do I get a pairing code?",
+      "step1": "1. Go to <1>workspace.openagents.org</1> and sign up or sign in",
+      "step2": "2. Create a workspace, open it and copy its pairing code"
+    }
   },
   "rename": {
     "title": "Rename workspace",
@@ -181,5 +183,13 @@
     "bodyAgents": "The workspace has been removed from this machine, and the {{count}} agents filed under it were unbound — the instances and their data stay. Joining the same workspace again files them back under it.",
     "rejoin": "Join again",
     "dismiss": "Dismiss"
+  },
+  "device": {
+    "loading": "Reading device status…",
+    "statusUnavailable": "Device status is unavailable. Retrying…",
+    "connectedCount_one": "Connected to {{count}} workspace",
+    "connectedCount_other": "Connected to {{count}} workspaces",
+    "localOnly": "Not connected to any workspace yet.",
+    "openWorkspace": "Open {{name}}"
   }
 }

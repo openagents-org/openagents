@@ -1,13 +1,12 @@
 import {
+  Bot,
   FileText,
-  LayoutDashboard,
   Layers,
   Settings,
-  Store,
   type LucideIcon,
 } from "lucide-react"
 
-export type NavSection = "overview" | "manage" | "system"
+export type NavSection = "manage" | "system"
 
 export interface NavItem {
   id: string
@@ -19,14 +18,15 @@ export interface NavItem {
  * Labels and tooltips live in the i18n catalog under `nav.items.<id>`; this
  * table carries only icon and grouping so it stays language-agnostic.
  *
- * No Agents entry: This Computer (`dashboard`) already lists this computer's
- * agents and is where they are created, configured, started and stopped.
+ * Connect Agents (`dashboard`, the id kept so saved startup pages and deep
+ * links still land) is the one way to agents: it lists this computer's agents,
+ * starts every new one, and absorbed both the device overview and the
+ * marketplace entry. The marketplace page itself has no row any more; its
+ * counters and update notifications still open it. This row carries the agent
+ * update count the marketplace row used to.
  */
 export const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard", icon: LayoutDashboard, section: "overview" },
-  // Installs and updates agents — not OpenAgents itself, whose updates live in
-  // Settings → Updates. Carries the agent update count.
-  { id: "install", icon: Store, section: "manage" },
+  { id: "dashboard", icon: Bot, section: "manage" },
   { id: "workspaces", icon: Layers, section: "manage" },
   // `connections` is hidden for now — none of the platform options work yet.
   // The page itself still exists; put the row back here once they do.
@@ -34,7 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "settings", icon: Settings, section: "system" },
 ]
 
-export const NAV_SECTIONS: NavSection[] = ["overview", "manage", "system"]
+export const NAV_SECTIONS: NavSection[] = ["manage", "system"]
 
 /**
  * Ctrl+1..9 jump targets: the rail in order, then screens with no rail entry
@@ -43,7 +43,6 @@ export const NAV_SECTIONS: NavSection[] = ["overview", "manage", "system"]
  */
 export const SHORTCUT_TABS = [
   "dashboard",
-  "install",
   "workspaces",
   "logs",
   "settings",

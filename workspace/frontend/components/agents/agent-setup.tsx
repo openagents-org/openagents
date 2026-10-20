@@ -444,6 +444,7 @@ export function AgentSetup({
   extensions,
   contextLabel,
   editAgent,
+  initialType,
   onManageAgent,
   onBack,
   onChanged,
@@ -458,6 +459,8 @@ export function AgentSetup({
   extensions?: AgentSetupExtensions;
   contextLabel?: React.ReactNode;
   editAgent?: import('@/lib/types').NodeAgent;
+  /** Open straight on this type's form rather than the gallery. Ignored when editing. */
+  initialType?: string;
   onManageAgent?: (agent: import('@/lib/types').NodeAgent) => void;
   onBack: () => void;
   onChanged: () => void;
@@ -469,8 +472,9 @@ export function AgentSetup({
     () => new Set([...node.agents.map((agent) => agent.name), ...(extensions?.takenNames ?? [])]),
     [node.agents, extensions?.takenNames],
   );
-  const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
-  const [name, setName] = useState(editAgent?.name ?? '');
+  const startType = editAgent ? null : initialType ?? null;
+  const [selected, setSelected] = useState<string | null>(editAgent?.type ?? startType);
+  const [name, setName] = useState(editAgent?.name ?? (startType ? uniqueAgentName(startType, takenNames) : ''));
   // The label people see, editable after creation — unlike `name`, which is the
   // agent's identity (config, env files, @mentions) and stays fixed.
   const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');

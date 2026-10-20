@@ -10,6 +10,7 @@
 
 import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
+import { openMarketplace } from "./marketplace"
 import {
   haveWorkspaceCreds,
   createPairingCode,
@@ -95,7 +96,7 @@ function injectionEnv(): Record<string, string> {
 }
 
 test.describe("launcher full flow", () => {
-  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
+  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir, launcher }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     // cursor-agent has no custom base-URL support and authenticates only against
     // Cursor's own cloud (browser login or a real cursor.com key) — the gateway
@@ -115,7 +116,7 @@ test.describe("launcher full flow", () => {
     const name = `e2e-${SLUG}-${osTag}-${runId}`.slice(0, 38)
 
     // 1. Install (skip if a warm profile already has it).
-    await page.getByTestId("nav-install").click()
+    await openMarketplace(launcher.app)
     const card = page.getByTestId(`agent-card-${SLUG}`)
     await expect(card).toBeVisible({ timeout: 30_000 })
     if ((await card.getAttribute("data-installed")) !== "true") {

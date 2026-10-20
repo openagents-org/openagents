@@ -59,6 +59,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
   const installFocusAgent = useUiStore((s) => s.installFocusAgent)
   const setInstallFocusAgent = useUiStore((s) => s.setInstallFocusAgent)
   const installListSignal = useUiStore((s) => s.installListSignal)
+  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
 
   // Tray menu / Dashboard banner deep-link: open straight into a specific
   // agent's detail page, then clear the request flag so a subsequent tab click
@@ -129,7 +130,12 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         <div className="min-h-0 flex-1">
           <AgentDetail
             entry={selected}
-            onBack={() => setSelectedName(null)}
+            // Back to Connect Agents, not this list: the full list is reached
+            // from there ("Browse and connect more agents") and nowhere else.
+            onBack={() => {
+              setSelectedName(null)
+              setCurrentTab("dashboard")
+            }}
             onAfterInstall={(e) => {
               // Optimistically reflect the just-finished job in local state so
               // pressing Back immediately shows the right badge before

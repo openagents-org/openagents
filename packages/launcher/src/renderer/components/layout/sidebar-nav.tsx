@@ -30,22 +30,21 @@ const BADGE_CLASS = cn(
 
 export function SidebarNav(): React.JSX.Element {
   const { t } = useTranslation()
-  const { currentTab, setCurrentTab, goToInstallList } = useUiStore(
+  const { currentTab, setCurrentTab } = useUiStore(
     useShallow((s) => ({
       currentTab: s.currentTab,
       setCurrentTab: s.setCurrentTab,
-      goToInstallList: s.goToInstallList,
     })),
   )
   const updateCount = useUpdateCount()
 
   const open = (id: string): void => {
     capture("tab_switched", { tab: id })
-    // Install always returns to its list rather than resuming a stale detail
-    // view, so the entry point is predictable.
-    if (id === "install") goToInstallList()
-    else setCurrentTab(id)
+    setCurrentTab(id)
   }
+  // The marketplace has no row of its own; it is reached from Connect Agents,
+  // so that row stays lit while it is open.
+  const activeId = currentTab === "install" ? "dashboard" : currentTab
 
   return (
     <>
@@ -63,7 +62,7 @@ export function SidebarNav(): React.JSX.Element {
               {NAV_ITEMS.filter((i) => i.section === section).map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
-                    isActive={currentTab === item.id}
+                    isActive={activeId === item.id}
                     onClick={() => open(item.id)}
                     data-tour={item.id}
                     data-testid={`nav-${item.id}`}
@@ -77,7 +76,7 @@ export function SidebarNav(): React.JSX.Element {
                     <item.icon />
                     <span>{t(`nav.items.${item.id}.label`)}</span>
                   </SidebarMenuButton>
-                  {item.id === "install" && updateCount > 0 && (
+                  {item.id === "dashboard" && updateCount > 0 && (
                     <SidebarMenuBadge className={BADGE_CLASS}>
                       {updateCount}
                     </SidebarMenuBadge>
