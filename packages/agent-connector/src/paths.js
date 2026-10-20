@@ -546,6 +546,10 @@ function _addAgentInstallerPaths(dirs) {
   // ~/.local/bin, which is searched already.
   _push(dirs, path.join(HOME, '.qoder', 'bin', 'qodercli'));
   _push(dirs, path.join(HOME, '.qoder-cn', 'bin', 'qoderclicn'));
+  // step-code — StepFun's install.sh / install.ps1 put `step` (step.exe) in
+  // ~/.stepcode/bin and reach PATH through a shell rc edit or the user `Path`
+  // registry value.
+  _push(dirs, path.join(HOME, '.stepcode', 'bin'));
 
   // Installers that let the user choose the install dir. Each of these CLIs
   // reads an env var for its target, and a user who set one has their ONLY copy
@@ -562,6 +566,7 @@ function _addAgentInstallerPaths(dirs) {
   // qwen — install-qwen-standalone.sh / .ps1 read these for a custom target.
   if (process.env.QWEN_INSTALL_BIN_DIR) _push(dirs, process.env.QWEN_INSTALL_BIN_DIR);
   if (process.env.QWEN_INSTALL_ROOT) _push(dirs, path.join(process.env.QWEN_INSTALL_ROOT, 'bin'));
+  if (process.env.STEP_INSTALL_DIR) _push(dirs, process.env.STEP_INSTALL_DIR);
 
   // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
   // the executable into uv's bin dir, which reaches PATH through a shell rc
