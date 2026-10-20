@@ -134,6 +134,14 @@ type ModelSource = {
   listsSignedOut?: boolean
   /** Names the model to preselect from a list this source produced. */
   recommend?: (models: ModelChoice[]) => string | undefined
+  /**
+   * Keep only the endpoint's models of these `model_type`s. StepFun's
+   * /v1/models lists speech synthesis, recognition and realtime models beside
+   * the chat ones, and Step Code itself runs only "大语言模型" (LLM) and
+   * "路由模型" (router) entries. An untyped list — or a typed one with none of
+   * these left — is kept whole, so the picker is never emptied by the filter.
+   */
+  modelTypes?: string[]
   /** Used only when nothing can be probed. */
   builtin?: ModelChoice[]
 }
@@ -355,6 +363,31 @@ export function parseOpencodeModels(out: string): ModelChoice[] {
 }
 
 /**
+ * `step --list-models`: the models the Step Code sign-in can run, as a table —
+ *
+ *   provider  model           context  max-out  thinking  images
+ *   step      step-3.5-flash  256K     256K     no        no
+ *
+ * Only `step` rows are kept: a user's own models.json can declare other
+ * providers, which an agent run never sees (it reads no models.json of the
+ * user's). With nothing signed in the CLI prints "No models available…"
+ * instead, which parses to an empty list.
+ */
+export function parseStepCodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of out.split(/\r?\n/)) {
+    const cols = stripAnsi(raw).trim().split(/\s{2,}/)
+    if (cols.length < 2 || cols[0] !== "step") continue
+    const id = cols[1]
+    if (!/^[A-Za-z0-9][\w.:\-]*$/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    models.push({ id })
+  }
+  return models
+}
+
+/**
  * `codearts models` (CodeArts Agent, OpenCode-based) prints a table rather
  * than OpenCode's one id per line:
  *
@@ -516,6 +549,21 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     },
     // Left blank, the adapter runs the first model this list names.
     recommend: (models) => models[0]?.id,
+  },
+  // A Step Platform key lists its region's endpoint (mainland China by
+  // default — the form's base URL decides); the Step Plan sign-in has no
+  // endpoint of ours to ask, so the CLI lists the sign-in's models.
+  "step-code": {
+    envVar: "STEP_MODEL",
+    provider: "openai",
+    keyVars: ["STEP_API_KEY"],
+    baseVars: ["STEP_BASE_URL"],
+    defaultBase: "https://api.stepfun.com/v1",
+    modelTypes: ["大语言模型", "路由模型"],
+    cliCommand: {
+      args: ["--list-models"],
+      parse: parseStepCodeModels,
+    },
   },
 }
 
@@ -686,14 +734,30 @@ function safeParseOpenAiModels(text: string): ModelChoice[] {
 }
 
 /** `data: [{ id }]`, an array, or a relay's `{ models: [...] }` shape. */
-function parseOpenAiModels(text: string): ModelChoice[] {
+export function parseOpenAiModels(
+  text: string,
+  modelTypes?: string[],
+): ModelChoice[] {
   const parsed: unknown = JSON.parse(text)
-  const list = Array.isArray(parsed)
+  const raw = Array.isArray(parsed)
     ? parsed
     : ((parsed as { data?: unknown[] })?.data ??
       (parsed as { models?: unknown[] })?.models ??
       [])
-  if (!Array.isArray(list)) return []
+  if (!Array.isArray(raw)) return []
+  let list: unknown[] = raw
+  if (modelTypes?.length) {
+    const typeOf = (entry: unknown): unknown =>
+      entry && typeof entry === "object"
+        ? (entry as { model_type?: unknown }).model_type
+        : undefined
+    const kept = raw.filter((entry) => {
+      const type = typeOf(entry)
+      return typeof type === "string" && modelTypes.includes(type)
+    })
+    if (raw.some((entry) => typeof typeOf(entry) === "string") && kept.length)
+      list = kept
+  }
   const seen = new Set<string>()
   const out: ModelChoice[] = []
   for (const entry of list) {
@@ -712,6 +776,7 @@ function parseOpenAiModels(text: string): ModelChoice[] {
 async function listOpenAiModels(
   key: string,
   baseInput: string,
+  modelTypes?: string[],
 ): Promise<ModelListResult> {
   let base = trimSlash(baseInput || "https://api.openai.com/v1")
   if (!/\/v\d+$/.test(base)) base += "/v1"
@@ -727,7 +792,7 @@ async function listOpenAiModels(
       source: "none",
       error: `HTTP ${status}: ${briefHttpError(text)}`,
     }
-  const models = parseOpenAiModels(text)
+  const models = parseOpenAiModels(text, modelTypes)
   return models.length
     ? { models, source: "api" }
     : { models: [], source: "none", error: "The endpoint listed no models." }
@@ -1027,7 +1092,7 @@ export async function listAgentModels(
           ? await listAnthropicModels(key, base)
           : source.provider === "gemini"
             ? await listGeminiModels(key, base)
-            : await listOpenAiModels(key, base)
+            : await listOpenAiModels(key, base, source.modelTypes)
       if (viaApi.models.length) return viaApi
       // On the key path the endpoint is the only honest source — report why it
       // came back empty rather than quietly showing another account's models.

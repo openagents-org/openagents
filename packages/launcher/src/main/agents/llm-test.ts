@@ -983,6 +983,18 @@ export async function testLLMConnection(
       })
     }
 
+    // ── Step Code: a Step Platform key, on the endpoint of the region it was
+    // created in (mainland China unless the form says api.stepfun.ai), or any
+    // OpenAI-compatible endpoint pasted into STEP_BASE_URL ──
+    const stepKey = pick("STEP_API_KEY")
+    if (stepKey && !openaiKey && !anthropicKey) {
+      return await probeOpenAI({
+        base: pick("STEP_BASE_URL") || "https://api.stepfun.com/v1",
+        key: stepKey,
+        model: pick("STEP_MODEL"),
+      })
+    }
+
     // ── OpenAI-compatible (OpenAI/Codex, Kimi/Moonshot, OpenClaw, OpenCode,
     // Hermes, and any relay or gateway pasted into one of their base URLs) ──
     const apiKey = openaiKey || anthropicKey

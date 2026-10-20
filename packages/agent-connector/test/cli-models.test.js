@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
 const {
-  listCliModels, supportsCliModels, parseCodexModels, parseClaudeModels,
+  listCliModels, supportsCliModels, parseCodexModels, parseClaudeModels, parseStepCodeModels,
 } = require('../src/cli-models');
 
 /** What `codex debug models` prints, cut down to the fields that are read. */
@@ -158,10 +158,31 @@ describe('parseClaudeModels', () => {
   });
 });
 
+describe('parseStepCodeModels', () => {
+  it("reads the sign-in's models from the table `step --list-models` prints", () => {
+    const table = [
+      'provider  model           context  max-out  thinking  images',
+      'step      step-3.5-flash  256K     256K     no        no    ',
+      'step      step-5-preview  256K     64K      yes       yes   ',
+      'theirs    some-model      128K     8K       no        no    ',
+      'step      step-3.5-flash  256K     256K     no        no    ',
+    ].join('\n');
+    assert.deepEqual(parseStepCodeModels(table), [
+      { id: 'step-3.5-flash', label: 'step-3.5-flash' },
+      { id: 'step-5-preview', label: 'step-5-preview' },
+    ]);
+  });
+
+  it('reads nothing when signed out', () => {
+    assert.deepEqual(parseStepCodeModels('No models available. Use /login to log into a provider via OAuth or API key. See:\n  /h/docs/providers.md\n'), []);
+  });
+});
+
 describe('listCliModels', () => {
   it('knows which CLIs can be asked', () => {
     assert.equal(supportsCliModels('codex'), true);
     assert.equal(supportsCliModels('claude'), true);
+    assert.equal(supportsCliModels('step-code'), true);
     assert.equal(supportsCliModels('gemini'), false);
     assert.equal(supportsCliModels('constructor'), false);
   });

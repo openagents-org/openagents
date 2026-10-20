@@ -9,7 +9,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const { httpRequestJson } = vi.hoisted(() => ({ httpRequestJson: vi.fn() }))
 vi.mock("./llm-test", () => ({ httpRequestJson }))
 
-import { listAgentModels, parseOpencodeModels } from "./model-catalog"
+import {
+  listAgentModels,
+  parseOpencodeModels,
+  parseStepCodeModels,
+} from "./model-catalog"
 
 /** Trimmed to the fields we read, in the shape codex 0.148 writes. */
 const CODEX_CACHE = {
@@ -581,6 +585,76 @@ describe("listAgentModels — API-key forms ask the vendor's own endpoint", () =
     )
     expect(r.source).toBe("builtin")
     expect(r.models.map((m) => m.id)).toContain("default-model")
+  })
+})
+
+describe("listAgentModels — Step Code", () => {
+  // What api.stepfun.com/v1/models returns: chat models beside speech and
+  // realtime ones, each typed in Chinese.
+  const STEPFUN = {
+    data: [
+      { id: "step-tts-mini", model_type: "语音合成" },
+      { id: "step-asr", model_type: "语音识别" },
+      { id: "step-3.5-flash", model_type: "大语言模型" },
+      { id: "step-audio-2", model_type: "实时语音" },
+      { id: "step-router-v1", model_type: "路由模型" },
+      { id: "search-image" },
+    ],
+  }
+
+  it("keeps only the chat and router models of a key's mainland endpoint", async () => {
+    httpRequestJson.mockResolvedValueOnce({ status: 200, text: JSON.stringify(STEPFUN) })
+    const r = await listAgentModels("step-code", { STEP_API_KEY: "sk-step" }, {}, "key")
+    expect(httpRequestJson.mock.calls.at(-1)?.[0]).toBe("https://api.stepfun.com/v1/models")
+    expect(r.models.map((m) => m.id)).toEqual(["step-3.5-flash", "step-router-v1"])
+  })
+
+  it("keeps the whole list when the endpoint types nothing", async () => {
+    httpRequestJson.mockResolvedValueOnce({
+      status: 200,
+      text: JSON.stringify({ data: [{ id: "relay-a" }, { id: "relay-b" }] }),
+    })
+    const r = await listAgentModels(
+      "step-code",
+      { STEP_API_KEY: "sk", STEP_BASE_URL: "https://relay.example.com/v1" },
+      {},
+      "key",
+    )
+    expect(r.models.map((m) => m.id)).toEqual(["relay-a", "relay-b"])
+  })
+
+  it("never filters the list down to nothing", async () => {
+    httpRequestJson.mockResolvedValueOnce({
+      status: 200,
+      text: JSON.stringify({ data: [{ id: "only-tts", model_type: "语音合成" }] }),
+    })
+    const r = await listAgentModels("step-code", { STEP_API_KEY: "sk" }, {}, "key")
+    expect(r.models.map((m) => m.id)).toEqual(["only-tts"])
+  })
+
+  it("leaves other agents' lists unfiltered", async () => {
+    httpRequestJson.mockResolvedValueOnce({ status: 200, text: JSON.stringify(STEPFUN) })
+    const r = await listAgentModels(
+      "openclaw",
+      { LLM_API_KEY: "sk", LLM_BASE_URL: "https://api.stepfun.com/v1" },
+      {},
+      "key",
+    )
+    expect(r.models).toHaveLength(STEPFUN.data.length)
+  })
+
+  it("reads the sign-in's models from `step --list-models`", () => {
+    const table = [
+      "provider  model           context  max-out  thinking  images",
+      "step      step-3.5-flash  256K     256K     no        no    ",
+      "step      step-5-preview  1M       64K      yes       yes   ",
+      "other     their-model     128K     8K       no        no    ",
+    ].join("\n")
+    expect(parseStepCodeModels(table).map((m) => m.id)).toEqual([
+      "step-3.5-flash",
+      "step-5-preview",
+    ])
+    expect(parseStepCodeModels("No models available. Use /login …")).toEqual([])
   })
 })
 
