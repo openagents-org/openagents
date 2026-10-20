@@ -9,6 +9,7 @@ import {
 
 import { openExternalSafely } from "../web-security"
 import { WorkspaceHost, type ViewBounds } from "../workspace-host"
+import { popupWorkspaceTabContextMenu, popupWorkspaceTabMenu } from "../workspace-tab-menu"
 import { AccountManager, type AccountWorkspace } from "./account"
 import { webBase } from "./endpoints"
 import type { AccountInfo } from "./session-store"
@@ -86,6 +87,9 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
         })
       })
     },
+    // Main owns the tabs, so a renderer that reloads asks for them again
+    // rather than losing track of pages that are still open.
+    onTabsChanged: (snapshot) => deps.getWindow()?.webContents.send("workspace-tabs:changed", snapshot),
   })
 
   workspaceHost = host
@@ -132,6 +136,7 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       bounds: ViewBounds,
       token?: string | null,
       sessionId?: string | null,
+      title?: string | null,
     ) => {
       const request = ++viewRequest
       // Renew before the page reads the session: the preload plants whatever
@@ -145,7 +150,8 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       // request, so a delayed result cannot put a native view over that page.
       if (request !== viewRequest) return
       host.show(target === null ? null : String(target || ""), bounds, token ?? null,
-        typeof sessionId === "string" && sessionId.length <= 200 ? sessionId : null)
+        typeof sessionId === "string" && sessionId.length <= 200 ? sessionId : null,
+        typeof title === "string" && title ? title.slice(0, 200) : null)
     },
   )
   ipcMain.handle("workspace-view:set-bounds", (_e, bounds: ViewBounds) =>
@@ -157,6 +163,37 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   })
   ipcMain.handle("workspace-view:reload", () => host.reload())
   ipcMain.handle("workspace-view:home", () => host.openHome())
+  // The tab strip. Tab ids are opaque and only ever name a tab main created.
+  const tabId = (id: unknown): string | null => (typeof id === "string" && id.length <= 64 ? id : null)
+  ipcMain.handle("workspace-tabs:get", () => host.snapshot())
+  ipcMain.handle("workspace-tabs:activate", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.activate(tab)
+  })
+  ipcMain.handle("workspace-tabs:close", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.close(tab)
+  })
+  ipcMain.handle("workspace-tabs:menu", (_e, position: unknown) => {
+    const window = deps.getWindow()
+    const { x, y } = (position ?? {}) as { x?: unknown; y?: unknown }
+    if (!window || typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return
+    popupWorkspaceTabMenu(window, host.snapshot(), { x, y }, (id) => host.activate(id))
+  })
+  ipcMain.handle("workspace-tabs:context-menu", (_e, id: unknown) => {
+    const window = deps.getWindow()
+    const tab = tabId(id)
+    if (!window || !tab) return
+    popupWorkspaceTabContextMenu(window, host.snapshot(), tab, {
+      reload: (target) => host.reloadTab(target),
+      close: (target) => host.close(target),
+      closeMany: (targets, keep) => host.closeMany(targets, keep),
+    })
+  })
+  ipcMain.handle("workspace-tabs:retry", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.retry(tab)
+  })
   // The launcher's toasts are drawn under the view; repeat them inside it.
   ipcMain.handle("workspace-view:notice", (_e, notice: unknown) => {
     const { message, type } = (notice ?? {}) as { message?: unknown; type?: unknown }
@@ -172,6 +209,13 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   })
   ipcMain.on("workspace-view:sign-out", (event) => {
     if (host.isWorkspaceSender(event.sender)) account.signOut()
+  })
+  // A page routing somewhere that belongs to another tab. See openRoute.
+  ipcMain.on("workspace-view:open-route", (event, route: unknown) => {
+    if (host.isWorkspaceSender(event.sender)) host.openRoute(event.sender, route)
+  })
+  ipcMain.on("workspace-view:report-workspace", (event, info: unknown) => {
+    if (host.isWorkspaceSender(event.sender)) host.reportWorkspace(event.sender, info)
   })
   ipcMain.on("workspace-view:open-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
@@ -240,6 +284,7 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       webUrl: webBase(deps.endpoint()),
       theme,
       locale: toWorkspaceLocale(language),
+      scope: host.scopeFor(event.sender),
     }
   })
 

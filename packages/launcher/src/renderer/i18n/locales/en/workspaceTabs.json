@@ -1,0 +1,5 @@
+{
+  "label": "Open workspaces",
+  "close": "Close {{name}}",
+  "all": "All open workspaces ({{count}})"
+}

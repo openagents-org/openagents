@@ -28,6 +28,11 @@ export interface DesktopHost {
    * Optional: an older preload can briefly coexist with a newer bundle in dev.
    */
   onSession?(callback: (session: WorkspaceSession) => void): () => void;
+  /**
+   * Name the launcher tab this page is in, and let it answer to both the
+   * workspace's slug and its id. Optional: only a launcher with tabs has it.
+   */
+  reportWorkspace?(info: { id: string; slug: string; name: string }): void;
 }
 
 export function desktopHost(): DesktopHost | null {

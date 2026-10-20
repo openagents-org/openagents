@@ -141,7 +141,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const openWorkspace = (ws: Workspace): void => {
     if (!canOpenInApp(ws)) { openInBrowser(ws); return }
     markUsed(ws.id)
-    useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, token: ws.token ?? null })
+    useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, name: ws.name, token: ws.token ?? null })
   }
 
   const performRemove = async (deleteRemote: boolean): Promise<void> => {

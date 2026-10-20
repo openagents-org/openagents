@@ -54,6 +54,8 @@ interface HostConfig {
   webUrl?: string
   theme: "light" | "dark" | "system"
   locale: string
+  /** Which page this view holds — see shared/workspace-view's WorkspaceViewScope. */
+  scope?: { kind: "home" } | { kind: "workspace"; aliases: string[] } | null
 }
 
 let config: HostConfig | null = null
@@ -98,6 +100,12 @@ ipcRenderer.on("workspace-view:session", (_e, session: EmbeddedSession) => {
   }
 })
 
+/**
+ * The names this view's workspace answers to. Kept here so the page's router
+ * can ask, synchronously, whether a route is its own before it navigates.
+ */
+const aliases = new Set(config?.scope?.kind === "workspace" ? config.scope.aliases : [])
+
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const handler = (_e: unknown, value: T): void => callback(value)
   ipcRenderer.on(channel, handler)
@@ -124,6 +132,26 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   /** A launcher notice to show here, where the launcher's own toasts cannot be seen. */
   onNotice: (callback: (notice: { message: string; type: string }) => void) =>
     subscribe("workspace-view:notice", callback),
+  /**
+   * The launcher shows each workspace in its own tab. What this page is:
+   * "home" for All Workspaces, a workspace's names otherwise; null when the
+   * host has no tabs. A copy, so the page cannot edit the real set.
+   */
+  tab: () => config?.scope
+    ? config.scope.kind === "home" ? { kind: "home" } : { kind: "workspace", aliases: [...aliases] }
+    : null,
+  /** Hand a route that belongs to another tab to the launcher. */
+  openRoute: (route: string) => ipcRenderer.send("workspace-view:open-route", route),
+  /** Name this tab, and let it answer to both the workspace's slug and its id. */
+  reportWorkspace: (info: { id: string; slug: string; name: string }) => {
+    if (config?.scope?.kind !== "workspace") return
+    if (info?.id) aliases.add(info.id)
+    if (info?.slug) aliases.add(info.slug)
+    ipcRenderer.send("workspace-view:report-workspace", info)
+  },
+  /** The launcher routed a deeper path of this workspace here. */
+  onNavigate: (callback: (route: string) => void) =>
+    subscribe("workspace-view:navigate", callback),
   appearance: {
     theme: config?.theme ?? DEFAULT_THEME_MODE,
     locale: config?.locale ?? "en-US",

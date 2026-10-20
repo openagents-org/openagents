@@ -1,0 +1,28 @@
+{
+  "version": "1.1.3",
+  "date": "2026-10-20",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Open several workspaces side by side in tabs",
+        "zh": "以标签形式同时打开多个工作区"
+      },
+      "description": {
+        "en": "Each workspace you open now gets its own tab at the top of the window, so you can switch between them with one click instead of returning to All Workspaces. Every tab keeps its thread, scroll position and unsent message while you work elsewhere, and the tabs stay open when you visit All Workspaces or Device. Closing a tab only closes its page; the workspace and this computer's agents keep running.",
+        "zh": "打开的每个工作区都会在窗口顶部显示为独立标签，点击即可直接切换，无需返回「全部工作区」。切换期间各标签保留原有的会话、浏览位置与未发送内容；进入「全部工作区」或「本机管理」后，已打开的标签仍会保留。关闭标签仅关闭对应页面，不影响工作区本身及本机智能体的运行。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Keyboard shortcuts for workspace tabs",
+        "zh": "工作区标签快捷键"
+      },
+      "description": {
+        "en": "Press ⌘1–⌘8 (Ctrl+1–Ctrl+8 on Windows) to jump to a tab and ⌘9 (Ctrl+9) for the last one. With five or more tabs open, a menu at the end of the tab bar lists them all along with their shortcuts.",
+        "zh": "按 ⌘1–⌘8（Windows 为 Ctrl+1–Ctrl+8）可切换到对应标签，⌘9（Ctrl+9）切换到最后一个标签。打开五个及以上标签时，标签栏末尾会提供菜单，列出全部标签及其快捷键。"
+      }
+    }
+  ]
+}

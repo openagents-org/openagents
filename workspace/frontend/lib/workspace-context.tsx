@@ -723,6 +723,13 @@ export function WorkspaceProvider({
     }
   }, [workspaceId, token, bearerToken]);
 
+  // In the desktop app this page is one tab among several; give the tab the
+  // workspace's real name and both of the names it can be routed by.
+  useEffect(() => {
+    if (!workspace) return;
+    desktopHost()?.reportWorkspace?.({ id: workspace.workspaceId, slug: workspace.slug, name: workspace.name });
+  }, [workspace?.workspaceId, workspace?.slug, workspace?.name]);
+
   const refreshWorkspace = useCallback(async () => {
     try {
       const ws = await workspaceApi.getWorkspace();

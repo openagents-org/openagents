@@ -104,3 +104,16 @@ it("hides a kept route's overlays along with it", async () => {
   await go('#/acme');
   expect(overlay().style.display).toBe('');
 });
+
+it('hands another workspace to its own launcher tab instead of navigating there', async () => {
+  const openRoute = vi.fn();
+  vi.stubGlobal('__oaHost__', { tab: () => ({ kind: 'workspace', aliases: ['acme'] }), openRoute });
+  await act(async () => root.render(e(DesktopRouter, { routes: ROUTES, notFound: null })));
+  await go('#/beta');
+  expect(openRoute).toHaveBeenCalledWith('/beta');
+  // The page stays on its own workspace, mounted once.
+  expect(window.location.hash).toBe('#/acme');
+  expect(mounts).toEqual(['workspace']);
+  await go('#/acme/settings/general');
+  expect(openRoute).toHaveBeenCalledTimes(1);
+});
