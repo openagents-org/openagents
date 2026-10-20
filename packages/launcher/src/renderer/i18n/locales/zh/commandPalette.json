@@ -11,9 +11,9 @@
     "recent": "最近使用"
   },
   "nav": {
-    "dashboard": "此电脑",
+    "dashboard": "设备概览",
     "chat": "聊天",
-    "workspaces": "已连接的工作区",
+    "workspaces": "本机加入的工作区",
     "connections": "连接",
     "credentials": "凭据",
     "github": "GitHub",

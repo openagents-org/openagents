@@ -165,7 +165,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   return (
     <section className="flex flex-col h-full">
       <PageHeader
-        title={t(overview ? "agents.shared.thisComputer" : "agents.list.title")}
+        title={t(overview ? "nav.items.dashboard.label" : "agents.list.title")}
         subtitle={t("agents.shared.overviewSubtitle")}
         actions={
           <Button variant="default" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
