@@ -1,0 +1,28 @@
+{
+  "version": "1.1.6",
+  "date": "2026-10-22",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Cursor replies arrive as soon as they are ready",
+        "zh": "Cursor 回复生成后即时送达"
+      },
+      "description": {
+        "en": "A Cursor agent's reply could be held back for several minutes after it had finished answering. It is now delivered as soon as the answer is complete.",
+        "zh": "此前 Cursor 智能体在回答完成后，回复可能延迟数分钟才送达；现已改为回答完成即送达。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Faster agent installation",
+        "zh": "智能体安装更快"
+      },
+      "description": {
+        "en": "Installs use the fastest download source, skip unnecessary checks, and report completion without waiting for the update check.",
+        "zh": "安装时使用最快的下载源，省去不必要的检查，完成后无需再等待更新检查即可显示结果。"
+      }
+    }
+  ]
+}
