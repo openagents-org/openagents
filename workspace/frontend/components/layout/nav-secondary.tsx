@@ -27,7 +27,7 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const isActive = viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showSetupHint = !!setupStep && !isActive;
-  const connectLabel = setupStep === 'device' ? t('nav.connectFirstDevice') : hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">

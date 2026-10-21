@@ -6,6 +6,10 @@
   "cancel": "取消登录",
   "signedIn": "已登录",
   "signOut": "退出登录",
+  "signOutConfirm": {
+    "title": "确认退出登录?",
+    "detail": "将在本设备上退出 {{email}}。工作区及其会话不受影响。"
+  },
   "menuLabel": "账号",
   "error": {
     "timeout": "登录未在限定时间内完成，请重试。",

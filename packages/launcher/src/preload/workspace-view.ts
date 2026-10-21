@@ -129,6 +129,9 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   /** The account's session changed in main (a renewal). Returns an unsubscribe function. */
   onSession: (callback: (session: EmbeddedSession) => void) =>
     subscribe("workspace-view:session", callback),
+  /** The launcher's Sign out was clicked; confirm it here, then call signOut. */
+  onSignOutRequest: (callback: () => void) =>
+    subscribe("workspace-view:request-sign-out", callback),
   /** A launcher notice to show here, where the launcher's own toasts cannot be seen. */
   onNotice: (callback: (notice: { message: string; type: string }) => void) =>
     subscribe("workspace-view:notice", callback),

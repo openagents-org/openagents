@@ -5,11 +5,10 @@ import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
-import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
   BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Monitor, Settings, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Settings, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -248,7 +247,7 @@ export function NavRail() {
   const isConnectActive = viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
-  const connectLabel = setupStep === 'device' ? t('nav.connectFirstDevice') : hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -432,23 +431,6 @@ export function NavRail() {
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
-        {desktopHost() && (
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className={cn(!showLabels && 'justify-center!')}
-                aria-label={t('nav.localManagement')}
-                tooltip={{ children: t('nav.localManagement'), hidden: showLabels }}
-                onClick={() => desktopHost()?.openComputer()}
-              >
-                <Monitor />
-                {/* Named like the launcher's own switch to it, so the two read
-                    as one place. Connecting this computer lives under Connect. */}
-                {showLabels && <span>{t('nav.localManagement')}</span>}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
         {showLabels && <CampaignSidebarCard />}

@@ -11,6 +11,7 @@ import {
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
@@ -828,7 +829,16 @@ function MembershipHome({
     router.push(`/${firstWorkspace.slug}`);
   }, [willAutoEnter, firstWorkspace, router]);
 
+  const confirm = useConfirm();
+  // Same prompt as the workspace user menu's Sign out, so both ask alike.
   const handleSignOut = async () => {
+    const ok = await confirm({
+      title: t('userMenu.signOutTitle'),
+      description: t('userMenu.signOutDescriptionWithEmail', { email: userEmail }),
+      confirmText: t('userMenu.signOut'),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await onSignOut();
     } catch {
@@ -841,6 +851,11 @@ function MembershipHome({
       window.location.href = 'https://openagents.org/logout';
     }
   };
+
+  // The launcher's title-bar Sign out lands here, to ask with the same dialog.
+  const signOutRef = useRef(handleSignOut);
+  signOutRef.current = handleSignOut;
+  useEffect(() => desktopHost()?.onSignOutRequest?.(() => void signOutRef.current()), []);
 
   // Inside the desktop app the launcher's title bar already carries the brand
   // and the account, so a second header here would only repeat them.

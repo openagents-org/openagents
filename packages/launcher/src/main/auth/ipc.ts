@@ -117,6 +117,9 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     (_e, email: string, password: string, displayName?: string, captcha?: unknown) =>
       account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || ""), captchaArg(captcha)),
   )
+  // The page shows the confirmation; its Sign out comes back as
+  // workspace-view:sign-out. See WorkspaceHost.requestSignOut.
+  ipcMain.handle("account:request-sign-out", () => host.requestSignOut())
   ipcMain.handle("account:sign-out", async () => {
     // onChange tears the page down; resolve once its storage is gone too.
     account.signOut()
@@ -169,6 +172,10 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   ipcMain.handle("workspace-tabs:activate", (_e, id: unknown) => {
     const tab = tabId(id)
     if (tab) host.activate(tab)
+  })
+  ipcMain.handle("workspace-tabs:move", (_e, id: unknown, index: unknown) => {
+    const tab = tabId(id)
+    if (tab && typeof index === "number") host.move(tab, index)
   })
   ipcMain.handle("workspace-tabs:close", (_e, id: unknown) => {
     const tab = tabId(id)

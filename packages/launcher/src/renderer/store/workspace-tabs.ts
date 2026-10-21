@@ -15,6 +15,8 @@ interface WorkspaceTabsState extends WorkspaceTabsSnapshot {
   /** Bring a tab forward, switching to the Workspace side if needed. */
   activate: (id: string) => void
   close: (id: string) => void
+  /** Put a tab at `index` among the open tabs; shown at once, then confirmed by main. */
+  move: (id: string, index: number) => void
   retry: (id: string) => void
 }
 
@@ -39,6 +41,20 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set) => ({
   },
 
   close: (id) => void window.api.closeWorkspaceTab(id),
+
+  move: (id, index) => {
+    // Applied here first so a dropped tab does not jump back for a frame
+    // while main's snapshot is on its way.
+    set((s) => {
+      const from = s.tabs.findIndex((tab) => tab.id === id)
+      if (from < 0) return s
+      const tabs = [...s.tabs]
+      const [tab] = tabs.splice(from, 1)
+      tabs.splice(Math.max(0, Math.min(index, tabs.length)), 0, tab)
+      return { tabs }
+    })
+    void window.api.moveWorkspaceTab(id, index)
+  },
 
   retry: (id) => void window.api.retryWorkspaceTab(id),
 }))

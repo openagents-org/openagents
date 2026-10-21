@@ -20,7 +20,7 @@ const THEME_MODES = [
 ] as const
 
 /**
- * The top bar's quick theme switch. Everything else about appearance — skin,
+ * The status footer's quick theme switch. Everything else about appearance — skin,
  * accent, scale — lives in Settings → Appearance.
  */
 export function ThemeMenu(): React.JSX.Element {
@@ -39,7 +39,7 @@ export function ThemeMenu(): React.JSX.Element {
           <Icon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuContent align="end" side="top" className="w-40">
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(v) => setMode(v as ThemeMode)}

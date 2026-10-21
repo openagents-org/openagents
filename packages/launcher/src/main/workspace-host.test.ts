@@ -194,6 +194,16 @@ describe('workspace tabs', () => {
     expect(last(host)).toMatchObject({ tabs: [], active: 'home' })
     expect(contents(3).url).toBe('openagents://workspace/index.html#/')
   })
+  it('moves a tab to where it is dropped, keeping the one showing', () => {
+    const host = makeHost()
+    for (const name of ['a', 'b', 'c']) host.show(name, bounds)
+    const [a, b, c] = last(host).tabs.map((t: { id: string }) => t.id)
+    host.move(c, 0)
+    expect(last(host).tabs.map((t: { id: string }) => t.id)).toEqual([c, a, b])
+    host.move(c, 99)
+    expect(last(host).tabs.map((t: { id: string }) => t.id)).toEqual([a, b, c])
+    expect(last(host).active).toBe(c)
+  })
   it('closes other tabs, tabs to the right and all tabs as Chrome does', () => {
     const host = makeHost()
     for (const name of ['a', 'b', 'c', 'd']) host.show(name, bounds)

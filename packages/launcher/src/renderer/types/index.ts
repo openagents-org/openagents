@@ -926,6 +926,11 @@ declare global {
       /** Create an email account and open its Workspace session. */
       signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
       cancelSignIn(): Promise<void>
+      /**
+       * Has All Workspaces confirm the sign-out in its own dialog. False when
+       * that page is not on screen and ready to ask.
+       */
+      requestSignOut(): Promise<boolean>
       signOut(): Promise<void>
       listAccountWorkspaces(): Promise<AccountWorkspace[]>
       /** A sign-in that had to move to the browser (Google, GitHub). */
@@ -959,6 +964,8 @@ declare global {
       /** Closes the page only; the workspace and this device's connection stay. */
       closeWorkspaceTab(id: string): Promise<void>
       retryWorkspaceTab(id: string): Promise<void>
+      /** Reorders the strip: the tab ends up at `index` among the open tabs. */
+      moveWorkspaceTab(id: string, index: number): Promise<void>
       showWorkspaceTabMenu(position: { x: number; y: number }): Promise<void>
       /** Reload, close, close others, close to the right, close all. */
       showWorkspaceTabContextMenu(id: string): Promise<void>

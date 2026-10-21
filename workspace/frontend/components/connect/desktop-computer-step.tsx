@@ -112,18 +112,17 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
     : phase === 'ready' && editable ? t('onboarding.computerStatus.notJoined', { workspace: workspaceName })
     : null;
   return (
-    <div className="@container space-y-8" data-testid="desktop-computer-onboarding">
+    <div className="space-y-8" data-testid="desktop-computer-onboarding">
       <div className="text-center">
         <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <Laptop className="size-7" />
         </div>
-        <h1 className="mt-4 text-xl font-semibold tracking-tight">{t('onboarding.thisComputerTitle', { workspace: workspaceName })}</h1>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-          {t('onboarding.thisComputerBody')}
-        </p>
+        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">{t('onboarding.thisComputerTitle', { workspace: workspaceName })}</h1>
       </div>
 
-      <div className="grid gap-5 @2xl:grid-cols-2">
+      {/* Stacked, never side by side: this computer is the main path, so its
+          button is the first thing under the title wherever this renders. */}
+      <div className="grid gap-5">
         <div className="flex min-w-0 flex-col gap-5 rounded-2xl border bg-card p-6">
           <div className="flex items-center gap-4">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted"><Monitor className="size-6" /></div>

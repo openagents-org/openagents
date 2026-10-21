@@ -2,27 +2,28 @@ import React from "react"
 import { Search } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { Kbd } from "@renderer/components/ui/kbd"
+import { Button } from "@renderer/components/ui/button"
 import { openCommandPalette } from "@renderer/components/command-palette/open"
 import { PALETTE_SHORTCUT } from "@renderer/lib/platform"
 
 /**
- * Reads as an input, behaves as a button: typing happens inside the command
- * palette, so a real field here would only duplicate the focus.
+ * The top bar's way into the command palette: just the icon, since typing
+ * happens inside the palette and a field here would only duplicate the focus.
  */
 export function TopSearch(): React.JSX.Element {
   const { t } = useTranslation()
+  const label = `${t("ui.topBar.openCommandPalette")} (${PALETTE_SHORTCUT})`
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon"
       onClick={openCommandPalette}
-      title={t("ui.topBar.openCommandPalette")}
+      aria-label={label}
+      title={label}
       data-testid="top-search"
-      className="flex h-8 w-64 min-w-0 items-center gap-2 rounded-md border bg-card px-2.5 text-muted-foreground transition-colors hover:border-(--border-hover) hover:text-foreground"
+      className="size-8 text-muted-foreground hover:text-foreground"
     >
-      <Search className="size-3.5 shrink-0" />
-      <span className="flex-1 truncate text-left text-xs">{t("nav.search")}</span>
-      <Kbd className="text-2xs">{PALETTE_SHORTCUT}</Kbd>
-    </button>
+      <Search className="size-4" />
+    </Button>
   )
 }

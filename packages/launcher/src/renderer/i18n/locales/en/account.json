@@ -6,6 +6,10 @@
   "cancel": "Cancel sign-in",
   "signedIn": "Signed in",
   "signOut": "Sign out",
+  "signOutConfirm": {
+    "title": "Sign out?",
+    "detail": "You'll be signed out of {{email}} on this device. The workspace and its threads stay as they are."
+  },
   "menuLabel": "Account",
   "error": {
     "timeout": "The sign-in was not completed in time. Try again.",

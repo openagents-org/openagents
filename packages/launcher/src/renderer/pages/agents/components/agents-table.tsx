@@ -1,6 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  LogIn,
   MoreHorizontal,
   Pencil,
   Play,
@@ -109,9 +110,8 @@ export function AgentsTable({
                         <span className="truncate" title={providerLabel}>{providerLabel}</span>
                         <span aria-hidden>·</span>
                         {workspace ? (
-                          // The workspace name doubles as the way into it —
-                          // there is no other row-level affordance for "take me
-                          // there".
+                          // The workspace name doubles as a way into it, beside
+                          // the row's own Enter workspace button.
                           <button
                             type="button"
                             className="truncate hover:text-primary hover:underline"
@@ -151,16 +151,29 @@ export function AgentsTable({
                       show: repeating Configure in both read as a duplicate. */}
                   <div className="flex items-center justify-center gap-1.5">
                     {agent.network ? (
-                      agent.hasCli && (
+                      <>
+                        {/* Joining is done once; going there is what the row
+                            is for from then on, so it leads the actions. */}
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => onOpenTerminal(agent)}
+                          data-testid={`agent-enter-workspace-${agent.name}`}
+                          onClick={() => onOpenWorkspace(agent)}
                         >
-                          <Terminal />
-                          {t("agents.list.chat")}
+                          <LogIn />
+                          {t("agents.list.enterWorkspace")}
                         </Button>
-                      )
+                        {agent.hasCli && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onOpenTerminal(agent)}
+                          >
+                            <Terminal />
+                            {t("agents.list.chat")}
+                          </Button>
+                        )}
+                      </>
                     ) : (
                       <Button
                         size="sm"
@@ -171,7 +184,7 @@ export function AgentsTable({
                       </Button>
                     )}
 
-                    {/* One inline action, then the menu. Configure used to sit
+                    {/* The inline actions, then the menu. Configure used to sit
                         here too, appearing above 1536px and moving into the
                         menu below it — so the same action had no fixed home and
                         the row width changed with the window. It now lives in
