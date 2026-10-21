@@ -713,6 +713,53 @@ describe('Daemon', () => {
     assert.equal(reported.res.ok, true);
   });
 
+  it('_runNodeCommand create_agent removes the agent it made when a later step fails', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') config.addAgent({ name: args[1], type: 'claude' });
+      if (args[0] === 'remove') config.removeAgent(args[1]);
+      if (args[0] === 'connect') return { code: 1, stdout: '', stderr: 'connect boom' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c5', action: 'create_agent', args: { name: 'coder', type: 'claude', workingDir: path.join(tmpDir, 'wd') } },
+    );
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /connect boom/);
+    assert.deepEqual(calls[calls.length - 1], ['remove', 'coder']);
+    // A retry under the same name is no longer refused as "already exists".
+    assert.equal(config.getAgent('coder'), null);
+  });
+
+  it('_runNodeCommand create_agent leaves an existing agent alone when the name is taken', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'deepseek', type: 'deepseek' });
+    config.setAgentNetwork('deepseek', 'other-ws');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') return { code: 1, stdout: "Error: Agent 'deepseek' already exists\n", stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c6', action: 'create_agent', args: { name: 'deepseek', type: 'deepseek', workingDir: path.join(tmpDir, 'wd') } },
+    );
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /Agent 'deepseek' already exists/);
+    assert.equal(calls.some((c) => c[0] === 'remove'), false);
+    assert.equal(config.getAgent('deepseek').network, 'other-ws');
+  });
+
   it('_runNodeCommand create_agent defaults to a managed working dir', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const calls = [];

@@ -815,6 +815,8 @@ async _runNodeCommand(n, cmd) {
     let ok = false;
     let message = '';
     let data = null;
+    // An agent this create_agent wrote to config but did not finish setting up.
+    let halfCreated = null;
     // SECURITY: a workspace may only act on agents bound to it. Reject commands
     // that target an existing agent connected to a different workspace, so a
     // newly-paired workspace can't start/stop/remove/reconfigure agents that
@@ -838,6 +840,7 @@ async _runNodeCommand(n, cmd) {
         const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
         const installError = installFailureOf(r1.stdout);
+        halfCreated = name;
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
@@ -855,6 +858,7 @@ async _runNodeCommand(n, cmd) {
           'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
         ]);
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
+        halfCreated = null;
         ok = true;
         message = `Agent '${name}' created`;
         if (installError) {
@@ -966,6 +970,12 @@ async _runNodeCommand(n, cmd) {
     } catch (e) {
       ok = false;
       message = e.message || String(e);
+      // Undo a create that failed after `agn create`: the entry stays in config
+      // without this workspace's binding, so no roster here shows it, the
+      // workspace's failed card cannot remove it, and every retry under the
+      // same name hit "Agent '…' already exists". Only an entry this command
+      // made is removed — a create refused for a taken name never sets it.
+      if (halfCreated) await this._runAgn(['remove', halfCreated]);
     }
     try {
       // Report back to the workspace that issued the command — with several
