@@ -1,8 +1,4 @@
 {
-  "sections": {
-    "manage": "Manage",
-    "system": "System"
-  },
   "items": {
     "dashboard": {
       "label": "Connect Agents",
@@ -59,17 +55,10 @@
     "clear": "Clear",
     "empty": "No notifications yet."
   },
-  "search": "Search…",
-  "menu": {
-    "label": "More options"
-  },
-  "toggleSidebar": "Collapse / expand sidebar",
-  "collapseSidebar": "Collapse sidebar",
-  "expandSidebar": "Expand sidebar",
-  "guide": "Quick start guide",
+  "search": "Search agents, workspaces…",
   "themeToggle": "Theme",
-  "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
   "modeLauncher": "Device",
-  "modeWorkspace": "Workspace"
+  "modeWorkspace": "Workspace",
+  "pages": "This Computer pages"
 }

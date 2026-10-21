@@ -24,12 +24,12 @@ export function RelatedSettings({
   if (items.length === 0) return null
 
   return (
-    <div className="mt-6">
-      <h2 className="m-0 mb-3 text-sm font-semibold tracking-tight">
+    <div className="mt-6 overflow-hidden rounded-lg border bg-card">
+      <h2 className="m-0 border-b bg-secondary px-5 py-3 text-sm font-semibold">
         {t("settings.detail.related")}
       </h2>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="divide-y">
         {items.map((s) => {
           const Icon = s.icon
           return (
@@ -37,22 +37,18 @@ export function RelatedSettings({
               key={s.id}
               type="button"
               onClick={() => onSelect(s.id)}
-              className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+              className="group flex w-full items-center gap-4 px-5 py-3 text-left transition-colors hover:bg-row-hover"
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Icon className="size-4" />
-              </span>
-
+              <Icon className="size-5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">
+                <span className="block truncate text-sm font-medium">
                   {t(`settings.sections.${s.id}`)}
                 </span>
-                <span className="block truncate text-2xs text-muted-foreground">
+                <span className="block truncate text-xs text-muted-foreground">
                   {t(`settings.pages.${s.id}.short`)}
                 </span>
               </span>
-
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
           )
         })}

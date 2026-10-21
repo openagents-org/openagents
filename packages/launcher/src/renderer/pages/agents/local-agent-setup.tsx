@@ -17,6 +17,7 @@ import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
+import { SetupAside } from "./components/setup-aside"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
 export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChanged, onManage }: {
@@ -84,7 +85,9 @@ export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChang
           contextLabel={<>{t("agents.shared.runsHere")}{agent?.networkName || agent?.network ? ` · ${agent.networkName || agent.network}` : ` · ${t("agents.shared.localOnly")}`}</>}
           onBack={onBack} onChanged={() => { void refresh().catch((err) => { if (mounted.current) setError(String(err)) }); onChanged() }}
           onQueued={({ name }) => onCreated(name)}
-          extensions={{ local: true, headerActions: true, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
+          extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: t("nav.items.dashboard.label"),
+            aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
+              workspace={agent?.networkName || agent?.network || null} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },

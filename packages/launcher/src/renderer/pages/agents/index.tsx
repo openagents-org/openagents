@@ -15,16 +15,10 @@ import { AgentsEmpty } from "./components/agents-empty"
 import { RemoveAgentDialog } from "./components/remove-agent-dialog"
 const LocalAgentSetup = React.lazy(() => import("./local-agent-setup").then((module) => ({ default: module.LocalAgentSetup })))
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
-import { AgentCard, AddAgentCard } from "./components/agent-card"
 import { AgentsToolbar } from "./components/agents-toolbar"
 import { AgentsTable } from "./components/agents-table"
 import { AgentsPagination } from "./components/agents-pagination"
-import {
-  useAgentsView,
-  type AgentFilter,
-  type AgentSort,
-  type AgentView,
-} from "./use-agents-view"
+import { useAgentsView, type AgentFilter } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
 import type { AgentActionHandlers } from "./components/agent-actions"
 import type { Agent } from "@renderer/types"
@@ -80,8 +74,6 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const [renameTarget, setRenameTarget] = useState<Agent | null>(null)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<AgentFilter>("all")
-  const [sort, setSort] = useState<AgentSort>("recent")
-  const [view, setView] = useState<AgentView>("list")
 
   const {
     rows,
@@ -92,7 +84,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     setPage,
     pageSize,
     setPageSize,
-  } = useAgentsView(agents, search, filter, sort)
+  } = useAgentsView(agents, search, filter, "recent")
 
   useEffect(() => {
     mounted.current = true
@@ -181,23 +173,18 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         }
       />
 
-      <div className="flex-1 overflow-y-auto px-9 py-6">
+      <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
         <RecommendedAgents
           catalog={catalog}
           onInstall={(type) => startSetup(type)}
           onMore={() => startSetup(null)}
         />
-        <h2 className="mb-4 text-base font-semibold">{t("agents.shared.agentsHere")}</h2>
         <AgentsToolbar
           search={search}
           onSearch={setSearch}
           filter={filter}
           onFilter={setFilter}
           counts={counts}
-          sort={sort}
-          onSort={setSort}
-          view={view}
-          onView={setView}
         />
 
         {loading ? (
@@ -215,39 +202,15 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
           />
         ) : (
           <>
-            {view === "list" ? (
-              <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
-            ) : (
-              // The grid is not paged. A page size that isn't a multiple of the
-              // column count leaves the last row half-empty next to a stranded
-              // "New agent" tile — and cards are for browsing, which is exactly
-              // what paging interrupts. Rows are cheap; the table keeps paging,
-              // where a fixed page height is the point.
-              // Three across at the 1200px minimum window, four once there is
-              // room for them.
-              <div className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
-                {rows.map((row) => (
-                  <AgentCard
-                    key={row.agent.name}
-                    row={row}
-                    pending={pendingAgentActions.has(row.agent.name)}
-                    {...handlers}
-                  />
-                ))}
-                <AddAgentCard onClick={() => startSetup(null)} />
-              </div>
-            )}
-
-            {view === "list" ? (
-              <AgentsPagination
-                total={rows.length}
-                page={page}
-                pageCount={pageCount}
-                pageSize={pageSize}
-                onPage={setPage}
-                onPageSize={setPageSize}
-              />
-            ) : null}
+            <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
+            <AgentsPagination
+              total={rows.length}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+            />
           </>
         )}
       </div>

@@ -1,7 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import {
-  KeyRound,
   MoreHorizontal,
   Pencil,
   Play,
@@ -29,37 +28,13 @@ import {
   TableRow,
 } from "@renderer/components/ui/table"
 import AgentIcon from "@renderer/components/AgentIcon"
-import { relativeTimeAgo } from "@renderer/lib/relative-time"
-import { STATE_TEXT_CLASS } from "@renderer/lib/agent-state"
+import { STATE_DOT_CLASS, STATE_TEXT_CLASS } from "@renderer/lib/agent-state"
 import { cn } from "@renderer/lib/utils"
 import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
 import { agentLabel, type AgentActionHandlers } from "./agent-actions"
 
-const COLUMNS = [
-  "agent",
-  "provider",
-  "workspace",
-  "auth",
-  "status",
-  "lastActive",
-  "actions",
-] as const
-
-/**
- * Columns that render something of a known, fixed size — an icon, a status
- * word, a relative timestamp, a pair of buttons. They are collapsed onto their
- * content so the remaining width goes to `agent` / `provider` / `workspace`,
- * which truncate. The alternative is what this table used to do: share the
- * width evenly, overflow the viewport at the 1200px minimum, and let the
- * container clip the actions column out of sight.
- */
-const SHRINK_COLUMNS = new Set<string>([
-  "auth",
-  "status",
-  "lastActive",
-  "actions",
-])
+const COLUMNS = ["agent", "status", "actions"] as const
 
 interface Props extends AgentActionHandlers {
   rows: AgentRow[]
@@ -67,8 +42,10 @@ interface Props extends AgentActionHandlers {
 }
 
 /**
- * The dense view. Everything the cards show is here as a column, so the two
- * views differ in shape only — never in what they know.
+ * This computer's agents, three columns: who it is (name, then type and
+ * workspace underneath), what it is doing, and what can be done with it. The
+ * model, sign-in method and last activity live in the agent's settings and
+ * its logs rather than as columns of their own.
  */
 export function AgentsTable({
   rows,
@@ -85,25 +62,17 @@ export function AgentsTable({
   const { t } = useTranslation()
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      {/* Tighter gutters than the shared default: seven columns at the 1200px
-          minimum window leave ~860px of content, and px-4 on every cell alone
-          spent a quarter of it on whitespace. */}
-      <Table className="[&_td]:px-3 [&_th]:px-3">
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead
                 key={c}
                 className={cn(
-                  c === "actions" && "text-center",
-                  c === "auth" && "text-center",
-                  // Columns whose content is a fixed size take only what they
-                  // need (`w-px` collapses a table column onto its content),
-                  // so every pixel of pressure lands on the three that can
-                  // truncate instead of on the buttons. Without this the
-                  // actions column was the one that got cut off the screen.
-                  SHRINK_COLUMNS.has(c) && "w-px whitespace-nowrap",
+                  "px-6 text-xs font-normal text-muted-foreground",
+                  c === "status" && "w-56",
+                  c === "actions" && "w-px text-center whitespace-nowrap",
                 )}
               >
                 {t(`agents.list.columns.${c}`)}
@@ -112,7 +81,7 @@ export function AgentsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map(({ agent, providerLabel, model, auth, workspace, status, lastActiveAt }) => {
+          {rows.map(({ agent, providerLabel, workspace, status }) => {
             // Read from the status the row is already showing, not a second
             // opinion on the raw state: an agent with no workspace has
             // `running` written for it while nothing drives it.
@@ -127,94 +96,45 @@ export function AgentsTable({
                 data-network={agent.network || ""}
                 className="h-16"
               >
-                <TableCell>
+                <TableCell className="px-6">
                   <div className="flex items-center gap-3">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-                      <AgentIcon type={agent.type} size={18} />
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-card">
+                      <AgentIcon type={agent.type} size={22} />
                     </span>
-                    {/* Widths step up with the window instead of being fixed
-                        at the roomy value. Seven columns at the 1200px minimum
-                        only fit if the three truncating ones give way there;
-                        holding max-w-36/40 at every size is what pushed the
-                        row past the viewport and cut the actions column off. */}
-                    <div className="min-w-0 max-w-28 xl:max-w-32 2xl:max-w-36">
+                    <div className="min-w-0">
                       <button onClick={() => onConfigure(agent)} className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline" title={agentLabel(agent)}>
                         {agentLabel(agent)}
                       </button>
-                      <div className="truncate font-mono text-xs text-muted-foreground">
-                        {agent.type}
+                      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="truncate" title={providerLabel}>{providerLabel}</span>
+                        <span aria-hidden>·</span>
+                        {workspace ? (
+                          // The workspace name doubles as the way into it —
+                          // there is no other row-level affordance for "take me
+                          // there".
+                          <button
+                            type="button"
+                            className="truncate hover:text-primary hover:underline"
+                            aria-label={t("agents.list.openWorkspace")}
+                            title={workspace}
+                            onClick={() => onOpenWorkspace(agent)}
+                          >
+                            {workspace}
+                          </button>
+                        ) : (
+                          <span className="truncate">{t("agents.list.statuses.notConnected")}</span>
+                        )}
                       </div>
                     </div>
                   </div>
                 </TableCell>
 
-                <TableCell>
-                  <div
-                    className="max-w-28 truncate text-sm xl:max-w-36 2xl:max-w-40"
-                    title={providerLabel}
-                  >
-                    {providerLabel}
-                  </div>
-                  <div
-                    className="max-w-28 truncate text-xs text-muted-foreground xl:max-w-36 2xl:max-w-40"
-                    title={model || undefined}
-                  >
-                    {model || "—"}
-                  </div>
-                </TableCell>
-
-                <TableCell>
-                  {workspace ? (
-                    // The workspace name doubles as the way into it — there is
-                    // no other row-level affordance for "take me there".
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto max-w-28 justify-start px-0 text-sm xl:max-w-36 2xl:max-w-40"
-                      aria-label={t("agents.list.openWorkspace")}
-                      title={workspace}
-                      onClick={() => onOpenWorkspace(agent)}
-                    >
-                      <span className="truncate">{workspace}</span>
-                    </Button>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-
-                <TableCell className="whitespace-nowrap text-center">
-                  {/* Icon only, with the wording on hover: spelled out, this
-                      column cost more width than the fact is worth. */}
-                  {auth ? (
-                    <span
-                      title={t(
-                        auth === "api_key"
-                          ? "agents.list.health.apiKey"
-                          : "agents.list.health.cliLogin",
-                      )}
-                    >
-                      {auth === "api_key" ? (
-                        <KeyRound className="inline size-4 text-muted-foreground" />
-                      ) : (
-                        <Terminal className="inline size-4 text-muted-foreground" />
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-
                 {/* One line, always. The error text itself opens in a dialog —
-                    printing it here made rows grow past their fixed height and
-                    widened the column at every other column's expense. */}
-                <TableCell className="whitespace-nowrap">
-                  <div className="flex items-center gap-1">
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        STATE_TEXT_CLASS[status],
-                      )}
-                    >
+                    printing it here made rows grow past their fixed height. */}
+                <TableCell className="px-6 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT_CLASS[status])} />
+                    <span className={cn("text-sm", STATE_TEXT_CLASS[status])}>
                       {t(`agents.list.statuses.${status}`)}
                     </span>
                     {status === "error" && agent.lastError && (
@@ -226,11 +146,7 @@ export function AgentsTable({
                   </div>
                 </TableCell>
 
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {relativeTimeAgo(t, lastActiveAt) || "—"}
-                </TableCell>
-
-                <TableCell className="whitespace-nowrap">
+                <TableCell className="px-6 whitespace-nowrap">
                   {/* The menu only ever adds what the row does not already
                       show: repeating Configure in both read as a duplicate. */}
                   <div className="flex items-center justify-center gap-1.5">

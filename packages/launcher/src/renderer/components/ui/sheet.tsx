@@ -3,6 +3,7 @@ import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -52,6 +53,9 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
 }) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <SheetPortal>
       <SheetOverlay />

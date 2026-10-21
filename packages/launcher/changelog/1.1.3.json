@@ -42,8 +42,8 @@
         "zh": "从欢迎页直接加入工作区"
       },
       "description": {
-        "en": "Use OpenAgents on the welcome screen now goes straight to the pairing code, and the pairing form explains where to get one. When you add an agent to a workspace before this computer has joined any, you can get a code and enter it in the same dialog, and the agent joins that workspace as soon as the code is accepted.",
-        "zh": "欢迎页的「使用OpenAgents」按钮会直接打开配对码输入框，并说明配对码的获取方式。若本机尚未加入任何工作区，把智能体加入工作区时可在同一弹窗中获取并输入配对码，配对成功后智能体随即加入该工作区。"
+        "en": "The welcome screen now offers two ways in: enter a pairing code to join a workspace directly, or sign in to use workspaces right here in the app. The pairing form explains where to get a code. When you add an agent to a workspace before this computer has joined any, you can get a code and enter it in the same dialog, and the agent joins that workspace as soon as the code is accepted.",
+        "zh": "欢迎页提供两种入口：输入配对码直接加入工作区，或在桌面端登录 OpenAgents、直接在应用内使用工作区。配对码输入框会说明配对码的获取方式。若本机尚未加入任何工作区，把智能体加入工作区时可在同一弹窗中获取并输入配对码，配对成功后智能体随即加入该工作区。"
       }
     },
     {
@@ -55,6 +55,17 @@
       "description": {
         "en": "Join workspace now sits right under the page title, and a summary below it shows this device and the workspaces it has joined, each one click away.",
         "zh": "「加入工作区」按钮移至页面标题下方，其下新增设备概况，展示本机名称及已加入的工作区，点击即可打开对应工作区。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A cleaner window layout",
+        "zh": "更简洁的窗口布局"
+      },
+      "description": {
+        "en": "Navigation now runs along the top of the window instead of a side rail. The first row holds the switch between Workspace and This Computer, search, theme, notifications and device status; the second holds This Computer’s pages and the workspaces you have open. A status line at the bottom shows this device and its background service, and the default look is lighter and more compact. Agents, joined workspaces, logs and settings now use compact lists and tables, and settings keep a directory beside each section.",
+        "zh": "导航由左侧栏移至窗口顶部。第一行为「工作区 / 本机管理」切换、搜索、主题、通知与设备状态；第二行为本机管理的各个页面以及已打开的工作区。窗口底部新增状态栏，显示本机名称与后台服务状态；默认外观也更加简洁紧凑。智能体、本机加入的工作区、日志和设置页面改为紧凑的列表与表格，设置各分区左侧新增目录，便于切换。"
       }
     }
   ]

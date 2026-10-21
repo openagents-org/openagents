@@ -16,9 +16,9 @@
     "about": "About"
   },
   "overview": {
-    "hint": "Pick a module to see its details",
-    "back": "Back to overview",
-    "resetDefaults": "Restore defaults"
+    "hint": "Changes are saved automatically.",
+    "resetDefaults": "Restore defaults",
+    "title": "Overview"
   },
   "detail": {
     "autoSaved": "Every change saves itself",

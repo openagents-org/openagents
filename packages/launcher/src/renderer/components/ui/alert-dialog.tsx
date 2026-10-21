@@ -3,6 +3,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
 import { Button } from "@renderer/components/ui/button"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function AlertDialog({
   ...props
@@ -49,6 +50,9 @@ function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
 }) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />

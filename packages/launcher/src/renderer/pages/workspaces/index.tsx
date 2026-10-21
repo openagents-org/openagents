@@ -1,5 +1,4 @@
 import React, { useState } from "react"
-import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { Plus } from "lucide-react"
 
@@ -11,7 +10,7 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import { WorkspaceCard } from "@renderer/components/workspaces/WorkspaceCard"
+import { WorkspaceRow } from "@renderer/components/workspaces/workspace-row"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
 import { WorkspaceRevokedNotice } from "@renderer/components/workspaces/WorkspaceRevokedNotice"
@@ -27,11 +26,11 @@ import {
   type WorkspaceFilter,
   type WorkspaceSort,
 } from "./use-workspaces-data"
-import { useWorkspaceActivity } from "./use-workspace-activity"
 import { useWorkspaceOpening } from "./use-workspace-opening"
 import { WorkspacesToolbar } from "./components/workspaces-toolbar"
 import { DeviceSummary } from "./components/device-summary"
 import { WorkspacesEmpty } from "./components/workspaces-empty"
+import { WorkspacesTable } from "./components/workspaces-table"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -40,13 +39,7 @@ interface Props {
 export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const refreshConnections = useConnectionsStore((s) => s.refresh)
-  const { favorites, toggleFavorite, markUsed } = useWorkspacePrefs(
-    useShallow((s) => ({
-      favorites: s.favorites,
-      toggleFavorite: s.toggleFavorite,
-      markUsed: s.markUsed,
-    })),
-  )
+  const markUsed = useWorkspacePrefs((s) => s.markUsed)
   const pendingCreate = useUiStore((s) => s.pendingCreate)
   const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
   const [search, setSearch] = useState("")
@@ -74,7 +67,6 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     reload,
     notices,
   } = useWorkspacesData(search, filter, sort)
-  const activity = useWorkspaceActivity(workspaces)
 
   const openQuick = (): void => setQuickOpen(true)
 
@@ -160,14 +152,14 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
 
       {/* No stats row: the toolbar chips already carry each bucket's count, and
           a page that prints the same four numbers twice reads as padding. */}
-      <div className="flex-1 overflow-y-auto px-9 py-6">
+      <div className="flex-1 overflow-y-auto px-9 pt-5 pb-6">
         {/* The page's one way to join, directly under its title and sized to
             be found. Joins, never creates: the dialog takes a pairing code for
             a workspace that already exists, and a device can hold several at
             once, so it stays here however many are listed. */}
         <Button
           size="lg"
-          className="mb-5 h-11 px-6 text-base"
+          className="mb-6 h-11 px-6 text-base"
           data-testid="workspace-join-open"
           onClick={openQuick}
         >
@@ -175,14 +167,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
           {t("workspaces.join")}
         </Button>
 
-        <DeviceSummary
-          onOpen={(pairing) => {
-            const ws = workspaces.find((w) =>
-              [w.slug, w.id].some((key) => key && (key === pairing.workspaceSlug || key === pairing.workspaceId)),
-            )
-            if (ws) openWorkspace(ws)
-          }}
-        />
+        <DeviceSummary />
 
         <WorkspacesToolbar
           search={search}
@@ -219,16 +204,11 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             onShowAll={() => setFilter("all")}
           />
         ) : (
-          // Two up from the start: the window is 1200px wide at its smallest,
-          // so a breakpoint above that only ever produced a single column on
-          // exactly the size most people run.
-          <div className="grid grid-cols-2 gap-3 3xl:grid-cols-3">
+          <WorkspacesTable>
             {filtered.map((c) => (
-              <WorkspaceCard
+              <WorkspaceRow
                 key={c.ws.id}
-                data={{ ...c, activity: activity[c.ws.id] }}
-                favorite={favorites.has(c.ws.id)}
-                onToggleFavorite={() => toggleFavorite(c.ws.id)}
+                data={c}
                 onCopyUrl={() => copyUrl(c.ws)}
                 opensInApp={canOpenInApp(c.ws)}
                 browserOnlyReason={browserOnlyReason(c.ws)}
@@ -244,7 +224,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onRepair={openQuick}
               />
             ))}
-          </div>
+          </WorkspacesTable>
         )}
       </div>
 

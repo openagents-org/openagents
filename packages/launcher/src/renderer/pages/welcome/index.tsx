@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, KeyRound } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { useAccountStore } from "@renderer/store/account"
@@ -12,10 +12,10 @@ import previewZhLight from "./assets/workspace-zh-light.png"
 import previewZhDark from "./assets/workspace-zh-dark.png"
 
 /**
- * The signed-out Workspace. One way forward: the pairing code. People arriving
- * from the web already hold one, and the pairing dialog itself tells everyone
- * else where to get it — so the button skips sign-in and goes straight there.
- * Local tools stay a click away in This Computer.
+ * The signed-out Workspace offers two ways forward. The pairing code leads,
+ * since most people arrive from the web already holding one, and the pairing
+ * dialog tells everyone else where to get it. Signing in comes second: it is
+ * what opens workspaces here in the app instead of in the browser.
  */
 export default function WelcomePage(): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -44,9 +44,17 @@ export default function WelcomePage(): React.JSX.Element {
         />
         <h1 className="m-0 text-3xl leading-tight font-bold tracking-tight text-foreground xl:text-4xl">{t("account.welcome.title")}</h1>
         <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("account.welcome.description")}</p>
-        <div className="mt-8 max-w-sm">
+        <div className="mt-8 flex max-w-sm flex-col gap-3">
           <Button className="h-11 w-full" onClick={joinWithCode} data-testid="welcome-join-code">
-            {t("account.welcome.start")} <ArrowRight className="size-4" />
+            <KeyRound className="size-4" />{t("account.welcome.joinWithCode")}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-11 w-full"
+            onClick={() => useAccountStore.getState().openSignIn()}
+            data-testid="welcome-sign-in"
+          >
+            {t("account.welcome.signIn")} <ArrowRight className="size-4" />
           </Button>
         </div>
       </section>

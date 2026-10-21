@@ -51,17 +51,11 @@
     }
   },
   "card": {
-    "unfavorite": "取消收藏",
-    "favorite": "收藏",
     "copyUrl": "复制链接",
     "openInBrowser": "在浏览器中打开",
     "rename": "重命名",
     "remove": "移除",
-    "agents": "智能体",
     "lastActive": "最近活跃",
-    "platforms": "平台",
-    "platformsLinked": "已关联 {{count}} 个",
-    "platformsNone": "无",
     "viewLogs": "查看日志",
     "logs": "日志",
     "pending": "…",
@@ -72,9 +66,6 @@
       "starting": "启动中",
       "offline": "已停止"
     },
-    "noAgents": "该工作区尚未连接任何智能体",
-    "deviceLinkedTitle": "这台设备已接入",
-    "deviceLinked": "还没有智能体绑定到这里 —— 可以在工作区里给这台设备安装。",
     "openWorkspace": "打开工作区",
     "browserOnly": {
       "notMember": "当前账号不是这个工作区的成员，只能在浏览器中打开。",
@@ -82,17 +73,10 @@
       "otherDeployment": "这个工作区不在当前连接的服务器上，只能在浏览器中打开。"
     },
     "more": "更多操作",
-    "trend": "活动趋势（{{days}} 天）",
-    "trendMessages": "{{count}} 条消息",
-    "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
-    "noAgentsTitle": "暂无智能体",
-    "trendEmpty": "暂无消息活动",
     "qrcode": "点击查看二维码",
-    "deviceBadge": "本机",
     "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
     "repair": "重新加入",
-    "revokedTitle": "本设备已被工作区移除",
-    "revokedBody": "工作区侧已撤销该配对，这里的智能体无法再连接。"
+    "openInApp": "在应用内打开"
   },
   "health": {
     "healthy": "正常",
@@ -188,7 +172,16 @@
     "loading": "正在读取设备状态…",
     "statusUnavailable": "暂时无法获取设备状态，正在重试…",
     "connectedCount_other": "已连接 {{count}} 个工作区",
-    "localOnly": "还没有连接工作区。",
-    "openWorkspace": "打开 {{name}}"
+    "localOnly": "还没有连接工作区。"
+  },
+  "table": {
+    "columns": {
+      "workspace": "工作区",
+      "status": "状态",
+      "agents": "智能体数量",
+      "lastActive": "最近活跃",
+      "actions": "操作"
+    },
+    "agentCount": "{{count}} 个"
   }
 }

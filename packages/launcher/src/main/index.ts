@@ -607,15 +607,14 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the reserved strip: (40 - 12) / 2 ≈ 14 from the top,
-          // and far enough in from the left to clear the rail's rounded corner.
-          trafficLightPosition: { x: 16, y: 14 },
+          // Centred in the top bar: (48 - 12) / 2 = 18 from the top.
+          trafficLightPosition: { x: 16, y: 18 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white
     // before the first frame — the frame used to hide that behind its own
     // chrome. Matches `--background`, like the overlay above.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#f2f2f7",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a20" : "#fcfdfe",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,

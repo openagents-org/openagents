@@ -13,6 +13,7 @@ import { Kbd } from "@renderer/components/ui/kbd"
 import { useCommands, type Command } from "./use-commands"
 import { groupCommands } from "./group-commands"
 import { pushHistory } from "./history"
+import { PALETTE_SHORTCUT } from "@renderer/lib/platform"
 
 function PaletteFooter(): React.JSX.Element {
   const { t } = useTranslation()
@@ -29,7 +30,7 @@ function PaletteFooter(): React.JSX.Element {
         </span>
       </div>
       <span className="flex items-center gap-1">
-        <Kbd>⌘K</Kbd>
+        <Kbd>{PALETTE_SHORTCUT}</Kbd>
         {t("commandPalette.footer.toggle")}
       </span>
     </div>

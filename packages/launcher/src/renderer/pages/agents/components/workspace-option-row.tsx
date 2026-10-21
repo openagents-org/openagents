@@ -1,5 +1,4 @@
 import React from "react"
-import { CornerDownLeft } from "lucide-react"
 
 import { cn } from "@renderer/lib/utils"
 
@@ -11,51 +10,56 @@ export interface WorkspaceOption {
   token?: string
 }
 
-/** One workspace in the add-to-workspace picker. */
+/**
+ * One workspace in the add-to-workspace picker, as a radio choice. A click
+ * selects it; the dialog's Connect button (or a double click, or Enter) joins.
+ */
 export function WorkspaceOptionRow({
   workspace,
-  active,
-  inUse,
-  onHover,
+  selected,
+  agentsLabel,
+  onSelect,
   onPick,
 }: {
   workspace: WorkspaceOption
-  active: boolean
-  inUse: boolean
-  onHover: () => void
+  selected: boolean
+  /** How many of this computer's agents are already in it, as words. */
+  agentsLabel: string
+  onSelect: () => void
   onPick: () => void
 }): React.JSX.Element {
   const shortId = workspace.slug || workspace.id
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={selected}
       data-testid={`ws-option-${shortId}`}
-      data-active={active}
-      onMouseEnter={onHover}
-      onClick={onPick}
+      data-active={selected}
+      onClick={onSelect}
+      onDoubleClick={onPick}
       className={cn(
-        "flex w-full shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors",
-        // `active` is the cursor, not a stored choice, so this takes the hover
-        // state the menus and the rail use — written out rather than via
-        // ROW_HOVER because the cursor here is a prop, not `:focus`.
-        active && "bg-row-hover text-row-hover-foreground",
+        "flex w-full shrink-0 items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors",
+        selected
+          ? "border-primary bg-(--accent-bg)"
+          : "border-border hover:bg-row-hover",
       )}
     >
       <span
+        aria-hidden
         className={cn(
-          "size-2 shrink-0 rounded-full",
-          inUse ? "bg-success" : "bg-muted-foreground/40",
+          "flex size-4 shrink-0 items-center justify-center rounded-full border",
+          selected ? "border-primary" : "border-muted-foreground/50",
         )}
-      />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-        {workspace.name || shortId}
+      >
+        {selected && <span className="size-2 rounded-full bg-primary" />}
       </span>
-      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-        {shortId}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{workspace.name || shortId}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {agentsLabel} · <span className="font-mono">{shortId}</span>
+        </span>
       </span>
-      {active && (
-        <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
-      )}
     </button>
   )
 }

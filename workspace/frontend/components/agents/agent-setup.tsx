@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, ExternalLink, Loader2, Key, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
+import { X, Check, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -14,6 +14,7 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
+import { CompactTypePicker } from './agent-setup-compact';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
@@ -40,6 +41,14 @@ export interface AgentSetupExtensions {
   /** Put Back and Save beside the agent hero instead of in a footer band, which
    *  leaves the bottom-right corner to the host's toasts. */
   headerActions?: boolean;
+  /** Desktop layout: a compact two-column type list instead of the gallery,
+   *  and a titled form with an info column beside it. Hosts other than the
+   *  desktop app leave it off and keep the gallery. */
+  compact?: boolean;
+  /** Compact only: the breadcrumb's first step, naming the page this opened from. */
+  breadcrumbRoot?: string;
+  /** Compact only: the column beside the form (type, device, workspace). */
+  aside?: (props: { type: string }) => React.ReactNode;
 }
 
 /** Where the host's agent catalog load stands — the gallery is empty until it lands. */
@@ -184,10 +193,10 @@ function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
 // chips, vendor + status-dot cards. The app's `primary` token is near-black,
 // so the marketplace carries its own indigo accent in both themes.
 
-type GalleryStatus = ReturnType<typeof runtimeStatus>;
+export type GalleryStatus = ReturnType<typeof runtimeStatus>;
 
 /** Logo chip on a white surface so dark agent marks stay legible in dark mode. */
-function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
+export function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
   return (
     <span
       className={cn('inline-flex items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 dark:ring-white/10 shrink-0', className)}
@@ -209,7 +218,7 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
   }
 }
 
-function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
+export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
   const t = useT();
   if (checking) {
     return (
@@ -809,42 +818,9 @@ export function AgentSetup({
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
-    return (
-      <div className="flex h-full min-h-0 w-full flex-col">
-        <header className="shrink-0 border-b">
-          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-
-            {/* Agent hero */}
-            <div className="flex items-center gap-4">
-              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
-                <AgentIcon name={selectedEntry.name} size={34} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
-                  {badge(selectedStatus)}
-                  {/* Labelled, because a bare arrow beside "Needs login" reads as
-                      "sign in here" — and it opens the agent's docs. */}
-                  {selectedEntry.homepage && (
-                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer" title={selectedEntry.homepage}
-                       className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
-                      {t('connect.agentDocs')}<ExternalLink className="size-3" />
-                    </a>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
-              </div>
-              {extensions?.headerActions && (
-                <div className="flex shrink-0 items-center gap-2">{backButton}{saveButton}</div>
-              )}
-            </div>
-            {extensions?.headerActions && error && errorText('line-clamp-2')}
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
+    // The form itself, shared by both layouts below.
+    const formBody = (
+      <>
         {!isEdit && onManageAgent && node.agents.some((agent) => agent.type === selected) && (
           <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
@@ -857,7 +833,7 @@ export function AgentSetup({
         )}
 
         {/* Config card */}
-        <fieldset disabled={busy} className="rounded-2xl border bg-background p-5 space-y-4 min-w-0">
+        <fieldset disabled={busy} className={extensions?.compact ? 'min-w-0 space-y-5' : 'rounded-2xl border bg-background p-5 space-y-4 min-w-0'}>
           {/* Status hint */}
           {!extensions?.configuration && <div className={cn(
             'text-xs rounded-xl px-4 py-3 leading-relaxed',
@@ -1199,6 +1175,95 @@ export function AgentSetup({
           )}
 
         </fieldset>
+      </>
+    );
+
+    // ---- Desktop layout: breadcrumb, title, the form beside an info column,
+    // and its actions at the bottom of the form.
+    if (extensions?.compact) {
+      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
+      return (
+        <div className="h-full overflow-y-auto">
+          <div className="space-y-6 px-9 pt-6 pb-8">
+            <div>
+              {/* Same lead-in as the type picker before it: an explicit way back,
+                  not only the breadcrumb's first step. */}
+              <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+                <button onClick={isEdit ? onBack : backToSelection} disabled={busy} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+                  <ChevronLeft className="size-4" />{t('connect.nodeBack')}
+                </button>
+                <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                <button onClick={isEdit ? onBack : backToSelection} disabled={busy} className="hover:text-primary hover:underline">
+                  {extensions.breadcrumbRoot || t('connect.nodeBackToAgents')}
+                </button>
+                <span aria-hidden>/</span>
+                <span className="text-foreground">{title}</span>
+              </nav>
+              <div className="mt-3 flex items-center gap-2">
+                <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
+                {badge(selectedStatus)}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 space-y-5">
+                {formBody}
+                {error && errorText()}
+                <div className="flex items-center gap-3 pt-2">
+                  {saveButton}
+                  <Button variant="outline" onClick={isEdit ? onBack : backToSelection} disabled={busy}>
+                    {t('connect.compactCancel')}
+                  </Button>
+                </div>
+              </div>
+              {extensions.aside && selected && (
+                <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col">
+        <header className="shrink-0 border-b">
+          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
+            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+
+            {/* Agent hero */}
+            <div className="flex items-center gap-4">
+              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
+                <AgentIcon name={selectedEntry.name} size={34} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
+                  {badge(selectedStatus)}
+                  {/* Labelled, because a bare arrow beside "Needs login" reads as
+                      "sign in here" — and it opens the agent's docs. */}
+                  {selectedEntry.homepage && (
+                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer" title={selectedEntry.homepage}
+                       className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                      {t('connect.agentDocs')}<ExternalLink className="size-3" />
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
+              </div>
+              {extensions?.headerActions && (
+                <div className="flex shrink-0 items-center gap-2">{backButton}{saveButton}</div>
+              )}
+            </div>
+            {extensions?.headerActions && error && errorText('line-clamp-2')}
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
+        {formBody}
         </div>
         </div>
 
@@ -1244,6 +1309,28 @@ export function AgentSetup({
     if (!q) return true;
     return [e.name, e.label, e.vendor || '', e.description, ...tags].join(' ').toLowerCase().includes(q);
   });
+
+  if (extensions?.compact) {
+    return (
+      <CompactTypePicker
+        catalog={catalog}
+        catalogState={catalogState}
+        visible={visible}
+        readyCount={readyCount}
+        detecting={detecting}
+        categories={marketCats}
+        category={marketCat}
+        onCategory={setMarketCat}
+        query={marketQuery}
+        onQuery={setMarketQuery}
+        statusOf={statusOf}
+        checkingOf={checkingOf}
+        breadcrumbRoot={extensions.breadcrumbRoot}
+        onPick={pick}
+        onBack={onBack}
+      />
+    );
+  }
 
   return (
     <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">

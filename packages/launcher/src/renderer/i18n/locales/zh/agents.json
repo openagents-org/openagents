@@ -191,7 +191,6 @@
   },
   "connectDialog": {
     "title": "把 '{{name}}' 加入工作区",
-    "keyboardHint": "使用 ↑ ↓ 选择，回车加入。",
     "searchPlaceholder": "搜索工作区名称或 ID…",
     "noMatch": "没有匹配的工作区。",
     "cancel": "取消",
@@ -202,7 +201,11 @@
     },
     "emptyTitle": "这台设备还没有加入任何工作区",
     "getCode": "获取配对码，加入工作区",
-    "addMore": "添加更多工作区"
+    "pickHint": "选择要将此智能体实例加入的工作区。",
+    "connect": "连接",
+    "pairToggle": "使用配对码加入",
+    "pairToggleHint": "如果你有工作区的配对码，可通过配对码加入。",
+    "agentCount": "{{count}} 个本机智能体"
   },
   "detail": {
     "back": "返回智能体市场",
@@ -396,7 +399,15 @@
       "prev": "上一个",
       "next": "下一个",
       "installNow": "立即安装",
-      "more": "查看并连接更多智能体"
+      "more": "查看并连接更多智能体",
+      "hint": "可以直接安装并在本机创建实例，已安装的类型会被复用。"
+    },
+    "aside": {
+      "title": "配置信息",
+      "type": "类型",
+      "device": "运行设备",
+      "workspace": "连接工作区",
+      "pickLater": "添加后选择"
     }
   },
   "renameDialog": {

@@ -13,6 +13,52 @@ import { usePairDevice, type PairedWorkspace } from "@renderer/components/worksp
 import type { ToastType } from "@renderer/hooks/useToast"
 
 /**
+ * A pairing code and its submit button, with where to get one underneath.
+ * Resolves through `onPaired` once the device has joined.
+ */
+export function PairCodeForm({
+  onPaired,
+  showToast,
+  className,
+}: {
+  onPaired: (workspace: PairedWorkspace) => void
+  showToast: (msg: string, type?: ToastType) => void
+  className?: string
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const pairing = usePairDevice("connect_agent_dialog", showToast)
+  const submit = async (): Promise<void> => {
+    const joined = await pairing.pair()
+    if (joined) onPaired(joined)
+  }
+  return (
+    <div className={className}>
+      <div className="flex w-full items-start gap-2">
+        <PairPanel
+          className="flex-1"
+          code={pairing.code}
+          onChange={pairing.setCode}
+          onSubmit={() => void submit()}
+          error={pairing.error}
+          autoFocus={false}
+        />
+        <Button
+          className="h-14 px-6"
+          data-testid="ws-pair-submit"
+          onClick={() => void submit()}
+          disabled={pairing.busy || !pairing.ready}
+        >
+          {pairing.busy
+            ? t("workspaces.quickConnect.connecting")
+            : t("workspaces.quickConnect.pairBtn")}
+        </Button>
+      </div>
+      <PairingCodeHowTo className="mt-3 text-left" />
+    </div>
+  )
+}
+
+/**
  * The add-to-workspace dialog when this device is in no workspace yet. Getting
  * a code and redeeming one are two separate actions on the same panel: the
  * first opens the web app (sign in, create a workspace, copy its code), the
@@ -28,13 +74,6 @@ export function ConnectWorkspacePair({
   showToast: (msg: string, type?: ToastType) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const pairing = usePairDevice("connect_agent_dialog", showToast)
-
-  const submit = async (): Promise<void> => {
-    const joined = await pairing.pair()
-    if (joined) onPaired(joined)
-  }
-
   return (
     <>
       <DialogBody
@@ -49,30 +88,10 @@ export function ConnectWorkspacePair({
           <ExternalLink />
           {t("agents.connectDialog.getCode")}
         </Button>
-        <div className="mt-2 flex w-full items-start gap-2">
-          <PairPanel
-            className="flex-1"
-            code={pairing.code}
-            onChange={pairing.setCode}
-            onSubmit={() => void submit()}
-            error={pairing.error}
-            autoFocus={false}
-          />
-          <Button
-            className="h-14 px-6"
-            data-testid="ws-pair-submit"
-            onClick={() => void submit()}
-            disabled={pairing.busy || !pairing.ready}
-          >
-            {pairing.busy
-              ? t("workspaces.quickConnect.connecting")
-              : t("workspaces.quickConnect.pairBtn")}
-          </Button>
-        </div>
-        <PairingCodeHowTo className="self-stretch text-left" />
+        <PairCodeForm className="mt-2 w-full" onPaired={onPaired} showToast={showToast} />
       </DialogBody>
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel} disabled={pairing.busy}>
+        <Button variant="outline" onClick={onCancel}>
           {t("agents.connectDialog.cancel")}
         </Button>
       </DialogFooter>

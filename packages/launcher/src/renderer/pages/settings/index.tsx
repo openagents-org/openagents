@@ -8,6 +8,7 @@ import { useUiStore } from "@renderer/store/ui"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { DetailHeader } from "./components/detail-header"
+import { SettingsNav } from "./components/settings-nav"
 import { RelatedSettings } from "./components/related-settings"
 import { ResetSummary } from "./components/reset-summary"
 import { SettingsOverview } from "./components/settings-overview"
@@ -127,12 +128,14 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           onReset={openReset}
         />
       ) : (
-        <>
+        <div className="flex min-h-0 flex-1">
+          <SettingsNav current={section} onSelect={setSection} onOverview={() => setSection(null)} />
+          <div className="flex min-w-0 flex-1 flex-col">
           {/* Same rule as the overview: the header is fixed chrome, only the
               module's own controls scroll. */}
-          <DetailHeader section={section} onBack={() => setSection(null)} />
+          <DetailHeader section={section} />
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-5 pb-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
             {section === "general" && (
               <GeneralSection values={values} update={update} />
             )}
@@ -194,7 +197,8 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               onSelect={setSection}
             />
           </div>
-        </>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog

@@ -1,0 +1,30 @@
+import React from "react"
+import { Monitor } from "lucide-react"
+import { useTranslation } from "react-i18next"
+
+import { StatusDot } from "@renderer/components/ui-kit"
+import { useDeviceReadout } from "./use-device-readout"
+
+/**
+ * One quiet line along the bottom of This Computer: which machine this is,
+ * whether its daemon is up, and the app version.
+ */
+export function StatusFooter(): React.JSX.Element {
+  const { t } = useTranslation()
+  const { hostname, status, statusLabel, version } = useDeviceReadout()
+  return (
+    <footer
+      className="flex h-9 shrink-0 items-center gap-2 border-t bg-background px-9 text-xs text-muted-foreground"
+      data-testid="status-footer"
+    >
+      <Monitor className="size-4 shrink-0" />
+      <span className="truncate text-foreground">{hostname || t("agents.shared.thisComputer")}</span>
+      <span aria-hidden>·</span>
+      {/* `stopped` is a deliberate state, not a fault — StatusDot renders it in
+          the same muted tone as offline, which is the intent. */}
+      <StatusDot state={status} />
+      <span className="truncate">{statusLabel}</span>
+      <span className="ml-auto shrink-0 font-mono">{version}</span>
+    </footer>
+  )
+}

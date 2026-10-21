@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import { ChevronLeft, ChevronRight, Download } from "lucide-react"
 
 import AgentIcon from "@renderer/components/AgentIcon"
-import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { AgentStatusBadge } from "@renderer/pages/install/components/agent-status-badge"
 import { describeEntry, entryStatus } from "@renderer/pages/install/entry-meta"
@@ -14,7 +13,6 @@ import type { CatalogEntry } from "@renderer/types"
 export const RECOMMENDED_TYPES = ["codex", "claude", "opencode", "hermes"]
 /** Cards on screen at once; the arrows step through them one at a time. */
 const VISIBLE = 2
-const MAX_TAGS = 3
 
 /**
  * The recommended agent types, two at a time. Moved by hand only — the
@@ -47,12 +45,16 @@ export function RecommendedAgents({
   const shown = entries.slice(first, first + VISIBLE)
 
   return (
-    <section className="mb-8" aria-label={t("agents.shared.recommended.label")} data-testid="recommended-agents">
+    <section className="mb-6 border-b pb-6" aria-label={t("agents.shared.recommended.label")} data-testid="recommended-agents">
+      <div className="mb-4 border-t pt-5">
+        <h2 className="m-0 text-lg font-semibold">{t("agents.shared.recommended.label")}</h2>
+        <p className="m-0 mt-1 text-sm text-muted-foreground">{t("agents.shared.recommended.hint")}</p>
+      </div>
       {shown.length > 0 && (
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
-            size="icon"
+            size="icon-sm"
             className="shrink-0 rounded-full"
             aria-label={t("agents.shared.recommended.prev")}
             title={t("agents.shared.recommended.prev")}
@@ -61,14 +63,14 @@ export function RecommendedAgents({
           >
             <ChevronLeft />
           </Button>
-          <div className="grid min-w-0 flex-1 grid-cols-2 gap-4">
+          <div className="grid min-w-0 flex-1 grid-cols-2 divide-x">
             {shown.map((entry) => (
               <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)} />
             ))}
           </div>
           <Button
             variant="outline"
-            size="icon"
+            size="icon-sm"
             className="shrink-0 rounded-full"
             aria-label={t("agents.shared.recommended.next")}
             title={t("agents.shared.recommended.next")}
@@ -79,8 +81,8 @@ export function RecommendedAgents({
           </Button>
         </div>
       )}
-      <div className="mt-6 flex justify-center">
-        <Button size="lg" className="h-11 px-8" onClick={onMore} data-testid="new-agent-open">
+      <div className="mt-5 flex justify-center">
+        <Button size="lg" className="px-8" onClick={onMore} data-testid="new-agent-open">
           {t("agents.shared.recommended.more")}
         </Button>
       </div>
@@ -98,35 +100,23 @@ function RecommendedCard({
   const { t } = useTranslation()
   const updates = useInstallStore((s) => s.updates)
   const status = entryStatus(entry, hasPendingUpdate(updates, entry.name))
-  const tags = (entry.tags || []).slice(0, MAX_TAGS)
   return (
     <div
       data-testid={`recommended-${entry.name}`}
-      className="flex min-h-52 flex-col rounded-xl border border-primary/25 bg-linear-to-br from-primary/12 via-primary/5 to-transparent p-6"
+      className="flex min-w-0 items-center gap-4 px-5 first:pl-0 last:pr-0"
     >
-      <div className="flex items-start gap-4">
-        <div className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-card/80 shadow-sm">
-          <AgentIcon type={entry.name} size={36} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="m-0 truncate text-xl font-bold tracking-tight">{entry.label || entry.name}</h3>
-          <p className="m-0 mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-            {describeEntry(entry, t) || t("install.card.noDescription")}
-          </p>
-        </div>
+      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-card">
+        <AgentIcon type={entry.name} size={30} />
       </div>
-      {tags.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-1.5">
-          {tags.map((tag) => (
-            <Badge key={tag} variant="muted" size="sm" className="font-mono">
-              {tag}
-            </Badge>
-          ))}
-        </div>
-      )}
-      <div className="mt-auto pt-5">
+      <div className="min-w-0 flex-1">
+        <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>
+        <p className="m-0 mt-1 truncate text-sm text-muted-foreground" title={describeEntry(entry, t) || undefined}>
+          {describeEntry(entry, t) || t("install.card.noDescription")}
+        </p>
+      </div>
+      <div className="shrink-0">
         {status === "available" ? (
-          <Button onClick={onInstall}>
+          <Button variant="outline" className="border-primary text-primary hover:bg-(--accent-bg) hover:text-primary" onClick={onInstall}>
             <Download />
             {t("agents.shared.recommended.installNow")}
           </Button>

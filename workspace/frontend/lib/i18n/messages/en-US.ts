@@ -239,6 +239,8 @@ export const messages = {
     connectFirstDevice: 'Connect device',
     firstDeviceTitle: 'Start here',
     firstDeviceHint: 'Connect your first device to bring your agents online.',
+    firstAgentTitle: 'Start here',
+    firstAgentHint: 'Connect your first agent to start working together.',
     navigation: 'Navigation',
     showList: 'Show list',
     hideList: 'Hide list',
@@ -294,7 +296,7 @@ export const messages = {
   },
 
   search: {
-    trigger: 'Search (⌘K)',
+    trigger: 'Search ({shortcut})',
     label: 'Search',
     dialogTitle: 'Search workspace',
     dialogDescription: 'Search threads, files and agents',
@@ -1828,6 +1830,13 @@ export const messages = {
     marketLoading: 'Loading agents…',
     marketLoadFailed: "Couldn't load the agent list. Check your connection and try again.",
     marketRetry: 'Retry',
+    // Desktop compact layout
+    compactPickTitle: 'Choose an agent',
+    compactPickSubtitle: 'Pick a type, then configure an agent on this computer.',
+    compactSummary: '{count} types · {ready} available here',
+    compactConfigure: 'Configure',
+    compactFormSubtitle: 'Creates a separate agent on this computer, ready to connect to a workspace.',
+    compactCancel: 'Cancel',
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: 'Agent name',
     byokTitle: 'Model & credentials',

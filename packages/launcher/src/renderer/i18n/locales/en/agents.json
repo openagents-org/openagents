@@ -191,7 +191,6 @@
   },
   "connectDialog": {
     "title": "Add '{{name}}' to a workspace",
-    "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
     "searchPlaceholder": "Search workspace name or ID…",
     "noMatch": "No workspaces match your search.",
     "cancel": "Cancel",
@@ -202,7 +201,12 @@
     },
     "emptyTitle": "This device isn't in any workspace yet",
     "getCode": "Get a pairing code to join a workspace",
-    "addMore": "Add more workspaces"
+    "pickHint": "Choose the workspace this agent should join.",
+    "connect": "Connect",
+    "pairToggle": "Join with a pairing code",
+    "pairToggleHint": "Have a pairing code for a workspace? Join it here.",
+    "agentCount_one": "{{count}} agent from this computer",
+    "agentCount_other": "{{count}} agents from this computer"
   },
   "detail": {
     "back": "Back to Agent Marketplace",
@@ -396,7 +400,15 @@
       "prev": "Previous",
       "next": "Next",
       "installNow": "Install now",
-      "more": "Browse and connect more agents"
+      "more": "Browse and connect more agents",
+      "hint": "Install one to create an agent on this computer; installed types are reused."
+    },
+    "aside": {
+      "title": "Details",
+      "type": "Type",
+      "device": "Runs on",
+      "workspace": "Workspace",
+      "pickLater": "Choose after adding"
     }
   },
   "renameDialog": {

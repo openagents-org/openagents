@@ -56,11 +56,11 @@ export function NotificationBell({
           size="icon"
           title={t("nav.notifications.tooltip")}
           className={cn(
-            "relative size-7 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "relative size-8 text-muted-foreground hover:text-foreground",
             className,
           )}
         >
-          <Bell className="size-3.5" />
+          <Bell className="size-4" />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-3xs font-bold text-white">
               {unread > 99 ? "99+" : unread}
@@ -69,9 +69,9 @@ export function NotificationBell({
         </Button>
       </PopoverTrigger>
 
-      {/* The bell sits at the top of the rail, so the list opens downward and
-          to the right of it rather than over the nav. */}
-      <PopoverContent align="start" side="right" className="w-85 p-0">
+      {/* The bell sits at the right of the top bar, so the list drops below
+          it, aligned to its right edge. */}
+      <PopoverContent align="end" side="bottom" className="w-85 p-0">
         <div className="flex items-center justify-between border-b px-3 py-2.5">
           <div className="text-sm font-semibold">
             {t("nav.notifications.title")}

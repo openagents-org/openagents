@@ -58,7 +58,7 @@ export function applyThemeSource(mode: unknown): void {
  * root font size, and a `rem` here would drift away from the overlay, which
  * Electron only accepts in real pixels.
  */
-export const TITLEBAR_HEIGHT = 40
+export const TITLEBAR_HEIGHT = 48
 
 /**
  * Whether a modal is currently up in the renderer. See `setChromeDimmed`.

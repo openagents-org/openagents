@@ -31,7 +31,7 @@
   "externalOpened": "Sign-in opened in your browser — finish it there and come back.",
   "signInPage": {
     "title": "Sign in to OpenAgents",
-    "subtitle": "Your workspaces live with your account. Local agents work without one.",
+    "subtitle": "Use your account to reach your workspaces.",
     "email": "Email",
     "emailPlaceholder": "you@example.com",
     "password": "Password",
@@ -39,7 +39,9 @@
     "browser": "Sign in with Google, GitHub or Apple",
     "browserHint": "Opens your browser — those providers do not allow sign-in inside an app.",
     "signUp": "Create an account",
-    "noAccount": "Don’t have an account?"
+    "noAccount": "Don’t have an account?",
+    "or": "or",
+    "localNoSignIn": "Agents on this computer work without signing in."
   },
   "welcome": {
     "title": "Your team and your agents, working together in one workspace.",
@@ -47,7 +49,8 @@
     "back": "Back",
     "previewLabel": "OpenAgents Workspace showing navigation, threads, and a conversation with Claude and Codex",
     "previewCaption": "Workspace preview · Sample content",
-    "start": "Use OpenAgents"
+    "joinWithCode": "Join a workspace with a pairing code",
+    "signIn": "Sign in to OpenAgents on desktop"
   },
   "workspaceLoadFailed": "Unable to open Workspace. Please try again.",
   "workspaceBundleMissing": "This installation is missing the Workspace component. Please reinstall OpenAgents.",
