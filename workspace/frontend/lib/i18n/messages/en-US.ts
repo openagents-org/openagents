@@ -1629,6 +1629,7 @@ export const messages = {
     agentSaved: "Agent settings saved.",
     agentAdded: "Agent added.",
     agentDocs: "Docs",
+    agentSignIn: "Sign in",
     agentAddedAfterInstall: "Installing {name} — it will be added when the install finishes. You can keep working meanwhile.",
 
     title: 'Connect Agents',

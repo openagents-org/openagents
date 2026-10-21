@@ -36,6 +36,10 @@ export interface AgentSetupExtensions {
   takenNames?: readonly string[];
   /** Sets an existing agent's display name. Offered only where the host can do it. */
   renameAgent?: (name: string, displayName: string) => Promise<void>;
+  /** Where the host can sign an agent in on this device: the action for a
+   *  type that signs in, or undefined. Offered beside "Needs login" in place
+   *  of the docs link. */
+  signIn?: (type: string) => (() => void) | undefined;
   modelAccessDialog?: (props: { onClose: () => void; onSaved: (entry: ModelAccessEntry) => void }) => React.ReactNode;
   promo?: (props: { agentType: string; accesses: ModelAccessEntry[] | null; selectedAccessId: string; onUse: (entry: ModelAccessEntry, created: boolean) => void }) => React.ReactNode;
   /** Put Back and Save beside the agent hero instead of in a footer band, which
@@ -540,6 +544,12 @@ export function AgentSetup({
 
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
+  const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
+  const signInLink = signIn && (
+    <button type="button" onClick={signIn} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+      {t('connect.agentSignIn')}<ArrowRight className="size-3" />
+    </button>
+  );
 
   const pick = (typeName: string) => {
     setSelected(typeName);
@@ -1223,6 +1233,7 @@ export function AgentSetup({
                 <div className="mt-3 flex items-center gap-2">
                   <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
                   {badge(selectedStatus)}
+                  {signInLink}
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
@@ -1267,9 +1278,10 @@ export function AgentSetup({
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
                   {badge(selectedStatus)}
-                  {/* Labelled, because a bare arrow beside "Needs login" reads as
-                      "sign in here" — and it opens the agent's docs. */}
-                  {selectedEntry.homepage && (
+                  {/* Beside "Needs login" the link is the sign-in itself where the
+                      host can run it; otherwise it is labelled as docs, because a
+                      bare arrow there reads as "sign in here". */}
+                  {signInLink || selectedEntry.homepage && (
                     <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer" title={selectedEntry.homepage}
                        className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
                       {t('connect.agentDocs')}<ExternalLink className="size-3" />
