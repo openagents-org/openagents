@@ -1717,6 +1717,7 @@ export const messages: Messages = {
     nodeLastReportedAgentCount: '上次上报了 {count} 个智能体',
     nodeAgentLastReportedRunning: '上次上报：运行中',
     nodeAgentLastReportedStopped: '上次上报：已停止',
+    nodeAddFirstAgentHint: '设备已连接。添加第一个智能体，开始协作。',
     nodeNoAgents: '此设备上还没有智能体。',
     nodeAddAgent: '添加智能体',
     nodeAgentNamePlaceholder: '智能体名称，例如 coder',
