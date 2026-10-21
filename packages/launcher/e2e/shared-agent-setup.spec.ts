@@ -58,6 +58,7 @@ async function openComputer(page: Page, existing = false) {
       saveAgentInstanceEnv: () => ({ success: true }),
       setAgentWorkingDir: (name: string, dir: string) => { agents.find(a => a.name === name).path = dir; return { success: true } },
       listWorkspaces: () => [], notificationsList: () => [], notificationsGetPrefs: () => ({}),
+      getWorkspaceTabs: () => ({ tabs: [], active: null, home: null }), onWorkspaceTabsChanged: () => () => {},
       getInstalledAgents: () => [], checkAgentUpdates: () => [], getChangelog: () => [],
       appVersion: () => '1.0.0', hasRunBefore: () => true, getWhatsNew: () => null,
       isFullScreen: () => false, launcherUpdateState: () => ({ status: 'idle' }),
@@ -148,5 +149,32 @@ test('adding an installed type can open its existing agent instead of creating a
   await expect(page.getByRole('heading', { name: 'Configure desk-helper' })).toBeVisible()
   const calls = await page.evaluate(() => (window as any).__localTest.calls)
   expect(calls.some((c: any) => c.method === 'addAgent' || c.method === 'installAgentTypeStreaming')).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('a second agent of an installed type gets its own name, with the actions inside the form column', async ({ page }) => {
+  const errors = await openComputer(page, true)
+  await page.getByTestId('recommended-add-claude').click()
+  const name = page.getByRole('textbox', { name: 'Agent name' })
+  await expect(page.getByTestId('agent-setup-name-hint')).toContainText('claude and claude-2')
+  // Cancel and Add sit under the form's own fields, not across the window
+  // beside the information column.
+  const field = (await name.boundingBox())!
+  const actions = (await page.getByTestId('agent-setup-actions').boundingBox())!
+  expect(actions.x).toBeGreaterThanOrEqual(field.x - 1)
+  expect(actions.x + actions.width).toBeLessThanOrEqual(field.x + field.width + 1)
+  await expect(page.getByTestId('agent-setup-actions').getByRole('button')).toHaveText(['Cancel', 'Add an agent'])
+
+  // A taken name is reported at the field and nothing is created.
+  await name.fill('desk-helper')
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect(page.getByTestId('agent-setup-name-error')).toBeVisible()
+  await name.fill('claude-2')
+  await expect(page.getByTestId('agent-setup-name-error')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('claude-2')
+  const calls = await page.evaluate(() => (window as any).__localTest.calls)
+  expect(calls.filter((c: any) => c.method === 'addAgent')).toHaveLength(1)
+  expect(calls.some((c: any) => c.method === 'installAgentTypeStreaming')).toBe(false)
   expect(errors).toEqual([])
 })

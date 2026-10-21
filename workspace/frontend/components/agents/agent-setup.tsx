@@ -163,19 +163,19 @@ function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
             <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
           )}
         </div>
-        <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px] shrink-0" onClick={run} disabled={testing}>
+        <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shrink-0" onClick={run} disabled={testing}>
           {informative ? t('connect.smokeTestRerun') : t('connect.smokeTestRun')}
         </Button>
       </div>
       {!testing && informative && !informative.ok && (
         <div className="space-y-1.5">
           {informative.message && (
-            <p className="text-[11px] text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
+            <p className="text-xs text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
           )}
           {(informative.guidance || []).length > 0 && (
             <ul className="space-y-1">
               {(informative.guidance || []).map((line, i) => (
-                <li key={i} className="text-[11px] text-muted-foreground leading-relaxed flex gap-1.5">
+                <li key={i} className="text-xs text-muted-foreground leading-relaxed flex gap-1.5">
                   <ArrowRight className="size-3 mt-0.5 shrink-0" />
                   <span className="break-words">{line}</span>
                 </li>
@@ -222,14 +222,14 @@ export function MarketStatusBadge({ status, checking, className }: { status: Gal
   const t = useT();
   if (checking) {
     return (
-      <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium text-primary whitespace-nowrap', className)}>
+      <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium text-primary whitespace-nowrap', className)}>
         <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
       </span>
     );
   }
   const meta = marketStatusMeta(t, status);
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium whitespace-nowrap', meta.text, className)}>
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', meta.text, className)}>
       <span className={cn('size-1.5 rounded-full', meta.dot)} />
       {meta.label}
     </span>
@@ -262,11 +262,11 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
       <div key={a.name} className="relative flex items-center gap-5 px-5 py-5 sm:px-7 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <MarketLogo name={a.name} size={76} className="rounded-2xl shadow-md" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
             <Sparkles className="size-3" /> {t('connect.marketFeatured')}
           </div>
           <h2 className="mt-0.5 text-xl font-bold tracking-tight truncate">{a.label}</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
           <div className="mt-2.5 flex items-center gap-3">
             <button
               onClick={() => onPick(a.name)}
@@ -284,8 +284,8 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
             [t('connect.marketOnDevice'), marketStatusMeta(t, status).label],
           ].map(([k, v]) => (
             <div key={k} className="rounded-lg bg-background/70 backdrop-blur-sm ring-1 ring-border/60 px-3 py-1.5">
-              <div className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
-              <div className="text-[11.5px] font-medium truncate">{v}</div>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
+              <div className="text-xs font-medium truncate">{v}</div>
             </div>
           ))}
         </div>
@@ -371,13 +371,13 @@ function FolderPicker({
   return (
     <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
       <div className="px-3 py-2 border-b flex items-center justify-between gap-2 bg-muted/40">
-        <span className="text-[11px] font-medium truncate">{t('connect.nodePickerTitle')}</span>
+        <span className="text-xs font-medium truncate">{t('connect.nodePickerTitle')}</span>
         <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
       </div>
 
       {/* Current path */}
       <div className="px-3 py-2 border-b bg-zinc-950 dark:bg-black">
-        <code className="text-[11px] font-mono text-zinc-100 break-all">{path || '—'}</code>
+        <code className="text-xs font-mono text-zinc-100 break-all">{path || '—'}</code>
       </div>
 
       <div className="max-h-56 overflow-y-auto">
@@ -386,12 +386,12 @@ function FolderPicker({
             <Loader2 className="size-4 animate-spin" /><span className="text-xs">{t('connect.nodePickerLoading')}</span>
           </div>
         ) : unavailable ? (
-          <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
+          <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
         ) : (
           <div className="py-1">
             {roots.length > 0 && (
               <div className="px-3 py-2 border-b mb-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
                   {t('connect.nodePickerLocations')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -400,7 +400,7 @@ function FolderPicker({
                       key={root}
                       onClick={() => browse(root)}
                       className={cn(
-                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono transition-colors hover:bg-muted/60',
+                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors hover:bg-muted/60',
                         path === root && 'bg-muted border-foreground/20',
                       )}
                     >
@@ -419,7 +419,7 @@ function FolderPicker({
               </button>
             )}
             {dirs.length === 0 && !parent ? (
-              <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
+              <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
             ) : (
               dirs.map((d) => (
                 <button
@@ -510,6 +510,9 @@ export function AgentSetup({
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Name problems sit under the name field, not with the form-wide error, so
+  // a taken name is fixed where it is typed and nothing else is cleared.
+  const [nameError, setNameError] = useState<string | null>(null);
   // Marketplace toolbar state (selection mode).
   const [marketQuery, setMarketQuery] = useState('');
   const [marketCat, setMarketCat] = useState('all');
@@ -709,9 +712,10 @@ export function AgentSetup({
   const create = async () => {
     const n = name.trim();
     if (!n || !selected || submitting.current) return;
-    if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setError(t('connect.agentNameInvalid')); return; }
-    if (!isEdit && node.agents.some((agent) => agent.name === n)) { setError(t('connect.agentNameExists')); return; }
-    if (!isEdit && takenNames.has(n)) { setError(t('connect.agentNameTaken', { name: n })); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setNameError(t('connect.agentNameInvalid')); return; }
+    if (!isEdit && node.agents.some((agent) => agent.name === n)) { setNameError(t('connect.agentNameExists')); return; }
+    if (!isEdit && takenNames.has(n)) { setNameError(t('connect.agentNameTaken', { name: n })); return; }
+    setNameError(null);
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
@@ -782,7 +786,12 @@ export function AgentSetup({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       const key = nodeCommandErrorKey(msg, !isEdit);
-      setError(key ? t(key, { name: n }) : msg || t('connect.nodeCommandFailed'));
+      // The device or workspace refused the name itself: point at the field.
+      if (!isEdit && (key === 'connect.agentNameTaken' || /already exists/i.test(msg))) {
+        setNameError(t(key ?? 'connect.agentNameExists', { name: n }));
+      } else {
+        setError(key ? t(key, { name: n }) : msg || t('connect.nodeCommandFailed'));
+      }
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -798,7 +807,7 @@ export function AgentSetup({
     } as const;
     const b = map[status];
     if (!b.label) return null;
-    return <span className={cn('text-[9px] font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
+    return <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
   };
 
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
@@ -812,7 +821,7 @@ export function AgentSetup({
       </Button>
     );
     const saveButton = (
-      <Button data-testid="agent-setup-submit" variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
+      <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
       </Button>
@@ -892,15 +901,23 @@ export function AgentSetup({
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.agentDisplayNameLabel')}</Label>
               <Input aria-label={t('connect.agentDisplayNameLabel')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={editAgent!.name} maxLength={64} className="h-10 text-sm" />
-              <p className="text-[11px] text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
             </div>
           )}
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
-            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
-            {canRename && <p className="text-[11px] text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
+            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!nameError} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            {nameError && <p role="alert" data-testid="agent-setup-name-error" className="text-xs text-destructive">{nameError}</p>}
+            {/* Always on, not a tooltip: a second agent of a type someone
+                already runs is a different name away, nothing more. */}
+            {!isEdit && selected && (
+              <p data-testid="agent-setup-name-hint" className="text-xs text-muted-foreground">
+                {t('connect.agentNameMultiHint', { first: selected, second: `${selected}-2` })}
+              </p>
+            )}
+            {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
@@ -913,7 +930,7 @@ export function AgentSetup({
                   <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
                 </span>
                 {byokTest.state === 'ok' && (
-                  <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="size-3.5" />{t('connect.byokVerifiedShort')}
                   </span>
                 )}
@@ -953,18 +970,18 @@ export function AgentSetup({
               })}
 
               {accesses !== null && accesses.length === 0 && !byokAccessId && (
-                <p className="text-[11px] text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
               )}
 
               {byokAccessId && (
                 <>
                   {byokLoading && (
-                    <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Loader2 className="size-3 animate-spin" />{t('connect.byokLoadingModels')}
                     </p>
                   )}
                   {byokKeyError && (
-                    <p className="text-[11px] text-red-600 dark:text-red-400">{byokKeyError}</p>
+                    <p className="text-xs text-red-600 dark:text-red-400">{byokKeyError}</p>
                   )}
 
                   {/* Model — the ones this key can actually use */}
@@ -998,7 +1015,7 @@ export function AgentSetup({
                           className="h-10 text-sm font-mono"
                         />
                       )}
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
                           : byokModelsSource === 'live'
@@ -1006,7 +1023,7 @@ export function AgentSetup({
                             : t('connect.byokModelsCatalog')}
                       </p>
                       {byokProbeError && (
-                        <p className="text-[11px] text-muted-foreground break-words">{byokProbeError}</p>
+                        <p className="text-xs text-muted-foreground break-words">{byokProbeError}</p>
                       )}
                     </div>
                   )}
@@ -1025,12 +1042,12 @@ export function AgentSetup({
                         : (<><Zap className="size-3.5 mr-1.5" />{t('connect.byokTest')}</>)}
                     </Button>
                     {byokTest.state === 'ok' && (
-                      <span className="text-[11px] leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
                         {t('connect.byokTestOk', { model: model.trim(), ms: byokTest.ms ?? 0 })}
                       </span>
                     )}
                     {byokTest.state === 'fail' && (
-                      <span className="text-[11px] leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
                         {t('connect.byokTestFail')}{byokTest.error ? ` — ${byokTest.error}` : ''}
                       </span>
                     )}
@@ -1104,7 +1121,7 @@ export function AgentSetup({
                 onClose={() => setShowPicker(false)}
               />
             )}
-            <p className="text-[11px] text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
+            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
           </div>
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
@@ -1123,10 +1140,10 @@ export function AgentSetup({
                     autoComplete="off"
                     className="h-10 text-sm"
                   />
-                  {f.description && <p className="text-[11px] text-muted-foreground">{f.description}</p>}
+                  {f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
                 </div>
               ))}
-              <p className="text-[11px] text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
               {!modelOptions && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
@@ -1146,7 +1163,7 @@ export function AgentSetup({
                 className="h-10 text-sm"
               />
               {isEdit && editAgent?.apiKeyMasked && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {t('connect.nodeKeyConfiguredHint', { masked: editAgent.apiKeyMasked })}
                 </p>
               )}
@@ -1163,7 +1180,7 @@ export function AgentSetup({
                     placeholder={t('connect.nodeAgentBaseUrlOptional')}
                     className="h-10 text-sm font-mono"
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
+                  <p className="text-xs text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
                 </>
               )}
               {/* Custom endpoint set → the curated model ids don't apply; take
@@ -1215,6 +1232,15 @@ export function AgentSetup({
                 <div className="min-w-0 space-y-5">
                   {formBody}
                   {error && errorText()}
+                  {/* The actions close the form, splitting the full width of its
+                      column — not pinned: a pinned bar covered the fields
+                      scrolling under it and doubled the bottom gap. */}
+                  <div data-testid="agent-setup-actions" className="grid grid-cols-2 gap-4 pt-3">
+                    <Button variant="outline" size="lg" className="w-full" onClick={leave} disabled={busy}>
+                      {t('connect.compactCancel')}
+                    </Button>
+                    {saveButton}
+                  </div>
                 </div>
                 {extensions.aside && selected && (
                   <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
@@ -1222,14 +1248,6 @@ export function AgentSetup({
               </div>
             </div>
           </div>
-          {/* Pinned, so the way to finish is in view however long the form
-              for this type runs. */}
-          <footer className="flex shrink-0 items-center justify-end gap-3 border-t bg-background px-9 py-3">
-            <Button variant="outline" onClick={leave} disabled={busy}>
-              {t('connect.compactCancel')}
-            </Button>
-            {saveButton}
-          </footer>
         </div>
       );
     }
@@ -1353,7 +1371,7 @@ export function AgentSetup({
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-bold tracking-tight">{t('connect.agentAddTitle')}</h3>
           <div className="text-xs text-muted-foreground mt-1">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {detecting
               ? t('connect.nodeDetectingAgents')
               : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
@@ -1385,7 +1403,7 @@ export function AgentSetup({
               key={c.key}
               onClick={() => setMarketCat(c.key)}
               className={cn(
-                'whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors',
+                'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
                 marketCat === c.key
                   ? 'bg-foreground text-background'
                   : 'bg-muted text-muted-foreground hover:text-foreground',
@@ -1413,18 +1431,18 @@ export function AgentSetup({
             <div className="flex items-center gap-3">
               <MarketLogo name={entry.name} size={44} />
               <div className="flex-1 min-w-0">
-                <div className="text-[13.5px] font-semibold leading-tight truncate">{entry.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
+                <div className="text-sm font-semibold leading-tight truncate">{entry.label}</div>
+                <div className="mt-0.5 font-mono text-xs text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
               </div>
             </div>
 
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
 
             {/* Footer: live device status + an always-visible Add CTA (the
                 whole card is the click target; this span is its label). */}
             <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
               <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
-              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white transition-colors group-hover:bg-indigo-500">
+              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-semibold text-white transition-colors group-hover:bg-indigo-500">
                 {t('connect.marketAdd')} <ArrowRight className="size-3" />
               </span>
             </div>
@@ -1452,7 +1470,7 @@ export function AgentSetup({
           <div className="space-y-5">
             {popular.length > 0 && (
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('connect.marketPopular')}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1462,7 +1480,7 @@ export function AgentSetup({
             )}
             {others.length > 0 && (
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('connect.marketOthers')}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

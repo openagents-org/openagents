@@ -437,12 +437,14 @@ export function NavRail() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 className={cn(!showLabels && 'justify-center!')}
-                aria-label={t('nav.thisComputer')}
-                tooltip={{ children: t('nav.thisComputer'), hidden: showLabels }}
+                aria-label={t('nav.localManagement')}
+                tooltip={{ children: t('nav.localManagement'), hidden: showLabels }}
                 onClick={() => desktopHost()?.openComputer()}
               >
                 <Monitor />
-                {showLabels && <span>{t('nav.thisComputer')}</span>}
+                {/* Named like the launcher's own switch to it, so the two read
+                    as one place. Connecting this computer lives under Connect. */}
+                {showLabels && <span>{t('nav.localManagement')}</span>}
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
