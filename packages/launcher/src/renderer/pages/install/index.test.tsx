@@ -102,7 +102,7 @@ beforeEach(() => {
   useAgentsStore.setState({ agents: [] })
   // Both outlive the page, so a deep-link left over from one case would decide
   // where the next one opens.
-  useUiStore.setState({ installFocusAgent: null, installListSignal: 0 })
+  useUiStore.setState({ installFocusAgent: null, installListSignal: 0, installListFilter: "all", pendingCreate: null, pendingCreateType: null })
   localStorage.clear()
   showToast.mockClear()
   installApi()
@@ -324,119 +324,29 @@ describe("deep links", () => {
   })
 })
 
-describe("setup wizard", () => {
-  it("switches between CLI login and API key for a dual-auth agent", async () => {
-    installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-      ]),
-    })
+describe("adding an agent", () => {
+  // Agents are created in one place — Connect Agents' setup form — so the
+  // marketplace hands the type over rather than running a setup of its own.
+  it("opens the setup form on this type from its page", async () => {
     render(<Install showToast={showToast} />)
 
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    await userEvent.click(await screen.findByTestId("detail-add-agent"))
 
-    // CLI leads: it is the path that needs no secret typed in.
-    const dialog = await screen.findByRole("dialog")
-    const cliTab = within(dialog).getByRole("tab", { name: /Account sign-in/ })
-    expect(cliTab).toHaveAttribute("data-state", "active")
-    expect(within(dialog).getByText("claude login")).toBeInTheDocument()
-
-    await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_API_KEY/)).toBeInTheDocument()
+    expect(useUiStore.getState()).toMatchObject({
+      currentTab: "dashboard",
+      pendingCreate: "agent",
+      pendingCreateType: "codex",
+    })
   })
 
-  it("keeps the API form's model out of the sign-in tab", async () => {
-    // An uninstall that kept its data leaves a key and a relay's model id on
-    // file. The key form should still offer them back; the sign-in tab must
-    // not, because that model id belongs to an endpoint this account has
-    // never talked to.
-    installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-        { name: "ANTHROPIC_MODEL" },
-      ]),
-      getAgentEnv: vi.fn().mockResolvedValue({
-        ANTHROPIC_API_KEY: "sk-relay",
-        ANTHROPIC_MODEL: "claude-opus-4-8",
-      }),
-    })
+  it("opens the list filtered as requested", async () => {
     render(<Install showToast={showToast} />)
+    await screen.findByTestId("agent-card-openclaw")
 
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+    await act(async () => useUiStore.getState().goToInstallList("installed"))
 
-    const dialog = await screen.findByRole("dialog")
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue("")
-
-    await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue(
-      "claude-opus-4-8",
-    )
-  })
-
-  it("gives the agent the model the sign-in tab was given, and saves nothing for the type", async () => {
-    // This button only ever advanced the step, so a model picked here was
-    // dropped on the floor. It now goes to the agent, marked signed in: the
-    // type's model belongs with the type's key (sk-relay), which a signed-in
-    // agent never runs on.
-    const api = installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-        { name: "ANTHROPIC_MODEL" },
-      ]),
-      getAgentEnv: vi.fn().mockResolvedValue({ ANTHROPIC_API_KEY: "sk-relay" }),
-      addAgent: vi.fn().mockResolvedValue({ success: true }),
-    })
-    render(<Install showToast={showToast} />)
-
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
-
-    const dialog = await screen.findByRole("dialog")
-    await userEvent.type(
-      await within(dialog).findByLabelText(/ANTHROPIC_MODEL/),
-      "claude-sonnet-4-6",
-    )
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: /Save & create agent/i }),
-    )
-    await userEvent.click(
-      await within(dialog).findByRole("button", { name: /^Create agent$/ }),
-    )
-
-    await waitFor(() => expect(api.addAgent).toHaveBeenCalledTimes(1))
-    expect(api.addAgent.mock.calls[0][0].env).toEqual({
-      ANTHROPIC_MODEL: "claude-sonnet-4-6",
-      OPENAGENTS_AUTH_MODE: "cli_login",
-    })
-    expect(api.saveAgentEnv).not.toHaveBeenCalled()
-  })
-
-  it("stops offering itself once the agent exists", async () => {
-    // The list IPC can answer nothing while the core is still loading. Taking
-    // that for "no agents exist" is what kept the wizard on offer for an agent
-    // that already had an instance — with no agent polling to repair it.
-    useAgentsStore.setState({
-      agents: [
-        { name: "my-claude", type: "claude", state: "stopped", health: null },
-      ],
-    })
-    installApi({
-      getEnvFields: vi
-        .fn()
-        .mockResolvedValue([{ name: "ANTHROPIC_API_KEY", password: true }]),
-      listAgents: vi.fn().mockRejectedValue(new Error("core not loaded yet")),
-    })
-    render(<Install showToast={showToast} />)
-
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    // The rail rendered — claude has an update pending in this fixture.
-    expect(
-      await screen.findByRole("button", { name: /Update to v2\.4\.0/ }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /Setup wizard/ }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId("agent-card-openclaw")).not.toBeInTheDocument()
+    expect(screen.getByTestId("agent-card-codex")).toBeInTheDocument()
   })
 })

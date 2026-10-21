@@ -1,18 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { FilterX, SearchX } from "lucide-react"
+import { ArrowLeft, FilterX, SearchX } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Skeleton } from "@renderer/components/ui/skeleton"
 import { EmptyState } from "@renderer/components/ui-kit"
-import SetupWizard from "@renderer/components/setup-wizard"
 import AgentDetail from "./detail"
 import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
 import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
 import { useUiStore } from "@renderer/store/ui"
-import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
   useMarketplace,
@@ -40,9 +38,6 @@ interface InstallProps {
 export default function Install({ showToast }: InstallProps): React.JSX.Element {
   const { t } = useTranslation()
   const [selectedName, setSelectedName] = useState<string | null>(null)
-  const [wizardEntry, setWizardEntry] = useState<CatalogEntry | null>(null)
-  // Bumped when the wizard closes, so the detail page re-reads the sign-in.
-  const [authRefresh, setAuthRefresh] = useState(0)
 
   const market = useMarketplace()
   const { prefs, setView, setSort, setCategory } = market.prefs
@@ -53,12 +48,13 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     loadAll: market.loadAll,
     showToast,
     onSelect: setSelectedName,
-    onOpenWizard: setWizardEntry,
   })
 
   const installFocusAgent = useUiStore((s) => s.installFocusAgent)
   const setInstallFocusAgent = useUiStore((s) => s.setInstallFocusAgent)
   const installListSignal = useUiStore((s) => s.installListSignal)
+  const installListFilter = useUiStore((s) => s.installListFilter)
+  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
 
   // Tray menu / Dashboard banner deep-link: open straight into a specific
   // agent's detail page, then clear the request flag so a subsequent tab click
@@ -84,7 +80,8 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     if (installListSignal === lastListSignal.current) return
     lastListSignal.current = installListSignal
     setSelectedName(null)
-  }, [installListSignal])
+    market.setStatusFilter(installListFilter)
+  }, [installListSignal, installListFilter, market.setStatusFilter])
 
   const counts = useMemo(
     () => ({
@@ -144,34 +141,28 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
                 )
               }
               market.loadAll()
-              if (!installedList.find((r) => r.name === e.name))
-                actions.maybeOpenWizard(e)
             }}
-            onOpenWizard={setWizardEntry}
-            authRefresh={authRefresh}
+            onAddAgent={(e) => useUiStore.getState().requestCreate("agent", e.name)}
             showToast={showToast}
           />
         </div>
-        <SetupWizard
-          entry={wizardEntry}
-          open={!!wizardEntry}
-          onClose={() => {
-            setWizardEntry(null)
-            market.refreshAgentsStore()
-            // The wizard is where a sign-in usually happens, and its terminal
-            // fallback reports nothing back — so tell the page underneath to
-            // re-read the sign-in instead of leaving it on a stale verdict.
-            setAuthRefresh((n) => n + 1)
-          }}
-          showToast={showToast}
-        />
       </section>
     )
   }
 
   return (
     <section className="flex h-full flex-col">
+      {/* The list has no tab of its own: it opens from Connect Agents, so that
+          is where the way back leads. */}
+      <div className="shrink-0 px-9 pt-5">
+        <Button size="sm" variant="ghost" className="-ml-2" onClick={() => setCurrentTab("dashboard")}
+          data-testid="marketplace-back">
+          <ArrowLeft />
+          {t("install.topbar.back")}
+        </Button>
+      </div>
       <PageHeader
+        className="pt-2"
         title={t("install.topbar.title")}
         subtitle={t("install.topbar.subtitle")}
         actions={
@@ -276,13 +267,6 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         entry={actions.confirmInstall?.entry || null}
         onConfirm={actions.acceptInstall}
         onCancel={actions.cancelInstall}
-      />
-
-      <SetupWizard
-        entry={wizardEntry}
-        open={!!wizardEntry}
-        onClose={() => setWizardEntry(null)}
-        showToast={showToast}
       />
     </section>
   )

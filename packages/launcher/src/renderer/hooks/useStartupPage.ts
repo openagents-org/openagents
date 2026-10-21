@@ -2,13 +2,14 @@ import { useEffect, useState } from "react"
 import { useUiStore } from "@renderer/store/ui"
 
 export const STARTUP_PAGE_LAST = "last"
-export const STARTUP_PAGES = ["dashboard", "install", "workspaces", "logs"] as const
+export const STARTUP_PAGES = ["dashboard", "workspaces", "logs"] as const
 const LAST_TAB_KEY = "launcher:last-tab"
 const LOCAL_PAGES = [...STARTUP_PAGES, "connections", "credentials", "github", "settings"]
 
 /**
  * A page This Computer can open on. Anything else — including the retired
- * Agents page, whose agents now live on This Computer — opens This Computer.
+ * Agents page and the marketplace, both now reached from Connect Agents —
+ * opens Connect Agents.
  */
 function localPage(value: unknown): string {
   return typeof value === "string" && LOCAL_PAGES.includes(value) ? value : "dashboard"

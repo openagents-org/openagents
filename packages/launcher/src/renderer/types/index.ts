@@ -1,5 +1,6 @@
 import type { Release } from "../../shared/changelog"
 import type { ImportCandidate } from '../../shared/credential-import'
+import type { WorkspaceTabsSnapshot } from '../../shared/workspace-view'
 
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
@@ -938,6 +939,8 @@ declare global {
         bounds: ViewBounds,
         token?: string | null,
         sessionId?: string | null,
+        /** What to call a new tab until its page names the workspace. */
+        title?: string | null,
       ): Promise<void>
       setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
       /** Push the launcher's theme/language to the hosted workspace. */
@@ -951,6 +954,15 @@ declare global {
       showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
       reloadWorkspaceView(): Promise<void>
       openWorkspaceHome(): Promise<void>
+      getWorkspaceTabs(): Promise<WorkspaceTabsSnapshot>
+      activateWorkspaceTab(id: string): Promise<void>
+      /** Closes the page only; the workspace and this device's connection stay. */
+      closeWorkspaceTab(id: string): Promise<void>
+      retryWorkspaceTab(id: string): Promise<void>
+      showWorkspaceTabMenu(position: { x: number; y: number }): Promise<void>
+      /** Reload, close, close others, close to the right, close all. */
+      showWorkspaceTabContextMenu(id: string): Promise<void>
+      onWorkspaceTabsChanged(cb: (snapshot: WorkspaceTabsSnapshot) => void): () => void
       onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }

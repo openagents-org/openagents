@@ -31,7 +31,7 @@
   "externalOpened": "已在浏览器中打开登录页，请在那里完成后返回。",
   "signInPage": {
     "title": "登录 OpenAgents",
-    "subtitle": "工作区随账号而来。本机 Agent 不登录也能使用。",
+    "subtitle": "使用账号访问你的工作区。",
     "email": "邮箱",
     "emailPlaceholder": "you@example.com",
     "password": "密码",
@@ -39,22 +39,18 @@
     "browser": "使用 Google、GitHub 或 Apple 登录",
     "browserHint": "将打开浏览器——这几家不允许在应用内完成登录。",
     "signUp": "注册账号",
-    "noAccount": "还没有账号？"
+    "noAccount": "还没有账号？",
+    "or": "或",
+    "localNoSignIn": "本机智能体无需登录。"
   },
   "welcome": {
-    "kicker": "与智能体一起工作",
-    "title": "你和你的智能体，在同一个工作区。",
+    "title": "让你的团队和智能体，在一个工作区协作。",
     "description": "从对话开始，推进实际工作。在电脑、网页或手机上随时继续。",
-    "signIn": "登录工作区",
-    "newHere": "第一次使用 OpenAgents？",
-    "createAccount": "创建账号",
-    "joinWithCode": "已有配对码？把此电脑加入工作区",
-    "joinWithCodeHint": "适合服务器或远程电脑：加入后，智能体在此电脑上为该工作区运行，无需登录。",
     "back": "返回",
     "previewLabel": "OpenAgents 工作区，展示导航、话题列表，以及与 Claude 和 Codex 的对话",
-    "previewKicker": "OpenAgents 工作区",
-    "previewTitle": "让你的智能体一起协作。",
-    "previewCaption": "工作区预览 · 示例内容"
+    "previewCaption": "工作区预览 · 示例内容",
+    "joinWithCode": "输入配对码，直接加入工作区",
+    "signIn": "在桌面端登录 OpenAgents"
   },
   "workspaceLoadFailed": "无法打开工作区，请重试。",
   "workspaceBundleMissing": "此安装包缺少工作区组件，请重新安装 OpenAgents。",

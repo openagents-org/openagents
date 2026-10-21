@@ -1,0 +1,142 @@
+import React, { useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { ChevronLeft, ChevronRight, Download, Plus } from "lucide-react"
+
+import AgentIcon from "@renderer/components/AgentIcon"
+import { Button } from "@renderer/components/ui/button"
+import { AgentStatusBadge } from "@renderer/pages/install/components/agent-status-badge"
+import { describeEntry, entryStatus } from "@renderer/pages/install/entry-meta"
+import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
+import type { CatalogEntry } from "@renderer/types"
+
+/** The agents the page leads with, in this order. */
+export const RECOMMENDED_TYPES = ["codex", "claude", "opencode", "hermes"]
+/** Cards on screen at once; the arrows step through them one at a time. */
+const VISIBLE = 2
+
+/**
+ * The recommended agent types, two at a time. Moved by hand only — the
+ * marketplace banner rotated on a timer, which changed the card under someone
+ * about to click it. Every card opens the regular setup form for its type:
+ * Install now for a type not on this computer yet, Add agent for one that is —
+ * another agent of an installed type reuses its runtime. An installed type
+ * also shows its state; a pending update opens its marketplace page.
+ */
+export function RecommendedAgents({
+  catalog,
+  onInstall,
+  onUpdate,
+  onMore,
+}: {
+  catalog: CatalogEntry[]
+  onInstall: (type: string) => void
+  /** Open the type's marketplace page, where its update runs. */
+  onUpdate: (type: string) => void
+  onMore: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const entries = useMemo(
+    () =>
+      RECOMMENDED_TYPES.map((type) => catalog.find((c) => c.name === type)).filter(
+        (c): c is CatalogEntry => !!c && !c.comingSoon,
+      ),
+    [catalog],
+  )
+  const [start, setStart] = useState(0)
+  const last = Math.max(0, entries.length - VISIBLE)
+  const first = Math.min(start, last)
+  const shown = entries.slice(first, first + VISIBLE)
+
+  return (
+    <section className="mb-6 border-b pb-6" aria-label={t("agents.shared.recommended.label")} data-testid="recommended-agents">
+      <div className="mb-4 border-t pt-5">
+        <h2 className="m-0 text-lg font-semibold">{t("agents.shared.recommended.label")}</h2>
+        <p className="m-0 mt-1 text-sm text-muted-foreground">{t("agents.shared.recommended.hint")}</p>
+      </div>
+      {shown.length > 0 && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="shrink-0 rounded-full"
+            aria-label={t("agents.shared.recommended.prev")}
+            title={t("agents.shared.recommended.prev")}
+            disabled={first === 0}
+            onClick={() => setStart(first - 1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <div className="grid min-w-0 flex-1 grid-cols-2 divide-x">
+            {shown.map((entry) => (
+              <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)}
+                onUpdate={() => onUpdate(entry.name)} />
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="shrink-0 rounded-full"
+            aria-label={t("agents.shared.recommended.next")}
+            title={t("agents.shared.recommended.next")}
+            disabled={first >= last}
+            onClick={() => setStart(first + 1)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      )}
+      <div className="mt-5 flex justify-center">
+        <Button size="lg" className="px-8" onClick={onMore} data-testid="new-agent-open">
+          {t("agents.shared.recommended.more")}
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+function RecommendedCard({
+  entry,
+  onInstall,
+  onUpdate,
+}: {
+  entry: CatalogEntry
+  onInstall: () => void
+  onUpdate: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const updates = useInstallStore((s) => s.updates)
+  const status = entryStatus(entry, hasPendingUpdate(updates, entry.name))
+  return (
+    <div
+      data-testid={`recommended-${entry.name}`}
+      className="flex min-w-0 items-center gap-4 px-5 first:pl-0 last:pr-0"
+    >
+      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-card">
+        <AgentIcon type={entry.name} size={30} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>
+          {status === "update" ? (
+            <button type="button" className="shrink-0" onClick={onUpdate} title={t("agents.shared.recommended.update")}
+              data-testid={`recommended-update-${entry.name}`}>
+              <AgentStatusBadge status={status} className="cursor-pointer" />
+            </button>
+          ) : status === "installed" ? (
+            <AgentStatusBadge status={status} className="shrink-0" />
+          ) : null}
+        </div>
+        <p className="m-0 mt-1 truncate text-sm text-muted-foreground" title={describeEntry(entry, t) || undefined}>
+          {describeEntry(entry, t) || t("install.card.noDescription")}
+        </p>
+      </div>
+      <div className="shrink-0">
+        <Button variant="outline" className="border-primary text-primary hover:bg-(--accent-bg) hover:text-primary" onClick={onInstall}
+          data-testid={`recommended-add-${entry.name}`}>
+          {status === "available" ? <Download /> : <Plus />}
+          {t(status === "available" ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")}
+        </Button>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,61 @@
+{
+  "version": "1.1.3",
+  "date": "2026-10-20",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "A redesigned interface",
+        "zh": "全新界面设计"
+      },
+      "description": {
+        "en": "Navigation moves from the side rail to the top of the window: switch between Workspace and This Computer in one place, with each side's pages and tabs right below. A status bar shows this device and its background service, and pages use a lighter, more compact layout throughout. On All Workspaces, your account and sign-out now sit in the title bar instead of a second header.",
+        "zh": "导航由左侧栏移至窗口顶部，「工作区」与「本机管理」一键切换，下方即为对应的页面与标签。窗口底部新增状态栏，显示本机与后台服务状态；各页面采用更简洁紧凑的布局。「全部工作区」页的账号与退出入口移至标题栏，不再重复显示页眉。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Workspaces in tabs",
+        "zh": "工作区多标签"
+      },
+      "description": {
+        "en": "Each workspace you open gets its own tab and keeps its conversation, scroll position and unsent message while you switch. Use ⌘1–⌘9 (Ctrl+1–Ctrl+9 on Windows) to jump between tabs.",
+        "zh": "打开的每个工作区都有独立标签，切换时保留会话、浏览位置与未发送内容。可使用 ⌘1–⌘9（Windows 为 Ctrl+1–Ctrl+9）快速切换。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Connect Agents: one place to add and manage agents",
+        "zh": "「连接智能体」：统一添加与管理智能体"
+      },
+      "description": {
+        "en": "Device Overview and Agent Marketplace are combined into Connect Agents. Start from the recommended agents or browse the marketplace, where agents can also be updated, rolled back and uninstalled. Every agent is added through the same setup, which installs anything missing first, and you can add several agents of the same type.",
+        "zh": "「设备概览」与「智能体市场」合并为「连接智能体」。可从推荐智能体开始，或进入市场浏览全部类型，并在其中更新、回滚或卸载。所有智能体通过同一配置流程添加，缺少的运行环境会自动安装；同一类型可添加多个智能体。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Get started from the welcome screen",
+        "zh": "欢迎页快速开始"
+      },
+      "description": {
+        "en": "Join a workspace directly with a pairing code, or sign in to use your workspaces in the app.",
+        "zh": "可直接输入配对码加入工作区，或登录后在应用内使用工作区。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer Joined Workspaces",
+        "zh": "「本机加入的工作区」更清晰"
+      },
+      "description": {
+        "en": "Join workspace sits under the page title alongside a summary of this device, and a workspace that can only open in the browser explains why on its own row.",
+        "zh": "「加入工作区」移至标题下方，并显示本机概况；仅能在浏览器中打开的工作区会在所在行说明原因。"
+      }
+    }
+  ]
+}

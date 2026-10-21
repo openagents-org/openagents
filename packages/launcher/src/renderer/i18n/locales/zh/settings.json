@@ -16,9 +16,9 @@
     "about": "关于"
   },
   "overview": {
-    "hint": "选择一个模块查看详情",
-    "back": "返回设置总览",
-    "resetDefaults": "恢复默认"
+    "hint": "设置更改将自动保存。",
+    "resetDefaults": "恢复默认",
+    "title": "设置总览"
   },
   "detail": {
     "autoSaved": "所有更改会自动保存",

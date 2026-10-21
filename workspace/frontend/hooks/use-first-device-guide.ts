@@ -1,11 +1,18 @@
 'use client';
 
 import { useEffect } from 'react';
+import { desktopHost } from '@/lib/desktop-host';
 import { useWorkspace } from '@/lib/workspace-context';
 
-export function useFirstDeviceGuide() {
+/** Which first-run step the sidebar should point at, if any. */
+export type SetupStep = 'device' | 'agent' | null;
+
+export function useFirstDeviceGuide(): SetupStep {
   const { workspace, agents, refreshWorkspace } = useWorkspace();
-  const needsDevice = workspace?.needsFirstDevice === true && !agents.some(agent => !agent.builtin);
+  const hasAgent = agents.some(agent => !agent.builtin);
+  const needsDevice = workspace?.needsFirstDevice === true && !hasAgent;
+  // Signed in from the desktop app, the next step is connecting an agent.
+  const step: SetupStep = needsDevice ? 'device' : !hasAgent && desktopHost() ? 'agent' : null;
 
   useEffect(() => {
     if (!needsDevice) return;
@@ -19,5 +26,5 @@ export function useFirstDeviceGuide() {
     };
   }, [needsDevice, workspace?.workspaceId, refreshWorkspace]);
 
-  return needsDevice;
+  return step;
 }

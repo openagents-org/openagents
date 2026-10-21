@@ -17,10 +17,13 @@ import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
+import { SetupAside } from "./components/setup-aside"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
-export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage }: {
+export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChanged, onManage }: {
   agent?: Agent
+  /** Open on this type's form instead of the type picker (a recommended card). */
+  initialType?: string
   onBack: () => void
   onCreated: (name: string) => void
   onManage: (agent: { name: string; type: string }) => void
@@ -78,11 +81,13 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
     {loadError ? <div className="p-8 space-y-4"><p role="alert">{loadError}</p><Button onClick={() => setAttempt((n) => n + 1)}>{t("common.retry")}</Button><Button variant="ghost" onClick={onBack}>{t("common.back")}</Button></div>
       : !data ? <div className="p-12 flex justify-center"><Spinner /></div>
       : <I18nProvider key={locale} initialLocale={locale} hasStoredLocale>
-        <AgentSetup key={agent?.name || "new"} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
+        <AgentSetup key={agent?.name || `new:${initialType || ""}`} initialType={initialType} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
           contextLabel={<>{t("agents.shared.runsHere")}{agent?.networkName || agent?.network ? ` · ${agent.networkName || agent.network}` : ` · ${t("agents.shared.localOnly")}`}</>}
           onBack={onBack} onChanged={() => { void refresh().catch((err) => { if (mounted.current) setError(String(err)) }); onChanged() }}
           onQueued={({ name }) => onCreated(name)}
-          extensions={{ local: true, headerActions: true, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
+          extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: t("nav.items.dashboard.label"),
+            aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
+              workspace={agent?.networkName || agent?.network || null} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },
@@ -213,13 +218,13 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       </TabsList>
     </Tabs>}
     {loginCmd && authTab === "cli" && <CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
-      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")} />}
-    {loginCmd && authTab === "cli" && !installed && <Button disabled={installing} onClick={() => {
-      setInstalling(true); setError("")
-      void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
-        setHealth(next); onChanged(); void login.start()
-      }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
-    }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
+      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")}
+      installing={installing} onInstall={() => {
+        setInstalling(true); setError("")
+        void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
+          setHealth(next); onChanged(); void login.start()
+        }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
+      }} />}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
       values={values} onChange={change} onImport={keyForm ? importValues : undefined} />

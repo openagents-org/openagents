@@ -2,6 +2,7 @@ import * as React from "react"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function TooltipProvider({
   delayDuration = 0,
@@ -34,6 +35,9 @@ function TooltipContent({
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content

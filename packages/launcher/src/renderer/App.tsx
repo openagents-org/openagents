@@ -34,6 +34,7 @@ import { useStartupPage } from "./hooks/useStartupPage"
 import { useNotificationClicks } from "./hooks/useNotificationRouting"
 import { useFullScreen } from "./hooks/useFullScreen"
 import { capture } from "./lib/analytics"
+import { OPEN_MODAL } from "./lib/modal-chrome"
 
 export default function App(): React.JSX.Element {
   const currentTab = useUiStore((s) => s.currentTab)
@@ -107,6 +108,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (useAccountStore.getState().mode !== "launcher") return
+      // A shortcut must not pull the page out from under an open dialog.
+      if (document.querySelector(OPEN_MODAL)) return
       if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         const idx = parseInt(e.key) - 1
         if (idx < SHORTCUT_TABS.length) {
@@ -151,7 +154,11 @@ export default function App(): React.JSX.Element {
       {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
           job={activeJob}
-          onOpen={() => setCurrentTab("install")}
+          onOpen={() => {
+            // Straight to the agent being installed, which shows the progress.
+            useUiStore.getState().setInstallFocusAgent(activeJob.agent)
+            setCurrentTab("install")
+          }}
         />
       )}
 

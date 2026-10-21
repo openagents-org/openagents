@@ -29,7 +29,7 @@ interface Props {
   onUpdate: () => void
   onUninstall: () => void
   onRollback: () => void
-  onOpenWizard?: () => void
+  onAddAgent: () => void
   className?: string
 }
 

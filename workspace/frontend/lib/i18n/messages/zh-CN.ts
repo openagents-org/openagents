@@ -232,6 +232,8 @@ export const messages: Messages = {
     connectFirstDevice: '连接设备',
     firstDeviceTitle: '从这里开始',
     firstDeviceHint: '连接你的第一台设备，让智能体上线。',
+    firstAgentTitle: '从这里开始',
+    firstAgentHint: '连接你的第一个智能体，开始协作。',
     navigation: '导航',
     showList: '显示列表',
     hideList: '隐藏列表',
@@ -287,7 +289,7 @@ export const messages: Messages = {
   },
 
   search: {
-    trigger: '搜索(⌘K)',
+    trigger: '搜索({shortcut})',
     label: '搜索',
     dialogTitle: '搜索工作区',
     dialogDescription: '搜索会话、文件和智能体',
@@ -1796,6 +1798,13 @@ export const messages: Messages = {
     marketLoading: '正在加载智能体列表…',
     marketLoadFailed: '智能体列表加载失败，请检查网络后重试。',
     marketRetry: '重试',
+    // Desktop compact layout
+    compactPickTitle: '选择智能体',
+    compactPickSubtitle: '选择类型后配置本机实例。',
+    compactSummary: '{count} 种类型 · {ready} 种本机可用',
+    compactConfigure: '配置',
+    compactFormSubtitle: '创建独立的本机实例，添加后即可连接工作区。',
+    compactCancel: '取消',
     // Bring-your-own-provider config (OpenCode, OpenClaw, Cursor, Pi, …)
     nodeAgentNameLabel: '智能体名称',
     byokTitle: '模型与凭据',

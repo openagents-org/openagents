@@ -12,7 +12,7 @@
       "error": "Problems"
     },
     "emptyNoMatch": "No agent is named “{{query}}”.",
-    "empty": "Choose an agent to use on this computer. Existing installations are reused, and you can connect the agent to a workspace when you’re ready.",
+    "empty": "Pick a recommended agent above, or browse and connect more agents.",
     "coreUpdateRequired": "Agent core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
@@ -160,9 +160,6 @@
     "cancel": "Cancel",
     "fieldRequired": "{{field}} is required",
     "toast": {
-      "signedInReady": "Signed in — agent is ready",
-      "couldntConfirm": "Couldn't confirm sign-in. If you finished login, try again.",
-      "couldntReadStatus": "Couldn't read sign-in status. Try again.",
       "configurationSaved": "Configuration saved",
       "errorSaving": "Error saving: {{message}}"
     },
@@ -187,11 +184,11 @@
     "reLogin": "Re-login",
     "signIn": "Sign in",
     "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
-    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser.",
+    "installOnAdd": "Not installed yet — adding the agent installs it"
   },
   "connectDialog": {
     "title": "Add '{{name}}' to a workspace",
-    "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
     "searchPlaceholder": "Search workspace name or ID…",
     "noMatch": "No workspaces match your search.",
     "cancel": "Cancel",
@@ -201,8 +198,13 @@
       "error": "Error: {{message}}"
     },
     "emptyTitle": "This device isn't in any workspace yet",
-    "emptyBody": "Join one on the Paired Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
-    "goToWorkspaces": "Join a workspace"
+    "getCode": "Get a pairing code to join a workspace",
+    "pickHint": "Choose the workspace this agent should join.",
+    "connect": "Connect",
+    "pairToggle": "Join with a pairing code",
+    "pairToggleHint": "Have a pairing code for a workspace? Join it here.",
+    "agentCount_one": "{{count}} agent from this computer",
+    "agentCount_other": "{{count}} agents from this computer"
   },
   "detail": {
     "back": "Back to Agent Marketplace",
@@ -242,12 +244,12 @@
     "rollingBack": "Rolling back…",
     "updating": "Updating…",
     "installing": "Installing…",
-    "install": "Install",
     "updateToVersion": "Update to v{{version}}",
     "reinstall": "Reinstall",
-    "setupWizard": "Setup wizard",
     "rollBack": "Roll back",
-    "uninstall": "Uninstall"
+    "uninstall": "Uninstall",
+    "addAgent": "Add agent",
+    "installOnly": "Install only"
   },
   "readme": {
     "overview": "Overview",
@@ -269,21 +271,6 @@
   },
   "dependencies": {
     "title": "Install command"
-  },
-  "envConfig": {
-    "title": "Configuration",
-    "fieldRequired": "{{field}} is required",
-    "saving": "Saving…",
-    "save": "Save",
-    "testing": "Testing…",
-    "testConnection": "Test connection",
-    "toast": {
-      "configurationSaved": "Configuration saved",
-      "error": "Error: {{message}}",
-      "okResponded": "OK — {{model}} responded",
-      "modelFallback": "model",
-      "testFailed": "Test failed"
-    }
   },
   "quickStart": {
     "title": "Quick start",
@@ -382,22 +369,31 @@
     "verifyApiSettingsHint": "Check the key, endpoint, and model before saving.",
     "connectionWorks": "Connection successful.",
     "connectionFailed": "The connection could not be verified.",
-    "statusUnavailable": "Device status is unavailable. Retrying…",
-    "loading": "Reading device status…",
-    "connectedCount_one": "Connected to {{count}} workspace",
-    "connectedCount_other": "Connected to {{count}} workspaces",
-    "localDescription": "Available for local use. No account required.",
-    "deviceSettingsHint": "Manage this device’s connections and installed software.",
-    "softwareUpdates": "Install & update agents",
-    "overviewSubtitle": "Your device, workspace connections, and the agents running here.",
-    "agentsHere": "Agents on this computer",
+    "overviewSubtitle": "Install a recommended agent, or browse and connect more.",
+    "agentsHere": "Connected agents",
     "installing": "Installing…",
     "addedAfterInstall": "{{name}} is installed and added.",
     "addAfterInstallFailed": "{{name}} could not be added because its install failed: {{message}}",
     "installAndSignIn": "Install and sign in",
     "agentUnavailable": "This agent is no longer available. Return to the agent list.",
     "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
-    "homeFolder": "Your home folder"
+    "homeFolder": "Your home folder",
+    "recommended": {
+      "label": "Recommended agents",
+      "prev": "Previous",
+      "next": "Next",
+      "installNow": "Install now",
+      "more": "Browse and connect more agents",
+      "hint": "Install one to create an agent on this computer; installed types are reused.",
+      "update": "A new version is available — update it"
+    },
+    "aside": {
+      "title": "Details",
+      "type": "Type",
+      "device": "Runs on",
+      "workspace": "Workspace",
+      "pickLater": "Choose after adding"
+    }
   },
   "renameDialog": {
     "title": "Rename {{name}}",

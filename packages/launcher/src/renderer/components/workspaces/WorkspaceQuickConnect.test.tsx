@@ -47,11 +47,14 @@ describe("WorkspaceQuickConnect — pairing only", () => {
   it("offers the pair form and nothing else", () => {
     installApi()
     renderDialog()
-    expect(screen.getByLabelText(/pairing code/i)).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: /^pairing code$/i })).toBeInTheDocument()
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument()
     expect(screen.queryByText(/workspace name/i)).not.toBeInTheDocument()
-    // Creation is web-only; the pair form links out instead.
-    expect(screen.getByText(/create one at/i)).toBeInTheDocument()
+    // Creation is web-only; the form says where to get a code instead.
+    expect(screen.getByText(/how do i get a pairing code/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "workspace.openagents.org" }),
+    ).toBeInTheDocument()
     // The manual link/token path is gone, not demoted.
     expect(screen.queryByTestId("qc-manual-toggle")).not.toBeInTheDocument()
     expect(
@@ -64,7 +67,7 @@ describe("WorkspaceQuickConnect — pairing only", () => {
     renderDialog()
     const user = userEvent.setup()
 
-    await user.type(screen.getByLabelText(/pairing code/i), "abcd-2345")
+    await user.type(screen.getByRole("textbox", { name: /^pairing code$/i }), "abcd-2345")
     await user.click(screen.getByRole("button", { name: /^join$/i }))
 
     await waitFor(() => expect(api.connectNode).toHaveBeenCalledWith("ABCD2345"))
@@ -77,7 +80,7 @@ describe("WorkspaceQuickConnect — pairing only", () => {
     renderDialog()
     const user = userEvent.setup()
 
-    await user.type(screen.getByLabelText(/pairing code/i), "abc")
+    await user.type(screen.getByRole("textbox", { name: /^pairing code$/i }), "abc")
     // The submit button is disabled for short codes; Enter in the field
     // exercises the validation path instead.
     await user.keyboard("{Enter}")

@@ -31,7 +31,7 @@
   "externalOpened": "Sign-in opened in your browser — finish it there and come back.",
   "signInPage": {
     "title": "Sign in to OpenAgents",
-    "subtitle": "Your workspaces live with your account. Local agents work without one.",
+    "subtitle": "Use your account to reach your workspaces.",
     "email": "Email",
     "emailPlaceholder": "you@example.com",
     "password": "Password",
@@ -39,22 +39,18 @@
     "browser": "Sign in with Google, GitHub or Apple",
     "browserHint": "Opens your browser — those providers do not allow sign-in inside an app.",
     "signUp": "Create an account",
-    "noAccount": "Don’t have an account?"
+    "noAccount": "Don’t have an account?",
+    "or": "or",
+    "localNoSignIn": "Agents on this computer work without signing in."
   },
   "welcome": {
-    "kicker": "A place to work together",
-    "title": "You and your agents. In one workspace.",
+    "title": "Your team and your agents, working together in one workspace.",
     "description": "Turn a conversation into work that moves forward. Pick it up here, on the web, or from your phone.",
-    "signIn": "Sign in to Workspace",
-    "newHere": "New to OpenAgents?",
-    "createAccount": "Create an account",
-    "joinWithCode": "Have a pairing code? Add this computer to a workspace",
-    "joinWithCodeHint": "For servers and remote machines: agents run on this computer for that workspace, no sign-in needed.",
     "back": "Back",
     "previewLabel": "OpenAgents Workspace showing navigation, threads, and a conversation with Claude and Codex",
-    "previewKicker": "OpenAgents Workspace",
-    "previewTitle": "Your agents, working together.",
-    "previewCaption": "Workspace preview · Sample content"
+    "previewCaption": "Workspace preview · Sample content",
+    "joinWithCode": "Join a workspace with a pairing code",
+    "signIn": "Sign in to OpenAgents on desktop"
   },
   "workspaceLoadFailed": "Unable to open Workspace. Please try again.",
   "workspaceBundleMissing": "This installation is missing the Workspace component. Please reinstall OpenAgents.",

@@ -51,17 +51,11 @@
     }
   },
   "card": {
-    "unfavorite": "取消收藏",
-    "favorite": "收藏",
     "copyUrl": "复制链接",
     "openInBrowser": "在浏览器中打开",
     "rename": "重命名",
     "remove": "移除",
-    "agents": "智能体",
     "lastActive": "最近活跃",
-    "platforms": "平台",
-    "platformsLinked": "已关联 {{count}} 个",
-    "platformsNone": "无",
     "viewLogs": "查看日志",
     "logs": "日志",
     "pending": "…",
@@ -72,9 +66,6 @@
       "starting": "启动中",
       "offline": "已停止"
     },
-    "noAgents": "该工作区尚未连接任何智能体",
-    "deviceLinkedTitle": "这台设备已接入",
-    "deviceLinked": "还没有智能体绑定到这里 —— 可以在工作区里给这台设备安装。",
     "openWorkspace": "打开工作区",
     "browserOnly": {
       "notMember": "当前账号不是这个工作区的成员，只能在浏览器中打开。",
@@ -82,17 +73,10 @@
       "otherDeployment": "这个工作区不在当前连接的服务器上，只能在浏览器中打开。"
     },
     "more": "更多操作",
-    "trend": "活动趋势（{{days}} 天）",
-    "trendMessages": "{{count}} 条消息",
-    "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
-    "noAgentsTitle": "暂无智能体",
-    "trendEmpty": "暂无消息活动",
     "qrcode": "点击查看二维码",
-    "deviceBadge": "本机",
     "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
     "repair": "重新加入",
-    "revokedTitle": "本设备已被工作区移除",
-    "revokedBody": "工作区侧已撤销该配对，这里的智能体无法再连接。"
+    "openInApp": "在应用内打开"
   },
   "health": {
     "healthy": "正常",
@@ -117,11 +101,9 @@
     "unknown": "—"
   },
   "quickConnect": {
-    "title": "$t(common.actions.addWorkspace)",
-    "subtitle": "加入一个已存在的工作区。本设备可同时加入多个工作区，每个工作区各用自己的配对码。",
-    "pairLabel": "工作区里的配对码",
+    "title": "输入配对码，加入工作区",
+    "pairLabel": "配对码",
     "pairPlaceholder": "XXXX-XXXX",
-    "pairHint": "在工作区打开「$t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes)」获取。这台设备会作为节点加入，之后在工作区里给它安装、运行智能体。配对码只能用一次，30 分钟后失效。",
     "pairBtn": "加入",
     "pairError": "配对码是 8 位，形如 XXXX-XXXX。",
     "cancel": "取消",
@@ -135,7 +117,11 @@
       "dns": "无法连接到工作区服务。请检查你的网络连接后重试。",
       "timeout": "工作区服务未能及时响应。请稍后重试。"
     },
-    "createOnWeb": "需要新工作区？请登录后前往"
+    "howTo": {
+      "title": "如何获取配对码？",
+      "step1": "1.前往 <1>workspace.openagents.org</1> 注册登录",
+      "step2": "2.点击新建工作区，进入后复制配对码"
+    }
   },
   "rename": {
     "title": "重命名工作区",
@@ -181,5 +167,21 @@
     "bodyAgents": "该工作区已从本机移除，原先归属它的 {{count}} 个智能体已解除绑定（实例与数据保留）。重新加入同一个工作区会自动把它们绑回去。",
     "rejoin": "重新加入",
     "dismiss": "知道了"
+  },
+  "device": {
+    "loading": "正在读取设备状态…",
+    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
+    "connectedCount_other": "已连接 {{count}} 个工作区",
+    "localOnly": "还没有连接工作区。"
+  },
+  "table": {
+    "columns": {
+      "workspace": "工作区",
+      "status": "状态",
+      "agents": "智能体数量",
+      "lastActive": "最近活跃",
+      "actions": "操作"
+    },
+    "agentCount": "{{count}} 个"
   }
 }

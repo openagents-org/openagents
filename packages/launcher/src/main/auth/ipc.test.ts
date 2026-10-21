@@ -44,6 +44,7 @@ vi.mock("../workspace-host", () => ({
     signOut = fakes.hostSignOut; whenCleared = fakes.whenCleared
     sendSession = fakes.sendSession; sendNotice = fakes.sendNotice
     currentSession = () => null
+    scopeFor = () => null
   },
 }))
 import { registerAccountIpc } from "./ipc"
@@ -105,7 +106,7 @@ it("shows the latest workspace request even if an earlier refresh is slower", as
   await fakes.handlers.get("workspace-view:show")!({}, "latest", bounds)
   finish()
   await earlier
-  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null, null)
+  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null, null, null)
 })
 
 it("ends the page and wipes its storage however the account ends", () => {

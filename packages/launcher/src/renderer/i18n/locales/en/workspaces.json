@@ -51,17 +51,11 @@
     }
   },
   "card": {
-    "unfavorite": "Unfavorite",
-    "favorite": "Favorite",
     "copyUrl": "Copy URL",
     "openInBrowser": "Open in browser",
     "rename": "Rename",
     "remove": "Remove",
-    "agents": "Agents",
     "lastActive": "Last active",
-    "platforms": "Platforms",
-    "platformsLinked": "{{count}} linked",
-    "platformsNone": "None",
     "viewLogs": "View logs",
     "logs": "Logs",
     "pending": "...",
@@ -72,9 +66,6 @@
       "starting": "Starting",
       "offline": "Stopped"
     },
-    "noAgents": "No agent is connected to this workspace",
-    "deviceLinkedTitle": "This device is connected",
-    "deviceLinked": "No agent is bound here yet — install one on this device from the workspace.",
     "openWorkspace": "Open workspace",
     "browserOnly": {
       "notMember": "The signed-in account isn’t a member of this workspace, so it opens in the browser.",
@@ -82,17 +73,10 @@
       "otherDeployment": "This workspace is on a different server, so it opens in the browser."
     },
     "more": "More actions",
-    "trend": "Activity ({{days}} days)",
-    "trendMessages": "{{count}} messages",
-    "trendTruncated": "Counted from the most recent messages only; earlier days may read low",
-    "noAgentsTitle": "No agents yet",
-    "trendEmpty": "No message activity yet",
     "qrcode": "Show QR code",
-    "deviceBadge": "This device",
     "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
     "repair": "Join again",
-    "revokedTitle": "This device was removed from the workspace",
-    "revokedBody": "The workspace revoked this pairing, so the agents here can no longer connect."
+    "openInApp": "Open in app"
   },
   "health": {
     "healthy": "Healthy",
@@ -117,11 +101,9 @@
     "unknown": "—"
   },
   "quickConnect": {
-    "title": "$t(common.actions.addWorkspace)",
-    "subtitle": "Joins a workspace that already exists. This device can belong to several at once — each one takes its own code.",
-    "pairLabel": "Pairing code from the workspace",
+    "title": "Enter a pairing code to join a workspace",
+    "pairLabel": "Pairing code",
     "pairPlaceholder": "XXXX-XXXX",
-    "pairHint": "In the workspace, open $t(common.workspaceMenu.connectAgent) → $t(common.workspaceMenu.nodes). This device joins as a node, and you install and run agents on it from there. Codes work once and expire after 30 minutes.",
     "pairBtn": "Join",
     "pairError": "A pairing code is 8 characters, like XXXX-XXXX.",
     "cancel": "Cancel",
@@ -135,7 +117,11 @@
       "dns": "Cannot reach the workspace service. Check your internet connection and try again.",
       "timeout": "Workspace service didn't respond in time. Please try again in a moment."
     },
-    "createOnWeb": "Need a new workspace? Sign in and create one at"
+    "howTo": {
+      "title": "How do I get a pairing code?",
+      "step1": "1. Go to <1>workspace.openagents.org</1> and sign up or sign in",
+      "step2": "2. Create a workspace, open it and copy its pairing code"
+    }
   },
   "rename": {
     "title": "Rename workspace",
@@ -181,5 +167,23 @@
     "bodyAgents": "The workspace has been removed from this machine, and the {{count}} agents filed under it were unbound — the instances and their data stay. Joining the same workspace again files them back under it.",
     "rejoin": "Join again",
     "dismiss": "Dismiss"
+  },
+  "device": {
+    "loading": "Reading device status…",
+    "statusUnavailable": "Device status is unavailable. Retrying…",
+    "connectedCount_one": "Connected to {{count}} workspace",
+    "connectedCount_other": "Connected to {{count}} workspaces",
+    "localOnly": "Not connected to any workspace yet."
+  },
+  "table": {
+    "columns": {
+      "workspace": "Workspace",
+      "status": "Status",
+      "agents": "Agents",
+      "lastActive": "Last active",
+      "actions": "Actions"
+    },
+    "agentCount_one": "{{count}} agent",
+    "agentCount_other": "{{count}} agents"
   }
 }

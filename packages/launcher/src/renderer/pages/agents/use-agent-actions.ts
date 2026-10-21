@@ -236,7 +236,7 @@ export function useAgentActions(
       // instead of sending the user out to a browser tab.
       const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
       if (ws && opensInApp(ws, configured, signedIn, memberOf)) {
-        useAccountStore.getState().openWorkspace({ slug, token: ws.token ?? null })
+        useAccountStore.getState().openWorkspace({ slug, name: ws.name, token: ws.token ?? null })
         return
       }
       // Signed in, yet sent to the browser: say why, or it looks like the

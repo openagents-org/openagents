@@ -47,6 +47,16 @@ export function isRunning(agent: Agent): boolean {
   return key === "running" || key === "idle"
 }
 
+/** The dot beside a status word — colour plus the word, never colour alone. */
+export const STATE_DOT_CLASS: Record<StateKey, string> = {
+  running: "bg-(--success)",
+  idle: "bg-(--warning)",
+  starting: "bg-(--warning)",
+  error: "bg-(--danger)",
+  offline: "bg-muted-foreground/50",
+  notConnected: "bg-muted-foreground/50",
+}
+
 export const STATE_TEXT_CLASS: Record<StateKey, string> = {
   running: "text-(--success-text)",
   idle: "text-(--warning-text)",

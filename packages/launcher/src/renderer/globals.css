@@ -30,12 +30,15 @@
     color-scheme: light;
 
     /* Backgrounds */
-    --bg-primary: #f2f2f7;
-    --bg-secondary: #ffffff;
+    /* Default skin: neutral and quiet — a near-white page, a cool grey for
+       secondary surfaces, hairline borders. Structure comes from type, spacing
+       and rules rather than from fills and shadows. */
+    --bg-primary: #fcfdfe;
+    --bg-secondary: #f5f7f9;
     --bg-card: #ffffff;
-    --bg-card-hover: #fafafa;
-    --bg-input: #eeeef0;
-    --bg-sidebar: #ffffff;
+    --bg-card-hover: #f8fafb;
+    --bg-input: #f5f7f9;
+    --bg-sidebar: #fcfdfe;
 
     /* Loading shimmer — see `.skeleton-shimmer`.
 
@@ -52,9 +55,9 @@
     --skeleton-highlight: #f2f2f6;
 
     /* Text */
-    --text-primary: #1c1c1e;
-    --text-secondary: #636366;
-    --text-tertiary: #aeaeb2;
+    --text-primary: #20262e;
+    --text-secondary: #5c6978;
+    --text-tertiary: #8c97a5;
     --text-link: #4f46e5;
 
     /* Accent — indigo, the default preset. Only ever paints the first frame:
@@ -91,18 +94,18 @@
     --info-text: #0060df;
 
     /* Borders / shadows */
-    --border: rgba(0, 0, 0, 0.06);
-    --border-hover: rgba(0, 0, 0, 0.12);
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+    --border: #dfe5eb;
+    --border-hover: #c8d1db;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
     --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06);
 
-    /* Radii */
-    --radius: 12px;
-    --radius-sm: 8px;
-    --radius-md: 10px;
-    --radius-lg: 12px;
-    --radius-xl: 16px;
+    /* Radii — compact controls at 4–6px; larger frames stop at 8px. */
+    --radius: 6px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 6px;
+    --radius-xl: 8px;
 
     /* Misc */
     --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -116,12 +119,12 @@
     --dialog-max-h: min(85vh, 52rem);
 
     /* shadcn HSL aliases (kept for utilities like bg-background etc.) */
-    --background: 240 24% 95.9%;       /* #f2f2f7 */
-    --foreground: 240 10% 10.6%;       /* #1c1c1e */
+    --background: 210 50% 99.2%;       /* #fcfdfe */
+    --foreground: 214 18% 15.3%;       /* #20262e */
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 10.6%;
+    --card-foreground: 214 18% 15.3%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 10.6%;
+    --popover-foreground: 214 18% 15.3%;
     /* `indigo` is the default accent, so the pre-`data-accent` paint has to be
        that exact colour — read it from the preset source rather than restating
        it. The accent presets (further down) are unlayered and therefore win
@@ -129,16 +132,16 @@
        against that winner, so this stays in step automatically. */
     --primary: var(--accent-indigo);
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 6% 39%;  /* #636366 */
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 6% 68%;      /* close to #aeaeb2 */
+    --secondary: 210 25% 96.9%;          /* #f5f7f9 */
+    --secondary-foreground: 212 13% 41.6%; /* #5c6978 */
+    --muted: 210 25% 96.9%;
+    --muted-foreground: 212 13% 41.6%;
     --accent-hsl: var(--accent-indigo);
     --accent-foreground: 0 0% 100%;
     --destructive: 3 90% 59%;            /* close to #ff3b30 */
     --destructive-foreground: 0 0% 100%;
-    --border-hsl: 240 6% 94%;
-    --input-hsl: 240 6% 94%;             /* #eeeef0 */
+    --border-hsl: 210 23% 89.8%;         /* #dfe5eb */
+    --input-hsl: 210 23% 89.8%;
     --ring: var(--accent-indigo);
     --success-hsl: 136 60% 51%;
     --success-foreground: 136 56% 33%;   /* #248a3d */
@@ -156,20 +159,20 @@
        the OS dark palette so they don't render white-on-white in dark mode. */
     color-scheme: dark;
 
-    --bg-primary: #0f1115;
-    --bg-secondary: #161922;
-    --bg-card: #1a1d27;
-    --bg-card-hover: #20232e;
-    --bg-input: #242833;
-    --bg-sidebar: #14171f;
+    --bg-primary: #151a20;
+    --bg-secondary: #1c232c;
+    --bg-card: #1c232c;
+    --bg-card-hover: #222a35;
+    --bg-input: #222a35;
+    --bg-sidebar: #151a20;
 
     /* Sits just above --bg-card so placeholders read as raised, not as holes. */
     --skeleton-base: #242833;
     --skeleton-highlight: #2e3340;
 
-    --text-primary: #f5f5f7;
-    --text-secondary: #a1a1aa;
-    --text-tertiary: #6b6f7a;
+    --text-primary: #e9eef4;
+    --text-secondary: #a4b0bf;
+    --text-tertiary: #6f7c8c;
     --text-link: #818cf8;
 
     /* First-frame fallback, dark twin of the light block above. */
@@ -195,31 +198,31 @@
     --info-bg: rgba(96, 165, 250, 0.14);
     --info-text: #93c5fd;
 
-    --border: rgba(255, 255, 255, 0.06);
-    --border-hover: rgba(255, 255, 255, 0.14);
+    --border: #303a47;
+    --border-hover: #3e4a59;
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
 
     /* shadcn HSL aliases (dark) */
-    --background: 225 19% 8%;
-    --foreground: 240 10% 96%;
-    --card: 228 16% 13%;
-    --card-foreground: 240 10% 96%;
-    --popover: 228 16% 13%;
-    --popover-foreground: 240 10% 96%;
+    --background: 213 21% 10.4%;       /* #151a20 */
+    --foreground: 213 33% 93.5%;       /* #e9eef4 */
+    --card: 214 22% 14.1%;             /* #1c232c */
+    --card-foreground: 213 33% 93.5%;
+    --popover: 214 22% 14.1%;
+    --popover-foreground: 213 33% 93.5%;
     --primary: var(--accent-indigo);
-    --primary-foreground: 225 19% 8%;
-    --secondary: 228 13% 18%;
-    --secondary-foreground: 240 5% 78%;
-    --muted: 228 13% 18%;
-    --muted-foreground: 240 5% 53%;
+    --primary-foreground: 213 21% 10.4%;
+    --secondary: 215 22% 17.1%;        /* #222a35 */
+    --secondary-foreground: 213 17% 69.6%;
+    --muted: 215 22% 17.1%;
+    --muted-foreground: 213 17% 69.6%; /* #a4b0bf */
     --accent-hsl: var(--accent-indigo);
-    --accent-foreground: 225 19% 8%;
+    --accent-foreground: 213 21% 10.4%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 240 10% 96%;
-    --border-hsl: 228 10% 22%;
-    --input-hsl: 228 13% 18%;
+    --border-hsl: 214 19% 23.3%;       /* #303a47 */
+    --input-hsl: 214 19% 23.3%;
     --ring: var(--accent-indigo);
     --success-hsl: 158 64% 52%;
     --success-foreground: 158 64% 72%;
@@ -301,12 +304,13 @@
   --breakpoint-4xl: 150rem; /* 2400px */
   --breakpoint-5xl: 180rem; /* 2880px */
 
-  /* Hardcoded px so rounded-{sm,md,lg,xl} resolve via CSS var. */
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Hardcoded px so rounded-{sm,md,lg,xl} resolve via CSS var. Kept in step
+     with the :root radii above. */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 
   /* Exposes the `pulse-dot` keyframes (defined below) as `animate-pulse-dot`,
      so status indicators need no arbitrary `animate-[…]` value. */
@@ -646,7 +650,7 @@ code {
    absence (tests, a stale preload) leaves the Windows split, which is the safe
    default: it reserves room where the majority of users have buttons. */
 :root {
-  --titlebar-h: 40px;
+  --titlebar-h: 48px;
   /* The mode bar spans the full width above BOTH panes and carries the window
      buttons' clearance itself, so neither pane reserves any. Kept as tokens
      rather than deleted: every consumer is written in terms of them, and a
@@ -656,7 +660,7 @@ code {
   /* The bar's own height. Not `--titlebar-h`: that is room reserved for buttons
      the OS draws and collapses when there are none, while this carries the
      Launcher/Workspace switch and survives full screen. Keep them equal. */
-  --mode-bar-h: 40px;
+  --mode-bar-h: 48px;
   --rail-icon-width: 3rem;
   /* Room for the OS-drawn window controls at the top RIGHT, which is where
      Windows and Linux put them. Only workspace mode needs it: the launcher's
@@ -676,7 +680,7 @@ code {
      that one is room reserved for buttons the OS draws and collapses when
      there are none, while this one carries the way back to the launcher and
      has to survive full screen. Keep the two numbers equal. */
-  --workspace-strip-h: 40px;
+  --workspace-strip-h: 48px;
 }
 
 :root[data-platform="darwin"] {
