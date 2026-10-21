@@ -48,8 +48,16 @@ export function RecommendedAgents({
   const shown = entries.slice(first, first + VISIBLE)
 
   return (
-    <section className="mb-6 border-b pb-6" aria-label={t("agents.shared.recommended.label")} data-testid="recommended-agents">
-      <div className="mb-4 border-t pt-5">
+    // One tinted panel holds the whole block — heading, cards, arrows and the
+    // way into the marketplace — so it reads apart from the agent list below.
+    // The tint is derived from the brand colour, the same family as the
+    // marketplace banner, without touching the global button colour.
+    <section
+      className="@container mb-6 rounded-xl border border-primary/20 bg-primary/8 p-6"
+      aria-label={t("agents.shared.recommended.label")}
+      data-testid="recommended-agents"
+    >
+      <div className="mb-4">
         <h2 className="m-0 text-lg font-semibold">{t("agents.shared.recommended.label")}</h2>
         <p className="m-0 mt-1 text-sm text-muted-foreground">{t("agents.shared.recommended.hint")}</p>
       </div>
@@ -58,7 +66,7 @@ export function RecommendedAgents({
           <Button
             variant="outline"
             size="icon-sm"
-            className="shrink-0 rounded-full"
+            className="shrink-0 rounded-full bg-card"
             aria-label={t("agents.shared.recommended.prev")}
             title={t("agents.shared.recommended.prev")}
             disabled={first === 0}
@@ -66,7 +74,9 @@ export function RecommendedAgents({
           >
             <ChevronLeft />
           </Button>
-          <div className="grid min-w-0 flex-1 grid-cols-2 divide-x">
+          {/* Side by side once both cards fit with their name and action;
+              stacked below that rather than squeezing the name away. */}
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 @2xl:grid-cols-2">
             {shown.map((entry) => (
               <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)}
                 onUpdate={() => onUpdate(entry.name)} />
@@ -75,7 +85,7 @@ export function RecommendedAgents({
           <Button
             variant="outline"
             size="icon-sm"
-            className="shrink-0 rounded-full"
+            className="shrink-0 rounded-full bg-card"
             aria-label={t("agents.shared.recommended.next")}
             title={t("agents.shared.recommended.next")}
             disabled={first >= last}
@@ -85,8 +95,10 @@ export function RecommendedAgents({
           </Button>
         </div>
       )}
-      <div className="mt-5 flex justify-center">
-        <Button size="lg" className="px-8" onClick={onMore} data-testid="new-agent-open">
+      <div className="mt-6 flex justify-center">
+        {/* Taller and wider than `size="lg"` on purpose, set here rather than
+            on the shared size so no other page's buttons grow with it. */}
+        <Button className="h-12 w-full px-8 text-base @md:w-auto @md:min-w-70" onClick={onMore} data-testid="new-agent-open">
           {t("agents.shared.recommended.more")}
         </Button>
       </div>
@@ -109,9 +121,9 @@ function RecommendedCard({
   return (
     <div
       data-testid={`recommended-${entry.name}`}
-      className="flex min-w-0 items-center gap-4 px-5 first:pl-0 last:pr-0"
+      className="flex min-w-0 items-center gap-4 rounded-lg border bg-card p-4"
     >
-      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-card">
+      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-background">
         <AgentIcon type={entry.name} size={30} />
       </div>
       <div className="min-w-0 flex-1">

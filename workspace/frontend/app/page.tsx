@@ -16,6 +16,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useCreateWorkspace } from '@/hooks/use-create-workspace';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 
 /** A catalogue key, translated at render time, or a raw message from an Error. */
@@ -401,6 +402,39 @@ function BrutalBtn({
   );
 }
 
+/** What the create form is waiting on, and the way on when it stalls. */
+function CreateWorkspaceStatus({ flow, onCheckList }: {
+  flow: ReturnType<typeof useCreateWorkspace<{ slug: string }>>;
+  onCheckList: () => void;
+}) {
+  const t = useT();
+  const link = 'font-bold underline underline-offset-2 hover:text-black';
+  if (flow.phase === 'slow') {
+    return <p role="status" className="text-sm text-neutral-600">{t('dashboard.createSlow')}</p>;
+  }
+  if (flow.phase === 'unconfirmed') {
+    return (
+      <p role="status" className="text-sm text-neutral-600">
+        {t('dashboard.createUnconfirmed')}{' '}
+        <button type="button" onClick={onCheckList} className={link}>{t('dashboard.createCheckList')}</button>
+      </p>
+    );
+  }
+  if (flow.phase === 'opening') {
+    return (
+      <p role="status" className="text-sm text-neutral-600">
+        {t('dashboard.createOpening')}{' '}
+        <button type="button" onClick={flow.reopen} className={link}>{t('dashboard.createOpen')}</button>
+      </p>
+    );
+  }
+  if (flow.phase === 'failed') {
+    const message = flow.error instanceof Error && flow.error.message ? flow.error.message : t('dashboard.createFailed');
+    return <p role="alert" className="text-sm font-bold text-red-600">{message}</p>;
+  }
+  return null;
+}
+
 function FullscreenSpinner() {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
@@ -702,7 +736,6 @@ function MembershipHome({
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
 
   const viewTrackedRef = useRef(false);
   const load = useCallback(async () => {
@@ -749,24 +782,29 @@ function MembershipHome({
     load();
   }, [load]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreating(true);
-    setError(null);
-    try {
-      const ws = await createAccountWorkspace(idToken, newName.trim() || 'Untitled workspace');
+  const createFlow = useCreateWorkspace({
+    create: useCallback(async (name: string) => {
+      const ws = await createAccountWorkspace(idToken, name);
       group('workspace', ws.slug);
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
-      router.push(`/${ws.slug}`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? { text: err.message } : { key: 'dashboard.createFailed' });
-      setCreating(false);
-    }
+      return ws;
+    }, [idToken]),
+    open: useCallback((ws: { slug: string }) => router.push(`/${ws.slug}`), [router]),
+  });
+  // While the request is out, the form neither starts over nor looks
+  // cancellable: hiding it would not stop the workspace being created.
+  const createLocked = createFlow.phase === 'creating' || createFlow.phase === 'slow';
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    void createFlow.submit(newName.trim() || 'Untitled workspace');
   };
 
   const openCreate = () => {
     setShowCreate(true);
+    if (createFlow.pending) return;
     setNewName('');
+    createFlow.reset();
   };
 
   // A lone owned workspace = the one we auto-provisioned at sign-up.
@@ -888,18 +926,20 @@ function MembershipHome({
                 className="border-2 border-black focus-visible:border-black focus-visible:ring-0"
               />
               <div className="flex items-center gap-2">
-                <BrutalBtn type="submit" disabled={creating} color="blue">
-                  {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                <BrutalBtn type="submit" disabled={createFlow.pending} color="blue">
+                  {createFlow.pending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
                   {t('dashboard.createWorkspace')}
                 </BrutalBtn>
                 <button
                   type="button"
                   onClick={() => setShowCreate(false)}
-                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black"
+                  disabled={createLocked}
+                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black disabled:opacity-40"
                 >
                   {t('common.cancel')}
                 </button>
               </div>
+              <CreateWorkspaceStatus flow={createFlow} onCheckList={load} />
             </form>
           </div>
         )}

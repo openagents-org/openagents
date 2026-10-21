@@ -24,6 +24,10 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
   const [attempt, setAttempt] = useState(0);
   const mounted = useRef(false);
   const busy = useRef(false);
+  // A slow connect must not land on whatever workspace is open by the time it
+  // answers: its result belongs to the workspace it was asked for.
+  const currentWorkspace = useRef(workspaceId);
+  currentWorkspace.current = workspaceId;
 
   useEffect(() => {
     mounted.current = true;
@@ -86,28 +90,36 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
     busy.current = true;
     setError(null);
     setPhase('connecting');
+    const requested = workspaceId;
     try {
-      const result = await host.connectComputer(workspaceId);
-      if (!mounted.current) return;
+      const result = await host.connectComputer(requested);
+      if (!mounted.current || currentWorkspace.current !== requested) return;
       setComputer(result);
       if (!result.nodeId) throw new Error('No device registration returned');
       if (result.warning) { setError('offline'); setPhase('error'); }
       else setPhase('waiting');
     } catch {
-      if (mounted.current) { setError('connect'); setPhase('error'); }
+      if (mounted.current && currentWorkspace.current === requested) { setError('connect'); setPhase('error'); }
     } finally { busy.current = false; }
   }, [editable, host, workspaceId]);
 
   const working = phase === 'connecting' || phase === 'waiting';
+  // Where this computer stands in this workspace, in words. Being installed is
+  // not being connected, and a failed check is not "nothing connected".
+  const status = phase === 'loading' ? t('onboarding.computerStatus.checking')
+    : phase === 'connecting' ? t('onboarding.connectingComputer')
+    : phase === 'waiting' ? t('onboarding.computerStatus.waiting')
+    : phase === 'ready' && editable ? t('onboarding.computerStatus.notJoined', { workspace: workspaceName })
+    : null;
   return (
     <div className="@container space-y-8" data-testid="desktop-computer-onboarding">
       <div className="text-center">
         <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <Laptop className="size-7" />
         </div>
-        <h1 className="mt-4 text-xl font-semibold tracking-tight">{t('onboarding.thisComputerTitle')}</h1>
+        <h1 className="mt-4 text-xl font-semibold tracking-tight">{t('onboarding.thisComputerTitle', { workspace: workspaceName })}</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-          {t('onboarding.thisComputerBody', { workspace: workspaceName })}
+          {t('onboarding.thisComputerBody')}
         </p>
       </div>
 
@@ -122,13 +134,14 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
           </div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />{t('onboarding.appReady')}</p>
           <p className="text-sm leading-relaxed text-muted-foreground">{t('onboarding.computerPermission')}</p>
+          {status && <p role="status" data-testid="desktop-computer-status" className="text-sm font-medium">{status}</p>}
 
           {error && <p role="alert" className="text-sm text-destructive">{t(`onboarding.computerError.${error}`)}</p>}
           {!editable && phase === 'ready' && <p className="text-sm text-muted-foreground">{t('onboarding.computerAdminRequired')}</p>}
 
           <div className="mt-auto pt-1">
             {phase === 'loading' ? (
-              <div role="status" className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('onboarding.checkingComputer')}</div>
+              <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('onboarding.checkingComputer')}</div>
             ) : error === 'load' || error === 'offline' ? (
               <div className="flex flex-wrap gap-2">
                 <Button variant="primary" onClick={() => setAttempt((value) => value + 1)}>{t('onboarding.checkAgain')}</Button>
@@ -137,7 +150,7 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
             ) : (
               <Button variant="primary" className="min-h-11 w-full whitespace-normal" onClick={connect} disabled={!editable || working}>
                 {working ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Laptop className="size-4 shrink-0" />}
-                {t(phase === 'connecting' ? 'onboarding.connectingComputer' : phase === 'waiting' ? 'onboarding.waitingComputer' : 'onboarding.connectThisComputer')}
+                {t(phase === 'connecting' ? 'onboarding.connectingComputer' : phase === 'waiting' ? 'onboarding.waitingComputer' : 'onboarding.connectComputerToWorkspace')}
                 {!working && <ArrowRight className="size-4 shrink-0" />}
               </Button>
             )}
@@ -151,9 +164,10 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
               <p className="mt-1 text-xs text-muted-foreground">{t('onboarding.otherDeviceTypes')}</p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{t('onboarding.otherDeviceSetup')}</p>
           <p className="text-sm leading-relaxed text-muted-foreground">{t('onboarding.otherDeviceBody')}</p>
-          <Button variant="primary" className="mt-auto min-h-11 w-full whitespace-normal" onClick={onOtherDevice} disabled={working}>
+          {/* Secondary on purpose: connecting the computer in use is the main
+              path, so only that card carries a filled button. */}
+          <Button variant="outline" className="mt-auto min-h-11 w-full whitespace-normal" onClick={onOtherDevice} disabled={working}>
             <Server className="size-4 shrink-0" />{t('onboarding.connectOtherDevice')}<ArrowRight className="size-4 shrink-0" />
           </Button>
         </div>

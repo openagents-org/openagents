@@ -30,43 +30,48 @@ export default function WelcomePage(): React.JSX.Element {
   }
 
   return (
-    <main className="grid h-full overflow-y-auto bg-background lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]" data-testid="app-welcome">
-      <section className="flex min-h-[36rem] flex-col justify-center px-10 py-12 xl:px-16">
-        {/* The full wordmark carries black lettering, so dark mode swaps in a
-            copy with the lettering in white. */}
-        <img
-          src={theme === "dark" ? logoDark : logoLight}
-          width={936}
-          height={153}
-          className="mb-12 block h-auto w-72 select-none"
-          alt="OpenAgents"
-          draggable={false}
-        />
-        <h1 className="m-0 text-3xl leading-tight font-bold tracking-tight text-foreground xl:text-4xl">{t("account.welcome.title")}</h1>
-        <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("account.welcome.description")}</p>
-        <div className="mt-8 flex max-w-sm flex-col gap-3">
-          <Button className="h-11 w-full" onClick={joinWithCode} data-testid="welcome-join-code">
-            <KeyRound className="size-4" />{t("account.welcome.joinWithCode")}
-          </Button>
-          <Button
-            variant="outline"
-            className="h-11 w-full"
-            onClick={() => useAccountStore.getState().openSignIn()}
-            data-testid="welcome-sign-in"
-          >
-            {t("account.welcome.signIn")} <ArrowRight className="size-4" />
-          </Button>
-        </div>
-      </section>
-      <section className="hidden min-w-0 flex-col justify-center px-6 py-12 lg:flex xl:pr-10" aria-label={t("account.welcome.previewLabel")}>
-        <figure className="m-0">
-          {/* Generated from the shared web app. See scripts/render-workspace-preview.mjs. */}
-          <div className="overflow-hidden rounded-xl border border-border/80 bg-background shadow-lg">
-            <img src={preview} width={2240} height={1560} className="block h-auto w-full select-none" alt={t("account.welcome.previewLabel")} draggable={false} />
+    <main className="h-full overflow-y-auto bg-background" data-testid="app-welcome">
+      {/* One centred container owns the column gap. Padding on both columns
+          used to stack into a blank band between the copy and the preview, and
+          the band kept widening with the window. */}
+      <div className="mx-auto grid min-h-full w-full max-w-7xl items-center gap-10 px-8 py-12 lg:grid-cols-[minmax(0,27.5rem)_minmax(0,1fr)] xl:px-12">
+        <section className="flex min-h-[36rem] flex-col justify-center">
+          {/* The full wordmark carries black lettering, so dark mode swaps in a
+              copy with the lettering in white. */}
+          <img
+            src={theme === "dark" ? logoDark : logoLight}
+            width={936}
+            height={153}
+            className="mb-12 block h-auto w-72 select-none"
+            alt="OpenAgents"
+            draggable={false}
+          />
+          <h1 className="m-0 text-3xl leading-tight font-bold tracking-tight text-foreground xl:text-4xl">{t("account.welcome.title")}</h1>
+          <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("account.welcome.description")}</p>
+          <div className="mt-8 flex max-w-sm flex-col gap-3">
+            <Button className="h-11 w-full" onClick={joinWithCode} data-testid="welcome-join-code">
+              <KeyRound className="size-4" />{t("account.welcome.joinWithCode")}
+            </Button>
+            <Button
+              variant="outline"
+              className="h-11 w-full"
+              onClick={() => useAccountStore.getState().openSignIn()}
+              data-testid="welcome-sign-in"
+            >
+              {t("account.welcome.signIn")} <ArrowRight className="size-4" />
+            </Button>
           </div>
-          <figcaption className="mt-4 text-center text-xs text-muted-foreground">{t("account.welcome.previewCaption")}</figcaption>
-        </figure>
-      </section>
+        </section>
+        <section className="hidden min-w-0 flex-col justify-center lg:flex" aria-label={t("account.welcome.previewLabel")}>
+          <figure className="m-0">
+            {/* Generated from the shared web app. See scripts/render-workspace-preview.mjs. */}
+            <div className="overflow-hidden rounded-xl border border-border/80 bg-background shadow-lg">
+              <img src={preview} width={2240} height={1560} className="block h-auto w-full select-none" alt={t("account.welcome.previewLabel")} draggable={false} />
+            </div>
+            <figcaption className="mt-4 text-center text-xs text-muted-foreground">{t("account.welcome.previewCaption")}</figcaption>
+          </figure>
+        </section>
+      </div>
     </main>
   )
 }
