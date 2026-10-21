@@ -736,7 +736,8 @@ interface PendingAgent {
 function NodeCard({
   node,
   pending = [],
-  defaultExpanded = false,
+  expanded,
+  onExpand,
   onAddAgent,
   onEditAgent,
   onDismissPending,
@@ -744,7 +745,8 @@ function NodeCard({
 }: {
   node: WorkspaceNode;
   pending?: PendingAgent[];
-  defaultExpanded?: boolean;
+  expanded: boolean;
+  onExpand: () => void;
   onAddAgent: () => void;
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
   /** Drop a placeholder whose create failed — nothing was made on the device. */
@@ -754,7 +756,6 @@ function NodeCard({
   const t = useT();
   const { timeAgo } = useFormatters();
   const confirm = useConfirm();
-  const [expanded, setExpanded] = useState(defaultExpanded);
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
@@ -762,11 +763,6 @@ function NodeCard({
   // Optimistic placeholders for agents being created but not yet reported in the
   // roster, so the user sees them spinning up immediately.
   const pendingAgents = pending.filter((p) => !agents.some((a) => a.name === p.name));
-
-  // Reveal the roster when something is spinning up, so the placeholder is seen.
-  useEffect(() => {
-    if (pendingAgents.length > 0) setExpanded(true);
-  }, [pendingAgents.length]);
 
   // A placeholder that outlives any realistic spin-up isn't "starting" — the
   // agent failed to come up or lost its workspace binding on the device (e.g.
@@ -844,7 +840,9 @@ function NodeCard({
       {/* Node summary row */}
       <div className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
         <button
-          onClick={() => setExpanded((v) => !v)}
+          onClick={onExpand}
+          aria-expanded={expanded}
+          aria-controls={`device-agents-${node.nodeId}`}
           className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
           <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
@@ -918,7 +916,9 @@ function NodeCard({
           <Trash2 className="size-4" />
         </button>
         <button
-          onClick={() => setExpanded((v) => !v)}
+          onClick={onExpand}
+          aria-expanded={expanded}
+          aria-controls={`device-agents-${node.nodeId}`}
           className="shrink-0 size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           aria-label={t('connect.nodeToggleDetails')}
         >
@@ -928,7 +928,7 @@ function NodeCard({
 
       {/* Expanded: agent roster + management */}
       {expanded && (
-        <div className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
+        <div id={`device-agents-${node.nodeId}`} className="border-t px-3 py-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/40">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-foreground">{t('connect.nodeAgents')}</span>
             {(agents.length > 0 || pendingAgents.length > 0) && (
@@ -945,7 +945,7 @@ function NodeCard({
           {/* Roster */}
           {agents.length === 0 && pendingAgents.length === 0 ? (
             <div className="flex flex-col items-center text-center py-6 gap-3">
-              <p className="text-[11px] text-muted-foreground">{t('connect.nodeNoAgents')}</p>
+              <p className="text-[11px] text-muted-foreground">{t(online ? 'connect.nodeAddFirstAgentHint' : 'connect.nodeNoAgents')}</p>
               <Button variant="primary" size="lg" onClick={onAddAgent} className="min-w-[200px]">
                 <Plus className="size-4 mr-1.5" />{t('connect.nodeAddAgent')}
               </Button>
@@ -1125,6 +1125,18 @@ function NodesTab({
   onRefresh: () => void;
 }) {
   const t = useT();
+  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+  // Keep one roster visible, including after loading, removal, or returning
+  // from the gallery. Prefer a device ready for its first agent.
+  const expandedNode = nodes.find((node) => node.nodeId === expandedNodeId)
+    || nodes.find((node) => node.nodeId === preferredNodeId)
+    || nodes.find((node) => node.status === 'online' && !node.agents?.length)
+    || nodes.find((node) => node.status === 'online')
+    || nodes[0];
+  useEffect(() => {
+    setExpandedNodeId(expandedNode?.nodeId ?? null);
+  }, [expandedNode?.nodeId]);
+
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
   // Optimistic "spinning up" agents per node, until the real roster reports
@@ -1135,8 +1147,10 @@ function NodesTab({
   // off to debug a healthy device).
   const [pending, setPending] = useState<Record<string, PendingAgent[]>>({});
 
-  const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) =>
+  const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) => {
+    setExpandedNodeId(nodeId);
     setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
+  };
 
   const removePending = (nodeId: string, name: string) =>
     setPending((prev) => {
@@ -1289,8 +1303,10 @@ function NodesTab({
             <NodeCard
               key={node.nodeId}
               node={node}
+              expanded={node.nodeId === expandedNode?.nodeId}
+              onExpand={() => setExpandedNodeId(node.nodeId)}
               pending={pending[node.nodeId] || []}
-              onAddAgent={() => setAddingNodeId(node.nodeId)}
+              onAddAgent={() => { setExpandedNodeId(node.nodeId); setAddingNodeId(node.nodeId); }}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
               onDismissPending={(name) => removePending(node.nodeId, name)}
               onChanged={onRefresh}

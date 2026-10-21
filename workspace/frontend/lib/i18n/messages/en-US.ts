@@ -1754,6 +1754,7 @@ export const messages = {
     nodeLastReportedAgentCount: 'Agents in last report: {count}',
     nodeAgentLastReportedRunning: 'Last reported running',
     nodeAgentLastReportedStopped: 'Last reported stopped',
+    nodeAddFirstAgentHint: 'Your device is connected. Add your first agent to start working.',
     nodeNoAgents: 'No agents on this device yet.',
     nodeAddAgent: 'Add agent',
     nodeAgentNamePlaceholder: 'agent name, e.g. coder',
