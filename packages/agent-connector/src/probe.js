@@ -37,6 +37,7 @@ const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
 const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
+const { configuredModel } = require('./agent-model');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -139,7 +140,10 @@ function classifyOutputText(text) {
   // authenticate: OAuth session expired and could not be refreshed".
   if (/session expired|could not be refreshed|(token|sign-?in|login) (has )?expired|run \/logout and \/login/.test(text)) return CODE.SESSION_EXPIRED;
   if (/not logged in|not authenticated|login required|authentication required|please (log ?in|sign ?in|authenticate)|(run|use) .{0,40}login|no credentials/.test(text)) return CODE.NOT_LOGGED_IN;
-  if (/unrecognized_model|model_not_found|invalid model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported)/.test(text)) return CODE.BAD_MODEL;
+  // "Model 'x' is not available. This gateway only allows: …" is how the
+  // OpenAgents gateway refuses a model; read as a CLI error it sent people to
+  // a terminal to debug a model name.
+  if (/unrecognized_model|model_not_found|invalid model|no such model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported|is not available)/.test(text)) return CODE.BAD_MODEL;
   if (/\b50[234]\b|service (is )?(temporarily )?unavailable|temporarily unavailable|bad gateway|gateway time-?out/.test(text)) return CODE.SERVICE_UNAVAILABLE;
   return null;
 }
@@ -242,16 +246,8 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
  * more honestly than "everything is fine" would. Likewise an unclassifiable
  * error — swapping one shrug for another helps nobody.
  */
-async function directApiVerdict(agentEnv, entry) {
-  // Required here rather than at the top so a test can stand in for it, and
-  // so a probe that never reaches this path never loads the HTTP client.
-  const { testLLMConnection } = require('./utils');
-  let res;
-  try {
-    res = await testLLMConnection(agentEnv);
-  } catch (e) {
-    res = { success: false, error: e.message };
-  }
+async function directApiVerdict(agentEnv, entry, model) {
+  const res = await callLLM(agentEnv, model);
   if (!res || res.success) return null;
   const code = classifyFailure(res.error, {});
   if (code === CODE.CLI_ERROR) return null;
@@ -262,6 +258,21 @@ async function directApiVerdict(agentEnv, entry) {
     message: tail(res.error, OUTPUT_CAP),
     guidance: buildGuidance(code, entry, agentEnv),
   };
+}
+
+/**
+ * One direct call to the agent's endpoint, on the model the agent runs on.
+ * Never rejects.
+ */
+async function callLLM(agentEnv, model) {
+  // Required here rather than at the top so a test can stand in for it, and
+  // so a probe that never reaches this path never loads the HTTP client.
+  const { testLLMConnection } = require('./utils');
+  try {
+    return await testLLMConnection(agentEnv, { model });
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
 
 /**
@@ -396,6 +407,8 @@ async function probeAgentType(connector, type, opts = {}) {
     const resolved = connector.resolveAgentEnv(type, saved) || {};
     agentEnv = stripForCliLogin(type, { ...saved, ...resolved }, connector.registry, opts.agentEnv);
   } catch {}
+  // Where the adapter reads it (CODEX_MODEL for codex), not LLM_MODEL alone.
+  const model = configuredModel(type, agentEnv, connector.registry);
 
   if (!health.installed) {
     return done({
@@ -494,7 +507,7 @@ async function probeAgentType(connector, type, opts = {}) {
     // same question directly: one round trip, and it says why.
     const unexplained = code === CODE.TIMEOUT || code === CODE.CLI_ERROR || code === CODE.EMPTY_RESPONSE;
     if (unexplained && hasApiKey) {
-      const direct = await directApiVerdict(agentEnv, entry);
+      const direct = await directApiVerdict(agentEnv, entry, model);
       if (direct) return done(direct);
     }
     if (unexplained && staticVerdict) return done(staticVerdict);
@@ -508,9 +521,7 @@ async function probeAgentType(connector, type, opts = {}) {
 
   // ── Live tier 2: direct LLM API call for API-key agents (e.g. OpenClaw) ──
   if (hasApiKey || (entry.install && entry.install.api_only)) {
-    const { testLLMConnection } = require('./utils');
-    let res;
-    try { res = await testLLMConnection(agentEnv); } catch (e) { res = { success: false, error: e.message }; }
+    const res = await callLLM(agentEnv, model);
     if (res && res.success) {
       return done({
         ok: true, method: 'llm_api', code: CODE.OK,

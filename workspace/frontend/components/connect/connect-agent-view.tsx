@@ -1224,6 +1224,13 @@ function NodeCard({
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground/70">{t('connect.nodeModelDefault')}:</span>
                       <span className="font-mono truncate">{a.model || t('connect.nodeModelAutoShort')}</span>
+                      {/* Sign-in or key: two agents of one type on one device
+                          can run on either, and nothing else here says which. */}
+                      {a.authMode && (
+                        <span data-testid="node-agent-auth" className="shrink-0 rounded-full bg-muted px-1.5 py-0.5">
+                          {t(a.authMode === 'api_key' ? 'connect.agentAuthApiKey' : 'connect.agentAuthCliLogin')}
+                        </span>
+                      )}
                     </div>
 
                     {/* Failing smoke test — the agent will likely not answer */}

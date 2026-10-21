@@ -1,0 +1,52 @@
+'use strict';
+
+const { describe, it, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('http');
+const { testLLMConnection } = require('../src/utils');
+
+// A gateway that serves two models and refuses the rest the way the
+// OpenAgents gateway does.
+describe('testLLMConnection', () => {
+  const SERVED = ['deepseek-3.2', 'openai-gpt-oss-20b'];
+  let server;
+  let base;
+  const sent = [];
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const model = JSON.parse(body || '{}').model;
+        sent.push(model);
+        res.setHeader('content-type', 'application/json');
+        if (!SERVED.includes(model)) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ detail: `Model '${model}' is not available. This gateway only allows: ${SERVED.join(', ')}` }));
+          return;
+        }
+        res.end(JSON.stringify({ model, choices: [{ message: { content: 'Hello there, nice to meet' } }] }));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${server.address().port}/v1`;
+  });
+  after(() => new Promise((r) => server.close(r)));
+
+  const env = () => ({ OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: base });
+
+  it('sends the model the caller says the agent runs on', async () => {
+    const res = await testLLMConnection({ ...env(), CODEX_MODEL: 'openai-gpt-oss-20b' }, { model: 'openai-gpt-oss-20b' });
+    assert.equal(res.success, true);
+    assert.equal(sent.at(-1), 'openai-gpt-oss-20b');
+  });
+
+  it('reports a configured model the endpoint refuses as it is, without trying another', async () => {
+    const before = sent.length;
+    const res = await testLLMConnection(env(), { model: 'retired-model' });
+    assert.equal(res.success, false);
+    assert.match(res.error, /Model 'retired-model' is not available/);
+    assert.deepEqual(sent.slice(before), ['retired-model']);
+  });
+});

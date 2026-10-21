@@ -102,6 +102,10 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 }
 
 const NO_ACCESS = '__none__';
+// Editing an agent that runs on a key: keep it as it is. The form cannot pick
+// the saved access it came from, and a key saved on the device (the launcher
+// saves them there) has none.
+const KEEP_CURRENT = '__keep_current__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
 /** How long "Detecting…" may stay up before it gives way to a retry. */
@@ -598,7 +602,23 @@ export function AgentSetup({
       : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState(draft?.modelAccessId ?? '');
-  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || editAgent?.baseUrlHost);
+  // An agent on a key opens on that key, not on "sign in on the device": the
+  // select showed the sign-in for an agent running on a relay key, which is
+  // exactly how nobody could tell which of a device's two codex setups an
+  // agent was on. Devices that do not report authMode say so by a key or an
+  // endpoint of their own.
+  const editOnKey = !!editAgent && (editAgent.authMode !== undefined
+    ? editAgent.authMode === 'api_key'
+    : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
+  const [keepCurrent, setKeepCurrent] = useState(editOnKey);
+  // A type whose CLI has its own sign-in (codex login, claude login…): the
+  // no-key choice means that sign-in, and the device is told so (authMode),
+  // or the agent would run on whatever key the device saved for its type.
+  const signInType = byok && !!detail?.check_ready?.login_command;
+  const signInChosen = signInType && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const loginCommand = detail?.check_ready?.login_command || '';
+  const currentKeyDetail = [editAgent?.apiKeyMasked, editAgent?.baseUrlHost].filter(Boolean).join(' · ');
+  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || (editAgent?.baseUrlHost && keepCurrent));
   const launcherParts = (node.launcherVersion || '').replace(/^v/, '').split('.').map(Number);
   const supportsCodexMode = launcherParts[0] > 0 || launcherParts[1] > 2 || (launcherParts[1] === 2 && launcherParts[2] >= 197);
   const [byokCustomModel, setByokCustomModel] = useState(false);
@@ -739,12 +759,16 @@ export function AgentSetup({
         await api.enqueueNodeCommand(node.nodeId, 'configure_agent', {
           name: n,
           type: selected,
-          model: model.trim(),                       // '' clears → Auto
+          // Only a model that was changed: one this form never showed (a
+          // launcher-saved CODEX_MODEL on an older device) went out blank and
+          // wiped the model the agent ran on. '' still clears → Auto.
+          ...(model.trim() !== (editAgent?.model ?? '').trim() ? { model: model.trim() } : {}),
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // After the configuration, so a label the workspace refuses (too long,
@@ -762,6 +786,7 @@ export function AgentSetup({
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // Optimistically show it spinning up in the node card. The commandId
@@ -948,14 +973,36 @@ export function AgentSetup({
               {/* Saved model access + add-new */}
               <div className="flex gap-2">
                 <Select
-                  value={byokAccessId || NO_ACCESS}
-                  onValueChange={(v) => pickAccess(v === NO_ACCESS ? '' : v)}
+                  value={byokAccessId || (keepCurrent ? KEEP_CURRENT : NO_ACCESS)}
+                  onValueChange={(v) => {
+                    if (v === KEEP_CURRENT) {
+                      setKeepCurrent(true);
+                      setByokAccessId('');
+                      setModel(editAgent?.model ?? '');
+                      setByokCustomModel(false);
+                      resetByokChecks();
+                      return;
+                    }
+                    setKeepCurrent(false);
+                    pickAccess(v === NO_ACCESS ? '' : v);
+                  }}
                 >
-                  <SelectTrigger className="h-10 min-w-0 flex-1">
+                  <SelectTrigger aria-label={t('connect.byokTitle')} className="h-10 min-w-0 flex-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_ACCESS}>{t('connect.byokProviderNone')}</SelectItem>
+                    {editOnKey && (
+                      <SelectItem value={KEEP_CURRENT}>
+                        {currentKeyDetail
+                          ? t('connect.byokKeepCurrent', { detail: currentKeyDetail })
+                          : t('connect.byokKeepCurrentPlain')}
+                      </SelectItem>
+                    )}
+                    <SelectItem value={NO_ACCESS}>
+                      {signInType && loginCommand
+                        ? t('connect.byokDeviceSignIn', { command: loginCommand })
+                        : t('connect.byokProviderNone')}
+                    </SelectItem>
                     {byokAccessOptions.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.label} · {a.apiKeyMasked}
@@ -967,6 +1014,29 @@ export function AgentSetup({
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
               </div>
+
+              {/* Which credential the agent will run on, in words: the select
+                  alone did not say that "sign in on the device" means this
+                  CLI's own account and never a key saved on the device. */}
+              {signInChosen && (
+                <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
+                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: loginCommand })}
+                  {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}
+                </p>
+              )}
+              {keepCurrent && !byokAccessId && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+                  <Input
+                    aria-label={t('connect.nodeModel')}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={t('connect.nodeAgentModelOptional')}
+                    className="h-10 text-sm font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">{t('connect.byokKeepCurrentModelHint')}</p>
+                </div>
+              )}
 
               {/* One-click promo credits — OpenAI-protocol agents the campaign
                   gateway can back. Selects (or creates) the gateway access. */}
@@ -1104,7 +1174,7 @@ export function AgentSetup({
 
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
-          {!extensions?.configuration && modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && (
+          {!extensions?.configuration && modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
               <Select

@@ -12,11 +12,17 @@ const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
-const { AUTH_MODE_KEY, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor } = require('./env');
+const {
+  AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
+} = require('./env');
+const { configuredModel } = require('./agent-model');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
+
+/** Types whose endpoint is one device-wide config file of their own. */
+const SHARED_NATIVE_CONFIG = new Set(['hermes', 'openclaw']);
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -544,15 +550,21 @@ class Daemon {
       for (const a of this.config.getAgents()) {
         if (!this._agentOnNodeWorkspace(a, node)) continue;
         const proc = this._processes[a.name];
-        // Model/key: per-agent env override, else the type-level saved env.
-        // Both power the workspace agent cards; the key goes out MASKED only,
-        // so the edit form can show a key is configured without the secret
-        // ever leaving the device. The endpoint goes out as a hostname, so
-        // the workspace can tell a relay from the vendor its model list is for.
+        // Model/key: what the agent is launched on (its own env over the
+        // type's), read where its adapter reads them. LLM_MODEL/LLM_API_KEY
+        // alone missed every agent set up in the launcher, which saves
+        // CODEX_MODEL and OPENAI_API_KEY: its edit form showed no model and
+        // no key, and a save from it wiped the model it never showed. Both
+        // power the workspace agent cards; the key goes out MASKED only, so
+        // the edit form can show a key is configured without the secret ever
+        // leaving the device. The endpoint goes out as a hostname, so the
+        // workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
         try { typeEnv = typeEnvFor(a.type, this.envManager.load(a.type) || {}, this.registry, a.env); } catch {}
-        const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
-        const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
+        let env = {};
+        try { env = this._buildAgentEnv(a); } catch {}
+        const model = configuredModel(a.type, env, this.registry);
+        const apiKey = this._agentKey(a.type, env);
         // What the agent's own CLI says its signed-in account can run. Null
         // for an agent on a key or a relay, and until its CLI has answered.
         const listed = supportsCliModels(a.type) ? this._cliModels[this._cliModelsKey(a)] : null;
@@ -563,6 +575,7 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          authMode: this._agentAuthMode(a, apiKey),
           baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
           codexWireApi: a.type === 'codex' ? ((a.env && a.env.CODEX_WIRE_API) || typeEnv.CODEX_WIRE_API || 'chat') : null,
           cliModels: listed && listed.models && this._onCliSignIn(a) ? listed.models : null,
@@ -573,6 +586,56 @@ class Daemon {
       // best-effort
     }
     return roster;
+  }
+
+  /**
+   * The key an agent runs on, from the env it is launched on: any of its
+   * type's key variables (OPENAI_API_KEY for codex, KIMI_API_KEY, …), not
+   * LLM_API_KEY alone. Empty for a signed-in agent, whose env has none.
+   */
+  _agentKey(type, env) {
+    let keys = [];
+    try { keys = [...credentialKeys(type, this.registry)].filter((k) => !/BASE_URL$/.test(k)); } catch {}
+    const found = keys.find((k) => String((env && env[k]) || '').trim());
+    return found ? String(env[found]).trim() : '';
+  }
+
+  /**
+   * How an agent authenticates, for the workspace to show: 'api_key' when it
+   * runs on a key, 'cli_login' when it runs on its CLI's own sign-in (marked
+   * so, or keyless on a type that has one), null for neither. A device holds
+   * one sign-in per CLI and any number of keys, and "which one is this agent
+   * on" could only be answered from daemon.log.
+   */
+  _agentAuthMode(a, apiKey) {
+    if (isCliLogin(a.env)) return CLI_LOGIN;
+    if (apiKey) return 'api_key';
+    return this._hasCliSignIn(a.type) ? CLI_LOGIN : null;
+  }
+
+  /**
+   * Whether a key, endpoint and model the workspace sends for one agent stay
+   * on that agent alone, rather than also going to <type>.env, which every
+   * agent of the type without a sign-in marker runs on. For a type whose CLI
+   * has a sign-in of its own, sharing turned signed-in agents into key
+   * agents: add a codex agent on a relay key, and every keyless codex agent
+   * ran on that key from its next restart, tool-less, in direct mode.
+   * Hermes keeps sharing: its endpoint lives in one config file of its own
+   * for the whole device, which only a save to <type>.env updates (index.js
+   * _configureNativeAuth), so a key kept on the agent would never reach it.
+   */
+  _keepsKeysPerAgent(type) {
+    return this._hasCliSignIn(type) && !SHARED_NATIVE_CONFIG.has(type);
+  }
+
+  /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */
+  _hasCliSignIn(type) {
+    try {
+      const entry = this.registry.getEntry(type);
+      return !!(entry && entry.check_ready && entry.check_ready.login_command);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -693,6 +756,30 @@ class Daemon {
       changes[AUTH_MODE_KEY] = '';
     }
     if (args.baseUrl !== undefined) changes.LLM_BASE_URL = args.baseUrl;
+    if (!_sentKey(args) && args.authMode === CLI_LOGIN && this._hasCliSignIn(type)) {
+      // "Sign in on the device" in the workspace form. Marked, the agent
+      // takes no key from <type>.env or the daemon's environment (env.js),
+      // so a key saved for its type no longer turns it into a key agent.
+      // Unmarked it did, from its next restart: the workspace offered the
+      // sign-in, and the agent quietly ran on whatever key the device held.
+      // An agent switching over from a key gives up what came with it: the
+      // key and endpoint, and a model it is not being sent now (a relay's
+      // model id, which the account behind the sign-in does not serve). One
+      // already signed in keeps its own model; this only pins the marker.
+      const existing = this.config.getAgent(name) || {};
+      const own = existing.env || {};
+      let hadKey = false;
+      try { hadKey = !isCliLogin(own) && !!this._agentKey(type, this._buildAgentEnv(existing)); } catch {}
+      changes[AUTH_MODE_KEY] = CLI_LOGIN;
+      for (const key of credentialKeys(type, this.registry)) {
+        if (key in own || key in changes) changes[key] = '';
+      }
+      if (hadKey && args.model === undefined) {
+        for (const key of Object.keys(own)) {
+          if (key === 'MODEL' || key.endsWith('_MODEL')) changes[key] = '';
+        }
+      }
+    }
     if (args.model !== undefined) {
       const existing = this.config.getAgent(name);
       if (!existing) throw new Error(`Agent '${name}' not found after create`);
@@ -844,10 +931,12 @@ async _runNodeCommand(n, cmd) {
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model) await this._setModelEnv(type, args.model);
-        if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        if (!this._keepsKeysPerAgent(type)) {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model) await this._setModelEnv(type, args.model);
+          if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        }
         await this._applyConfigMap(type, args.config);
         this._saveNodeAgentEnv(name, type, args);
         // Attach to this node's workspace BY SLUG: the daemon already knows
@@ -896,10 +985,12 @@ async _runNodeCommand(n, cmd) {
         // restart it so the change takes effect. Working-dir changes require a
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model !== undefined) await this._setModelEnv(type, args.model);
-        if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        if (!this._keepsKeysPerAgent(type)) {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model !== undefined) await this._setModelEnv(type, args.model);
+          if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        }
         await this._applyConfigMap(type, args.config);
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {

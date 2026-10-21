@@ -71,6 +71,13 @@ describe('classifyFailure', () => {
     );
   });
 
+  it('reads a gateway refusing a model as a bad model, not a CLI error', () => {
+    assert.equal(
+      classifyFailure('HTTP 400: {"detail":"Model \'gpt-4o-mini\' is not available. This gateway only allows: deepseek-3.2, glm-5.2"}'),
+      CODE.BAD_MODEL,
+    );
+  });
+
   it('falls back to cli_error for unrecognized output', () => {
     assert.equal(classifyFailure('segmentation fault'), CODE.CLI_ERROR);
   });
@@ -601,5 +608,36 @@ describe('out-of-credit is not only an English 402', () => {
   it('still reads the English wording it always did', () => {
     assert.equal(classifyFailure('Your credit balance is too low'), CODE.OUT_OF_CREDIT);
     assert.equal(classifyFailure('402 payment required'), CODE.OUT_OF_CREDIT);
+  });
+});
+
+describe('a direct test runs on the model the agent runs on', () => {
+  // Codex declares no CLI probe: an agent with a key is tested on its API.
+  const CODEX = { name: 'codex', label: 'OpenAI Codex CLI', check_ready: { login_command: 'codex login' } };
+  const connector = fakeConnector({ entry: CODEX, health: { installed: true, ready: true } });
+
+  /** Stand in for the HTTP client, recording what it was asked. */
+  function withLLM(answer, run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return answer; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests a launcher-made codex agent on its CODEX_MODEL', async () => {
+    await withLLM({ success: true, response: 'hi' }, async (seen) => {
+      const r = await probeAgentType(connector, 'codex', { agentEnv: {
+        OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: 'https://api-gateway.example/v1', CODEX_MODEL: 'openai-gpt-oss-20b',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.model, 'openai-gpt-oss-20b');
+    });
   });
 });
