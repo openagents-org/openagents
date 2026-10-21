@@ -1027,6 +1027,66 @@ describe('Daemon', () => {
     assert.equal(reported.ok, true);
   });
 
+  /** Run configure_agent for real, with agn remove/create/connect stood in for. */
+  async function configureFromWorkspace(config, daemon, args) {
+    const calls = [];
+    daemon._runAgn = async (a) => {
+      calls.push(a);
+      if (a[0] === 'remove') config.removeAgent(a[1]);
+      if (a[0] === 'create') config.addAgent({ name: a[1], type: a[3], path: a[a.indexOf('--path') + 1] });
+      if (a[0] === 'connect') config.setAgentNetwork(a[1], 'ws1');
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    daemon.restartAgent = async () => {};
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    let result = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c10', action: 'configure_agent', args },
+    );
+    assert.equal(result && result.ok, true, result && result.message);
+    return calls;
+  }
+
+  it('configure_agent moving an agent to another folder keeps its own key, endpoint and model', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const own = { LLM_API_KEY: 'sk-relay-123456', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'relay-model', CODEX_WIRE_API: 'chat' };
+    config.addAgent({ name: 'codex-key', type: 'codex', path: path.join(tmpDir, 'old'), env: own });
+    config.setAgentNetwork('codex-key', 'ws1');
+    // Only the folder changed: the form sends no key, and no model it did not change.
+    const calls = await configureFromWorkspace(config, daemon, {
+      name: 'codex-key', type: 'codex', workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old'),
+    });
+    assert.deepEqual(calls.map((c) => c[0]), ['remove', 'create', 'connect']);
+    assert.equal(config.getAgent('codex-key').path, path.join(tmpDir, 'new'));
+    assert.deepEqual(config.getAgent('codex-key').env, own);
+  });
+
+  it('configure_agent clearing the model drops one left in the type env too', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    // Left there by an earlier version, which wrote workspace models to codex.env.
+    env.save('codex', { LLM_MODEL: 'old-type-model' });
+    config.addAgent({ name: 'codex-key', type: 'codex', env: { LLM_API_KEY: 'sk-relay-123456', LLM_MODEL: 'relay-model' } });
+    config.setAgentNetwork('codex-key', 'ws1');
+    await configureFromWorkspace(config, daemon, { name: 'codex-key', type: 'codex', model: '' });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      const built = daemon._buildAgentEnv(config.getAgent('codex-key'));
+      assert.equal(built.OPENAI_API_KEY, 'sk-relay-123456');
+      assert.equal(built.CODEX_MODEL, undefined);
+      assert.equal(built.LLM_MODEL, undefined);
+    });
+    // Picking a model again lifts that.
+    await configureFromWorkspace(config, daemon, { name: 'codex-key', type: 'codex', model: 'relay-model-2' });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      assert.equal(daemon._buildAgentEnv(config.getAgent('codex-key')).CODEX_MODEL, 'relay-model-2');
+    });
+  });
+
   it('_buildFs returns home, its subfolders, and filesystem roots', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     const fsInfo = daemon._buildFs();

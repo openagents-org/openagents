@@ -13,7 +13,7 @@ const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
 const {
-  AUTH_MODE_KEY, CLI_LOGIN, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
+  AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
 const { configuredModel } = require('./agent-model');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
@@ -791,6 +791,8 @@ class Daemon {
       changes.LLM_MODEL = String(args.model || '');
       const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type] || this._nativeModelVar(type);
       if (nativeVar) changes[nativeVar] = String(args.model || '');
+      // Cleared means the CLI's default, not whatever <type>.env still holds.
+      changes[MODEL_MODE_KEY] = String(args.model || '').trim() ? '' : MODEL_DEFAULT;
     }
     if (Object.keys(changes).length) this.config.updateAgentEnv(name, changes);
   }
@@ -995,9 +997,15 @@ async _runNodeCommand(n, cmd) {
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
+          // The agent's own env goes with the entry remove/create replace, and
+          // for a type that keeps its key on the agent that is the key, the
+          // endpoint and the model. The form sends only what changed, so carry
+          // the rest over before applying this command.
+          const ownEnv = { ...((this.config.getAgent(name) || {}).env || {}) };
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          if (Object.keys(ownEnv).length) this.config.updateAgentEnv(name, ownEnv);
           this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
             'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
