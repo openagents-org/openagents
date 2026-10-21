@@ -1267,13 +1267,13 @@ function setupIPC(): void {
       // fresh data instead of an empty cache — otherwise a just-updated agent
       // could keep showing "Update available" because the renderer overrides
       // its store with the empty list before the hourly background refresh.
-      // Await the refresh before returning so the renderer's follow-up
-      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-      // populated cache instead of the empty value clearCatalogCache() just
-      // wrote. Without the await, the rollback / install / uninstall returns,
-      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-      // disappears even when one is genuinely available.
-      await refreshAgentUpdates().catch(() => {})
+      // Not awaited: it asks the registry about every installed agent, and the
+      // install should not be reported done only after that. Starting it is
+      // enough — the refresh registers itself as the cache's in-flight load
+      // synchronously, so the renderer's follow-up checkAgentUpdates() (no
+      // `force`) waits on it instead of reading the empty cache, and
+      // `agent-updates-changed` is pushed when it lands.
+      void refreshAgentUpdates()
       return result
     } catch (e: unknown) {
       return { success: false, error: (e as Error).message }
