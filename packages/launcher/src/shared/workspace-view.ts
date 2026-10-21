@@ -40,8 +40,27 @@ export type WorkspaceViewScope =
   | { kind: "home" }
   | { kind: "workspace"; aliases: string[] }
 
-/** At this many open tabs the strip also offers a menu of all of them. */
-export const TAB_MENU_THRESHOLD = 5
+/** The strip shows this many workspace tabs; the rest are in its menu. */
+export const MAX_VISIBLE_TABS = 5
+
+/**
+ * The tabs the strip shows: the first `limit` in order — MAX_VISIBLE_TABS, or
+ * fewer when the window is too narrow for that many — except that the active
+ * one is always among them, taking the last slot when it sits further along,
+ * as a browser keeps the current tab in view.
+ */
+export function visibleTabs<T extends { id: string }>(
+  tabs: readonly T[],
+  active: string | null,
+  limit = MAX_VISIBLE_TABS,
+): T[] {
+  const max = Math.max(1, Math.min(limit, MAX_VISIBLE_TABS))
+  if (tabs.length <= max) return [...tabs]
+  const shown = tabs.slice(0, max)
+  const current = tabs.find((tab) => tab.id === active)
+  if (current && !shown.includes(current)) shown[max - 1] = current
+  return shown
+}
 
 /**
  * The tab a key press asks for, browser-style: ⌘1–⌘8 (Ctrl on Windows and

@@ -24,6 +24,7 @@
     "configure": "Configure",
     "disconnect": "Leave workspace",
     "openWorkspace": "Open Workspace",
+    "enterWorkspace": "Enter workspace",
     "connect": "Join workspace",
     "remove": "Remove",
     "cancel": "Cancel",

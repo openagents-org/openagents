@@ -2264,7 +2264,7 @@ function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; o
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-10">
+        <div className="mx-auto w-full max-w-2xl space-y-6 px-6 py-10">
           <DesktopComputerStep key={workspace.workspaceId} host={host} workspaceId={workspace.workspaceId} workspaceName={workspace.name}
             onConnected={setConnectedNodeId} onOtherDevice={() => setOtherDevice(true)} />
           {footer}

@@ -160,6 +160,18 @@ export class WorkspaceHost {
     this._attached?.view.webContents.send("workspace-view:notice", notice)
   }
 
+  /**
+   * Ask All Workspaces to confirm a sign-out, in the page's own dialog: the
+   * launcher's would be drawn under the view. False when that page is not the
+   * one on screen and ready, so the launcher can ask in its own place instead.
+   */
+  requestSignOut(): boolean {
+    const home = this._home
+    if (!home || this._attached !== home || home.state !== "ready") return false
+    home.view.webContents.send("workspace-view:request-sign-out")
+    return true
+  }
+
   /** The tab strip as the renderer draws it. */
   snapshot(): WorkspaceTabsSnapshot {
     return {
@@ -221,6 +233,17 @@ export class WorkspaceHost {
     if (!entry) return
     this._active = entry
     this._attachActive()
+    this._emit()
+  }
+
+  /** Move a tab to `index` in the strip, as dragging it there does. */
+  move(id: string, index: number): void {
+    const from = this._tabs.findIndex((tab) => tab.id === id)
+    if (from < 0 || !Number.isInteger(index)) return
+    const to = Math.max(0, Math.min(index, this._tabs.length - 1))
+    if (to === from) return
+    const [entry] = this._tabs.splice(from, 1)
+    this._tabs.splice(to, 0, entry)
     this._emit()
   }
 

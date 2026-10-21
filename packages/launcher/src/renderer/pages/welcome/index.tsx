@@ -31,10 +31,10 @@ export default function WelcomePage(): React.JSX.Element {
 
   return (
     <main className="h-full overflow-y-auto bg-background" data-testid="app-welcome">
-      {/* One centred container owns the column gap. Padding on both columns
-          used to stack into a blank band between the copy and the preview, and
-          the band kept widening with the window. */}
-      <div className="mx-auto grid min-h-full w-full max-w-7xl items-center gap-10 px-8 py-12 lg:grid-cols-[minmax(0,27.5rem)_minmax(0,1fr)] xl:px-12">
+      {/* One centred container owns the column gap, and keeps it narrow: the
+          copy column is sized to its buttons, so any blank band between it and
+          the preview reads as a hole, while the outer margins carry the air. */}
+      <div className="mx-auto grid min-h-full w-full max-w-7xl items-center gap-10 px-10 py-12 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:gap-6 xl:px-16">
         <section className="flex min-h-[36rem] flex-col justify-center">
           {/* The full wordmark carries black lettering, so dark mode swaps in a
               copy with the lettering in white. */}
@@ -48,7 +48,7 @@ export default function WelcomePage(): React.JSX.Element {
           />
           <h1 className="m-0 text-3xl leading-tight font-bold tracking-tight text-foreground xl:text-4xl">{t("account.welcome.title")}</h1>
           <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("account.welcome.description")}</p>
-          <div className="mt-8 flex max-w-sm flex-col gap-3">
+          <div className="mt-8 flex flex-col gap-3">
             <Button className="h-11 w-full" onClick={joinWithCode} data-testid="welcome-join-code">
               <KeyRound className="size-4" />{t("account.welcome.joinWithCode")}
             </Button>

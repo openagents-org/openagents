@@ -7,6 +7,7 @@ import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { isJobBusy } from "../entry-meta"
+import { DetailActions } from "./detail-actions"
 import { DetailHeader } from "./detail-header"
 import { DetailOverview } from "./detail-overview"
 import { DetailProgress } from "./detail-progress"
@@ -30,9 +31,9 @@ interface Props {
 }
 
 /**
- * Agent detail page. One document in the main column — overview, progress,
- * configuration, first commands, version history — with every action gathered
- * into the right rail.
+ * Agent detail page. The actions sit under the header, where the eye starts;
+ * below them one document in the main column — overview, progress, first
+ * commands, version history — and the facts to check in the right rail.
  */
 export default function AgentDetail({
   entry,
@@ -103,7 +104,25 @@ export default function AgentDetail({
           github={entry.github}
           docs={entry.docs}
           installedAtLabel={installedAtLabel}
-        />
+        >
+          <DetailActions
+            entry={entry}
+            loading={detail.loading}
+            installed={detail.installed}
+            job={detail.job}
+            currentVersion={detail.currentVersion}
+            latestVersion={detail.latestVersion}
+            updateBlocked={
+              updateTarget?.kind === "original" &&
+              updateTarget.elevation === "manual"
+            }
+            onInstall={() => setConfirmInstall("install")}
+            onUpdate={() => setConfirmInstall("update")}
+            onUninstall={() => setConfirmUninstall(true)}
+            onRollback={detail.startRollback}
+            onAddAgent={() => onAddAgent(entry)}
+          />
+        </DetailHeader>
       </div>
 
       {/* Below `lg` there is no room for two columns, so the whole area
@@ -170,24 +189,15 @@ export default function AgentDetail({
           </DetailSection>
         </div>
 
-        {/* Same clearance as the document column — this rail is where it shows
-            first, because its top card sits flush against the scroller's edge
-            and had its hover lift sliced off. */}
+        {/* Same clearance as the document column — its top card sits flush
+            against the scroller's edge and would have its hover lift sliced
+            off. */}
         <DetailRail
           className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
           entry={entry}
-          loading={detail.loading}
           installed={detail.installed}
-          job={detail.job}
-          currentVersion={detail.currentVersion}
-          latestVersion={detail.latestVersion}
           binaryPath={detail.binaryPath}
           updateTarget={updateTarget}
-          onInstall={() => setConfirmInstall("install")}
-          onUpdate={() => setConfirmInstall("update")}
-          onUninstall={() => setConfirmUninstall(true)}
-          onRollback={detail.startRollback}
-          onAddAgent={() => onAddAgent(entry)}
         />
       </div>
 

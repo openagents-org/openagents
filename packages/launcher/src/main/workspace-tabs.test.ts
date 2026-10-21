@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { duplicateOf, findTab, neighbourAfterClose, routeWorkspace } from './workspace-tabs'
-import { shortcutTab } from '../shared/workspace-view'
+import { shortcutTab, visibleTabs } from '../shared/workspace-view'
 
 const tab = (origin: string, aliases: string[], workspaceId: string | null = null) =>
   ({ origin, aliases: new Set(aliases), workspaceId })
@@ -42,5 +42,16 @@ describe('workspace tab rules', () => {
     expect(shortcutTab(key('1', { control: true }), 'darwin', order)).toBeNull()
     expect(shortcutTab(key('1', { control: true }), 'win32', order)).toBe('a')
     expect(shortcutTab(key('1', { control: true, shift: true }), 'win32', order)).toBeNull()
+  })
+  it('shows five tabs, swapping the active one into the last slot', () => {
+    const tabs = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => ({ id }))
+    const ids = (active: string | null) => visibleTabs(tabs, active).map((t) => t.id)
+    expect(ids('b')).toEqual(['a', 'b', 'c', 'd', 'e'])
+    expect(ids('g')).toEqual(['a', 'b', 'c', 'd', 'g'])
+    expect(ids('home')).toEqual(['a', 'b', 'c', 'd', 'e'])
+    expect(visibleTabs(tabs.slice(0, 3), 'a')).toHaveLength(3)
+    // A narrow window shows fewer, still keeping the active one.
+    expect(visibleTabs(tabs, 'g', 2).map((t) => t.id)).toEqual(['a', 'g'])
+    expect(visibleTabs(tabs, 'a', 0).map((t) => t.id)).toEqual(['a'])
   })
 })

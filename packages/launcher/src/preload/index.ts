@@ -283,6 +283,7 @@ contextBridge.exposeInMainWorld('api', {
   signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: { ticket: string; randstr: string }) =>
     ipcRenderer.invoke('account:sign-up-password', email, password, displayName, captcha),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
+  requestSignOut: () => ipcRenderer.invoke('account:request-sign-out'),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
   authorizeDevice: (workspaceId: string) =>
@@ -336,6 +337,7 @@ contextBridge.exposeInMainWorld('api', {
   getWorkspaceTabs: () => ipcRenderer.invoke('workspace-tabs:get'),
   activateWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:activate', id),
   closeWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:close', id),
+  moveWorkspaceTab: (id: string, index: number) => ipcRenderer.invoke('workspace-tabs:move', id, index),
   retryWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:retry', id),
   /** A tab's native right-click menu, opened at the cursor. */
   showWorkspaceTabContextMenu: (id: string) => ipcRenderer.invoke('workspace-tabs:context-menu', id),

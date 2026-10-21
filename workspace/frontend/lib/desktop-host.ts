@@ -33,6 +33,11 @@ export interface DesktopHost {
    * workspace's slug and its id. Optional: only a launcher with tabs has it.
    */
   reportWorkspace?(info: { id: string; slug: string; name: string }): void;
+  /**
+   * The launcher's own Sign out button, above All Workspaces, asks this page
+   * to confirm it, so both sign-outs share one dialog. Optional, as onSession.
+   */
+  onSignOutRequest?(callback: () => void): () => void;
 }
 
 export function desktopHost(): DesktopHost | null {

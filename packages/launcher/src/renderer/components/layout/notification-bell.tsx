@@ -69,9 +69,9 @@ export function NotificationBell({
         </Button>
       </PopoverTrigger>
 
-      {/* The bell sits at the right of the top bar, so the list drops below
-          it, aligned to its right edge. */}
-      <PopoverContent align="end" side="bottom" className="w-85 p-0">
+      {/* The bell sits at the right of the status footer, so the list rises
+          above it, aligned to its right edge. */}
+      <PopoverContent align="end" side="top" className="w-85 p-0">
         <div className="flex items-center justify-between border-b px-3 py-2.5">
           <div className="text-sm font-semibold">
             {t("nav.notifications.title")}
