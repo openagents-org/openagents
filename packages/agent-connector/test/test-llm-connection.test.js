@@ -12,6 +12,7 @@ describe('testLLMConnection', () => {
   let server;
   let base;
   const sent = [];
+  const paths = [];
 
   before(async () => {
     server = http.createServer((req, res) => {
@@ -20,7 +21,12 @@ describe('testLLMConnection', () => {
       req.on('end', () => {
         const model = JSON.parse(body || '{}').model;
         sent.push(model);
+        paths.push(req.url);
         res.setHeader('content-type', 'application/json');
+        if (req.url.endsWith('/messages')) {
+          res.end(JSON.stringify({ model, content: [{ type: 'text', text: 'Hello there, nice to meet' }] }));
+          return;
+        }
         if (!SERVED.includes(model)) {
           res.statusCode = 400;
           res.end(JSON.stringify({ detail: `Model '${model}' is not available. This gateway only allows: ${SERVED.join(', ')}` }));
@@ -49,6 +55,24 @@ describe('testLLMConnection', () => {
     );
     assert.equal(res.success, true);
     assert.equal(sent.at(-1), 'deepseek-3.2');
+  });
+
+  it('speaks the Anthropic API to the endpoint the caller names', async () => {
+    const res = await testLLMConnection(
+      { ANTHROPIC_API_KEY: 'sk-ant-123456', ANTHROPIC_BASE_URL: 'https://wrong.invalid' },
+      { model: 'claude-x', baseUrl: base.replace(/\/v1$/, '') },
+    );
+    assert.equal(res.success, true);
+    assert.equal(paths.at(-1), '/v1/messages');
+  });
+
+  it('speaks the protocol the caller names, wherever the endpoint points', async () => {
+    const res = await testLLMConnection(
+      { LLM_API_KEY: 'sk-relay-123456', LLM_BASE_URL: base },
+      { model: 'claude-x', protocol: 'anthropic' },
+    );
+    assert.equal(res.success, true);
+    assert.equal(paths.at(-1), '/v1/messages');
   });
 
   it('reports a configured model the endpoint refuses as it is, without trying another', async () => {

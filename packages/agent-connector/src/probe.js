@@ -246,8 +246,8 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
  * more honestly than "everything is fine" would. Likewise an unclassifiable
  * error — swapping one shrug for another helps nobody.
  */
-async function directApiVerdict(agentEnv, entry, model, baseUrl) {
-  const res = await callLLM(agentEnv, model, baseUrl);
+async function directApiVerdict(agentEnv, entry, model, baseUrl, protocol) {
+  const res = await callLLM(agentEnv, model, baseUrl, protocol);
   if (!res || res.success) return null;
   const code = classifyFailure(res.error, {});
   if (code === CODE.CLI_ERROR) return null;
@@ -284,15 +284,31 @@ function directBaseUrl(entry, env) {
 }
 
 /**
+ * The API a direct test must speak, where the agent's own config names it
+ * rather than its endpoint or key: 'anthropic' or 'openai'; undefined to
+ * leave it to the client; null for a format the test does not speak. A Pi
+ * agent on anthropic-messages behind a relay whose host says nothing was
+ * sent /chat/completions and reported broken.
+ */
+function directProtocol(type, env) {
+  if (type !== 'pi') return undefined;
+  const { piApiFormat } = require('./adapters/pi-stream');
+  const format = piApiFormat(env);
+  if (format === 'anthropic-messages') return 'anthropic';
+  if (format === 'openai-completions') return 'openai';
+  return null;
+}
+
+/**
  * One direct call to the agent's endpoint, on the model the agent runs on.
  * Never rejects.
  */
-async function callLLM(agentEnv, model, baseUrl) {
+async function callLLM(agentEnv, model, baseUrl, protocol) {
   // Required here rather than at the top so a test can stand in for it, and
   // so a probe that never reaches this path never loads the HTTP client.
   const { testLLMConnection } = require('./utils');
   try {
-    return await testLLMConnection(agentEnv, { model, ...(baseUrl ? { baseUrl } : {}) });
+    return await testLLMConnection(agentEnv, { model, ...(baseUrl ? { baseUrl } : {}), ...(protocol ? { protocol } : {}) });
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -492,7 +508,9 @@ async function probeAgentType(connector, type, opts = {}) {
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
 
   const baseUrl = directBaseUrl(entry, agentEnv);
-  const canCallDirect = hasApiKey && baseUrl !== null;
+  const protocol = directProtocol(type, agentEnv);
+  const reachable = baseUrl !== null && protocol !== null;
+  const canCallDirect = hasApiKey && reachable;
 
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   if (hasLiveCli) {
@@ -533,7 +551,7 @@ async function probeAgentType(connector, type, opts = {}) {
     // same question directly: one round trip, and it says why.
     const unexplained = code === CODE.TIMEOUT || code === CODE.CLI_ERROR || code === CODE.EMPTY_RESPONSE;
     if (unexplained && canCallDirect) {
-      const direct = await directApiVerdict(agentEnv, entry, model, baseUrl);
+      const direct = await directApiVerdict(agentEnv, entry, model, baseUrl, protocol);
       if (direct) return done(direct);
     }
     if (unexplained && staticVerdict) return done(staticVerdict);
@@ -546,8 +564,8 @@ async function probeAgentType(connector, type, opts = {}) {
   }
 
   // ── Live tier 2: direct LLM API call for API-key agents (e.g. OpenClaw) ──
-  if (canCallDirect || (entry.install && entry.install.api_only && baseUrl !== null)) {
-    const res = await callLLM(agentEnv, model, baseUrl);
+  if (canCallDirect || (entry.install && entry.install.api_only && reachable)) {
+    const res = await callLLM(agentEnv, model, baseUrl, protocol);
     if (res && res.success) {
       return done({
         ok: true, method: 'llm_api', code: CODE.OK,

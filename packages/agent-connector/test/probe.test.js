@@ -701,3 +701,52 @@ describe('a direct test calls the endpoint the agent\'s key is for', () => {
     });
   });
 });
+
+describe('a direct test of a Pi agent speaks the API format Pi uses', () => {
+  const PI = {
+    name: 'pi', label: 'Pi',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'PI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'PI_BASE_URL' }, { from: 'LLM_MODEL', to: 'PI_MODEL' },
+    ] },
+    env_config: [{ name: 'PI_API_KEY', password: true }, { name: 'PI_BASE_URL' }],
+  };
+  const connector = fakeConnector({ entry: PI, health: { installed: true, ready: true } });
+  const relay = { LLM_API_KEY: 'sk-pi-123456', LLM_BASE_URL: 'https://relay.example/v1', PI_BASE_URL: 'https://relay.example/v1', PI_MODEL: 'm' };
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push(opts); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests an Anthropic-format Pi agent on the Anthropic API', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic', PI_API_FORMAT: 'anthropic-messages' } });
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic' } });
+      assert.deepEqual(seen.map((o) => o.protocol), ['anthropic', 'anthropic']);
+    });
+  });
+
+  it('tests a relay-only Pi agent the way Pi infers it', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: relay });
+      assert.equal(seen[0].protocol, 'openai');
+    });
+  });
+
+  it('reports static checks for a format the direct test does not speak', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'openai' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
+  });
+});

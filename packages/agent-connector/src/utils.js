@@ -100,6 +100,8 @@ function completionResult(res, { isAnthropic, model }) {
  *   ANTHROPIC_MODEL), which `env` alone does not say; see agent-model.js.
  * @param {string} [opts.baseUrl] - The endpoint, when the caller knows it from
  *   a variable of the agent's own (DEEPSEEK_BASE_URL); see probe.js.
+ * @param {'anthropic'|'openai'} [opts.protocol] - The API to speak, when the
+ *   agent's config names it (Pi's PI_API_FORMAT) rather than its env shape.
  * @returns {Promise<{success: boolean, model?: string, response?: string, error?: string}>}
  */
 async function testLLMConnection(env, opts = {}) {
@@ -117,7 +119,9 @@ async function testLLMConnection(env, opts = {}) {
   // default endpoint with an Anthropic key.
   const hasAnthropicConfig = !hasKimiConfig && !env.LLM_API_KEY && !env.OPENAI_API_KEY
     && !!(env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY);
-  const isAnthropic = hasAnthropicConfig || baseUrl.includes('anthropic');
+  const isAnthropic = opts.protocol
+    ? opts.protocol === 'anthropic'
+    : hasAnthropicConfig || baseUrl.includes('anthropic');
 
   if (!isAnthropic && !baseUrl.endsWith('/v1')) {
     baseUrl += '/v1';
@@ -127,7 +131,9 @@ async function testLLMConnection(env, opts = {}) {
     // The configured endpoint, not the official one: a relay IS the API as
     // far as this agent is concerned, and testing api.anthropic.com would
     // report on a service the agent never talks to.
-    const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
+    // The caller's endpoint first, then the generic one: a relay named only
+    // in LLM_BASE_URL was skipped for the official host.
+    const base = (opts.baseUrl || env.ANTHROPIC_BASE_URL || env.LLM_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
     const url = /\/v1$/.test(base) ? `${base}/messages` : `${base}/v1/messages`;
     const token = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || apiKey;
     const headers = {
