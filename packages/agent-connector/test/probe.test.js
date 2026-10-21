@@ -641,3 +641,63 @@ describe('a direct test runs on the model the agent runs on', () => {
     });
   });
 });
+
+describe('a direct test calls the endpoint the agent\'s key is for', () => {
+  // DeepSeek takes the generic key and endpoint under names of its own.
+  const DEEPSEEK = {
+    name: 'deepseek', label: 'DeepSeek Harness',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'DEEPSEEK_API_KEY' },
+      { from: 'LLM_BASE_URL', to: 'DEEPSEEK_BASE_URL' },
+      { from: 'LLM_MODEL', to: 'DEEPSEEK_MODEL' },
+    ] },
+    env_config: [{ name: 'DEEPSEEK_API_KEY', password: true }, { name: 'DEEPSEEK_BASE_URL' }],
+  };
+  const OPENCODE = {
+    name: 'opencode', label: 'OpenCode',
+    resolve_env: { rules: [{ from: 'LLM_API_KEY', to: 'OPENAI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'OPENAI_BASE_URL' }] },
+  };
+  const ready = (entry) => fakeConnector({ entry, health: { installed: true, ready: true } });
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('calls the endpoint saved under the type\'s own name', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: {
+        LLM_API_KEY: 'sk-ds-123456', DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.baseUrl, 'https://api.deepseek.com');
+    });
+  });
+
+  it('does not send a key of its own to OpenAI when no endpoint is set', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
+  });
+
+  it('leaves the endpoint to the client for a generic one, or an OpenAI-style key', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456', LLM_BASE_URL: 'https://relay.example/v1' } });
+      await probeAgentType(ready(OPENCODE), 'opencode', { agentEnv: { LLM_API_KEY: 'sk-oc-123456' } });
+      assert.equal(seen.length, 2);
+      assert.equal(seen[0].opts.baseUrl, undefined);
+      assert.equal(seen[1].opts.baseUrl, undefined);
+    });
+  });
+});

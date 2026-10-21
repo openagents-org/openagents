@@ -98,6 +98,8 @@ function completionResult(res, { isAnthropic, model }) {
  * @param {string} [opts.model] - The model the agent runs on, when the caller
  *   knows it. Each type keeps it under its own variable (CODEX_MODEL,
  *   ANTHROPIC_MODEL), which `env` alone does not say; see agent-model.js.
+ * @param {string} [opts.baseUrl] - The endpoint, when the caller knows it from
+ *   a variable of the agent's own (DEEPSEEK_BASE_URL); see probe.js.
  * @returns {Promise<{success: boolean, model?: string, response?: string, error?: string}>}
  */
 async function testLLMConnection(env, opts = {}) {
@@ -106,7 +108,7 @@ async function testLLMConnection(env, opts = {}) {
     || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
   if (!apiKey) return { success: false, error: 'No API key provided' };
 
-  let baseUrl = (env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
+  let baseUrl = (opts.baseUrl || env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
   const model = String(opts.model || env.KIMI_MODEL || env.LLM_MODEL || env.OPENCLAW_MODEL || '').trim();
   // An agent configured the Anthropic way is Anthropic-shaped wherever it
   // points. Reading only the URL missed every relay whose host says nothing

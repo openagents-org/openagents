@@ -246,8 +246,8 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
  * more honestly than "everything is fine" would. Likewise an unclassifiable
  * error — swapping one shrug for another helps nobody.
  */
-async function directApiVerdict(agentEnv, entry, model) {
-  const res = await callLLM(agentEnv, model);
+async function directApiVerdict(agentEnv, entry, model, baseUrl) {
+  const res = await callLLM(agentEnv, model, baseUrl);
   if (!res || res.success) return null;
   const code = classifyFailure(res.error, {});
   if (code === CODE.CLI_ERROR) return null;
@@ -261,15 +261,38 @@ async function directApiVerdict(agentEnv, entry, model) {
 }
 
 /**
+ * Where a direct test must call for the key the agent holds. The client reads
+ * LLM_BASE_URL, OPENAI_BASE_URL and KIMI_BASE_URL, else calls OpenAI (or
+ * Anthropic, Moonshot): right for a key of theirs, wrong for a type that
+ * takes the generic key under a name of its own (DEEPSEEK_API_KEY,
+ * PI_API_KEY) and keeps its endpoint under one too. A DeepSeek key with no
+ * endpoint set went to OpenAI and came back "invalid key" from an agent that
+ * works. Returns that endpoint; undefined to leave it to the client; null
+ * when none is known, and there is nothing worth calling.
+ */
+function directBaseUrl(entry, env) {
+  if (!env.LLM_API_KEY || env.LLM_BASE_URL) return undefined;
+  const rules = (entry && entry.resolve_env && entry.resolve_env.rules) || [];
+  const keyTo = rules.filter((r) => r && r.from === 'LLM_API_KEY' && r.to).map((r) => r.to);
+  if (!keyTo.length || keyTo.some((k) => /^(OPENAI|ANTHROPIC|KIMI|MOONSHOT)_/.test(k))) return undefined;
+  const own = [
+    ...rules.filter((r) => r && r.from === 'LLM_BASE_URL' && r.to).map((r) => r.to),
+    ...((entry && entry.env_config) || []).map((f) => f && f.name).filter((n) => n && /(BASE_URL|API_BASE)$/.test(n)),
+  ];
+  const found = own.find((k) => String(env[k] || '').trim());
+  return found ? String(env[found]).trim() : null;
+}
+
+/**
  * One direct call to the agent's endpoint, on the model the agent runs on.
  * Never rejects.
  */
-async function callLLM(agentEnv, model) {
+async function callLLM(agentEnv, model, baseUrl) {
   // Required here rather than at the top so a test can stand in for it, and
   // so a probe that never reaches this path never loads the HTTP client.
   const { testLLMConnection } = require('./utils');
   try {
-    return await testLLMConnection(agentEnv, { model });
+    return await testLLMConnection(agentEnv, { model, ...(baseUrl ? { baseUrl } : {}) });
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -468,6 +491,9 @@ async function probeAgentType(connector, type, opts = {}) {
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
 
+  const baseUrl = directBaseUrl(entry, agentEnv);
+  const canCallDirect = hasApiKey && baseUrl !== null;
+
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   if (hasLiveCli) {
     const shell = probeArgs && health.binary ? shouldUseShellForBinary(health.binary) : true;
@@ -506,8 +532,8 @@ async function probeAgentType(connector, type, opts = {}) {
     // broken. Where the agent carries an endpoint and a key, ask the API the
     // same question directly: one round trip, and it says why.
     const unexplained = code === CODE.TIMEOUT || code === CODE.CLI_ERROR || code === CODE.EMPTY_RESPONSE;
-    if (unexplained && hasApiKey) {
-      const direct = await directApiVerdict(agentEnv, entry, model);
+    if (unexplained && canCallDirect) {
+      const direct = await directApiVerdict(agentEnv, entry, model, baseUrl);
       if (direct) return done(direct);
     }
     if (unexplained && staticVerdict) return done(staticVerdict);
@@ -520,8 +546,8 @@ async function probeAgentType(connector, type, opts = {}) {
   }
 
   // ── Live tier 2: direct LLM API call for API-key agents (e.g. OpenClaw) ──
-  if (hasApiKey || (entry.install && entry.install.api_only)) {
-    const res = await callLLM(agentEnv, model);
+  if (canCallDirect || (entry.install && entry.install.api_only && baseUrl !== null)) {
+    const res = await callLLM(agentEnv, model, baseUrl);
     if (res && res.success) {
       return done({
         ok: true, method: 'llm_api', code: CODE.OK,

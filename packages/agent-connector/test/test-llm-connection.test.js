@@ -42,6 +42,15 @@ describe('testLLMConnection', () => {
     assert.equal(sent.at(-1), 'openai-gpt-oss-20b');
   });
 
+  it('calls the endpoint the caller names over the generic ones', async () => {
+    const res = await testLLMConnection(
+      { LLM_API_KEY: 'sk-test-123456', LLM_BASE_URL: 'https://wrong.invalid/v1' },
+      { model: 'deepseek-3.2', baseUrl: base },
+    );
+    assert.equal(res.success, true);
+    assert.equal(sent.at(-1), 'deepseek-3.2');
+  });
+
   it('reports a configured model the endpoint refuses as it is, without trying another', async () => {
     const before = sent.length;
     const res = await testLLMConnection(env(), { model: 'retired-model' });
