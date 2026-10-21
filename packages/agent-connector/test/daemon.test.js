@@ -293,6 +293,48 @@ describe('Daemon', () => {
     });
   });
 
+  for (const [type, launcherEnv, own] of [
+    ['deepseek', { DEEPSEEK_API_KEY: 'sk-A-own-1', DEEPSEEK_MODEL: 'deepseek-chat' }, ['DEEPSEEK_API_KEY', 'DEEPSEEK_MODEL', 'DEEPSEEK_BASE_URL']],
+    ['opencode', { LLM_API_KEY: 'sk-A-own-1', LLM_BASE_URL: 'https://relay-a.example/v1', LLM_MODEL: 'model-A' }, ['OPENAI_API_KEY', 'OPENCODE_MODEL', 'OPENAI_BASE_URL']],
+    ['openworker', { OPENWORKER_API_KEY: 'sk-A-own-1', OPENWORKER_MODEL: 'model-A' }, ['OPENWORKER_API_KEY', 'OPENWORKER_MODEL', 'OPENWORKER_BASE_URL']],
+  ]) {
+    it(`create_agent (${type}) keeps a key, endpoint and model on its agent: one set up before keeps its own`, async () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      // Agent A was configured in the launcher, which saves to the type env.
+      env.save(type, launcherEnv);
+      config.addAgent({ name: 'a', type });
+      const pick = (built) => Object.fromEntries(own.map((k) => [k, built[k]]));
+      const before = withProcessEnv(NO_CREDENTIALS, () => pick(daemon._buildAgentEnv(config.getAgent('a'))));
+      const calls = await createFromWorkspace(config, daemon, {
+        name: 'b', type, apiKey: 'sk-B-relay-1', baseUrl: 'https://relay-b.example/v1', model: 'model-B',
+      });
+      assert.equal(calls.some((c) => c[0] === 'env'), false);
+      assert.deepEqual(env.load(type), launcherEnv);
+      withProcessEnv(NO_CREDENTIALS, () => {
+        assert.deepEqual(pick(daemon._buildAgentEnv(config.getAgent('a'))), before);
+        const b = daemon._buildAgentEnv(config.getAgent('b'));
+        assert.equal(b[own[0]], 'sk-B-relay-1');
+        assert.equal(b[own[1]], 'model-B');
+        assert.equal(b[own[2]], 'https://relay-b.example/v1');
+      });
+    });
+  }
+
+  it('create_agent keeps CodeArts AK/SK on its agent: a second one does not replace the first one\'s', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    await createFromWorkspace(config, daemon, { name: 'ca1', type: 'codearts', config: { CODEARTS_CLI_AK: 'ak-1', CODEARTS_CLI_SK: 'sk-1' } });
+    await createFromWorkspace(config, daemon, { name: 'ca2', type: 'codearts', config: { CODEARTS_CLI_AK: 'ak-2', CODEARTS_CLI_SK: 'sk-2' } });
+    assert.deepEqual(env.load('codearts'), {});
+    withProcessEnv(NO_CREDENTIALS, () => {
+      assert.equal(daemon._buildAgentEnv(config.getAgent('ca1')).CODEARTS_CLI_AK, 'ak-1');
+      assert.equal(daemon._buildAgentEnv(config.getAgent('ca2')).CODEARTS_CLI_AK, 'ak-2');
+    });
+  });
+
   it('create_agent still saves a Hermes key for the type: its endpoint is one device-wide config', async () => {
     const config = new Config(tmpDir);
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
@@ -1069,33 +1111,39 @@ describe('Daemon', () => {
     assert.deepEqual(config.getAgent('codex-key').env, own);
   });
 
-  for (const moved of [true, false]) {
-    it(`configure_agent ${moved ? 'moving an agent' : 'in place'} runs it on the credentials just sent, not an older copy of its own`, async () => {
-      const config = new Config(tmpDir);
-      const env = new EnvManager(tmpDir);
-      const daemon = new Daemon(config, env, new Registry(tmpDir));
-      // CodeArts keys are its own fields; the workspace saves them for the type.
-      config.addAgent({ name: 'ca', type: 'codearts', path: path.join(tmpDir, 'old'), env: { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk', CODEARTS_MODEL: 'own-model' } });
-      config.setAgentNetwork('ca', 'ws1');
-      await configureFromWorkspace(config, daemon, {
-        name: 'ca', type: 'codearts', config: { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' },
-        ...(moved ? { workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old') } : {}),
-      }, env);
-      withProcessEnv(NO_CREDENTIALS, () => {
-        const built = daemon._buildAgentEnv(config.getAgent('ca'));
-        assert.equal(built.CODEARTS_CLI_AK, 'new-ak');
-        assert.equal(built.CODEARTS_CLI_SK, 'new-sk');
-        assert.equal(built.CODEARTS_MODEL, 'own-model');
+  // CodeArts keeps its AK/SK on the agent; Hermes saves its key for the type,
+  // where a copy on the agent itself (one the launcher saved) would outrank it.
+  for (const [type, ownEnv, sent, keyVar, modelVar] of [
+    ['codearts', { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk', CODEARTS_MODEL: 'own-model' }, { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' }, 'CODEARTS_CLI_AK', 'CODEARTS_MODEL'],
+    ['hermes', { LLM_API_KEY: 'sk-old-123456', LLM_MODEL: 'own-model' }, { LLM_API_KEY: 'sk-new-123456' }, 'LLM_API_KEY', 'LLM_MODEL'],
+  ]) {
+    for (const moved of [true, false]) {
+      it(`configure_agent (${type}) ${moved ? 'moving an agent' : 'in place'} runs it on the credentials just sent, not an older copy of its own`, async () => {
+        const config = new Config(tmpDir);
+        const env = new EnvManager(tmpDir);
+        const daemon = new Daemon(config, env, new Registry(tmpDir));
+        config.addAgent({ name: 'x', type, path: path.join(tmpDir, 'old'), env: ownEnv });
+        config.setAgentNetwork('x', 'ws1');
+        await configureFromWorkspace(config, daemon, {
+          name: 'x', type, config: sent,
+          ...(moved ? { workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old') } : {}),
+        }, env);
+        withProcessEnv(NO_CREDENTIALS, () => {
+          const built = daemon._buildAgentEnv(config.getAgent('x'));
+          assert.equal(built[keyVar], sent[keyVar]);
+          assert.equal(built[modelVar], 'own-model');
+        });
       });
-    });
+    }
   }
 
   it('configure_agent keeps the agent\'s own credentials when saving the new ones fails', async () => {
     const config = new Config(tmpDir);
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
-    const own = { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk' };
-    config.addAgent({ name: 'ca', type: 'codearts', env: own });
-    config.setAgentNetwork('ca', 'ws1');
+    // Hermes saves its fields for the type (one device-wide config file).
+    const own = { LLM_API_KEY: 'sk-old-123456', LLM_BASE_URL: 'https://old.example/v1' };
+    config.addAgent({ name: 'h', type: 'hermes', env: own });
+    config.setAgentNetwork('h', 'ws1');
     daemon._runAgn = async (a) => (a[0] === 'env'
       ? { code: 1, stdout: '', stderr: 'disk full' }
       : { code: 0, stdout: '', stderr: '' });
@@ -1107,11 +1155,11 @@ describe('Daemon', () => {
     daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
-      { commandId: 'c11', action: 'configure_agent', args: { name: 'ca', type: 'codearts', config: { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' } } },
+      { commandId: 'c11', action: 'configure_agent', args: { name: 'h', type: 'hermes', config: { LLM_API_KEY: 'sk-new-123456', LLM_BASE_URL: 'https://new.example/v1' } } },
     );
     assert.equal(result.ok, false);
     assert.match(result.message, /disk full/);
-    assert.deepEqual(config.getAgent('ca').env, own);
+    assert.deepEqual(config.getAgent('h').env, own);
     assert.deepEqual(restarted, []);
   });
 

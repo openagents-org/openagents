@@ -1605,6 +1605,7 @@ export const messages: Messages = {
     nodeNativeCredsHint: '这些凭据只保存在运行智能体的设备上。编辑时留空表示保留设备上已有的值。',
     agentNameExists: "此设备上已存在同名智能体。请打开其设置或使用其他名称。",
     agentNameUniqueHint: '名称在此设备和本工作区内必须唯一，与已有智能体重名会导致添加失败。',
+    agentSharedConfigHint: '{label} 把 Key、端点和模型存在整台设备共用的一个配置文件里，这台设备上的所有 {label} 智能体都用同一套。在这里修改会同时改动它们。',
     agentNameOnDevice: '此设备上已有名为「{name}」的智能体，但本工作区看不到它（可能是之前添加失败的残留、在设备上直接创建的，或属于其他工作区）。请换一个名称，或在该设备上运行 agn remove {name} 后重试。',
     agentSaved: "智能体设置已保存。",
     agentAdded: "智能体已添加。",

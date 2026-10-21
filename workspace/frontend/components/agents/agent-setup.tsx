@@ -111,6 +111,11 @@ const CUSTOM_MODEL = '__custom__';
 /** How long "Detecting…" may stay up before it gives way to a retry. */
 const DETECT_DEADLINE_MS = 45_000;
 const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** Types whose endpoint is one device-wide config file of their own, so every
+ *  agent of the type on a device runs on the same key, endpoint and model.
+ *  Mirrors SHARED_NATIVE_CONFIG in packages/agent-connector/src/daemon.js;
+ *  every other type keeps what this form sends on the agent alone. */
+const SHARED_CONFIG_TYPES = new Set(['hermes', 'openclaw']);
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
@@ -955,6 +960,12 @@ export function AgentSetup({
           </div>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
+
+          {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
+            <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
+              {t('connect.agentSharedConfigHint', { label: selectedEntry.label })}
+            </p>
+          )}
 
           {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (

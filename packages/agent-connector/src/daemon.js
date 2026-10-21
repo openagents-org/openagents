@@ -614,18 +614,22 @@ class Daemon {
   }
 
   /**
-   * Whether a key, endpoint and model the workspace sends for one agent stay
-   * on that agent alone, rather than also going to <type>.env, which every
-   * agent of the type without a sign-in marker runs on. For a type whose CLI
-   * has a sign-in of its own, sharing turned signed-in agents into key
-   * agents: add a codex agent on a relay key, and every keyless codex agent
-   * ran on that key from its next restart, tool-less, in direct mode.
-   * Hermes keeps sharing: its endpoint lives in one config file of its own
-   * for the whole device, which only a save to <type>.env updates (index.js
-   * _configureNativeAuth), so a key kept on the agent would never reach it.
+   * Whether a key, endpoint, model and the type's own credential fields the
+   * workspace sends for one agent stay on that agent alone, rather than also
+   * going to <type>.env, which every agent of the type without settings of
+   * its own runs on. Sharing turned signed-in agents into key agents (add a
+   * codex agent on a relay key, and every keyless codex agent ran on that key
+   * from its next restart, tool-less, in direct mode), and it moved agents
+   * set up in the launcher onto another one's key, endpoint and model: add a
+   * second DeepSeek or CodeArts agent from the workspace, and the first one
+   * ran on the new one's settings from its next restart.
+   * Hermes and OpenClaw keep sharing: their endpoint lives in one config file
+   * of their own for the whole device, which only a save to <type>.env
+   * updates (index.js _configureNativeAuth), so a key kept on the agent would
+   * never reach it.
    */
   _keepsKeysPerAgent(type) {
-    return this._hasCliSignIn(type) && !SHARED_NATIVE_CONFIG.has(type);
+    return !SHARED_NATIVE_CONFIG.has(type);
   }
 
   /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */
@@ -876,8 +880,12 @@ class Daemon {
    * (Credential contract: config flows down transiently, secrets persist
    * only here, in the device's env store.)
    */
-  async _applyConfigMap(type, config) {
+  async _applyConfigMap(type, config, name) {
+    // Returns the keys saved to <type>.env. A type that keeps them on the
+    // agent (_keepsKeysPerAgent) gets them on `name` instead, and none back.
     const applied = [];
+    const own = {};
+    const perAgent = !!name && this._keepsKeysPerAgent(type);
     if (!config || typeof config !== 'object') return applied;
     let allowed = null;
     try {
@@ -894,12 +902,14 @@ class Daemon {
         continue;
       }
       if (value === null || value === undefined) continue;
+      if (perAgent) { own[key] = String(value); continue; }
       const r = await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
       // Stop here rather than count it: the caller drops the agent's own copy
       // of what was applied, which would leave it with no credential at all.
       if (r.code !== 0) throw new Error(r.stderr || r.stdout || `Could not save ${key}`);
       applied.push(key);
     }
+    if (Object.keys(own).length) this.config.updateAgentEnv(name, own);
     return applied;
   }
 
@@ -945,7 +955,7 @@ async _runNodeCommand(n, cmd) {
           if (args.model) await this._setModelEnv(type, args.model);
           if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         }
-        await this._applyConfigMap(type, args.config);
+        await this._applyConfigMap(type, args.config, name);
         this._saveNodeAgentEnv(name, type, args);
         // Attach to this node's workspace BY SLUG: the daemon already knows
         // which workspace this command came from, so there is no token to
@@ -999,10 +1009,11 @@ async _runNodeCommand(n, cmd) {
           if (args.model !== undefined) await this._setModelEnv(type, args.model);
           if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         }
-        const applied = await this._applyConfigMap(type, args.config);
-        // Those just went to the type env, which a copy on the agent itself
-        // (one the launcher saved) outranks at launch: drop that copy, or the
-        // agent keeps running on the old CodeArts AK/SK while the save says ok.
+        const applied = await this._applyConfigMap(type, args.config, name);
+        // Those just went to the type env (Hermes, OpenClaw), which a copy on
+        // the agent itself (one the launcher saved) outranks at launch: drop
+        // that copy, or the agent keeps running on the old key while the save
+        // says ok.
         const unshadow = Object.fromEntries(applied.map((key) => [key, '']));
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {

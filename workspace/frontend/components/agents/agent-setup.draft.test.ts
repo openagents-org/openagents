@@ -119,3 +119,12 @@ it('reopens a failed add with the agent’s own credentials it was submitted wit
   // Kept again, in case this attempt fails too.
   expect(onQueued).toHaveBeenCalledWith(expect.objectContaining({ draft: expect.objectContaining({ config }) }));
 });
+
+it('says Hermes and OpenClaw agents on a device share one key, endpoint and model', async () => {
+  const hermesDetail = { name: 'hermes', models: [], resolve_env: { rules: [{ from: 'LLM_API_KEY', to: 'OPENAI_API_KEY' }] } };
+  await open({ draft: { name: 'hermes2', type: 'hermes' }, detail: hermesDetail });
+  expect(host.querySelector('[data-testid="agent-setup-shared-config"]')?.textContent).toBe(t('connect.agentSharedConfigHint', { label: 'hermes' }));
+  await act(async () => root.unmount()); host.remove();
+  await open({ draft: { name: 'deepseek2', type: 'deepseek' } });
+  expect(host.querySelector('[data-testid="agent-setup-shared-config"]')).toBeNull();
+});

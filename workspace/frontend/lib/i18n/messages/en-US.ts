@@ -1642,6 +1642,7 @@ export const messages = {
     nodeNativeCredsHint: 'These are stored only on the device that runs the agent. When editing, leave a field empty to keep the value already there.',
     agentNameExists: "An agent with this name already exists on this device. Open its settings or choose another name.",
     agentNameUniqueHint: 'Must be unique on this device and in this workspace — a name already in use makes the add fail.',
+    agentSharedConfigHint: 'Every {label} agent on this device runs on the same key, endpoint and model, which {label} keeps in one config file for the device. Changing them here changes them for all of them.',
     agentNameOnDevice: 'This device already has an agent named "{name}" that this workspace can’t see — left over from an earlier failed add, created on the device itself, or in another workspace. Choose another name, or run agn remove {name} on the device and try again.',
     agentSaved: "Agent settings saved.",
     agentAdded: "Agent added.",
