@@ -1,5 +1,5 @@
 import React from "react"
-import { Download, RefreshCw, Trash2, Undo2, Wand2 } from "lucide-react"
+import { Download, Plus, RefreshCw, Trash2, Undo2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -28,7 +28,8 @@ interface Props {
   onUpdate: () => void
   onUninstall: () => void
   onRollback: () => void
-  onOpenWizard?: () => void
+  /** Open the setup form on this type, installing it first if need be. */
+  onAddAgent: () => void
 }
 
 const BUSY_LABEL: Record<InstallJob["verb"], string> = {
@@ -44,11 +45,14 @@ const BUSY_LABEL: Record<InstallJob["verb"], string> = {
  * two agents.
  *
  * Button matrix:
- *   not installed              → [Install]
- *   managed, update available  → [Update to v…] [Setup?] [Roll back?] [Uninstall]
- *   managed, up to date        → [Reinstall] [Setup?] [Roll back?] [Uninstall]
- *   global (unmanaged), old    → [Update to v…] [Setup?]
- *   global (unmanaged), latest → [Reinstall] [Setup?]
+ *   not installed              → [Add agent] [Install only]
+ *   managed, update available  → [Update to v…] [Add agent] [Roll back?] [Uninstall]
+ *   managed, up to date        → [Add agent] [Reinstall] [Roll back?] [Uninstall]
+ *   global (unmanaged), old    → [Update to v…] [Add agent]
+ *   global (unmanaged), latest → [Add agent] [Reinstall]
+ *   Add agent opens the same setup form as Connect Agents — the one way an
+ *   agent is created; it installs the runtime first when it is missing, and a
+ *   type already installed can be added again as another agent.
  *   An npm global install updates at its original install path; any other
  *   global install gets a managed copy. Uninstall never removes the user's copy.
  *   A user's copy that needs admin rights we cannot ask for: no update button.
@@ -65,7 +69,7 @@ export function DetailActions({
   onUpdate,
   onUninstall,
   onRollback,
-  onOpenWizard,
+  onAddAgent,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const isInstalled = entry.installed
@@ -106,19 +110,31 @@ export function DetailActions({
     )
   }
 
+  // The update leads while one is pending; otherwise adding an agent does.
+  const updateFirst = isInstalled && hasUpdate && !updateBlocked
+  const addAgent = (
+    <Button variant={updateFirst ? "outline" : "default"} className="w-full" onClick={onAddAgent}
+      data-testid="detail-add-agent">
+      <Plus />
+      {t("agents.actions.addAgent")}
+    </Button>
+  )
+
   return (
     <>
-      {!isInstalled && (
-        <Button className="w-full" onClick={onInstall}>
-          <Download />
-          {t("agents.actions.install")}
-        </Button>
-      )}
-
-      {isInstalled && hasUpdate && !updateBlocked && (
+      {updateFirst && (
         <Button className="w-full" onClick={onUpdate}>
           <RefreshCw />
           {t("agents.actions.updateToVersion", { version: latestVersion })}
+        </Button>
+      )}
+
+      {addAgent}
+
+      {!isInstalled && (
+        <Button variant="outline" className="w-full" onClick={onInstall}>
+          <Download />
+          {t("agents.actions.installOnly")}
         </Button>
       )}
 
@@ -126,13 +142,6 @@ export function DetailActions({
         <Button variant="outline" className="w-full" onClick={onInstall}>
           <RefreshCw />
           {t("agents.actions.reinstall")}
-        </Button>
-      )}
-
-      {isInstalled && onOpenWizard && (
-        <Button variant="outline" className="w-full" onClick={onOpenWizard}>
-          <Wand2 />
-          {t("agents.actions.setupWizard")}
         </Button>
       )}
 

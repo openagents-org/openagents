@@ -160,9 +160,6 @@
     "cancel": "Cancel",
     "fieldRequired": "{{field}} is required",
     "toast": {
-      "signedInReady": "Signed in — agent is ready",
-      "couldntConfirm": "Couldn't confirm sign-in. If you finished login, try again.",
-      "couldntReadStatus": "Couldn't read sign-in status. Try again.",
       "configurationSaved": "Configuration saved",
       "errorSaving": "Error saving: {{message}}"
     },
@@ -187,7 +184,8 @@
     "reLogin": "Re-login",
     "signIn": "Sign in",
     "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
-    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser.",
+    "installOnAdd": "Not installed yet — adding the agent installs it"
   },
   "connectDialog": {
     "title": "Add '{{name}}' to a workspace",
@@ -246,12 +244,12 @@
     "rollingBack": "Rolling back…",
     "updating": "Updating…",
     "installing": "Installing…",
-    "install": "Install",
     "updateToVersion": "Update to v{{version}}",
     "reinstall": "Reinstall",
-    "setupWizard": "Setup wizard",
     "rollBack": "Roll back",
-    "uninstall": "Uninstall"
+    "uninstall": "Uninstall",
+    "addAgent": "Add agent",
+    "installOnly": "Install only"
   },
   "readme": {
     "overview": "Overview",
@@ -273,21 +271,6 @@
   },
   "dependencies": {
     "title": "Install command"
-  },
-  "envConfig": {
-    "title": "Configuration",
-    "fieldRequired": "{{field}} is required",
-    "saving": "Saving…",
-    "save": "Save",
-    "testing": "Testing…",
-    "testConnection": "Test connection",
-    "toast": {
-      "configurationSaved": "Configuration saved",
-      "error": "Error: {{message}}",
-      "okResponded": "OK — {{model}} responded",
-      "modelFallback": "model",
-      "testFailed": "Test failed"
-    }
   },
   "quickStart": {
     "title": "Quick start",
@@ -401,7 +384,8 @@
       "next": "Next",
       "installNow": "Install now",
       "more": "Browse and connect more agents",
-      "hint": "Install one to create an agent on this computer; installed types are reused."
+      "hint": "Install one to create an agent on this computer; installed types are reused.",
+      "update": "A new version is available — update it"
     },
     "aside": {
       "title": "Details",

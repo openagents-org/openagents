@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
+import { hasPendingUpdate, useInstallStore } from "../../store/install"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { RenameAgentDialog } from "./components/rename-agent-dialog"
@@ -9,10 +10,17 @@ import { Skeleton } from "../../components/ui/skeleton"
 import { PageHeader } from "../../components/layout/page-header"
 import type { ToastType } from "../../hooks/useToast"
 import { MarketplaceStats } from "../install/components/marketplace-stats"
+import type { StatusFilter } from "../install/use-marketplace"
 import { useAgentCatalog } from "./use-agent-catalog"
 import { RecommendedAgents } from "./components/recommended-agents"
 import { AgentsEmpty } from "./components/agents-empty"
 import { RemoveAgentDialog } from "./components/remove-agent-dialog"
+/** A type's marketplace page: its versions, update, uninstall and history. */
+function openMarketPage(type: string): void {
+  useUiStore.getState().setInstallFocusAgent(type)
+  useUiStore.getState().setCurrentTab("install")
+}
+
 const LocalAgentSetup = React.lazy(() => import("./local-agent-setup").then((module) => ({ default: module.LocalAgentSetup })))
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
 import { AgentsToolbar } from "./components/agents-toolbar"
@@ -50,6 +58,8 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   )
   const pendingCreate = useUiStore((s) => s.pendingCreate)
   const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
+  const pendingCreateType = useUiStore((s) => s.pendingCreateType)
+  const updates = useInstallStore((s) => s.updates)
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
   const queued = useRef(false)
@@ -147,12 +157,21 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     return () => clearInterval(interval)
   }, [refresh])
 
-  // The dashboard's "New agent" button lands here with the dialog requested.
+  // A request from elsewhere (a marketplace page's Add agent) lands here on
+  // the setup form, on its type when it named one.
   useEffect(() => {
     if (pendingCreate !== "agent") return
-    startSetup(null)
+    startSetup(pendingCreateType)
     clearPendingCreate()
-  }, [pendingCreate, clearPendingCreate])
+  }, [pendingCreate, pendingCreateType, clearPendingCreate])
+
+  // The marketplace is where types are browsed and kept up to date; this page
+  // only opens it. One pending update goes straight to that agent's page.
+  const openMarketplace = (filter: StatusFilter): void => {
+    const pending = catalog.filter((c) => hasPendingUpdate(updates, c.name))
+    if (filter === "updatable" && pending.length === 1) return openMarketPage(pending[0].name)
+    useUiStore.getState().goToInstallList(filter)
+  }
 
   if (newAgentOpen || (configureOpen && configureAgent)) {
     return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup initialType={setupType ?? undefined} agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
@@ -166,18 +185,15 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       <PageHeader
         title={t(overview ? "nav.items.dashboard.label" : "agents.list.title")}
         subtitle={t("agents.shared.overviewSubtitle")}
-        actions={
-          // Read-only here: the full list is reached through "Browse and
-          // connect more agents", and only through it.
-          catalogLoading ? null : <MarketplaceStats counts={typeCounts} />
-        }
+        actions={catalogLoading ? null : <MarketplaceStats counts={typeCounts} onSelect={openMarketplace} />}
       />
 
       <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
         <RecommendedAgents
           catalog={catalog}
           onInstall={(type) => startSetup(type)}
-          onMore={() => startSetup(null)}
+          onUpdate={openMarketPage}
+          onMore={() => openMarketplace("all")}
         />
         <AgentsToolbar
           search={search}

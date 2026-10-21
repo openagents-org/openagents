@@ -812,7 +812,7 @@ export function AgentSetup({
       </Button>
     );
     const saveButton = (
-      <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
+      <Button data-testid="agent-setup-submit" variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
       </Button>
@@ -899,7 +899,7 @@ export function AgentSetup({
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
-            <Input aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {canRename && <p className="text-[11px] text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
@@ -1092,7 +1092,7 @@ export function AgentSetup({
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
             <div className="flex gap-2">
-              <Input aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
+              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
               <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
                 <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
               </Button>
@@ -1181,48 +1181,55 @@ export function AgentSetup({
     // ---- Desktop layout: breadcrumb, title, the form beside an info column,
     // and its actions at the bottom of the form.
     if (extensions?.compact) {
+      // Opened on a type (the launcher always does), the way back is to the page
+      // that opened it — there is no type list behind this form to return to.
+      const leave = isEdit || startType ? onBack : backToSelection;
       const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
       return (
-        <div className="h-full overflow-y-auto">
-          <div className="space-y-6 px-9 pt-6 pb-8">
-            <div>
-              {/* Same lead-in as the type picker before it: an explicit way back,
-                  not only the breadcrumb's first step. */}
-              <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-                <button onClick={isEdit ? onBack : backToSelection} disabled={busy} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
-                  <ChevronLeft className="size-4" />{t('connect.nodeBack')}
-                </button>
-                <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-                <button onClick={isEdit ? onBack : backToSelection} disabled={busy} className="hover:text-primary hover:underline">
-                  {extensions.breadcrumbRoot || t('connect.nodeBackToAgents')}
-                </button>
-                <span aria-hidden>/</span>
-                <span className="text-foreground">{title}</span>
-              </nav>
-              <div className="mt-3 flex items-center gap-2">
-                <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
-                {badge(selectedStatus)}
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div className="min-w-0 space-y-5">
-                {formBody}
-                {error && errorText()}
-                <div className="flex items-center gap-3 pt-2">
-                  {saveButton}
-                  <Button variant="outline" onClick={isEdit ? onBack : backToSelection} disabled={busy}>
-                    {t('connect.compactCancel')}
-                  </Button>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-6 px-9 pt-6 pb-8">
+              <div>
+                {/* Same lead-in as the type picker before it: an explicit way back,
+                    not only the breadcrumb's first step. */}
+                <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <button onClick={leave} disabled={busy} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+                    <ChevronLeft className="size-4" />{t('connect.nodeBack')}
+                  </button>
+                  <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                  <button onClick={leave} disabled={busy} className="hover:text-primary hover:underline">
+                    {extensions.breadcrumbRoot || t('connect.nodeBackToAgents')}
+                  </button>
+                  <span aria-hidden>/</span>
+                  <span className="text-foreground">{title}</span>
+                </nav>
+                <div className="mt-3 flex items-center gap-2">
+                  <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
+                  {badge(selectedStatus)}
                 </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
+                </p>
               </div>
-              {extensions.aside && selected && (
-                <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
-              )}
+              <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="min-w-0 space-y-5">
+                  {formBody}
+                  {error && errorText()}
+                </div>
+                {extensions.aside && selected && (
+                  <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
+                )}
+              </div>
             </div>
           </div>
+          {/* Pinned, so the way to finish is in view however long the form
+              for this type runs. */}
+          <footer className="flex shrink-0 items-center justify-end gap-3 border-t bg-background px-9 py-3">
+            <Button variant="outline" onClick={leave} disabled={busy}>
+              {t('connect.compactCancel')}
+            </Button>
+            {saveButton}
+          </footer>
         </div>
       );
     }

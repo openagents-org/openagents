@@ -1,10 +1,9 @@
 import type { ElectronApplication } from "@playwright/test"
 
 /**
- * Opens the marketplace list. It has no button in the app any more — Connect
- * Agents leads to the setup gallery instead — so the specs take the same
- * main-process route the tray menu does: `navigate-to-install` with no agent
- * name opens the list.
+ * Opens the marketplace list the way the tray menu does — `navigate-to-install`
+ * with no agent name — so a spec gets there from whatever page it is on. In
+ * the app it is Connect Agents' "Browse and connect more agents".
  */
 export async function openMarketplace(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {

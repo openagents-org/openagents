@@ -5,67 +5,56 @@
     {
       "type": "feature",
       "title": {
-        "en": "Open several workspaces side by side in tabs",
-        "zh": "以标签形式同时打开多个工作区"
+        "en": "A redesigned interface",
+        "zh": "全新界面设计"
       },
       "description": {
-        "en": "Each workspace you open now gets its own tab at the top of the window, so you can switch between them with one click instead of returning to All Workspaces. Every tab keeps its thread, scroll position and unsent message while you work elsewhere, and the tabs stay open when you visit All Workspaces or Device. Closing a tab only closes its page; the workspace and this computer's agents keep running.",
-        "zh": "打开的每个工作区都会在窗口顶部显示为独立标签，点击即可直接切换，无需返回「全部工作区」。切换期间各标签保留原有的会话、浏览位置与未发送内容；进入「全部工作区」或「本机管理」后，已打开的标签仍会保留。关闭标签仅关闭对应页面，不影响工作区本身及本机智能体的运行。"
+        "en": "Navigation moves from the side rail to the top of the window: switch between Workspace and This Computer in one place, with each side's pages and tabs right below. A status bar shows this device and its background service, and pages use a lighter, more compact layout throughout. On All Workspaces, your account and sign-out now sit in the title bar instead of a second header.",
+        "zh": "导航由左侧栏移至窗口顶部，「工作区」与「本机管理」一键切换，下方即为对应的页面与标签。窗口底部新增状态栏，显示本机与后台服务状态；各页面采用更简洁紧凑的布局。「全部工作区」页的账号与退出入口移至标题栏，不再重复显示页眉。"
       }
     },
     {
       "type": "feature",
       "title": {
-        "en": "Keyboard shortcuts for workspace tabs",
-        "zh": "工作区标签快捷键"
+        "en": "Workspaces in tabs",
+        "zh": "工作区多标签"
       },
       "description": {
-        "en": "Press ⌘1–⌘8 (Ctrl+1–Ctrl+8 on Windows) to jump to a tab and ⌘9 (Ctrl+9) for the last one. With five or more tabs open, a menu at the end of the tab bar lists them all along with their shortcuts.",
-        "zh": "按 ⌘1–⌘8（Windows 为 Ctrl+1–Ctrl+8）可切换到对应标签，⌘9（Ctrl+9）切换到最后一个标签。打开五个及以上标签时，标签栏末尾会提供菜单，列出全部标签及其快捷键。"
+        "en": "Each workspace you open gets its own tab and keeps its conversation, scroll position and unsent message while you switch. Use ⌘1–⌘9 (Ctrl+1–Ctrl+9 on Windows) to jump between tabs.",
+        "zh": "打开的每个工作区都有独立标签，切换时保留会话、浏览位置与未发送内容。可使用 ⌘1–⌘9（Windows 为 Ctrl+1–Ctrl+9）快速切换。"
       }
     },
     {
       "type": "feature",
       "title": {
-        "en": "Connect Agents brings agent setup into one place",
-        "zh": "「连接智能体」统一智能体的安装与管理"
+        "en": "Connect Agents: one place to add and manage agents",
+        "zh": "「连接智能体」：统一添加与管理智能体"
       },
       "description": {
-        "en": "Device Overview and Agent Marketplace are now a single Connect Agents page. It opens with recommended agents — Codex, Claude, OpenCode and Hermes — each one click from its setup, with Browse and connect more agents for every other type. Agents you add appear straight away under Connected agents, and you can add several of the same type, each with its own name and workspace.",
-        "zh": "「设备概览」与「智能体市场」合并为「连接智能体」页面。页面顶部推荐 Codex、Claude、OpenCode 和 Hermes，点击「立即安装」即可进入对应配置；其他类型可通过「查看并连接更多智能体」添加。添加完成的智能体会立即出现在「已连接的智能体」列表中，同一类型也可以添加多个，分别命名并加入不同的工作区。"
+        "en": "Device Overview and Agent Marketplace are combined into Connect Agents. Start from the recommended agents or browse the marketplace, where agents can also be updated, rolled back and uninstalled. Every agent is added through the same setup, which installs anything missing first, and you can add several agents of the same type.",
+        "zh": "「设备概览」与「智能体市场」合并为「连接智能体」。可从推荐智能体开始，或进入市场浏览全部类型，并在其中更新、回滚或卸载。所有智能体通过同一配置流程添加，缺少的运行环境会自动安装；同一类型可添加多个智能体。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Join a workspace straight from the welcome screen",
-        "zh": "从欢迎页直接加入工作区"
+        "en": "Get started from the welcome screen",
+        "zh": "欢迎页快速开始"
       },
       "description": {
-        "en": "The welcome screen now offers two ways in: enter a pairing code to join a workspace directly, or sign in to use workspaces right here in the app. The pairing form explains where to get a code. When you add an agent to a workspace before this computer has joined any, you can get a code and enter it in the same dialog, and the agent joins that workspace as soon as the code is accepted.",
-        "zh": "欢迎页提供两种入口：输入配对码直接加入工作区，或在桌面端登录 OpenAgents、直接在应用内使用工作区。配对码输入框会说明配对码的获取方式。若本机尚未加入任何工作区，把智能体加入工作区时可在同一弹窗中获取并输入配对码，配对成功后智能体随即加入该工作区。"
+        "en": "Join a workspace directly with a pairing code, or sign in to use your workspaces in the app.",
+        "zh": "可直接输入配对码加入工作区，或登录后在应用内使用工作区。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Joined Workspaces shows this device at a glance",
-        "zh": "「本机加入的工作区」页面展示设备概况"
+        "en": "Clearer Joined Workspaces",
+        "zh": "「本机加入的工作区」更清晰"
       },
       "description": {
-        "en": "Join workspace now sits right under the page title, and a summary below it shows this device and the workspaces it has joined, each one click away.",
-        "zh": "「加入工作区」按钮移至页面标题下方，其下新增设备概况，展示本机名称及已加入的工作区，点击即可打开对应工作区。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "A cleaner window layout",
-        "zh": "更简洁的窗口布局"
-      },
-      "description": {
-        "en": "Navigation now runs along the top of the window instead of a side rail. The first row holds the switch between Workspace and This Computer, search, theme, notifications and device status; the second holds This Computer’s pages and the workspaces you have open. A status line at the bottom shows this device and its background service, and the default look is lighter and more compact. Agents, joined workspaces, logs and settings now use compact lists and tables, and settings keep a directory beside each section.",
-        "zh": "导航由左侧栏移至窗口顶部。第一行为「工作区 / 本机管理」切换、搜索、主题、通知与设备状态；第二行为本机管理的各个页面以及已打开的工作区。窗口底部新增状态栏，显示本机名称与后台服务状态；默认外观也更加简洁紧凑。智能体、本机加入的工作区、日志和设置页面改为紧凑的列表与表格，设置各分区左侧新增目录，便于切换。"
+        "en": "Join workspace sits under the page title alongside a summary of this device, and a workspace that can only open in the browser explains why on its own row.",
+        "zh": "「加入工作区」移至标题下方，并显示本机概况；仅能在浏览器中打开的工作区会在所在行说明原因。"
       }
     }
   ]

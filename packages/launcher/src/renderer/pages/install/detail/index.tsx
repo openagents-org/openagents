@@ -3,12 +3,10 @@ import { ArrowLeft } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
-import { isLoginOnlyAgent } from "@renderer/lib/agent-auth"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { isJobBusy } from "../entry-meta"
-import { DetailConfig } from "./detail-config"
 import { DetailHeader } from "./detail-header"
 import { DetailOverview } from "./detail-overview"
 import { DetailProgress } from "./detail-progress"
@@ -26,9 +24,8 @@ interface Props {
   entry: CatalogEntry
   onBack: () => void
   onAfterInstall: (entry: CatalogEntry) => void
-  onOpenWizard?: (entry: CatalogEntry) => void
-  /** Bumped when the setup wizard closes — see DetailConfig.authRefresh. */
-  authRefresh?: number
+  /** Open the setup form on this type: the one way an agent is created. */
+  onAddAgent: (entry: CatalogEntry) => void
   showToast: (msg: string, type?: ToastType) => void
 }
 
@@ -41,8 +38,7 @@ export default function AgentDetail({
   entry,
   onBack,
   onAfterInstall,
-  onOpenWizard,
-  authRefresh,
+  onAddAgent,
   showToast,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -148,26 +144,6 @@ export default function AgentDetail({
             />
           )}
 
-          {/* A login-only agent (Cursor, Hermes) has no env fields at all — it
-              still needs this section, or its marketplace page offers no way
-              to authenticate. */}
-          {(detail.envFields.length > 0 ||
-            !!entry.check_ready?.login_command) && (
-            <DetailSection title={t("agents.envConfig.title")}>
-              <DetailConfig
-                agentName={entry.name}
-                fields={detail.envFields}
-                values={detail.envValues}
-                onChange={detail.setEnvValues}
-                loginCommand={entry.check_ready?.login_command || null}
-                envLoaded={detail.envLoaded}
-                installed={!!entry.installed}
-                authRefresh={authRefresh}
-                showToast={showToast}
-              />
-            </DetailSection>
-          )}
-
           <DetailSection title={t("agents.quickStart.title")}>
             <DetailQuickStart entry={entry} showToast={showToast} />
           </DetailSection>
@@ -211,13 +187,7 @@ export default function AgentDetail({
           onUpdate={() => setConfirmInstall("update")}
           onUninstall={() => setConfirmUninstall(true)}
           onRollback={detail.startRollback}
-          onOpenWizard={
-            onOpenWizard &&
-            !detail.hasInstance &&
-            !isLoginOnlyAgent(entry, detail.envFields)
-              ? () => onOpenWizard(entry)
-              : undefined
-          }
+          onAddAgent={() => onAddAgent(entry)}
         />
       </div>
 

@@ -1,9 +1,10 @@
 import React from "react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { RecommendedAgents } from "./recommended-agents"
+import { useInstallStore } from "@renderer/store/install"
 import type { CatalogEntry } from "@renderer/types"
 
 const entry = (name: string, extra: Partial<CatalogEntry> = {}): CatalogEntry =>
@@ -18,9 +19,11 @@ const CATALOG = [
 ]
 
 describe("RecommendedAgents", () => {
+  afterEach(() => useInstallStore.setState({ updates: [] }))
+
   it("shows two of the four at a time, stepping one by hand", async () => {
     const user = userEvent.setup()
-    render(<RecommendedAgents catalog={CATALOG} onInstall={vi.fn()} onMore={vi.fn()} />)
+    render(<RecommendedAgents catalog={CATALOG} onInstall={vi.fn()} onUpdate={vi.fn()} onMore={vi.fn()} />)
 
     // Codex and Claude lead; Gemini is not one of the four.
     expect(screen.getByTestId("recommended-codex")).toBeInTheDocument()
@@ -39,16 +42,17 @@ describe("RecommendedAgents", () => {
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
   })
 
-  it("offers Install now only for a type that is not installed", async () => {
+  it("opens the setup form from every card, installed or not", async () => {
     const user = userEvent.setup()
     const onInstall = vi.fn()
     const onMore = vi.fn()
-    render(<RecommendedAgents catalog={CATALOG} onInstall={onInstall} onMore={onMore} />)
+    render(<RecommendedAgents catalog={CATALOG} onInstall={onInstall} onUpdate={vi.fn()} onMore={onMore} />)
 
-    // Claude is installed: its card shows the state, not the button.
+    // Claude is installed: another agent of it can still be added.
     const claude = screen.getByTestId("recommended-claude")
-    expect(within(claude).queryByRole("button", { name: /install now/i })).not.toBeInTheDocument()
     expect(within(claude).getByText(/installed/i)).toBeInTheDocument()
+    await user.click(within(claude).getByRole("button", { name: /add agent/i }))
+    expect(onInstall).toHaveBeenCalledWith("claude")
 
     const codex = screen.getByTestId("recommended-codex")
     await user.click(within(codex).getByRole("button", { name: /install now/i }))
@@ -56,5 +60,15 @@ describe("RecommendedAgents", () => {
 
     await user.click(screen.getByRole("button", { name: /browse and connect more agents/i }))
     expect(onMore).toHaveBeenCalled()
+  })
+
+  it("sends a pending update to the type's marketplace page", async () => {
+    const user = userEvent.setup()
+    const onUpdate = vi.fn()
+    useInstallStore.setState({ updates: [{ name: "claude", current: "1.0.0", latest: "1.1.0" }] as never })
+    render(<RecommendedAgents catalog={CATALOG} onInstall={vi.fn()} onUpdate={onUpdate} onMore={vi.fn()} />)
+
+    await user.click(screen.getByTestId("recommended-update-claude"))
+    expect(onUpdate).toHaveBeenCalledWith("claude")
   })
 })

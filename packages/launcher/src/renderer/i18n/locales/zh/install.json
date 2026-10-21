@@ -1,7 +1,8 @@
 {
   "topbar": {
     "title": "智能体市场",
-    "subtitle": "发现并安装 AI 智能体"
+    "subtitle": "发现并安装 AI 智能体",
+    "back": "返回连接智能体"
   },
   "stats": {
     "available": "个可用",

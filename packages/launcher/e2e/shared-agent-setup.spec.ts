@@ -86,10 +86,9 @@ test('local setup uses the shared catalogue and stays available without an accou
   await expect(page.getByRole('button', { name: 'More options' })).toHaveCount(0)
   await expect(page.getByText('Quick start guide')).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('computer-overview.png') })
-  await page.getByTestId('new-agent-open').click()
-  await expect(page.getByRole('heading', { name: 'Choose an agent', exact: true })).toBeVisible()
-  await page.screenshot({ path: info.outputPath('shared-catalogue.png') })
-  await page.getByTestId('agent-type-claude').getByRole('button', { name: 'Configure' }).click()
+  // A recommended card opens the shared setup form straight on its type; the
+  // full list is the marketplace, behind "Browse and connect more agents".
+  await page.getByTestId('recommended-add-claude').click()
   await page.getByRole('textbox', { name: 'Agent name' }).fill('review-helper')
   await expect(page.getByRole('tab', { name: 'API key' })).toBeVisible()
   await expect(page.getByText('Verify API settings')).toBeVisible()
@@ -143,8 +142,7 @@ test('theme menu keeps hover and selection visually separate in the OpenAgents s
 
 test('adding an installed type can open its existing agent instead of creating a copy', async ({ page }) => {
   const errors = await openComputer(page, true)
-  await page.getByTestId('new-agent-open').click()
-  await page.getByTestId('agent-type-claude').getByRole('button', { name: 'Configure' }).click()
+  await page.getByTestId('recommended-add-claude').click()
   await expect(page.getByText('Already on this device')).toBeVisible()
   await page.getByRole('button', { name: /desk-helper.*Open settings/ }).click()
   await expect(page.getByRole('heading', { name: 'Configure desk-helper' })).toBeVisible()

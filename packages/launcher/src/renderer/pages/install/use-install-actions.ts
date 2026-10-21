@@ -2,7 +2,6 @@ import { useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { useInstallStore } from "@renderer/store/install"
-import { isLoginOnlyAgent } from "@renderer/lib/agent-auth"
 import { capture } from "@renderer/lib/analytics"
 import {
   installErrorMessage,
@@ -17,7 +16,6 @@ interface Options {
   loadAll: () => Promise<void>
   showToast: (msg: string, type?: ToastType) => void
   onSelect: (name: string) => void
-  onOpenWizard: (entry: CatalogEntry) => void
 }
 
 interface InstallActions {
@@ -26,7 +24,6 @@ interface InstallActions {
   requestInstall: (entry: CatalogEntry, verb: InstallVerb) => void
   cancelInstall: () => void
   acceptInstall: () => void
-  maybeOpenWizard: (entry: CatalogEntry) => Promise<void>
 }
 
 /**
@@ -39,41 +36,16 @@ export function useInstallActions({
   loadAll,
   showToast,
   onSelect,
-  onOpenWizard,
 }: Options): InstallActions {
   const { t } = useTranslation()
-  const installedList = useInstallStore((s) => s.installed)
   const [confirmInstall, setConfirmInstall] = useState<{
     entry: CatalogEntry
     verb: InstallVerb
   } | null>(null)
 
-  // Open the post-install setup wizard, UNLESS the agent signs in only through
-  // its own CLI and has nothing else to collect (Hermes). For those the wizard's
-  // first step would be empty — their sign-in lives in the Configure dialog.
-  //
-  // getEnvFields decides, not the catalog entry's raw env_config: it is the
-  // launcher's authoritative view, applying LAUNCHER_AUTH_OVERRIDES and clearing
-  // `required` on agents that can also sign in. Cursor used to be excluded here
-  // because that call returned [] for it; now that its optional key is reachable
-  // it comes back with fields and gets the wizard like any other dual-auth agent.
-  const maybeOpenWizard = useCallback(
-    async (entry: CatalogEntry) => {
-      try {
-        const fields = await window.api.getEnvFields(entry.name)
-        if (isLoginOnlyAgent(entry, fields)) return
-      } catch {
-        /* fall through and open the wizard if we can't determine the auth mode */
-      }
-      onOpenWizard(entry)
-    },
-    [onOpenWizard],
-  )
-
   const runInstall = useCallback(
     async (entry: CatalogEntry, verb: InstallVerb) => {
       onSelect(entry.name)
-      const wasInstalled = installedList.some((r) => r.name === entry.name)
       useInstallStore.getState().startJob({ agent: entry.name, verb })
       const name = entry.label || entry.name
       try {
@@ -85,7 +57,6 @@ export function useInstallActions({
             : t("install.toast.installed", { name }),
           "success",
         )
-        if (!wasInstalled && verb === "install") maybeOpenWizard(entry)
       } catch (e: unknown) {
         const error = installErrorMessage(e)
         showToast(
@@ -96,7 +67,7 @@ export function useInstallActions({
         )
       }
     },
-    [showToast, installedList, maybeOpenWizard, onSelect, t],
+    [showToast, onSelect, t],
   )
 
   return {
@@ -108,6 +79,5 @@ export function useInstallActions({
       setConfirmInstall(null)
       if (pending) void runInstall(pending.entry, pending.verb)
     },
-    maybeOpenWizard,
   }
 }

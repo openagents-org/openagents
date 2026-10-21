@@ -20,14 +20,18 @@ interface UiState {
   // dropping the user on the page. Consumed once and cleared by the page, which
   // keeps a later visit to that tab from re-opening the dialog.
   pendingCreate: 'agent' | 'workspace' | null
-  requestCreate: (what: 'agent' | 'workspace') => void
+  /** With `pendingCreate: 'agent'`: the type to open the setup form on. */
+  pendingCreateType: string | null
+  requestCreate: (what: 'agent' | 'workspace', type?: string) => void
   clearPendingCreate: () => void
 
   // Bumped each time the user explicitly clicks the Install sidebar tab.
   // The Install page watches this and clears any open detail view so the
   // user always lands on the marketplace list when entering via the tab.
   installListSignal: number
-  goToInstallList: () => void
+  /** The status filter the list opens with, set alongside the signal. */
+  installListFilter: 'all' | 'installed' | 'updatable'
+  goToInstallList: (filter?: 'all' | 'installed' | 'updatable') => void
 
   // Deep-link into a specific Settings section (used by the update banner to
   // drop the user straight on Settings → Updates). The signal is bumped on
@@ -86,16 +90,23 @@ export const useUiStore = create<UiState>((set) => ({
   setInstallFocusAgent: (name) => set({ installFocusAgent: name }),
 
   pendingCreate: null,
-  requestCreate: (what) =>
+  pendingCreateType: null,
+  requestCreate: (what, type) =>
     set({
       currentTab: what === 'agent' ? 'dashboard' : 'workspaces',
       pendingCreate: what,
+      pendingCreateType: type ?? null,
     }),
-  clearPendingCreate: () => set({ pendingCreate: null }),
+  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null }),
 
   installListSignal: 0,
-  goToInstallList: () =>
-    set((s) => ({ currentTab: 'install', installListSignal: s.installListSignal + 1 })),
+  installListFilter: 'all',
+  goToInstallList: (filter = 'all') =>
+    set((s) => ({
+      currentTab: 'install',
+      installListSignal: s.installListSignal + 1,
+      installListFilter: filter,
+    })),
 
   settingsSection: null,
   settingsSectionSignal: 0,

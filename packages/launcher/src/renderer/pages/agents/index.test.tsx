@@ -26,6 +26,9 @@ function installApi(overrides: Partial<Api> = {}): Api {
       .fn()
       .mockResolvedValue([{ name: "claude", label: "Claude", installed: true }]),
     getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude", "gemini", "cursor", "kimi"]),
+    // The recommended cards read the catalog through the install records.
+    getInstalledAgents: vi.fn().mockResolvedValue([]),
+    checkAgentUpdates: vi.fn().mockResolvedValue([]),
     // ConfigureDialog: no env fields + no login command => "no config" view.
     getEnvFields: vi.fn().mockResolvedValue([]),
     getAgentEnv: vi.fn().mockResolvedValue({}),
@@ -95,10 +98,10 @@ beforeEach(() => {
   showToast.mockClear()
 })
 
-// The shared editor chooses, configures, and creates in one flow.
+// A recommended card opens the shared editor on its type, which configures
+// and creates in one flow.
 async function createAndReachConfigure(user: ReturnType<typeof userEvent.setup>, name = "my-new-agent"): Promise<void> {
-  await user.click(screen.getByTestId("new-agent-open"))
-  await user.click(within(await screen.findByTestId("agent-type-claude")).getByRole("button", { name: /configure/i }))
+  await user.click(await screen.findByTestId("recommended-add-claude"))
   const nameInput = await screen.findByRole("textbox", { name: /agent name/i })
   await user.clear(nameInput); await user.type(nameInput, name)
   const add = screen.getByRole("button", { name: /^add an agent$/i })

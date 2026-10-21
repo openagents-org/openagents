@@ -218,13 +218,13 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       </TabsList>
     </Tabs>}
     {loginCmd && authTab === "cli" && <CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
-      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")} />}
-    {loginCmd && authTab === "cli" && !installed && <Button disabled={installing} onClick={() => {
-      setInstalling(true); setError("")
-      void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
-        setHealth(next); onChanged(); void login.start()
-      }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
-    }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
+      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")}
+      installing={installing} onInstall={() => {
+        setInstalling(true); setError("")
+        void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
+          setHealth(next); onChanged(); void login.start()
+        }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
+      }} />}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
       values={values} onChange={change} onImport={keyForm ? importValues : undefined} />

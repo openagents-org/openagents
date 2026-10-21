@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronLeft, ChevronRight, Download } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, Plus } from "lucide-react"
 
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Button } from "@renderer/components/ui/button"
@@ -17,18 +17,21 @@ const VISIBLE = 2
 /**
  * The recommended agent types, two at a time. Moved by hand only — the
  * marketplace banner rotated on a timer, which changed the card under someone
- * about to click it. A type not on this computer yet offers Install now, which
- * starts the regular setup form for it; an installed one shows its state the
- * way the marketplace did (installed, or an update pending). Another agent of
- * an installed type is added through Browse and connect more agents.
+ * about to click it. Every card opens the regular setup form for its type:
+ * Install now for a type not on this computer yet, Add agent for one that is —
+ * another agent of an installed type reuses its runtime. An installed type
+ * also shows its state; a pending update opens its marketplace page.
  */
 export function RecommendedAgents({
   catalog,
   onInstall,
+  onUpdate,
   onMore,
 }: {
   catalog: CatalogEntry[]
   onInstall: (type: string) => void
+  /** Open the type's marketplace page, where its update runs. */
+  onUpdate: (type: string) => void
   onMore: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -65,7 +68,8 @@ export function RecommendedAgents({
           </Button>
           <div className="grid min-w-0 flex-1 grid-cols-2 divide-x">
             {shown.map((entry) => (
-              <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)} />
+              <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)}
+                onUpdate={() => onUpdate(entry.name)} />
             ))}
           </div>
           <Button
@@ -93,9 +97,11 @@ export function RecommendedAgents({
 function RecommendedCard({
   entry,
   onInstall,
+  onUpdate,
 }: {
   entry: CatalogEntry
   onInstall: () => void
+  onUpdate: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const updates = useInstallStore((s) => s.updates)
@@ -109,20 +115,27 @@ function RecommendedCard({
         <AgentIcon type={entry.name} size={30} />
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>
+          {status === "update" ? (
+            <button type="button" className="shrink-0" onClick={onUpdate} title={t("agents.shared.recommended.update")}
+              data-testid={`recommended-update-${entry.name}`}>
+              <AgentStatusBadge status={status} className="cursor-pointer" />
+            </button>
+          ) : status === "installed" ? (
+            <AgentStatusBadge status={status} className="shrink-0" />
+          ) : null}
+        </div>
         <p className="m-0 mt-1 truncate text-sm text-muted-foreground" title={describeEntry(entry, t) || undefined}>
           {describeEntry(entry, t) || t("install.card.noDescription")}
         </p>
       </div>
       <div className="shrink-0">
-        {status === "available" ? (
-          <Button variant="outline" className="border-primary text-primary hover:bg-(--accent-bg) hover:text-primary" onClick={onInstall}>
-            <Download />
-            {t("agents.shared.recommended.installNow")}
-          </Button>
-        ) : (
-          <AgentStatusBadge status={status} />
-        )}
+        <Button variant="outline" className="border-primary text-primary hover:bg-(--accent-bg) hover:text-primary" onClick={onInstall}
+          data-testid={`recommended-add-${entry.name}`}>
+          {status === "available" ? <Download /> : <Plus />}
+          {t(status === "available" ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")}
+        </Button>
       </div>
     </div>
   )

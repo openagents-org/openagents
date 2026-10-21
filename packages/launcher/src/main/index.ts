@@ -965,11 +965,11 @@ function notifyAgentUpdates(
       // Clicking the entry lands on the surface that performs the upgrade —
       // and when the entry names one agent, on that agent's own page rather
       // than on a list the user then has to search. With several there is no
-      // single destination, so `tab` alone sends them to the list.
+      // single destination, so they get the list, narrowed to those updates.
       payload:
         updates.length === 1
           ? { tab: "install", agent: names[0] }
-          : { tab: "install" },
+          : { tab: "install", filter: "updatable" },
       priority: "low",
     })
   } catch {}
