@@ -1,3 +1,13 @@
+import { isCliLogin } from "./agent-auth-mode"
+
+/**
+ * Set by the core (env.js MODEL_MODE_KEY) on an agent whose model was cleared
+ * from the workspace: it runs on its CLI's default, and no model in the type
+ * env reaches it.
+ */
+export const MODEL_MODE_KEY = "OPENAGENTS_MODEL_MODE"
+export const MODEL_DEFAULT = "default"
+
 /**
  * Model fields the launcher itself defines, in the order to prefer them when an
  * agent carries more than one. This list is a tie-breaker, NOT the match rule —
@@ -48,10 +58,15 @@ export function deriveModelFromEnv(
   return fallback ? env[fallback] : null
 }
 
-/** Instance settings win even when the type default uses a different key. */
+/**
+ * Instance settings win even when the type default uses a different key. As
+ * the core runs it (env.js typeEnvFor), an agent signed in through its CLI or
+ * one whose model was cleared takes no model from the type env.
+ */
 export function deriveAgentModel(
   typeEnv: Record<string, string> | null | undefined,
   instanceEnv: Record<string, string> | null | undefined,
 ): string | null {
-  return deriveModelFromEnv(instanceEnv) || deriveModelFromEnv(typeEnv)
+  const ownOnly = isCliLogin(instanceEnv) || instanceEnv?.[MODEL_MODE_KEY] === MODEL_DEFAULT
+  return deriveModelFromEnv(instanceEnv) || (ownOnly ? null : deriveModelFromEnv(typeEnv))
 }

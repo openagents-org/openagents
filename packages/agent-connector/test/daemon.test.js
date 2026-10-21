@@ -1027,11 +1027,15 @@ describe('Daemon', () => {
     assert.equal(reported.ok, true);
   });
 
-  /** Run configure_agent for real, with agn remove/create/connect stood in for. */
-  async function configureFromWorkspace(config, daemon, args) {
+  /** Run configure_agent for real, with agn remove/create/connect/env stood in for. */
+  async function configureFromWorkspace(config, daemon, args, env) {
     const calls = [];
     daemon._runAgn = async (a) => {
       calls.push(a);
+      if (a[0] === 'env' && env) {
+        const [key, ...value] = a[3].split('=');
+        env.save(a[1], { ...env.load(a[1]), [key]: value.join('=') });
+      }
       if (a[0] === 'remove') config.removeAgent(a[1]);
       if (a[0] === 'create') config.addAgent({ name: a[1], type: a[3], path: a[a.indexOf('--path') + 1] });
       if (a[0] === 'connect') config.setAgentNetwork(a[1], 'ws1');
@@ -1064,6 +1068,27 @@ describe('Daemon', () => {
     assert.equal(config.getAgent('codex-key').path, path.join(tmpDir, 'new'));
     assert.deepEqual(config.getAgent('codex-key').env, own);
   });
+
+  for (const moved of [true, false]) {
+    it(`configure_agent ${moved ? 'moving an agent' : 'in place'} runs it on the credentials just sent, not an older copy of its own`, async () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      // CodeArts keys are its own fields; the workspace saves them for the type.
+      config.addAgent({ name: 'ca', type: 'codearts', path: path.join(tmpDir, 'old'), env: { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk', CODEARTS_MODEL: 'own-model' } });
+      config.setAgentNetwork('ca', 'ws1');
+      await configureFromWorkspace(config, daemon, {
+        name: 'ca', type: 'codearts', config: { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' },
+        ...(moved ? { workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old') } : {}),
+      }, env);
+      withProcessEnv(NO_CREDENTIALS, () => {
+        const built = daemon._buildAgentEnv(config.getAgent('ca'));
+        assert.equal(built.CODEARTS_CLI_AK, 'new-ak');
+        assert.equal(built.CODEARTS_CLI_SK, 'new-sk');
+        assert.equal(built.CODEARTS_MODEL, 'own-model');
+      });
+    });
+  }
 
   it('configure_agent clearing the model drops one left in the type env too', async () => {
     const config = new Config(tmpDir);

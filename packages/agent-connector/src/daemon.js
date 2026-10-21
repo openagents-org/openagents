@@ -877,7 +877,8 @@ class Daemon {
    * only here, in the device's env store.)
    */
   async _applyConfigMap(type, config) {
-    if (!config || typeof config !== 'object') return;
+    const applied = [];
+    if (!config || typeof config !== 'object') return applied;
     let allowed = null;
     try {
       const entry = this.registry.getEntry(type);
@@ -885,7 +886,7 @@ class Daemon {
         ((entry && entry.env_config) || []).map((f) => f.name).filter(Boolean)
       );
     } catch {
-      return; // no registry entry — refuse everything rather than guess
+      return applied; // no registry entry — refuse everything rather than guess
     }
     for (const [key, value] of Object.entries(config)) {
       if (!allowed.has(key)) {
@@ -894,7 +895,9 @@ class Daemon {
       }
       if (value === null || value === undefined) continue;
       await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+      applied.push(key);
     }
+    return applied;
   }
 
 async _runNodeCommand(n, cmd) {
@@ -993,7 +996,11 @@ async _runNodeCommand(n, cmd) {
           if (args.model !== undefined) await this._setModelEnv(type, args.model);
           if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
         }
-        await this._applyConfigMap(type, args.config);
+        const applied = await this._applyConfigMap(type, args.config);
+        // Those just went to the type env, which a copy on the agent itself
+        // (one the launcher saved) outranks at launch: drop that copy, or the
+        // agent keeps running on the old CodeArts AK/SK while the save says ok.
+        const unshadow = Object.fromEntries(applied.map((key) => [key, '']));
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
@@ -1005,7 +1012,7 @@ async _runNodeCommand(n, cmd) {
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
-          if (Object.keys(ownEnv).length) this.config.updateAgentEnv(name, ownEnv);
+          if (Object.keys(ownEnv).length) this.config.updateAgentEnv(name, { ...ownEnv, ...unshadow });
           this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
             'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
@@ -1015,6 +1022,7 @@ async _runNodeCommand(n, cmd) {
           // Restart in-process. `agn stop` + `agn start` both round-trip
           // through daemon.cmd, and the pair can interleave with the poll so
           // the agent stops and never restarts.
+          if (applied.length) this.config.updateAgentEnv(name, unshadow);
           this._saveNodeAgentEnv(name, type, args);
           await this.restartAgent(name);
         }

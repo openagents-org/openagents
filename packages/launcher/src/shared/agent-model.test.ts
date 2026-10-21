@@ -42,6 +42,16 @@ describe("deriveModelFromEnv", () => {
     )
   })
 
+  it("ignores the type's model for an agent the core runs without it", () => {
+    const typeEnv = { CODEX_MODEL: "old-type-model" }
+    // Its model was cleared from the workspace: the CLI's default.
+    expect(deriveAgentModel(typeEnv, { LLM_API_KEY: "sk-x", OPENAGENTS_MODEL_MODE: "default" })).toBeNull()
+    // Signed in through its CLI: the type's model was picked for a key's endpoint.
+    expect(deriveAgentModel(typeEnv, { OPENAGENTS_AUTH_MODE: "cli_login" })).toBeNull()
+    // A model of its own still shows.
+    expect(deriveAgentModel(typeEnv, { OPENAGENTS_MODEL_MODE: "default", CODEX_MODEL: "gpt-5.5" })).toBe("gpt-5.5")
+  })
+
   it("answers null when no model is set, rather than a stray value", () => {
     expect(deriveModelFromEnv({ OPENWORKER_API_KEY: "sk-x" })).toBeNull()
     expect(deriveModelFromEnv({})).toBeNull()
