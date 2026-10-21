@@ -1090,6 +1090,31 @@ describe('Daemon', () => {
     });
   }
 
+  it('configure_agent keeps the agent\'s own credentials when saving the new ones fails', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const own = { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk' };
+    config.addAgent({ name: 'ca', type: 'codearts', env: own });
+    config.setAgentNetwork('ca', 'ws1');
+    daemon._runAgn = async (a) => (a[0] === 'env'
+      ? { code: 1, stdout: '', stderr: 'disk full' }
+      : { code: 0, stdout: '', stderr: '' });
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    let result = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c11', action: 'configure_agent', args: { name: 'ca', type: 'codearts', config: { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' } } },
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.message, /disk full/);
+    assert.deepEqual(config.getAgent('ca').env, own);
+    assert.deepEqual(restarted, []);
+  });
+
   it('configure_agent clearing the model drops one left in the type env too', async () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

@@ -70,3 +70,16 @@ export function deriveAgentModel(
   const ownOnly = isCliLogin(instanceEnv) || instanceEnv?.[MODEL_MODE_KEY] === MODEL_DEFAULT
   return deriveModelFromEnv(instanceEnv) || (ownOnly ? null : deriveModelFromEnv(typeEnv))
 }
+
+/**
+ * The model for a row of the core's agent list. The row's `env` is the type
+ * env with the agent's own over it, so read as the agent's own it turns a
+ * model left in the type env into the agent's. `instanceEnv` is the agent's
+ * own alone; a core too old to send it gets the merged env, as before.
+ */
+export function listedAgentModel(
+  typeEnv: Record<string, string> | null | undefined,
+  row: { env?: Record<string, string> | null; instanceEnv?: Record<string, string> | null },
+): string | null {
+  return deriveAgentModel(typeEnv, row.instanceEnv ?? row.env)
+}

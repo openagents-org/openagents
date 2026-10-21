@@ -894,7 +894,10 @@ class Daemon {
         continue;
       }
       if (value === null || value === undefined) continue;
-      await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+      const r = await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+      // Stop here rather than count it: the caller drops the agent's own copy
+      // of what was applied, which would leave it with no credential at all.
+      if (r.code !== 0) throw new Error(r.stderr || r.stdout || `Could not save ${key}`);
       applied.push(key);
     }
     return applied;
