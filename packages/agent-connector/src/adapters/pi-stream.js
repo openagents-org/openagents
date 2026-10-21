@@ -870,15 +870,20 @@ const PI_PROVIDER_API_FORMATS = {
  * The API format a Pi agent's launcher provider speaks, resolved the way it
  * is at run time (the adapter's _buildEnv, then pi-launcher-provider.mjs): an
  * explicit PI_API_FORMAT, else the one inferred for a relay-only config, else
- * the provider's default.
+ * the provider's default. Null when there is no launcher provider to speak
+ * for (no PI_PROVIDER, no PI_BASE_URL): Pi then runs on its own provider
+ * config (its sign-in, an ANTHROPIC_API_KEY), whose format these fields do
+ * not say.
  */
 function piApiFormat(env = {}) {
   const val = (k) => String(env[k] == null ? '' : env[k]).trim().toLowerCase();
+  const inferred = inferLauncherProvider(env);
+  const provider = val('PI_PROVIDER') || (inferred && inferred.provider);
+  if (!provider) return null;
   const configured = val('PI_API_FORMAT');
   if (configured && configured !== 'auto') return configured;
-  const inferred = inferLauncherProvider(env);
   if (inferred) return inferred.apiFormat;
-  return PI_PROVIDER_API_FORMATS[val('PI_PROVIDER')] || 'openai-completions';
+  return PI_PROVIDER_API_FORMATS[provider] || 'openai-completions';
 }
 
 function buildPiArgs({

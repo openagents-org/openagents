@@ -742,6 +742,19 @@ describe('a direct test of a Pi agent speaks the API format Pi uses', () => {
     });
   });
 
+  it('leaves a Pi agent on its own provider config to the client', async () => {
+    // No PI_PROVIDER or PI_BASE_URL: the launcher's provider is not in play,
+    // and Pi runs on its own config, here an Anthropic relay.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: {
+        ANTHROPIC_API_KEY: 'sk-ant-123456', ANTHROPIC_BASE_URL: 'https://anthropic-relay.example', PI_MODEL: 'm',
+      } });
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].protocol, undefined);
+      assert.equal(seen[0].baseUrl, undefined);
+    });
+  });
+
   it('reports static checks for a format the direct test does not speak', async () => {
     await withLLM(async (seen) => {
       const r = await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'openai' } });

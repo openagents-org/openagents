@@ -294,6 +294,7 @@ function directProtocol(type, env) {
   if (type !== 'pi') return undefined;
   const { piApiFormat } = require('./adapters/pi-stream');
   const format = piApiFormat(env);
+  if (!format) return undefined;
   if (format === 'anthropic-messages') return 'anthropic';
   if (format === 'openai-completions') return 'openai';
   return null;
