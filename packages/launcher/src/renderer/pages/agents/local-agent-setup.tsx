@@ -35,6 +35,8 @@ export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChang
   const [attempt, setAttempt] = useState(0)
   const [authBusy, setAuthBusy] = useState(false)
   const [configReady, setConfigReady] = useState(false)
+  // Bumped by the header's "Sign in" link; the configuration below answers it.
+  const [signInRequest, setSignInRequest] = useState(0)
   const config = useRef<LocalConfiguration | null>(null)
   const locale = i18n.language.startsWith("zh") ? "zh-CN" : "en-US"
 
@@ -91,8 +93,9 @@ export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChang
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },
+            signIn: (type) => data.raw.find((entry) => entry.name === type)?.check_ready?.login_command ? () => setSignInRequest((n) => n + 1) : undefined,
             configuration: ({ type, name, onChanged: changed }) => <LocalConfigurationFields key={`${type}:${name || ""}`} type={type} name={name}
-              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy}
+              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy} signInRequest={signInRequest}
               onChange={(next) => { config.current = next; setConfigReady(!!next) }} />,
           }} />
       </I18nProvider>}
@@ -104,8 +107,10 @@ export function toCatalogEntry(entry: CatalogEntry): AgentCatalogEntry {
     homepage: entry.homepage || "", tags: entry.tags || [], builtin: !!entry.builtin }
 }
 
-export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy }: {
+export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy, signInRequest = 0 }: {
   type: string; name?: string; catalog: CatalogEntry[]; onChange: (config: LocalConfiguration | null) => void; onChanged: () => void; onBusy: (busy: boolean) => void
+  /** Changes when the user asks to sign in from outside this form. */
+  signInRequest?: number
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [fields, setFields] = useState<EnvField[]>([])
@@ -198,6 +203,20 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     }
     catch (err) { setTestResult({ kind: "error", message: String(err) }) } finally { setTesting(false) }
   }
+  const chooseTab = (tab: "cli" | "key"): void => {
+    decided.current = true; selectTab(tab)
+    const next = shownFor(tab, valuesRef.current); valuesRef.current = next; setValues(next); publish(next, fields, tab)
+  }
+  // "Sign in" beside the header's Needs login: open the sign-in tab and start it, which opens the provider's login page.
+  const loginBlock = useRef<HTMLDivElement>(null)
+  const answered = useRef(signInRequest)
+  useEffect(() => {
+    if (loading || !loginCmd || signInRequest === answered.current) return
+    answered.current = signInRequest
+    if (fields.length > 0 && tabRef.current !== "cli") chooseTab("cli")
+    requestAnimationFrame(() => loginBlock.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
+    if (installed && !loggedIn && !login.active) void login.start()
+  }, [signInRequest, loading])
   if (loading) return <Spinner />
   const keyForm = !loginCmd || authTab === "key"
   const loginModels = keyForm ? [] : fields.filter((field) => hasModelPicker(type, field.name))
@@ -207,24 +226,20 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
-    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => {
-      const tab = value as "cli" | "key"
-      decided.current = true; selectTab(tab)
-      const next = shownFor(tab, valuesRef.current); valuesRef.current = next; setValues(next); publish(next, fields, tab)
-    }}>
+    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => chooseTab(value as "cli" | "key")}>
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="cli" data-testid="auth-tab-cli">{t("agents.list.health.cliLogin")}</TabsTrigger>
         <TabsTrigger value="key" data-testid="auth-tab-key">{t("agents.shared.apiKey")}</TabsTrigger>
       </TabsList>
     </Tabs>}
-    {loginCmd && authTab === "cli" && <CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
+    {loginCmd && authTab === "cli" && <div ref={loginBlock}><CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
       notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")}
       installing={installing} onInstall={() => {
         setInstalling(true); setError("")
         void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
           setHealth(next); onChanged(); void login.start()
         }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
-      }} />}
+      }} /></div>}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
       values={values} onChange={change} onImport={keyForm ? importValues : undefined} />

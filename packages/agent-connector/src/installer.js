@@ -90,6 +90,14 @@ const INSTALL_STALL_MS = (() => {
  */
 const STALL_POLL_MS = Math.max(50, Math.min(15000, Math.floor(INSTALL_STALL_MS / 2) || 15000));
 
+/**
+ * Flags a runtime `npm install` takes for speed: --no-audit and --no-fund skip
+ * two registry round trips that only print advice. Not --prefer-offline: a
+ * cached packument can predate the release asked for, and npm then fails with
+ * ETARGET instead of fetching it.
+ */
+const NPM_INSTALL_SPEED_FLAGS = ['--no-audit', '--no-fund'];
+
 // Version detection is comparatively expensive (spawns `<bin> --version`), so
 // results are cached briefly and invalidated on install/uninstall.
 const VERSION_CACHE_TTL_MS = 60000;
@@ -1457,8 +1465,10 @@ class Installer {
       // on next install). --registry is added only when we'd be helping — see
       // installRegistry(); a user's own registry choice is never overridden.
       const registry = installRegistry();
+      // The verbose log stays: it is the install's progress, and the output the
+      // stall watchdog below waits on.
       const npmArgs = [
-        'install', '--loglevel=verbose', '--save', '--prefix', prefixDir,
+        'install', '--loglevel=verbose', ...NPM_INSTALL_SPEED_FLAGS, '--save', '--prefix', prefixDir,
         ...(registry ? ['--registry', registry] : []),
         ...pkgArgs,
       ];
@@ -1479,7 +1489,7 @@ class Installer {
       } else {
         // Legacy fallback: quoted prefix inside a shell string.
         const registryArg = registry ? `--registry ${registry} ` : '';
-        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
+        const args = `install --loglevel=verbose ${NPM_INSTALL_SPEED_FLAGS.join(' ')} --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
         spawnFile = this._wrapForWindowsShell(this._resolveNpmCommand(args));
         useShell = isWin ? (env.ComSpec || 'C:\\Windows\\System32\\cmd.exe') : true;
         displayCmd = spawnFile;

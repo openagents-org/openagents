@@ -1592,6 +1592,7 @@ export const messages: Messages = {
     agentSaved: "智能体设置已保存。",
     agentAdded: "智能体已添加。",
     agentDocs: "使用文档",
+    agentSignIn: "去登录",
     agentAddedAfterInstall: "正在安装 {name}，安装完成后会自动添加，期间可以继续其他操作。",
 
     title: '连接智能体',

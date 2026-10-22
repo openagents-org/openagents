@@ -71,3 +71,29 @@ describe('AgentSetup form for a type already on the device', () => {
     expect(html).not.toContain('<footer');
   });
 });
+
+describe('AgentSetup header for a type that needs a sign-in', () => {
+  const kimiNode = {
+    ...node,
+    runtimes: [{ type: 'kimi', installed: true, ready: false }],
+  } as unknown as WorkspaceNode;
+  const catalog = [{ name: 'kimi', label: 'Kimi Code', description: '', tags: [], homepage: 'https://moonshotai.github.io/kimi-code' }] as never;
+  const renderHeader = (compact: boolean, signIn?: (type: string) => (() => void) | undefined) => renderToString(createElement(AgentSetup, {
+    node: kimiNode, catalog, api, initialType: 'kimi', onBack: () => {}, onChanged: () => {},
+    extensions: { compact, local: true, headerActions: true, signIn },
+  }));
+
+  it.each([true, false])('offers the sign-in where the host can run it (compact: %s)', (compact) => {
+    const html = renderHeader(compact, () => () => {});
+    expect(html).toContain(`${en.connect.agentSignIn}<`);
+    expect(html).not.toContain('moonshotai.github.io');
+  });
+
+  it('keeps the labelled docs link where it cannot', () => {
+    for (const signIn of [undefined, () => undefined]) {
+      const html = renderHeader(false, signIn);
+      expect(html).not.toContain(`${en.connect.agentSignIn}<`);
+      expect(html).toContain(`${en.connect.agentDocs}<`);
+    }
+  });
+});

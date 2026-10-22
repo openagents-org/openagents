@@ -368,16 +368,28 @@ describe("when npm's latest refuses the agents' Node", () => {
     expect(spawned[0]).toContain("openclaw@2026.9.2")
   })
 
-  it.each(["24.20.0", null])("changes nothing on Node %s", async (node) => {
-    // New enough, or no Node to ask: `latest` as before, and a fresh install
-    // stays with the core, which owns the full install pipeline.
+  it.each([
+    ["24.20.0", "openclaw@2026.9.4"],
+    [null, "openclaw@latest"],
+  ])("holds nothing back on Node %s", async (node, spec) => {
+    // New enough, or no Node to ask: npm's `latest` — named by number when it
+    // is known — and a fresh install stays with the core, which owns the full
+    // install pipeline.
     const { svc, installStreaming } = service(node)
     const [update] = await svc.checkAgentUpdates({ force: true })
     expect(update.latest).toBe("2026.9.4")
     await svc.updateAgentTypeStreaming("openclaw", () => undefined)
-    expect(spawned[0]).toContain("openclaw@latest")
+    expect(spawned[0]).toContain(spec)
     await svc.installAgentTypeStreaming("openclaw", () => undefined)
     expect(installStreaming).toHaveBeenCalledOnce()
+  })
+
+  it("never lets npm answer from a stale cache", async () => {
+    // A cached packument can predate the release being installed: with
+    // --prefer-offline npm then fails with ETARGET instead of fetching it,
+    // which broke every update.
+    await service("24.20.0").svc.updateAgentTypeStreaming("openclaw", () => undefined)
+    expect(spawned[0]).not.toContain("--prefer-offline")
   })
 })
 
