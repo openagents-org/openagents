@@ -41,7 +41,8 @@ describe('CodexAdapter._resolveExec', () => {
   });
   after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-  it('runs an npm .cmd shim through node, with no shell', () => {
+  // The shim's `%dp0%\..\x.js` is a Windows path; only Windows resolves it.
+  it('runs an npm .cmd shim through node, with no shell', { skip: !IS_WINDOWS }, () => {
     const shim = path.join(dir, 'codex.cmd');
     fs.writeFileSync(shim, '@ECHO off\r\n"%_prog%"  "%dp0%\\..\\@openai\\codex\\bin\\codex.js" %*\r\n');
     const r = bare()._resolveExec(shim, true);
@@ -50,7 +51,7 @@ describe('CodexAdapter._resolveExec', () => {
     assert.ok(!/cmd\.exe$/i.test(r.file), 'node, not cmd.exe');
   });
 
-  it('runs a shim that forwards to a native .exe directly', () => {
+  it('runs a shim that forwards to a native .exe directly', { skip: !IS_WINDOWS }, () => {
     const shim = path.join(dir, 'codex-exe.cmd');
     fs.writeFileSync(shim, '@"%dp0%\\vendor\\codex.exe" %*\r\n');
     assert.deepEqual(bare()._resolveExec(shim, true), {
