@@ -44,7 +44,7 @@
       "NANOCLAW_AGENT_GROUP"
     ],
     "saved_env_key": "NANOCLAW_AGENT_GROUP",
-    "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) — press e to configure"
+    "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) in Configure"
   },
   "env_config": [
     {

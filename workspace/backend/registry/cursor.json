@@ -111,5 +111,8 @@
   },
   "vendor": "Cursor",
   "tagline": "The AI editor you love — now headless on your node.",
-  "provider_locked": true
+  "provider_locked": true,
+  "probe": {
+    "api_test": false
+  }
 }

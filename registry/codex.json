@@ -51,7 +51,14 @@
       "OPENAI_API_KEY",
       "OPENAI_BASE_URL"
     ],
-    "status_command": "codex login status",
+    "creds_file": "~/.codex/auth.json",
+    "creds_no_parse": true,
+    "status_args": [
+      "login",
+      "status"
+    ],
+    "logged_in_pattern": "logged in using",
+    "logged_out_pattern": "not logged in",
     "login_command": "codex login",
     "unverifiable": true,
     "not_ready_message": "Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login"

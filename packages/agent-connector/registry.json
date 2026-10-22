@@ -48,14 +48,21 @@
     "check_ready": {
       "env_vars": [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN"
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN"
       ],
-      "creds_file": "~/.claude/sessions",
-      "creds_key": null,
+      "creds_file": "~/.claude/.credentials.json",
+      "creds_key": "claudeAiOauth",
       "keychain_service": "Claude Code-credentials",
       "not_ready_message": "Not logged in. Run: claude login",
       "login_command": "claude login",
-      "alt_check": "claude --print hi"
+      "alt_check": "claude --print hi",
+      "status_args": [
+        "auth",
+        "status"
+      ],
+      "logged_in_pattern": "\"loggedIn\"\\s*:\\s*true",
+      "logged_out_pattern": "\"loggedIn\"\\s*:\\s*false"
     },
     "probe": {
       "args": [
@@ -146,7 +153,7 @@
         "OPENAI_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "Not configured — press e to configure"
+      "not_ready_message": "Not configured — add a model API key in Configure"
     },
     "env_config": [
       {
@@ -248,7 +255,14 @@
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL"
       ],
-      "status_command": "codex login status",
+      "creds_file": "~/.codex/auth.json",
+      "creds_no_parse": true,
+      "status_args": [
+        "login",
+        "status"
+      ],
+      "logged_in_pattern": "logged in using",
+      "logged_out_pattern": "not logged in",
       "login_command": "codex login",
       "unverifiable": true,
       "not_ready_message": "Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login"
@@ -402,7 +416,10 @@
     },
     "vendor": "Cursor",
     "tagline": "The AI editor you love — now headless on your node.",
-    "provider_locked": true
+    "provider_locked": true,
+    "probe": {
+      "api_test": false
+    }
   },
   {
     "name": "opencode",
@@ -448,7 +465,13 @@
       ],
       "saved_env_key": "LLM_API_KEY",
       "min_version": "1.17.0",
-      "not_ready_message": "Not configured — press e to configure"
+      "not_ready_message": "Not configured — sign in with `opencode auth login`, pick a free opencode/ model, or add an API key in Configure",
+      "creds_file": "~/.local/share/opencode/auth.json",
+      "creds_no_parse": true,
+      "creds_json_has_entries": true,
+      "keyless_model_prefixes": [
+        "opencode/"
+      ]
     },
     "env_config": [
       {
@@ -561,8 +584,12 @@
     },
     "check_ready": {
       "creds_file": "~/.hermes/config.yaml",
+      "creds_file_windows": "%LOCALAPPDATA%/hermes/config.yaml",
       "creds_no_parse": true,
-      "status_command": "hermes status",
+      "status_args": [
+        "status"
+      ],
+      "logged_in_pattern": "✓\\s*logged in",
       "login_command": "hermes setup",
       "not_ready_message": "Hermes not configured — run: hermes setup",
       "env_vars": [
@@ -670,7 +697,10 @@
       ],
       "saved_env_key": "KIMI_API_KEY",
       "login_command": "kimi login",
-      "not_ready_message": "Not configured — set an API key (press e) or run: kimi login"
+      "not_ready_message": "Not configured — set an API key in Configure, or run: kimi login",
+      "creds_file": "~/.kimi-code/credentials/kimi-code.json",
+      "creds_no_parse": true,
+      "creds_key": "refresh_token"
     },
     "env_config": [
       {
@@ -968,7 +998,7 @@
         "DEEPSEEK_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) — press e to configure"
+      "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) in Configure"
     },
     "env_config": [
       {
@@ -1138,7 +1168,7 @@
       ],
       "saved_env_key": "CLINE_API_KEY",
       "login_command": "cline auth",
-      "not_ready_message": "Not configured — set an API key (press e) or run: cline auth"
+      "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth"
     },
     "env_config": [
       {
@@ -1391,7 +1421,7 @@
         "NANOCLAW_AGENT_GROUP"
       ],
       "saved_env_key": "NANOCLAW_AGENT_GROUP",
-      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) — press e to configure"
+      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) in Configure"
     },
     "env_config": [
       {
@@ -1599,7 +1629,7 @@
       ],
       "saved_env_key": "PI_API_KEY",
       "login_command": "pi",
-      "not_ready_message": "Not configured — set a provider API key (press e), or run `pi` and use /login once.",
+      "not_ready_message": "Not configured — set a provider API key in Configure, or run `pi` and use /login once.",
       "unreadable_message": "Pi credentials were found but could not be read. Check permissions on ~/.pi/agent, or run `pi` and sign in again."
     },
     "env_config": [
@@ -1778,7 +1808,7 @@
         "DEEPSEEK_API_KEY"
       ],
       "saved_env_key": "DEEPSEEK_API_KEY",
-      "not_ready_message": "Not configured — set DEEPSEEK_API_KEY (press e). The harness has no CLI sign-in.",
+      "not_ready_message": "Not configured — set DEEPSEEK_API_KEY in Configure. The harness has no CLI sign-in.",
       "unreadable_message": "DeepSeek Harness credentials could not be read. Re-enter DEEPSEEK_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -1890,7 +1920,7 @@
       ],
       "saved_env_key": "COMMAND_CODE_API_KEY",
       "login_command": "command-code login",
-      "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY (press e)",
+      "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY in Configure",
       "unreadable_message": "Command Code credentials could not be read. Sign in again with `command-code login`, or re-enter COMMAND_CODE_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -1996,7 +2026,7 @@
         "GEMINI_API_KEY"
       ],
       "saved_env_key": "OPENWORKER_API_KEY",
-      "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY (press e to configure)",
+      "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY in Configure",
       "unreadable_message": "The OpenWorker model key could not be read. Re-enter OPENWORKER_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -2209,7 +2239,7 @@
       "saved_env_key": "CODEBUDDY_API_KEY",
       "login_command": "codebuddy",
       "unverifiable": true,
-      "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN (press e). A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
+      "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN in Configure. A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
       "auth_detected_labels": {
         "cli_login": "CodeBuddy sign-in detected",
         "api_key": "API key detected"
@@ -2302,7 +2332,7 @@
         "CODEARTS_CLI_AK",
         "CODEARTS_CLI_SK"
       ],
-      "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
+      "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK in Configure. Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
     }
   }
 ]

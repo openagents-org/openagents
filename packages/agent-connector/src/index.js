@@ -57,8 +57,19 @@ class AgentConnector {
 
   // -- Install / Uninstall --
 
+  /**
+   * Install an agent runtime the way the launcher's Install button does
+   * (installStreaming): it installs Node.js when an npm agent needs it, uses
+   * the configured npm mirror and runs npm path-safely. `agn install` and the
+   * workspace's remote create used the bare install(), which had none of
+   * that, and the failures it produced surfaced only as "Not installed".
+   */
   async install(agentType) {
-    return this.installer.install(agentType);
+    let output = '';
+    const result = await this.installer.installStreaming(agentType, (chunk) => {
+      output = (output + String(chunk)).slice(-8000);
+    });
+    return { ...result, output: output.trim() };
   }
 
   async uninstall(agentType) {

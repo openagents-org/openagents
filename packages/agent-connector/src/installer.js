@@ -828,7 +828,10 @@ class Installer {
       (entry.check_ready && entry.check_ready.min_version)
     )) || null;
     if (!minVersion) return { compatible: true, minVersion: null, message: null };
-    const cmp = compareVersions(version, minVersion);
+    // "0.0.0" is a placeholder, not a release: Pi prints it when it cannot
+    // find its own package.json (a standalone build, a moved install). Blocking
+    // on it told a current Pi it was too old.
+    const cmp = /^v?0\.0\.0\b/.test(String(version || '').trim()) ? null : compareVersions(version, minVersion);
     if (cmp === null) {
       return { compatible: null, minVersion, message: `Version unknown (requires >= ${minVersion})` };
     }
@@ -924,6 +927,22 @@ class Installer {
       };
     }
 
+    // A model that needs no credential at all — OpenCode Zen's free
+    // `opencode/…` models. The launcher's KEYLESS_AUTH_SETTINGS already counts
+    // them as ready; judged here on keys alone the same agent read "Not
+    // configured" in every smoke test.
+    const keylessPrefixes = Array.isArray(checkReady.keyless_model_prefixes) ? checkReady.keyless_model_prefixes : [];
+    const model = String((savedEnv && savedEnv.LLM_MODEL) || '').trim();
+    if (model && keylessPrefixes.some((p) => p && model.startsWith(p))) {
+      return {
+        ready: true,
+        auth_mode: null,
+        auth_status: 'ready',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
     // Evaluated only after every key/env path above has had its say: it may
     // shell out (macOS keychain, Windows `cmdkey`), which a key-configured
     // agent never needs.
@@ -995,10 +1014,22 @@ class Installer {
     return keys.some((key) => !!(source && source[key]));
   }
 
+  /**
+   * The credential file to look at on this platform. `creds_file_windows`
+   * names it for a CLI that keeps its home elsewhere on Windows — Hermes uses
+   * %LOCALAPPDATA%\hermes there, so ~/.hermes/config.yaml never existed and a
+   * configured Hermes read "not configured".
+   */
+  _credsFile(checkReady) {
+    if (!checkReady) return null;
+    if (process.platform === 'win32' && checkReady.creds_file_windows) return checkReady.creds_file_windows;
+    return checkReady.creds_file || null;
+  }
+
   _checkCredsReady(checkReady, agentType) {
-    if (checkReady.creds_file) {
+    if (this._credsFile(checkReady)) {
       try {
-        const credsPath = this._expandHome(checkReady.creds_file, agentType);
+        const credsPath = this._expandHome(this._credsFile(checkReady), agentType);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
@@ -1034,6 +1065,12 @@ class Installer {
    */
   _expandHome(p, agentType) {
     if (typeof p !== 'string' || !p) return p;
+    // A Windows location named by its variable (%LOCALAPPDATA%\hermes\…).
+    if (/^%\w+%/.test(p)) {
+      const m = /^%(\w+)%[\\/]?(.*)$/.exec(p);
+      const base = m && process.env[m[1]];
+      return base ? path.join(base, m[2]) : p;
+    }
     const home = this._homeForAgent(agentType);
     if (p === '~') return home;
     if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(home, p.slice(2));
@@ -1068,8 +1105,8 @@ class Installer {
    * renderer/browser user.
    */
   _credsFileState(checkReady, agentType) {
-    if (!checkReady || !checkReady.creds_file) return 'absent';
-    const p = this._expandHome(checkReady.creds_file, agentType);
+    if (!this._credsFile(checkReady)) return 'absent';
+    const p = this._expandHome(this._credsFile(checkReady), agentType);
     let exists = false;
     try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
     if (!exists) return 'absent';
@@ -1109,7 +1146,7 @@ class Installer {
    * Returns { ready, unreadable }.
    */
   _evaluateCredsFile(checkReady, agentType) {
-    if (!checkReady || !checkReady.creds_file || !checkReady.creds_no_parse) {
+    if (!this._credsFile(checkReady) || !checkReady.creds_no_parse) {
       return { ready: false, unreadable: false };
     }
     const state = this._credsFileState(checkReady, agentType);

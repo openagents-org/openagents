@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -251,13 +251,7 @@ class CodexAdapter extends BaseAdapter {
    * GB18030 only when UTF-8 fails and GB18030 reads the bytes cleanly.
    */
   static _decodeOutput(buf, isWindows = IS_WINDOWS) {
-    const utf8 = buf.toString('utf-8');
-    if (!isWindows || !utf8.includes('\uFFFD')) return utf8;
-    try {
-      return new TextDecoder('gb18030', { fatal: true }).decode(buf);
-    } catch {
-      return utf8;
-    }
+    return decodeConsoleOutput(buf, isWindows);
   }
 
   _buildSystemContext(channelName) {

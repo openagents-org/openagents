@@ -47,14 +47,21 @@
   "check_ready": {
     "env_vars": [
       "ANTHROPIC_API_KEY",
-      "ANTHROPIC_AUTH_TOKEN"
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN"
     ],
-    "creds_file": "~/.claude/sessions",
-    "creds_key": null,
+    "creds_file": "~/.claude/.credentials.json",
+    "creds_key": "claudeAiOauth",
     "keychain_service": "Claude Code-credentials",
     "not_ready_message": "Not logged in. Run: claude login",
     "login_command": "claude login",
-    "alt_check": "claude --print hi"
+    "alt_check": "claude --print hi",
+    "status_args": [
+      "auth",
+      "status"
+    ],
+    "logged_in_pattern": "\"loggedIn\"\\s*:\\s*true",
+    "logged_out_pattern": "\"loggedIn\"\\s*:\\s*false"
   },
   "probe": {
     "args": [
