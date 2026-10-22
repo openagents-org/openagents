@@ -769,14 +769,19 @@ async _runNodeCommand(n, cmd) {
         // reaches the workspace via the heartbeat's agents[].probe.
         this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
         this._askCliModels(name);
-      } else if (action === 'start_agent') {
-        const r = await this._runAgn(['start', name]);
-        ok = r.code === 0;
-        message = ok ? `Agent '${name}' started` : (r.stderr || r.stdout || 'start failed');
-      } else if (action === 'stop_agent') {
-        const r = await this._runAgn(['stop', name]);
-        ok = r.code === 0;
-        message = ok ? `Agent '${name}' stopped` : (r.stderr || r.stdout || 'stop failed');
+      } else if (action === 'start_agent' || action === 'stop_agent') {
+        // In-process, not via `agn start|stop`: that spawned a whole CLI just to
+        // drop a line into daemon.cmd for THIS process to poll back up, and the
+        // new state then waited for the next 10s heartbeat. A Stop clicked in
+        // the workspace could sit at "running" for half a minute. Report the
+        // new state as soon as it is set instead; stopAgent flips it to
+        // 'stopped' before it starts waiting on the agent to exit.
+        const settled = action === 'stop_agent' ? this.stopAgent(name) : this._startAgentIfIdle(name);
+        this._nodeHeartbeat();
+        await settled;
+        this._nodeHeartbeat();
+        ok = true;
+        message = `Agent '${name}' ${action === 'stop_agent' ? 'stopped' : 'started'}`;
       } else if (action === 'remove_agent') {
         const r = await this._runAgn(['remove', name]);
         ok = r.code === 0;
@@ -1095,6 +1100,31 @@ async _runNodeCommand(n, cmd) {
       delete this._adapters[agentName];
     }
     this._writeStatus();
+  }
+
+  /**
+   * Start an agent unless it is already running.
+   *
+   * 'start' must be idempotent. The launcher sends start:<name> right after
+   * (re)spawning the daemon, but the daemon's own start() already launched
+   * every configured agent. A blind restart here tears down the just-joined
+   * workspace session and re-joins as the same agent; the server revokes the
+   * first session and the agent then stops the moment it next touches the
+   * workspace (e.g. the first user message → "thinking..." status). Only
+   * (re)launch when it isn't running.
+   */
+  async _startAgentIfIdle(agentName) {
+    const running =
+      (this._adapters && this._adapters[agentName]) ||
+      ['running', 'starting'].includes(
+        this._processes[agentName] && this._processes[agentName].state
+      );
+    if (running) {
+      this._log(`Command: start ${agentName} — already running, skipping`);
+      return;
+    }
+    this._log(`Command: start ${agentName}`);
+    await this.restartAgent(agentName);
   }
 
   /**
@@ -1785,25 +1815,7 @@ async _runNodeCommand(n, cmd) {
           this._log(`Command: stop ${agentName}`);
           this.stopAgent(agentName);
         } else if (cmd.startsWith('start:')) {
-          const agentName = cmd.slice(6).trim();
-          // 'start' must be idempotent. The launcher sends start:<name> right
-          // after (re)spawning the daemon, but the daemon's own start() already
-          // launched every configured agent. A blind restart here tears down
-          // the just-joined workspace session and re-joins as the same agent;
-          // the server revokes the first session and the agent then stops the
-          // moment it next touches the workspace (e.g. the first user message →
-          // "thinking..." status). Only (re)launch when it isn't running.
-          const running =
-            (this._adapters && this._adapters[agentName]) ||
-            ['running', 'starting'].includes(
-              this._processes[agentName] && this._processes[agentName].state
-            );
-          if (running) {
-            this._log(`Command: start ${agentName} — already running, skipping`);
-          } else {
-            this._log(`Command: start ${agentName}`);
-            this.restartAgent(agentName);
-          }
+          this._startAgentIfIdle(cmd.slice(6).trim());
         } else if (cmd.startsWith('restart:')) {
           const agentName = cmd.slice(8).trim();
           this._log(`Command: restart ${agentName}`);

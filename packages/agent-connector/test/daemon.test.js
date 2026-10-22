@@ -949,10 +949,69 @@ describe('Daemon', () => {
     daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
-      { commandId: 'c2', action: 'stop_agent', args: { name: 'coder' } },
+      { commandId: 'c2', action: 'remove_agent', args: { name: 'coder' } },
     );
     assert.equal(reported.ok, false);
     assert.match(reported.message, /boom/);
+  });
+
+  // A Stop clicked in the workspace used to go through `agn stop` → daemon.cmd
+  // → the next 10s heartbeat, so the card sat at "running" for up to ~30s.
+  it('_runNodeCommand stop_agent stops in-process and reports the new state at once', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._processes.coder = { state: 'running' };
+    let ranAgn = false;
+    daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
+    let releaseStop;
+    const stopped = [];
+    daemon.stopAgent = (name) => {
+      stopped.push(name);
+      daemon._processes[name].state = 'stopped';
+      return new Promise((r) => { releaseStop = r; });
+    };
+    const beats = [];
+    daemon._nodeHeartbeat = async () => { beats.push(daemon._processes.coder.state); };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+
+    const run = daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c3', action: 'stop_agent', args: { name: 'coder' } },
+    );
+    // The workspace hears 'stopped' before the agent has finished exiting.
+    assert.deepEqual(beats, ['stopped']);
+    assert.equal(reported, null);
+    releaseStop();
+    await run;
+    assert.equal(ranAgn, false, 'no `agn stop` round trip');
+    assert.deepEqual(stopped, ['coder']);
+    assert.equal(reported.ok, true);
+    assert.equal(beats.length, 2);
+  });
+
+  it('_runNodeCommand start_agent leaves a running agent alone and starts a stopped one', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    daemon._nodeHeartbeat = async () => {};
+    const reports = [];
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reports.push(res); } });
+    const node = { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' };
+
+    daemon._processes.coder = { state: 'running' };
+    await daemon._runNodeCommand(node, { commandId: 'c4', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, []);
+
+    daemon._processes.coder = { state: 'stopped' };
+    await daemon._runNodeCommand(node, { commandId: 'c5', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, ['coder']);
+    assert.deepEqual(reports.map((r) => r.ok), [true, true]);
   });
 
   it('_runNodeCommand refuses to act on an agent from another workspace', async () => {
