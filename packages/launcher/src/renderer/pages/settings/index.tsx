@@ -117,7 +117,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           {/* The header is fixed chrome; only the module's own controls scroll. */}
           <DetailHeader section={section} />
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
+          <div className="scroll-edge min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
             {section === "general" && (
               <GeneralSection values={values} update={update} />
             )}

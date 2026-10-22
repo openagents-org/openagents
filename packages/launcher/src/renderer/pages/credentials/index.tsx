@@ -179,7 +179,7 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
         }
       />
 
-      <div className="flex-1 overflow-y-auto px-9 py-6">
+      <div className="scroll-edge flex-1 overflow-y-auto px-9 py-6">
         <PageToolbar>
           <SearchInput
             value={search}

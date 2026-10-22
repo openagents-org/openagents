@@ -141,7 +141,7 @@ export default function GitHubPage({ showToast }: Props): React.JSX.Element {
         }
       />
 
-      <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-9 py-6">
+      <div className="scroll-edge flex flex-1 flex-col gap-5 overflow-y-auto px-9 py-6">
         {bindings.length > 0 && (
           <Input
             placeholder={t("github.filterPlaceholder")}

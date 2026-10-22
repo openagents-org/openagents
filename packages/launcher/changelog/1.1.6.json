@@ -9,74 +9,41 @@
         "zh": "可重启出错的智能体"
       },
       "description": {
-        "en": "An agent in an error state is marked as such on its device card and gets a Restart button. It keeps its model, credentials and folder, and other agents on the device are not touched.",
-        "zh": "出错的智能体会在设备卡片上标为「出错」，并提供「重启」按钮。重启后保留原有模型、凭据和目录，不影响该设备上的其他智能体。"
+        "en": "Agents in an error state show a Restart button on their device card.",
+        "zh": "出错的智能体在设备卡片上会显示「重启」按钮。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Faster agent installation",
-        "zh": "智能体安装更快"
+        "en": "Tidier top bar and Settings",
+        "zh": "顶部栏与设置页更清爽"
       },
       "description": {
-        "en": "Installs use the fastest download source, skip unnecessary checks, and report completion without waiting for the update check.",
-        "zh": "安装时使用最快的下载源，省去不必要的检查，完成后无需再等待更新检查即可显示结果。"
+        "en": "Workspace tabs now sit with the Workspace button and can be folded away. Settings opens straight on General with a grouped menu, and Logs moved into Settings.",
+        "zh": "工作区标签归入「工作区」按钮，可收起；设置页直接进入「通用」并按分组显示菜单，「日志」并入设置。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Agent steps are shown in full by default",
-        "zh": "默认显示智能体的完整步骤"
+        "en": "Easier to get started",
+        "zh": "上手更容易"
       },
       "description": {
-        "en": "A conversation shows every intermediate step from the start. The button in its header now says what it does — \"Show only the latest steps\" or \"Show all steps\".",
-        "zh": "对话默认显示全部中间步骤。顶部按钮直接用文字写明作用：「只显示最新步骤」或「显示中间完整步骤」。"
+        "en": "Yumi is now labelled as the help assistant, chats show every agent step by default, and you can edit your name and avatar from the sidebar.",
+        "zh": "Yumi 更名为「Yumi答疑小助手」，对话默认显示完整步骤，可在侧边栏直接修改姓名和头像。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Easier first steps",
-        "zh": "上手引导更清楚"
+        "en": "Faster agent installation and detection",
+        "zh": "智能体安装与检测更快"
       },
       "description": {
-        "en": "The built-in assistant is now named \"Yumi · Help Assistant\" and says up front that it answers questions about connecting devices and adding agents. Detecting the agents on a computer is faster, and a slow one no longer holds up the rest; if detection runs out of time it says so and offers a retry instead of spinning indefinitely. The page you see after signing in through the browser shows one large line telling you to return to OpenAgents.",
-        "zh": "内置助手更名为「Yumi答疑小助手」，并在开场说明连接设备、添加智能体遇到问题可以问它。检测电脑上的智能体更快，个别智能体响应慢也不会拖住其他结果；超时后会提示「检测超时，请重试」，不再一直显示检测中。浏览器登录完成页改为一行醒目的提示：「你已登录，请返回 OpenAgents 继续使用。」"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Settings open straight on General, and Logs moved into Settings",
-        "zh": "设置页直接进入「通用」，日志并入设置"
-      },
-      "description": {
-        "en": "The separate overview page is gone: Settings opens on General with every section in a grouped menu on the left. Logs is now a section of Settings rather than a tab of its own, so the tabs under This Computer are Connect Agents, Joined Workspaces and Settings. The automatic agent start-up switch moved into General, and the repeated \"Related settings\" links at the foot of each page were removed.",
-        "zh": "去掉单独的设置总览页，打开设置即进入「通用」，左侧菜单按分组列出所有设置项。「日志」从顶部标签移到设置的「系统维护」中，「本机管理」下只保留「连接智能体」「本机加入的工作区」和「设置」。「启动时自动运行智能体」移至「通用」，各页底部重复的「相关设置」链接已移除。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Workspace tabs sit with the Workspace button",
-        "zh": "工作区标签归入「工作区」按钮"
-      },
-      "description": {
-        "en": "All Workspaces and your open workspaces now share a box with the Workspace button, so they read as its pages rather than as peers of This Computer, which now comes first in the bar and stays put. Click Workspace while it is showing to fold the tabs away, and again to bring them back; they stay open unless you fold them.",
-        "zh": "「全部工作区」和已打开的工作区标签与「工作区」按钮放在同一组里，表明它们属于工作区，而不是与「本机管理」并列；「本机管理」移到最左侧，位置固定不动。在工作区页面点击「工作区」可收起标签，再点一次展开；默认保持展开，不点击不会收起。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Clearer navigation and member names, edit your profile from the sidebar",
-        "zh": "导航与成员名称更易查看，可从侧边栏修改个人资料"
-      },
-      "description": {
-        "en": "The page tabs under This Computer, such as Connect Agents, are bolder and wider. Hovering a member in the workspace sidebar shows their full name, and a settings button beside your own name opens the page to change your name and avatar.",
-        "zh": "「本机管理」下的「连接智能体」等页面标签加粗加宽，更容易找到。鼠标悬停在工作区侧边栏的成员上即可查看完整姓名；自己名字右侧新增设置按钮，可直接修改姓名和头像。"
+        "en": "Installs skip unnecessary checks, and detecting the agents on this computer no longer waits on a slow one.",
+        "zh": "安装省去不必要的检查；检测本机智能体时，个别较慢的不再拖住整体结果。"
       }
     },
     {
@@ -86,41 +53,8 @@
         "zh": "首次连接本机即可成功"
       },
       "description": {
-        "en": "Setup moved on to adding agents before the computer had actually reported in, so it could go offline a minute later and had to be connected again. It now waits for the computer to report in, and offers a retry if it does not.",
-        "zh": "此前设置流程在电脑真正上线前就进入了添加智能体，电脑可能一分钟后显示离线，需要再连接一次。现在会等电脑真正上线后再继续，未上线时提供重试。"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "All Workspaces no longer stays blank",
-        "zh": "「全部工作区」不再一直空白"
-      },
-      "description": {
-        "en": "With a single workspace, the list could stay on empty placeholder cards after the workspace opened in its own tab, or while the server did not answer. It now shows the list, or an error with a retry.",
-        "zh": "只有一个工作区时，该工作区在新标签页打开后，或服务器迟迟没有响应时，列表可能一直停在空白占位卡片上。现在会正常显示列表，或给出错误提示和重试按钮。"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "The workspace keeps the language you chose",
-        "zh": "工作区不再自动切换成英文"
-      },
-      "description": {
-        "en": "After setting up an agent such as Codex on this computer, a workspace set to Chinese could switch to English.",
-        "zh": "此前在本机配置 Codex 等智能体后，中文界面的工作区可能被切换为英文。"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Yumi stays in the sidebar",
-        "zh": "Yumi 稳定显示在侧边栏"
-      },
-      "description": {
-        "en": "The built-in assistant, and sometimes your own agents, could disappear from the sidebar for a few seconds at a time.",
-        "zh": "此前内置助手 Yumi（有时还包括你自己的智能体）会间歇性地从侧边栏消失。"
+        "en": "A newly connected computer no longer drops offline a minute later.",
+        "zh": "新连接的电脑不再在一分钟后掉线。"
       }
     },
     {
@@ -128,32 +62,17 @@
       "title": {
         "en": "Cursor replies arrive as soon as they are ready",
         "zh": "Cursor 回复生成后即时送达"
-      },
-      "description": {
-        "en": "A Cursor agent's reply could be held back for several minutes after it had finished answering. It is now delivered as soon as the answer is complete.",
-        "zh": "此前 Cursor 智能体在回答完成后，回复可能延迟数分钟才送达；现已改为回答完成即送达。"
       }
     },
     {
       "type": "fix",
       "title": {
-        "en": "Newcomer rewards progress updates on its own",
-        "zh": "新手奖励进度自动更新"
+        "en": "Display fixes",
+        "zh": "多项显示问题修复"
       },
       "description": {
-        "en": "The progress card in the sidebar only caught up after you opened the rewards page. It now updates by itself within seconds.",
-        "zh": "此前侧边栏的新手奖励进度需要进入奖励页面再返回才会更新，现在几秒内会自动更新。"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "A new agent keeps its place in the list",
-        "zh": "新添加的智能体不再在列表中跳动"
-      },
-      "description": {
-        "en": "On a device card, an agent you just added no longer jumps to the bottom of the list once it starts running.",
-        "zh": "在设备卡片中，新添加的智能体启动后不再从列表顶部跳到末尾。"
+        "en": "Yumi no longer disappears from the sidebar, All Workspaces no longer stays blank, the workspace keeps your language, rewards progress updates on its own, and a new agent keeps its place in the list.",
+        "zh": "Yumi 不再从侧边栏消失；「全部工作区」不再空白；工作区不再自动切换成英文；新手奖励进度自动更新；新添加的智能体不再在列表中跳动。"
       }
     }
   ]
