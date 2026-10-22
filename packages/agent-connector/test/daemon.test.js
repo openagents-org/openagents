@@ -736,6 +736,7 @@ describe('Daemon', () => {
 
   it('_refreshRuntimes parses child JSON into the roster', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [] };
     const runtimes = [{ type: 'claude', installed: true, ready: true, version: '1.0.0' }];
     daemon._runAgn = async (args) => {
       assert.deepEqual(args, ['runtimes', '--json']);
@@ -745,6 +746,40 @@ describe('Daemon', () => {
     assert.deepEqual(daemon._runtimes, runtimes);
   });
 
+  it('_refreshRuntimes splits the catalog and keeps a slow group\'s last result', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const types = ['a', 'b', 'c', 'd', 'e', 'f'];
+    daemon.registry = { getCatalogSync: () => types.map((name) => ({ name })) };
+    daemon._runtimes = [{ type: 'b', installed: true, ready: false }];
+    const seen = [];
+    daemon._runAgn = async (args, opts) => {
+      assert.equal(args[2], '--types');
+      assert.ok(opts.timeoutMs > 0);
+      const group = args[3].split(',');
+      seen.push(...group);
+      // The group holding 'b' hangs and is cut off.
+      if (group.includes('b')) return { code: 1, stdout: '', stderr: 'timed out', timedOut: true };
+      return { code: 0, stdout: JSON.stringify(group.map((type) => ({ type, installed: false, ready: false }))), stderr: '' };
+    };
+    await daemon._refreshRuntimes();
+    assert.deepEqual(seen.sort(), types);
+    // Catalog order; 'b' from before, 'f' (same group, no earlier result) absent.
+    assert.deepEqual(daemon._runtimes.map((rt) => rt.type), ['a', 'b', 'c', 'd', 'e']);
+    assert.equal(daemon._runtimes[1].installed, true);
+  });
+
+  it('_refreshRuntimes joins a detection already running', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [{ name: 'a' }] };
+    let runs = 0;
+    daemon._runAgn = async () => {
+      runs++;
+      await new Promise((r) => setTimeout(r, 10));
+      return { code: 0, stdout: JSON.stringify([{ type: 'a' }]), stderr: '' };
+    };
+    await Promise.all([daemon._refreshRuntimes(), daemon._refreshRuntimes()]);
+    assert.equal(runs, 1);
+  });
   it('_runNodeCommand detect_runtimes refreshes and reports ok', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     let refreshed = false;
