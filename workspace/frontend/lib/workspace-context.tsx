@@ -732,9 +732,16 @@ export function WorkspaceProvider({
 
   const refreshWorkspace = useCallback(async () => {
     try {
-      const ws = await workspaceApi.getWorkspace();
+      // The agents come from discover, as every other refresh takes them: the
+      // workspace record's copies lack ownerEmail/canStartThread, and the
+      // sidebar filters on those — taking them dropped Yumi (and the viewer's
+      // own agents) until the next discovery poll put them back.
+      const [ws, discovery] = await Promise.all([
+        workspaceApi.getWorkspace(),
+        workspaceApi.discover(lastReadRef.current),
+      ]);
       setWorkspace(ws);
-      setAgents(ws.agents);
+      setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load workspace');

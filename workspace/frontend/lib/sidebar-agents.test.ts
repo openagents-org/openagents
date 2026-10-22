@@ -46,3 +46,14 @@ it('groups built-in Yumi with my agents without granting ownership', () => {
   expect(others.shown.map(agent => agent.agentName)).toEqual(['shared']);
   expect(isOwnedAgent(yumi, 'me@example.com')).toBe(false);
 });
+
+it('keeps Yumi in view ahead of five of the viewer\'s own online agents', () => {
+  const agents = [
+    ...Array.from({ length: 6 }, (_, i) => ({ agentName: `a-${i}`, ownerEmail: 'me@example.com', status: 'online' })),
+    { agentName: 'yumi', ownerEmail: null, status: 'online', builtin: true, canStartThread: true },
+  ] as WorkspaceAgent[];
+  const conversations = [{ agents: ['human:me@example.com', 'openagents:a-3'], lastMessage: { timestamp: 10 } }] as import('./types').DMConversation[];
+  const [mine] = sidebarAgentGroups(agents, 'me@example.com', conversations);
+  expect(mine.shown[0].agentName).toBe('yumi');
+  expect(mine.shown[1].agentName).toBe('a-3');
+});

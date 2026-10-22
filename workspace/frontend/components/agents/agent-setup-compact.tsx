@@ -18,6 +18,8 @@ export function CompactTypePicker({
   visible,
   readyCount,
   detecting,
+  detectTimedOut = false,
+  onReDetect,
   categories,
   category,
   onCategory,
@@ -34,6 +36,9 @@ export function CompactTypePicker({
   visible: AgentCatalogEntry[];
   readyCount: number;
   detecting: boolean;
+  /** Detection hit its deadline with nothing reported. */
+  detectTimedOut?: boolean;
+  onReDetect?: () => void;
   categories: { key: string; label: string }[];
   category: string;
   onCategory: (key: string) => void;
@@ -71,7 +76,16 @@ export function CompactTypePicker({
           <p className="pt-1 text-sm text-muted-foreground">
             {detecting
               ? t('connect.nodeDetectingAgents')
-              : t('connect.compactSummary', { count: catalog.length, ready: readyCount })}
+              : detectTimedOut
+                ? <>
+                    {t('connect.nodeDetectTimedOut')}
+                    {onReDetect && (
+                      <button type="button" onClick={onReDetect} className="ms-2 font-medium text-primary hover:underline">
+                        {t('connect.nodeReDetect')}
+                      </button>
+                    )}
+                  </>
+                : t('connect.compactSummary', { count: catalog.length, ready: readyCount })}
           </p>
         </div>
 

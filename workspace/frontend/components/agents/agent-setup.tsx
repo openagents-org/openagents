@@ -89,7 +89,9 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 const NO_ACCESS = '__none__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
-const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** How long "Detecting…" may stay up before it gives way to a retry. */
+const DETECT_DEADLINE_MS = 45_000;
+const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
@@ -525,6 +527,7 @@ export function AgentSetup({
   // arrives on the next heartbeat.
   const hasRuntimes = (node.runtimes || []).length > 0;
   const [detecting, setDetecting] = useState(!hasRuntimes);
+  const [detectTimedOut, setDetectTimedOut] = useState(false);
 
   const runtimeByType = useMemo(() => {
     const m: Record<string, import('@/lib/types').NodeRuntime> = {};
@@ -539,8 +542,24 @@ export function AgentSetup({
     if (runtimesSig !== prevSigRef.current) {
       prevSigRef.current = runtimesSig;
       setDetecting(false);
+      setDetectTimedOut(false);
     }
   }, [runtimesSig]);
+
+  // Detection always ends. A device that is offline, or whose list never
+  // arrives, used to leave "Detecting…" up for good; after the deadline it
+  // says so and offers Re-detect. With nothing reported, the cards stay
+  // "unknown", never "not installed".
+  const hasRuntimesRef = useRef(hasRuntimes);
+  hasRuntimesRef.current = hasRuntimes;
+  useEffect(() => {
+    if (!detecting) return;
+    const deadline = setTimeout(() => {
+      setDetecting(false);
+      setDetectTimedOut(!hasRuntimesRef.current);
+    }, DETECT_DEADLINE_MS);
+    return () => clearTimeout(deadline);
+  }, [detecting]);
 
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
@@ -707,12 +726,11 @@ export function AgentSetup({
 
   const reDetect = async () => {
     setDetecting(true);
+    setDetectTimedOut(false);
     try {
       await api.enqueueNodeCommand(node.nodeId, 'detect_runtimes', {});
       setTimeout(onChanged, 4000);
-      // Safety: if fresh data never arrives, stop the spinner after a while so
-      // the UI doesn't look stuck.
-      setTimeout(() => setDetecting(false), 20000);
+      // The detection deadline above stops the spinner if fresh data never arrives.
     } catch {
       toast.error(t('connect.nodeCommandFailed'));
       setDetecting(false);
@@ -1355,6 +1373,8 @@ export function AgentSetup({
         visible={visible}
         readyCount={readyCount}
         detecting={detecting}
+        detectTimedOut={detectTimedOut}
+        onReDetect={() => void reDetect()}
         categories={marketCats}
         category={marketCat}
         onCategory={setMarketCat}
@@ -1386,7 +1406,9 @@ export function AgentSetup({
           <p className="text-xs text-muted-foreground mt-0.5">
             {detecting
               ? t('connect.nodeDetectingAgents')
-              : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
+              : detectTimedOut
+                ? t('connect.nodeDetectTimedOut')
+                : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>

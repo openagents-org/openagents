@@ -729,13 +729,20 @@ function PairingPanel({
   );
 }
 
-/** A Start/Stop sent to a device, shown on the card until its state moves off `from`. */
+/**
+ * A Start/Stop sent to a device, shown on the card until its state moves off
+ * `from`. A restart is a stop and then a start: the start waits until the
+ * device reports the stop done, since a start that finds the agent's process
+ * still up is skipped. It ends when the agent runs again.
+ */
 interface AgentToggle {
-  action: 'start_agent' | 'stop_agent';
+  action: 'start_agent' | 'stop_agent' | 'restart';
   /** The roster status when the button was clicked. */
   from: string;
   at: number;
   commandId?: string;
+  /** Restart only: which half is in flight. */
+  phase?: 'stopping' | 'starting';
 }
 
 /** Past this the device is treated as not answering: a heartbeat is every 10s. */
@@ -780,10 +787,21 @@ function NodeCard({
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
-  const agents = node.agents || [];
+  const roster = node.agents || [];
   // Optimistic placeholders for agents being created but not yet reported in the
   // roster, so the user sees them spinning up immediately.
-  const pendingAgents = pending.filter((p) => !agents.some((a) => a.name === p.name));
+  const pendingAgents = pending.filter((p) => !roster.some((a) => a.name === p.name));
+
+  // An agent added here keeps the place its placeholder had, at the top. The
+  // roster lists agents in the device's config order, newest last, so the card
+  // used to jump below every older agent the moment it reported in.
+  const addedHereRef = useRef<string[]>([]);
+  for (const p of pending) if (!addedHereRef.current.includes(p.name)) addedHereRef.current.push(p.name);
+  const agents = useMemo(() => {
+    const added = addedHereRef.current;
+    const rank = (name: string) => { const i = added.indexOf(name); return i === -1 ? added.length : i; };
+    return roster.map((a, i) => ({ a, i })).sort((x, y) => rank(x.a.name) - rank(y.a.name) || x.i - y.i).map(({ a }) => a);
+  }, [roster, pending]);
 
   // A placeholder that outlives any realistic spin-up isn't "starting" — the
   // agent failed to come up or lost its workspace binding on the device (e.g.
@@ -813,7 +831,8 @@ function NodeCard({
   const extraAgents = agents.length - previewAgents.length;
   const runningCount = agents.filter((a) => a.status === 'running').length;
   const agentStatusLabel = (status: string) => online
-    ? t(status === 'running' ? 'connect.nodeAgentStatusRunning' : 'connect.nodeAgentStatusStopped')
+    ? t(status === 'running' ? 'connect.nodeAgentStatusRunning'
+      : status === 'error' ? 'connect.nodeAgentStatusError' : 'connect.nodeAgentStatusStopped')
     : t(status === 'running' ? 'connect.nodeAgentLastReportedRunning' : 'connect.nodeAgentLastReportedStopped');
 
   const handleRemoveNode = async () => {
@@ -849,7 +868,11 @@ function NodeCard({
       const next = { ...prev };
       for (const name of Object.keys(prev)) {
         const agent = agents.find((a) => a.name === name);
-        if (!agent || agent.status !== prev[name].from) delete next[name];
+        const entry = prev[name];
+        if (!agent) delete next[name];
+        else if (entry.action === 'restart') {
+          if (entry.phase === 'starting' && agent.status === 'running') delete next[name];
+        } else if (agent.status !== entry.from) delete next[name];
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
@@ -865,14 +888,25 @@ function NodeCard({
       let cmds: import('@/lib/types').NodeCommand[] = [];
       try { cmds = await workspaceApi.listNodeCommands(node.nodeId); } catch { /* next tick retries */ }
       if (cancelled) return;
+      // A restart whose stop has finished moves on to its start.
+      for (const [name, entry] of Object.entries(togglingRef.current)) {
+        const cmd = cmds.find((c) => c.commandId === entry.commandId);
+        if (entry.action === 'restart' && entry.phase === 'stopping' && cmd?.status === 'done') void startAfterStop(name);
+      }
       setToggling((prev) => {
         const next = { ...prev };
         for (const [name, entry] of Object.entries(prev)) {
           const cmd = cmds.find((c) => c.commandId === entry.commandId);
+          const status = agentsRef.current.find((a) => a.name === name)?.status;
           if (cmd?.status === 'error') {
-            toast.error(t(entry.action === 'stop_agent' ? 'connect.nodeStopFailed' : 'connect.nodeStartFailed', {
+            toast.error(t(entry.action === 'restart' ? 'connect.nodeRestartFailed'
+              : entry.action === 'stop_agent' ? 'connect.nodeStopFailed' : 'connect.nodeStartFailed', {
               name, message: cmd.result?.message || '',
             }));
+            delete next[name];
+          } else if (entry.action === 'restart' && entry.phase === 'starting' && cmd?.status === 'done' && status === 'error') {
+            // Started, and failed again on the device.
+            toast.error(t('connect.nodeRestartFailed', { name, message: '' }));
             delete next[name];
           } else if (Date.now() - entry.at > AGENT_TOGGLE_TIMEOUT_MS) {
             toast.error(t('connect.nodeToggleNoResponse', { name }));
@@ -886,10 +920,32 @@ function NodeCard({
     return () => { cancelled = true; clearInterval(id); };
   }, [togglingNames.join('|'), node.nodeId]);
 
-  const toggleAgent = async (agent: import('@/lib/types').NodeAgent, action: AgentToggle['action']) => {
-    setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now() } }));
+  const togglingRef = useRef(toggling);
+  togglingRef.current = toggling;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+
+  const startAfterStop = async (name: string) => {
+    setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], phase: 'starting', commandId: undefined, at: Date.now() } } : prev));
     try {
-      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, action, { name: agent.name });
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'start_agent', { name });
+      setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], commandId: cmd.commandId } } : prev));
+    } catch (err: unknown) {
+      setToggling((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      const key = nodeCommandErrorKey(err instanceof Error ? err.message : '');
+      toast.error(key ? t(key, { name }) : t('connect.nodeCommandFailed'));
+    }
+  };
+
+  const toggleAgent = async (agent: import('@/lib/types').NodeAgent, action: AgentToggle['action']) => {
+    const restart = action === 'restart';
+    setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now(), ...(restart ? { phase: 'stopping' as const } : {}) } }));
+    try {
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, restart ? 'stop_agent' : action, { name: agent.name });
       setToggling((prev) => (prev[agent.name] ? { ...prev, [agent.name]: { ...prev[agent.name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {
@@ -1123,9 +1179,11 @@ function NodeCard({
                       </div>
                       <span className={cn(
                         'flex items-center gap-1 text-xs font-medium rounded-full px-1.5 py-0.5 shrink-0',
-                        online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
+                        online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                          : online && a.status === 'error' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : 'bg-zinc-500/10 text-muted-foreground',
                       )}>
-                        <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : 'bg-zinc-400')} />
+                        <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : online && a.status === 'error' ? 'bg-red-500' : 'bg-zinc-400')} />
                         {agentStatusLabel(a.status)}
                       </span>
                     </div>
@@ -1149,7 +1207,12 @@ function NodeCard({
                       {toggling[a.name] ? (
                         <Button size="sm" variant="ghost" disabled>
                           <Loader2 className="size-3.5 mr-1 animate-spin" />
-                          {t(toggling[a.name].action === 'stop_agent' ? 'connect.nodeStopping' : 'connect.nodeStarting')}
+                          {t(toggling[a.name].action === 'restart' ? 'connect.nodeRestarting'
+                            : toggling[a.name].action === 'stop_agent' ? 'connect.nodeStopping' : 'connect.nodeStarting')}
+                        </Button>
+                      ) : a.status === 'error' ? (
+                        <Button size="sm" variant="ghost" disabled={busy || !online} onClick={() => toggleAgent(a, 'restart')}>
+                          <RotateCcw className="size-3.5 mr-1" />{t('connect.nodeRestart')}
                         </Button>
                       ) : running ? (
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggleAgent(a, 'stop_agent')}>
