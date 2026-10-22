@@ -16,12 +16,12 @@
     {
       "type": "improvement",
       "title": {
-        "en": "Tidier top bar and Settings",
-        "zh": "顶部栏与设置页更清爽"
+        "en": "Tidier top bar, Settings and Connect Agents",
+        "zh": "顶部栏、设置页与连接智能体页更清爽"
       },
       "description": {
-        "en": "Workspace tabs now sit with the Workspace button and can be folded away. Settings opens straight on General with a grouped menu, and Logs moved into Settings.",
-        "zh": "工作区标签归入「工作区」按钮，可收起；设置页直接进入「通用」并按分组显示菜单，「日志」并入设置。"
+        "en": "Workspace tabs now sit with the Workspace button and can be folded away. Settings opens straight on General with a grouped menu, and Logs moved into Settings. Connect Agents gives your agent list more room, and its filters stay in view as you scroll.",
+        "zh": "工作区标签归入「工作区」按钮，可收起；设置页直接进入「通用」并按分组显示菜单，「日志」并入设置；「连接智能体」页为智能体列表留出更多空间，筛选栏随列表滚动保持可见。"
       }
     },
     {

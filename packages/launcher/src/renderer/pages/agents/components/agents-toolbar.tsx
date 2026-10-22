@@ -27,7 +27,11 @@ export function AgentsToolbar({
   const { t } = useTranslation()
 
   return (
-    <div className="mb-3 flex h-11 items-center gap-8">
+    // Sticks to the top of the page's scroll body with the table header right
+    // under it (top-14: this row plus its bottom padding), so filters and
+    // search stay in reach down a long list. Bled to the body's edges so rows
+    // pass under an opaque band.
+    <div className="sticky top-0 z-10 -mx-9 flex h-14 items-center gap-8 bg-background px-9 pb-3">
       <h2 className="m-0 shrink-0 text-lg font-semibold">{t("agents.shared.agentsHere")}</h2>
       <FilterChips
         variant="underline"
