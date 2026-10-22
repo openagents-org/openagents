@@ -13,7 +13,9 @@
  *
  * Tiering (cheapest thing that proves liveness):
  *   1. healthCheck gate — not installed / not configured fails fast with the
- *      existing auth guidance, no process spawned, no tokens spent.
+ *      existing auth guidance, no process spawned, no tokens spent. An agent
+ *      that declares a live CLI check still runs it: static sign-in checks
+ *      miss keychains and CLI-side settings, and the run is the authority.
  *   2. Live check, picked from the registry entry:
  *      - `probe.args`            → run the agent CLI itself (e.g. --print hi)
  *      - `check_ready.alt_check` → run the entry's declared liveness command
@@ -31,7 +33,8 @@ const os = require('os');
 // lives on the other side of the Windows/WSL boundary.
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
-const { shouldUseShellForBinary } = require('./adapters/health-status');
+const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 
@@ -47,17 +50,23 @@ const CODE = {
   UNKNOWN_TYPE: 'unknown_type',
   NOT_INSTALLED: 'not_installed',
   NOT_READY: 'not_ready',
+  VERSION_INCOMPATIBLE: 'version_incompatible',
   INVALID_API_KEY: 'invalid_api_key',
   MISSING_API_KEY: 'missing_api_key',
   NOT_LOGGED_IN: 'not_logged_in',
+  SESSION_EXPIRED: 'session_expired',
   OUT_OF_CREDIT: 'out_of_credit',
   RATE_LIMITED: 'rate_limited',
   NETWORK: 'network',
   TIMEOUT: 'timeout',
   EMPTY_RESPONSE: 'empty_response',
   BAD_MODEL: 'bad_model',
+  SERVICE_UNAVAILABLE: 'service_unavailable',
   CLI_ERROR: 'cli_error',
 };
+
+const BENIGN_OUTPUT = BENIGN_CLI_OUTPUT;
+const withoutNoise = stripCliNoise;
 
 /**
  * The install command for THIS device's platform.
@@ -126,8 +135,12 @@ function classifyOutputText(text) {
   if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
-  if (/not logged in|not authenticated|login required|please (log ?in|sign ?in|authenticate)|run .{0,40}login|no credentials/.test(text)) return CODE.NOT_LOGGED_IN;
-  if (/unrecognized_model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported)/.test(text)) return CODE.BAD_MODEL;
+  // A sign-in that exists but has run out — Claude Code: "Failed to
+  // authenticate: OAuth session expired and could not be refreshed".
+  if (/session expired|could not be refreshed|(token|sign-?in|login) (has )?expired|run \/logout and \/login/.test(text)) return CODE.SESSION_EXPIRED;
+  if (/not logged in|not authenticated|login required|authentication required|please (log ?in|sign ?in|authenticate)|(run|use) .{0,40}login|no credentials/.test(text)) return CODE.NOT_LOGGED_IN;
+  if (/unrecognized_model|model_not_found|invalid model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported)/.test(text)) return CODE.BAD_MODEL;
+  if (/\b50[234]\b|service (is )?(temporarily )?unavailable|temporarily unavailable|bad gateway|gateway time-?out/.test(text)) return CODE.SERVICE_UNAVAILABLE;
   return null;
 }
 
@@ -176,6 +189,11 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
         ? `${label} is not signed in on this device. In a terminal there, run: ${login}`
         : `${label} is not signed in on this device. Sign in with its CLI, then re-run the test.`);
       break;
+    case CODE.SESSION_EXPIRED:
+      lines.push(login
+        ? `${label}'s sign-in on this device has expired. In a terminal there, run: ${login}`
+        : `${label}'s sign-in on this device has expired. Sign in again with its CLI, then re-run the test.`);
+      break;
     case CODE.OUT_OF_CREDIT:
       lines.push(`The provider account for ${label} is out of credit or quota. Add credit, or switch the agent to a different API key or model.`);
       break;
@@ -194,6 +212,16 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
       break;
     case CODE.BAD_MODEL:
       lines.push(`The configured model isn't recognized or isn't served by ${label}'s endpoint. Pick a different model in the launcher (Agents → ${label} → Configure) or edit the agent in the workspace.`);
+      break;
+    case CODE.SERVICE_UNAVAILABLE:
+      lines.push(`The model provider for ${label} is temporarily unavailable. Wait a few minutes and test again.`);
+      break;
+    case CODE.VERSION_INCOMPATIBLE:
+      lines.push(`The installed ${label} version is not the one OpenAgents supports. Reinstall it from the launcher's Install page.`);
+      {
+        const cmd = installCommandFor(entry);
+        if (cmd) lines.push(`Or reinstall manually: ${cmd}`);
+      }
       break;
     case CODE.NOT_READY:
       // Caller supplies the static-auth guidance lines instead.
@@ -236,6 +264,51 @@ async function directApiVerdict(agentEnv, entry) {
   };
 }
 
+/**
+ * Stop a CLI that ran too long. On Windows a .cmd shim runs under cmd.exe, and
+ * killing that leaves the node process it started alive (see cli-models.js).
+ */
+function killTree(child) {
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' });
+      if (killer && typeof killer.on === 'function') killer.on('error', () => {});
+    } catch {}
+  }
+  try { child.kill('SIGKILL'); } catch {}
+}
+
+/**
+ * A resolved binary as cmd.exe must see it. Node hands a shell: true spawn to
+ * cmd.exe as one unquoted line, so a CLI under "F:\Program Files\…" or a
+ * profile folder with a space in it was cut at the space and the probe read
+ * "'F:\Program' is not recognized" (in GBK, as mojibake).
+ */
+function shellQuoted(binary, shell) {
+  return shell && !/^".*"$/.test(binary) ? `"${binary}"` : binary;
+}
+
+/**
+ * The one line worth reporting from a failed run.
+ *
+ * Stderr used to win outright, so a harmless warning there hid the real error
+ * on stdout, and a timeout with any output never said it timed out. Now: the
+ * line that the classifier recognised, else the output minus known noise,
+ * with the timeout named first.
+ */
+function failureMessage(res, code, timeoutMs) {
+  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => l && !BENIGN_OUTPUT.test(l));
+  const all = [...lines(res.stderr), ...lines(res.stdout)];
+  const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);
+  const detail = tail(telling || lines(res.stderr).join('\n') || lines(res.stdout).join('\n'), OUTPUT_CAP);
+  if (res.timedOut) {
+    const prefix = `Timed out after ${Math.round(timeoutMs / 1000)}s`;
+    return detail ? `${prefix}: ${detail}` : prefix;
+  }
+  return detail || `Exited with code ${res.code}`;
+}
+
 /** Run a CLI to completion with a hard timeout. Never rejects. */
 function runCommand(cmd, args, { env, timeoutMs, shell = false }) {
   return new Promise((resolve) => {
@@ -252,22 +325,33 @@ function runCommand(cmd, args, { env, timeoutMs, shell = false }) {
       resolve({ code: 1, stdout: '', stderr: '', spawnError: e.message, timedOut: false });
       return;
     }
-    let stdout = '';
-    let stderr = '';
+    // Bytes, decoded once at the end: a multi-byte character can straddle two
+    // chunks, and cmd.exe's own errors are in the console code page.
+    const stdout = [];
+    const stderr = [];
     let timedOut = false;
     let settled = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try { child.kill('SIGKILL'); } catch {}
-    }, timeoutMs);
     const finish = (code, spawnError) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, spawnError: spawnError || null, timedOut });
+      resolve({
+        code,
+        stdout: decodeConsoleOutput(Buffer.concat(stdout)),
+        stderr: decodeConsoleOutput(Buffer.concat(stderr)),
+        spawnError: spawnError || null,
+        timedOut,
+      });
     };
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Settles here and not on 'close' alone: a grandchild that survives the
+    // kill can hold stdout open, and 'close' then never comes.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+      finish(1);
+    }, timeoutMs);
+    child.stdout.on('data', (d) => { stdout.push(Buffer.from(d)); });
+    child.stderr.on('data', (d) => { stderr.push(Buffer.from(d)); });
     child.on('error', (e) => finish(1, e.message));
     child.on('close', (code) => finish(code == null ? 1 : code));
   });
@@ -321,16 +405,37 @@ async function probeAgentType(connector, type, opts = {}) {
     });
   }
 
+  // Installed, but not a version this integration supports. Not a sign-in
+  // problem, so the sign-in guidance would only send the user the wrong way.
+  if (health.reason === REASON.VERSION_INCOMPATIBLE || health.compatible === false) {
+    return done({
+      ok: false, method: 'none', code: CODE.VERSION_INCOMPATIBLE,
+      message: health.message || 'Unsupported version',
+      guidance: buildGuidance(CODE.VERSION_INCOMPATIBLE, entry, agentEnv),
+    });
+  }
+
+  const probeArgs = entry.probe && Array.isArray(entry.probe.args) ? entry.probe.args : null;
+  const altCheck = entry.check_ready && entry.check_ready.alt_check;
+  const hasLiveCli = !!((probeArgs && health.binary) || altCheck);
+
   // Definitively unconfigured (auth_status 'unknown' still gets a live try:
   // the real run is the final authority for unverifiable logins).
+  let staticVerdict = null;
   if (!health.ready && health.auth_status !== 'unknown') {
     let lines = [];
     try { lines = formatAuthGuidance(entry, health).lines; } catch {}
-    return done({
+    staticVerdict = {
       ok: false, method: 'none', code: CODE.NOT_READY,
       message: health.message || 'Not configured',
       guidance: lines.length ? lines : buildGuidance(CODE.NOT_LOGGED_IN, entry, agentEnv),
-    });
+    };
+    // A sign-in kept where the static checks cannot see it (a keychain, a
+    // relay set up in the CLI's own settings) answered fine and was still
+    // reported "Not logged in". Where the agent declares a live check, that
+    // run decides; the static verdict only stands in when the run explains
+    // nothing.
+    if (!hasLiveCli) return done(staticVerdict);
   }
 
   const timeoutMs = opts.timeoutMs
@@ -338,27 +443,29 @@ async function probeAgentType(connector, type, opts = {}) {
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
 
   // Hoisted above the CLI tier: a failing CLI probe consults it too (below).
-  const hasApiKey = !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
+  // `probe.api_test: false` opts out for an agent whose key is not a model
+  // API key (Cursor's is for Cursor's own service): an OpenAI-style call with
+  // it proves nothing either way.
+  const apiTestable = !(entry.probe && entry.probe.api_test === false);
+  const hasApiKey = apiTestable && !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
     || agentEnv.ANTHROPIC_AUTH_TOKEN || agentEnv.KIMI_API_KEY || agentEnv.MOONSHOT_API_KEY);
 
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
-  const probeArgs = entry.probe && Array.isArray(entry.probe.args) ? entry.probe.args : null;
-  const altCheck = entry.check_ready && entry.check_ready.alt_check;
-  if ((probeArgs && health.binary) || altCheck) {
+  if (hasLiveCli) {
+    const shell = probeArgs && health.binary ? shouldUseShellForBinary(health.binary) : true;
     const res = probeArgs && health.binary
       // Node refuses to spawn .cmd/.bat without a shell (EINVAL since the
       // CVE-2024-27980 hardening), which made every Windows CLI probe of an
       // npm-shim binary fail as "Exited with code 1" with no output.
-      ? await runCommand(health.binary, probeArgs, {
-          env, timeoutMs, shell: shouldUseShellForBinary(health.binary),
-        })
+      ? await runCommand(shellQuoted(health.binary, shell), probeArgs, { env, timeoutMs, shell })
       : await runCommand(altCheck, [], { env, timeoutMs, shell: true });
-    const output = `${res.stdout}\n${res.stderr}`;
-    if (!res.timedOut && !res.spawnError && res.code === 0 && res.stdout.trim()) {
+    const output = withoutNoise(`${res.stdout}\n${res.stderr}`);
+    const reply = withoutNoise(res.stdout).trim();
+    if (!res.timedOut && !res.spawnError && res.code === 0 && reply) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
         message: 'Responded',
-        reply: tail(res.stdout, REPLY_CAP),
+        reply: tail(reply, REPLY_CAP),
       });
     }
     let code = res.code === 0 && !res.timedOut && !res.spawnError
@@ -385,10 +492,11 @@ async function probeAgentType(connector, type, opts = {}) {
       const direct = await directApiVerdict(agentEnv, entry);
       if (direct) return done(direct);
     }
+    if (unexplained && staticVerdict) return done(staticVerdict);
 
     return done({
       ok: false, method: 'cli', code,
-      message: tail(res.stderr || res.stdout, OUTPUT_CAP) || (res.timedOut ? 'Timed out' : `Exited with code ${res.code}`),
+      message: failureMessage(res, code, timeoutMs),
       guidance: buildGuidance(code, entry, agentEnv, { timeoutMs }),
     });
   }
@@ -414,9 +522,13 @@ async function probeAgentType(connector, type, opts = {}) {
   }
 
   // ── No safe live probe — report the static result honestly rather than
-  // inventing a CLI invocation that could misfire. ──
+  // inventing a CLI invocation that could misfire. Reaching here not ready
+  // means the sign-in could not be checked (auth_status 'unknown'): that is
+  // ok: null, not a failure — counted as one, every signed-in Codex or Cursor
+  // whose status command was slow read as "Not configured". ──
   return done({
-    ok: health.ready === true, method: 'none', code: CODE.STATIC_ONLY,
+    ok: health.ready === true ? true : null, method: 'none', code: CODE.STATIC_ONLY,
+    auth_status: health.auth_status || null,
     message: health.ready
       ? 'Static checks passed (no live probe is defined for this agent type)'
       : (health.message || 'Not configured'),

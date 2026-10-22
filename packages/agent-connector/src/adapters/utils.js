@@ -149,8 +149,41 @@ function redactSecrets(s) {
   return out;
 }
 
+/**
+ * Decode CLI output. The CLIs write UTF-8, but text that came from Windows
+ * itself (cmd.exe, a system error) is in the console code page, which on a
+ * Chinese system is GBK and showed up as rows of "�". Fall back to GB18030
+ * only when UTF-8 fails and GB18030 reads the bytes cleanly.
+ */
+function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
+  const utf8 = buf.toString('utf-8');
+  if (!isWindows || !utf8.includes('�')) return utf8;
+  try {
+    return new TextDecoder('gb18030', { fatal: true }).decode(buf);
+  } catch {
+    return utf8;
+  }
+}
+
+/**
+ * Lines a CLI prints on a perfectly healthy run. Reported as "the" error,
+ * they hid the real one. Claude Code warns about its claude.ai connectors
+ * whenever a key is set, and about a model it does not know (any relay model:
+ * glm, kimi, …) — "…so it assumes a context window of 200000 tokens … Until
+ * then auto-compact keeps this session within 200k tokens".
+ */
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT/i;
+
+/** CLI output with the known-harmless lines taken out. */
+function stripCliNoise(text) {
+  return String(text || '').split(/\r?\n/).filter((l) => !BENIGN_CLI_OUTPUT.test(l)).join('\n');
+}
+
 module.exports = {
   SESSION_DEFAULT_RE,
+  BENIGN_CLI_OUTPUT,
+  stripCliNoise,
+  decodeConsoleOutput,
   generateSessionTitle,
   formatAttachmentsForPrompt,
   redactSecrets,

@@ -59,7 +59,7 @@
     ],
     "saved_env_key": "PI_API_KEY",
     "login_command": "pi",
-    "not_ready_message": "Not configured — set a provider API key (press e), or run `pi` and use /login once.",
+    "not_ready_message": "Not configured — set a provider API key in Configure, or run `pi` and use /login once.",
     "unreadable_message": "Pi credentials were found but could not be read. Check permissions on ~/.pi/agent, or run `pi` and sign in again."
   },
   "env_config": [

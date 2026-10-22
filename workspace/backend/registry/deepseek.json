@@ -50,7 +50,7 @@
       "DEEPSEEK_API_KEY"
     ],
     "saved_env_key": "DEEPSEEK_API_KEY",
-    "not_ready_message": "Not configured — set DEEPSEEK_API_KEY (press e). The harness has no CLI sign-in.",
+    "not_ready_message": "Not configured — set DEEPSEEK_API_KEY in Configure. The harness has no CLI sign-in.",
     "unreadable_message": "DeepSeek Harness credentials could not be read. Re-enter DEEPSEEK_API_KEY in the Configure screen."
   },
   "env_config": [

@@ -27,6 +27,15 @@ describe('ClaudeAdapter._stderrTail', () => {
     assert.match(out, /sk-\[REDACTED\]/);
   });
 
+  test('leaves out Claude Code\'s notice about a model it does not know', () => {
+    // A relay model (glm, kimi, …) makes Claude Code print this on every run;
+    // as "the" error it was all a failed message ever showed.
+    const notice = 'Claude Code doesn\'t recognize the model "glm-5", so it assumes a context window of 200000 tokens. '
+      + 'Until then auto-compact keeps this session within 200k tokens (the context window it assumes).';
+    assert.strictEqual(tail(`${notice}\nAPI Error: 403 insufficient_quota\n`), 'API Error: 403 insufficient_quota');
+    assert.strictEqual(tail(notice), '');
+  });
+
   test('reads as empty when the process said nothing, rather than as a blank error', () => {
     assert.strictEqual(tail(''), '');
     assert.strictEqual(tail('   \n  '), '');

@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets, stripCliNoise } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -1051,7 +1051,9 @@ class ClaudeAdapter extends BaseAdapter {
    * and silent exit — where it is the ONLY thing there is to report.
    */
   _stderrTail(pp) {
-    const tail = String((pp && pp.stderrBuf) || '').trim();
+    // Without Claude Code's harmless notices (an unknown relay model, the
+    // disabled connectors): posted as "the" error, they hid the real one.
+    const tail = stripCliNoise((pp && pp.stderrBuf) || '').trim();
     return tail ? redactSecrets(tail).slice(-800) : '';
   }
 

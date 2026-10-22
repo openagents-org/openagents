@@ -15,6 +15,8 @@ const { supportsCliModels } = require('./cli-models');
 const { AUTH_MODE_KEY, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor } = require('./env');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 const { LogWriter } = require('./log-writer');
+const { redactDiagnostic } = require('./adapters/health-status');
+const { installCommandFor } = require('./probe');
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -96,6 +98,27 @@ function _sentKey(args) {
   const key = args && args.apiKey;
   const present = typeof key === 'string' ? key.trim().length > 0 : !!key;
   return present && !args.useDeviceCredentials;
+}
+
+/**
+ * The reason `agn create --install` gave for a failed runtime install, or null.
+ * The create itself still succeeds (exit 0) — the agent exists either way.
+ */
+function installFailureOf(stdout) {
+  const m = /Warning: install failed: ([\s\S]*)$/.exec(String(stdout || ''));
+  return m ? m[1].trim() || 'unknown error' : null;
+}
+
+/**
+ * One line that says why a crashed `agn probe` child died. Node's stack dump
+ * starts with "node:internal/modules/cjs/loader:1433 / throw err; / ^", which
+ * is all a 400-char head of it ever showed; the line that names the problem
+ * ("Error: Cannot find module '…'") comes after.
+ */
+function probeCrashSummary(stderr) {
+  const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const telling = lines.find((l) => /^\w*Error\b|Cannot find module/.test(l));
+  return telling || lines.join('\n') || 'probe failed';
 }
 
 /**
@@ -184,11 +207,22 @@ class Daemon {
       let parsed = null;
       try { parsed = JSON.parse(r.stdout.trim()); } catch {}
       if (!parsed || typeof parsed !== 'object') {
+        // The probe process itself died before it could answer — a fault on
+        // this device's OpenAgents install, not in the agent.
         parsed = {
           type, ok: false, method: 'none', code: 'probe_error',
-          message: (r.stderr || 'probe failed').slice(0, 400),
-          guidance: [], at: new Date().toISOString(),
+          message: redactDiagnostic(probeCrashSummary(r.stderr), 400),
+          guidance: [
+            'The OpenAgents test could not start on this device. Restart OpenAgents and test again; if it keeps failing, reinstall OpenAgents.',
+          ],
+          at: new Date().toISOString(),
         };
+      }
+      // Still not installed after a failed install: keep the reason the
+      // install gave, which says far more than "Not installed".
+      const prev = this._probes[name];
+      if (parsed.code === 'not_installed' && prev && prev.code === 'install_failed') {
+        parsed = { ...prev, at: parsed.at || new Date().toISOString() };
       }
       parsed.agent = name;
       this._probes[name] = parsed;
@@ -197,6 +231,25 @@ class Daemon {
     } finally {
       this._probeInFlight.delete(name);
     }
+  }
+
+  /** Report a runtime install that failed while creating `name`, as its probe result. */
+  _recordInstallFailure(name, type, error) {
+    let install = null;
+    try {
+      const entry = this.registry && this.registry.getEntry(type);
+      install = entry ? installCommandFor(entry) : null;
+    } catch {}
+    this._probes[name] = {
+      type, agent: name, ok: false, method: 'install', code: 'install_failed',
+      message: redactDiagnostic(error, 400),
+      guidance: [
+        'Installing the agent on this device failed. Install it from the launcher\'s Install page to see the full log.',
+        ...(install ? [`Or install manually: ${install}`] : []),
+      ],
+      at: new Date().toISOString(),
+    };
+    this._saveProbes();
   }
 
   /**
@@ -745,6 +798,7 @@ async _runNodeCommand(n, cmd) {
         try { fs.mkdirSync(workingDir, { recursive: true }); } catch {}
         const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
+        const installError = installFailureOf(r1.stdout);
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
@@ -764,10 +818,18 @@ async _runNodeCommand(n, cmd) {
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
         ok = true;
         message = `Agent '${name}' created`;
-        // First-connect smoke test, in the background (a probe can take its
-        // full timeout — never hold the create result hostage). The outcome
-        // reaches the workspace via the heartbeat's agents[].probe.
-        this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        if (installError) {
+          // The agent exists and is connected, but its runtime did not install.
+          // Say why on the card: a probe now could only answer "Not installed".
+          message = `Agent '${name}' created, but installing ${type} failed: ${installError}`;
+          this._recordInstallFailure(name, type, installError);
+          this._nodeHeartbeat();
+        } else {
+          // First-connect smoke test, in the background (a probe can take its
+          // full timeout — never hold the create result hostage). The outcome
+          // reaches the workspace via the heartbeat's agents[].probe.
+          this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        }
         this._askCliModels(name);
       } else if (action === 'start_agent' || action === 'stop_agent') {
         // In-process, not via `agn start|stop`: that spawned a whole CLI just to

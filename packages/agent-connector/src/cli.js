@@ -1035,6 +1035,10 @@ async function cmdProbe(connector, flags, positional) {
   if (result.ok) {
     print(`OK (${result.method}, ${result.durationMs}ms)${result.reply ? ` — ${result.reply}` : ''}`);
     if (result.code === 'static_only') print(result.message);
+  } else if (result.ok === null) {
+    // Nothing could be run and the sign-in could not be checked either.
+    print(`UNVERIFIED ${result.message || ''}`.trim());
+    process.exitCode = 1;
   } else {
     print(`FAILED [${result.code}] ${result.message || ''}`.trim());
     for (const line of result.guidance || []) print(`  → ${line}`);
