@@ -54,8 +54,10 @@
     "creds_file": "~/.cline/data/settings/providers.json",
     "creds_no_parse": true,
     "creds_key": "providers",
+    "creds_classifier": "cline_providers",
     "login_command": "cline auth",
-    "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth"
+    "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth",
+    "unknown_message": "Cline's sign-in can't be confirmed from its settings (a Cline account keeps it elsewhere). The first run will tell; if it fails, run: cline auth"
   },
   "env_config": [
     {
