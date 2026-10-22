@@ -5,6 +5,7 @@ import { AgentMessageAccessProvider } from './agent-message-access';
 import { ThreadResources } from './thread-resources';
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
+import { hasCollapsedSteps } from './intermediate-steps';
 import { YumiGuide } from './yumi-guide';
 import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
@@ -678,7 +679,7 @@ export function ChatView() {
     [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
   );
 
-  const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
+  const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
 
   if (!currentSessionId) {
     const isRoutinesView = viewMode === 'routines';
@@ -817,8 +818,8 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle */}
-          {hasStatusMessages && (
+          {/* All steps toggle — the tooltip says what a click does */}
+          {hasCollapsibleSteps && (
             <Button
               variant={showAllSteps ? 'outline' : 'ghost'}
               size="sm"
@@ -827,7 +828,8 @@ export function ChatView() {
                 'gap-1.5 h-7 text-xs font-medium',
                 showAllSteps && 'border-primary/30 text-primary bg-primary/5'
               )}
-              title={showAllSteps ? t('chat.showAllSteps') : t('chat.showLatestSteps')}
+              aria-pressed={showAllSteps}
+              title={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             >
               <ListTree className="size-3.5" />
             </Button>

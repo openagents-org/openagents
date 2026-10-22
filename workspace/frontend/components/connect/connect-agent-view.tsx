@@ -729,6 +729,18 @@ function PairingPanel({
   );
 }
 
+/** A Start/Stop sent to a device, shown on the card until its state moves off `from`. */
+interface AgentToggle {
+  action: 'start_agent' | 'stop_agent';
+  /** The roster status when the button was clicked. */
+  from: string;
+  at: number;
+  commandId?: string;
+}
+
+/** Past this the device is treated as not answering: a heartbeat is every 10s. */
+const AGENT_TOGGLE_TIMEOUT_MS = 60_000;
+
 /** Optimistic Add-agent placeholder, optionally tied to its create command. */
 interface PendingAgent {
   name: string;
@@ -825,8 +837,74 @@ function NodeCard({
     }
   };
 
+  // Start/Stop clicked on a card, until the roster shows the agent in another
+  // state. The device only picks a command up on its next heartbeat, so the
+  // card used to keep saying "Running" with a live Stop button for many
+  // seconds, and the click read as doing nothing.
+  const [toggling, setToggling] = useState<Record<string, AgentToggle>>({});
+  const togglingNames = Object.keys(toggling);
+
+  useEffect(() => {
+    setToggling((prev) => {
+      const next = { ...prev };
+      for (const name of Object.keys(prev)) {
+        const agent = agents.find((a) => a.name === name);
+        if (!agent || agent.status !== prev[name].from) delete next[name];
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [agents]);
+
+  // While a toggle is in flight, refresh the roster briskly and watch the
+  // command itself, so a failure on the device is shown instead of a spinner.
+  useEffect(() => {
+    if (togglingNames.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      onChanged();
+      let cmds: import('@/lib/types').NodeCommand[] = [];
+      try { cmds = await workspaceApi.listNodeCommands(node.nodeId); } catch { /* next tick retries */ }
+      if (cancelled) return;
+      setToggling((prev) => {
+        const next = { ...prev };
+        for (const [name, entry] of Object.entries(prev)) {
+          const cmd = cmds.find((c) => c.commandId === entry.commandId);
+          if (cmd?.status === 'error') {
+            toast.error(t(entry.action === 'stop_agent' ? 'connect.nodeStopFailed' : 'connect.nodeStartFailed', {
+              name, message: cmd.result?.message || '',
+            }));
+            delete next[name];
+          } else if (Date.now() - entry.at > AGENT_TOGGLE_TIMEOUT_MS) {
+            toast.error(t('connect.nodeToggleNoResponse', { name }));
+            delete next[name];
+          }
+        }
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    };
+    const id = setInterval(tick, 2000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [togglingNames.join('|'), node.nodeId]);
+
+  const toggleAgent = async (agent: import('@/lib/types').NodeAgent, action: AgentToggle['action']) => {
+    setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now() } }));
+    try {
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, action, { name: agent.name });
+      setToggling((prev) => (prev[agent.name] ? { ...prev, [agent.name]: { ...prev[agent.name], commandId: cmd.commandId } } : prev));
+    } catch (err: unknown) {
+      setToggling((prev) => {
+        const next = { ...prev };
+        delete next[agent.name];
+        return next;
+      });
+      const msg = err instanceof Error ? err.message : '';
+      const key = nodeCommandErrorKey(msg);
+      toast.error(key ? t(key, { name: agent.name }) : t('connect.nodeCommandFailed'));
+    }
+  };
+
   const queue = async (
-    action: 'start_agent' | 'stop_agent' | 'remove_agent',
+    action: 'remove_agent',
     args: Record<string, unknown>,
   ) => {
     setBusy(true);
@@ -1068,12 +1146,17 @@ function NodeCard({
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 pt-1 border-t">
-                      {running ? (
-                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('stop_agent', { name: a.name })}>
+                      {toggling[a.name] ? (
+                        <Button size="sm" variant="ghost" disabled>
+                          <Loader2 className="size-3.5 mr-1 animate-spin" />
+                          {t(toggling[a.name].action === 'stop_agent' ? 'connect.nodeStopping' : 'connect.nodeStarting')}
+                        </Button>
+                      ) : running ? (
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggleAgent(a, 'stop_agent')}>
                           {t('connect.nodeStop')}
                         </Button>
                       ) : (
-                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue('start_agent', { name: a.name })}>
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggleAgent(a, 'start_agent')}>
                           {t('connect.nodeStart')}
                         </Button>
                       )}
