@@ -1180,7 +1180,9 @@
         "CLINE_API_KEY",
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
-        "OPENROUTER_API_KEY"
+        "OPENROUTER_API_KEY",
+        "AI_GATEWAY_API_KEY",
+        "V0_API_KEY"
       ],
       "saved_env_key": "CLINE_API_KEY",
       "creds_file": "~/.cline/data/settings/providers.json",

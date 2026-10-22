@@ -28,6 +28,7 @@ const IS_WINDOWS = process.platform === 'win32';
 const KEY_VARS = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'KIMI_API_KEY', 'MOONSHOT_API_KEY', 'OPENAI_API_KEY',
   'CLINE_API_KEY', 'OPENROUTER_API_KEY', 'COMMAND_CODE_API_KEY', 'AMP_API_KEY',
+  'AI_GATEWAY_API_KEY', 'V0_API_KEY',
 ];
 
 let tmpDir;
@@ -53,10 +54,10 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function evaluate(type, binary = null) {
+function evaluate(type, binary = null, savedEnv = {}) {
   const entry = registry.find((a) => a.name === type);
   const inst = new Installer({ getEntry: () => null, getResolveRules: () => [] }, tmpDir);
-  inst.env.getEffective = () => ({});
+  inst.env.getEffective = () => ({ ...savedEnv });
   inst._whichBinary = () => binary;
   return inst._evaluateReadiness(type, entry, binary);
 }
@@ -247,6 +248,31 @@ describe('cline', () => {
     const r = await probeAgentType(connector, 'cline', { agentEnv: {} });
     assert.equal(r.ok, false);
     assert.equal(r.code, CODE.NOT_READY);
+  });
+
+  // The adapter takes these two as well (CLINE_AUTH_ENV_VARS), and the health
+  // check, which leaves keys in the environment to env_vars, did not list
+  // them: an agent the adapter would run read no_credentials, and the smoke
+  // test stopped before trying it.
+  for (const key of ['AI_GATEWAY_API_KEY', 'V0_API_KEY']) {
+    for (const where of ['the environment', 'its saved settings']) {
+      it(`is ready on ${key} in ${where}`, () => {
+        homeFile('.cline/data/settings/providers.json', {
+          lastUsedProvider: 'openrouter',
+          providers: { openrouter: { settings: { model: 'x' } } },
+        });
+        if (where === 'the environment') process.env[key] = 'k-test';
+        const r = evaluate('cline', null, where === 'the environment' ? {} : { [key]: 'k-test' });
+        assert.equal(r.ready, true);
+        assert.equal(r.auth_mode, 'api_key');
+      });
+    }
+  }
+
+  it('lists every key the adapter takes', () => {
+    const { CLINE_AUTH_ENV_VARS } = require('../src/adapters/cline-stream');
+    const listed = registry.find((a) => a.name === 'cline').check_ready.env_vars;
+    assert.deepEqual(CLINE_AUTH_ENV_VARS.filter((k) => !listed.includes(k)), []);
   });
 
   it('is ready on an API key, whatever the providers file says', () => {

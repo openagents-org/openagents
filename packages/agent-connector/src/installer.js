@@ -61,7 +61,8 @@ const CREDS_CLASSIFIERS = {
   // The adapter's own reading of providers.json. A key-based provider picked
   // with no key stored is no_credentials; a Cline account sign-in keeps its
   // credential outside the file, so without a stored key it is unknown, never
-  // "signed out". Keys in the environment are judged by env_vars before this.
+  // "signed out". Keys in the environment are judged by env_vars before this,
+  // which lists every key the adapter takes (CLINE_AUTH_ENV_VARS).
   cline_providers(creds) {
     return classifyClineAuth(creds, {}).state;
   },
