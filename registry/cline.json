@@ -51,6 +51,9 @@
       "OPENROUTER_API_KEY"
     ],
     "saved_env_key": "CLINE_API_KEY",
+    "creds_file": "~/.cline/data/settings/providers.json",
+    "creds_no_parse": true,
+    "creds_key": "providers",
     "login_command": "cline auth",
     "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth"
   },

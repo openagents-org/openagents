@@ -1103,7 +1103,14 @@
       "args": []
     },
     "check_ready": {
+      "env_vars": [
+        "AMP_API_KEY"
+      ],
       "login_command": "amp login",
+      "status_args": [
+        "usage"
+      ],
+      "logged_out_pattern": "invalid or missing api key|run ['\"]?amp login",
       "not_ready_message": "Amp is installed but not signed in — run: amp login or set AMP_API_KEY"
     },
     "env_config": [
@@ -1176,6 +1183,9 @@
         "OPENROUTER_API_KEY"
       ],
       "saved_env_key": "CLINE_API_KEY",
+      "creds_file": "~/.cline/data/settings/providers.json",
+      "creds_no_parse": true,
+      "creds_key": "providers",
       "login_command": "cline auth",
       "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth"
     },
@@ -1929,6 +1939,11 @@
       ],
       "saved_env_key": "COMMAND_CODE_API_KEY",
       "login_command": "command-code login",
+      "status_args": [
+        "status"
+      ],
+      "logged_in_pattern": "authentication verified|authenticated as",
+      "logged_out_pattern": "not authenticated|not signed in|not logged in",
       "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY in Configure",
       "unreadable_message": "Command Code credentials could not be read. Sign in again with `command-code login`, or re-enter COMMAND_CODE_API_KEY in the Configure screen."
     },
