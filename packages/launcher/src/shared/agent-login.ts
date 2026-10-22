@@ -19,13 +19,15 @@
  *           only mcp/extensions/skills/hooks/gemma). Its Google sign-in lives
  *           behind the `/auth` picker inside the full-screen TUI, so a pipe
  *           just hangs. The browser still opens; it's reached from the terminal.
+ *   step-code `step login` prints "step login needs an interactive terminal"
+ *           and exits 1 (0.1.5).
  *
  * And one that follows from how its sign-in is built rather than a piped run:
  *
  *   opencode `opencode auth login` starts with an arrow-key provider picker,
  *           which reads keypresses from a TTY that a pipe does not provide.
  */
-export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode"])
+export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode", "step-code"])
 
 /**
  * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the

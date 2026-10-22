@@ -26,6 +26,7 @@ const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
+const { identityOf, findOwnInstall, verifyBinary } = require('./binary-identity');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -1248,7 +1249,11 @@ class Installer {
     };
     if (bridgedCommandString(binary, args)) return run(command, { ...opts, shell: true });
     if (process.platform === 'win32') {
-      const own = resolveCursorNodeEntry(binary, opts.env);
+      // The resolver also searches Cursor's default install root, so only
+      // pass Cursor launchers to it. Otherwise an installed Cursor replaces
+      // unrelated CLIs (e.g. `step login status --json`) in health checks.
+      const isCursorLauncher = /^(?:cursor-agent|agent)(?:\.(?:cmd|bat|ps1|exe))?$/i.test(path.basename(binary));
+      const own = isCursorLauncher ? resolveCursorNodeEntry(binary, opts.env) : null;
       if (!own) return run(command, { ...opts, shell: true });
       const [node, entry] = own;
       // What cursor-agent.cmd would have set before handing over to node.
@@ -1360,7 +1365,7 @@ class Installer {
 
     let bootstrapEnv = this._buildShellEnv();
     let installEnv;
-    if (agentType === 'hermes' && process.platform === 'win32') {
+    if (['hermes', 'step-code'].includes(agentType) && process.platform === 'win32') {
       const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
       cmd = prepared.command;
       bootstrapEnv = prepared.env;
@@ -1459,11 +1464,11 @@ class Installer {
     let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
 
-    // Hermes's registry command names the inbox Windows PowerShell host for
-    // compatibility, but some Windows environments expose only PowerShell 7.
-    // Resolve the host that actually exists and keep module paths from the
-    // launcher's own PowerShell runtime out of both installer processes.
-    if (agentType === 'hermes' && isWin) {
+    // Resolve a compatible host and keep inherited PowerShell 7 modules out
+    // of Windows PowerShell. Hermes's uv bootstrap otherwise cannot load
+    // Get-ExecutionPolicy, and Step Code's install.ps1 needs Get-FileHash and
+    // Expand-Archive to verify and unpack its download.
+    if (['hermes', 'step-code'].includes(agentType) && isWin) {
       const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
       rawCmd = prepared.command;
       env = prepared.env;
@@ -2115,6 +2120,23 @@ class Installer {
    */
   _whichBinary(agentType) {
     const entry = this.registry.getEntry(agentType);
+    // An agent whose binary name another program also uses (Step Code's
+    // `step` vs Smallstep's) opts into `install.identify`: its own installer's
+    // dir first, and anything found elsewhere only when its `--version` answers
+    // like the agent. Every other agent is resolved exactly as below.
+    const identify = identityOf(entry);
+    if (identify) {
+      const binary = entry.install.binary || agentType;
+      const own = findOwnInstall(identify, binary);
+      if (own) return own;
+      const found = this._lookupBinary(agentType, entry);
+      return found && verifyBinary(identify, found) !== false ? found : null;
+    }
+    return this._lookupBinary(agentType, entry);
+  }
+
+  /** The PATH / managed-prefix / known-dirs lookup behind _whichBinary. */
+  _lookupBinary(agentType, entry) {
     const binary = entry && entry.install ? entry.install.binary : agentType;
     const aliases = entry && entry.install && Array.isArray(entry.install.binary_aliases)
       ? entry.install.binary_aliases
@@ -2434,7 +2456,7 @@ class Installer {
       throw new Error('Windows PowerShell or PowerShell 7 is required for this installer.');
     }
     return {
-      command: this._retargetPowerShellCommand(command, host),
+      command: this._retargetPowerShellCommand(this._wrapForWindowsShell(command), host),
       env: this._powerShellChildEnv(env),
       host,
     };
@@ -2890,12 +2912,12 @@ class Installer {
    * `Invoke-RestMethod`, etc. The launcher's install shell is cmd.exe, which
    * doesn't recognize these aliases — without wrapping, e.g. Cursor's
    * `irm '…' | iex` exits 255. Skips commands already prefixed with
-   * `powershell`/`powershell.exe` so we don't double-wrap.
+   * `powershell`/`pwsh` so we don't double-wrap.
    */
   _wrapForWindowsShell(cmd) {
     if (!cmd || process.platform !== 'win32') return cmd;
     const trimmed = cmd.trimStart();
-    if (/^("[^"]*\\)?powershell(\.exe)?["']?\s/i.test(trimmed)) return cmd;
+    if (/^("[^"]*\\)?(powershell|pwsh)(\.exe)?["']?\s/i.test(trimmed)) return cmd;
     const psTokens = /\b(irm|iwr|iex|Invoke-RestMethod|Invoke-WebRequest|Invoke-Expression|Expand-Archive|Get-[A-Z]\w*|Set-[A-Z]\w*)\b/;
     if (!psTokens.test(cmd)) return cmd;
     const escaped = cmd.replace(/"/g, '\\"');

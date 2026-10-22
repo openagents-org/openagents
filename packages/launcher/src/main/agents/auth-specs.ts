@@ -770,6 +770,27 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Pick a provider and sign in. Close this window once the CLI confirms it — or press e to set an API key instead.",
   },
+  "step-code": {
+    // `step login` is a full-screen picker (Step Plan, mainland China or
+    // international, or a Step Platform key) and refuses to run without a TTY,
+    // so it gets a terminal. `step login status --json` exits 0 either way and
+    // checks the stored credential against the model list: `loggedIn` only
+    // says one is stored, `validity` what the endpoint made of it — "valid",
+    // "invalid" (401/403: expired or revoked, so `loggedIn` is still true),
+    // "unavailable" (network error or another status: it could not tell) or
+    // "missing". Only "invalid" and "missing" are signed out; "unavailable"
+    // keeps the credential, as an offline Cursor does. The patterns never
+    // both match, and are the registry's check_ready ones (0.1.4 and 0.1.5
+    // print the same shape). A key in STEP_API_KEY takes precedence over the
+    // sign-in.
+    loginCommand: "step login",
+    statusArgs: ["login", "status", "--json"],
+    loggedInPattern: /"validity"\s*:\s*"(?:valid|unavailable)"/,
+    loggedOutPattern: /"loggedIn"\s*:\s*false|"validity"\s*:\s*"(?:invalid|missing)"/,
+    apiKeyEnv: "STEP_API_KEY",
+    terminalHint:
+      "Pick Step Plan (or Step Plan Oversea) and finish the sign-in in the browser. Close this window once it says you are signed in.",
+  },
 }
 
 /**
@@ -863,6 +884,11 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // marks it `unverifiable` because the core has no per-platform creds path to
   // look at — the launcher does.
   "codebuddy",
+  // Step Code: a `step login` sign-in (Step Plan) OR a Step Platform API key.
+  // Both registry fields are optional already; this entry makes the sign-in
+  // the first path offered, and DUAL_LOGIN_AGENTS above gives it a probe
+  // (`step login status --json`).
+  "step-code",
 ])
 
 /**
@@ -1031,6 +1057,16 @@ export const CORE_AGENTS: readonly string[] = [
   // installed core's adapter map, so a core without the codearts adapter
   // degrades to "unsupported" rather than a broken install.
   "codearts",
+  // Step Code (`step-code`): StepFun's terminal coding agent, installed by
+  // StepFun's own script as a native binary (`step`, no Node needed). Runs on
+  // a Step Plan sign-in or a Step Platform key (api.stepfun.com, or
+  // api.stepfun.ai for international accounts).
+  //
+  // Same core-before-marketplace ordering as the entries above: listing it
+  // here only stamps it installable, and addAgent still intersects with the
+  // installed core's adapter map, so a core without the step-code adapter
+  // degrades to "unsupported" rather than a broken install.
+  "step-code",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

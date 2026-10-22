@@ -82,6 +82,9 @@ const LOC = {
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
   hermesHome: '.hermes/bin',
+  // StepFun's install.sh / install.ps1 drop `step` here and edit a shell rc
+  // file (or the user `Path` value) to reach it.
+  stepcode: '.stepcode/bin',
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
@@ -204,6 +207,7 @@ const WHERE = {
     [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
   pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+  'step-code': [[LOC.stepcode, 'StepFun install.sh / install.ps1', 'installer']],
 }
 
 /**
@@ -483,6 +487,77 @@ describe('An npm package with no .bin shim', () => {
       assert.equal(info.installed, true, 'the package alone proves the install');
       assert.equal(info.managed, true);
       assert.equal(info.location, 'runtime');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * A binary name another program also uses.
+ *
+ * Step Code's CLI is `step`, which is also Smallstep's certificate tool — and a
+ * Smallstep found first on the lookup path used to make the marketplace report
+ * Step Code as installed. step-code opts into `install.identify`: the copy in
+ * its installer's own dir wins, and a `step` found anywhere else counts only
+ * when its `--version` prints a bare version like Step Code's.
+ */
+describe('A binary name another program also uses', { skip: IS_WINDOWS && 'the planted scripts are .cmd files, which --version cannot run without a shell' }, () => {
+  const plantSmallstep = (home) => {
+    const dir = path.join(home, LOC.localBin);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'step');
+    fs.writeFileSync(file, '#!/bin/sh\necho "Smallstep CLI/0.28.7 (linux/amd64)"\necho "Release Date: 2025-07-14 22:01 UTC"\n', 'utf-8');
+    fs.chmodSync(file, 0o755);
+    return file;
+  };
+  const resolveStep = (home) =>
+    JSON.parse(execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `const {AgentConnector}=require(${JSON.stringify(path.join(ROOT, 'src', 'index.js'))});
+         const c=new AgentConnector({configDir: process.env.HOME + '/.openagents'});
+         const entry=c.registry.getEntry('step-code');
+         process.stdout.write(JSON.stringify({
+           which: c.installer.which('step-code'),
+           plainLookup: c.installer._lookupBinary('step-code', entry),
+           info: c.installer.getInstallInfo('step-code'),
+         }));`,
+      ],
+      { encoding: 'utf-8', timeout: 60000, env: childEnv(home) },
+    ));
+
+  it("finds ~/.stepcode/bin/step when Smallstep's step is also installed", (t) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-step-both-'));
+    try {
+      if (resolveStep(home).info.installed) {
+        t.skip('a step binary is installed on this machine outside the test HOME');
+        return;
+      }
+      const smallstep = plantSmallstep(home);
+      const own = plantBinary(home, LOC.stepcode, 'step');
+      const r = resolveStep(home);
+      // Without the identity check, the lookup lands on Smallstep's copy.
+      assert.equal(r.plainLookup, smallstep);
+      assert.equal(r.which, own);
+      assert.equal(r.info.installed, true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("calls Step Code not installed when only Smallstep's step is there", (t) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-step-smallstep-'));
+    try {
+      if (resolveStep(home).info.installed) {
+        t.skip('a step binary is installed on this machine outside the test HOME');
+        return;
+      }
+      plantSmallstep(home);
+      const r = resolveStep(home);
+      assert.equal(r.which, null);
+      assert.equal(r.info.installed, false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

@@ -534,6 +534,11 @@ function _addAgentInstallerPaths(dirs) {
   // _addWindowsPaths; this is the half nothing covered.
   _push(dirs, path.join(HOME, '.hermes', 'bin'));
 
+  // step-code — StepFun's install.sh / install.ps1 put `step` (step.exe) in
+  // ~/.stepcode/bin and reach PATH through a shell rc edit or the user `Path`
+  // registry value.
+  _push(dirs, path.join(HOME, '.stepcode', 'bin'));
+
   // Installers that let the user choose the install dir. Each of these CLIs
   // reads an env var for its target, and a user who set one has their ONLY copy
   // there — every hardcoded default above then finds nothing. Added rather than
@@ -544,6 +549,7 @@ function _addAgentInstallerPaths(dirs) {
   if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
   if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
   if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+  if (process.env.STEP_INSTALL_DIR) _push(dirs, process.env.STEP_INSTALL_DIR);
 
   // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
   // the executable into uv's bin dir, which reaches PATH through a shell rc

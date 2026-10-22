@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { credsVerdict, loginVerdict } from "./login-probe"
 import { DUAL_LOGIN_AGENTS, HOSTED_LOGIN_AGENTS } from "./auth-specs"
+import BUNDLED_REGISTRY from "../../../../agent-connector/registry.json"
 
 /**
  * Verbatim `status` output, captured by running each CLI. The codex pair is the
@@ -53,6 +54,43 @@ describe("loginVerdict", () => {
 
   it("stays unknown for a spec that declares no pattern at all", () => {
     expect(loginVerdict({}, "anything", 0)).toBe(null)
+  })
+})
+
+describe("loginVerdict — Step Code's `step login status --json`", () => {
+  const step = DUAL_LOGIN_AGENTS["step-code"]
+  // Verbatim from 0.1.4 and 0.1.5 (the two print the same), against an
+  // endpoint answering 200, 401, 503 and nothing at all.
+  const STATUS = {
+    missing: '{"loggedIn":false,"loginMethod":null,"validity":"missing"}',
+    valid: '{"loggedIn":true,"loginMethod":"api_key","profile":"platform_cn","account":"platform_cn","validity":"valid"}',
+    invalid: '{"loggedIn":true,"loginMethod":"api_key","profile":"platform_cn","account":"platform_cn","validity":"invalid"}',
+    down: '{"loggedIn":true,"loginMethod":"api_key","validity":"unavailable","error":"HTTP 503"}',
+    offline: '{"loggedIn":true,"loginMethod":"api_key","validity":"unavailable","error":"network_error"}',
+  }
+
+  it("is signed in on a credential the endpoint accepted", () => {
+    expect(loginVerdict(step, STATUS.valid, 0)).toBe(true)
+  })
+
+  it("is signed OUT on a rejected credential, though `loggedIn` is still true", () => {
+    expect(loginVerdict(step, STATUS.invalid, 0)).toBe(false)
+    expect(loginVerdict(step, STATUS.missing, 0)).toBe(false)
+  })
+
+  it("keeps a credential it could not check", () => {
+    expect(loginVerdict(step, STATUS.down, 0)).toBe(true)
+    expect(loginVerdict(step, STATUS.offline, 0)).toBe(true)
+  })
+
+  it("never matches both ways, and reads like the core's check_ready", () => {
+    for (const out of Object.values(STATUS)) {
+      expect(step.loggedInPattern!.test(out)).not.toBe(step.loggedOutPattern!.test(out))
+    }
+    const core = (BUNDLED_REGISTRY as Array<{ name: string; check_ready?: Record<string, unknown> }>)
+      .find((e) => e.name === "step-code")!.check_ready!
+    expect(step.loggedInPattern!.source).toBe(core.logged_in_pattern)
+    expect(step.loggedOutPattern!.source).toBe(core.logged_out_pattern)
   })
 })
 
