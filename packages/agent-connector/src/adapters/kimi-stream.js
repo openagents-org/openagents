@@ -19,9 +19,10 @@
  * 1 permanent failure (config/auth/quota), 75 transient (retryable).
  *
  * IMPORTANT product distinction: two Moonshot products install a `kimi`
- * binary. Kimi Code CLI (npm `@moonshot-ai/kimi-code`) versions are 0.x;
- * the legacy Python `kimi-cli` (PyPI) is 1.x and has a DIFFERENT headless
- * interface. A 1.x `kimi --version` therefore means the WRONG product.
+ * binary. Kimi Code CLI (npm `@moonshot-ai/kimi-code`) versions are 0.x and
+ * 2.x+ (current line); the legacy Python `kimi-cli` (PyPI) is 1.x and has a
+ * DIFFERENT headless interface. A 1.x `kimi --version` therefore means the
+ * WRONG product.
  */
 
 'use strict';
@@ -42,7 +43,7 @@ function parseKimiVersion(raw) {
 /**
  * Classify `kimi --version` output into a product identity.
  * @returns {{version: string|null, product: 'kimi-code'|'legacy'|null}}
- *   'kimi-code' → the real Kimi Code CLI (0.x) this adapter drives
+ *   'kimi-code' → the real Kimi Code CLI (0.x, 2.x+) this adapter drives
  *   'legacy'    → the wound-down Python kimi-cli (1.x) — incompatible
  *   null        → undetermined (unparseable output); proceed leniently
  */
@@ -50,7 +51,7 @@ function classifyKimiVersion(rawVersion) {
   const version = parseKimiVersion(rawVersion);
   if (!version) return { version: null, product: null };
   const major = parseInt(version.split('.')[0], 10);
-  return { version, product: major === 0 ? 'kimi-code' : 'legacy' };
+  return { version, product: major === 1 ? 'legacy' : 'kimi-code' };
 }
 
 // ---------------------------------------------------------------------------
