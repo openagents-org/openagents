@@ -1,8 +1,5 @@
 {
-  "title": "Settings overview",
-  "subtitle": "Manage $t(common.appName) preferences, connections and system configuration",
-  "searchPlaceholder": "Search settings",
-  "noSectionMatch": "No matching settings",
+  "title": "Settings",
   "sections": {
     "general": "General",
     "appearance": "Appearance",
@@ -13,42 +10,16 @@
     "language": "Language",
     "updates": "Updates",
     "runtime": "Runtime",
+    "logs": "Logs",
     "about": "About"
   },
-  "overview": {
-    "hint": "Changes are saved automatically.",
-    "resetDefaults": "Restore defaults",
-    "title": "Overview"
-  },
   "detail": {
-    "autoSaved": "Every change saves itself",
-    "related": "Related settings"
+    "autoSaved": "Every change saves itself"
   },
   "groups": {
     "preferences": "App preferences",
-    "assistants": "Agents & notifications",
     "connectivity": "Connectivity & data",
     "system": "System"
-  },
-  "summary": {
-    "startupPage": "Opens {{page}} at launch",
-    "trayOn": "Runs in tray",
-    "trayOff": "Quits on close",
-    "accent": "{{color}} accent",
-    "scale": "{{size}} text size",
-    "agentsConfigured": "{{count}} configured",
-    "autoStartOn": "Auto-start on",
-    "autoStartOff": "Auto-start off",
-    "notificationsOn": "Desktop notifications on",
-    "notificationsOff": "Desktop notifications off",
-    "quietHours": "Quiet {{start}}–{{end}}",
-    "quietHoursOff": "No quiet hours",
-    "workspaceCustom": "Self-hosted workspace",
-    "workspaceHosted": "Hosted workspace",
-    "proxyOn": "Proxy configured",
-    "autoUpdateOn": "Auto-update on",
-    "autoUpdateOff": "Auto-update off",
-    "core": "Core {{version}}"
   },
   "pages": {
     "general": {
@@ -62,12 +33,6 @@
       "desc": "Customise how the interface looks",
       "keywords": "theme dark light colour accent font scale zoom",
       "short": "Theme, accent and text size"
-    },
-    "agents": {
-      "title": "Agents",
-      "desc": "Defaults and run policy shared by every agent",
-      "keywords": "agent autostart credentials keys",
-      "short": "Agent defaults and credentials"
     },
     "notifications": {
       "title": "Notifications",
@@ -214,17 +179,8 @@
     }
   },
   "agents": {
-    "startupGroup": "Startup",
     "autoStart": "Start agents on launch",
-    "autoStartDesc": "Start every configured agent once $t(common.appName) opens",
-    "overviewGroup": "Agent overview",
-    "configured": "Configured agents",
-    "running": "Running",
-    "types": "Agent types in use",
-    "agentCount": "{{count}}",
-    "typeCount": "{{count}}",
-    "browseMarketplace": "Agent Marketplace",
-    "openAgents": "Open Agents"
+    "autoStartDesc": "Start every configured agent once $t(common.appName) opens"
   },
   "notifications": {
     "deliveryGroup": "Desktop & sound",

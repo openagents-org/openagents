@@ -84,7 +84,17 @@ export const useUiStore = create<UiState>((set) => ({
   // The Agents page has no rail entry of its own: This Computer lists the
   // agents, so anything still asking for it — a notification, a saved deep
   // link — lands there and the rail shows where the user is.
-  setCurrentTab: (tab) => set({ currentTab: tab === 'agents' ? 'dashboard' : tab }),
+  // Retired pages land where they live now: Agents on Connect Agents, Logs as
+  // a module of Settings (so the palette, shortcuts, notifications and a saved
+  // startup page that still say "logs" keep working).
+  setCurrentTab: (tab) =>
+    tab === 'logs'
+      ? set((s) => ({
+          currentTab: 'settings',
+          settingsSection: 'logs',
+          settingsSectionSignal: s.settingsSectionSignal + 1,
+        }))
+      : set({ currentTab: tab === 'agents' ? 'dashboard' : tab }),
 
   installFocusAgent: null,
   setInstallFocusAgent: (name) => set({ installFocusAgent: name }),

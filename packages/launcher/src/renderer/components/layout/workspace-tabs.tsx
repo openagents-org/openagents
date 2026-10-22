@@ -26,17 +26,18 @@ function labelsFor(tabs: WorkspaceTab[]): Map<string, { title: string; hint: str
 }
 
 /**
- * Tab chrome, shared by the workspace tabs and All Workspaces. The active tab
- * is tinted in the accent — a quieter version of the filled mode switch beside
- * it — so the two read as one hierarchy: which half, then which page in it.
- * Inactive tabs stay flat until hovered.
+ * Tab chrome, shared by the workspace tabs and All Workspaces. They sit in the
+ * Workspace button's box, so the active tab is a raised page in the accent
+ * text — a quieter version of the filled switch beside it — and the two read
+ * as one hierarchy: which half, then which page in it. Inactive tabs stay flat
+ * until hovered.
  */
 function tabClass(active: boolean): string {
   return cn(
-    "group relative flex h-8 items-center gap-2 rounded-lg text-sm transition-colors",
+    "group relative flex h-8 items-center gap-2 rounded-md text-sm transition-colors",
     active
-      ? "bg-primary/10 font-medium text-primary"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      ? "bg-background font-medium text-primary shadow-sm"
+      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
   )
 }
 
@@ -47,17 +48,17 @@ function TabStatus({ state }: { state: WorkspaceTab["state"] }): React.JSX.Eleme
 }
 
 /** All Workspaces, pinned first: a tab like the others, but never closed or moved. */
-function HomeTab({ active }: { active: boolean }): React.JSX.Element {
+const HomeTab = React.forwardRef<HTMLButtonElement, { active: boolean }>(function HomeTab({ active }, ref) {
   const { t } = useTranslation()
   return (
-    <button type="button" role="tab" aria-selected={active} data-testid="all-workspaces"
+    <button ref={ref} type="button" role="tab" aria-selected={active} data-testid="all-workspaces"
       onClick={() => useAccountStore.getState().openWorkspaces()}
       className={cn(tabClass(active), "titlebar-no-drag shrink-0 px-3")}>
       <Grid2X2 className="size-4 shrink-0" />
       {t("account.workspaces.title")}
     </button>
   )
-}
+})
 
 function TabButton({ tab, label, active, dragging, onSelect, onClose, drag }: {
   tab: WorkspaceTab
@@ -114,7 +115,7 @@ function TabMenuButton({ hidden }: { hidden: number }): React.JSX.Element {
   const label = t("workspaceTabs.more", { count: hidden })
   return (
     <button type="button" aria-label={label} title={label} data-testid="workspace-tab-menu"
-      className="titlebar-no-drag flex h-8 shrink-0 items-center gap-0.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="titlebar-no-drag flex h-8 shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
       onClick={(e) => {
         const { left, bottom } = e.currentTarget.getBoundingClientRect()
         void window.api.showWorkspaceTabMenu({ x: left, y: bottom })
@@ -180,39 +181,46 @@ function useTabDrag(tabs: WorkspaceTab[]): {
 /** A tab at its narrowest (min-w-28) plus the gap after it, and the "+N" button. */
 const TAB_SLOT = 116
 const MENU_SLOT = 64
+/** The divider after All Workspaces, with its margins and the gaps around it. */
+const DIVIDER_SLOT = 14
 
 /**
- * How many tabs fit in the strip as it is laid out now. Five is the most the
- * strip shows; a narrower window shows fewer rather than letting tabs spill
- * over what sits to their right.
+ * How many tabs fit in `width`. Five is the most the strip shows; a narrower
+ * window shows fewer rather than letting tabs spill over what sits to their
+ * right.
  */
-function useTabsThatFit(total: number): [React.RefObject<HTMLDivElement | null>, number] {
-  const ref = React.useRef<HTMLDivElement>(null)
-  const [width, setWidth] = React.useState(Infinity)
-  React.useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
-    observer.observe(el)
-    setWidth(el.clientWidth)
-    return () => observer.disconnect()
-  }, [])
+function tabsThatFit(width: number, total: number): number {
   const fit = Math.floor(width / TAB_SLOT)
-  return [ref, total > fit ? Math.floor((width - MENU_SLOT) / TAB_SLOT) : fit]
+  return Math.max(0, total > fit ? Math.floor((width - MENU_SLOT) / TAB_SLOT) : fit)
 }
 
 /**
  * All Workspaces and the open workspaces, one tab each, at most five of the
  * latter at a time. Closing a tab closes its page only — the workspace, this
  * device's connection to it and its agents carry on.
+ *
+ * `budget` is the room the mode bar has for all of this. The strip is only as
+ * wide as its tabs, so it cannot measure its own room: how many it holds would
+ * then depend on how many it holds.
  */
-export function WorkspaceTabs(): React.JSX.Element {
+export function WorkspaceTabs({ budget }: { budget: number }): React.JSX.Element {
   const { t } = useTranslation()
   const tabs = useWorkspaceTabsStore((s) => s.tabs)
   const shown = useWorkspaceTabsStore((s) => s.active)
   const labels = React.useMemo(() => labelsFor(tabs), [tabs])
   const { order, dragged, handlers } = useTabDrag(tabs)
-  const [stripRef, fit] = useTabsThatFit(tabs.length)
+  const homeRef = React.useRef<HTMLButtonElement>(null)
+  const [homeWidth, setHomeWidth] = React.useState(0)
+  React.useLayoutEffect(() => {
+    const el = homeRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setHomeWidth(el.offsetWidth))
+    observer.observe(el)
+    setHomeWidth(el.offsetWidth)
+    return () => observer.disconnect()
+  }, [])
+  const stripWidth = Math.max(0, budget - homeWidth - DIVIDER_SLOT)
+  const fit = tabsThatFit(stripWidth, tabs.length)
   const visible = visibleTabs(order, shown, fit)
 
   React.useEffect(() => { useWorkspaceTabsStore.getState().init() }, [])
@@ -235,12 +243,12 @@ export function WorkspaceTabs(): React.JSX.Element {
   }, [])
 
   return (
-    <div role="tablist" aria-label={t("workspaceTabs.label")} className="flex min-w-0 flex-1 items-center gap-1">
-      <HomeTab active={shown === WORKSPACE_HOME_TAB} />
+    <div role="tablist" aria-label={t("workspaceTabs.label")} className="flex min-w-0 items-center gap-1">
+      <HomeTab ref={homeRef} active={shown === WORKSPACE_HOME_TAB} />
       {tabs.length > 0 && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
-      {/* Measured, not just laid out: the tabs and the "+N" button share this
-          box, and how many tabs it holds is decided from its width. */}
-      <div ref={stripRef} className="flex min-w-0 flex-1 items-center gap-1">
+      {/* Capped at the room the bar has left, so the tabs shrink to share it
+          down to their minimum; past that the rest go into the "+N" menu. */}
+      <div className="flex min-w-0 items-center gap-1" style={{ maxWidth: stripWidth }}>
         <div className="titlebar-no-drag flex min-w-0 items-center gap-1 overflow-hidden">
           {visible.map((tab) => (
             <TabButton key={tab.id} tab={tab} label={labels.get(tab.id)!} active={tab.id === shown}
