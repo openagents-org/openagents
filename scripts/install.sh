@@ -208,16 +208,30 @@ fi
 # Install to ~/.openagents/nodejs/node_modules/ via direct tarball (avoids npm --prefix pruning)
 PREFIX_DIR="$HOME/.openagents/nodejs"
 CORE_DIR="$PREFIX_DIR/node_modules/@openagents-org/agent-launcher"
-if ! LATEST_VER=$("$NPM" view "$NPM_PACKAGE" version 2>/dev/null) || [ -z "$LATEST_VER" ]; then
-    fail "Could not fetch the OpenAgents CLI version from npm. Check your network and npm registry configuration, then rerun this installer."
-fi
 INSTALLED_VER=""
 if [ -f "$CORE_DIR/package.json" ]; then
     INSTALLED_VER=$(node -e "try{console.log(require('$CORE_DIR/package.json').version)}catch{}" 2>/dev/null || echo "")
 fi
 
+REGISTRY="https://registry.npmjs.org"
+LATEST_VER=$("$NPM" view "$NPM_PACKAGE" version 2>/dev/null) || LATEST_VER=""
+if [ -z "$LATEST_VER" ]; then
+    # registry.npmjs.org unreachable or blocked (common in mainland China):
+    # ask the npmmirror copy, as install.ps1 does, before giving up.
+    LATEST_VER=$("$NPM" view "$NPM_PACKAGE" version --registry=https://registry.npmmirror.com 2>/dev/null) || LATEST_VER=""
+    [ -n "$LATEST_VER" ] && REGISTRY="https://registry.npmmirror.com"
+fi
+if [ -z "$LATEST_VER" ]; then
+    if [ -z "$INSTALLED_VER" ]; then
+        fail "Could not fetch the OpenAgents CLI version from npm. Check your network and npm registry configuration, then rerun this installer."
+    fi
+    # A working install must not be blocked by a registry hiccup: people rerun
+    # this script to pair a new workspace, which needs no upgrade.
+    warn "Could not reach the npm registry to check for updates — keeping installed v$INSTALLED_VER"
+fi
+
 if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
-    TARBALL_URL="https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
+    TARBALL_URL="$REGISTRY/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
     mkdir -p "$CORE_DIR"
     curl -fsSL "$TARBALL_URL" | tar xz -C "$CORE_DIR" --strip-components=1
 elif [ -n "$INSTALLED_VER" ]; then
@@ -237,7 +251,7 @@ if [ -f "$CORE_DIR/package.json" ]; then
     # Install blessed (TUI dep) via direct tarball — avoids npm --prefix pruning other packages
     BLESSED_DIR="$PREFIX_DIR/node_modules/blessed"
     if [ ! -f "$BLESSED_DIR/package.json" ]; then
-        BLESSED_VER=$($NPM view blessed version 2>/dev/null || echo "0.1.81")
+        BLESSED_VER=$("$NPM" view blessed version 2>/dev/null || echo "0.1.81")
         mkdir -p "$BLESSED_DIR"
         curl -fsSL "https://registry.npmjs.org/blessed/-/blessed-${BLESSED_VER}.tgz" | tar xz -C "$BLESSED_DIR" --strip-components=1
     fi
