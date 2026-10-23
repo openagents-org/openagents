@@ -3,24 +3,19 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
 import { ConfirmDialog } from "@renderer/components/ui-kit"
-import { useAgentsStore } from "@renderer/store/agents"
 import { useUiStore } from "@renderer/store/ui"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { DetailHeader } from "./components/detail-header"
 import { SettingsNav } from "./components/settings-nav"
-import { RelatedSettings } from "./components/related-settings"
 import { ResetSummary } from "./components/reset-summary"
-import { SettingsOverview } from "./components/settings-overview"
-import { RELATED, SECTIONS, type SectionId } from "./section-config"
+import { DEFAULT_SECTION, SECTIONS, type SectionId } from "./section-config"
 import { useLauncherUpdater } from "./use-launcher-updater"
-import { useSectionSummaries } from "./use-section-summaries"
 import { useSettingsIO } from "./use-settings-io"
 import { useSettingsState } from "./use-settings-state"
 import { useSystemInfo } from "./use-system-info"
 import { GeneralSection } from "./sections/general-section"
 import { AppearanceSection } from "./sections/appearance-section"
-import { AgentsSection } from "./sections/agents-section"
 import { NotificationsSection } from "./sections/notifications-section"
 import { NetworkSection } from "./sections/network-section"
 import { DataSection } from "./sections/data-section"
@@ -28,6 +23,7 @@ import { LanguageSection } from "./sections/language-section"
 import { UpdatesSection } from "./sections/updates-section"
 import { RuntimeSection } from "./sections/runtime-section"
 import { AboutSection } from "./sections/about-section"
+import Logs from "../logs"
 
 // Which lines each confirmation spells out; the copy lives under the matching
 // `settings.*Dialog.affected/kept` i18n prefix.
@@ -52,15 +48,12 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     launcherVersion,
     loadSettings,
   } = useSettingsState()
-  // null is the overview grid; a section id is that module's own controls.
-  const [section, setSection] = useState<SectionId | null>(null)
-  const [search, setSearch] = useState("")
-
-  const agents = useAgentsStore((s) => s.agents)
+  // Settings opens straight on a module; the menu beside it is the way around.
+  const [section, setSection] = useState<SectionId>(DEFAULT_SECTION)
 
   // Deep-link from elsewhere in the app (currently the update banner's "view
   // progress" / "update now"), which needs to open a specific module rather
-  // than the overview. Keyed off the signal too, so re-requesting a section the
+  // than the first one. Keyed off the signal too, so re-requesting a section the
   // user has since navigated away from still re-opens it.
   const { deepLinkSection, deepLinkSignal } = useUiStore(
     useShallow((s) => ({
@@ -109,40 +102,26 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
   // Runtime and About both read the host snapshot; polling stays scoped to them.
   const systemInfo = useSystemInfo(section === "runtime" || section === "about")
 
-  const summaries = useSectionSummaries({
-    values,
-    paths,
-    runtimeInfo,
-    launcherVersion,
-    agentCount: agents.length,
-  })
-
   return (
     <section className="flex h-full flex-col">
-      {section === null ? (
-        <SettingsOverview
-          summaries={summaries}
-          search={search}
-          onSearchChange={setSearch}
-          onSelect={setSection}
-          onReset={openReset}
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <SettingsNav current={section} onSelect={setSection} onOverview={() => setSection(null)} />
+      <div className="flex min-h-0 flex-1">
+        <SettingsNav current={section} onSelect={setSection} />
+        {section === "logs" ? (
+          // The log viewer brings its own header, filters and table, laid out
+          // to fill the height, so it takes the pane as it is.
           <div className="flex min-w-0 flex-1 flex-col">
-          {/* Same rule as the overview: the header is fixed chrome, only the
-              module's own controls scroll. */}
+            <Logs showToast={showToast} />
+          </div>
+        ) : (
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* The header is fixed chrome; only the module's own controls scroll. */}
           <DetailHeader section={section} />
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
+          <div className="scroll-edge min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
             {section === "general" && (
               <GeneralSection values={values} update={update} />
             )}
             {section === "appearance" && <AppearanceSection />}
-            {section === "agents" && (
-              <AgentsSection values={values} update={update} agents={agents} />
-            )}
             {section === "notifications" && <NotificationsSection />}
             {section === "network" && (
               <NetworkSection
@@ -191,15 +170,10 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                 systemInfo={systemInfo}
               />
             )}
-
-            <RelatedSettings
-              ids={RELATED[section] ?? []}
-              onSelect={setSection}
-            />
-          </div>
           </div>
         </div>
-      )}
+        )}
+      </div>
 
       <ConfirmDialog
         open={resetOpen}

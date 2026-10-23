@@ -781,6 +781,23 @@ code {
   display: none;
 }
 
+/* The body under a fixed page header. Scrolled, its top edge gets a rule, so
+   content passing under the header reads as scrolling rather than as a page
+   cut off mid-banner. A border, not a shadow: it is drawn outside the padding
+   box, where the scrolled content can never cover it. Driven by the scroll
+   position itself, so no page needs a listener. */
+.scroll-edge {
+  border-top: 1px solid transparent;
+  animation: scroll-edge-reveal linear both;
+  animation-timeline: scroll(self block);
+  animation-range: 0 12px;
+}
+@keyframes scroll-edge-reveal {
+  to {
+    border-top-color: var(--border);
+  }
+}
+
 /* ===========================================================
    Animations
    =========================================================== */

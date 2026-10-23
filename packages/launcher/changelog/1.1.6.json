@@ -3,25 +3,76 @@
   "date": "2026-10-22",
   "entries": [
     {
-      "type": "fix",
+      "type": "feature",
       "title": {
-        "en": "Cursor replies arrive as soon as they are ready",
-        "zh": "Cursor 回复生成后即时送达"
+        "en": "Restart an agent that hit an error",
+        "zh": "可重启出错的智能体"
       },
       "description": {
-        "en": "A Cursor agent's reply could be held back for several minutes after it had finished answering. It is now delivered as soon as the answer is complete.",
-        "zh": "此前 Cursor 智能体在回答完成后，回复可能延迟数分钟才送达；现已改为回答完成即送达。"
+        "en": "Agents in an error state show a Restart button on their device card.",
+        "zh": "出错的智能体在设备卡片上会显示「重启」按钮。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Faster agent installation",
-        "zh": "智能体安装更快"
+        "en": "Tidier top bar, Settings and Connect Agents",
+        "zh": "顶部栏、设置页与连接智能体页更清爽"
       },
       "description": {
-        "en": "Installs use the fastest download source, skip unnecessary checks, and report completion without waiting for the update check.",
-        "zh": "安装时使用最快的下载源，省去不必要的检查，完成后无需再等待更新检查即可显示结果。"
+        "en": "Workspace tabs now sit with the Workspace button and can be folded away. Settings opens straight on General with a grouped menu, and Logs moved into Settings. Connect Agents gives your agent list more room, and its filters stay in view as you scroll.",
+        "zh": "工作区标签归入「工作区」按钮，可收起；设置页直接进入「通用」并按分组显示菜单，「日志」并入设置；「连接智能体」页为智能体列表留出更多空间，筛选栏随列表滚动保持可见。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Easier to get started",
+        "zh": "上手更容易"
+      },
+      "description": {
+        "en": "Yumi is now labelled as the help assistant, chats show every agent step by default, and you can edit your name and avatar from the sidebar.",
+        "zh": "Yumi 更名为「Yumi答疑小助手」，对话默认显示完整步骤，可在侧边栏直接修改姓名和头像。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Faster agent installation and detection",
+        "zh": "智能体安装与检测更快"
+      },
+      "description": {
+        "en": "Installs skip unnecessary checks, and detecting the agents on this computer no longer waits on a slow one.",
+        "zh": "安装省去不必要的检查；检测本机智能体时，个别较慢的不再拖住整体结果。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Connecting this computer works the first time",
+        "zh": "首次连接本机即可成功"
+      },
+      "description": {
+        "en": "A newly connected computer no longer drops offline a minute later.",
+        "zh": "新连接的电脑不再在一分钟后掉线。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Cursor replies arrive as soon as they are ready",
+        "zh": "Cursor 回复生成后即时送达"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Display fixes",
+        "zh": "多项显示问题修复"
+      },
+      "description": {
+        "en": "Yumi no longer disappears from the sidebar, All Workspaces no longer stays blank, the workspace keeps your language, rewards progress updates on its own, and a new agent keeps its place in the list.",
+        "zh": "Yumi 不再从侧边栏消失；「全部工作区」不再空白；工作区不再自动切换成英文；新手奖励进度自动更新；新添加的智能体不再在列表中跳动。"
       }
     }
   ]

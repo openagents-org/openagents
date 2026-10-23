@@ -18,6 +18,7 @@ const fakes = vi.hoisted(() => ({
   createPairingCode: vi.fn(),
   nodeStatus: vi.fn(),
   connectNode: vi.fn(),
+  ensureDaemon: vi.fn(),
   pushNotification: vi.fn(),
 }))
 vi.mock("electron", () => ({
@@ -64,11 +65,12 @@ beforeEach(() => {
   fakes.isWorkspaceSender.mockReturnValue(true)
   fakes.nodeStatus.mockResolvedValue(status)
   fakes.createPairingCode.mockResolvedValue("TEST-CODE")
+  fakes.ensureDaemon.mockReset().mockResolvedValue(true)
   registerAccountIpc({
     appearance: () => ({ theme: "system", language: "en" }),
     setAppearance: fakes.setAppearance, endpoint: () => undefined,
     getWindow: () => ({ webContents: { send: fakes.send } }) as never,
-    connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus,
+    connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus, ensureDaemon: fakes.ensureDaemon,
   })
 })
 
@@ -192,6 +194,15 @@ it("returns only the requested workspace registration and reuses an existing con
   const info = await fakes.handlers.get("workspace-view:connect-computer")!({}, "workspace-a")
   expect(info).toEqual({ hostname: "Review laptop", deviceType: "laptop", nodeId: "node-a", warning: false })
   expect(fakes.createPairingCode).not.toHaveBeenCalled()
+  expect(fakes.ensureDaemon).toHaveBeenCalledOnce()
+})
+
+it("starts the daemon for an existing connection and warns when it cannot", async () => {
+  fakes.nodeStatus.mockResolvedValue({ ...status, workspaces: [{ workspaceId: "workspace-a", nodeId: "node-a", endpoint: "private-a" }] })
+  fakes.ensureDaemon.mockResolvedValue(false)
+  const info = await fakes.handlers.get("workspace-view:connect-computer")!({}, "workspace-a")
+  expect(info).toEqual({ hostname: "Review laptop", deviceType: "laptop", nodeId: "node-a", warning: true })
+  expect(fakes.connectNode).not.toHaveBeenCalled()
 })
 
 it("pairs once for concurrent requests and returns the node id and daemon warning", async () => {

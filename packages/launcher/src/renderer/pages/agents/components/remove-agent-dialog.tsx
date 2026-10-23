@@ -22,7 +22,7 @@ export function RemoveAgentDialog({
   return (
     <ConfirmDialog
       open={!!name}
-      icon={<AgentIcon type={agent?.type || ""} size={40} />}
+      icon={<AgentIcon type={agent?.type || ""} size={26} />}
       title={t("agents.list.removeTitle", { name })}
       description={
         <Trans

@@ -2,5 +2,7 @@
   "label": "已打开的工作区",
   "close": "关闭 {{name}}",
   "all": "全部已打开的工作区（{{count}}）",
-  "more_other": "另外 {{count}} 个已打开的工作区"
+  "more_other": "另外 {{count}} 个已打开的工作区",
+  "collapse": "收起工作区标签",
+  "expand": "展开工作区标签"
 }

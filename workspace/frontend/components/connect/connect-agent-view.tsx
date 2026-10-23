@@ -16,6 +16,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
@@ -131,6 +132,9 @@ export function ConnectAgentView({
   const [nodesLoading, setNodesLoading] = useState(false);
   // A list that could not load is not an empty one: say so, and offer a retry.
   const [nodesError, setNodesError] = useState(false);
+  // True once a node load has finished (either way), so a request waiting on
+  // the list can tell "no devices" from "not fetched yet".
+  const [nodesLoaded, setNodesLoaded] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
@@ -302,6 +306,10 @@ export function ConnectAgentView({
 
   // --- Nodes ---------------------------------------------------------------
 
+  // The daemon's roster names agents by handle; a workspace rename only
+  // changes the display name, so merge it in for the device view.
+  const labeledNodes = useMemo(() => withAgentDisplayNames(nodes, agents), [nodes, agents]);
+
   const loadNodes = useCallback(async (showSpinner = false) => {
     if (showSpinner) setNodesLoading(true);
     try {
@@ -313,6 +321,7 @@ export function ConnectAgentView({
       if (showSpinner) setNodesError(true);
     } finally {
       if (showSpinner) setNodesLoading(false);
+      setNodesLoaded(true);
     }
   }, []);
 
@@ -435,7 +444,7 @@ export function ConnectAgentView({
           </div>
         ) : activeTab === 'node' ? (
           <NodesTab
-            nodes={nodes}
+            nodes={labeledNodes}
             catalog={catalog}
             catalogState={catalogState}
             cloudProviders={cloudProviders}
@@ -443,6 +452,7 @@ export function ConnectAgentView({
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
+            loaded={nodesLoaded}
             loadFailed={nodesError}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -729,13 +739,20 @@ function PairingPanel({
   );
 }
 
-/** A Start/Stop sent to a device, shown on the card until its state moves off `from`. */
+/**
+ * A Start/Stop sent to a device, shown on the card until its state moves off
+ * `from`. A restart is a stop and then a start: the start waits until the
+ * device reports the stop done, since a start that finds the agent's process
+ * still up is skipped. It ends when the agent runs again.
+ */
 interface AgentToggle {
-  action: 'start_agent' | 'stop_agent';
+  action: 'start_agent' | 'stop_agent' | 'restart';
   /** The roster status when the button was clicked. */
   from: string;
   at: number;
   commandId?: string;
+  /** Restart only: which half is in flight. */
+  phase?: 'stopping' | 'starting';
 }
 
 /** Past this the device is treated as not answering: a heartbeat is every 10s. */
@@ -780,10 +797,21 @@ function NodeCard({
   const [busy, setBusy] = useState(false);
 
   const online = node.status === 'online';
-  const agents = node.agents || [];
+  const roster = node.agents || [];
   // Optimistic placeholders for agents being created but not yet reported in the
   // roster, so the user sees them spinning up immediately.
-  const pendingAgents = pending.filter((p) => !agents.some((a) => a.name === p.name));
+  const pendingAgents = pending.filter((p) => !roster.some((a) => a.name === p.name));
+
+  // An agent added here keeps the place its placeholder had, at the top. The
+  // roster lists agents in the device's config order, newest last, so the card
+  // used to jump below every older agent the moment it reported in.
+  const addedHereRef = useRef<string[]>([]);
+  for (const p of pending) if (!addedHereRef.current.includes(p.name)) addedHereRef.current.push(p.name);
+  const agents = useMemo(() => {
+    const added = addedHereRef.current;
+    const rank = (name: string) => { const i = added.indexOf(name); return i === -1 ? added.length : i; };
+    return roster.map((a, i) => ({ a, i })).sort((x, y) => rank(x.a.name) - rank(y.a.name) || x.i - y.i).map(({ a }) => a);
+  }, [roster, pending]);
 
   // A placeholder that outlives any realistic spin-up isn't "starting" — the
   // agent failed to come up or lost its workspace binding on the device (e.g.
@@ -813,7 +841,8 @@ function NodeCard({
   const extraAgents = agents.length - previewAgents.length;
   const runningCount = agents.filter((a) => a.status === 'running').length;
   const agentStatusLabel = (status: string) => online
-    ? t(status === 'running' ? 'connect.nodeAgentStatusRunning' : 'connect.nodeAgentStatusStopped')
+    ? t(status === 'running' ? 'connect.nodeAgentStatusRunning'
+      : status === 'error' ? 'connect.nodeAgentStatusError' : 'connect.nodeAgentStatusStopped')
     : t(status === 'running' ? 'connect.nodeAgentLastReportedRunning' : 'connect.nodeAgentLastReportedStopped');
 
   const handleRemoveNode = async () => {
@@ -849,7 +878,11 @@ function NodeCard({
       const next = { ...prev };
       for (const name of Object.keys(prev)) {
         const agent = agents.find((a) => a.name === name);
-        if (!agent || agent.status !== prev[name].from) delete next[name];
+        const entry = prev[name];
+        if (!agent) delete next[name];
+        else if (entry.action === 'restart') {
+          if (entry.phase === 'starting' && agent.status === 'running') delete next[name];
+        } else if (agent.status !== entry.from) delete next[name];
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
@@ -865,14 +898,25 @@ function NodeCard({
       let cmds: import('@/lib/types').NodeCommand[] = [];
       try { cmds = await workspaceApi.listNodeCommands(node.nodeId); } catch { /* next tick retries */ }
       if (cancelled) return;
+      // A restart whose stop has finished moves on to its start.
+      for (const [name, entry] of Object.entries(togglingRef.current)) {
+        const cmd = cmds.find((c) => c.commandId === entry.commandId);
+        if (entry.action === 'restart' && entry.phase === 'stopping' && cmd?.status === 'done') void startAfterStop(name);
+      }
       setToggling((prev) => {
         const next = { ...prev };
         for (const [name, entry] of Object.entries(prev)) {
           const cmd = cmds.find((c) => c.commandId === entry.commandId);
+          const status = agentsRef.current.find((a) => a.name === name)?.status;
           if (cmd?.status === 'error') {
-            toast.error(t(entry.action === 'stop_agent' ? 'connect.nodeStopFailed' : 'connect.nodeStartFailed', {
+            toast.error(t(entry.action === 'restart' ? 'connect.nodeRestartFailed'
+              : entry.action === 'stop_agent' ? 'connect.nodeStopFailed' : 'connect.nodeStartFailed', {
               name, message: cmd.result?.message || '',
             }));
+            delete next[name];
+          } else if (entry.action === 'restart' && entry.phase === 'starting' && cmd?.status === 'done' && status === 'error') {
+            // Started, and failed again on the device.
+            toast.error(t('connect.nodeRestartFailed', { name, message: '' }));
             delete next[name];
           } else if (Date.now() - entry.at > AGENT_TOGGLE_TIMEOUT_MS) {
             toast.error(t('connect.nodeToggleNoResponse', { name }));
@@ -886,10 +930,32 @@ function NodeCard({
     return () => { cancelled = true; clearInterval(id); };
   }, [togglingNames.join('|'), node.nodeId]);
 
-  const toggleAgent = async (agent: import('@/lib/types').NodeAgent, action: AgentToggle['action']) => {
-    setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now() } }));
+  const togglingRef = useRef(toggling);
+  togglingRef.current = toggling;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+
+  const startAfterStop = async (name: string) => {
+    setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], phase: 'starting', commandId: undefined, at: Date.now() } } : prev));
     try {
-      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, action, { name: agent.name });
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'start_agent', { name });
+      setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], commandId: cmd.commandId } } : prev));
+    } catch (err: unknown) {
+      setToggling((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      const key = nodeCommandErrorKey(err instanceof Error ? err.message : '');
+      toast.error(key ? t(key, { name }) : t('connect.nodeCommandFailed'));
+    }
+  };
+
+  const toggleAgent = async (agent: import('@/lib/types').NodeAgent, action: AgentToggle['action']) => {
+    const restart = action === 'restart';
+    setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now(), ...(restart ? { phase: 'stopping' as const } : {}) } }));
+    try {
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, restart ? 'stop_agent' : action, { name: agent.name });
       setToggling((prev) => (prev[agent.name] ? { ...prev, [agent.name]: { ...prev[agent.name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {
@@ -949,7 +1015,7 @@ function NodeCard({
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex -space-x-1.5">
                   {previewAgents.map((a) => (
-                    <div key={a.name} className="relative" title={`@${a.name} · ${a.type} · ${agentStatusLabel(a.status)}`}>
+                    <div key={a.name} className="relative" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
                       <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
                         <AgentIcon name={a.type} size={13} />
                       </span>
@@ -1118,14 +1184,16 @@ function NodeCard({
                         <AgentIcon name={a.type} size={22} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">@{a.name}</button>
-                        <div className="text-xs text-muted-foreground truncate">{a.type}</div>
+                        <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">{a.displayName || `@${a.name}`}</button>
+                        <div className="text-xs text-muted-foreground truncate">{a.displayName ? `@${a.name} · ${a.type}` : a.type}</div>
                       </div>
                       <span className={cn(
                         'flex items-center gap-1 text-xs font-medium rounded-full px-1.5 py-0.5 shrink-0',
-                        online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-zinc-500/10 text-muted-foreground',
+                        online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                          : online && a.status === 'error' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : 'bg-zinc-500/10 text-muted-foreground',
                       )}>
-                        <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : 'bg-zinc-400')} />
+                        <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : online && a.status === 'error' ? 'bg-red-500' : 'bg-zinc-400')} />
                         {agentStatusLabel(a.status)}
                       </span>
                     </div>
@@ -1149,7 +1217,12 @@ function NodeCard({
                       {toggling[a.name] ? (
                         <Button size="sm" variant="ghost" disabled>
                           <Loader2 className="size-3.5 mr-1 animate-spin" />
-                          {t(toggling[a.name].action === 'stop_agent' ? 'connect.nodeStopping' : 'connect.nodeStarting')}
+                          {t(toggling[a.name].action === 'restart' ? 'connect.nodeRestarting'
+                            : toggling[a.name].action === 'stop_agent' ? 'connect.nodeStopping' : 'connect.nodeStarting')}
+                        </Button>
+                      ) : a.status === 'error' ? (
+                        <Button size="sm" variant="ghost" disabled={busy || !online} onClick={() => toggleAgent(a, 'restart')}>
+                          <RotateCcw className="size-3.5 mr-1" />{t('connect.nodeRestart')}
                         </Button>
                       ) : running ? (
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggleAgent(a, 'stop_agent')}>
@@ -1199,6 +1272,7 @@ function NodesTab({
   preferredNodeId,
   onFirstAgentCreated,
   loading,
+  loaded,
   loadFailed = false,
   pairing,
   pairingLoading,
@@ -1214,6 +1288,8 @@ function NodesTab({
   preferredNodeId?: string;
   onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
+  /** A node load has finished at least once. */
+  loaded: boolean;
   loadFailed?: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1332,6 +1408,22 @@ function NodesTab({
       : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
   }, [autoAddAgent, nodes, preferredNodeId]);
+
+  // The sidebar's "+" beside Agents: open a device's gallery, this computer
+  // first. Waits for the node list; with no device yet the list itself (and
+  // its pairing step) is the right place to land.
+  const { addAgentPending, consumeAddAgent } = useLayout();
+  useEffect(() => {
+    if (!addAgentPending) return;
+    if (!loaded) return;
+    consumeAddAgent();
+    const online = nodes.filter((n) => n.status === 'online');
+    const target = online.find((n) => n.nodeId === localNodeId) || online[0] || nodes[0];
+    if (!target) return;
+    setEditing(null);
+    setExpandedNodeId(target.nodeId);
+    setAddingNodeId(target.nodeId);
+  }, [addAgentPending, consumeAddAgent, loaded, nodes, localNodeId]);
 
   // This computer just joined and came online: open its agent picker as soon
   // as the list (polled) has it, the same next step as first-run onboarding.
@@ -2512,7 +2604,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
 }
 
 function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentProps<typeof AgentSetup>, 'api' | 'extensions'> & { cloudProviders: CloudAgentProvider[] }) {
-  const { workspace, agents } = useWorkspace();
+  const { workspace, agents, refreshWorkspace } = useWorkspace();
   const t = useT();
   const takenNames = useMemo(() => agents.map((agent) => agent.agentName), [agents]);
   const localNodeId = useLocalNodeId(workspace?.workspaceId);
@@ -2520,6 +2612,10 @@ function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentP
     contextLabel={<>{workspace?.name} · {t('connect.agentRunsOn', { device: localNodeId === props.node.nodeId ? t('nav.thisComputer') : props.node.name })}</>}
     extensions={{
       takenNames,
+      renameAgent: async (name, displayName) => {
+        await workspaceApi.updateMember(name, { display_name: displayName });
+        await refreshWorkspace();
+      },
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
       promo: (promo) => CAMPAIGN_PROMO_AGENT_TYPES.has(promo.agentType) ? <CampaignPromoAccess {...promo} /> : null,
     }} />;

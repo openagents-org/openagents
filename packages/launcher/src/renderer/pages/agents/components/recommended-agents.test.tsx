@@ -71,4 +71,21 @@ describe("RecommendedAgents", () => {
     await user.click(screen.getByTestId("recommended-update-claude"))
     expect(onUpdate).toHaveBeenCalledWith("claude")
   })
+  it("compact: every recommended type on one row, no paging", async () => {
+    const user = userEvent.setup()
+    const onInstall = vi.fn()
+    const onMore = vi.fn()
+    render(<RecommendedAgents compact catalog={CATALOG} onInstall={onInstall} onUpdate={vi.fn()} onMore={onMore} />)
+
+    for (const name of ["codex", "claude", "opencode", "hermes"]) {
+      expect(screen.getByTestId(`recommended-add-${name}`)).toBeInTheDocument()
+    }
+    expect(screen.queryByTestId("recommended-gemini")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId("recommended-add-claude"))
+    expect(onInstall).toHaveBeenCalledWith("claude")
+    await user.click(screen.getByTestId("new-agent-open"))
+    expect(onMore).toHaveBeenCalled()
+  })
 })

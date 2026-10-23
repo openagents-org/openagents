@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
 import { CompactTypePicker } from './agent-setup-compact';
+import { SmokeTestPanel } from './smoke-test-panel';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
@@ -89,7 +90,9 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 const NO_ACCESS = '__none__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
-const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** How long "Detecting…" may stay up before it gives way to a retry. */
+const DETECT_DEADLINE_MS = 45_000;
+const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
@@ -97,99 +100,6 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   if (rt.installed && rt.ready) return 'ready' as const;
   if (rt.installed && !rt.ready) return 'needs_login' as const;
   return 'not_installed' as const;
-}
-
-/**
- * Smoke-test panel: the last live "hi"-probe result the daemon reported for
- * this AGENT on this node (probes are per agent — run after create and
- * reconfigure, then hourly), plus a button to run it again (queues a
- * `probe_agent` node command; the fresh result arrives via the heartbeat's
- * agents[].probe on the next poll).
- */
-function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
-  api: AgentSetupApi;
-  nodeId: string;
-  agentName: string;
-  probe: import('@/lib/types').NodeProbe | null | undefined;
-  onChanged: () => void;
-}) {
-  const t = useT();
-  const [testing, setTesting] = useState(false);
-  // Stop the spinner as soon as a fresh result lands (its timestamp changes).
-  const lastAt = useRef(probe?.at);
-  useEffect(() => {
-    if (probe?.at !== lastAt.current) {
-      lastAt.current = probe?.at;
-      setTesting(false);
-    }
-  }, [probe?.at]);
-
-  // Static-only results say nothing about liveness — treat as untested.
-  const informative = probe && probe.code !== 'static_only' ? probe : null;
-
-  const run = async () => {
-    setTesting(true);
-    try {
-      await api.enqueueNodeCommand(nodeId, 'probe_agent', { name: agentName });
-      // Nudge the node poll a few times while the probe runs on the device;
-      // a probe can take up to its CLI timeout, so keep the spinner bounded.
-      setTimeout(onChanged, 8000);
-      setTimeout(onChanged, 20000);
-      setTimeout(onChanged, 45000);
-      setTimeout(() => setTesting(false), 150000);
-    } catch {
-      toast.error(t('connect.nodeCommandFailed'));
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0 text-xs">
-          <span className="font-medium shrink-0">{t('connect.smokeTestTitle')}</span>
-          {testing ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />{t('connect.smokeTestRunning')}
-            </span>
-          ) : informative ? (
-            <span className={cn(
-              'inline-flex items-center gap-1.5 min-w-0',
-              informative.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
-            )}>
-              {informative.ok ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}
-              {informative.ok ? t('connect.smokeTestPassed') : t('connect.smokeTestFailed')}
-              <span className="text-muted-foreground truncate">
-                {t('connect.smokeTestAt', { time: new Date(informative.at).toLocaleString() })}
-              </span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
-          )}
-        </div>
-        <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shrink-0" onClick={run} disabled={testing}>
-          {informative ? t('connect.smokeTestRerun') : t('connect.smokeTestRun')}
-        </Button>
-      </div>
-      {!testing && informative && !informative.ok && (
-        <div className="space-y-1.5">
-          {informative.message && (
-            <p className="text-xs text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
-          )}
-          {(informative.guidance || []).length > 0 && (
-            <ul className="space-y-1">
-              {(informative.guidance || []).map((line, i) => (
-                <li key={i} className="text-xs text-muted-foreground leading-relaxed flex gap-1.5">
-                  <ArrowRight className="size-3 mt-0.5 shrink-0" />
-                  <span className="break-words">{line}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
@@ -525,6 +435,7 @@ export function AgentSetup({
   // arrives on the next heartbeat.
   const hasRuntimes = (node.runtimes || []).length > 0;
   const [detecting, setDetecting] = useState(!hasRuntimes);
+  const [detectTimedOut, setDetectTimedOut] = useState(false);
 
   const runtimeByType = useMemo(() => {
     const m: Record<string, import('@/lib/types').NodeRuntime> = {};
@@ -539,8 +450,24 @@ export function AgentSetup({
     if (runtimesSig !== prevSigRef.current) {
       prevSigRef.current = runtimesSig;
       setDetecting(false);
+      setDetectTimedOut(false);
     }
   }, [runtimesSig]);
+
+  // Detection always ends. A device that is offline, or whose list never
+  // arrives, used to leave "Detecting…" up for good; after the deadline it
+  // says so and offers Re-detect. With nothing reported, the cards stay
+  // "unknown", never "not installed".
+  const hasRuntimesRef = useRef(hasRuntimes);
+  hasRuntimesRef.current = hasRuntimes;
+  useEffect(() => {
+    if (!detecting) return;
+    const deadline = setTimeout(() => {
+      setDetecting(false);
+      setDetectTimedOut(!hasRuntimesRef.current);
+    }, DETECT_DEADLINE_MS);
+    return () => clearTimeout(deadline);
+  }, [detecting]);
 
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
@@ -707,12 +634,11 @@ export function AgentSetup({
 
   const reDetect = async () => {
     setDetecting(true);
+    setDetectTimedOut(false);
     try {
       await api.enqueueNodeCommand(node.nodeId, 'detect_runtimes', {});
       setTimeout(onChanged, 4000);
-      // Safety: if fresh data never arrives, stop the spinner after a while so
-      // the UI doesn't look stuck.
-      setTimeout(() => setDetecting(false), 20000);
+      // The detection deadline above stops the spinner if fresh data never arrives.
     } catch {
       toast.error(t('connect.nodeCommandFailed'));
       setDetecting(false);
@@ -1211,7 +1137,7 @@ export function AgentSetup({
       // Opened on a type (the launcher always does), the way back is to the page
       // that opened it — there is no type list behind this form to return to.
       const leave = isEdit || startType ? onBack : backToSelection;
-      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
+      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
       return (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1276,7 +1202,7 @@ export function AgentSetup({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
+                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : selectedEntry.label}</h3>
                   {badge(selectedStatus)}
                   {/* Beside "Needs login" the link is the sign-in itself where the
                       host can run it; otherwise it is labelled as docs, because a
@@ -1355,6 +1281,8 @@ export function AgentSetup({
         visible={visible}
         readyCount={readyCount}
         detecting={detecting}
+        detectTimedOut={detectTimedOut}
+        onReDetect={() => void reDetect()}
         categories={marketCats}
         category={marketCat}
         onCategory={setMarketCat}
@@ -1386,7 +1314,9 @@ export function AgentSetup({
           <p className="text-xs text-muted-foreground mt-0.5">
             {detecting
               ? t('connect.nodeDetectingAgents')
-              : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
+              : detectTimedOut
+                ? t('connect.nodeDetectTimedOut')
+                : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>

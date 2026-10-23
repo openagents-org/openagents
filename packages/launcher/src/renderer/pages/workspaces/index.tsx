@@ -152,7 +152,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
 
       {/* No stats row: the toolbar chips already carry each bucket's count, and
           a page that prints the same four numbers twice reads as padding. */}
-      <div className="flex-1 overflow-y-auto px-9 pt-5 pb-6">
+      <div className="scroll-edge flex-1 overflow-y-auto px-9 pt-5 pb-6">
         {/* The page's one way to join, directly under its title and sized to
             be found. Joins, never creates: the dialog takes a pairing code for
             a workspace that already exists, and a device can hold several at

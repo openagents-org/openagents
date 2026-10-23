@@ -721,6 +721,11 @@ function CreateTile({ onClick }: { onClick: () => void }) {
   );
 }
 
+/** Per attempt; the list is retried twice more before an error shows. */
+const LIST_TIMEOUT_MS = 15_000;
+/** How long the web waits on the first-workspace redirect before showing the list. */
+const AUTO_ENTER_STALL_MS = 8_000;
+
 function MembershipHome({
   idToken,
   userEmail,
@@ -739,7 +744,11 @@ function MembershipHome({
   const [newName, setNewName] = useState('');
 
   const viewTrackedRef = useRef(false);
+  // A token refresh reruns load while the last one may still be out; only the
+  // newest may touch the list.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     // Network-level failures surface as the browser's raw fetch error
@@ -752,8 +761,12 @@ function MembershipHome({
     let lastErr: unknown = null;
     for (const delay of backoffs) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (seq !== loadSeqRef.current) return;
       try {
-        const list = await listAccountWorkspaces(idToken);
+        // A request that never answers is a failure too, or the skeleton
+        // stays up with no error and no retry.
+        const list = await listAccountWorkspaces(idToken, AbortSignal.timeout(LIST_TIMEOUT_MS));
+        if (seq !== loadSeqRef.current) return;
         setWorkspaces(list);
         // Funnel checkpoint: the signed-in user reached their workspace list
         // (which includes the auto-provisioned first workspace). Once per
@@ -768,11 +781,12 @@ function MembershipHome({
         lastErr = err;
       }
     }
+    if (seq !== loadSeqRef.current) return;
     const msg = lastErr instanceof Error ? lastErr.message : null;
     setError(
       msg === null
         ? { key: 'dashboard.loadFailed' }
-        : /failed to fetch|load failed|networkerror/i.test(msg)
+        : /failed to fetch|load failed|networkerror|timed out|aborted/i.test(msg)
           ? { key: 'dashboard.networkError' }
           : { text: msg },
     );
@@ -821,12 +835,25 @@ function MembershipHome({
     typeof window !== 'undefined' &&
     sessionStorage.getItem('oa_auto_entered_first_ws') !== '1';
   const autoEnteredRef = useRef(false);
+  // Re-renders once the redirect is out, so willAutoEnter (now false) stops
+  // holding the skeleton. In the desktop app the push opens the workspace in
+  // its own tab and this page stays mounted: without the re-render, All
+  // Workspaces kept showing blank placeholder cards for good.
+  const [, setAutoEnterSent] = useState(false);
   useEffect(() => {
     if (!willAutoEnter || !firstWorkspace || autoEnteredRef.current) return;
     autoEnteredRef.current = true;
     sessionStorage.setItem('oa_auto_entered_first_ws', '1');
     capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug });
     router.push(`/${firstWorkspace.slug}`);
+    if (desktopHost()) {
+      setAutoEnterSent(true);
+      return;
+    }
+    // On the web the page unmounts as it navigates; show the list only if
+    // that navigation stalls, so it never flashes on the way out. Not cleared
+    // on re-run: the ref above keeps this from being armed a second time.
+    window.setTimeout(() => setAutoEnterSent(true), AUTO_ENTER_STALL_MS);
   }, [willAutoEnter, firstWorkspace, router]);
 
   const confirm = useConfirm();

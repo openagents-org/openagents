@@ -34,8 +34,8 @@ async function bearerFetch<T>(path: string, idToken: string, options: RequestIni
 }
 
 /** List the signed-in user's workspaces (Membership Home). */
-export function listAccountWorkspaces(idToken: string): Promise<AccountWorkspace[]> {
-  return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken);
+export function listAccountWorkspaces(idToken: string, signal?: AbortSignal): Promise<AccountWorkspace[]> {
+  return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken, { signal });
 }
 
 /** Email the caller a "finish setup on your computer" link for a workspace —
@@ -147,8 +147,17 @@ export interface CampaignStatus {
   } | null;
 }
 
-export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
-  return bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+/** Window event carrying every fresh CampaignStatus, whoever fetched it. */
+export const CAMPAIGN_STATUS_EVENT = 'oa:campaign-status';
+
+export async function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
+  const status = await bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+  // The milestone toasts, the credits page and the sidebar card each ask on
+  // their own schedule; sharing each answer keeps them showing the same count.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<CampaignStatus>(CAMPAIGN_STATUS_EVENT, { detail: status }));
+  }
+  return status;
 }
 
 /** Model ids available on the campaign gateway (proxied by the backend). */

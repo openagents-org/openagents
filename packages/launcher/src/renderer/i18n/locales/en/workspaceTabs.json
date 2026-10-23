@@ -3,5 +3,7 @@
   "close": "Close {{name}}",
   "all": "All open workspaces ({{count}})",
   "more_one": "{{count}} more open workspace",
-  "more_other": "{{count}} more open workspaces"
+  "more_other": "{{count}} more open workspaces",
+  "collapse": "Hide workspace tabs",
+  "expand": "Show workspace tabs"
 }

@@ -41,6 +41,8 @@ export interface AccountIpcDeps {
    */
   connectNode: (code: string) => Promise<NodeStatus & { warning: string | null }>
   nodeStatus: () => Promise<NodeStatus>
+  /** Start the daemon unless one is running (agentManager._ensureDaemon); false when it cannot. */
+  ensureDaemon: () => Promise<boolean>
 }
 
 const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
@@ -272,8 +274,12 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     const pending = connections.get(id)
     if (pending) return pending
     const connecting = (async () => {
-      const current = computerInfo(await deps.nodeStatus(), id)
-      if (current.nodeId) return current
+      const status = await deps.nodeStatus()
+      const current = computerInfo(status, id)
+      // Already connected: what a retry needs is a daemon to heartbeat for it.
+      // Returning straight away left a computer whose daemon had not come up
+      // on the first try offline however many times Connect was pressed.
+      if (current.nodeId) return computerInfo(status, id, !(await deps.ensureDaemon()))
       const code = await account.createPairingCode(id)
       const result = await deps.connectNode(code)
       return computerInfo(result, id, !!result.warning)

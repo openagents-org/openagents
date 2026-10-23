@@ -63,9 +63,11 @@ export function AgentsTable({
   const { t } = useTranslation()
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
+    // Clipped, not overflow-hidden: neither box may become a scroll container,
+    // or the header would stick to it rather than under the page's toolbar.
+    <div className="overflow-clip rounded-lg border bg-card">
+      <Table containerClassName="overflow-x-clip">
+        <TableHeader className="sticky top-14 z-5 bg-card">
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead
@@ -73,7 +75,7 @@ export function AgentsTable({
                 className={cn(
                   "px-6 text-xs font-normal text-muted-foreground",
                   c === "status" && "w-56",
-                  c === "actions" && "w-px text-center whitespace-nowrap",
+                  c === "actions" && "w-px text-right whitespace-nowrap",
                 )}
               >
                 {t(`agents.list.columns.${c}`)}
@@ -108,21 +110,24 @@ export function AgentsTable({
                       </button>
                       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                         <span className="truncate" title={providerLabel}>{providerLabel}</span>
-                        <span aria-hidden>·</span>
-                        {workspace ? (
-                          // The workspace name doubles as a way into it, beside
-                          // the row's own Enter workspace button.
-                          <button
-                            type="button"
-                            className="truncate hover:text-primary hover:underline"
-                            aria-label={t("agents.list.openWorkspace")}
-                            title={workspace}
-                            onClick={() => onOpenWorkspace(agent)}
-                          >
-                            {workspace}
-                          </button>
-                        ) : (
-                          <span className="truncate">{t("agents.list.statuses.notConnected")}</span>
+                        {/* No workspace, nothing after the type: the status
+                            column already says "not connected", and saying it
+                            twice in one row read as two different facts. */}
+                        {workspace && (
+                          <>
+                            <span aria-hidden>·</span>
+                            {/* The workspace name doubles as a way into it,
+                                beside the row's own Enter workspace button. */}
+                            <button
+                              type="button"
+                              className="truncate hover:text-primary hover:underline"
+                              aria-label={t("agents.list.openWorkspace")}
+                              title={workspace}
+                              onClick={() => onOpenWorkspace(agent)}
+                            >
+                              {workspace}
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -148,8 +153,10 @@ export function AgentsTable({
 
                 <TableCell className="px-6 whitespace-nowrap">
                   {/* The menu only ever adds what the row does not already
-                      show: repeating Configure in both read as a duplicate. */}
-                  <div className="flex items-center justify-center gap-1.5">
+                      show: repeating Configure in both read as a duplicate.
+                      Right-aligned, so the menu sits in the same place on
+                      every row whatever buttons come before it. */}
+                  <div className="flex items-center justify-end gap-1.5">
                     {agent.network ? (
                       <>
                         {/* Joining is done once; going there is what the row

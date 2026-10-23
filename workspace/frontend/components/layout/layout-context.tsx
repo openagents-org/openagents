@@ -130,6 +130,12 @@ interface LayoutState {
   setViewMode: (mode: ViewMode) => void;
   /** Switch view and open/collapse the list panel to match it */
   openView: (mode: ViewMode) => void;
+  /** Open Connect Agents straight on the add-agent gallery of a device. */
+  openAddAgent: () => void;
+  /** Set by `openAddAgent` until the connect view acts on it. */
+  addAgentPending: boolean;
+  /** The connect view calls this once it has opened the gallery. */
+  consumeAddAgent: () => void;
   threadFilter: 'all' | 'channels' | 'starred' | 'archived' | 'dms';
   setThreadFilter: (filter: 'all' | 'channels' | 'starred' | 'archived' | 'dms') => void;
   selectedAgentName: string | null;
@@ -168,6 +174,10 @@ interface LayoutState {
   setNewThreadOpen: (v: boolean) => void;
   /** Open the New Thread dialog so the user can pick agents for a new session */
   openNewThread: () => void;
+  /** Open the same dialog with "Make it a channel" already switched on */
+  openNewChannel: () => void;
+  /** Whether the open dialog started out as a new channel */
+  newThreadAsChannel: boolean;
   /**
    * Which half of the Files view the folder panel is pointing at: the folder
    * tree, or the trash. The detail pane swaps wholesale between them.
@@ -230,7 +240,11 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     setMobilePane('detail');
   }, []);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const openNewThread = () => setNewThreadOpen(true);
+  const [newThreadAsChannel, setNewThreadAsChannel] = useState(false);
+  // Separate openers rather than a flag argument: `openNewThread` is wired
+  // straight to onClick in many places, so it would receive the click event.
+  const openNewThread = () => { setNewThreadAsChannel(false); setNewThreadOpen(true); };
+  const openNewChannel = () => { setNewThreadAsChannel(true); setNewThreadOpen(true); };
 
   // Read on mount rather than in the initial state, so the server render and the
   // first client render agree before the stored preference is applied.
@@ -281,6 +295,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     setMobilePane(mode === 'files' ? 'detail' : 'list');
   };
 
+  const [addAgentPending, setAddAgentPending] = useState(false);
+  const openAddAgent = () => {
+    setAddAgentPending(true);
+    openView('connect');
+  };
+  const consumeAddAgent = useCallback(() => setAddAgentPending(false), []);
+
   // Sidebar widths now come from <SidebarProvider> (components/ui/sidebar).
   const cssVariables = useMemo(() => ({
     '--header-height-mobile': '60px',
@@ -321,6 +342,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       pendingTaskChannel,
       setPendingTaskChannel,
       openView,
+      openAddAgent,
+      addAgentPending,
+      consumeAddAgent,
       threadFilter,
       setThreadFilter,
       selectedAgentName,
@@ -345,6 +369,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       newThreadOpen,
       setNewThreadOpen,
       openNewThread,
+      openNewChannel,
+      newThreadAsChannel,
     }}>
       <div data-slot="layout-wrapper" className="flex grow">
         <TooltipProvider delayDuration={0}>

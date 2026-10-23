@@ -2,7 +2,9 @@ import { useEffect, useState } from "react"
 import { useUiStore } from "@renderer/store/ui"
 
 export const STARTUP_PAGE_LAST = "last"
-export const STARTUP_PAGES = ["dashboard", "workspaces", "logs"] as const
+// Logs is no longer offered: it is a module of Settings now. A startup page
+// still saved as "logs" falls back to Connect Agents, like any retired page.
+export const STARTUP_PAGES = ["dashboard", "workspaces"] as const
 const LAST_TAB_KEY = "launcher:last-tab"
 const LOCAL_PAGES = [...STARTUP_PAGES, "connections", "credentials", "github", "settings"]
 

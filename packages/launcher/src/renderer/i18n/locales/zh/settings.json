@@ -1,8 +1,5 @@
 {
-  "title": "设置总览",
-  "subtitle": "管理 $t(common.appName)的偏好、连接与系统配置",
-  "searchPlaceholder": "搜索设置",
-  "noSectionMatch": "没有匹配的设置项",
+  "title": "设置",
   "sections": {
     "general": "通用",
     "appearance": "外观",
@@ -13,42 +10,16 @@
     "language": "语言",
     "updates": "更新",
     "runtime": "运行时",
+    "logs": "日志",
     "about": "关于"
   },
-  "overview": {
-    "hint": "设置更改将自动保存。",
-    "resetDefaults": "恢复默认",
-    "title": "设置总览"
-  },
   "detail": {
-    "autoSaved": "所有更改会自动保存",
-    "related": "相关设置"
+    "autoSaved": "所有更改会自动保存"
   },
   "groups": {
     "preferences": "应用偏好",
-    "assistants": "智能与通知",
     "connectivity": "连接与数据",
     "system": "系统维护"
-  },
-  "summary": {
-    "startupPage": "启动时打开{{page}}",
-    "trayOn": "托盘运行",
-    "trayOff": "关闭时退出",
-    "accent": "{{color}}主题",
-    "scale": "{{size}}字号",
-    "agentsConfigured": "{{count}} 个已配置",
-    "autoStartOn": "自动启动开启",
-    "autoStartOff": "自动启动关闭",
-    "notificationsOn": "桌面通知开启",
-    "notificationsOff": "桌面通知关闭",
-    "quietHours": "免打扰 {{start}}–{{end}}",
-    "quietHoursOff": "无免打扰时段",
-    "workspaceCustom": "自建工作区",
-    "workspaceHosted": "托管工作区",
-    "proxyOn": "已配置代理",
-    "autoUpdateOn": "自动更新开启",
-    "autoUpdateOff": "自动更新关闭",
-    "core": "核心 {{version}}"
   },
   "pages": {
     "general": {
@@ -62,12 +33,6 @@
       "desc": "自定义界面外观与显示偏好",
       "keywords": "主题 深色 浅色 颜色 强调色 字体 缩放",
       "short": "主题、强调色与界面尺寸"
-    },
-    "agents": {
-      "title": "智能体",
-      "desc": "管理智能体的默认设置与运行策略",
-      "keywords": "智能体 自启动 凭据 密钥",
-      "short": "智能体默认设置与凭据"
     },
     "notifications": {
       "title": "通知",
@@ -214,17 +179,8 @@
     }
   },
   "agents": {
-    "startupGroup": "启动设置",
     "autoStart": "启动时自动运行智能体",
-    "autoStartDesc": "$t(common.appName) 打开后自动启动所有已配置的智能体",
-    "overviewGroup": "智能体概览",
-    "configured": "已配置智能体",
-    "running": "运行中",
-    "types": "已使用类型",
-    "agentCount": "{{count}} 个",
-    "typeCount": "{{count}} 种",
-    "browseMarketplace": "智能体市场",
-    "openAgents": "打开智能体"
+    "autoStartDesc": "$t(common.appName) 打开后自动启动所有已配置的智能体"
   },
   "notifications": {
     "deliveryGroup": "桌面与声音",

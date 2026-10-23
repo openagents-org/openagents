@@ -1,6 +1,5 @@
 import {
   Bot,
-  FileText,
   Layers,
   Settings,
   type LucideIcon,
@@ -27,7 +26,8 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "workspaces", icon: Layers },
   // `connections` is hidden for now — none of the platform options work yet.
   // The page itself still exists; put the tab back here once they do.
-  { id: "logs", icon: FileText },
+  // `logs` is a module of Settings now: it is for checking why an agent
+  // failed, not something to sit beside Connect Agents and the workspaces.
   { id: "settings", icon: Settings },
 ]
 
@@ -39,7 +39,6 @@ export const NAV_ITEMS: NavItem[] = [
 export const SHORTCUT_TABS = [
   "dashboard",
   "workspaces",
-  "logs",
   "settings",
   "github",
 ]

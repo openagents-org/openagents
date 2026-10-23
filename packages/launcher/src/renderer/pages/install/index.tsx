@@ -180,7 +180,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           `shrink: 1`, so inside a scroll box with a definite height they get
           squashed instead of overflowing — which flattened the banner to a
           sliver. `space-y` gives the same rhythm without the shrinking. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-9 py-6">
+      <div className="scroll-edge flex-1 space-y-4 overflow-y-auto px-9 py-6">
         <MarketplaceHero
           catalog={market.catalog}
           installed={installedList}

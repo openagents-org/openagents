@@ -34,7 +34,7 @@ function PageTabs(): React.JSX.Element {
   const activeId = currentTab === "install" ? "dashboard" : currentTab
 
   return (
-    <nav role="tablist" aria-label={t("nav.pages")} className="flex items-stretch gap-6 self-stretch">
+    <nav role="tablist" aria-label={t("nav.pages")} className="flex items-stretch gap-2 self-stretch">
       {NAV_ITEMS.map((item) => {
         const active = activeId === item.id
         return (
@@ -50,12 +50,14 @@ function PageTabs(): React.JSX.Element {
               capture("tab_switched", { tab: item.id })
               setCurrentTab(item.id)
             }}
+            // Bold and padded wide: new users looked straight past Connect
+            // Agents when these read like plain links.
             className={cn(
-              "relative flex items-center gap-1.5 text-sm transition-colors",
-              "after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full",
+              "relative flex min-w-24 items-center justify-center gap-1.5 rounded-t-md px-4 text-[15px] font-semibold transition-colors",
+              "after:absolute after:inset-x-2 after:bottom-0 after:h-0.75 after:rounded-full",
               active
-                ? "font-medium text-primary after:bg-primary"
-                : "text-foreground/80 hover:text-foreground",
+                ? "text-primary after:bg-primary"
+                : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
             )}
           >
             {t(`nav.items.${item.id}.label`)}

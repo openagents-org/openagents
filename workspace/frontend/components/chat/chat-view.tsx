@@ -285,7 +285,8 @@ export function ChatView() {
     initialMessages: initialMessagesRef.current,
   });
   const { notifyFocus, notifyBlur, notifyTyping } = useComposingSignal(currentSessionId);
-  const [showAllSteps, setShowAllSteps] = useState(false);
+  // Every step shows by default; the toggle is there to hide them.
+  const [showAllSteps, setShowAllSteps] = useState(true);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -818,20 +819,18 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle — the tooltip says what a click does */}
+          {/* All steps toggle — its label says what a click does; an icon
+              alone went unnoticed */}
           {hasCollapsibleSteps && (
             <Button
-              variant={showAllSteps ? 'outline' : 'ghost'}
+              variant="outline"
               size="sm"
               onClick={() => setShowAllSteps((prev) => !prev)}
-              className={cn(
-                'gap-1.5 h-7 text-xs font-medium',
-                showAllSteps && 'border-primary/30 text-primary bg-primary/5'
-              )}
+              className="gap-1.5 h-7 text-xs font-medium"
               aria-pressed={showAllSteps}
-              title={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             >
               <ListTree className="size-3.5" />
+              {showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             </Button>
           )}
 

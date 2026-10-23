@@ -58,20 +58,30 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
 
   // A successful pairing does not mean the daemon is online yet. Wait for this
   // exact node, never a different device that happens to report in first.
+  //
+  // Nor does "online": redeeming the code marks the node online with a fresh
+  // heartbeat for a minute, whether or not the daemon ever reports. Moving on
+  // on that alone let people add an agent to a device that went offline a
+  // minute later. Only a real heartbeat counts — it is what fills in `fs`, or
+  // failing that, the heartbeat time moving on after the first look.
   useEffect(() => {
     if (phase !== 'waiting' || !computer?.nodeId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let firstHeartbeat: string | null | undefined;
     const timeout = setTimeout(() => {
       cancelled = true;
       setError('offline');
       setPhase('error');
-    }, 30_000);
+    }, 45_000);
     const check = async () => {
       try {
         const nodes = await workspaceApi.listNodes();
         if (cancelled) return;
-        if (nodes.some((node) => node.nodeId === computer.nodeId && node.status === 'online')) {
+        const node = nodes.find((n) => n.nodeId === computer.nodeId);
+        if (node && firstHeartbeat === undefined) firstHeartbeat = node.lastHeartbeatAt;
+        const reported = !!node?.fs?.home || (!!node?.lastHeartbeatAt && node.lastHeartbeatAt !== firstHeartbeat);
+        if (node?.status === 'online' && reported) {
           clearTimeout(timeout);
           capture('node_connected', { source: 'desktop_onboarding' });
           onConnected(computer.nodeId!);
@@ -143,7 +153,10 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
               <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('onboarding.checkingComputer')}</div>
             ) : error === 'load' || error === 'offline' ? (
               <div className="flex flex-wrap gap-2">
-                <Button variant="primary" onClick={() => setAttempt((value) => value + 1)}>{t('onboarding.checkAgain')}</Button>
+                {/* Offline goes back through connect: the desktop app then
+                    starts its background service if it is not running, which
+                    merely checking again never did. */}
+                <Button variant="primary" onClick={() => (error === 'offline' && editable ? void connect() : setAttempt((value) => value + 1))}>{t('onboarding.checkAgain')}</Button>
                 {error === 'offline' && <Button variant="outline" onClick={() => host.openComputer()}>{t('onboarding.openComputer')}</Button>}
               </div>
             ) : (

@@ -16,9 +16,10 @@ import { useT } from '@/lib/i18n';
 import { currentRouteSearch } from '@/lib/route-search';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
+import { CAMPAIGN_STATUS_EVENT, getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
 
 const DISMISS_KEY = 'oa_campaign_sidebar_dismissed';
+const STATUS_POLL_MS = 20_000;
 
 export function CampaignSidebarCard() {
   const t = useT();
@@ -30,23 +31,36 @@ export function CampaignSidebarCard() {
     typeof window !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1',
   );
 
+  // Stop polling once there is nothing left for this card to show.
+  const finished = !!status && (!status.enabled || (status.totalGrantedUsd ?? 0) >= (status.capUsd ?? 100));
+
   useEffect(() => {
-    if (!idToken) return;
+    if (!idToken || dismissed) return;
     let cancelled = false;
     const fetchStatus = () => {
-      getCampaignStatus(idToken)
-        .then((s) => { if (!cancelled) setStatus(s); })
-        .catch(() => {});
+      if (document.hidden) return;
+      // Fresh results also reach setStatus through CAMPAIGN_STATUS_EVENT.
+      getCampaignStatus(idToken).catch(() => {});
     };
+    const onStatus = (e: Event) => {
+      if (!cancelled) setStatus((e as CustomEvent<CampaignStatus>).detail);
+    };
+    window.addEventListener(CAMPAIGN_STATUS_EVENT, onStatus);
     fetchStatus();
-    // Refresh when the user returns to the tab so newly earned missions show.
-    const onVisible = () => { if (!document.hidden) fetchStatus(); };
-    document.addEventListener('visibilitychange', onVisible);
+    // The server grants missions when the status is read, so asking is enough.
+    // Inside the desktop app the view never becomes hidden, so
+    // visibilitychange alone left the count stale until the card remounted.
+    const timer = finished ? undefined : window.setInterval(fetchStatus, STATUS_POLL_MS);
+    document.addEventListener('visibilitychange', fetchStatus);
+    window.addEventListener('focus', fetchStatus);
     return () => {
       cancelled = true;
-      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+      window.removeEventListener(CAMPAIGN_STATUS_EVENT, onStatus);
+      document.removeEventListener('visibilitychange', fetchStatus);
+      window.removeEventListener('focus', fetchStatus);
     };
-  }, [idToken]);
+  }, [idToken, finished, dismissed]);
 
   if (dismissed || !idToken || !status?.enabled || status.requiresEmailVerification || !workspace?.slug) return null;
   const cap = status.capUsd ?? 100;
