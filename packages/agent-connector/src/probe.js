@@ -415,7 +415,20 @@ async function probeAgentType(connector, type, opts = {}) {
     });
   }
 
-  const probeArgs = entry.probe && Array.isArray(entry.probe.args) ? entry.probe.args : null;
+  // Hoisted above the CLI tier: a failing CLI probe consults it too (below),
+  // and `skip_cli_with_key` hands keyed agents straight to it.
+  // `probe.api_test: false` opts out for an agent whose key is not a model
+  // API key (Cursor's is for Cursor's own service): an OpenAI-style call with
+  // it proves nothing either way.
+  const apiTestable = !(entry.probe && entry.probe.api_test === false);
+  const hasApiKey = apiTestable && !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
+    || agentEnv.ANTHROPIC_AUTH_TOKEN || agentEnv.KIMI_API_KEY || agentEnv.MOONSHOT_API_KEY);
+
+  // `probe.skip_cli_with_key`: the adapter points the CLI at a key's endpoint
+  // with launch flags (Codex's `-c model_providers…`) that a bare probe run
+  // does not carry, so with a key the CLI would test the wrong endpoint.
+  const cliProbeApplies = !(entry.probe && entry.probe.skip_cli_with_key && hasApiKey);
+  const probeArgs = cliProbeApplies && entry.probe && Array.isArray(entry.probe.args) ? entry.probe.args : null;
   const altCheck = entry.check_ready && entry.check_ready.alt_check;
   const hasLiveCli = !!((probeArgs && health.binary) || altCheck);
 
@@ -441,14 +454,6 @@ async function probeAgentType(connector, type, opts = {}) {
   const timeoutMs = opts.timeoutMs
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
-
-  // Hoisted above the CLI tier: a failing CLI probe consults it too (below).
-  // `probe.api_test: false` opts out for an agent whose key is not a model
-  // API key (Cursor's is for Cursor's own service): an OpenAI-style call with
-  // it proves nothing either way.
-  const apiTestable = !(entry.probe && entry.probe.api_test === false);
-  const hasApiKey = apiTestable && !!(agentEnv.LLM_API_KEY || agentEnv.OPENAI_API_KEY || agentEnv.ANTHROPIC_API_KEY
-    || agentEnv.ANTHROPIC_AUTH_TOKEN || agentEnv.KIMI_API_KEY || agentEnv.MOONSHOT_API_KEY);
 
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   if (hasLiveCli) {
