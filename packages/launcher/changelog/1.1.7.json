@@ -1,0 +1,39 @@
+{
+  "version": "1.1.7",
+  "date": "2026-10-23",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "DeepSeek Harness installs and runs again",
+        "zh": "DeepSeek Harness 恢复正常安装与使用"
+      },
+      "description": {
+        "en": "The harness moves to its latest preview, which installs cleanly. Entering DeepSeek's standard API address no longer causes errors, and Test Connection now checks the endpoint the harness actually uses.",
+        "zh": "DeepSeek Harness 升级至最新预览版，安装不再出错；填写 DeepSeek 常用的 API 地址也不会再导致调用失败；「测试连接」改为检测其实际使用的接口。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "OpenClaw keeps working after an upgrade",
+        "zh": "OpenClaw 升级后可继续使用"
+      },
+      "description": {
+        "en": "When a newer OpenClaw needs to migrate data from an earlier version, the migration now runs automatically instead of failing with a request to run a command in the terminal.",
+        "zh": "新版 OpenClaw 需要迁移旧版本数据时，将自动完成迁移，不再报错并要求在终端中手动执行命令。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents use the provider they were set up with",
+        "zh": "智能体按自身配置调用模型服务"
+      },
+      "description": {
+        "en": "An agent with its own API key no longer picks up the endpoint or model saved earlier for its agent type, which could send its requests to the wrong service.",
+        "zh": "已单独配置 API Key 的智能体，不再沿用此前为同类智能体保存的接口地址或模型，避免请求被发送至错误的服务。"
+      }
+    }
+  ]
+}

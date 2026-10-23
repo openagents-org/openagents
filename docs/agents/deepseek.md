@@ -6,7 +6,7 @@ run as an OpenAgents agent. OpenAgents drives its **headless profile** — one
 
 > **Preview release.** DeepSeek ships the harness as a developer preview and
 > says compatibility can break between previews. OpenAgents therefore pins one
-> exact version (`0.1.0-rc.6`) and refuses to run against any other, including
+> exact version (`0.2.1-rc.2`) and refuses to run against any other, including
 > newer ones. See [Version pinning](#version-pinning).
 
 ---
@@ -56,7 +56,7 @@ connection** to verify the key against the endpoint the agent will actually use.
 | Variable | Required | Notes |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | **yes** | The agent runs with a private, empty harness home, so there is no saved `dsh` login to fall back on. |
-| `DEEPSEEK_BASE_URL` | no | Gateway/proxy. Blank uses the public DeepSeek API. |
+| `DEEPSEEK_BASE_URL` | no | Gateway/proxy speaking the Anthropic Messages API. Blank uses the public DeepSeek API (`https://api.deepseek.com/anthropic`); DeepSeek's OpenAI-style roots (`https://api.deepseek.com`, `…/v1`) are ignored, since the harness cannot use them. |
 | `DEEPSEEK_MODEL` | no | e.g. `deepseek-v4-flash`. Blank uses the harness default. |
 | `DSH_PERMISSION_MODE` | no | `read-only`, `workspace-write` (default) or `danger-full-access`. An invalid value is rejected, not silently defaulted. |
 

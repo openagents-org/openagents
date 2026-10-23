@@ -32,12 +32,12 @@ install:
   binary: dsh
   npm_package: "@deepseek-ai/dsh"
   requires: [nodejs]
-  supported_version: "0.1.0-rc.6"
+  supported_version: "0.2.1-rc.2"
   verify: "dsh -V >/dev/null 2>&1"
   verify_win: "dsh -V >nul 2>nul"
-  macos: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
-  linux: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
-  windows: "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+  macos: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+  linux: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+  windows: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
 
 adapter:
   module: openagents.adapters.deepseek
@@ -60,9 +60,9 @@ env_config:
     required: true
     password: true
   - name: DEEPSEEK_BASE_URL
-    description: "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API."
+    description: "Optional gateway/proxy base URL speaking the Anthropic Messages API. Leave blank for the public DeepSeek API (https://api.deepseek.com/anthropic)."
     required: false
-    placeholder: https://api.deepseek.com
+    placeholder: https://api.deepseek.com/anthropic
   - name: DEEPSEEK_MODEL
     description: "Model id, e.g. deepseek-v4-flash. Leave blank to use the harness default."
     required: false
