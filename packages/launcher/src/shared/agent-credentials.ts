@@ -160,6 +160,7 @@ export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "opencode",
   "openworker",
   "pi",
+  "qwen-code",
 ])
 
 /** True when offering a "Test connection" button would be a dead end. */

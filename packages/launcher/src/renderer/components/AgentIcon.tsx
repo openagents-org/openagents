@@ -25,6 +25,7 @@ const BUNDLED_SLUGS = new Set([
   "opencode",
   "openworker",
   "pi",
+  "qwen-code",
   "yaml-agent",
 ])
 
