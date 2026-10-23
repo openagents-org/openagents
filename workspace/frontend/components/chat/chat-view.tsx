@@ -20,7 +20,7 @@ import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu, X } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
 import { ThreadParticipantCount } from './thread-participant-count';
@@ -180,6 +180,8 @@ export function ChatView() {
   // online — surface it in the thread BEFORE the user invests in a message.
   // Probes refresh hourly on the device, so a slow poll here is plenty.
   const [agentProbes, setAgentProbes] = useState<Map<string, { probe: import('@/lib/types').NodeProbe; nodeId: string }>>(new Map());
+  // Dismiss only this result in this thread; a new health check can warn again.
+  const [dismissedProbes, setDismissedProbes] = useState<Set<string>>(new Set());
   const [retesting, setRetesting] = useState<Set<string>>(new Set());
   const loadProbes = useCallback(async () => {
     const nodes = await workspaceApi.listNodes();
@@ -926,10 +928,13 @@ export function ChatView() {
           own guidance so the user can fix it before starting a conversation. */}
       {(() => {
         const participants = currentSession?.participants || [];
+        const probeKey = (name: string, nodeId: string, at: string) =>
+          JSON.stringify([workspaceKey, currentSessionId, nodeId, name, at]);
         const failing = participants
           .map((name) => ({ name, entry: agentProbes.get(name) }))
           .filter((x): x is { name: string; entry: { probe: import('@/lib/types').NodeProbe; nodeId: string } } =>
-            !!x.entry && x.entry.probe.ok === false && x.entry.probe.code !== 'static_only');
+            !!x.entry && x.entry.probe.ok === false && x.entry.probe.code !== 'static_only')
+          .filter(({ name, entry }) => !dismissedProbes.has(probeKey(name, entry.nodeId, entry.probe.at)));
         if (failing.length === 0) return null;
         return (
           <div className="px-2 lg:px-4 py-2 border-b shrink-0 bg-red-50 dark:bg-red-950/25 text-red-800 dark:text-red-300 space-y-1.5">
@@ -951,6 +956,15 @@ export function ChatView() {
                     >
                       <RefreshCw className={`size-3 ${busy ? 'animate-spin' : ''}`} />
                       {busy ? t('chat.probeRetesting') : t('chat.probeRetest')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedProbes((previous) => new Set(previous).add(probeKey(name, entry.nodeId, entry.probe.at)))}
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      aria-label={t('common.close')}
+                      title={t('common.close')}
+                    >
+                      <X className="size-3.5" aria-hidden="true" />
                     </button>
                   </div>
                   {(entry.probe.guidance || []).slice(0, 3).map((line, i) => (
