@@ -218,16 +218,30 @@ class CodexAdapter extends BaseAdapter {
     if (!isWindows || !/\.(cmd|bat)$/.test(lower)) return { file: bin, args: [], shell: false };
     try {
       const content = fs.readFileSync(bin, 'utf-8');
-      const js = content.match(/%dp0%\\([^\s"*?]+\.[cm]?js)/i);
+      // Both npm shim styles: `"%dp0%\x.js"` and the older `"%~dp0\x.js"`.
+      const js = content.match(/%~?dp0%?\\([^\s"*?]+\.[cm]?js)/i);
       if (js) {
         return { file: this._findNodeBin(), args: [path.resolve(path.dirname(bin), js[1])], shell: false };
       }
-      const exe = content.match(/%dp0%\\([^\s"*?]+\.exe)/i);
+      const exe = content.match(/%~?dp0%?\\([^\s"*?]+\.exe)/i);
       if (exe) return { file: path.resolve(path.dirname(bin), exe[1]), args: [], shell: false };
     } catch {}
-    // A shim we can't read through still has to run under cmd.exe. Quote it,
-    // so at least the path survives the command line cmd.exe is given.
-    return { file: `"${bin}"`, args: [], shell: true };
+    // A shim we can't read through still has to run under cmd.exe. Build that
+    // command line here (see _spawnArgv): `shell: true` would join the
+    // arguments unquoted, cutting a working dir or relay flag at a space.
+    return { file: process.env.ComSpec || 'cmd.exe', args: [], shell: false, cmdShim: bin };
+  }
+
+  /**
+   * argv + spawn options for `exec` running `rest`. A `cmdShim` goes through
+   * `cmd /d /s /c "<line>"` with every part quoted (`/s` strips only the
+   * outer pair), passed verbatim so Node adds no quoting of its own.
+   */
+  _spawnArgv(exec, rest) {
+    if (!exec.cmdShim) return { argv: [...exec.args, ...rest], windowsVerbatimArguments: false };
+    const quote = (a) => `"${String(a).replace(/"/g, '""')}"`;
+    const line = [exec.cmdShim, ...rest].map(quote).join(' ');
+    return { argv: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true };
   }
 
   _findNodeBin() {
@@ -367,7 +381,11 @@ class CodexAdapter extends BaseAdapter {
   async _handleViaSubprocess(content, msgChannel, attachments = []) {
     // A missing cwd fails the spawn itself, and Node blames the shell for it
     // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
-    // user can fix. Say which folder is gone instead.
+    // user can fix. A configured folder that was never made (or was cleaned
+    // up) is simply created; only one that cannot be is named instead.
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      try { fs.mkdirSync(this.workingDir, { recursive: true }); } catch {}
+    }
     if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
       await this.sendError(msgChannel, `Working directory does not exist: ${this.workingDir}`);
       return;
@@ -472,13 +490,15 @@ class CodexAdapter extends BaseAdapter {
     if (this._stoppedBeforeStart(msgChannel)) return { stopped: true, responseText: '', exitCode: null };
     return new Promise((resolve, reject) => {
       const exec = this._resolveExec(cmd[0]);
-      const proc = spawn(exec.file, [...exec.args, ...cmd.slice(1)], {
+      const { argv, windowsVerbatimArguments } = this._spawnArgv(exec, cmd.slice(1));
+      const proc = spawn(exec.file, argv, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env,
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
         shell: exec.shell,
+        windowsVerbatimArguments,
       });
       this._channelProcesses[msgChannel] = proc;
 

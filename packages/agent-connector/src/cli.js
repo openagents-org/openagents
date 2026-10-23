@@ -360,7 +360,13 @@ async function cmdRuntimes(connector, flags) {
   // Used by the daemon to report node runtimes to the workspace (Add-agent
   // gallery). Emits ONLY JSON on stdout.
   if (flags && flags.json) {
-    const runtimes = connector.registry.getCatalogSync().map((e) => {
+    // --types a,b,c limits the run to those entries: the daemon splits
+    // detection over several of these so one slow CLI cannot hold up the rest.
+    const only = typeof flags.types === 'string'
+      ? new Set(flags.types.split(',').map((s) => s.trim()).filter(Boolean))
+      : null;
+    const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
+    const runtimes = catalog.map((e) => {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
       // Credential contract, upward half: STATUS goes up, the secret stays on

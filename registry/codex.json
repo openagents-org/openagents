@@ -42,6 +42,15 @@
       null
     ]
   },
+  "probe": {
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "hi"
+    ],
+    "timeout_s": 120,
+    "skip_cli_with_key": true
+  },
   "check_ready": {
     "env_all": [
       "OPENAI_API_KEY",
