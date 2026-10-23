@@ -284,8 +284,8 @@ class AmpAdapter extends BaseAdapter {
         this._reportStatus(reason, message);
         await this.sendError(msgChannel, message);
       } else if (isClassifiedError(e)) {
-        // Already the sentence the user should read, secrets stripped.
-        this._log(`Amp run failed: ${e.message.split('\n')[0]}`);
+        // Already the sentence the user should read, secrets stripped, and
+        // logged where it was thrown.
         await this.sendError(msgChannel, e.message);
       } else {
         this._log(`Error handling message: ${redactDiagnostic(e.message)}`);

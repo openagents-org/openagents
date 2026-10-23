@@ -736,8 +736,11 @@ class HermesAdapter extends BaseAdapter {
         // It is prose, so the shape rules of redaction stay off it; what is
         // masked is this agent's own secrets, which a provider error quoted
         // there would echo.
+        // Masked before it is cut, so a secret straddling the cut cannot
+        // survive as a fragment; the reason is at the end, so keep the tail.
         this._log(`Hermes turn did not finish (code=${run.exitCode})`, 'error');
-        await this.sendError(msgChannel, maskSecretValues(run.text, this._knownSecrets()));
+        const said = maskSecretValues(run.text, this._knownSecrets());
+        await this.sendError(msgChannel, said.length > 2000 ? `…${said.slice(-2000)}` : said);
       } else {
         // Nothing on stdout, so the reason is whatever Hermes wrote to stderr:
         // in -Q mode that is where it reports a backend error that produced

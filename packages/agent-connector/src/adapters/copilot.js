@@ -437,7 +437,7 @@ class CopilotAdapter extends BaseAdapter {
       try {
         result = await this._runTurn(channel, args);
       } catch (e) {
-        await this.sendError(channel, `Error: ${redactSensitive(e.message)}`);
+        await this.sendError(channel, `Error: ${this._redact(e.message)}`);
         return;
       }
 
@@ -536,7 +536,7 @@ class CopilotAdapter extends BaseAdapter {
           windowsHide: true,
         });
       } catch (e) {
-        return resolve({ errorMessage: `Failed to launch Copilot CLI: ${redactSensitive(e.message)}` });
+        return resolve({ errorMessage: `Failed to launch Copilot CLI: ${this._redact(e.message)}` });
       }
       this._channelProcesses[channel] = proc;
 
@@ -676,7 +676,7 @@ class CopilotAdapter extends BaseAdapter {
       }
 
       proc.on('error', (err) => {
-        finish({ errorMessage: `Copilot CLI failed to start: ${redactSensitive(err.message)}` });
+        finish({ errorMessage: `Copilot CLI failed to start: ${this._redact(err.message)}` });
       });
 
       proc.on('exit', async (code) => {
@@ -787,7 +787,7 @@ class CopilotAdapter extends BaseAdapter {
       return { hard: true, message: 'Copilot was denied a required permission (path/tool). The task may need access outside the working directory.' };
     }
     if (errorEvent && errorEvent.message) {
-      return { hard: true, message: `Copilot error: ${redactSensitive(errorEvent.message).slice(0, 300)}` };
+      return { hard: true, message: `Copilot error: ${this._redact(errorEvent.message).slice(0, 300)}` };
     }
     if (exitCode && exitCode !== 0) {
       // Nothing above matched, so quote what the CLI actually said (redacted,

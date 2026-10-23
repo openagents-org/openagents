@@ -654,11 +654,19 @@ class OpenClawAdapter extends BaseAdapter {
     const text = String(stderr || '');
     const start = text.search(/\{\s*"payloads"/);
     if (start < 0) return text;
+    // Braces inside JSON strings (the reply text) are not structure: skip
+    // string contents, honoring backslash escapes.
     let depth = 0;
     let end = text.length;
+    let inString = false;
     for (let i = start; i < text.length; i++) {
-      if (text[i] === '{') depth++;
-      else if (text[i] === '}' && --depth === 0) { end = i + 1; break; }
+      const ch = text[i];
+      if (inString) {
+        if (ch === '\\') i++;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) { end = i + 1; break; }
     }
     return text.slice(0, start) + text.slice(end);
   }

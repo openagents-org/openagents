@@ -280,10 +280,13 @@ describe('OpenClaw — a failed run says why', () => {
     const message =
       'Auth profile store requires legacy credential migration; run openclaw doctor --fix '
       + `(profile openai:manual, key ${RELAY_KEY})`;
+    // The message asks for a Doctor migration, so the adapter runs
+    // `openclaw doctor --fix` once; that repair fails here, leaving the
+    // original error to be reported.
     script = [{
       stdout: `${JSON.stringify({ ok: false, error: { type: 'cli_error', message } })}\n`,
       code: 1,
-    }];
+    }, { stderr: 'doctor: nothing to migrate\n', code: 1 }];
 
     await a._handleMessage({ ...MSG, sessionId: 'chan-1' });
 
@@ -311,6 +314,33 @@ describe('OpenClaw — a failed run says why', () => {
     assert.deepEqual(a.posted.error, [
       'OpenClaw failed (exit 1): RangeError: Maximum call stack size exceeded',
     ]);
+  });
+
+  it('keeps braces inside the reply text from cutting the reply short or swallowing the trace', async () => {
+    // An unbalanced "}" in the reply once closed the envelope early (leaking
+    // the rest of the reply into the cause); an unbalanced "{" kept it open
+    // through the trace that followed.
+    for (const text of [
+      'Use `if (x) }` then sign in — settings.json is malformed and the API key is invalid',
+      'Open with `{` and \\"quote\\" {{ — please sign in, the API key is invalid',
+    ]) {
+      const a = makeOpenClaw();
+      const reply = { payloads: [{ text }], meta: {} };
+      script = [{
+        stdout: '',
+        stderr:
+          '[agent/embedded] embedded run agent start\n'
+          + `${JSON.stringify(reply, null, 2)}\n`
+          + 'RangeError: Maximum call stack size exceeded\n',
+        code: 1,
+      }];
+
+      await a._handleMessage({ ...MSG, sessionId: 'chan-1' });
+
+      assert.deepEqual(a.posted.error, [
+        'OpenClaw failed (exit 1): RangeError: Maximum call stack size exceeded',
+      ], text);
+    }
   });
 });
 
