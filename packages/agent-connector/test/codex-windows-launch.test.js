@@ -59,10 +59,24 @@ describe('CodexAdapter._resolveExec', () => {
     });
   });
 
-  it('quotes a shim it cannot read through before cmd.exe sees it', () => {
+  it('reads through the older %~dp0 shim style too', { skip: !IS_WINDOWS }, () => {
+    const shim = path.join(dir, 'codex-old.cmd');
+    fs.writeFileSync(shim, '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe" "%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n)\r\n');
+    const r = bare()._resolveExec(shim, true);
+    assert.equal(r.shell, false);
+    assert.deepEqual(r.args, [path.resolve(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js')]);
+  });
+
+  it('runs a shim it cannot read through under cmd.exe with every argument quoted', () => {
     const shim = path.join(dir, 'odd.cmd');
     fs.writeFileSync(shim, '@echo off\r\ncall something-else %*\r\n');
-    assert.deepEqual(bare()._resolveExec(shim, true), { file: `"${shim}"`, args: [], shell: true });
+    const exec = bare()._resolveExec(shim, true);
+    assert.equal(exec.shell, false);
+    assert.equal(exec.cmdShim, shim);
+    const { argv, windowsVerbatimArguments } = bare()._spawnArgv(exec, ['-C', 'C:\\Users\\Windows 10\\work', '-c', 'x="y"']);
+    assert.equal(windowsVerbatimArguments, true);
+    assert.deepEqual(argv.slice(0, 3), ['/d', '/s', '/c']);
+    assert.equal(argv[3], `""${shim}" "-C" "C:\\Users\\Windows 10\\work" "-c" "x=""y""""`);
   });
 
   it('spawns a native binary as is', () => {
@@ -114,10 +128,34 @@ describe('CodexAdapter._spawnCodex — paths with spaces and CJK', () => {
 });
 
 describe('CodexAdapter — missing working directory', () => {
-  it('names the folder instead of spawning', async () => {
+  it('creates a configured folder that is not there yet', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-workdir-'));
+    const missing = path.join(root, 'agent 用户');
+    const errors = [];
+    const adapter = bare({
+      workingDir: missing,
+      agentEnv: {},
+      sendError: async (_ch, msg) => { errors.push(msg); },
+      _spawnCodex: async () => ({ responseText: 'ok', exitCode: 0 }),
+    });
+    try {
+      // Whatever the rest of the turn does on this machine, the folder exists
+      // and is not reported missing.
+      await adapter._handleViaSubprocess('hello', 'general').catch(() => {});
+      assert.ok(fs.statSync(missing).isDirectory());
+      assert.ok(!errors.some((m) => m.startsWith('Working directory does not exist')), errors.join('\n'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('names a folder it cannot create instead of spawning', async () => {
     const errors = [];
     let spawned = false;
-    const missing = path.join(os.tmpdir(), 'oa-no-such-dir', 'agent');
+    // Below a regular file, so the folder can never be made.
+    const blocker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'oa-workdir-')), 'file');
+    fs.writeFileSync(blocker, '');
+    const missing = path.join(blocker, 'agent');
     const adapter = bare({
       workingDir: missing,
       agentEnv: {},
