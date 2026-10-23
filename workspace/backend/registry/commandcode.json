@@ -53,7 +53,7 @@
     ],
     "saved_env_key": "COMMAND_CODE_API_KEY",
     "login_command": "command-code login",
-    "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY (press e)",
+    "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY in Configure",
     "unreadable_message": "Command Code credentials could not be read. Sign in again with `command-code login`, or re-enter COMMAND_CODE_API_KEY in the Configure screen."
   },
   "env_config": [

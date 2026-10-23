@@ -1,0 +1,72 @@
+name: Deploy workspace backend to DigitalOcean
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-backend-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test deployment guards
+        run: python3 -m unittest discover -s workspace/operations/digitalocean/cd/tests -v
+      - name: Build exact release without deployment credentials
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          DOCKER_BUILDKIT: "1"
+        run: |
+          set -euo pipefail
+          # Canary files must be excluded even inside copied application paths.
+          mkdir -p workspace/backend/app/secrets
+          printf "not-a-real-secret" > workspace/backend/app/.env.deploy-canary
+          printf "not-a-real-secret" > workspace/backend/app/secrets/deploy-canary
+          docker build --file workspace/backend/production.Dockerfile \
+            --build-arg RELEASE_SHA="$RELEASE_SHA" \
+            --tag "openagents-backend:release-$RELEASE_SHA" workspace/backend
+          docker run --rm --network none --entrypoint python \
+            -e DATABASE_URL=sqlite:// -e BACKGROUND_JOBS_ENABLED=false \
+            "openagents-backend:release-$RELEASE_SHA" \
+            -c 'import app.main; import app.cache; import yaml; from pathlib import Path; assert not Path("/app/app/.env.deploy-canary").exists(); assert not Path("/app/app/secrets/deploy-canary").exists()'
+          docker save "openagents-backend:release-$RELEASE_SHA" | gzip -1 > backend-image.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-image-${{ github.sha }}
+          path: backend-image.tar.gz
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: digitalocean-production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: backend-image-${{ github.sha }}
+      - name: Stage both nodes and request a rolling deployment
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          DO_DEPLOY_SSH_KEY: ${{ secrets.DO_DEPLOY_SSH_KEY }}
+          DO_DEPLOY_KNOWN_HOSTS: ${{ secrets.DO_DEPLOY_KNOWN_HOSTS }}
+          DO_PRIMARY_HOST: ${{ vars.DO_PRIMARY_HOST }}
+          DO_SECONDARY_HOST: ${{ vars.DO_SECONDARY_HOST }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 workspace/operations/digitalocean/cd/ci.py

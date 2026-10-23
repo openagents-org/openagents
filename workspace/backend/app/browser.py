@@ -255,33 +255,29 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = False) -> dict:
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = True) -> dict:
         """Create a new browser tab. Returns {url, title}.
 
-        `persist=True` (or a `bb_context_id`) asks Browser Fabric for a
-        persistent session: it counts against the persistent-tab quota, runs
-        headed, and saves its cookies/storage to a context on close.
+        Shared cloud tabs always persist. The legacy persist argument is
+        accepted for older callers but cannot disable saving. BrowserFabric
+        controls awake-session capacity and idle hibernation.
 
         Raises UnsafeURLError if `url` is not a public http(s) target.
         """
         url = await guard_browser_url(url)
         if api_key:
             self._tab_keys[tab_id] = api_key
-        async with self._global_lock:
-            active_count = self.active_tab_count()
-            if active_count >= MAX_BROWSER_TABS:
-                if self._sessions:
-                    await self._prune_dead_sessions()
-                    active_count = self.active_tab_count()
-                if active_count >= MAX_BROWSER_TABS:
+        # Cloud capacity is enforced by BrowserFabric and counts awake sessions.
+        # A process-local count includes sleeping saved tabs and other workspaces.
+        if not self.is_cloud_for(api_key):
+            async with self._global_lock:
+                if len(self._pages) >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
         if self.is_cloud_for(api_key):
-            args: dict = {"headless": True}
+            args: dict = {"persist": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
-            if bb_context_id or persist:
-                args["persist"] = True
 
             try:
                 result = await self._bf_call("create_session", args, tab_id=tab_id)
@@ -421,6 +417,25 @@ class BrowserManager:
                 result = await page.evaluate(expression)
                 return {"result": result}
 
+    async def human_input(self, tab_id: str, command: dict) -> dict:
+        """Forward a gesture on a scaled screenshot to the same local page."""
+        page = self._get_page(tab_id)
+        async with self._get_lock(tab_id):
+            kind = command['kind']
+            if kind == 'click':
+                viewport = page.viewport_size
+                if not viewport:
+                    viewport = await page.evaluate('({width: innerWidth, height: innerHeight})')
+                await page.mouse.click(min(command['x'] * viewport['width'], viewport['width'] - 1),
+                                       min(command['y'] * viewport['height'], viewport['height'] - 1))
+            elif kind == 'text':
+                await page.keyboard.insert_text(command['text'])
+            elif kind == 'key':
+                await page.keyboard.press(command['key'])
+            elif kind == 'scroll':
+                await page.mouse.wheel(command['delta_x'], command['delta_y'])
+            return {'url': page.url, 'title': await page.title()}
+
     async def screenshot(self, tab_id: str) -> bytes:
         """Take a PNG screenshot of the tab."""
         if self._is_cloud_tab(tab_id):
@@ -527,7 +542,7 @@ class BrowserManager:
             raise BrowserNavigationError("NAVIGATION_FAILED", "No URL to render")
         if self.is_cloud_for(api_key):
             key = api_key or BROWSERFABRIC_API_KEY
-            result = await self._bf_call("create_session", {"headless": True}, api_key=key)
+            result = await self._bf_call("create_session", {"persist": True}, api_key=key)
             session_id = result["result"]["session_id"]
             try:
                 try:
@@ -568,7 +583,7 @@ class BrowserManager:
                 try:
                     await self._bf_call("close_session", {}, session_id, api_key=key)
                 except Exception as e:
-                    logger.warning("Failed to close ephemeral BF session %s: %s", session_id, e)
+                    logger.warning("Failed to close fetch BF session %s: %s", session_id, e)
         else:
             async with self._global_lock:
                 await self._ensure_local_browser()
@@ -685,7 +700,10 @@ class BrowserManager:
                 session_id,
                 tab_id=tab_id,
             )
-            return result.get("result", {}).get("context_id", str(__import__("uuid").uuid4()))
+            context_id = result.get("result", {}).get("context_id")
+            if not isinstance(context_id, str) or not context_id:
+                raise RuntimeError("BrowserFabric did not confirm a saved context")
+            return context_id
         import uuid
         return str(uuid.uuid4())
 

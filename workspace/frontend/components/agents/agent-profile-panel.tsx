@@ -6,6 +6,10 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
+import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -484,7 +488,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               {agent.displayName && agent.displayName !== agent.agentName && (
                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{agent.agentName}</p>
               )}
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 <span className={cn(
                   'inline-flex items-center gap-1 text-[11px] px-1.5 py-px rounded font-medium',
                   isOnline ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
@@ -492,6 +496,10 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-green-500' : 'bg-zinc-400')} />
                   {agent.status}
                 </span>
+                {/* Permission model v1.1: who can use it (replaces the personal badge) */}
+                <AgentUsabilityLine agentName={agent.agentName} />
+                <DeviceOfflineHint agent={agent} withLabel />
+                <AccessExplainer resourceKind="agent" resourceId={agent.agentName} className="basis-full" />
               </div>
             </div>
           </div>
@@ -499,6 +507,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-3.5 space-y-3">
+          <AgentSharingButton agentName={agent.agentName} />
           {/* Description */}
           <div className="rounded-lg border overflow-hidden">
             <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">

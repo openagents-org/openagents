@@ -5,7 +5,7 @@
  *
  * Everything here runs without dsh, an API key or a network: the module under
  * test has no I/O. The version strings asserted below were captured from a live
- * `dsh -V` on @deepseek-ai/dsh 0.1.0-rc.6, and the row ids from that release's
+ * `dsh -V` on @deepseek-ai/dsh 0.2.1-rc.2, and the row ids from that release's
  * shipped `cordis.patch.yml`.
  */
 
@@ -34,6 +34,7 @@ const {
   FAILURE,
   selectSessionsForGc,
   SESSION_KEEP_COUNT,
+  isOfficialDeepseekRoot,
 } = require('../src/adapters/deepseek-runtime');
 
 // The two comparators already in this repo, asserted against as a regression
@@ -138,10 +139,10 @@ describe('classifyDshVersion', () => {
   });
 
   it('pins the fallback constant', () => {
-    assert.equal(SUPPORTED_DSH_VERSION, '0.1.0-rc.6');
+    assert.equal(SUPPORTED_DSH_VERSION, '0.2.1-rc.2');
     assert.equal(
       defaultInstallCommand(),
-      'npm install -g @deepseek-ai/dsh@0.1.0-rc.6',
+      'npm install -g @deepseek-ai/dsh@0.2.1-rc.2',
     );
   });
 });
@@ -442,5 +443,21 @@ describe('session GC selection', () => {
   it('handles an empty directory', () => {
     assert.deepEqual(selectSessionsForGc([], { now: Date.now() }), []);
     assert.deepEqual(selectSessionsForGc(null, { now: Date.now() }), []);
+  });
+});
+
+describe('isOfficialDeepseekRoot', () => {
+  it('matches the OpenAI-style roots dsh cannot use', () => {
+    assert.equal(isOfficialDeepseekRoot('https://api.deepseek.com'), true);
+    assert.equal(isOfficialDeepseekRoot('https://api.deepseek.com/'), true);
+    assert.equal(isOfficialDeepseekRoot('https://api.deepseek.com/v1'), true);
+    assert.equal(isOfficialDeepseekRoot(' https://API.deepseek.com/V1/ '), true);
+  });
+
+  it('leaves the Anthropic endpoint and gateways alone', () => {
+    assert.equal(isOfficialDeepseekRoot('https://api.deepseek.com/anthropic'), false);
+    assert.equal(isOfficialDeepseekRoot('https://relay.example.com/v1'), false);
+    assert.equal(isOfficialDeepseekRoot(''), false);
+    assert.equal(isOfficialDeepseekRoot('not a url'), false);
   });
 });

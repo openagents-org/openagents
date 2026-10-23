@@ -1,5 +1,7 @@
 'use client';
 
+import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
+import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
 import { PlusSquare } from 'lucide-react';
 import {
   SidebarGroup,
@@ -23,10 +25,13 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   const isActive = viewMode === 'connect';
-  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const setupStep = useFirstDeviceGuide();
+  const showSetupHint = !!setupStep && !isActive;
+  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">
+      {showSetupHint && setupStep && <FirstDeviceHint step={setupStep} />}
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
@@ -37,7 +42,8 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
               onNavigate?.();
             }}
             className={cn(
-              !hasAgents &&
+              showSetupHint && SETUP_STEP_BUTTON,
+              !hasAgents && !showSetupHint &&
                 !isActive &&
                 'bg-primary/10 text-primary font-medium hover:bg-primary/20 hover:text-primary',
               !hasAgents && isActive && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',

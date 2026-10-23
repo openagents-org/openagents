@@ -18,7 +18,7 @@ from sqlalchemy import and_, or_, select
 
 from app.config import config
 from app.database import SessionLocal
-from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
+from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace, WorkspaceMember
 from app.services.cloud_providers import (
     audio_generation,
     chat_completion,
@@ -80,6 +80,17 @@ def speaker_label(source: str, payload: Optional[dict] = None) -> str:
     return name[:40] or "user"
 
 
+def _coordinated_handoff(metadata):
+    # This metadata is server-authored; workspace_mod strips caller attempts.
+    handoff = metadata.get('orchestration') or {}
+    if not isinstance(handoff, dict):
+        return False
+    step = handoff.get('step')
+    return (config.COMPLETION_ROUTING_ENABLED and handoff.get('action') == 'next'
+            and bool(handoff.get('root_id')) and type(step) is int
+            and 1 <= step <= config.COMPLETION_ROUTING_MAX_HANDOFFS)
+
+
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
     metadata = event_data.get("metadata") or {}
@@ -89,7 +100,7 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
         return
 
     depth = metadata.get("cloud_agent_depth", 0)
-    if depth >= config.CLOUD_AGENT_MAX_DEPTH:
+    if depth >= config.CLOUD_AGENT_MAX_DEPTH and not _coordinated_handoff(metadata):
         logger.warning("cloud_agent: max depth %d reached, skipping", depth)
         return
 
@@ -140,7 +151,8 @@ async def _invoke_single(
     depth: int,
 ) -> None:
     """Invoke a single cloud agent and post the response."""
-    if cloud_config.category == "assistant":
+    from app.services.yumi import YUMI_PROVIDER
+    if cloud_config.provider == YUMI_PROVIDER or cloud_config.category == "assistant":
         await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
     elif cloud_config.category == "image":
         await _invoke_image_agent(db, workspace_id, event_data, cloud_config)
@@ -169,6 +181,9 @@ async def _invoke_chat_agent(
     api_key = cloud_config.api_key
     base_url = cloud_config.base_url
     system_prompt = cloud_config.system_prompt
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt = (system_prompt or "") + "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
     max_tokens = cloud_config.max_tokens
 
     # The char budget covers the whole request, not just history — system
@@ -239,12 +254,8 @@ async def _invoke_chat_agent(
     )
 
     await _post_response(
-        db,
-        workspace_id,
-        channel_target,
-        agent_name,
-        response_text,
-        depth,
+        db, workspace_id, channel_target, agent_name,
+        response_text, depth, in_reply_to=event_data.get("id"),
         trigger_source=event_data.get("source"),
     )
 
@@ -331,6 +342,9 @@ async def _invoke_assistant_agent(
 
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt += "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
     thread_block = await yumi.thread_context(api, channel_name, trigger_source, trigger_payload)
     if thread_block:
         system_prompt = system_prompt + "\n\n" + thread_block
@@ -413,14 +427,9 @@ async def _invoke_assistant_agent(
         explicit_targets = yumi.delegation_targets(final_text, members, agent_name)
 
     await _post_response(
-        db,
-        workspace_id,
-        channel_target,
-        agent_name,
-        final_text,
-        depth,
+        db, workspace_id, channel_target, agent_name, final_text, depth,
+        explicit_targets=explicit_targets, in_reply_to=event_data.get("id"),
         trigger_source=event_data.get("source"),
-        explicit_targets=explicit_targets,
     )
 
 
@@ -491,16 +500,14 @@ async def _invoke_image_agent(
         channel_target,
         agent_name,
         f"Here's the generated image for: *{instruction[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
+        attachments=[{
+            "file_id": file_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size": len(image_bytes),
+        }],
         trigger_source=event_data.get("source"),
-        attachments=[
-            {
-                "file_id": file_id,
-                "filename": filename,
-                "content_type": content_type,
-                "size": len(image_bytes),
-            }
-        ],
     )
 
 
@@ -550,16 +557,14 @@ async def _invoke_audio_agent(
         channel_target,
         agent_name,
         f"Generated speech for: *{text[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
+        attachments=[{
+            "file_id": file_id,
+            "filename": filename,
+            "content_type": f"audio/{audio_format}",
+            "size": len(audio_bytes),
+        }],
         trigger_source=event_data.get("source"),
-        attachments=[
-            {
-                "file_id": file_id,
-                "filename": filename,
-                "content_type": f"audio/{audio_format}",
-                "size": len(audio_bytes),
-            }
-        ],
     )
 
 
@@ -827,7 +832,14 @@ async def _upload_image(
 
     file_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"uploaded_files/{timestamp}_generated.{image_format}"
+    from app.services.personal_files import default_file_folder
+    from app.services.access_model import Principal
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.agent_name == agent_name,
+    )).scalar_one_or_none()
+    viewer = Principal("agent", agent_name=agent_name, owner_email=member.owner_email if member else None, workspace_id=workspace_id)
+    folder = default_file_folder(db, workspace_id, viewer, channel_target.removeprefix("channel/")) or "uploaded_files"
+    filename = f"{folder}/{timestamp}_generated.{image_format}"
     storage_name = f"{timestamp}_generated.{image_format}"
 
     store = get_file_store()
@@ -852,6 +864,8 @@ async def _upload_image(
         storage_key=storage_key,
         uploaded_by=f"openagents:{agent_name}",
         channel_name=channel_name,
+        owner=f"openagents:{agent_name}",
+        visibility=None if channel_name else "public",
     )
     db.add(record)
     db.flush()
@@ -869,6 +883,7 @@ async def _post_response(
     attachments: Optional[list] = None,
     explicit_targets: Optional[list] = None,
     status_kind: str = "completed",
+    in_reply_to: Optional[str] = None,
     trigger_source: Optional[str] = None,
 ) -> None:
     """Post the cloud agent's response back through the event pipeline.
@@ -904,6 +919,8 @@ async def _post_response(
         payload["attachments"] = attachments
 
     metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
+    if in_reply_to:
+        metadata["in_reply_to"] = in_reply_to
     if explicit_targets is not None:
         metadata["explicit_targets"] = list(explicit_targets)
     if reply_visibility == "direct" and reply_target.startswith("openagents:"):
@@ -1040,6 +1057,16 @@ async def _post_response(
     except Exception:
         logger.warning("cloud_agent: failed to schedule watch notify", exc_info=True)
 
+    # Cloud replies do not pass through the HTTP endpoint's background
+    # dispatch hook. Continue the server-authorized chain here as well.
+    # completion_routing owns its persisted per-request handoff limit.
+    if _coordinated_handoff(event.metadata):
+        await invoke_cloud_agents(workspace_id, {
+            'id': event.id, 'type': event.type, 'source': event.source,
+            'target': event.target, 'payload': event.payload,
+            'metadata': event.metadata, 'timestamp': event.timestamp,
+        })
+
 
 async def _post_error_message(
     workspace_id: str,
@@ -1061,8 +1088,8 @@ async def _post_error_message(
             agent_name,
             f"[Error] {error_text}",
             depth=0,
-            trigger_source=event_data.get("source"),
-            status_kind="failed",
+            status_kind="failed", in_reply_to=event_data.get("id"),
+        trigger_source=event_data.get("source"),
         )
     except Exception:
         logger.exception("cloud_agent: failed to post error message for %s", agent_name)

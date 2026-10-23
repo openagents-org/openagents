@@ -58,7 +58,7 @@ export function applyThemeSource(mode: unknown): void {
  * root font size, and a `rem` here would drift away from the overlay, which
  * Electron only accepts in real pixels.
  */
-export const TITLEBAR_HEIGHT = 40
+export const TITLEBAR_HEIGHT = 48
 
 /**
  * Whether a modal is currently up in the renderer. See `setChromeDimmed`.
@@ -85,12 +85,12 @@ let chromeSkin: unknown = null
 /**
  * The Windows/Linux window-controls overlay, coloured as the right-hand end of
  * the mode bar it sits in. The bar spans the window above every area and is
- * painted in the rail's colour (`bg-sidebar`); the buttons used to take the
- * content surface (`--background`) instead, which left a grey block at the end
- * of a white strip.
+ * painted in the page surface (`bg-background`), as is the content the
+ * buttons sit over during onboarding. Taking the rail's colour instead left a
+ * lighter block at the end of the bar in any skin whose rail and page differ.
  *
  * Read from the skin table rather than the stylesheet, which main cannot
- * reach: each skin's `rail` is the `--sidebar` its stylesheet sets.
+ * reach: each skin's `bg` is the `--background` its stylesheet sets.
  *
  * One pixel shorter than the bar, so the bar's bottom border runs on under the
  * buttons instead of stopping where they begin.
@@ -104,7 +104,7 @@ export function titleBarOverlayColors(): {
   height: number
 } {
   const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
-  const color = getSkin(chromeSkin).chrome[scheme].rail
+  const color = getSkin(chromeSkin).chrome[scheme].bg
   const symbolColor = scheme === "dark" ? "#f5f5f7" : "#1c1c1e"
   return {
     color: chromeDimmed ? dimmed(color) : color,

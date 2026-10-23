@@ -7,12 +7,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import { PortalContainerContext } from '@/components/ui/portal-container';
 import { loadWorkspaceSession } from '@/lib/workspace-session';
 import { restorableRoute } from './navigation-state';
+import { handOffRoute, onHostNavigate } from './tabs';
 
 /**
  * The desktop build's router.
@@ -91,6 +93,21 @@ function readLocation(): { pathname: string; search: URLSearchParams } {
   };
 }
 
+function routeOf(location: { pathname: string; search: URLSearchParams }): string {
+  const query = location.search.toString();
+  return `${location.pathname}${query ? '?' + query : ''}`;
+}
+
+/**
+ * Where this page starts. In the launcher's All Workspaces tab, a resumed
+ * route into a workspace opens that workspace's tab and this page stays on
+ * the list — otherwise the list's own view would become the workspace's.
+ */
+function startLocation(): { pathname: string; search: URLSearchParams } {
+  const location = readLocation();
+  return handOffRoute(routeOf(location)) ? { pathname: '/', search: new URLSearchParams() } : location;
+}
+
 /**
  * Match a path against a pattern with `:name` segments.
  *
@@ -126,21 +143,30 @@ export function DesktopRouter({
   routes: RouteTable;
   notFound: React.ReactNode;
 }): React.JSX.Element {
-  const [location, setLocation] = useState(readLocation);
+  const [location, setLocation] = useState(startLocation);
+  // The last route this page accepted, to step back to when a hash change
+  // turns out to belong to another launcher tab.
+  const accepted = useRef(routeOf(location));
 
   useEffect(() => {
-    const sync = (): void => setLocation(readLocation());
+    const sync = (): void => {
+      const next = readLocation();
+      if (handOffRoute(routeOf(next))) {
+        window.location.replace(`#${accepted.current}`);
+        return;
+      }
+      setLocation(next);
+    };
     window.addEventListener('hashchange', sync);
     // A hash-less first load (file:///…/index.html) is the root route.
     if (!window.location.hash || window.location.hash === '#/?desktop_resume=1') {
-      const restored = readLocation();
-      const query = restored.search.toString();
-      window.location.replace(`#${restored.pathname}${query ? '?' + query : ''}`);
+      window.location.replace(`#${accepted.current}`);
     }
     return () => window.removeEventListener('hashchange', sync);
   }, []);
 
   useEffect(() => {
+    accepted.current = routeOf(location);
     try {
       const email = loadWorkspaceSession()?.email;
       const route = restorableRoute(location.pathname + (location.search.size ? '?' + location.search : ''));
@@ -158,7 +184,7 @@ export function DesktopRouter({
       const href = anchor.getAttribute('href') || '';
       if (!href.startsWith('/') || href.startsWith('//')) return;
       event.preventDefault();
-      window.location.hash = href;
+      if (!handOffRoute(href)) window.location.hash = href;
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
@@ -167,9 +193,14 @@ export function DesktopRouter({
   const navigate = useCallback((href: string, replace: boolean) => {
     // Absolute URLs are not ours to route — the shell opens those externally.
     const target = href.startsWith('#') ? href : `#${href.startsWith('/') ? href : `/${href}`}`;
+    // Another workspace, or the list, lives in its own launcher tab.
+    if (handOffRoute(target.slice(1))) return;
     if (replace) window.location.replace(target);
     else window.location.hash = target.slice(1);
   }, []);
+
+  // A deeper route of this workspace that the launcher was asked for elsewhere.
+  useEffect(() => onHostNavigate((route) => navigate(route, false)), [navigate]);
 
   const matched = useMemo(() => {
     for (const route of routes) {

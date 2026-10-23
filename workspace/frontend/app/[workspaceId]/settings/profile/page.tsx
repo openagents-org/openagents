@@ -118,6 +118,7 @@ export default function ProfileSettingsPage() {
         ...(avatarDraft !== null ? { avatarUrl: avatarDraft } : {}),
       });
       setProfile(updated);
+      window.dispatchEvent(new Event('workspace-profile-updated'));
       setName(updated.displayName || '');
       setAvatarDraft(null);
       toast.success(t('profile.saved'));

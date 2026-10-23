@@ -1,7 +1,9 @@
 'use client';
 
+import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
+
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, KanbanSquare, MessageSquare, Sparkles, Waypoints,
+  BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -26,12 +28,14 @@ interface NavItem {
   count?: number;
   /** Render the count as a red attention badge (something needs the user). */
   urgent?: boolean;
+  /** Attention dot beside the label (unread threads, mentions, DMs). */
+  unread?: boolean;
 }
 
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
-  const { viewMode, openView } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount } = useWorkspace();
+  const { viewMode, openView, setThreadFilter } = useLayout();
+  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal } = useWorkspace();
   const t = useT();
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
@@ -46,34 +50,20 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           mode: 'threads',
           label: t('views.threads'),
           icon: <MessageSquare />,
-          count: sessions.filter((s) => !s.sessionId.startsWith('routine:') && !s.sessionId.startsWith('task:')).length,
+          count: unreadThreadsTotal,
         },
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
     ...(hasAgents
       ? ([
-          { mode: 'files', label: t('views.files'), icon: <FileText />, count: countFiles(files) },
-          { mode: 'browser', label: t('views.browser'), icon: <Globe />, count: browserTabs.length },
+          { mode: 'files', label: t('views.files'), icon: <FileText /> },
+          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
           {
             mode: 'routines',
             label: t('views.routines'),
             icon: <CalendarClock />,
-            // Matches the routines list, which also shows paused ones.
-            count: routines.filter((r) => r.status !== 'cancelled').length,
           },
-          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen />, count: knowledge.length },
-          {
-            mode: 'tasks',
-            label: t('views.tasks'),
-            icon: <KanbanSquare />,
-            // Count only what demands the user: tasks blocked on their input.
-            count: tasks.filter((task) => task.status === 'need_input').length,
-            urgent: true,
-          },
-          {
-            mode: 'workflows',
-            label: t('views.workflows'),
-            icon: <Waypoints />,
-            count: workflows.length,
-          },
+          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
+
           {
             mode: 'inbox',
             label: t('views.inbox'),
@@ -81,6 +71,13 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             count: unreadNotificationCount > 0 ? unreadNotificationCount : undefined,
           },
           { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+          {
+            mode: 'workflows',
+            label: t('views.workflows'),
+            icon: <Waypoints />,
+          },
+          // v1.1 M2: team specialists directory
+          { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
         ] as NavItem[])
       : []),
   ];
@@ -94,25 +91,27 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={viewMode === item.mode}
+                isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
                 onClick={() => {
+                  if (item.mode === 'threads') setThreadFilter('all');
                   openView(item.mode);
                   onNavigate?.();
                 }}
               >
                 {item.icon}
                 <span>{item.label}</span>
+
               </SidebarMenuButton>
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">
                   <Badge
-                    variant={item.urgent || item.mode === 'inbox' ? 'destructive' : 'secondary'}
+                    variant={item.urgent || item.mode === 'inbox' || item.mode === 'threads' ? 'destructive' : 'secondary'}
                     appearance="light"
                     size="sm"
                     shape="circle"
                     className="min-w-5 justify-center px-1.5 tabular-nums"
                   >
-                    {item.count}
+                    {item.count > 99 ? '99+' : item.count}
                   </Badge>
                 </SidebarMenuBadge>
               )}

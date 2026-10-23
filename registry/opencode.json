@@ -42,7 +42,13 @@
     ],
     "saved_env_key": "LLM_API_KEY",
     "min_version": "1.17.0",
-    "not_ready_message": "Not configured — press e to configure"
+    "not_ready_message": "Not configured — sign in with `opencode auth login`, pick a free opencode/ model, or add an API key in Configure",
+    "creds_file": "~/.local/share/opencode/auth.json",
+    "creds_no_parse": true,
+    "creds_json_has_entries": true,
+    "keyless_model_prefixes": [
+      "opencode/"
+    ]
   },
   "env_config": [
     {

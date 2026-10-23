@@ -7,6 +7,7 @@
  * env carries and covers every provider the launcher can honestly probe.
  */
 import { net } from "electron"
+import { dshMessagesBase } from "./deepseek-harness-base"
 import { isOfficialAnthropicBase } from "./env-normalize"
 import {
   GOOSE_COMPAT_BASES,
@@ -747,15 +748,21 @@ export async function testLLMConnection(
             "Enter DEEPSEEK_API_KEY. The harness runs with a private, empty home, so there is no saved login to fall back on.",
         }
       }
-      return await probeOpenAI({
-        base: dsBaseInput || "https://api.deepseek.com",
+      // The harness's own default. A model the user has not configured is not
+      // worth failing the connection test over — this proves credentials and
+      // reachability, which is what the button claims.
+      const dsProbe = {
         key: dsKey,
         model: pick("DEEPSEEK_MODEL"),
-        // The harness's own default. A model the user has not configured is not
-        // worth failing the connection test over — this proves credentials and
-        // reachability, which is what the button claims.
         fallbackModel: "deepseek-v4-flash",
-      })
+      }
+      // mini-swe-agent reaches DeepSeek through LiteLLM's OpenAI protocol.
+      const miniSwe =
+        !!pick("DEEPSEEK_API_BASE") || Object.keys(env).some((k) => k.startsWith("MSWEA_") && !!pick(k))
+      if (miniSwe) return await probeOpenAI({ ...dsProbe, base: dsBaseInput || "https://api.deepseek.com" })
+      // dsh speaks the Anthropic Messages API, so its probe does too —
+      // DeepSeek's OpenAI-style root would pass here and then 404 in the agent.
+      return await probeAnthropic({ ...dsProbe, base: dshMessagesBase(dsBaseInput) })
     }
 
     // ── Aider: routes through LiteLLM, so the provider (and therefore the

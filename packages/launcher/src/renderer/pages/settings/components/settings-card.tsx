@@ -36,13 +36,15 @@ export function SettingsCard({
   className,
 }: SettingsCardProps): React.JSX.Element {
   return (
-    <Card className={cn("mb-5 gap-0 px-6 py-5", className)}>
+    <Card className={cn("mb-5 gap-0 overflow-hidden p-0", className)}>
+      {/* A shaded title band, then the rows on the card itself: the band is
+          what groups them, so the rows need no frame of their own. */}
       {(title || action) && (
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 border-b bg-secondary px-5 py-3">
           <div className="min-w-0">
             {title && <h3 className="m-0 text-sm font-semibold">{title}</h3>}
             {desc && (
-              <p className="mt-1 mb-0 text-2xs text-muted-foreground">
+              <p className="mt-0.5 mb-0 text-xs text-muted-foreground">
                 {desc}
               </p>
             )}
@@ -50,8 +52,8 @@ export function SettingsCard({
           {action && <div className="shrink-0">{action}</div>}
         </div>
       )}
-      {children && <div className="divide-y divide-border">{children}</div>}
-      {footer && <div className="mt-4">{footer}</div>}
+      {children && <div className="divide-y divide-border px-5">{children}</div>}
+      {footer && <div className="border-t px-5 py-4">{footer}</div>}
     </Card>
   )
 }
@@ -82,9 +84,9 @@ export function Row({
 }: RowProps): React.JSX.Element {
   const text = (
     <div className="min-w-0">
-      <div className="text-xs font-medium">{label}</div>
+      <div className="text-sm font-medium">{label}</div>
       {desc && (
-        <div className="mt-0.5 text-2xs font-normal text-muted-foreground">
+        <div className="mt-0.5 text-xs font-normal text-muted-foreground">
           {desc}
         </div>
       )}

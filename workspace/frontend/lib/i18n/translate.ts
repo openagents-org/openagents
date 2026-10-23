@@ -33,6 +33,9 @@ function isPluralMessage(value: unknown): value is PluralMessage {
 
 /** Walks a dot path, returning the leaf or `undefined` if any hop is missing. */
 function resolve(tree: unknown, key: string): Leaf | undefined {
+  const direct = tree && typeof tree === 'object' && Object.prototype.hasOwnProperty.call(tree, key)
+    ? (tree as Record<string, unknown>)[key] : undefined;
+  if (typeof direct === 'string' || isPluralMessage(direct)) return direct;
   let node: unknown = tree;
   for (const part of key.split('.')) {
     if (typeof node !== 'object' || node === null) return undefined;

@@ -33,8 +33,14 @@ const LOCALE_BY_LANGUAGE: Record<LauncherLanguage, WorkspaceLocale> = {
   zh: "zh-CN",
 }
 
+/**
+ * Accepts a region-tagged language too. The renderer reports `<html lang>`,
+ * which the shared workspace I18nProvider (mounted by the agent setup page)
+ * rewrites to "zh-CN"; an exact-match lookup turned that into "en-US" and
+ * pushed English into every hosted workspace.
+ */
 export function toWorkspaceLocale(language: string): WorkspaceLocale {
-  return LOCALE_BY_LANGUAGE[language as LauncherLanguage] ?? "en-US"
+  return LOCALE_BY_LANGUAGE[toLauncherLanguage(language)]
 }
 
 export function toLauncherLanguage(locale: string): LauncherLanguage {

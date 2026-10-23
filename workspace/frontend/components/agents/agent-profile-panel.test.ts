@@ -7,6 +7,7 @@ import { AgentProfilePanel } from './agent-profile-panel';
 const api = vi.hoisted(() => ({
   getAgentCatalogDetail: vi.fn(),
   listNodes: vi.fn(),
+  getAgentDirectory: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
@@ -40,6 +41,7 @@ vi.mock('@/lib/workspace-context', () => ({
   }),
 }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
+vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({
   useCopyToClipboard: () => ({ isCopied: false, copyToClipboard: vi.fn() }),
 }));
@@ -71,6 +73,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.getAgentCatalogDetail.mockReset();
   api.listNodes.mockReset().mockResolvedValue([]);
+  api.getAgentDirectory.mockReset().mockResolvedValue([]);
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);

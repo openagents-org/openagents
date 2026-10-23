@@ -1,6 +1,13 @@
 'use client';
 
+import { applyMessageRecalls } from '@/lib/message-recall';
+import { requestedMessageId } from '@/lib/thread-link';
+import { desktopHost } from '@/lib/desktop-host';
+import { MESSAGE_TARGET_EVENT, takeMessageTarget } from '@/lib/message-target';
+import { workspaceApi } from '@/lib/api';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { MessageReactionsProvider } from './message-reactions';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
 import { ThinkingMessage } from './thinking-message';
@@ -112,11 +119,38 @@ interface ChatMessagesProps {
   loadingOlder?: boolean;
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
   onSuggestion?: (text: string) => void;
+  onMentionPerson?: (email: string) => void;
+  onReply?: (message: WorkspaceMessage) => void;
+  /** The thread shown, when this is the main view: message links opened in-app scroll here. */
+  targetSessionId?: string | null;
 }
 
-export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion }: ChatMessagesProps) {
+function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, targetSessionId }: ChatMessagesProps) {
   const t = useT();
+  const [targetMessage, setTargetMessage] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    // The desktop app routes in the hash, so its message links live there.
+    return requestedMessageId(desktopHost() ? window.location.hash.slice(1) : window.location.href);
+  });
+  const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
+  const targetPendingRef = useRef(targetMessage);
+  targetPendingRef.current = targetMessage;
+  const lastTargetPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (targetSessionId === undefined) return;
+    const take = () => {
+      const id = takeMessageTarget(targetSessionId);
+      if (!id) return;
+      lastTargetPageRef.current = null;
+      setTargetMessage(id);
+    };
+    take();
+    window.addEventListener(MESSAGE_TARGET_EVENT, take);
+    return () => window.removeEventListener(MESSAGE_TARGET_EVENT, take);
+  }, [targetSessionId]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const prevLengthRef = useRef(0);
@@ -135,8 +169,18 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   const userScrolledUpRef = useRef(false);
 
   // Separate loading indicators (optimistic) from real messages
-  const loadingMessages = useMemo(() => messages.filter((m) => m.messageType === 'loading'), [messages]);
-  const realMessages = useMemo(() => messages.filter((m) => m.messageType !== 'loading'), [messages]);
+  const [locallyRecalled, setLocallyRecalled] = useState<Set<string>>(new Set());
+  const visibleMessages = useMemo(() => applyMessageRecalls(messages, locallyRecalled), [messages, locallyRecalled]);
+  const recall = async (message: WorkspaceMessage) => {
+    await workspaceApi.recallMessage(message.messageId);
+    setLocallyRecalled(previous => new Set([...previous, message.messageId]));
+  };
+  const loadingMessages = useMemo(() => visibleMessages.filter((m) => m.messageType === 'loading'), [visibleMessages]);
+  // Assignment events dispatch the original request internally; they are not
+  // another conversation message. Keep any actual approval cards visible.
+  const realMessages = useMemo(() => visibleMessages.filter((m) =>
+    m.messageType !== 'loading' && (!m.metadata?.routing_assignment || m.messageType === 'approval' || !!m.metadata?.approval)
+  ), [visibleMessages]);
 
   // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
   const filteredMessages = useMemo(() => {
@@ -227,7 +271,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   const settlingRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
-    if (totalCount === 0) return;
+    if (totalCount === 0 || targetPendingRef.current) return;
     // Why a loop and not a single scrollTop=scrollHeight: the virtualizer
     // estimates every unmeasured row at 80px, so one corrective pin lands at
     // the *estimated* bottom. The real bottom rows (tall markdown, tables) are
@@ -236,14 +280,18 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     // isn't enough for tall rows to finish measuring. So re-pin every frame
     // until scrollHeight stops changing (measurement done), with a safety cap
     // to guarantee termination.
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    userScrolledUpRef.current = false;
     settlingRef.current = true;
     let lastHeight = -1;
     let stableFrames = 0;
     let frames = 0;
     const step = () => {
+      scrollFrameRef.current = null;
       const el = containerRef.current;
-      if (!el || !settlingRef.current) return;
+      if (!el || !settlingRef.current || userScrolledUpRef.current) return;
       el.scrollTop = el.scrollHeight;
+      setShowScrollBtn(false);
       if (el.scrollHeight === lastHeight) {
         stableFrames += 1;
       } else {
@@ -258,10 +306,28 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
         scrollDebug('scroll-settled', el, { frames, scrollHeight: el.scrollHeight });
         return;
       }
-      requestAnimationFrame(step);
+      scrollFrameRef.current = requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    scrollFrameRef.current = requestAnimationFrame(step);
   }, [totalCount]);
+
+  // Images and virtual rows can change height long after the initial settle.
+  // Keep following layout changes until a user gesture leaves the bottom.
+  useEffect(() => {
+    const el = containerRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (!userScrolledUpRef.current && !loadingOlderInternalRef.current) scrollToBottom();
+    });
+    observer.observe(content);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      settlingRef.current = false;
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    };
+  }, [scrollToBottom]);
 
   // Derive the current session + first/last message identity from messages.
   const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
@@ -284,7 +350,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       prevLastIdRef.current = lastId;
       userScrolledUpRef.current = false;
       scrollDebug('session-switch', el, { messageCount: messages.length, totalCount });
-      requestAnimationFrame(() => scrollToBottom());
+      scrollToBottom();
       return;
     }
 
@@ -307,7 +373,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       return;
     }
     scrollDebug('append-follow', el, { messageCount: messages.length, totalCount });
-    requestAnimationFrame(() => scrollToBottom());
+    scrollToBottom();
   }, [messages.length, currentSessionId, firstId, lastId, totalCount, scrollToBottom]);
 
   // Force scroll when scrollKey *actually* changes (user sent a message, clicked
@@ -319,7 +385,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       prevScrollKeyRef.current = scrollKey;
       userScrolledUpRef.current = false;
       scrollDebug('scrollKey-change', containerRef.current, { scrollKey });
-      requestAnimationFrame(() => scrollToBottom());
+      scrollToBottom();
     }
   }, [scrollKey, scrollToBottom]);
 
@@ -332,10 +398,14 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     const onScroll = async () => {
       const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
       setShowScrollBtn(!isNearBottom);
-      userScrolledUpRef.current = !isNearBottom;
+      // A reflow/programmatic scroll is not evidence of user intent. Only
+      // resume following here after an actual gesture has scrolled back down.
+      if (userScrolledUpRef.current) userScrolledUpRef.current = !isNearBottom;
 
       // Infinite scroll: load older messages when near the top
       if (
+        !targetPendingRef.current &&
+        userScrolledUpRef.current &&
         el.scrollTop < 100 &&
         hasOlder &&
         !loadingOlder &&
@@ -359,24 +429,76 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     // A real user scroll gesture cancels any in-flight settle-to-bottom so we
     // never yank them back while they're reading. Measurement-driven reflows
     // (which are what the settle loop exists to absorb) don't fire these.
-    const cancelSettle = () => { settlingRef.current = false; };
+    const cancelSettle = () => {
+      settlingRef.current = false;
+      userScrolledUpRef.current = true;
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    };
+    const onWheel = (event: WheelEvent) => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 1;
+      if (event.deltaY < 0 || !atBottom) cancelSettle();
+    };
+    const onMouseDown = (event: MouseEvent) => {
+      if (event.target === el) cancelSettle(); // dragging the scrollbar
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+        && event.target === el) cancelSettle();
+    };
 
     el.addEventListener('scroll', onScroll);
-    el.addEventListener('wheel', cancelSettle, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: true });
     el.addEventListener('touchmove', cancelSettle, { passive: true });
-    el.addEventListener('mousedown', cancelSettle);
+    el.addEventListener('mousedown', onMouseDown);
+    el.addEventListener('keydown', onKeyDown);
     return () => {
       el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('wheel', cancelSettle);
+      el.removeEventListener('wheel', onWheel);
       el.removeEventListener('touchmove', cancelSettle);
-      el.removeEventListener('mousedown', cancelSettle);
+      el.removeEventListener('mousedown', onMouseDown);
+      el.removeEventListener('keydown', onKeyDown);
     };
   }, [hasOlder, loadingOlder, loadOlder]);
+
+  useEffect(() => {
+    if (!targetMessage || !realMessages.length || loadingOlder) return;
+    userScrolledUpRef.current = true;
+    settlingRef.current = false;
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    const index = groups.findIndex(group => group.type === 'chat' ? group.message.messageId === targetMessage : group.messages.some(message => message.messageId === targetMessage));
+    if (index >= 0) {
+      let frame = 0;
+      let stable = 0;
+      let lastTop = -1;
+      let id = 0;
+      const settle = () => {
+        virtualizer.scrollToIndex(index, { align: 'center' });
+        const top = containerRef.current?.scrollTop ?? 0;
+        stable = top === lastTop ? stable + 1 : 0;
+        lastTop = top;
+        if (++frame < 60 && stable < 4) { id = requestAnimationFrame(settle); return; }
+        setHighlightedMessage(groupKey(groups[index]));
+        setTargetMessage(null);
+      };
+      id = requestAnimationFrame(settle);
+      return () => cancelAnimationFrame(id);
+    }
+    if (hasOlder && loadOlder) {
+      const page = realMessages[0].messageId;
+      if (lastTargetPageRef.current === page) return;
+      lastTargetPageRef.current = page;
+      void loadOlder().catch(() => { setTargetMessage(null); toast.error(t('reactions.linkMissing')); });
+    } else {
+      setTargetMessage(null);
+      toast.error(t('reactions.linkMissing'));
+    }
+  }, [targetMessage, realMessages, groups, hasOlder, loadingOlder, loadOlder, virtualizer, t]);
 
   return (
     <div className="relative flex-1 min-h-0">
       <div
         ref={containerRef}
+        tabIndex={0}
         className={cn('h-full overflow-y-auto', className)}
       >
         {loadingOlder && (
@@ -389,6 +511,8 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             onClick={async () => {
               const el = containerRef.current;
               if (!el) return;
+              userScrolledUpRef.current = true;
+              settlingRef.current = false;
               const prevScrollHeight = el.scrollHeight;
               scrollDebug('load-older-start(button)', el, { prevScrollHeight });
               await loadOlder();
@@ -404,6 +528,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
           </button>
         )}
         <div
+          ref={contentRef}
           style={{
             height: virtualizer.getTotalSize(),
             width: '100%',
@@ -444,6 +569,8 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             return (
               <div
                 key={groupKey(group)}
+                data-message-id={groupKey(group)}
+                className={highlightedMessage === groupKey(group) ? "rounded-md bg-primary/10 ring-1 ring-inset ring-primary/30" : undefined}
                 ref={virtualizer.measureElement}
                 data-index={index}
                 style={{
@@ -464,6 +591,9 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                       agents={agents}
                       isLast={index === groups.length - 1}
                       onSuggestion={onSuggestion}
+                      onMentionPerson={onMentionPerson}
+                      onReply={onReply}
+                      onRecall={recall}
                     />
                   ) : group.type === 'thinking' ? (
                     <ThinkingMessage
@@ -500,4 +630,8 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       )}
     </div>
   );
+}
+
+export function ChatMessages(props: ChatMessagesProps) {
+  return <MessageReactionsProvider messages={props.messages}><ChatMessagesContent key={props.messages[0]?.sessionId} {...props} /></MessageReactionsProvider>;
 }

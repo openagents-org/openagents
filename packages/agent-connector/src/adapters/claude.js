@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets, stripCliNoise } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -657,7 +657,12 @@ class ClaudeAdapter extends BaseAdapter {
           type: 'stdio',
           command: mcpCommand,
           args: mcpFinalArgs,
-          env: { OA_WORKSPACE_TOKEN: this.token },
+          env: {
+            OA_WORKSPACE_TOKEN: this.token,
+            // v1.1: who asked, so escalation tools can address the owner.
+            ...(this.requesterEmailFor && this.requesterEmailFor(channelName)
+              ? { OPENAGENTS_REQUESTER_EMAIL: this.requesterEmailFor(channelName) } : {}),
+          },
         },
       },
     };
@@ -1046,7 +1051,9 @@ class ClaudeAdapter extends BaseAdapter {
    * and silent exit — where it is the ONLY thing there is to report.
    */
   _stderrTail(pp) {
-    const tail = String((pp && pp.stderrBuf) || '').trim();
+    // Without Claude Code's harmless notices (an unknown relay model, the
+    // disabled connectors): posted as "the" error, they hid the real one.
+    const tail = stripCliNoise((pp && pp.stderrBuf) || '').trim();
     return tail ? redactSecrets(tail).slice(-800) : '';
   }
 
@@ -1120,7 +1127,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _postTurnOutcome(pp, msgChannel, finalResponse) {
     if (finalResponse) {
-      try { await this.sendResponse(msgChannel, finalResponse); } catch {}
+      try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed' }); } catch {}
     } else if (pp.lastErrorText) {
       try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
     } else if (!pp.everPostedAnything) {
@@ -1472,7 +1479,7 @@ class ClaudeAdapter extends BaseAdapter {
             if (detail) {
               try { await this.sendError(msgChannel, this._formatClaudeError(detail)); } catch {}
             } else {
-              try { await this.sendResponse(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
+              try { await this.sendError(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
             }
           }
           break;

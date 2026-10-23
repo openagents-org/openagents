@@ -11,7 +11,7 @@ import { writeJsonAtomic } from "./atomic-json"
  * A node is this DEVICE's registration with a workspace, independent of any
  * agent: the workspace lists it under Connect Agent → Nodes and can install,
  * configure and run agents on it remotely. Pairing is a one-shot redeem of a
- * short-lived code (POST /v1/nodes/redeem) that hands back the workspace token.
+ * short-lived code (POST /v1/nodes/redeem) that hands back a private connection token.
  *
  * The file format is shared with the core's `src/node-config.js` — the daemon
  * re-reads it on every node heartbeat (10s) to know who it is. It is written
@@ -33,6 +33,7 @@ export function nodeFilePath(): string {
 
 /** One workspace this device has been paired with. */
 export interface NodePairing {
+  owner_email?: string
   node_id?: string
   workspace_id?: string
   workspace_slug?: string
@@ -49,6 +50,8 @@ export interface NodePairing {
  * tell "the workspace removed us" from "we were never in it".
  */
 export interface RevokedPairing {
+  node_id?: string
+  owner_email?: string
   workspace_id?: string
   workspace_slug?: string
   workspace_name?: string
@@ -68,7 +71,7 @@ export interface NodeRecord extends NodePairing {
   /**
    * Every workspace this device is paired to, newest first — ALL of them live.
    *
-   * The server-side Node row is keyed per (workspace, node_key), so one device
+   * The server-side Node row is keyed per (workspace, owner, node_key), so one device
    * legitimately holds a membership in many workspaces at once and the daemon
    * heartbeats every entry here. This list is the source of truth; the
    * top-level fields mirror `pairings[0]` purely so a daemon predating
@@ -130,11 +133,11 @@ export function saveNode(record: NodeRecord): void {
 }
 
 /**
- * Add a pairing, or refresh it if this workspace is already paired.
+ * Add a connection, or refresh the same connection by its node id.
  *
  * Pairing a second workspace ADDS to the set rather than displacing what was
  * there: each workspace issues its own Node row for this device, and the daemon
- * heartbeats them all. Re-redeeming a code for a workspace already in the list
+ * heartbeats them all. Re-redeeming a code for the same owner in a workspace
  * replaces that entry in place (the token may have rotated) and moves it to the
  * front, which is what the top-level mirror then reflects.
  */
@@ -144,7 +147,7 @@ export function recordPairing(nodeKey: string, pairing: NodePairing): void {
   const pairings = [
     stamped,
     ...normalizePairings(existing).filter(
-      (p) => p.workspace_id !== pairing.workspace_id,
+      (p) => pairing.node_id && p.node_id ? p.node_id !== pairing.node_id : p.workspace_id !== pairing.workspace_id,
     ),
   ]
   saveNode({
@@ -152,7 +155,7 @@ export function recordPairing(nodeKey: string, pairing: NodePairing): void {
     ...stamped,
     pairings,
     // Joining again is the answer to having been removed.
-    revoked: revocationsWithout(existing, pairing.workspace_id),
+    revoked: revocationsWithout(existing, pairing.workspace_id, pairing.owner_email),
   })
 }
 
@@ -167,17 +170,19 @@ export function recordPairing(nodeKey: string, pairing: NodePairing): void {
  * @param workspaceId which pairing to drop; defaults to the top-level one.
  * @returns the pairing that was dropped, or null if there was no such pairing.
  */
-export function clearPairing(workspaceId?: string): NodePairing | null {
+export function clearPairing(workspaceId?: string, nodeId?: string): NodePairing | null {
   const record = readNode()
   if (!record) return null
   const target = workspaceId || record.workspace_id
   if (!target) return null
 
   const pairings = normalizePairings(record)
-  const dropped = pairings.find((p) => p.workspace_id === target)
+  const candidates = pairings.filter((p) => p.workspace_id === target)
+  if (!nodeId && candidates.length > 1) throw new Error("Choose a specific device connection")
+  const dropped = candidates.find((p) => !nodeId || p.node_id === nodeId)
   if (!dropped) return null
 
-  const remaining = pairings.filter((p) => p.workspace_id !== target)
+  const remaining = pairings.filter((p) => p !== dropped)
   // The daemon reads the top level, so promoting the next pairing is what keeps
   // the surviving workspaces reporting rather than going quiet with this one.
   const { token: _t, ...droppedSafe } = dropped
@@ -186,7 +191,7 @@ export function clearPairing(workspaceId?: string): NodePairing | null {
     ...remaining[0],
     pairings: remaining,
     // A deliberate removal is not a revocation, and it settles any that stood.
-    revoked: revocationsWithout(record, target),
+    revoked: revocationsWithout(record, target, dropped.owner_email),
   })
   return droppedSafe
 }
@@ -201,14 +206,17 @@ export function clearPairing(workspaceId?: string): NodePairing | null {
 export function revokePairing(
   workspaceId: string,
   agents: string[] = [],
+  nodeId?: string,
 ): NodePairing | null {
   const record = readNode()
   if (!record) return null
   const pairings = normalizePairings(record)
-  const dropped = pairings.find((p) => p.workspace_id === workspaceId)
+  const candidates = pairings.filter((p) => p.workspace_id === workspaceId)
+  if (!nodeId && candidates.length > 1) throw new Error("Choose a specific device connection")
+  const dropped = candidates.find((p) => !nodeId || p.node_id === nodeId)
   if (!dropped) return null
 
-  const remaining = pairings.filter((p) => p.workspace_id !== workspaceId)
+  const remaining = pairings.filter((p) => p !== dropped)
   const { token: _t, ...droppedSafe } = dropped
   saveNode({
     node_key: record.node_key,
@@ -216,13 +224,15 @@ export function revokePairing(
     pairings: remaining,
     revoked: [
       {
+        node_id: dropped.node_id,
+        owner_email: dropped.owner_email,
         workspace_id: dropped.workspace_id,
         workspace_slug: dropped.workspace_slug,
         workspace_name: dropped.workspace_name,
         revoked_at: new Date().toISOString(),
         agents: agents.length ? agents : undefined,
       },
-      ...revocationsWithout(record, workspaceId),
+      ...revocationsWithout(record, workspaceId, dropped.owner_email),
     ],
   })
   return droppedSafe
@@ -245,10 +255,11 @@ export function clearRevocation(workspaceId: string): void {
 function revocationsWithout(
   record: NodeRecord | null,
   workspaceId?: string,
+  ownerEmail?: string,
 ): RevokedPairing[] {
   const revoked = record?.revoked || []
   if (!workspaceId) return revoked
-  return revoked.filter((r) => r.workspace_id !== workspaceId)
+  return revoked.filter((r) => r.workspace_id !== workspaceId || (!!ownerEmail && r.owner_email !== ownerEmail))
 }
 
 /** Every workspace this device is paired to, most recent first. */

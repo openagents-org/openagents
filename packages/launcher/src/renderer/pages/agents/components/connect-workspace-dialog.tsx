@@ -1,34 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
-import { flushSync } from "react-dom"
+import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { CornerDownLeft, Laptop, Layers } from "lucide-react"
 
 import {
   Dialog,
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@renderer/components/ui/dialog"
-import { Button } from "@renderer/components/ui/button"
 import { Skeleton } from "@renderer/components/ui/skeleton"
-import { SearchInput } from "@renderer/components/ui-kit"
-import { useAgentsStore } from "@renderer/store/agents"
-import { useUiStore } from "@renderer/store/ui"
 import { capture } from "@renderer/lib/analytics"
-import { cn } from "@renderer/lib/utils"
+import { ConnectWorkspacePair } from "./connect-workspace-pair"
+import { ConnectWorkspacePicker } from "./connect-workspace-picker"
+import type { WorkspaceOption } from "./workspace-option-row"
+import type { PairedWorkspace } from "@renderer/components/workspaces/use-pair-device"
 import type { NodeStatus } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
-
-interface WorkspaceOption {
-  id: string
-  slug: string
-  name?: string
-  endpoint?: string
-  token?: string
-}
 
 /**
  * The workspaces this device actually holds a pairing for.
@@ -38,7 +26,7 @@ interface WorkspaceOption {
  * workspace that has removed this device stays in it until something notices.
  * Offering one of those to bind to produces a join that cannot authenticate,
  * so the pairing set is what the list is drawn from. No pairings, no options:
- * the empty state sends the user to the Workspaces page to join one.
+ * the empty state takes a pairing code in place.
  */
 function pairedOnly(
   list: WorkspaceOption[],
@@ -66,19 +54,15 @@ export function ConnectWorkspaceDialog({
   onConnected: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const agents = useAgentsStore((s) => s.agents)
-  const requestCreate = useUiStore((s) => s.requestCreate)
+  // Bumped to re-read the pairings after a code joined one this dialog could
+  // not name.
+  const [reload, setReload] = useState(0)
   // null until the pairings have answered — an empty list is a real answer
   // ("this device is in no workspace") and the two must not read alike.
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[] | null>(null)
-  const [query, setQuery] = useState("")
-  const [cursor, setCursor] = useState(0)
-  const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
-    setQuery("")
-    setCursor(0)
     setWorkspaces(null)
     let cancelled = false
 
@@ -118,27 +102,9 @@ export function ConnectWorkspaceDialog({
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, reload])
 
   const options = workspaces || []
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return options
-    return options.filter((ws) =>
-      [ws.name, ws.slug, ws.id].some((v) => v?.toLowerCase().includes(q)),
-    )
-  }, [options, query])
-
-  // Keep the cursor inside the result set as the query narrows it.
-  useEffect(() => setCursor(0), [query])
-
-  // Follow the keyboard cursor when it walks past the visible window.
-  useEffect(() => {
-    listRef.current
-      ?.querySelector('[data-active="true"]')
-      ?.scrollIntoView({ block: "nearest" })
-  }, [cursor])
 
   const doConnect = async (slug: string): Promise<void> => {
     try {
@@ -162,19 +128,11 @@ export function ConnectWorkspaceDialog({
     }
   }
 
-  const onSearchKeyDown = (e: React.KeyboardEvent): void => {
-    if (filtered.length === 0) return
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      setCursor((c) => (c + 1) % filtered.length)
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      setCursor((c) => (c - 1 + filtered.length) % filtered.length)
-    } else if (e.key === "Enter") {
-      e.preventDefault()
-      const ws = filtered[cursor]
-      if (ws) void doConnect(ws.slug || ws.id)
-    }
+  // A code redeemed in here names its workspace, and this agent joins it in
+  // the same step. One that names none just refreshes the list.
+  const onPaired = (joined: PairedWorkspace): void => {
+    if (joined.workspaceSlug) void doConnect(joined.workspaceSlug)
+    else setReload((n) => n + 1)
   }
 
   return (
@@ -189,7 +147,7 @@ export function ConnectWorkspaceDialog({
           </DialogTitle>
           {options.length > 0 && (
             <DialogDescription>
-              {t("agents.connectDialog.keyboardHint")}
+              {t("agents.connectDialog.pickHint")}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -204,117 +162,23 @@ export function ConnectWorkspaceDialog({
             <Skeleton className="h-9 shrink-0" />
           </DialogBody>
         ) : options.length === 0 ? (
-          /* This dialog picks from the workspaces this device is paired with;
-             pairing is the Workspaces page's job, so with none to pick from the
-             empty state hands the user over to it rather than growing a second
-             pairing form. A workspace that removed this device lands here too:
-             it is gone from the list the moment its pairing is. */
-          <>
-            <DialogBody
-              className="items-center gap-2 py-10 text-center"
-              data-testid="ws-none-paired"
-            >
-              <Laptop className="size-6 text-muted-foreground" />
-              <p className="m-0 text-sm font-medium">
-                {t("agents.connectDialog.emptyTitle")}
-              </p>
-              <p className="m-0 max-w-sm text-xs text-muted-foreground">
-                {t("agents.connectDialog.emptyBody")}
-              </p>
-              <Button
-                className="mt-3"
-                onClick={() => {
-                  // Close before navigating. Switching tabs hides this page's
-                  // <Activity>, and a state update in a hidden tree is deferred:
-                  // the close would never commit, leaving the modal (and the
-                  // pointer-events lock it puts on <body>) over the new page.
-                  flushSync(onClose)
-                  requestCreate("workspace")
-                }}
-              >
-                <Layers />
-                {t("agents.connectDialog.goToWorkspaces")}
-              </Button>
-            </DialogBody>
-            <DialogFooter>
-              <Button variant="outline" onClick={onClose}>
-                {t("agents.connectDialog.cancel")}
-              </Button>
-            </DialogFooter>
-          </>
+          /* No pairing yet. Joining one is a pairing code away, so the code
+             goes in right here; once redeemed, this agent joins that workspace
+             in the same step. A workspace that removed this device lands here
+             too: it is gone from the list the moment its pairing is. */
+          <ConnectWorkspacePair
+            onPaired={onPaired}
+            onCancel={onClose}
+            showToast={showToast}
+          />
         ) : (
-          <>
-            {/* Outside DialogBody on purpose: the field stays put, only the
-                result list scrolls. */}
-            <div className="shrink-0 border-b px-6 py-3">
-              <SearchInput
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onClear={() => setQuery("")}
-                onKeyDown={onSearchKeyDown}
-                placeholder={t("agents.connectDialog.searchPlaceholder")}
-                autoFocus
-              />
-            </div>
-
-            <DialogBody ref={listRef} className="gap-1 py-3">
-              {filtered.length === 0 ? (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  {t("agents.connectDialog.noMatch")}
-                </p>
-              ) : (
-                filtered.map((ws, i) => {
-                  const shortId = ws.slug || ws.id
-                  const active = i === cursor
-                  // Green when an agent already sits in this workspace — the
-                  // dialog has no health of its own to report.
-                  const inUse = agents.some(
-                    (a) => a.network === ws.slug || a.network === ws.id,
-                  )
-                  return (
-                    <button
-                      key={ws.id}
-                      type="button"
-                      data-testid={`ws-option-${shortId}`}
-                      data-active={active}
-                      onMouseEnter={() => setCursor(i)}
-                      onClick={() => doConnect(shortId)}
-                      className={cn(
-                        "flex w-full shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors",
-                        // `active` is the cursor, not a stored choice, so this
-                        // takes the hover state the menus and the rail use —
-                        // written out rather than via ROW_HOVER because the
-                        // cursor here is a prop, not `:focus`.
-                        active && "bg-row-hover text-row-hover-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "size-2 shrink-0 rounded-full",
-                          inUse ? "bg-success" : "bg-muted-foreground/40",
-                        )}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {ws.name || shortId}
-                      </span>
-                      <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-                        {shortId}
-                      </span>
-                      {active && (
-                        <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                    </button>
-                  )
-                })
-              )}
-            </DialogBody>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={onClose}>
-                {t("agents.connectDialog.cancel")}
-              </Button>
-            </DialogFooter>
-          </>
+          <ConnectWorkspacePicker
+            options={options}
+            onConnect={(slug) => void doConnect(slug)}
+            onPaired={onPaired}
+            onCancel={onClose}
+            showToast={showToast}
+          />
         )}
       </DialogContent>
     </Dialog>

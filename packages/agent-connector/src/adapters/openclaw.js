@@ -66,6 +66,23 @@ function retireOwnLegacyAuthProfiles(knownKeys) {
   }
 }
 
+/**
+ * Whether OpenClaw refused to start because local state from an older release
+ * still needs its own migration ("Legacy workspace setup state requires
+ * migration …; run openclaw doctor --fix", "requires legacy credential
+ * migration; run openclaw doctor --fix").
+ *
+ * Every upgrade across a storage change hits this, and the user's only way out
+ * was a terminal. The adapter runs that same Doctor repair itself and retries.
+ */
+function needsDoctorMigration(message) {
+  const text = String(message || '');
+  return /requires[^\n]*\bmigration\b/i.test(text) && /openclaw doctor --fix/i.test(text);
+}
+
+/** Budget for one `openclaw doctor --fix` run. */
+const DOCTOR_REPAIR_TIMEOUT_MS = 120000;
+
 class OpenClawAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -281,7 +298,7 @@ class OpenClawAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const responseText = await this._runCliAgent(content, msgChannel);
+      const responseText = await this._runCliAgentWithMigration(content, msgChannel);
       if (this._stoppingChannels.has(msgChannel)) return;
 
       if (responseText) {
@@ -298,6 +315,101 @@ class OpenClawAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
   // CLI mode (openclaw agent --local)
   // ------------------------------------------------------------------
+
+  /**
+   * Run the turn; when OpenClaw refuses to start over an unmigrated state
+   * store, run its Doctor repair once and retry. Doctor archives what it
+   * migrates rather than deleting it.
+   */
+  async _runCliAgentWithMigration(userMessage, channel) {
+    try {
+      return await this._runCliAgent(userMessage, channel);
+    } catch (e) {
+      // At most one repair per turn; a repair that failed is not retried on
+      // every later message.
+      if (!needsDoctorMigration(e && e.message) || this._doctorRepairFailed) throw e;
+      this._log('OpenClaw needs a state migration — running openclaw doctor --fix --non-interactive');
+      await this.sendStatus(channel, 'Migrating OpenClaw local data...').catch(() => {});
+      const repair = await this._runDoctorRepair();
+      this._log(`Doctor repair ${repair.ok ? 'finished' : `failed: ${repair.detail}`}`);
+      if (!repair.ok) {
+        this._doctorRepairFailed = true;
+        throw e;
+      }
+      return this._runCliAgent(userMessage, channel);
+    }
+  }
+
+  /** `openclaw doctor --fix --non-interactive`, resolved to {ok, detail}. */
+  _runDoctorRepair() {
+    return new Promise((resolve) => {
+      const binary = this._openclawBinary || this._findOpenclawBinary();
+      if (!binary) { resolve({ ok: false, detail: 'OpenClaw binary not found' }); return; }
+      const { spawnBin, spawnArgs } = this._spawnTarget(binary, ['doctor', '--fix', '--non-interactive']);
+      let tail = '';
+      const keepTail = (d) => { tail = (tail + d).slice(-300); };
+      let proc;
+      try {
+        proc = spawn(spawnBin, spawnArgs, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: this._spawnEnv(),
+          cwd: this.workingDir || process.env.HOME || '/',
+          timeout: DOCTOR_REPAIR_TIMEOUT_MS,
+          windowsHide: true,
+        });
+      } catch (err) {
+        resolve({ ok: false, detail: err.message });
+        return;
+      }
+      proc.stdout.on('data', keepTail);
+      proc.stderr.on('data', keepTail);
+      proc.on('error', (err) => resolve({ ok: false, detail: err.message }));
+      proc.on('exit', (code) => resolve({ ok: code === 0, detail: `exit ${code}: ${tail.trim()}` }));
+    });
+  }
+
+  /** The child environment for an `openclaw` run. */
+  _spawnEnv() {
+    const spawnEnv = { ...(this.agentEnv || process.env) };
+    if (IS_WINDOWS) {
+      const nodeBinDir = path.dirname(process.execPath);
+      const npmBin = path.join(process.env.APPDATA || '', 'npm');
+      const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
+      const runtimeBin = path.join(getRuntimePrefix('openclaw'), 'node_modules', '.bin');
+      for (const p of [runtimeBin, nodeBinDir, npmBin, portableDir]) {
+        if (p && !(spawnEnv.PATH || '').includes(p)) {
+          spawnEnv.PATH = p + path.delimiter + (spawnEnv.PATH || '');
+        }
+      }
+    }
+    return spawnEnv;
+  }
+
+  /**
+   * How to start `openclaw <args>`: always node + openclaw.mjs directly (no
+   * shims, no cmd.exe, cross-platform). This avoids Windows .cmd shim issues
+   * and Unicode path encoding problems.
+   */
+  _spawnTarget(binary, args) {
+    const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
+    // Unified path first (symlink on Unix), then legacy bin/ fallback, then system node
+    const nodeUnified = path.join(portableDir, IS_WINDOWS ? 'node.exe' : 'node');
+    let nodeBin = fs.existsSync(nodeUnified) ? nodeUnified : path.join(portableDir, 'bin', 'node');
+    if (!fs.existsSync(nodeBin)) nodeBin = whereBinary('node') || 'node';
+
+    // binary from _findOpenclawBinary() is already resolved to .mjs when possible
+    if (binary && binary.endsWith('.mjs')) {
+      // Direct node + .mjs invocation (works for managed, legacy, AND global installs)
+      return { spawnBin: nodeBin, spawnArgs: [binary, ...args] };
+    }
+    // Check managed locations explicitly
+    const runtimeMjs = path.join(getRuntimePrefix('openclaw'), 'node_modules', 'openclaw', 'openclaw.mjs');
+    const legacyMjs = path.join(portableDir, 'node_modules', 'openclaw', 'openclaw.mjs');
+    const openclawMjs = fs.existsSync(runtimeMjs) ? runtimeMjs : (fs.existsSync(legacyMjs) ? legacyMjs : null);
+    if (openclawMjs) return { spawnBin: nodeBin, spawnArgs: [openclawMjs, ...args] };
+    // Last resort: spawn binary directly with shell (handles .cmd on Windows)
+    return { spawnBin: binary, spawnArgs: args };
+  }
 
   _runCliAgent(userMessage, channel) {
     return new Promise((resolve, reject) => {
@@ -333,18 +445,7 @@ class OpenClawAdapter extends BaseAdapter {
 
       this._log(`CLI: ${binary} ${args.slice(0, 5).join(' ')} ...`);
 
-      const spawnEnv = { ...(this.agentEnv || process.env) };
-      if (IS_WINDOWS) {
-        const nodeBinDir = path.dirname(process.execPath);
-        const npmBin = path.join(process.env.APPDATA || '', 'npm');
-        const portableDir2 = path.join(os.homedir(), '.openagents', 'nodejs');
-        const runtimeBin = path.join(getRuntimePrefix('openclaw'), 'node_modules', '.bin');
-        for (const p of [runtimeBin, nodeBinDir, npmBin, portableDir2]) {
-          if (p && !(spawnEnv.PATH || '').includes(p)) {
-            spawnEnv.PATH = p + path.delimiter + (spawnEnv.PATH || '');
-          }
-        }
-      }
+      const spawnEnv = this._spawnEnv();
 
       // Tool name → human-readable status
       const toolLabels = {
@@ -382,34 +483,7 @@ class OpenClawAdapter extends BaseAdapter {
       const stderrFd = fs.openSync(stderrFile, 'w');
       this._log('Spawn: stderr → ' + stderrFile);
 
-      // Always spawn node + openclaw.mjs directly (no shims, no cmd.exe, cross-platform)
-      // This avoids Windows .cmd shim issues and Unicode path encoding problems.
-      const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
-      // Unified path first (symlink on Unix), then legacy bin/ fallback, then system node
-      const nodeUnified = path.join(portableDir, IS_WINDOWS ? 'node.exe' : 'node');
-      let nodeBin = fs.existsSync(nodeUnified) ? nodeUnified : path.join(portableDir, 'bin', 'node');
-      if (!fs.existsSync(nodeBin)) nodeBin = whereBinary('node') || 'node';
-
-      // binary from _findOpenclawBinary() is already resolved to .mjs when possible
-      let spawnBin, spawnArgs;
-      if (binary && binary.endsWith('.mjs')) {
-        // Direct node + .mjs invocation (works for managed, legacy, AND global installs)
-        spawnBin = nodeBin;
-        spawnArgs = [binary, ...args];
-      } else {
-        // Check managed locations explicitly
-        const runtimeMjs = path.join(getRuntimePrefix('openclaw'), 'node_modules', 'openclaw', 'openclaw.mjs');
-        const legacyMjs = path.join(portableDir, 'node_modules', 'openclaw', 'openclaw.mjs');
-        const openclawMjs = fs.existsSync(runtimeMjs) ? runtimeMjs : (fs.existsSync(legacyMjs) ? legacyMjs : null);
-        if (openclawMjs) {
-          spawnBin = nodeBin;
-          spawnArgs = [openclawMjs, ...args];
-        } else {
-          // Last resort: spawn binary directly with shell (handles .cmd on Windows)
-          spawnBin = binary;
-          spawnArgs = args;
-        }
-      }
+      const { spawnBin, spawnArgs } = this._spawnTarget(binary, args);
       const proc = spawn(spawnBin, spawnArgs, {
         stdio: ['ignore', 'pipe', stderrFd],
         env: spawnEnv,
@@ -680,6 +754,13 @@ class OpenClawAdapter extends BaseAdapter {
         config.models.providers.custom = {
           baseUrl: baseUrl.replace(/\/+$/, ''),
           apiKey,
+          // Without it OpenClaw tries its stored auth profiles BEFORE this
+          // apiKey (model-auth-provider-config: shouldPreferExplicitConfig-
+          // ApiKeyAuth). A `custom` token profile an older launcher wrote, and
+          // `openclaw doctor --fix` copied into SQLite, then outranks every key
+          // saved since: the test passes on the new key, the run sends the old
+          // one, and the relay answers "Invalid token".
+          auth: 'api-key',
           api: 'openai-completions',
           models: [{ id: model, name: model }],
         };
@@ -696,3 +777,4 @@ class OpenClawAdapter extends BaseAdapter {
 
 module.exports = OpenClawAdapter;
 module.exports.retireOwnLegacyAuthProfiles = retireOwnLegacyAuthProfiles;
+module.exports.needsDoctorMigration = needsDoctorMigration;
