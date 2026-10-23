@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { createHash } = require('crypto');
 const { execSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
@@ -68,8 +69,8 @@ const OPENCLAW_STATE_DIR = path.join(
  *
  * @param {Array<string|undefined>} knownKeys  API keys this agent is configured with
  */
-function retireOwnLegacyAuthProfiles(knownKeys) {
-  const file = path.join(OPENCLAW_STATE_DIR, 'agents', 'main', 'agent', 'auth-profiles.json');
+function retireOwnLegacyAuthProfiles(knownKeys, stateDir = OPENCLAW_STATE_DIR) {
+  const file = path.join(stateDir, 'agents', 'main', 'agent', 'auth-profiles.json');
   let data;
   try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return false; }
   const keys = new Set((knownKeys || []).filter(Boolean));
@@ -111,6 +112,11 @@ class OpenClawAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.openclawAgentId = opts.openclawAgentId || 'main';
+    this.agentEnv = OpenClawAdapter.instanceEnv(this.agentName, this.agentEnv, opts.configDir);
+    this._openclawStateDir = this.agentEnv.OPENCLAW_STATE_DIR || OPENCLAW_STATE_DIR;
+    // Rebuild from this instance's saved env on startup as well as on save:
+    // older launchers persisted separate keys but overwrote one native config.
+    OpenClawAdapter.configureNativeAuth(this.agentEnv, { agentId: this.openclawAgentId });
     this.disabledModules = opts.disabledModules || new Set();
     // channel → the `openclaw agent` run in flight, so a stop can end it
     // instead of letting it spend tokens until it finishes on its own.
@@ -129,12 +135,27 @@ class OpenClawAdapter extends BaseAdapter {
     // still have that file; clear it before the first run rather than on the
     // next save.
     const env = this.agentEnv || {};
-    if (retireOwnLegacyAuthProfiles([env.LLM_API_KEY, env.OPENAI_API_KEY, env.ANTHROPIC_API_KEY])) {
+    if (retireOwnLegacyAuthProfiles([env.LLM_API_KEY, env.OPENAI_API_KEY, env.ANTHROPIC_API_KEY], this._openclawStateDir)) {
       this._log('Archived the legacy auth-profiles.json this launcher wrote (OpenClaw now stores credentials in SQLite)');
     }
 
     // Install workspace skill
     this._installWorkspaceSkill();
+  }
+
+  /** The save path and every CLI launch must agree on an instance's store. */
+  static instanceEnv(agentName, env, configDir = path.join(os.homedir(), '.openagents')) {
+    // Native OpenClaw users with no launcher-managed key retain their own setup.
+    if (!env.LLM_API_KEY) return env;
+    // Hash the identity so case-insensitive filesystems and path-like names
+    // cannot alias another agent or escape the managed root.
+    const id = createHash('sha256').update(String(agentName)).digest('hex').slice(0, 24);
+    const stateDir = path.resolve(configDir, 'openclaw', id);
+    const scoped = { ...env, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: path.join(stateDir, 'openclaw.json') };
+    // This supported native override relocates auth outside the state root;
+    // an inherited profile there can outrank the instance's provider env key.
+    delete scoped.OPENCLAW_AGENT_DIR;
+    return scoped;
   }
 
   // ------------------------------------------------------------------
@@ -204,13 +225,13 @@ class OpenClawAdapter extends BaseAdapter {
   _resolveOpenclawWorkspace() {
     const agentId = this.openclawAgentId;
     const wsDir = agentId && agentId !== 'main'
-      ? path.join(OPENCLAW_STATE_DIR, `workspace-${agentId}`)
-      : path.join(OPENCLAW_STATE_DIR, 'workspace');
+      ? path.join(this._openclawStateDir, `workspace-${agentId}`)
+      : path.join(this._openclawStateDir, 'workspace');
 
     if (fs.existsSync(wsDir)) return wsDir;
 
     // Fall back to default workspace
-    const fallback = path.join(OPENCLAW_STATE_DIR, 'workspace');
+    const fallback = path.join(this._openclawStateDir, 'workspace');
     if (fs.existsSync(fallback)) return fallback;
 
     return null;
@@ -785,14 +806,14 @@ class OpenClawAdapter extends BaseAdapter {
   /**
    * Configure OpenClaw's native auth and model from user-provided
    * LLM_API_KEY / LLM_BASE_URL / LLM_MODEL values.
-   * Called by the Launcher's saveAgentEnv when type === 'openclaw'.
+   * Called when adding/saving an instance and when its adapter starts.
    *
    * For standard providers (OpenAI, Anthropic), the key travels in the env
    * and only the model is set here. For custom endpoints, uses
    * models.providers in openclaw.json which gives full tool support via the
    * CLI gateway mode.
    */
-  static configureNativeAuth(env) {
+  static configureNativeAuth(env, { agentId } = {}) {
     const apiKey = env.LLM_API_KEY;
     // Strip /chat/completions suffix — OpenClaw appends it internally
     const rawUrl = env.LLM_BASE_URL || 'https://api.openai.com/v1';
@@ -802,7 +823,8 @@ class OpenClawAdapter extends BaseAdapter {
 
     const isOpenAI = baseUrl.includes('api.openai.com');
     const isAnthropic = baseUrl.includes('api.anthropic.com');
-    const configFile = path.join(OPENCLAW_STATE_DIR, 'openclaw.json');
+    const stateDir = env.OPENCLAW_STATE_DIR || OPENCLAW_STATE_DIR;
+    const configFile = env.OPENCLAW_CONFIG_PATH || path.join(stateDir, 'openclaw.json');
 
     // The key itself never goes into auth-profiles.json any more: current
     // OpenClaw keeps credentials in SQLite and refuses to start while a legacy
@@ -810,29 +832,16 @@ class OpenClawAdapter extends BaseAdapter {
     // migration; run openclaw doctor --fix"). A standard provider reads the
     // key from the OPENAI_API_KEY / ANTHROPIC_API_KEY the resolve rules put
     // in its env; a custom one from models.providers below.
-    retireOwnLegacyAuthProfiles([apiKey]);
+    retireOwnLegacyAuthProfiles([apiKey], stateDir);
 
-    if (isOpenAI || isAnthropic) {
-      const provider = isAnthropic ? 'anthropic' : 'openai';
-      // Set model
-      try {
-        fs.mkdirSync(OPENCLAW_STATE_DIR, { recursive: true });
-        let config = {};
-        try { config = JSON.parse(fs.readFileSync(configFile, 'utf-8')); } catch {}
-        config.agents = config.agents || {};
-        config.agents.defaults = config.agents.defaults || {};
-        config.agents.defaults.model = { primary: `${provider}/${model}` };
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8');
-      } catch {}
-    } else {
-      // Custom endpoint — use models.providers for full gateway/tool support
-      // This is the proper way to add custom LLM endpoints to OpenClaw.
-      // See: https://docs.openclaw.ai/concepts/model-providers
-      try {
-        fs.mkdirSync(OPENCLAW_STATE_DIR, { recursive: true });
-        let config = {};
-        try { config = JSON.parse(fs.readFileSync(configFile, 'utf-8')); } catch {}
-
+    try {
+      fs.mkdirSync(path.dirname(configFile), { recursive: true });
+      let config = {};
+      try { config = JSON.parse(fs.readFileSync(configFile, 'utf-8')); } catch {}
+      const provider = isAnthropic ? 'anthropic' : (isOpenAI ? 'openai' : 'custom');
+      if (provider === 'custom') {
+        // Custom endpoint — use models.providers for full gateway/tool support.
+        // See: https://docs.openclaw.ai/concepts/model-providers
         config.models = config.models || {};
         config.models.providers = config.models.providers || {};
         config.models.providers.custom = {
@@ -848,14 +857,22 @@ class OpenClawAdapter extends BaseAdapter {
           api: 'openai-completions',
           models: [{ id: model, name: model }],
         };
-
-        config.agents = config.agents || {};
-        config.agents.defaults = config.agents.defaults || {};
-        config.agents.defaults.model = { primary: `custom/${model}` };
-
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8');
-      } catch {}
-    }
+      }
+      config.agents = config.agents || {};
+      config.agents.defaults = config.agents.defaults || {};
+      config.agents.defaults.model = { primary: `${provider}/${model}` };
+      if (env.OPENCLAW_STATE_DIR) {
+        if (agentId && !Object.hasOwn(config.agents.entries || {}, agentId)) {
+          // --agent selects a configured id, even in a single private store.
+          config.agents.entries = { ...config.agents.entries, [agentId]: {} };
+        }
+        // OpenClaw's workspace default can still point at ~/.openclaw/workspace;
+        // set it explicitly so skills and memory follow the private state too.
+        config.agents.defaults.workspace = config.agents.defaults.workspace || path.join(stateDir, 'workspace');
+        fs.mkdirSync(config.agents.defaults.workspace, { recursive: true });
+      }
+      fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    } catch {}
   }
 }
 

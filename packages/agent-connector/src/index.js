@@ -119,16 +119,19 @@ class AgentConnector {
     // key while the run used a stale one ("401 Invalid token") or none at all
     // (Hermes falling back to OpenRouter: "401 Missing Authentication header").
     if (env && Object.keys(env).length) {
-      this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...env });
+      this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...env }, name);
     }
     return { success: true };
   }
 
   /** Push an agent's endpoint and key into the CLI's own config, for the types that need it. */
-  _configureNativeAuth(agentType, env) {
+  _configureNativeAuth(agentType, env, agentName) {
     try {
       if (agentType === 'openclaw') {
-        require('./adapters/openclaw').configureNativeAuth(env);
+        const OpenClawAdapter = require('./adapters/openclaw');
+        OpenClawAdapter.configureNativeAuth(agentName
+          ? OpenClawAdapter.instanceEnv(agentName, env, this._configDir)
+          : env);
       }
       // Hermes reads a custom endpoint only from its own config.yaml, so the
       // saved LLM_* values must be pushed through `hermes config set` — the
@@ -270,7 +273,7 @@ class AgentConnector {
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
     const agentType = agent.type || 'openclaw';
-    this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...saved });
+    this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...saved }, agentName);
 
     return { success: true };
   }
