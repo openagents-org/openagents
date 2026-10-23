@@ -10,16 +10,17 @@ Uses StaticPool to share a single in-memory database across all connections.
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
-from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# Register PostgreSQL types for SQLite compilation
-SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
-SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
+# Same SQLite shims the dev server installs (JSONB/UUID compilation, UTC-aware
+# datetimes). The suite used to register its own partial copy, so tests ran
+# against a SQLite that behaved differently from the one developers run.
+from app.database import Base, get_db, install_sqlite_compat  # noqa: E402
+
+install_sqlite_compat()
 
 # Now import the app (which loads models)
-from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 

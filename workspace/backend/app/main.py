@@ -246,6 +246,13 @@ async def _fire_due_in_thread():
             # the winner commits, see a future time, and match nothing. We fire
             # only if we claimed a row; committing straight away releases the
             # lock so a losing replica isn't stalled for the whole cycle.
+            #
+            # synchronize_session=False: the default re-evaluates this WHERE in
+            # Python against the rows loaded above, which is wasted work (the
+            # commit below expires them anyway) and makes the claim depend on
+            # how the driver hands datetimes back — on a database that returns
+            # them naive, `next_fires_at <= now` raised TypeError and no
+            # routine ever fired.
             claimed = db.execute(
                 update(RoutineRecord)
                 .where(
@@ -254,6 +261,7 @@ async def _fire_due_in_thread():
                     RoutineRecord.next_fires_at <= now,
                 )
                 .values(next_fires_at=next_fire)
+                .execution_options(synchronize_session=False)
             )
             db.commit()
             if claimed.rowcount == 0:

@@ -30,7 +30,7 @@ vi.mock('./empty-state', () => ({ EmptyState: () => null, EmptyConversation: () 
 vi.mock('./yumi-guide', () => ({ YumiGuide: () => null }));
 vi.mock('./yumi-dm-intro', () => ({ YumiDmIntro: () => null }));
 vi.mock('./share-dialog', () => ({ ShareDialog: () => null }));
-vi.mock('@/components/routines/create-routine-dialog', () => ({ CreateRoutineDialog: () => null }));
+vi.mock('@/components/routines/routine-dialog', () => ({ RoutineDialog: () => null }));
 vi.mock('./thread-participant-count', () => ({ ThreadParticipantCount: () => null }));
 vi.mock('./thread-privacy-control', () => ({ threadPrivacyApplies: () => true, ThreadPrivacyControl: () => null }));
 vi.mock('@/hooks/use-thread-access', () => ({ useThreadAccess: () => null }));

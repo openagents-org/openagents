@@ -34,7 +34,7 @@ import { cn } from '@/lib/utils';
 import { DmAvatars } from './dm-avatars';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
+import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -1046,7 +1046,7 @@ export function ChatView() {
 
         <HumanProfile email={profileEmail} onClose={() => setProfileEmail(null)} />
 
-        <CreateRoutineDialog
+        <RoutineDialog
           open={showCreateRoutine}
           onOpenChange={setShowCreateRoutine}
           agents={agents}
