@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
 import { CompactTypePicker } from './agent-setup-compact';
+import { SmokeTestPanel } from './smoke-test-panel';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
@@ -99,99 +100,6 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   if (rt.installed && rt.ready) return 'ready' as const;
   if (rt.installed && !rt.ready) return 'needs_login' as const;
   return 'not_installed' as const;
-}
-
-/**
- * Smoke-test panel: the last live "hi"-probe result the daemon reported for
- * this AGENT on this node (probes are per agent — run after create and
- * reconfigure, then hourly), plus a button to run it again (queues a
- * `probe_agent` node command; the fresh result arrives via the heartbeat's
- * agents[].probe on the next poll).
- */
-function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
-  api: AgentSetupApi;
-  nodeId: string;
-  agentName: string;
-  probe: import('@/lib/types').NodeProbe | null | undefined;
-  onChanged: () => void;
-}) {
-  const t = useT();
-  const [testing, setTesting] = useState(false);
-  // Stop the spinner as soon as a fresh result lands (its timestamp changes).
-  const lastAt = useRef(probe?.at);
-  useEffect(() => {
-    if (probe?.at !== lastAt.current) {
-      lastAt.current = probe?.at;
-      setTesting(false);
-    }
-  }, [probe?.at]);
-
-  // Static-only results say nothing about liveness — treat as untested.
-  const informative = probe && probe.code !== 'static_only' ? probe : null;
-
-  const run = async () => {
-    setTesting(true);
-    try {
-      await api.enqueueNodeCommand(nodeId, 'probe_agent', { name: agentName });
-      // Nudge the node poll a few times while the probe runs on the device;
-      // a probe can take up to its CLI timeout, so keep the spinner bounded.
-      setTimeout(onChanged, 8000);
-      setTimeout(onChanged, 20000);
-      setTimeout(onChanged, 45000);
-      setTimeout(() => setTesting(false), 150000);
-    } catch {
-      toast.error(t('connect.nodeCommandFailed'));
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0 text-xs">
-          <span className="font-medium shrink-0">{t('connect.smokeTestTitle')}</span>
-          {testing ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />{t('connect.smokeTestRunning')}
-            </span>
-          ) : informative ? (
-            <span className={cn(
-              'inline-flex items-center gap-1.5 min-w-0',
-              informative.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
-            )}>
-              {informative.ok ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}
-              {informative.ok ? t('connect.smokeTestPassed') : t('connect.smokeTestFailed')}
-              <span className="text-muted-foreground truncate">
-                {t('connect.smokeTestAt', { time: new Date(informative.at).toLocaleString() })}
-              </span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
-          )}
-        </div>
-        <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shrink-0" onClick={run} disabled={testing}>
-          {informative ? t('connect.smokeTestRerun') : t('connect.smokeTestRun')}
-        </Button>
-      </div>
-      {!testing && informative && !informative.ok && (
-        <div className="space-y-1.5">
-          {informative.message && (
-            <p className="text-xs text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
-          )}
-          {(informative.guidance || []).length > 0 && (
-            <ul className="space-y-1">
-              {(informative.guidance || []).map((line, i) => (
-                <li key={i} className="text-xs text-muted-foreground leading-relaxed flex gap-1.5">
-                  <ArrowRight className="size-3 mt-0.5 shrink-0" />
-                  <span className="break-words">{line}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
@@ -1229,7 +1137,7 @@ export function AgentSetup({
       // Opened on a type (the launcher always does), the way back is to the page
       // that opened it — there is no type list behind this form to return to.
       const leave = isEdit || startType ? onBack : backToSelection;
-      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
+      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
       return (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1294,7 +1202,7 @@ export function AgentSetup({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
+                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : selectedEntry.label}</h3>
                   {badge(selectedStatus)}
                   {/* Beside "Needs login" the link is the sign-in itself where the
                       host can run it; otherwise it is labelled as docs, because a

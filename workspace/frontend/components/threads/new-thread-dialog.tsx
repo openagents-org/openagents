@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { History, Lock, Globe } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import type { TeamMember, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { ParticipantPicker, type ParticipantOption } from './participant-picker';
 import type { ThreadVisibility } from '@/lib/access-ui';
@@ -42,10 +43,12 @@ interface NewThreadDialogProps {
   agents: WorkspaceAgent[];
   sessions?: WorkspaceSession[];
   teammates?: TeamMember[];
-  onCreateThread: (opts: { participants: string[]; humanParticipants: string[]; resumeFrom?: string; visibility: ThreadVisibility }) => Promise<void>;
+  /** Start with "Make it a channel" switched on (opened from a New channel button). */
+  defaultAsChannel?: boolean;
+  onCreateThread: (opts: { participants: string[]; humanParticipants: string[]; resumeFrom?: string; visibility: ThreadVisibility; asChannel: boolean }) => Promise<void>;
 }
 
-export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammates = [], onCreateThread }: NewThreadDialogProps) {
+export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammates = [], defaultAsChannel = false, onCreateThread }: NewThreadDialogProps) {
   const t = useT();
   // Only show online agents in the picker
   const availableAgents = agents.filter(a => a.canStartThread !== false);
@@ -62,6 +65,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
   // v1.1 permission model: threads are private by default; Public is opt-in.
   const [visibility, setVisibility] = useState<ThreadVisibility>('private');
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
+  const [asChannel, setAsChannel] = useState(defaultAsChannel);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +98,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
       setResumeFrom(NO_RESUME);
       setVisibility('private');
       setSelectedPeople(new Set());
+      setAsChannel(defaultAsChannel);
       setError(null);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,6 +113,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
         humanParticipants: teammates.filter((p) => selectedPeople.has(p.email)).map((p) => p.email),
         resumeFrom: hasClaudeAgent && resumeFrom !== NO_RESUME ? resumeFrom : undefined,
         visibility,
+        asChannel,
       });
       onOpenChange(false);
     } catch {
@@ -133,7 +139,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
           scrolling agent list, so it goes a step wider again. */}
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="space-y-2 px-6 pt-6 pb-2">
-          <DialogTitle className="text-xl">{t('newThread.title')}</DialogTitle>
+          <DialogTitle className="text-xl">{t(asChannel ? 'newThread.channelTitle' : 'newThread.title')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
             {t('newThread.descriptionMulti')}
           </DialogDescription>
@@ -210,6 +216,14 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
               })}
             </div>
           </div>
+          {/* A channel is a long-running thread, pinned under the Channels tab. */}
+          <label className="flex items-center justify-between gap-4 rounded-md border px-3 py-2.5">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{t('newThread.asChannel')}</span>
+              <span className="block text-xs text-muted-foreground">{t('newThread.asChannelHint')}</span>
+            </span>
+            <Switch checked={asChannel} disabled={creating} onCheckedChange={setAsChannel} />
+          </label>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </DialogBody>
 
@@ -218,7 +232,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleCreate} disabled={creating || (selected.size === 0 && selectedPeople.size === 0)}>
-            {hasClaudeAgent && resumeFrom !== NO_RESUME ? t('newThread.resume') : t('newThread.start')}
+            {hasClaudeAgent && resumeFrom !== NO_RESUME ? t('newThread.resume') : t(asChannel ? 'newThread.startChannel' : 'newThread.start')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,4 +1,4 @@
-import type { NotificationItem } from './types';
+import type { NotificationItem, WorkspaceSession } from './types';
 
 /**
  * Pure helpers for the inbox — kept framework-free so the grouping can be
@@ -28,14 +28,43 @@ export function isActionableNotification(n: Pick<NotificationItem, 'kind' | 'act
  * notifications instead (see lib/signals.ts).
  */
 
-/** The thread a row opens when clicked, when that thread is known. */
-export function inboxSessionTarget(
-  n: Pick<NotificationItem, 'channelName'>,
-  hasSession: (sessionId: string) => boolean,
-): string | null {
+/** Author of the API-credit unlock notices (backend services/campaign.py). */
+export const CAMPAIGN_SOURCE = 'system:campaign';
+
+/** Where clicking a row takes the reader. */
+export type InboxDestination =
+  | { kind: 'credits' }
+  | { kind: 'task'; channel: string }
+  | { kind: 'dm'; channel: string }
+  | { kind: 'thread'; channel: string };
+
+export function inboxDestination(
+  n: Pick<NotificationItem, 'channelName' | 'createdBy'>,
+): InboxDestination | null {
+  // Credit unlocks are not about any thread: they open the checklist.
+  if (n.createdBy === CAMPAIGN_SOURCE) return { kind: 'credits' };
   const channel = n.channelName;
   if (!channel) return null;
-  return hasSession(channel) ? channel : null;
+  if (channel.startsWith('task:')) return { kind: 'task', channel };
+  if (channel.startsWith('dm:')) return { kind: 'dm', channel };
+  return { kind: 'thread', channel };
+}
+
+type ThreadFilter = 'all' | 'channels' | 'starred' | 'archived' | 'dms';
+
+/**
+ * The thread-list tab to show beside a thread opened from the inbox: keep the
+ * reader's tab when the thread is listed there, otherwise one that lists it,
+ * so the opened thread is never missing from the list next to it.
+ */
+export function threadFilterFor(
+  session: Pick<WorkspaceSession, 'status' | 'starred' | 'isChannel'>,
+  current: ThreadFilter,
+): ThreadFilter {
+  if (session.status === 'archived') return 'archived';
+  if (current === 'channels' && session.isChannel) return current;
+  if (current === 'starred' && session.starred) return current;
+  return 'all';
 }
 
 const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>

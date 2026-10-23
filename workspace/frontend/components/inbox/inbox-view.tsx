@@ -6,7 +6,6 @@ import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight, ChevronDown,
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMe } from '@/hooks/use-me';
 import { useFormatters, useT } from '@/lib/i18n';
-import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { ApprovalCard } from '@/components/chat/approval-card';
@@ -14,7 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { workspaceApi } from '@/lib/api';
 import { agentLabel } from '@/lib/helpers';
-import { groupInboxRows, inboxActionKind, inboxSessionTarget, type InboxActionKind } from '@/lib/inbox';
+import { groupInboxRows, inboxActionKind, type InboxActionKind } from '@/lib/inbox';
+import { useOpenNotification } from './use-open-notification';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { humanColor } from '@/lib/human-color';
 import { User } from 'lucide-react';
@@ -279,12 +279,9 @@ export function InboxView() {
     markNotificationRead,
     markAllNotificationsRead,
     dismissNotification,
-    setCurrentSessionId,
-    sessions,
     pendingApprovals,
     refreshApprovals,
   } = useWorkspace();
-  const { setViewMode, setPendingTaskChannel } = useLayout();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
 
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -353,26 +350,7 @@ export function InboxView() {
     refreshNotifications();
   }, [markNotificationRead, refreshNotifications]);
 
-  const handleNavigate = (notification: NotificationItem) => {
-    if (!notification.isRead) {
-      markNotificationRead(notification.id);
-    }
-    if (notification.channelName) {
-      // Task threads are hidden from the Threads sidebar — landing there would
-      // strand the user in a thread with no list context. Route to the Tasks
-      // board instead and pop open that task's chat.
-      if (notification.channelName.startsWith('task:')) {
-        setPendingTaskChannel(notification.channelName);
-        setViewMode('tasks');
-        return;
-      }
-      const target = inboxSessionTarget(notification, (id) => sessions.some((s) => s.sessionId === id));
-      if (target) {
-        setCurrentSessionId(target);
-        setViewMode('threads');
-      }
-    }
-  };
+  const handleNavigate = useOpenNotification();
 
   const sectionProps = {
     onRead: markNotificationRead,

@@ -3,7 +3,7 @@ import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, Users } from 'lucide-react';
+import { ChevronDown, Plus, Users } from 'lucide-react';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -34,7 +34,7 @@ import { useLayout } from './layout-context';
  * parked over the very panel the tap just opened.
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
-  const { setSelectedAgentName, openMobileDetail, openView, setThreadFilter } = useLayout();
+  const { setSelectedAgentName, openMobileDetail, openView, openAddAgent, setThreadFilter } = useLayout();
   const { agents, onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations, pendingApprovalsByAgent } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
@@ -54,9 +54,10 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {recentAgents.length > 0 && (
         <SidebarGroup>
+          <div className="flex items-center">
           <SidebarGroupLabel
             asChild
-            className="w-full cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+            className="min-w-0 flex-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
           >
             <button
               type="button"
@@ -73,6 +74,17 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               />
             </button>
           </SidebarGroupLabel>
+          {/* Same "+" as the Members header: straight to the add-agent gallery. */}
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:hidden"
+            aria-label={t('nav.addAgent')}
+            title={t('nav.addAgent')}
+            onClick={() => { openAddAgent(); onNavigate?.(); }}
+          >
+            <Plus className="size-3.5" />
+          </button>
+          </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}
           <SidebarGroupContent

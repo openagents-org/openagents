@@ -16,6 +16,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
@@ -131,6 +132,9 @@ export function ConnectAgentView({
   const [nodesLoading, setNodesLoading] = useState(false);
   // A list that could not load is not an empty one: say so, and offer a retry.
   const [nodesError, setNodesError] = useState(false);
+  // True once a node load has finished (either way), so a request waiting on
+  // the list can tell "no devices" from "not fetched yet".
+  const [nodesLoaded, setNodesLoaded] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
 
@@ -302,6 +306,10 @@ export function ConnectAgentView({
 
   // --- Nodes ---------------------------------------------------------------
 
+  // The daemon's roster names agents by handle; a workspace rename only
+  // changes the display name, so merge it in for the device view.
+  const labeledNodes = useMemo(() => withAgentDisplayNames(nodes, agents), [nodes, agents]);
+
   const loadNodes = useCallback(async (showSpinner = false) => {
     if (showSpinner) setNodesLoading(true);
     try {
@@ -313,6 +321,7 @@ export function ConnectAgentView({
       if (showSpinner) setNodesError(true);
     } finally {
       if (showSpinner) setNodesLoading(false);
+      setNodesLoaded(true);
     }
   }, []);
 
@@ -435,7 +444,7 @@ export function ConnectAgentView({
           </div>
         ) : activeTab === 'node' ? (
           <NodesTab
-            nodes={nodes}
+            nodes={labeledNodes}
             catalog={catalog}
             catalogState={catalogState}
             cloudProviders={cloudProviders}
@@ -443,6 +452,7 @@ export function ConnectAgentView({
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
+            loaded={nodesLoaded}
             loadFailed={nodesError}
             pairing={pairing}
             pairingLoading={pairingLoading}
@@ -1005,7 +1015,7 @@ function NodeCard({
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex -space-x-1.5">
                   {previewAgents.map((a) => (
-                    <div key={a.name} className="relative" title={`@${a.name} · ${a.type} · ${agentStatusLabel(a.status)}`}>
+                    <div key={a.name} className="relative" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
                       <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
                         <AgentIcon name={a.type} size={13} />
                       </span>
@@ -1174,8 +1184,8 @@ function NodeCard({
                         <AgentIcon name={a.type} size={22} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">@{a.name}</button>
-                        <div className="text-xs text-muted-foreground truncate">{a.type}</div>
+                        <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">{a.displayName || `@${a.name}`}</button>
+                        <div className="text-xs text-muted-foreground truncate">{a.displayName ? `@${a.name} · ${a.type}` : a.type}</div>
                       </div>
                       <span className={cn(
                         'flex items-center gap-1 text-xs font-medium rounded-full px-1.5 py-0.5 shrink-0',
@@ -1262,6 +1272,7 @@ function NodesTab({
   preferredNodeId,
   onFirstAgentCreated,
   loading,
+  loaded,
   loadFailed = false,
   pairing,
   pairingLoading,
@@ -1277,6 +1288,8 @@ function NodesTab({
   preferredNodeId?: string;
   onFirstAgentCreated?: (agentName: string) => void;
   loading: boolean;
+  /** A node load has finished at least once. */
+  loaded: boolean;
   loadFailed?: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
@@ -1395,6 +1408,22 @@ function NodesTab({
       : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
   }, [autoAddAgent, nodes, preferredNodeId]);
+
+  // The sidebar's "+" beside Agents: open a device's gallery, this computer
+  // first. Waits for the node list; with no device yet the list itself (and
+  // its pairing step) is the right place to land.
+  const { addAgentPending, consumeAddAgent } = useLayout();
+  useEffect(() => {
+    if (!addAgentPending) return;
+    if (!loaded) return;
+    consumeAddAgent();
+    const online = nodes.filter((n) => n.status === 'online');
+    const target = online.find((n) => n.nodeId === localNodeId) || online[0] || nodes[0];
+    if (!target) return;
+    setEditing(null);
+    setExpandedNodeId(target.nodeId);
+    setAddingNodeId(target.nodeId);
+  }, [addAgentPending, consumeAddAgent, loaded, nodes, localNodeId]);
 
   // This computer just joined and came online: open its agent picker as soon
   // as the list (polled) has it, the same next step as first-run onboarding.
@@ -2575,7 +2604,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
 }
 
 function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentProps<typeof AgentSetup>, 'api' | 'extensions'> & { cloudProviders: CloudAgentProvider[] }) {
-  const { workspace, agents } = useWorkspace();
+  const { workspace, agents, refreshWorkspace } = useWorkspace();
   const t = useT();
   const takenNames = useMemo(() => agents.map((agent) => agent.agentName), [agents]);
   const localNodeId = useLocalNodeId(workspace?.workspaceId);
@@ -2583,6 +2612,10 @@ function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentP
     contextLabel={<>{workspace?.name} · {t('connect.agentRunsOn', { device: localNodeId === props.node.nodeId ? t('nav.thisComputer') : props.node.name })}</>}
     extensions={{
       takenNames,
+      renameAgent: async (name, displayName) => {
+        await workspaceApi.updateMember(name, { display_name: displayName });
+        await refreshWorkspace();
+      },
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
       promo: (promo) => CAMPAIGN_PROMO_AGENT_TYPES.has(promo.agentType) ? <CampaignPromoAccess {...promo} /> : null,
     }} />;
