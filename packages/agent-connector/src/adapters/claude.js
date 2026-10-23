@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets, stripCliNoise } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -1054,7 +1054,7 @@ class ClaudeAdapter extends BaseAdapter {
     // Without Claude Code's harmless notices (an unknown relay model, the
     // disabled connectors): posted as "the" error, they hid the real one.
     const tail = stripCliNoise((pp && pp.stderrBuf) || '').trim();
-    return tail ? redactSecrets(tail).slice(-800) : '';
+    return tail ? this._redact(tail).slice(-800) : '';
   }
 
   /**
@@ -1063,8 +1063,12 @@ class ClaudeAdapter extends BaseAdapter {
    * invisible — add a concrete hint about which env vars to check.
    */
   _formatClaudeError(text) {
-    const msg = String(text || '').trim() || 'Claude returned an error.';
-    if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(msg)) {
+    const raw = String(text || '').trim() || 'Claude returned an error.';
+    // Matched on the raw text — redaction rewrites the very words the pattern
+    // below keys on — but only the redacted text is quoted: a `result` error
+    // is the provider's own message, and providers echo the key they rejected.
+    const msg = this._redact(raw);
+    if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(raw)) {
       return `Claude authentication failed: ${msg}\n\n` +
         'Check this agent\'s API key and Base URL in the launcher — the key may be invalid or expired.';
     }
@@ -1498,7 +1502,7 @@ class ClaudeAdapter extends BaseAdapter {
         break;
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
         break;
       }
     }

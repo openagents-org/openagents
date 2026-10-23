@@ -124,28 +124,98 @@ function formatAttachmentsForPrompt(
 }
 
 /**
+ * Environment variable names whose value is a credential. Deliberately broad:
+ * masking a value that turns out to be harmless costs one word of an error
+ * notice, while missing a key posts it to every member of the workspace.
+ */
+const SECRET_NAME_RE = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH/i;
+/** Shorter than this and a value is as likely a flag ("1", "true") as a secret. */
+const MIN_SECRET_LENGTH = 8;
+
+/**
+ * The exact values an agent must never quote back: everything in its
+ * environment whose name says it is a credential, plus whatever the caller
+ * already knows to be one (the workspace token). Longest first, so a secret
+ * that contains another is masked whole rather than leaving its tail behind.
+ *
+ * @param {object} env     the environment the agent's CLI runs with
+ * @param {string[]} extra further values to mask
+ * @returns {string[]}
+ */
+function secretValues(env, extra = []) {
+  const out = new Set();
+  const add = (value) => {
+    const v = typeof value === 'string' ? value.trim() : '';
+    if (v.length >= MIN_SECRET_LENGTH) out.add(v);
+  };
+  for (const [name, value] of Object.entries(env || {})) {
+    if (SECRET_NAME_RE.test(name)) add(value);
+  }
+  for (const value of extra || []) add(value);
+  return [...out].sort((x, y) => y.length - x.length);
+}
+
+/**
+ * Mask known secret values in `text` and touch nothing else. For text that is
+ * mostly prose or code — a model's partial answer — where the shape rules of
+ * redactSecrets would rewrite ordinary words ("token limit", `password: string`).
+ */
+function maskSecretValues(text, secrets) {
+  let out = String(text == null ? '' : text);
+  for (const secret of secrets || []) {
+    if (typeof secret === 'string' && secret.length >= MIN_SECRET_LENGTH) {
+      out = out.split(secret).join('[REDACTED]');
+    }
+  }
+  return out;
+}
+
+/**
  * Strip secrets out of anything on its way to a log line or a channel message.
  *
  * Adapter diagnostics quote raw CLI output, and a CLI that fails on auth tends
- * to echo the credential it was handed. The shapes here are the ones that
- * actually turn up in that output; the closing catch-all takes any long opaque
- * token the named patterns missed.
+ * to echo the credential it was handed. Two passes:
+ *
+ *   1. `secrets` — the values we already know are secret (see secretValues),
+ *      masked wherever they appear. No pattern can know every provider's key
+ *      format; this needs no format at all. It runs first because a pattern
+ *      that recognises half of a key would otherwise leave the other half.
+ *   2. The shapes that actually turn up in CLI output, for a credential that
+ *      is not ours to know (another tool's token, a key in a config file). The
+ *      closing catch-all takes any long opaque token the named patterns missed.
  *
  * Lived as a private static on two adapters before claude needed it as well —
  * a third identical copy is one copy too many for a security-relevant rule.
+ *
+ * @param {string} s
+ * @param {string[]} [secrets] exact values to mask, e.g. from secretValues()
  */
-function redactSecrets(s) {
-  let out = String(s == null ? '' : s);
+function redactSecrets(s, secrets) {
+  let out = maskSecretValues(s, secrets);
   out = out
+    // scheme://user:password@host, and scheme://token@host.
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@?#]+@/gi, '$1[REDACTED]@')
     .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
     .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
     .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
-    .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
+    // Google API keys are 39 chars, one short of the catch-all below.
+    .replace(/\bAIza[0-9A-Za-z_-]{30,}/g, '[REDACTED_KEY]')
+    .replace(/\bya29\.[0-9A-Za-z_-]{20,}/g, '[REDACTED_TOKEN]')
+    // key: value. An Authorization value is "<scheme> <credential>", so the
+    // scheme word is skipped — taking it for the value masked "Bearer" and
+    // left the token standing right behind it.
+    .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)(?:(?:bearer|basic|token)[ \t]+)?([^\s"',}]+)/gi,
       (m, k, sep) => `${k}${sep}[REDACTED]`)
+    // A Basic credential quoted without its header name. Base64 has no shape
+    // of its own, so this wants padding or some length before it believes it.
+    .replace(/\b(basic)[ \t]+(?:[A-Za-z0-9+/]{16,}={0,2}|[A-Za-z0-9+/]{4,}={1,2})/gi, '$1 [REDACTED]')
     .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
-    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]')
+    // Keys too short for the catch-all with no prefix to know them by: bare
+    // hex (32+), and the "<32 hex>.<secret>" form Zhipu issues.
+    .replace(/\b[0-9a-f]{32,}(?:\.[A-Za-z0-9]{8,})?\b/gi, '[REDACTED]');
   return out;
 }
 
@@ -187,4 +257,6 @@ module.exports = {
   generateSessionTitle,
   formatAttachmentsForPrompt,
   redactSecrets,
+  maskSecretValues,
+  secretValues,
 };

@@ -21,11 +21,30 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
+// What a failed `openclaw agent` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const OPENCLAW_GUIDANCE = {
+  auth:
+    'OpenClaw could not authenticate with its model provider. Set LLM_API_KEY ' +
+    '(with LLM_BASE_URL and LLM_MODEL) for this agent, or sign in with ' +
+    '`openclaw auth` on the device.',
+  quota:
+    'The provider is rate-limiting this agent, or its quota is exhausted. Wait ' +
+    'and try again, or use a key with more quota.',
+  network:
+    "OpenClaw could not reach its provider from this device. Check the device's " +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Check LLM_MODEL for this agent.',
+  timeout: 'OpenClaw timed out before producing a response.',
+};
+
 const OPENCLAW_STATE_DIR = path.join(
   IS_WINDOWS ? (process.env.USERPROFILE || '') : (process.env.HOME || ''),
   '.openclaw'
@@ -308,7 +327,10 @@ class OpenClawAdapter extends BaseAdapter {
       }
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
+      );
     }
   }
 
@@ -531,7 +553,10 @@ class OpenClawAdapter extends BaseAdapter {
         closeFd();
         try { fs.unlinkSync(stderrFile); } catch {}
         try { proc.kill(); } catch {}
-        reject(new Error('CLI timed out after 600 seconds'));
+        reject(classifiedError(
+          'OpenClaw ran for 10 minutes without finishing and was stopped. Send the '
+          + 'request again, or break a long task into smaller steps.',
+        ));
       }, 600000);
 
       proc.on('error', (err) => {
@@ -577,7 +602,24 @@ class OpenClawAdapter extends BaseAdapter {
           return;
         }
         if (code !== 0) {
-          reject(new Error(`CLI exited ${code}: ${allOutput.slice(-300)}`));
+          // --log-level trace fills stderr with diagnostics, so quote the lines
+          // that say something about the failure rather than the last 300
+          // characters of the trace — and strip secrets from what is quoted.
+          // Only OpenClaw's own words are read for the cause: its trace, and
+          // the error object a failed --json run prints. The reply is the
+          // model's, and a reply that mentions a sign-in page or a
+          // settings.json is not an auth or a config failure.
+          const failure = classifyRunFailure({
+            code,
+            stderr: OpenClawAdapter._traceOnly(stderrContent),
+            error: OpenClawAdapter._cliError(output),
+            cli: 'OpenClaw',
+            guidance: OPENCLAW_GUIDANCE,
+            skip: ['session'],
+            secrets: this._knownSecrets(),
+          });
+          this._log(`Run failed (${failure.kind}, exit ${code})`, 'error');
+          reject(classifiedError(failure.message));
           return;
         }
         this._parseCliOutput(allOutput, resolve);
@@ -602,6 +644,48 @@ class OpenClawAdapter extends BaseAdapter {
         proc.on('exit', () => { clearTimeout(timeout); resolve(); });
       });
     } catch {}
+  }
+
+  /**
+   * stderr without the `{"payloads": …}` reply --json writes into it: what is
+   * left is OpenClaw's trace.
+   */
+  static _traceOnly(stderr) {
+    const text = String(stderr || '');
+    const start = text.search(/\{\s*"payloads"/);
+    if (start < 0) return text;
+    // Braces inside JSON strings (the reply text) are not structure: skip
+    // string contents, honoring backslash escapes.
+    let depth = 0;
+    let end = text.length;
+    let inString = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (ch === '\\') i++;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) { end = i + 1; break; }
+    }
+    return text.slice(0, start) + text.slice(end);
+  }
+
+  /**
+   * The error a failed `--json` run reports on stdout, as
+   * `{"ok":false,"error":{"type","message"}}` (openclaw 2026.9.8), or null.
+   * Older releases print nothing there and leave the reason in the trace.
+   */
+  static _cliError(stdout) {
+    const text = String(stdout || '').trim();
+    for (const candidate of [text, ...text.split('\n').map((l) => l.trim())]) {
+      if (!candidate.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && parsed.ok === false && parsed.error) return parsed.error;
+      } catch {}
+    }
+    return null;
   }
 
   _parseCliOutput(output, resolve) {
