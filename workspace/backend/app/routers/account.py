@@ -32,6 +32,7 @@ from app.firebase_auth import verify_identity_token
 from app.models import (
     ChannelHumanMember,
     DeviceToken,
+    User,
     Workspace,
     WorkspaceCollaborator,
     WorkspaceMembership,
@@ -74,6 +75,11 @@ def list_account_workspaces(
     user = resolve_current_user(db, authorization)
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+
+    # One list request per user at a time past this point. The client retries a
+    # request that is slow to answer, and two first-run requests side by side
+    # could each see no membership and each provision a workspace.
+    db.execute(select(User.id).where(User.id == user.id).with_for_update()).first()
 
     # Migration bridge: pull legacy email-keyed access into memberships.
     reconcile_memberships(db, user)

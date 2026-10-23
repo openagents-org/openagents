@@ -350,6 +350,31 @@ describe('probeAgentType', () => {
     assert.ok(r.guidance.some((l) => l.includes('@deepseek-ai/dsh@0.1.0-rc.6')), JSON.stringify(r.guidance));
   });
 
+  it('hands a keyed agent to the API tier when its CLI probe cannot see the key', async () => {
+    // Codex reaches a relay through launch flags the bare probe run lacks: the
+    // CLI probe would test OpenAI's default endpoint instead of the relay.
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => ({ success: true, response: 'from-api' }) },
+    };
+    try {
+      const entry = {
+        name: 'codex', label: 'Codex',
+        probe: { args: ['-e', 'console.log("from-cli")'], timeout_s: 30, skip_cli_with_key: true },
+      };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const keyed = await probeAgentType(c, 'codex', { agentEnv: { OPENAI_API_KEY: 'sk-relay' } });
+      assert.equal(keyed.method, 'llm_api', JSON.stringify(keyed));
+      const signedIn = await probeAgentType(c, 'codex', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+      assert.equal(signedIn.method, 'cli', JSON.stringify(signedIn));
+      assert.equal(signedIn.reply, 'from-cli');
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
   it('skips the API call for an agent whose key is not a model API key', async () => {
     const path = require.resolve('../src/utils');
     const saved = require.cache[path];

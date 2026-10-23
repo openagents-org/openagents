@@ -97,6 +97,11 @@ class TestHeartbeatAndList:
         }).json()["data"]
         node_id, ws['device_token'] = connection['nodeId'], connection['token']
 
+        # Redeeming is not reporting in: the device is offline until its daemon
+        # sends a heartbeat, so setup cannot move on with nothing running.
+        listed = client.get(f"/v1/nodes?network={ws['workspaceId']}", headers=_owner()).json()["data"]
+        assert listed[0]["status"] == "offline" and listed[0]["lastHeartbeatAt"] is None
+
         hb = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["device_token"]))
         assert hb.status_code == 200 and hb.json()["data"]["status"] == "online"
 

@@ -26,6 +26,11 @@ const CLI_MODELS_MAX_AGE_MS = 3600 * 1000;
 // may have failed for a passing reason (a slow start, an update mid-way). A
 // little under the 10-minute sweep, so the next pass retries it.
 const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
+// Runtime detection runs as this many CLI children side by side, each checking
+// its share of the catalog, and a child still running after the limit is
+// stopped. A few rather than one per type: each child loads the whole core.
+const RUNTIME_DETECT_GROUPS = 4;
+const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -724,16 +729,50 @@ class Daemon {
     }
   }
 
-  async _refreshRuntimes() {
-    try {
-      const r = await this._runAgn(['runtimes', '--json']);
-      if (r.code === 0 && r.stdout) {
-        const parsed = JSON.parse(r.stdout.trim());
-        if (Array.isArray(parsed)) this._runtimes = parsed;
-      }
-    } catch {
-      // keep the previous snapshot on failure
+  /**
+   * Re-detect the installed/logged-in runtimes. A call made while one is
+   * already running joins it, so start-up, the periodic refresh and a
+   * workspace's Re-detect never run side by side.
+   */
+  _refreshRuntimes() {
+    if (!this._runtimesInFlight) {
+      this._runtimesInFlight = this._detectRuntimes()
+        .catch(() => {})
+        .finally(() => { this._runtimesInFlight = null; });
     }
+    return this._runtimesInFlight;
+  }
+
+  /**
+   * Detection checks each type with blocking CLI calls (--version, a login
+   * check), one after another. Run over the whole catalog in one child, a
+   * single CLI that hung held every result back, and the workspace sat on
+   * "Detecting…". The catalog is split over a few children run side by side,
+   * each with a time limit; a group that runs out keeps its last results.
+   */
+  async _detectRuntimes() {
+    let types = [];
+    try { types = this.registry.getCatalogSync().map((e) => e.name); } catch {}
+    const groups = types.length
+      ? Array.from({ length: Math.min(RUNTIME_DETECT_GROUPS, types.length) }, (_, i) =>
+        types.filter((_, j) => j % RUNTIME_DETECT_GROUPS === i))
+      : [null];
+    const found = new Map();
+    await Promise.all(groups.map(async (group) => {
+      const args = group ? ['runtimes', '--json', '--types', group.join(',')] : ['runtimes', '--json'];
+      try {
+        const r = await this._runAgn(args, { timeoutMs: RUNTIME_DETECT_TIMEOUT_MS });
+        if (r.code !== 0 || !r.stdout) return;
+        const parsed = JSON.parse(r.stdout.trim());
+        if (Array.isArray(parsed)) for (const rt of parsed) if (rt && rt.type) found.set(rt.type, rt);
+      } catch {
+        // this group keeps its previous snapshot
+      }
+    }));
+    if (!found.size) return;
+    const previous = new Map((this._runtimes || []).map((rt) => [rt.type, rt]));
+    const order = types.length ? types : [...found.keys()];
+    this._runtimes = order.map((type) => found.get(type) || previous.get(type)).filter(Boolean);
   }
 
   /**
@@ -938,8 +977,11 @@ async _runNodeCommand(n, cmd) {
     }
   }
 
-  /** Run this launcher's own CLI as a child process, capturing output. */
-  _runAgn(cliArgs) {
+  /**
+   * Run this launcher's own CLI as a child process, capturing output. With
+   * `timeoutMs`, a child still running then is killed and reported as failed.
+   */
+  _runAgn(cliArgs, { timeoutMs } = {}) {
     return new Promise((resolve) => {
       let bin;
       try {
@@ -952,6 +994,9 @@ async _runNodeCommand(n, cmd) {
         // Run from home so a created agent's default working dir is sensible
         // (not the ~/.openagents config dir).
         cwd: os.homedir(),
+        // A timed detection owns its process group, so its CLI descendants
+        // can be stopped too without signalling the daemon itself.
+        detached: !!timeoutMs && !IS_WINDOWS,
         // The daemon has no console of its own (it is spawned DETACHED), so a
         // child without this gets a fresh console window — the blank black box
         // that used to appear every time _refreshRuntimes() ran.
@@ -959,10 +1004,32 @@ async _runNodeCommand(n, cmd) {
       });
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = timeoutMs ? setTimeout(() => {
+        if (IS_WINDOWS && child.pid) {
+          // Killing only node.exe leaves the CLI (and its shell) running.
+          const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
+            windowsHide: true, stdio: 'ignore', timeout: 5000,
+          });
+          const fallback = () => { try { child.kill('SIGKILL'); } catch {} };
+          killer.on('error', fallback);
+          killer.on('close', (code) => { if (code !== 0) fallback(); });
+        } else {
+          try { process.kill(-child.pid, 'SIGKILL'); }
+          catch { try { child.kill('SIGKILL'); } catch {} }
+        }
+        finish({ code: 1, stdout, stderr: `${stderr}timed out after ${timeoutMs}ms`, timedOut: true });
+      }, timeoutMs) : null;
       child.stdout.on('data', (d) => { stdout += d.toString(); });
       child.stderr.on('data', (d) => { stderr += d.toString(); });
-      child.on('error', (e) => resolve({ code: 1, stdout, stderr: stderr || e.message }));
-      child.on('close', (code) => resolve({ code, stdout, stderr }));
+      child.on('error', (e) => finish({ code: 1, stdout, stderr: stderr || e.message }));
+      child.on('close', (code) => finish({ code, stdout, stderr }));
     });
   }
 
@@ -1050,8 +1117,9 @@ async _runNodeCommand(n, cmd) {
     );
 
     // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
-    // in a child process (off the event loop), refreshed periodically.
-    this._refreshRuntimes();
+    // in a child process (off the event loop), refreshed periodically. The
+    // first result goes up at once rather than on the next 10s heartbeat.
+    this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
     this._runtimesInterval = setInterval(() => this._refreshRuntimes(), 120000);
 
     // Smoke-test configured agent types periodically (each probe spends one
