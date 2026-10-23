@@ -198,4 +198,49 @@ describe('typeEnvFor', () => {
     const env = typeEnvFor('claude', typeEnv, registry, { [AUTH_MODE_KEY]: CLI_LOGIN });
     assert.deepEqual(env, { CLAUDE_CODE_MAX_TURNS: '10' });
   });
+
+  it('gives an agent with its own key neither the type key, endpoint nor model', () => {
+    const env = typeEnvFor('claude', { ...typeEnv, LLM_BASE_URL: 'https://relay.example/v1' }, registry, {
+      ANTHROPIC_API_KEY: 'own',
+    });
+    assert.deepEqual(env, { CLAUDE_CODE_MAX_TURNS: '10' });
+  });
+
+  it('an endpoint alone is not a key of its own', () => {
+    assert.deepEqual(typeEnvFor('claude', typeEnv, registry, { ANTHROPIC_BASE_URL: 'https://relay.example' }), typeEnv);
+  });
+});
+
+describe('EnvManager.getForAgent', () => {
+  const { Registry } = require('../src/registry');
+  const registry = new Registry(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-reg-')));
+
+  it('runs a Pi agent on its own provider, not a relay left in pi.env', () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-env-'));
+    const mgr = new EnvManager(configDir);
+    mgr.save('pi', {
+      LLM_API_KEY: 'relay-key',
+      LLM_BASE_URL: 'https://relay.example/v1',
+      LLM_MODEL: 'gpt-5.6-terra',
+    });
+    const env = mgr.getForAgent('pi', registry, {
+      PI_PROVIDER: 'deepseek',
+      PI_API_KEY: 'deepseek-key',
+      PI_MODEL: 'deepseek-flash',
+    });
+    assert.equal(env.PI_API_KEY, 'deepseek-key');
+    assert.equal(env.PI_MODEL, 'deepseek-flash');
+    assert.equal(env.PI_BASE_URL, undefined);
+    assert.equal(env.LLM_BASE_URL, undefined);
+  });
+
+  it('still runs an agent without a key of its own on the type env', () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-env-'));
+    const mgr = new EnvManager(configDir);
+    mgr.save('pi', { LLM_API_KEY: 'relay-key', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'm' });
+    const env = mgr.getForAgent('pi', registry, {});
+    assert.equal(env.PI_API_KEY, 'relay-key');
+    assert.equal(env.PI_BASE_URL, 'https://relay.example/v1');
+    assert.equal(env.PI_MODEL, 'm');
+  });
 });

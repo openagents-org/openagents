@@ -5,11 +5,11 @@
  * so the adapter itself stays a thin subprocess driver. The split mirrors
  * cline-stream.js / pi-stream.js.
  *
- * Verified against @deepseek-ai/dsh 0.1.0-rc.6 (bin `dsh` -> lib/bin.js, ESM).
+ * Verified against @deepseek-ai/dsh 0.2.1-rc.2 (bin `dsh` -> lib/bin.js, ESM).
  *
  * Three things here exist because dsh is unlike every other CLI in this repo:
  *
- *  1. It is a PREVIEW release (`0.1.0-rc.6`) and upstream says compatibility may
+ *  1. It is a PREVIEW release (`0.2.1-rc.2`) and upstream says compatibility may
  *     break between previews, so the gate is exact equality — not a floor. The
  *     two version comparators already in this repo (installer.js's
  *     `compareVersions`, pi-stream.js's `parseVersion`) both DROP the `-rc.N`
@@ -45,7 +45,7 @@ const path = require('path');
  * from there and only falls back here when the registry entry cannot be read at
  * all. Mirrors pi-stream.js's MIN_PI_VERSION rationale.
  */
-const SUPPORTED_DSH_VERSION = '0.1.0-rc.6';
+const SUPPORTED_DSH_VERSION = '0.2.1-rc.2';
 
 /**
  * dsh's Node requirement, from the upstream repository's root package.json:
@@ -425,6 +425,27 @@ function buildPrivatePatch({ model, provider, permissionMode } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Base URL
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether `url` is DeepSeek's own API root rather than a gateway.
+ *
+ * dsh talks to DeepSeek over the Anthropic Messages API and defaults to
+ * `https://api.deepseek.com/anthropic`. The OpenAI-style roots people copy
+ * from DeepSeek's docs (and that other agents' setup forms prefill) —
+ * `https://api.deepseek.com` and `…/v1` — answer that API with a 404, so the
+ * adapter drops them and lets dsh use its default.
+ */
+function isOfficialDeepseekRoot(url) {
+  let parsed;
+  try { parsed = new URL(String(url || '').trim()); } catch { return false; }
+  if (parsed.hostname.toLowerCase() !== 'api.deepseek.com') return false;
+  const p = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+  return p === '' || p === '/v1';
+}
+
+// ---------------------------------------------------------------------------
 // Permission mode
 // ---------------------------------------------------------------------------
 
@@ -615,6 +636,8 @@ module.exports = {
 
   yamlScalar,
   buildPrivatePatch,
+
+  isOfficialDeepseekRoot,
 
   normalizePermissionMode,
   resolvePermissionMode,

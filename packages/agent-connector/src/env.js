@@ -203,15 +203,36 @@ function modelKeys(agentType, registry) {
 }
 
 /**
- * The part of <type>.env an agent runs on. All of it for an agent on a key.
- * A signed-in agent takes none of its keys, and none of its model either:
- * that model was picked for the key's endpoint (a relay's
- * openai-gpt-oss-20b), which the account behind a sign-in does not serve.
- * Its model is the one in its own env, else the CLI's default.
+ * Whether the agent's own env carries a key (not just an endpoint).
+ */
+function hasOwnKey(agentType, registry, agentEnv) {
+  if (!agentEnv) return false;
+  for (const key of credentialKeys(agentType, registry)) {
+    if (/BASE_URL$/.test(key)) continue;
+    if (String(agentEnv[key] == null ? '' : agentEnv[key]).trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * The part of <type>.env an agent runs on. All of it for an agent that brings
+ * no credentials of its own.
+ *
+ * A signed-in agent, or one with a key of its own, takes none of the type's
+ * keys or endpoints, and none of its model either: that model was picked for
+ * the type key's endpoint (a relay's openai-gpt-oss-20b), which neither the
+ * account behind a sign-in nor the agent's own provider serves. Resolution
+ * maps the generic LLM_* names over the provider ones, so a relay left in
+ * <type>.env used to override an agent configured for DeepSeek: its
+ * LLM_BASE_URL and LLM_MODEL became PI_BASE_URL and PI_MODEL, and the agent's
+ * key went to the relay. Its model is the one in its own env, else the CLI's
+ * default.
  */
 function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
-  if (!isCliLogin(agentEnv)) return typeEnv;
-  const out = stripForCliLogin(agentType, typeEnv, registry, agentEnv);
+  const signedIn = isCliLogin(agentEnv);
+  if (!signedIn && !hasOwnKey(agentType, registry, agentEnv)) return typeEnv;
+  const out = { ...typeEnv };
+  for (const key of credentialKeys(agentType, registry)) delete out[key];
   for (const key of modelKeys(agentType, registry)) delete out[key];
   return out;
 }

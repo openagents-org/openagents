@@ -283,6 +283,26 @@ describe("testLLMConnection routing", () => {
     expect(calls[0].url).toBe("https://relay.example.com/v1/chat/completions")
   })
 
+  it("probes DeepSeek Harness over the Anthropic API, mapping DeepSeek's OpenAI root", async () => {
+    script = [ok(MSG_OK("deepseek-flash"))]
+    await testLLMConnection({
+      DEEPSEEK_API_KEY: "sk-ds",
+      DEEPSEEK_BASE_URL: "https://api.deepseek.com",
+      DEEPSEEK_MODEL: "deepseek-flash",
+    })
+    expect(calls[0].url).toBe("https://api.deepseek.com/anthropic/v1/messages")
+  })
+
+  it("probes a DeepSeek Harness gateway as typed", async () => {
+    script = [ok(MSG_OK("deepseek-flash"))]
+    await testLLMConnection({
+      DEEPSEEK_API_KEY: "sk-ds",
+      DEEPSEEK_BASE_URL: "https://relay.example.com/anthropic",
+      DEEPSEEK_MODEL: "deepseek-flash",
+    })
+    expect(calls[0].url).toBe("https://relay.example.com/anthropic/v1/messages")
+  })
+
   it("probes Aider's endpoint once its provider is named", async () => {
     script = [ok(CHAT_OK())]
     const r = await testLLMConnection({
