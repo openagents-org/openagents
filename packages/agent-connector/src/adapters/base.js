@@ -1095,8 +1095,8 @@ class BaseAdapter {
   }
 
   /**
-   * Post a markdown table of the agent's active routines back to the
-   * requesting channel. Used by the `/routines` slash command. Each agent
+   * Post a markdown table of the agent's routines (active and paused) back
+   * to the requesting channel. Used by the `/routines` slash command. Each agent
    * reports only routines it owns (created_by === openagents:<agentName>)
    * so the user sees a clear "my routines" view per agent, mirroring how
    * /status reports per-agent uptime.
@@ -1130,15 +1130,18 @@ class BaseAdapter {
 
     let content;
     if (!routines.length) {
-      content = `**Routines for \`${this.agentName}\`**\n\n_No active routines._`;
+      content = `**Routines for \`${this.agentName}\`**\n\n_No routines._`;
     } else {
       const rows = routines.map((r) => {
         const schedule = (r.schedule_interval_minutes != null)
           ? `every ${r.schedule_interval_minutes} min`
           : `${String(r.schedule_hour ?? 0).padStart(2, '0')}:${String(r.schedule_minute ?? 0).padStart(2, '0')} UTC` +
             (r.schedule_days ? ` (days [${r.schedule_days.join(',')}])` : ' daily');
-        const next = r.next_fires_at || '—';
-        const name = String(r.name || '').replace(/\|/g, '\\|');
+        // A paused routine keeps its last next_fires_at, which is stale (often
+        // in the past) — show that it's paused instead of a time it won't fire.
+        const paused = r.status && r.status !== 'active';
+        const next = paused ? '—' : (r.next_fires_at || '—');
+        const name = String(r.name || '').replace(/\|/g, '\\|') + (paused ? ` [${r.status}]` : '');
         const id = String(r.id || '').slice(0, 8);
         return `| \`${id}\` | ${name} | ${schedule} | ${next} |`;
       });

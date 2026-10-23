@@ -27,6 +27,7 @@ import { Loader2 } from 'lucide-react';
 import type { RoutineDraft, RoutineItem, WorkspaceAgent } from '@/lib/types';
 import { agentLabel } from '@/lib/helpers';
 import { useFormatters, useT } from '@/lib/i18n';
+import { routineErrorMessage } from './routine-error';
 
 interface RoutineDialogProps {
   open: boolean;
@@ -204,7 +205,7 @@ export function RoutineDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t(isEdit ? 'routines.saveFailed' : 'routines.createFailed'));
+      setError(routineErrorMessage(err, t(isEdit ? 'routines.saveFailed' : 'routines.createFailed')));
     } finally {
       setSubmitting(false);
     }

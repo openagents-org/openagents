@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Pause, Pencil, Play, RefreshCw, Trash2, Plus } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
@@ -12,6 +13,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { RoutineItem } from '@/lib/types';
 import { useRoutineFormat } from './use-routine-format';
+import { routineErrorMessage } from './routine-error';
 
 export function RoutinesView() {
   const { routines, refreshRoutines, createRoutine, updateRoutine, sessions, agents, setCurrentSessionId } = useWorkspace();
@@ -49,16 +51,19 @@ export function RoutinesView() {
     try {
       await workspaceApi.cancelRoutine(routineId);
       await refreshRoutines();
-    } catch {
-      // Ignore
+    } catch (err) {
+      console.error('Failed to delete routine', err);
+      toast.error(routineErrorMessage(err, t('routines.cancelFailed')));
     }
   };
 
   const handleTogglePause = async (routine: RoutineItem) => {
+    const resuming = routine.status === 'paused';
     try {
-      await updateRoutine(routine.id, { status: routine.status === 'paused' ? 'active' : 'paused' });
-    } catch {
-      // Ignore
+      await updateRoutine(routine.id, { status: resuming ? 'active' : 'paused' });
+    } catch (err) {
+      console.error('Failed to update routine status', err);
+      toast.error(routineErrorMessage(err, t(resuming ? 'routines.resumeFailed' : 'routines.pauseFailed')));
     }
   };
 
