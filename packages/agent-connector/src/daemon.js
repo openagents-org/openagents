@@ -994,6 +994,9 @@ async _runNodeCommand(n, cmd) {
         // Run from home so a created agent's default working dir is sensible
         // (not the ~/.openagents config dir).
         cwd: os.homedir(),
+        // A timed detection owns its process group, so its CLI descendants
+        // can be stopped too without signalling the daemon itself.
+        detached: !!timeoutMs && !IS_WINDOWS,
         // The daemon has no console of its own (it is spawned DETACHED), so a
         // child without this gets a fresh console window — the blank black box
         // that used to appear every time _refreshRuntimes() ran.
@@ -1009,7 +1012,18 @@ async _runNodeCommand(n, cmd) {
         resolve(result);
       };
       const timer = timeoutMs ? setTimeout(() => {
-        try { child.kill(); } catch {}
+        if (IS_WINDOWS && child.pid) {
+          // Killing only node.exe leaves the CLI (and its shell) running.
+          const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
+            windowsHide: true, stdio: 'ignore', timeout: 5000,
+          });
+          const fallback = () => { try { child.kill('SIGKILL'); } catch {} };
+          killer.on('error', fallback);
+          killer.on('close', (code) => { if (code !== 0) fallback(); });
+        } else {
+          try { process.kill(-child.pid, 'SIGKILL'); }
+          catch { try { child.kill('SIGKILL'); } catch {} }
+        }
         finish({ code: 1, stdout, stderr: `${stderr}timed out after ${timeoutMs}ms`, timedOut: true });
       }, timeoutMs) : null;
       child.stdout.on('data', (d) => { stdout += d.toString(); });
