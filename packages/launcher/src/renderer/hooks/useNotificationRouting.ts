@@ -21,6 +21,8 @@ import type { NotifRecord } from "@renderer/types"
 interface NotificationRoute {
   tab?: unknown
   agent?: unknown
+  /** With `tab: "install"` and no agent: how to narrow the list. */
+  filter?: unknown
   settingsSection?: unknown
   workspaceId?: unknown
   sessionId?: unknown
@@ -93,7 +95,7 @@ export function routeNotification(record: NotifRecord): boolean {
   // `setCurrentTab("install")` would leave whatever detail page is open sitting
   // there, so a notification about three agents would appear to do nothing.
   if (payload.tab === "install") {
-    ui.goToInstallList()
+    ui.goToInstallList(payload.filter === "updatable" ? "updatable" : "all")
     return true
   }
 

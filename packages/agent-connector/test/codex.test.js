@@ -19,6 +19,24 @@ const CodexAdapter = require('../src/adapters/codex');
 // ---------------------------------------------------------------------------
 
 describe('Codex — live workspace model selection', () => {
+  it('passes a custom Responses provider to the real CLI without exposing its key in arguments', async () => {
+    let invocation;
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: {}, workspaceModel: null, _directModel: 'test-model',
+      _directApiKey: 'test-secret', _directBaseUrl: 'https://relay.example/v1',
+      _customProvider: { baseUrl: 'https://relay.example/v1', reasoningEffort: 'low' },
+      _codexBin: 'codex', _channelThreads: {}, workingDir: '',
+      _buildSystemContext: () => 'system context', _log: () => {},
+      _spawnCodex: async (cmd, env) => { invocation = { cmd, env }; return { responseText: 'ok', exitCode: 0 }; },
+      sendResponse: async () => {},
+    });
+    await fake._handleViaSubprocess('hello', 'general');
+    assert.ok(invocation.cmd.includes('model_providers.openagents.wire_api="responses"'));
+    assert.ok(invocation.cmd.includes('model_providers.openagents.base_url="https://relay.example/v1"'));
+    assert.ok(!invocation.cmd.join(' ').includes('test-secret'));
+    assert.equal(invocation.env.OPENAI_API_KEY, 'test-secret');
+  });
+
   it('uses a model.set selection for the next codex exec invocation', async () => {
     let invocation;
     const fake = Object.assign(Object.create(CodexAdapter.prototype), {
@@ -162,7 +180,7 @@ describe('Codex — partial run that then failed', () => {
       _buildSystemContext: () => 'system context',
       _log: () => {},
       _spawnCodex: async () => result,
-      sendResponse: async (channel, content) => { sent.push({ kind: 'response', content }); },
+      sendResponse: async (channel, content, options) => { sent.push({ kind: 'response', content, options }); },
       sendError: async (channel, content) => { sent.push({ kind: 'error', content }); },
     });
     return { fake, sent };
@@ -177,6 +195,7 @@ describe('Codex — partial run that then failed', () => {
     });
     await fake._handleViaSubprocess('fix it', 'general');
     assert.deepStrictEqual(sent.map((m) => m.kind), ['response', 'error']);
+    assert.equal(sent[0].options.statusKind, 'error');
     assert.ok(sent[1].content.includes('stopped partway'));
     assert.ok(sent[1].content.includes('> stream disconnected before completion'));
   });
@@ -196,6 +215,7 @@ describe('Codex — partial run that then failed', () => {
     });
     await fake._handleViaSubprocess('fix it', 'general');
     assert.deepStrictEqual(sent.map((m) => m.kind), ['response']);
+    assert.equal(sent[0].options.statusKind, 'completed');
   });
 });
 

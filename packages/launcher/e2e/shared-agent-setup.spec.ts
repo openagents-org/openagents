@@ -58,6 +58,7 @@ async function openComputer(page: Page, existing = false) {
       saveAgentInstanceEnv: () => ({ success: true }),
       setAgentWorkingDir: (name: string, dir: string) => { agents.find(a => a.name === name).path = dir; return { success: true } },
       listWorkspaces: () => [], notificationsList: () => [], notificationsGetPrefs: () => ({}),
+      getWorkspaceTabs: () => ({ tabs: [], active: null, home: null }), onWorkspaceTabsChanged: () => () => {},
       getInstalledAgents: () => [], checkAgentUpdates: () => [], getChangelog: () => [],
       appVersion: () => '1.0.0', hasRunBefore: () => true, getWhatsNew: () => null,
       isFullScreen: () => false, launcherUpdateState: () => ({ status: 'idle' }),
@@ -75,23 +76,20 @@ async function openComputer(page: Page, existing = false) {
     } })
   }, { existing })
   await page.goto(origin)
-  await expect(page.getByRole('heading', { name: 'Agents on this computer' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connected agents' })).toBeVisible()
   return errors
 }
 
 test('local setup uses the shared catalogue and stays available without an account', async ({ page }, info) => {
   const errors = await openComputer(page)
-  await expect(page.getByRole('button', { name: 'Theme' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Language' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Theme/ })).toBeVisible()
   await expect(page.getByText('v1.0.0')).toBeVisible()
   await expect(page.getByRole('button', { name: 'More options' })).toHaveCount(0)
   await expect(page.getByText('Quick start guide')).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('computer-overview.png') })
-  await page.getByTestId('new-agent-open').click()
-  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
-  await expect(page.getByText('Runs on: This Computer · Local use')).toBeVisible()
-  await page.screenshot({ path: info.outputPath('shared-catalogue.png') })
-  await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
+  // A recommended card opens the shared setup form straight on its type; the
+  // full list is the marketplace, behind "Browse and connect more agents".
+  await page.getByTestId('recommended-add-claude').click()
   await page.getByRole('textbox', { name: 'Agent name' }).fill('review-helper')
   await expect(page.getByRole('tab', { name: 'API key' })).toBeVisible()
   await expect(page.getByText('Verify API settings')).toBeVisible()
@@ -114,7 +112,7 @@ test('editing the same local agent preserves credentials and changes only its fo
   await expect(page.getByRole('textbox', { name: 'Agent name' })).toBeDisabled()
   await page.getByRole('button', { name: /^Browse/ }).click()
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Agents on this computer' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connected agents' })).toBeVisible()
   const calls = await page.evaluate(() => (window as any).__localTest.calls)
   expect(calls.filter((c: any) => c.method === 'setAgentWorkingDir')).toEqual([{ method: 'setAgentWorkingDir', args: ['desk-helper', '/review/selected-project'] }])
   expect(calls.some((c: any) => c.method === 'saveAgentInstanceEnv' || c.method === 'addAgent')).toBe(false)
@@ -128,10 +126,10 @@ test('theme menu keeps hover and selection visually separate in the OpenAgents s
     localStorage.setItem('launcher:theme-mode', 'dark')
   })
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Agents on this computer' })).toBeVisible()
-  await page.getByRole('button', { name: 'Theme' }).click()
+  await expect(page.getByRole('heading', { name: 'Connected agents' })).toBeVisible()
+  await page.getByRole('button', { name: /^Theme/ }).click()
   await page.getByRole('menuitemradio', { name: 'Dark' }).click()
-  await page.getByRole('button', { name: 'Theme' }).click()
+  await page.getByRole('button', { name: /^Theme/ }).click()
 
   const selected = page.getByRole('menuitemradio', { name: 'Dark' })
   const hovered = page.getByRole('menuitemradio', { name: 'Light' })
@@ -145,12 +143,38 @@ test('theme menu keeps hover and selection visually separate in the OpenAgents s
 
 test('adding an installed type can open its existing agent instead of creating a copy', async ({ page }) => {
   const errors = await openComputer(page, true)
-  await page.getByTestId('new-agent-open').click()
-  await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
+  await page.getByTestId('recommended-add-claude').click()
   await expect(page.getByText('Already on this device')).toBeVisible()
   await page.getByRole('button', { name: /desk-helper.*Open settings/ }).click()
   await expect(page.getByRole('heading', { name: 'Configure desk-helper' })).toBeVisible()
   const calls = await page.evaluate(() => (window as any).__localTest.calls)
   expect(calls.some((c: any) => c.method === 'addAgent' || c.method === 'installAgentTypeStreaming')).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('a second agent of an installed type gets its own name, with the actions inside the form column', async ({ page }) => {
+  const errors = await openComputer(page, true)
+  await page.getByTestId('recommended-add-claude').click()
+  const name = page.getByRole('textbox', { name: 'Agent name' })
+  await expect(page.getByTestId('agent-setup-name-hint')).toContainText('claude and claude-2')
+  // Cancel and Add sit under the form's own fields, not across the window
+  // beside the information column.
+  const field = (await name.boundingBox())!
+  const actions = (await page.getByTestId('agent-setup-actions').boundingBox())!
+  expect(actions.x).toBeGreaterThanOrEqual(field.x - 1)
+  expect(actions.x + actions.width).toBeLessThanOrEqual(field.x + field.width + 1)
+  await expect(page.getByTestId('agent-setup-actions').getByRole('button')).toHaveText(['Cancel', 'Add an agent'])
+
+  // A taken name is reported at the field and nothing is created.
+  await name.fill('desk-helper')
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect(page.getByTestId('agent-setup-name-error')).toBeVisible()
+  await name.fill('claude-2')
+  await expect(page.getByTestId('agent-setup-name-error')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add an agent', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('claude-2')
+  const calls = await page.evaluate(() => (window as any).__localTest.calls)
+  expect(calls.filter((c: any) => c.method === 'addAgent')).toHaveLength(1)
+  expect(calls.some((c: any) => c.method === 'installAgentTypeStreaming')).toBe(false)
   expect(errors).toEqual([])
 })

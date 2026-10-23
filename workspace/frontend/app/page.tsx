@@ -11,11 +11,13 @@ import {
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useCreateWorkspace } from '@/hooks/use-create-workspace';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 
 /** A catalogue key, translated at render time, or a raw message from an Error. */
@@ -401,6 +403,39 @@ function BrutalBtn({
   );
 }
 
+/** What the create form is waiting on, and the way on when it stalls. */
+function CreateWorkspaceStatus({ flow, onCheckList }: {
+  flow: ReturnType<typeof useCreateWorkspace<{ slug: string }>>;
+  onCheckList: () => void;
+}) {
+  const t = useT();
+  const link = 'font-bold underline underline-offset-2 hover:text-black';
+  if (flow.phase === 'slow') {
+    return <p role="status" className="text-sm text-neutral-600">{t('dashboard.createSlow')}</p>;
+  }
+  if (flow.phase === 'unconfirmed') {
+    return (
+      <p role="status" className="text-sm text-neutral-600">
+        {t('dashboard.createUnconfirmed')}{' '}
+        <button type="button" onClick={onCheckList} className={link}>{t('dashboard.createCheckList')}</button>
+      </p>
+    );
+  }
+  if (flow.phase === 'opening') {
+    return (
+      <p role="status" className="text-sm text-neutral-600">
+        {t('dashboard.createOpening')}{' '}
+        <button type="button" onClick={flow.reopen} className={link}>{t('dashboard.createOpen')}</button>
+      </p>
+    );
+  }
+  if (flow.phase === 'failed') {
+    const message = flow.error instanceof Error && flow.error.message ? flow.error.message : t('dashboard.createFailed');
+    return <p role="alert" className="text-sm font-bold text-red-600">{message}</p>;
+  }
+  return null;
+}
+
 function FullscreenSpinner() {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
@@ -686,6 +721,11 @@ function CreateTile({ onClick }: { onClick: () => void }) {
   );
 }
 
+/** Per attempt; the list is retried twice more before an error shows. */
+const LIST_TIMEOUT_MS = 15_000;
+/** How long the web waits on the first-workspace redirect before showing the list. */
+const AUTO_ENTER_STALL_MS = 8_000;
+
 function MembershipHome({
   idToken,
   userEmail,
@@ -702,10 +742,13 @@ function MembershipHome({
   const [error, setError] = useState<ErrorMessage | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
 
   const viewTrackedRef = useRef(false);
+  // A token refresh reruns load while the last one may still be out; only the
+  // newest may touch the list.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     // Network-level failures surface as the browser's raw fetch error
@@ -718,8 +761,12 @@ function MembershipHome({
     let lastErr: unknown = null;
     for (const delay of backoffs) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (seq !== loadSeqRef.current) return;
       try {
-        const list = await listAccountWorkspaces(idToken);
+        // A request that never answers is a failure too, or the skeleton
+        // stays up with no error and no retry.
+        const list = await listAccountWorkspaces(idToken, AbortSignal.timeout(LIST_TIMEOUT_MS));
+        if (seq !== loadSeqRef.current) return;
         setWorkspaces(list);
         // Funnel checkpoint: the signed-in user reached their workspace list
         // (which includes the auto-provisioned first workspace). Once per
@@ -734,11 +781,12 @@ function MembershipHome({
         lastErr = err;
       }
     }
+    if (seq !== loadSeqRef.current) return;
     const msg = lastErr instanceof Error ? lastErr.message : null;
     setError(
       msg === null
         ? { key: 'dashboard.loadFailed' }
-        : /failed to fetch|load failed|networkerror/i.test(msg)
+        : /failed to fetch|load failed|networkerror|timed out|aborted/i.test(msg)
           ? { key: 'dashboard.networkError' }
           : { text: msg },
     );
@@ -749,24 +797,29 @@ function MembershipHome({
     load();
   }, [load]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreating(true);
-    setError(null);
-    try {
-      const ws = await createAccountWorkspace(idToken, newName.trim() || 'Untitled workspace');
+  const createFlow = useCreateWorkspace({
+    create: useCallback(async (name: string) => {
+      const ws = await createAccountWorkspace(idToken, name);
       group('workspace', ws.slug);
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
-      router.push(`/${ws.slug}`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? { text: err.message } : { key: 'dashboard.createFailed' });
-      setCreating(false);
-    }
+      return ws;
+    }, [idToken]),
+    open: useCallback((ws: { slug: string }) => router.push(`/${ws.slug}`), [router]),
+  });
+  // While the request is out, the form neither starts over nor looks
+  // cancellable: hiding it would not stop the workspace being created.
+  const createLocked = createFlow.phase === 'creating' || createFlow.phase === 'slow';
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    void createFlow.submit(newName.trim() || 'Untitled workspace');
   };
 
   const openCreate = () => {
     setShowCreate(true);
+    if (createFlow.pending) return;
     setNewName('');
+    createFlow.reset();
   };
 
   // A lone owned workspace = the one we auto-provisioned at sign-up.
@@ -782,15 +835,37 @@ function MembershipHome({
     typeof window !== 'undefined' &&
     sessionStorage.getItem('oa_auto_entered_first_ws') !== '1';
   const autoEnteredRef = useRef(false);
+  // Re-renders once the redirect is out, so willAutoEnter (now false) stops
+  // holding the skeleton. In the desktop app the push opens the workspace in
+  // its own tab and this page stays mounted: without the re-render, All
+  // Workspaces kept showing blank placeholder cards for good.
+  const [, setAutoEnterSent] = useState(false);
   useEffect(() => {
     if (!willAutoEnter || !firstWorkspace || autoEnteredRef.current) return;
     autoEnteredRef.current = true;
     sessionStorage.setItem('oa_auto_entered_first_ws', '1');
     capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug });
     router.push(`/${firstWorkspace.slug}`);
+    if (desktopHost()) {
+      setAutoEnterSent(true);
+      return;
+    }
+    // On the web the page unmounts as it navigates; show the list only if
+    // that navigation stalls, so it never flashes on the way out. Not cleared
+    // on re-run: the ref above keeps this from being armed a second time.
+    window.setTimeout(() => setAutoEnterSent(true), AUTO_ENTER_STALL_MS);
   }, [willAutoEnter, firstWorkspace, router]);
 
+  const confirm = useConfirm();
+  // Same prompt as the workspace user menu's Sign out, so both ask alike.
   const handleSignOut = async () => {
+    const ok = await confirm({
+      title: t('userMenu.signOutTitle'),
+      description: t('userMenu.signOutDescriptionWithEmail', { email: userEmail }),
+      confirmText: t('userMenu.signOut'),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await onSignOut();
     } catch {
@@ -804,38 +879,49 @@ function MembershipHome({
     }
   };
 
+  // The launcher's title-bar Sign out lands here, to ask with the same dialog.
+  const signOutRef = useRef(handleSignOut);
+  signOutRef.current = handleSignOut;
+  useEffect(() => desktopHost()?.onSignOutRequest?.(() => void signOutRef.current()), []);
+
+  // Inside the desktop app the launcher's title bar already carries the brand
+  // and the account, so a second header here would only repeat them.
+  const inDesktop = !!desktopHost();
+
   return (
     <div className="min-h-screen text-neutral-900" style={{ background: PAGE_BG }}>
-      <header className="sticky top-0 z-10 border-b-2 border-black bg-white/85 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <a
-            href="https://openagents.org"
-            className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
-            title={t('dashboard.backToHome')}
-          >
-            <Image src="/logo-icon.png" alt="OpenAgents" width={26} height={26} />
-            <span className="text-lg font-extrabold tracking-tight">OpenAgents</span>
-          </a>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div
-                className="size-7 rounded-full border-2 border-black flex items-center justify-center text-white text-xs font-bold"
-                style={{ background: `linear-gradient(135deg, ${BRAND.blue}, ${BRAND.teal})` }}
-              >
-                {(userEmail[0] || '?').toUpperCase()}
-              </div>
-              <span className="text-sm text-neutral-600 hidden sm:inline">{userEmail}</span>
-            </div>
-            <button
-              onClick={handleSignOut}
-              title={t('userMenu.signOut')}
-              className="inline-flex size-8 items-center justify-center rounded-md border-2 border-black bg-white text-neutral-700 transition-all hover:bg-neutral-100 hover:shadow-[2px_2px_0_0_#000]"
+      {!inDesktop && (
+        <header className="sticky top-0 z-10 border-b-2 border-black bg-white/85 backdrop-blur-sm">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+            <a
+              href="https://openagents.org"
+              className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
+              title={t('dashboard.backToHome')}
             >
-              <LogOut className="size-4" />
-            </button>
+              <Image src="/logo-icon.png" alt="OpenAgents" width={26} height={26} />
+              <span className="text-lg font-extrabold tracking-tight">OpenAgents</span>
+            </a>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className="size-7 rounded-full border-2 border-black flex items-center justify-center text-white text-xs font-bold"
+                  style={{ background: `linear-gradient(135deg, ${BRAND.blue}, ${BRAND.teal})` }}
+                >
+                  {(userEmail[0] || '?').toUpperCase()}
+                </div>
+                <span className="text-sm text-neutral-600 hidden sm:inline">{userEmail}</span>
+              </div>
+              <button
+                onClick={handleSignOut}
+                title={t('userMenu.signOut')}
+                className="inline-flex size-8 items-center justify-center rounded-md border-2 border-black bg-white text-neutral-700 transition-all hover:bg-neutral-100 hover:shadow-[2px_2px_0_0_#000]"
+              >
+                <LogOut className="size-4" />
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
         {/* Hero */}
@@ -882,18 +968,20 @@ function MembershipHome({
                 className="border-2 border-black focus-visible:border-black focus-visible:ring-0"
               />
               <div className="flex items-center gap-2">
-                <BrutalBtn type="submit" disabled={creating} color="blue">
-                  {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                <BrutalBtn type="submit" disabled={createFlow.pending} color="blue">
+                  {createFlow.pending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
                   {t('dashboard.createWorkspace')}
                 </BrutalBtn>
                 <button
                   type="button"
                   onClick={() => setShowCreate(false)}
-                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black"
+                  disabled={createLocked}
+                  className="inline-flex items-center rounded-[5px] px-4 py-2.5 text-sm font-bold text-neutral-600 transition-colors hover:text-black disabled:opacity-40"
                 >
                   {t('common.cancel')}
                 </button>
               </div>
+              <CreateWorkspaceStatus flow={createFlow} onCheckList={load} />
             </form>
           </div>
         )}

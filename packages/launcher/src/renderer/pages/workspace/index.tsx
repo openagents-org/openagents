@@ -3,15 +3,17 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
 import { useAccountStore } from "@renderer/store/account"
+import { useWorkspaceTabsStore } from "@renderer/store/workspace-tabs"
 import { useModalOpen } from "@renderer/hooks/useModalOpen"
 import type { ToastType } from "@renderer/hooks/useToast"
-import { WORKSPACE_BUNDLE_MISSING } from "../../../shared/workspace-view"
+import { WORKSPACE_BUNDLE_MISSING, WORKSPACE_HOME_TAB } from "../../../shared/workspace-view"
 import WelcomePage from "../welcome"
 import { WorkspaceSignIn } from "./sign-in"
 
 /**
  * The Workspace half of the window: Welcome and sign-in while signed out, then a
  * measured native view hosting the web app, including its membership home.
+ * Main keeps one view per open tab and swaps them in this same rectangle.
  */
 export default function WorkspacePage(_props: {
   showToast: (msg: string, type?: ToastType) => void
@@ -25,6 +27,10 @@ export default function WorkspacePage(_props: {
   // "missing": the installed app has no Workspace bundle, and retrying cannot help.
   const [error, setError] = React.useState<"failed" | "missing" | null>(null)
   const [attempt, setAttempt] = React.useState(0)
+  // A tab whose page failed is taken off screen by main, uncovering this.
+  const activeTab = useWorkspaceTabsStore((s) => s.active)
+  const tabFailed = useWorkspaceTabsStore((s) =>
+    s.active === WORKSPACE_HOME_TAB ? s.home === "failed" : s.tabs.some((tab) => tab.id === s.active && tab.state === "failed"))
 
   React.useEffect(() => {
     const host = hostRef.current
@@ -40,7 +46,7 @@ export default function WorkspacePage(_props: {
       shown = true
       // A workspace asked for from This Computer; otherwise resume the page.
       const target = useAccountStore.getState().workspaceTarget
-      void window.api.showWorkspaceView(target?.slug ?? null, bounds, target?.token ?? null, target?.sessionId ?? null).then(() => {
+      void window.api.showWorkspaceView(target?.slug ?? null, bounds, target?.token ?? null, target?.sessionId ?? null, target?.name ?? null).then(() => {
         // Loaded: coming back later resumes wherever the user has gone since.
         if (!cancelled && target) useAccountStore.getState().clearWorkspaceTarget()
       }).catch((err: unknown) => {
@@ -66,6 +72,8 @@ export default function WorkspacePage(_props: {
     <div className="flex h-full flex-col items-center justify-center gap-3">
       {error === "missing" ? (
         <p className="text-sm text-muted-foreground">{t("account.workspaceBundleMissing")}</p>
+      ) : tabFailed && activeTab ? (
+        <><p className="text-sm text-muted-foreground">{t("account.workspaceLoadFailed")}</p><Button variant="outline" onClick={() => useWorkspaceTabsStore.getState().retry(activeTab)}>{t("account.workspaces.retry")}</Button></>
       ) : error ? (
         <><p className="text-sm text-muted-foreground">{t("account.workspaceLoadFailed")}</p><Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>{t("account.workspaces.retry")}</Button></>
       ) : <Spinner className="size-5 text-muted-foreground" />}

@@ -734,6 +734,20 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     terminalHint:
       "Type /login to sign in. This window is already pointed at the site this agent is configured for; close it once the CLI says you are signed in.",
   },
+  kimi: {
+    // Kimi Code CLI has no status/whoami command (0.39.1: export, provider, acp,
+    // web, server, login, doctor), so sign-in is read off disk. `kimi login`
+    // stores the OAuth session at $KIMI_CODE_HOME/credentials/<profile>.json,
+    // home defaulting to ~/.kimi-code and the profile to kimi-code; a signed-in
+    // file always carries a refresh_token. Until this entry existed nothing
+    // probed that file — the registry's check_ready knows only the key env vars
+    // — so a user who finished `kimi login` in the browser stayed "Login
+    // required" forever.
+    loginCommand: "kimi login",
+    statusArgs: [],
+    credsFiles: [{ path: ".kimi-code/credentials/kimi-code.json", key: "refresh_token" }],
+    apiKeyEnv: "KIMI_API_KEY",
+  },
   cline: {
     // `cline auth` is interactive — it asks which provider, then takes the
     // credential — and there is no `cline auth status` to ask afterwards, so
@@ -812,9 +826,10 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // `unverifiable` on the same entry so the verdict is "unknown" and the run is
   // still attempted.
   "antigravity",
-  // Kimi Code CLI: `kimi login` device-code flow (credentials under
-  // ~/.kimi-code/) OR a KIMI_API_KEY the adapter maps onto the CLI's
-  // KIMI_MODEL_* env-provider contract.
+  // Kimi Code CLI: `kimi login` device-code flow OR a KIMI_API_KEY the adapter
+  // maps onto the CLI's KIMI_MODEL_* env-provider contract. The sign-in itself
+  // is probed through its DUAL_LOGIN_AGENTS entry (the core's check_ready has
+  // no credential file for it).
   "kimi",
   // GitHub Copilot CLI: a GitHub sign-in (`copilot` → /login, the browser
   // device flow) OR a COPILOT_GITHUB_TOKEN. Both of its registry env fields are

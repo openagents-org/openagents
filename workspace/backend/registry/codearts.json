@@ -63,6 +63,6 @@
       "CODEARTS_CLI_AK",
       "CODEARTS_CLI_SK"
     ],
-    "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
+    "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK in Configure. Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
   }
 }

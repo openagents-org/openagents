@@ -182,3 +182,30 @@ describe('workspace model → the agent\'s own model setting', () => {
     assert.deepEqual(calls, [['env', 'opencode', '--set', 'LLM_MODEL=m']]);
   });
 });
+
+describe('separate accounts connected to one workspace', () => {
+  const one = { node_id: 'alice-connection', workspace_id: 'same-workspace', workspace_slug: 'shared', token: 'alice-token' };
+  const two = { node_id: 'bob-connection', workspace_id: 'same-workspace', workspace_slug: 'shared', token: 'bob-token' };
+  beforeEach(() => writePairings([one, two]));
+  it('resolves only the explicitly selected connection and refuses ambiguous legacy agents', () => {
+    const daemon = { config: { getNetworks: () => [] } };
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', one.node_id).token, 'alice-token');
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', two.node_id).token, 'bob-token');
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared').token, null);
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', 'revoked').token, null);
+  });
+  it('keeps agents out of the other connection roster and command targets', () => {
+    const agent = { name: 'mine', network: 'shared', node_id: one.node_id };
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace(agent, one), true);
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace(agent, two), false);
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace({ name: 'legacy', network: 'shared' }, two), false);
+  });
+  it('preserves both pairings and only disconnects the selected one', () => {
+    const cfg = require('../src/node-config');
+    cfg.recordPairing('physical-device', { ...one, token: 'fresh-alice-token' });
+    assert.equal(cfg.listPairings().length, 2);
+    assert.throws(() => cfg.clearPairing('same-workspace'), /specific device connection/);
+    cfg.clearPairing('same-workspace', one.node_id);
+    assert.deepEqual(cfg.listPairings().map(p => p.node_id), [two.node_id]);
+  });
+});

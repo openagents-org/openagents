@@ -111,7 +111,7 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
 
       {/* No stats row: the toolbar chips carry the counts, and the table's own
           "last sync" column carries the freshness the fourth tile showed. */}
-      <div className="flex-1 overflow-y-auto px-9 py-6">
+      <div className="scroll-edge flex-1 overflow-y-auto px-9 py-6">
         <ConnectionsToolbar
           search={view.search}
           onSearchChange={view.setSearch}

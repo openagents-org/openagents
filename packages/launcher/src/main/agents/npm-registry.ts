@@ -15,12 +15,39 @@ export interface NpmRegistryInfo {
   homepage?: string
 }
 
-export function fetchNpmInfo(pkg: string): Promise<NpmRegistryInfo> {
+// npm's abbreviated packument: dist-tags and each version's install manifest
+// (engines included), without the readmes and full manifests. A small fraction
+// of the full document for a package with hundreds of releases.
+const ABBREVIATED = "application/vnd.npm.install-v1+json"
+
+/**
+ * The registry npm itself will install from: the one the launcher chose at
+ * startup (npm_config_registry, set from the latency probe) when there is one.
+ */
+function registryBase(): string {
+  const chosen = (process.env.npm_config_registry || "").trim()
+  return (chosen || npmRegistryBase()).replace(/\/+$/, "")
+}
+
+/**
+ * Pass `abbreviated` when only versions and engines are needed. The full
+ * document is what carries `time` and `homepage`, which the changelog reads.
+ */
+export function fetchNpmInfo(
+  pkg: string,
+  opts: { abbreviated?: boolean } = {},
+): Promise<NpmRegistryInfo> {
+  return fetchPackument(
+    `${registryBase()}/${encodeURIComponent(pkg).replace("%40", "@")}`,
+    opts.abbreviated ? ABBREVIATED : "application/json",
+  )
+}
+
+function fetchPackument(url: string, accept: string): Promise<NpmRegistryInfo> {
   return new Promise((resolve, reject) => {
-    const url = `${npmRegistryBase()}/${encodeURIComponent(pkg).replace("%40", "@")}`
     const req = https.get(
       url,
-      { headers: { Accept: "application/json" } },
+      { headers: { Accept: accept } },
       (res) => {
         if (
           res.statusCode &&
@@ -28,7 +55,7 @@ export function fetchNpmInfo(pkg: string): Promise<NpmRegistryInfo> {
           res.statusCode < 400 &&
           res.headers.location
         ) {
-          fetchNpmInfo(res.headers.location as string).then(resolve, reject)
+          fetchPackument(res.headers.location as string, accept).then(resolve, reject)
           return
         }
         if (res.statusCode !== 200) {

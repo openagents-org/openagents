@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  ...(process.env.NEXT_DEV_ALLOWED_ORIGIN && {
+    allowedDevOrigins: [process.env.NEXT_DEV_ALLOWED_ORIGIN],
+  }),
   // The only `next/image` sources are small static logos. Routing them
   // through `/_next/image` adds nothing but a failure point: when the
   // optimiser errors or runs out of quota the sidebar logo breaks and its

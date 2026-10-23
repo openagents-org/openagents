@@ -61,7 +61,9 @@ describe('Registry', () => {
     assert.ok(entry);
     assert.ok(entry.env_config.find((f) => f.name === 'OPENAI_BASE_URL'));
     assert.equal(entry.check_ready.login_command, 'codex login');
-    assert.equal(entry.check_ready.status_command, 'codex login status');
+    // Asked through the resolved binary (status_args), not a bare `codex` on PATH.
+    assert.deepEqual(entry.check_ready.status_args, ['login', 'status']);
+    assert.equal(entry.check_ready.creds_file, '~/.codex/auth.json');
     assert.equal(entry.workspace_model, true, 'workspace model must reach Codex as CODEX_MODEL / -m');
   });
 

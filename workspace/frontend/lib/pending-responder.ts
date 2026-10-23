@@ -1,4 +1,25 @@
+import { hasAllMention } from './people-mentions';
 import type { WorkspaceAgent } from './types';
+
+/** Match people-only routing before showing an optimistic agent response. */
+export function expectsAgentResponse(opts: {
+  content: string;
+  mentions: readonly string[];
+  mentionedHumans: readonly string[];
+  dmCounterpart?: string | null;
+  responseMode?: 'proactive' | 'passive';
+}): boolean {
+  if (opts.dmCounterpart) return !opts.dmCounterpart.startsWith('human:');
+  if (opts.responseMode) {
+    // Proactive decisions are not known until the router answers. Only show
+    // an immediate pending bubble for a deterministic leading agent mention.
+    const lead = opts.content.match(/^\s*@([\w-]+)(?![\w@.+-])/)?.[1];
+    return !!lead && opts.mentions.includes(lead);
+  }
+  if (opts.mentions.length > 0) return true;
+  return !hasAllMention(opts.content) && opts.mentionedHumans.length === 0 &&
+    !/(?<![\w.@-])@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(opts.content);
+}
 
 /**
  * Who the optimistic "…" waiting bubble is attributed to after a send.

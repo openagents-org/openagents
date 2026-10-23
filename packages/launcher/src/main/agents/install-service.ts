@@ -592,10 +592,10 @@ export class InstallService {
     await this._ensureNode(onData)
 
     // `latest` means the newest release this machine can run, which is not
-    // always npm's `latest` — see _heldBackVersion.
+    // always npm's `latest` — see _installableRelease.
     const spec =
       target === "latest"
-        ? (await this._heldBackVersion(npmPkg, onData)) || target
+        ? (await this._installableRelease(npmPkg, onData))?.version || target
         : target
 
     const prefixDir = path.join(CONFIG_DIR, "runtimes", agentType)
@@ -605,14 +605,10 @@ export class InstallService {
       "--save",
       "--prefix",
       prefixDir,
-      // DSH publishes a very broad graph of small packages with overlapping
-      // peer ranges. npm's Arborist can spend minutes backtracking through it
-      // (most visibly on Windows) after every registry request has completed,
-      // leaving the launcher apparently frozen at "Resolving dependencies".
-      // The harness ships one coordinated, pinned family, so peer auto-install
-      // adds no value here; using npm's older peer treatment avoids the
-      // resolver blow-up without weakening installs for any other agent.
-      ...(agentType === "deepseek" ? ["--legacy-peer-deps"] : []),
+      // The audit and funding lookups are extra registry round trips that add
+      // nothing to a runtime install, and on a slow registry they dominate it.
+      "--no-audit",
+      "--no-fund",
       `${npmPkg}@${spec}`,
     ]
 
@@ -857,19 +853,32 @@ export class InstallService {
     npmPkg: string,
     onData: (data: string) => void,
   ): Promise<string | null> {
+    const release = await this._installableRelease(npmPkg, onData)
+    return release?.heldBack ? release.version : null
+  }
+
+  /**
+   * The newest release agents here can run, and whether that is older than
+   * npm's `latest`; null when there is no telling (no Node to ask, npm
+   * unreachable).
+   */
+  private async _installableRelease(
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): Promise<{ version: string; heldBack: boolean } | null> {
     const node = await this._nodeVersion()
     if (!node) return null
-    const info = await fetchNpmInfo(npmPkg).catch(() => null)
+    const info = await fetchNpmInfo(npmPkg, { abbreviated: true }).catch(() => null)
     const latest = resolveLatestVersion(info)
     const target = resolveInstallableVersion(info, node)
-    if (!latest || !target || target === latest) return null
-    if (onData)
+    if (!latest || !target) return null
+    if (target !== latest && onData)
       onData(
         `${npmPkg}@${latest} requires Node ${nodeEngineRange(info, latest)}, ` +
           `but agents here run on Node ${node} — installing ${target}, the ` +
           `newest release that supports it.\n\n`,
       )
-    return target
+    return { version: target, heldBack: target !== latest }
   }
 
   /**
@@ -996,7 +1005,7 @@ export class InstallService {
         // adapter would reject.
         const pinned = this.supportedVersion(entry)
         if (pinned) return { name, current, latest: pinned }
-        const info = await fetchNpmInfo(npmPkg).catch(() => null)
+        const info = await fetchNpmInfo(npmPkg, { abbreviated: true }).catch(() => null)
         // The newest release this Node can run, which is what an update
         // installs (see _heldBackVersion) — never a badge no update can clear.
         return { name, current, latest: resolveInstallableVersion(info, node) }

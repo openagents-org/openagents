@@ -1,16 +1,31 @@
 'use client';
 
+import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
+
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { workspaceApi } from './api';
+import { useMe } from '@/hooks/use-me';
+import { ApiError, workspaceApi } from './api';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import { desktopHost, requestedDesktopThread } from './desktop-host';
+import { requestedResource } from './resource-link';
+import { isOpaqueThreadId, requestedThreadId, resolveThreadLink } from './thread-link';
+import { toast } from 'sonner';
+import { useT } from './i18n';
 import { newDesktopAgentReply } from './desktop-agent-reply';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
+import { dmCounterpart, isMyAddress, myAddress } from './dm';
+import { dmUnreadCounts } from './dm-unread';
+import { threadUnreadState } from './thread-unread';
+import { unreadCutoffMs } from './unread-window';
+import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
+import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ChannelVisibility } from './types'; // v1.1 M1
+import type { ArtifactVisibility } from './types'; // permission model v1.1
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -99,6 +114,11 @@ function applyFolderOps(files: WorkspaceFile[], ops: PendingFolderOp[]): Workspa
         channelName: null,
         status: 'active',
         createdAt: null,
+        owner: null,
+        ownerLabel: null,
+        visibility: null,
+        effectiveVisibility: null,
+        canManage: false,
       },
     ];
   }, files);
@@ -148,18 +168,20 @@ interface WorkspaceContextValue {
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
   requestFirstThread: (agentName: string) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
-  updateSession: (sessionId: string, updates: { starred?: boolean; status?: string }) => Promise<void>;
+  updateSession: (sessionId: string, updates: { starred?: boolean; pinned?: boolean; isChannel?: boolean; status?: string }) => Promise<void>;
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
   setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
-  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null; workflowId?: string | null }) => Promise<void>;
+  setSessionOrchestration: (sessionId: string, updates: { mode?: string; responseMode?: 'proactive' | 'passive'; instruction?: string | null; workflowId?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  workspaceLoadError: { message: string; status: number | null } | null;
+  retryWorkspace: () => void;
   refreshAgents: () => Promise<void>;
   refreshFiles: () => Promise<void>;
   /** Queue a batch into `folder` and draw it going up; see {@link PendingUpload}. */
@@ -213,7 +235,7 @@ interface WorkspaceContextValue {
   refreshTodos: () => Promise<void>;
   tasks: KanbanTask[];
   refreshTasks: () => Promise<void>;
-  createTask: (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<KanbanTask>;
+  createTask: (input: { issueId?: string; title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<KanbanTask>;
   updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<void>;
   /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
   runTask: (id: string, agent?: string) => Promise<void>;
@@ -239,13 +261,22 @@ interface WorkspaceContextValue {
   }) => Promise<void>;
   knowledge: KnowledgeEntry[];
   refreshKnowledge: () => Promise<void>;
-  createKnowledge: (params: { title: string; content: string; description?: string }) => Promise<KnowledgeEntry>;
-  updateKnowledge: (entryId: string, params: { title?: string; content?: string; description?: string }) => Promise<KnowledgeEntry>;
+  createKnowledge: (params: { title: string; content: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }) => Promise<KnowledgeEntry>;
+  updateKnowledge: (entryId: string, params: { title?: string; content?: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }) => Promise<KnowledgeEntry>;
   deleteKnowledge: (entryId: string) => Promise<void>;
   notifications: NotificationItem[];
   unreadNotificationCount: number;
-  /** Threads with activity the user hasn't opened since */
+  /** Threads with activity the user hasn't opened since, or an unread @mention */
   unreadSessionIds: Set<string>;
+  unreadThreadCounts: Record<string, number>;
+  /** The viewer's DMs (keyed `dm:a,b` as listed) with an unread DM signal or a
+   *  last message from the other side newer than the DM's read marker. */
+  unreadDmSessionIds: Set<string>;
+  unreadDmCounts: Record<string, number>;
+  /** Anything unread the Threads view shows (listed threads or DMs) — the
+   *  nav item's attention dot. */
+  hasUnreadInThreads: boolean;
+  unreadThreadsTotal: number;
   markSessionRead: (sessionId: string) => void;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -253,7 +284,36 @@ interface WorkspaceContextValue {
   dismissNotification: (id: string) => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
+  /** Play /notification.wav for new DMs and mentions (default on). */
+  signalSound: boolean;
+  setSignalSound: (enabled: boolean) => void;
+  /** Unread DM / @mention signals (never shown in the inbox), newest poll. */
+  signals: NotificationItem[];
+  /** False until the first signals poll for this workspace has landed — what
+   *  was there on load is baselined, not notified. */
+  signalsLoaded: boolean;
+  notificationsLoaded: boolean;
+  /** The same signals grouped by thread name / `dm:` session id. */
+  unreadSignals: UnreadSignals;
+  refreshSignals: () => Promise<void>;
+  /** Mark a thread's / DM's signals read (optimistic). */
+  markChannelSignalsRead: (channel: string) => void;
+  /** Approval requests currently waiting on a person (any thread). */
+  pendingApprovals: ApprovalRequest[];
+  /** agent name → number of its pending requests; drives the amber "waiting" dot. */
+  pendingApprovalsByAgent: Record<string, number>;
+  refreshApprovals: () => Promise<void>;
+  // ── v1.1 M1/M2 ──
+  /** Flip a thread between workspace-visible and private. Optimistic; rethrows
+   *  (after rolling back) so the caller can toast a 403. */
+  setSessionVisibility: (sessionId: string, visibility: ChannelVisibility, directorEmail?: string | null) => Promise<void>;
+  /** Open a thread by channel name once discovery knows it (e.g. the one
+   *  `POST /agents/{agent}/requests` just created) and switch to it. */
+  openSessionByChannel: (channel: string) => Promise<void>;
 }
+
+/** localStorage key for the DM / mention sound (next to `oa_notification_sound`). */
+export const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
@@ -274,9 +334,22 @@ export function WorkspaceProvider({
   bearerToken?: string;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
-  const { currentUser, setUserName } = useWorkspaceIdentity();
+  const { currentUser: identityUser, setUserName } = useWorkspaceIdentity();
+  // Email/password sign-ins carry no Firebase display name, so the identity
+  // falls back to the raw email. Prefer the name the workspace roster holds
+  // for this person, so presence and "you" labels read "Sam Okafor", not an
+  // address. Anonymous / token-only identities are left as they are.
+  const [apiReady, setApiReady] = useState(false);
+  const me = useMe(apiReady ? workspaceId : null);
+  const currentUser = useMemo<WorkspaceIdentity>(() => {
+    const rosterName = (me?.displayName || '').trim();
+    if (!identityUser.isAuthenticated || !rosterName) return identityUser;
+    if (identityUser.name && identityUser.name !== identityUser.id && !identityUser.name.includes('@')) return identityUser;
+    return { ...identityUser, name: rosterName };
+  }, [identityUser, me?.displayName]);
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
@@ -315,6 +388,12 @@ export function WorkspaceProvider({
   // focus from the user. Cleared on read.
   const skipFocusRef = useRef(false);
   const setCurrentSessionId = useCallback((id: string | null, options?: { skipFocus?: boolean }) => {
+    if (currentSessionIdRef.current && currentSessionIdRef.current !== id && typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.pathname = url.pathname.replace(/(\/threads\/[^/]+)\/messages\/[^/]+\/?$/, '$1');
+      url.searchParams.delete('message');
+      if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+    }
     if (options?.skipFocus) skipFocusRef.current = true;
     _setCurrentSessionId(id);
     if (id) {
@@ -333,6 +412,9 @@ export function WorkspaceProvider({
     return v;
   }, []);
   const [loading, setLoading] = useState(true);
+  const [workspaceLoadError, setWorkspaceLoadError] = useState<{ message: string; status: number | null } | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryWorkspace = useCallback(() => setLoadAttempt(attempt => attempt + 1), []);
   const [error, setError] = useState<string | null>(null);
   const [lastMessageBySession, setLastMessageBySession] = useState<Record<string, LastMessageInfo>>({});
   const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
@@ -357,6 +439,11 @@ export function WorkspaceProvider({
   }, []);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(null);
+  useEffect(() => {
+    const resource = requestedResource(window.location.href);
+    if (resource?.view === 'files') setSelectedFileId(resource.id);
+    if (resource?.view === 'knowledge') setSelectedKnowledgeId(resource.id);
+  }, []);
   const [currentFilePath, setCurrentFilePath] = useState('');
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
   const [browserTabLimits, setBrowserTabLimits] = useState<BrowserTabLimits | null>(null);
@@ -369,8 +456,16 @@ export function WorkspaceProvider({
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  // DM / mention signals. Ids marked read locally are remembered so a poll
+  // that raced the PATCH can't bring them back.
+  const [signals, setSignals] = useState<NotificationItem[]>([]);
+  const [signalsLoaded, setSignalsLoaded] = useState(false);
+  const locallyReadSignalIdsRef = useRef<Set<string>>(new Set());
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+  const [pendingApprovalsByAgent, setPendingApprovalsByAgent] = useState<Record<string, number>>({});
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
 
   // Auto-select browser tabs for split browser view:
@@ -403,16 +498,43 @@ export function WorkspaceProvider({
   }, [browserTabs]);
 
   // Notification sound — client-side preference stored in localStorage
-  const [notificationSound, _setNotificationSound] = useState(false);
+  const [notificationSound, _setNotificationSound] = useState(true);
   useEffect(() => {
     try {
       const stored = localStorage.getItem('oa_notification_sound');
-      if (stored === 'true') _setNotificationSound(true);
+      _setNotificationSound(stored !== 'false');
     } catch {}
   }, []);
   const setNotificationSound = useCallback((enabled: boolean) => {
     _setNotificationSound(enabled);
     try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
+  }, []);
+
+  // DM / mention sound — on unless the user turned it off (stored 'false').
+  const [signalSound, _setSignalSound] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIGNAL_SOUND_KEY) === 'false') _setSignalSound(false);
+    } catch {}
+  }, []);
+  const setSignalSound = useCallback((enabled: boolean) => {
+    _setSignalSound(enabled);
+    try { localStorage.setItem(SIGNAL_SOUND_KEY, String(enabled)); } catch {}
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      try {
+        _setNotificationSound(localStorage.getItem('oa_notification_sound') !== 'false');
+        _setSignalSound(localStorage.getItem(SIGNAL_SOUND_KEY) !== 'false');
+      } catch {}
+    };
+    window.addEventListener('storage', sync);
+    window.addEventListener('workspace-sound-preferences', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('workspace-sound-preferences', sync);
+    };
   }, []);
 
   // Presence heartbeat
@@ -592,6 +714,7 @@ export function WorkspaceProvider({
   // Configure API client on mount
   useEffect(() => {
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
+    setApiReady(true);
     // Tie all subsequent events to this workspace so they line up with the
     // website + launcher funnel stages for the same workspace ID.
     if (workspaceId) {
@@ -600,11 +723,25 @@ export function WorkspaceProvider({
     }
   }, [workspaceId, token, bearerToken]);
 
+  // In the desktop app this page is one tab among several; give the tab the
+  // workspace's real name and both of the names it can be routed by.
+  useEffect(() => {
+    if (!workspace) return;
+    desktopHost()?.reportWorkspace?.({ id: workspace.workspaceId, slug: workspace.slug, name: workspace.name });
+  }, [workspace?.workspaceId, workspace?.slug, workspace?.name]);
+
   const refreshWorkspace = useCallback(async () => {
     try {
-      const ws = await workspaceApi.getWorkspace();
+      // The agents come from discover, as every other refresh takes them: the
+      // workspace record's copies lack ownerEmail/canStartThread, and the
+      // sidebar filters on those — taking them dropped Yumi (and the viewer's
+      // own agents) until the next discovery poll put them back.
+      const [ws, discovery] = await Promise.all([
+        workspaceApi.getWorkspace(),
+        workspaceApi.discover(lastReadRef.current),
+      ]);
       setWorkspace(ws);
-      setAgents(ws.agents);
+      setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load workspace');
@@ -616,15 +753,30 @@ export function WorkspaceProvider({
   const lastKnownLatestRef = React.useRef<Record<string, { id: string; timestamp: number }>>({});
   const currentSessionIdRef = React.useRef<string | null>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  // Leave the DM with an agent that was just removed: it has nobody left to
+  // answer, yet would otherwise stay open after the agent left every list.
+  const prevAgentNamesRef = useRef<{ workspaceId: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    const names = new Set(agents.map((a) => a.agentName));
+    const previous = prevAgentNamesRef.current;
+    prevAgentNamesRef.current = { workspaceId, names };
+    if (!previous || previous.workspaceId !== workspaceId) return;
+    const counterpart = dmCounterpart(currentSessionIdRef.current, myAddress(currentUserRef.current));
+    const removed = counterpart?.startsWith('openagents:') ? counterpart.slice('openagents:'.length) : null;
+    if (removed && previous.names.has(removed) && !names.has(removed)) setCurrentSessionId(null);
+  }, [agents, workspaceId, setCurrentSessionId]);
   // Track the workspace the default-thread selection last ran for, so a real
   // workspace switch re-selects while a same-workspace re-discover/token refresh
   // keeps the user's current thread.
   const prevSelectedWorkspaceRef = React.useRef<string | null>(null);
 
+  // Declared before refreshDiscovery (which polls it) and filled in below.
+  const refreshSignalsRef = useRef<() => Promise<void>>(async () => {});
+
   /** Refresh agents and channels from the discover endpoint. */
   const refreshDiscovery = useCallback(async () => {
     try {
-      const discovery = await workspaceApi.discover();
+      const discovery = await workspaceApi.discover(lastReadRef.current);
       setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
 
       const updated = discovery.channels.map((ch) =>
@@ -649,14 +801,25 @@ export function WorkspaceProvider({
             return {
               ...s,
               title: keepLocalTitle ? s.title : remote.title,
+              icon: remote.icon,
               participants: remote.participants,
               master: remote.master,
               orchestrationMode: remote.orchestrationMode,
+              responseMode: remote.responseMode,
+              membersCanAddAgents: remote.membersCanAddAgents,
+              participantsCanInvite: remote.participantsCanInvite,
               orchestrationInstruction: remote.orchestrationInstruction,
               lastEventAt: remote.lastEventAt,
+              unreadCount: remote.unreadCount,
+              readAt: remote.readAt,
+              completionAt: remote.completionAt,
+              visibility: remote.visibility,
+              workflowId: remote.workflowId,
               createdAt: remote.createdAt || s.createdAt,
               status: remote.status,
               starred: remote.starred,
+              pinned: remote.pinned,
+              isChannel: remote.isChannel,
             };
           });
         return [...merged, ...newChannels];
@@ -760,10 +923,8 @@ export function WorkspaceProvider({
           // Update active/completed state for background threads
           setLastMessageBySession((prev) => {
             const newActive = new Set<string>();
-            const newCompleted = new Set<string>();
             const newInactive = new Set<string>();
             for (const [sid, info] of Object.entries(batch)) {
-              const wasStatus = prev[sid]?.isStatus;
               const isStopping = stoppingSessionIds.has(sid);
               if (info.isStatus) {
                 if (isStopping) {
@@ -791,7 +952,6 @@ export function WorkspaceProvider({
                 // status→chat transition happens between polls or while
                 // chat-view is unmounted (homepage / monitor mode).
                 newInactive.add(sid);
-                if (wasStatus) newCompleted.add(sid);
               }
             }
             if (newActive.size > 0 || newInactive.size > 0) {
@@ -799,13 +959,6 @@ export function WorkspaceProvider({
                 const next = new Set(s);
                 Array.from(newActive).forEach((sid) => next.add(sid));
                 Array.from(newInactive).forEach((sid) => next.delete(sid));
-                return next;
-              });
-            }
-            if (newCompleted.size > 0) {
-              setCompletedSessionIds((s) => {
-                const next = new Set(s);
-                Array.from(newCompleted).forEach((sid) => next.add(sid));
                 return next;
               });
             }
@@ -819,7 +972,7 @@ export function WorkspaceProvider({
       workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); }).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
-      workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
+      workspaceApi.listConversations(undefined, lastReadRef.current).then((c) => setDMConversations(c)).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
       workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
       workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {});
@@ -827,8 +980,14 @@ export function WorkspaceProvider({
       workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {});
       workspaceApi.listNotifications().then((r) => {
         setNotifications(r.notifications);
+        setNotificationsLoaded(true);
         setUnreadNotificationCount(r.unreadCount);
       }).catch(() => {});
+      workspaceApi.listApprovals({ status: 'pending' }).then((r) => {
+        setPendingApprovals(r.approvals);
+        setPendingApprovalsByAgent(r.pendingByAgent);
+      }).catch(() => {});
+      void refreshSignalsRef.current();
     } catch {
       // Non-critical — keep existing state
     }
@@ -865,7 +1024,7 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createTask = useCallback(async (input: { title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => {
+  const createTask = useCallback(async (input: { issueId?: string; title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => {
     const task = await workspaceApi.createTask(input);
     setTasks((prev) => [...prev, task]);
     return task;
@@ -962,15 +1121,52 @@ export function WorkspaceProvider({
     await refreshRoutines();
   }, [refreshRoutines]);
 
+  const refreshApprovals = useCallback(async () => {
+    try {
+      const r = await workspaceApi.listApprovals({ status: 'pending' });
+      setPendingApprovals(r.approvals);
+      setPendingApprovalsByAgent(r.pendingByAgent);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
   const refreshNotifications = useCallback(async () => {
     try {
       const result = await workspaceApi.listNotifications();
       setNotifications(result.notifications);
+      setNotificationsLoaded(true);
       setUnreadNotificationCount(result.unreadCount);
     } catch {
       // Non-critical
     }
   }, []);
+
+  const refreshSignals = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listSignals();
+      setSignals(withoutLocallyRead(result.notifications, locallyReadSignalIdsRef.current));
+      setSignalsLoaded(true);
+    } catch {
+      // Non-critical — keep the last known signals
+    }
+  }, []);
+  refreshSignalsRef.current = refreshSignals;
+
+  const signalsRef = useRef(signals);
+  signalsRef.current = signals;
+  const markChannelSignalsRead = useCallback((channel: string) => {
+    const dropped = signalsRef.current.filter((n) => n.channelName === channel);
+    if (dropped.length === 0) return;
+    for (const n of dropped) locallyReadSignalIdsRef.current.add(n.id);
+    setSignals((prev) => prev.filter((n) => n.channelName !== channel));
+    workspaceApi.markChannelSignalsRead(channel).catch(() => {
+      // Let the next poll show them again rather than hiding them for good.
+      for (const n of dropped) locallyReadSignalIdsRef.current.delete(n.id);
+    });
+  }, []);
+
+  const unreadSignals = useMemo(() => groupSignals(signals), [signals]);
 
   const markNotificationRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, isRead: true } : n));
@@ -1012,13 +1208,13 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createKnowledge = useCallback(async (params: { title: string; content: string; description?: string }) => {
+  const createKnowledge = useCallback(async (params: { title: string; content: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }) => {
     const entry = await workspaceApi.createKnowledge(params);
     await refreshKnowledge();
     return entry;
   }, [refreshKnowledge]);
 
-  const updateKnowledge = useCallback(async (entryId: string, params: { title?: string; content?: string; description?: string }) => {
+  const updateKnowledge = useCallback(async (entryId: string, params: { title?: string; content?: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }) => {
     const entry = await workspaceApi.updateKnowledge(entryId, params);
     await refreshKnowledge();
     return entry;
@@ -1233,7 +1429,7 @@ export function WorkspaceProvider({
 
   const refreshDMConversations = useCallback(async () => {
     try {
-      const convos = await workspaceApi.listConversations();
+      const convos = await workspaceApi.listConversations(undefined, lastReadRef.current);
       setDMConversations(convos);
     } catch {
       // Non-critical
@@ -1251,6 +1447,7 @@ export function WorkspaceProvider({
     (async () => {
       setLoading(true);
       setError(null);
+      setWorkspaceLoadError(null);
       // Don't display the previous workspace's optional data while these load.
       filesEpochRef.current += 1;
       setFiles([]);
@@ -1266,13 +1463,19 @@ export function WorkspaceProvider({
       setRoutines([]);
       setKnowledge([]);
       setNotifications([]);
+      setNotificationsLoaded(false);
       setUnreadNotificationCount(0);
+      setSignals([]);
+      setSignalsLoaded(false);
+      locallyReadSignalIdsRef.current = new Set();
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
       lastKnownLatestRef.current = {};
       try {
         const [ws, discovery] = await Promise.all([
           workspaceApi.getWorkspace(),
+          // Read markers trigger historical unread aggregation. Fetch only
+          // the roster here; background discovery fills in accurate counts.
           workspaceApi.discover(),
         ]);
         if (cancelled) return;
@@ -1311,16 +1514,32 @@ export function WorkspaceProvider({
           !switchedWorkspace &&
           cur != null &&
           (channelSessions.some((s) => s.sessionId === cur) || cur.startsWith('dm:'));
-        const requestedThread = desktopHost()
-          ? requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId))
-          : null;
+        // Live thread links use /threads/<id>. Keep support for older query and hash
+        // links from desktop notifications and approval pages. Only resolve
+        // accessible channels or a DM the signed-in viewer participates in.
+        const threadLocation = desktopHost() ? window.location.hash.slice(1) : window.location.pathname + window.location.search;
+        const linkedThread = requestedThreadId(threadLocation);
+        let requestedThread = linkedThread
+          ? resolveThreadLink(threadLocation, channelSessions.map((s) => s.sessionId), myAddress(currentUserRef.current))
+          : requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId));
+        if (linkedThread && isOpaqueThreadId(linkedThread)) {
+          try { requestedThread = (await workspaceApi.resolveThreadLink(linkedThread)).session_id; }
+          catch { /* Legacy channel IDs still use access-filtered discovery above. */ }
+          if (cancelled) return;
+        }
         if (requestedThread) {
           setCurrentSessionId(requestedThread);
+          if (!desktopHost()) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        } else if (linkedThread) {
+          setCurrentSessionId(null);
+          toast.error(t('share.threadUnavailable'));
         } else if (!keepCurrent) {
           const toMs = (s: WorkspaceSession) =>
             s.lastEventAt || (s.createdAt ? new Date(s.createdAt).getTime() : 0);
           const newest = [...channelSessions]
-            .filter((s) => s.status === 'active' && !s.sessionId.startsWith('routine:'))
+            .filter((s) => s.status === 'active' && !isIssueWorkSession(s) && !isRoutineSession(s))
             .sort((a, b) => toMs(b) - toMs(a))[0];
           if (newest) {
             setCurrentSessionId(newest.sessionId);
@@ -1355,9 +1574,11 @@ export function WorkspaceProvider({
         loadOptional(workspaceApi.listKnowledge(), (r) => setKnowledge(r.entries));
         loadOptional(workspaceApi.listNotifications(), (r) => {
           setNotifications(r.notifications);
+          setNotificationsLoaded(true);
           setUnreadNotificationCount(r.unreadCount);
         });
-        loadOptional(workspaceApi.listConversations(), setDMConversations);
+        loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), setDMConversations);
+        void refreshSignals();
 
         // Bulk fetch latest message per channel (1 request instead of N).
         loadOptional(workspaceApi.latestPerChannel(), (bulk) => {
@@ -1382,14 +1603,16 @@ export function WorkspaceProvider({
         });
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load workspace');
+          const message = e instanceof Error ? e.message : 'Failed to load workspace';
+          setError(message);
+          setWorkspaceLoadError({ message, status: e instanceof ApiError ? e.status : null });
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [workspaceId, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId, token, bearerToken, loadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Locally-observed activity. `lastEventAt` is null on some workspaces, so a
   // changed message preview is the other signal that a thread moved. Status
@@ -1415,16 +1638,79 @@ export function WorkspaceProvider({
     [observedActivity],
   );
 
+  const { counts: unreadThreadCounts, completed: ownCompletions } = useMemo(
+    () => threadUnreadState(sessions, lastReadBySession, currentSessionId),
+    [sessions, lastReadBySession, currentSessionId],
+  );
+  useEffect(() => {
+    setCompletedSessionIds(previous => previous.size === ownCompletions.size && [...previous].every(id => ownCompletions.has(id)) ? previous : ownCompletions);
+  }, [ownCompletions]);
   const unreadSessionIds = useMemo(() => {
-    const unread = new Set<string>();
-    for (const session of sessions) {
-      if (session.sessionId === currentSessionId) continue;
-      const readAt = lastReadBySession[session.sessionId];
-      if (readAt === undefined) continue; // baselined below, not unread yet
-      if (activityAt(session) > readAt) unread.add(session.sessionId);
+    const unread = new Set(Object.keys(unreadThreadCounts));
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.mentions > 0 && channel !== currentSessionId && sessions.some(s => s.sessionId === channel)) unread.add(channel);
     }
     return unread;
-  }, [sessions, lastReadBySession, currentSessionId, activityAt]);
+  }, [unreadThreadCounts, unreadSignals, sessions, currentSessionId]);
+
+  // DM unread: a DM signal (person DMs), or — for agent DMs, which raise no
+  // signals — a last message from the other side newer than the read marker.
+  const myDmAddress = myAddress(currentUser);
+  const unreadDmCounts = useMemo(() => dmUnreadCounts(
+    dmConversations, myDmAddress, currentSessionId, lastReadBySession, unreadSignals,
+  ), [dmConversations, myDmAddress, currentSessionId, lastReadBySession, unreadSignals]);
+  const unreadDmSessionIds = useMemo(() => {
+    const unread = new Set<string>();
+    const cutoff = unreadCutoffMs();
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      if (id === currentSessionId) continue;
+      if (!dmCounterpart(convo.agents, myDmAddress)) continue; // not the viewer's DM
+      if (convo.lastMessage.timestamp < cutoff) continue;
+      if (unreadSignals[id]?.dms) { unread.add(id); continue; }
+      const readAt = lastReadBySession[id];
+      if (readAt === undefined) continue; // baselined below
+      const { timestamp, sender } = convo.lastMessage;
+      if (timestamp > readAt && !isMyAddress(sender, myDmAddress)) unread.add(id);
+    }
+    for (const [channel, sig] of Object.entries(unreadSignals)) {
+      if (sig.dms > 0 && channel.startsWith('dm:') && channel !== currentSessionId) unread.add(channel);
+    }
+    return unread;
+  }, [dmConversations, currentSessionId, myDmAddress, unreadSignals, lastReadBySession]);
+
+  // Only threads the list actually shows may light the nav: counting archived,
+  // routine or task sessions would leave the dot stuck on with nothing visible.
+  const hasUnreadInThreads = useMemo(
+    () => unreadDmSessionIds.size > 0 || sessions.some((s) =>
+      s.status === 'active' &&
+      !isRoutineSession(s) &&
+      !s.sessionId.startsWith('task:') &&
+      !isIssueWorkSession(s) &&
+      unreadSessionIds.has(s.sessionId)),
+    [sessions, unreadSessionIds, unreadDmSessionIds],
+  );
+
+  const unreadThreadsTotal = useMemo(() =>
+    sessions.filter(s => s.status === 'active' && !isRoutineSession(s) && !isIssueWorkSession(s) && !s.sessionId.startsWith('task:') && !s.sessionId.startsWith('dm:'))
+      .reduce((sum, s) => sum + (unreadThreadCounts[s.sessionId] || (unreadSessionIds.has(s.sessionId) ? 1 : 0)), 0)
+      + Array.from(unreadDmSessionIds).reduce((sum, id) => sum + (unreadDmCounts[id] || 1), 0),
+    [sessions, unreadThreadCounts, unreadSessionIds, unreadDmCounts, unreadDmSessionIds]);
+
+  // Baseline DMs first seen in this browser at their last message, and keep the
+  // open DM read as messages arrive (server time can run ahead of ours).
+  useEffect(() => {
+    const known = lastReadRef.current;
+    const additions: Record<string, number> = {};
+    for (const convo of dmConversations) {
+      const id = `dm:${convo.agents[0]},${convo.agents[1]}`;
+      const at = convo.lastMessage.timestamp || 0;
+      if (known[id] === undefined || (id === currentSessionId && known[id] < at)) {
+        additions[id] = Math.max(at, id === currentSessionId ? Date.now() : 0);
+      }
+    }
+    if (Object.keys(additions).length > 0) persistRead({ ...known, ...additions });
+  }, [dmConversations, currentSessionId, persistRead]);
 
   // Baseline threads we've never seen a read marker for, and keep the open
   // thread marked read as messages stream into it.
@@ -1445,6 +1731,36 @@ export function WorkspaceProvider({
     }
   }, [sessions, currentSessionId, persistRead, activityAt]);
 
+  // Opening a thread / DM reads its signals. New signals for the open one are
+  // read on arrival only while the window is focused — otherwise they stay
+  // unread (and notify) until the user comes back to it.
+  const prevSignalSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) {
+      prevSignalSessionRef.current = null;
+      return;
+    }
+    const justOpened = prevSignalSessionRef.current !== currentSessionId;
+    prevSignalSessionRef.current = currentSessionId;
+    if (!unreadSignals[currentSessionId]) return;
+    const focused = typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+    if (justOpened || focused) markChannelSignalsRead(currentSessionId);
+  }, [currentSessionId, unreadSignals, markChannelSignalsRead]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onFocus = () => {
+      const sid = currentSessionIdRef.current;
+      if (sid && document.visibilityState === 'visible') markChannelSignalsRead(sid);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [markChannelSignalsRead]);
+
   // Persist previews to localStorage for instant rendering on reload
   useEffect(() => {
     if (Object.keys(lastMessageBySession).length === 0) return;
@@ -1457,20 +1773,9 @@ export function WorkspaceProvider({
   const hasActiveAgentsRef = React.useRef(false);
   hasActiveAgentsRef.current = Object.values(lastMessageBySession).some((m) => m.isStatus);
 
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      const delay = hasActiveAgentsRef.current ? 5_000 : 15_000;
-      timeout = setTimeout(async () => {
-        await refreshDiscovery();
-        schedule();
-      }, delay);
-    };
-    schedule();
-    return () => clearTimeout(timeout);
-  }, [refreshDiscovery]);
+  useDiscoveryPolling(refreshDiscovery, !loading && !error, hasActiveAgentsRef);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => {
+  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1485,15 +1790,20 @@ export function WorkspaceProvider({
 
     const session = await workspaceApi.createChannel({
       title: opts?.title,
+      creatorId: currentUser.id,
       master: masterAgent,
       participants,
       resumeFrom: opts?.resumeFrom,
+      visibility: opts?.visibility,
+      directorEmail: opts?.directorEmail,
+      groups: opts?.groups,
+      humanParticipants: opts?.humanParticipants,
     });
-    capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom });
+    capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom, private: opts?.visibility === 'private' });
     setSessions((prev) => [session, ...prev]);
     setCurrentSessionId(session.sessionId);
     return session;
-  }, [agents]);
+  }, [agents, currentUser.id]);
 
   // Guided onboarding: after the user's first agent is connected, open a thread
   // with it automatically once it joins the workspace. One-shot; only ever set
@@ -1560,7 +1870,7 @@ export function WorkspaceProvider({
 
   const setSessionOrchestration = useCallback(async (
     sessionId: string,
-    updates: { mode?: string; instruction?: string | null; workflowId?: string | null },
+    updates: { mode?: string; responseMode?: 'proactive' | 'passive'; instruction?: string | null; workflowId?: string | null },
   ) => {
     // Optimistic: apply the mode/instruction locally, roll back on failure.
     // Snapshot the pre-update session inside the state updater so we read
@@ -1574,6 +1884,7 @@ export function WorkspaceProvider({
         return {
           ...s,
           orchestrationMode: updates.mode ?? s.orchestrationMode,
+          responseMode: updates.responseMode ?? s.responseMode,
           orchestrationInstruction:
             updates.instruction !== undefined ? updates.instruction : s.orchestrationInstruction,
           workflowId: updates.workflowId !== undefined ? updates.workflowId : s.workflowId,
@@ -1583,20 +1894,22 @@ export function WorkspaceProvider({
     try {
       await workspaceApi.updateChannel(sessionId, {
         ...(updates.mode !== undefined && { orchestrationMode: updates.mode }),
+        ...(updates.responseMode !== undefined && { responseMode: updates.responseMode }),
         ...(updates.instruction !== undefined && { orchestrationInstruction: updates.instruction }),
         ...(updates.workflowId !== undefined && { workflowId: updates.workflowId }),
       });
-    } catch {
+    } catch (error) {
       if (rollback.prev) {
         const restored = rollback.prev;
         setSessions((prev) =>
           prev.map((s) => (s.sessionId === sessionId ? restored : s))
         );
       }
+      if (updates.responseMode !== undefined) throw error;
     }
   }, []);
 
-  const updateSession = useCallback(async (sessionId: string, updates: { starred?: boolean; status?: string }) => {
+  const updateSession = useCallback(async (sessionId: string, updates: { starred?: boolean; pinned?: boolean; isChannel?: boolean; status?: string }) => {
     // Capture previous state for rollback
     const previousSession = sessions.find((s) => s.sessionId === sessionId);
     // Optimistic update
@@ -1613,7 +1926,7 @@ export function WorkspaceProvider({
     }
     try {
       await workspaceApi.updateChannel(sessionId, updates);
-    } catch {
+    } catch (error) {
       // Revert optimistic update on failure
       if (previousSession) {
         setSessions((prev) =>
@@ -1623,6 +1936,7 @@ export function WorkspaceProvider({
           setCurrentSessionId(previousSessionId);
         }
       }
+      if (updates.pinned !== undefined || updates.isChannel !== undefined) throw error;
     }
   }, [currentSessionId, sessions]);
 
@@ -1675,35 +1989,46 @@ export function WorkspaceProvider({
   const monitorMode = !!(workspace?.settings?.monitorMode);
 
   const acknowledgeCompletion = useCallback((sessionId: string) => {
+    markSessionRead(sessionId);
     setCompletedSessionIds((prev) => {
       if (!prev.has(sessionId)) return prev;
       const next = new Set(prev);
       next.delete(sessionId);
       return next;
     });
-  }, []);
+  }, [markSessionRead]);
 
-  // Play notification sound when a thread completes
-  const notificationSoundRef = React.useRef(notificationSound);
-  notificationSoundRef.current = notificationSound;
-  const prevCompletedRef = React.useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!notificationSoundRef.current) {
-      prevCompletedRef.current = completedSessionIds;
-      return;
+  // ── v1.1 M1/M2 ──────────────────────────────────────────────────────────────
+  // Thread privacy. Optimistic like updateSession; on failure the previous
+  // visibility comes back and the error propagates so the control can say why
+  // (a 403 means the caller is neither a participant nor an admin).
+  const setSessionVisibility = useCallback(async (sessionId: string, visibility: ChannelVisibility, directorEmail?: string | null) => {
+    const previous = sessions.find((s) => s.sessionId === sessionId);
+    setSessions((prev) => prev.map((s) => (
+      s.sessionId === sessionId
+        ? { ...s, visibility, ...(directorEmail !== undefined ? { directorEmail } : {}) }
+        : s
+    )));
+    try {
+      // v1.1 permission model: PATCH /v1/channels/{name}; the legacy
+      // 'workspace' value is written as 'public', a director becomes the owner.
+      await workspaceApi.updateChannelAccess(sessionId, {
+        visibility: visibility === 'private' ? 'private' : 'public',
+        ...(directorEmail ? { ownerEmail: directorEmail } : {}),
+      });
+      capture('thread_visibility_changed', { visibility });
+    } catch (e) {
+      if (previous) setSessions((prev) => prev.map((s) => (s.sessionId === sessionId ? previous : s)));
+      throw e;
     }
-    // Detect newly completed sessions
-    const prev = prevCompletedRef.current;
-    const hasNew = Array.from(completedSessionIds).some((id) => !prev.has(id));
-    prevCompletedRef.current = completedSessionIds;
-    if (hasNew) {
-      try {
-        const audio = new Audio('/notification.wav');
-        audio.volume = 0.35;
-        audio.play().catch(() => {});
-      } catch {}
-    }
-  }, [completedSessionIds]);
+  }, [sessions]);
+
+  // A thread the server just created (agent request) isn't in `sessions` yet;
+  // refresh discovery first so the chat view finds it, then select it.
+  const openSessionByChannel = useCallback(async (channel: string) => {
+    await refreshDiscovery();
+    setCurrentSessionId(channel);
+  }, [refreshDiscovery]);
 
   return (
     <WorkspaceContext.Provider
@@ -1748,6 +2073,8 @@ export function WorkspaceProvider({
         setSessionOrchestration,
         renameWorkspace,
         refreshWorkspace,
+        workspaceLoadError,
+        retryWorkspace,
         refreshAgents,
         refreshFiles,
         enqueueUploads,
@@ -1808,6 +2135,11 @@ export function WorkspaceProvider({
         notifications,
         unreadNotificationCount,
         unreadSessionIds,
+        unreadThreadCounts,
+        unreadDmSessionIds,
+        unreadDmCounts,
+        hasUnreadInThreads,
+        unreadThreadsTotal,
         markSessionRead,
         refreshNotifications,
         markNotificationRead,
@@ -1815,6 +2147,20 @@ export function WorkspaceProvider({
         dismissNotification,
         notificationSound,
         setNotificationSound,
+        signalSound,
+        setSignalSound,
+        signals,
+        signalsLoaded,
+        notificationsLoaded,
+        unreadSignals,
+        refreshSignals,
+        markChannelSignalsRead,
+        pendingApprovals,
+        pendingApprovalsByAgent,
+        refreshApprovals,
+        // ── v1.1 M1/M2 ──
+        setSessionVisibility,
+        openSessionByChannel,
       }}
     >
       {children}

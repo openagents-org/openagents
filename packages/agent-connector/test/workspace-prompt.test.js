@@ -310,3 +310,15 @@ describe('ClaudeAdapter._buildSkillsCmd', () => {
     }
   });
 });
+
+describe('saved browser lifecycle instructions', () => {
+  for (const build of [buildClaudeSkillMd, buildCursorSkillMd, buildOpenCodeSkillMd, buildOpenclawSkillMd]) {
+    it(`${build.name} preserves tabs between tasks`, () => {
+      const md = build({ ...COMMON, agentName: 'test-agent', browserEnabled: true });
+      assert.ok(md.includes('All cloud tabs are saved and reusable'));
+      assert.ok(md.includes('stable tab ID'));
+      assert.ok(md.includes('Close only when the user requests it'));
+      assert.ok(!/auto-closed|always close yours|temporary\*\* by default|Step 3 — close tab/.test(md));
+    });
+  }
+});

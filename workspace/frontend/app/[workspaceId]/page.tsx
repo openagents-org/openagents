@@ -1,12 +1,14 @@
 'use client';
 
+import { getApiBaseUrl } from '@/lib/api-base';
+
 import { use, Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
 import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { goToCentralLogin } from '@/lib/auth-redirects';
+import { goToCentralLogin, redirectToLogin } from '@/lib/auth-redirects';
 import { LogIn } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { CampaignMilestoneToasts } from '@/components/campaign/campaign-feedback';
@@ -102,9 +104,9 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         const wss = await listAccountWorkspaces(idToken);
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
-        if (match?.token) {
-          setWorkspaceCookie(match.slug || workspaceId, match.token);
-          setState({ kind: 'ok', token: match.token });
+        if (match) {
+          setWorkspaceCookie(match.slug || workspaceId, match.token || '');
+          setState({ kind: 'ok', token: match.token || '' });
           return;
         }
         // Not one of the user's workspaces. Previously we rendered the full
@@ -112,7 +114,7 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         // silently and a nonexistent slug looked like a working (empty)
         // workspace. Probe existence so a typo'd link and a membership gap
         // get distinct, explicit error screens instead.
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+        const apiUrl = getApiBaseUrl();
         const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
         if (cancelled) return;
         setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });
@@ -192,6 +194,13 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       );
     }
   }, [workspaceId, token, idToken]);
+
+  useEffect(() => {
+    if (!authLoading && isOpenAgentsDomain && (!user || !idToken)) redirectToLogin();
+  }, [authLoading, isOpenAgentsDomain, user, idToken]);
+
+  // Wait for the person's identity before ever configuring a token-only client.
+  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return <WorkspaceLoadingSplash />;
 
   // Has workspace token in URL — use it directly
   if (token) {

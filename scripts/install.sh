@@ -15,7 +15,7 @@ exec 3>&1 1>&2
 # Save original PATH to detect if openagents needs PATH setup
 ORIGINAL_PATH="$PATH"
 
-VERSION="1.0.6"
+VERSION="1.0.7"
 NPM_PACKAGE="@openagents-org/agent-launcher"
 MIN_NODE_MAJOR=18
 
@@ -157,6 +157,15 @@ elif [ ! -x "$PORTABLE_NODE" ]; then
     _install_portable=1
 fi
 
+# A leftover node binary does not mean the runtime is complete: interrupted
+# installs or package pruning can leave npm's symlink pointing at a missing file.
+export PATH="$HOME/.openagents/nodejs/bin:$PATH"
+NPM="$HOME/.openagents/nodejs/bin/npm"
+if ! "$NPM" --version >/dev/null 2>&1; then
+    info "Repairing portable Node.js: npm is missing or not working..."
+    _install_portable=1
+fi
+
 if [ "${_install_portable:-}" = "1" ]; then
     case "$OS" in
         macos)
@@ -185,15 +194,8 @@ export PATH="$HOME/.openagents/nodejs/bin:$PATH"
 # =========================================================================
 step "Installing OpenAgents CLI..."
 
-NPM="npm"
-if ! command -v npm >/dev/null 2>&1; then
-    # Try common locations
-    for d in "$HOME/.openagents/nodejs/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
-        if [ -x "$d/npm" ]; then
-            NPM="$d/npm"
-            break
-        fi
-    done
+if ! "$NPM" --version >/dev/null 2>&1; then
+    fail "npm is still unavailable after repairing portable Node.js. Check access to https://nodejs.org and rerun this installer."
 fi
 
 # Check if already installed
@@ -206,14 +208,30 @@ fi
 # Install to ~/.openagents/nodejs/node_modules/ via direct tarball (avoids npm --prefix pruning)
 PREFIX_DIR="$HOME/.openagents/nodejs"
 CORE_DIR="$PREFIX_DIR/node_modules/@openagents-org/agent-launcher"
-LATEST_VER=$($NPM view "$NPM_PACKAGE" version 2>/dev/null || echo "")
 INSTALLED_VER=""
 if [ -f "$CORE_DIR/package.json" ]; then
     INSTALLED_VER=$(node -e "try{console.log(require('$CORE_DIR/package.json').version)}catch{}" 2>/dev/null || echo "")
 fi
 
+REGISTRY="https://registry.npmjs.org"
+LATEST_VER=$("$NPM" view "$NPM_PACKAGE" version 2>/dev/null) || LATEST_VER=""
+if [ -z "$LATEST_VER" ]; then
+    # registry.npmjs.org unreachable or blocked (common in mainland China):
+    # ask the npmmirror copy, as install.ps1 does, before giving up.
+    LATEST_VER=$("$NPM" view "$NPM_PACKAGE" version --registry=https://registry.npmmirror.com 2>/dev/null) || LATEST_VER=""
+    [ -n "$LATEST_VER" ] && REGISTRY="https://registry.npmmirror.com"
+fi
+if [ -z "$LATEST_VER" ]; then
+    if [ -z "$INSTALLED_VER" ]; then
+        fail "Could not fetch the OpenAgents CLI version from npm. Check your network and npm registry configuration, then rerun this installer."
+    fi
+    # A working install must not be blocked by a registry hiccup: people rerun
+    # this script to pair a new workspace, which needs no upgrade.
+    warn "Could not reach the npm registry to check for updates — keeping installed v$INSTALLED_VER"
+fi
+
 if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
-    TARBALL_URL="https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
+    TARBALL_URL="$REGISTRY/$NPM_PACKAGE/-/agent-launcher-${LATEST_VER}.tgz"
     mkdir -p "$CORE_DIR"
     curl -fsSL "$TARBALL_URL" | tar xz -C "$CORE_DIR" --strip-components=1
 elif [ -n "$INSTALLED_VER" ]; then
@@ -233,7 +251,7 @@ if [ -f "$CORE_DIR/package.json" ]; then
     # Install blessed (TUI dep) via direct tarball — avoids npm --prefix pruning other packages
     BLESSED_DIR="$PREFIX_DIR/node_modules/blessed"
     if [ ! -f "$BLESSED_DIR/package.json" ]; then
-        BLESSED_VER=$($NPM view blessed version 2>/dev/null || echo "0.1.81")
+        BLESSED_VER=$("$NPM" view blessed version 2>/dev/null || echo "0.1.81")
         mkdir -p "$BLESSED_DIR"
         curl -fsSL "https://registry.npmjs.org/blessed/-/blessed-${BLESSED_VER}.tgz" | tar xz -C "$BLESSED_DIR" --strip-components=1
     fi
@@ -267,17 +285,6 @@ if [ -f "$CORE_DIR/package.json" ]; then
         printf '#!/bin/sh\nexec "$(dirname "$0")/../../bin/node" "$(dirname "$0")/../@openagents-org/agent-launcher/bin/agent-connector.js" "$@"\n' > "$BIN_SHIM_DIR/$name"
         chmod +x "$BIN_SHIM_DIR/$name"
     done
-fi
-
-# Portable node at ~/.openagents/nodejs/bin/ is always installed above.
-# Ensure npm is also available there (tarball includes it).
-BIN_DIR="$PREFIX_DIR/bin"
-if [ ! -x "$BIN_DIR/npm" ] && [ -x "$BIN_DIR/node" ]; then
-    # Portable tarball should include npm; if not, symlink system npm
-    SYSTEM_NPM=$(command -v npm 2>/dev/null)
-    if [ -n "$SYSTEM_NPM" ]; then
-        ln -sf "$SYSTEM_NPM" "$BIN_DIR/npm"
-    fi
 fi
 
 export PATH="$PREFIX_DIR/node_modules/.bin:$PREFIX_DIR/bin:$PATH"

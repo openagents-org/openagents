@@ -1,5 +1,7 @@
 'use client';
 
+import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
+import { AuthenticatedImage } from './authenticated-image';
 import { useState, type ReactNode } from 'react';
 import {
   File as FileIcon,
@@ -118,6 +120,7 @@ function extensionOf(filename: string): string {
 
 /** Resolve a file to its kind — extension first, content type as the fallback. */
 export function getFileKind(contentType: string | undefined, filename: string): FileKind {
+  if (contentType === WEB_PROJECT_TYPE) return 'web';
   const name = filename || '';
   if (/^https?:\/\//i.test(name)) return 'web';
 
@@ -142,6 +145,7 @@ export function getFileKind(contentType: string | undefined, filename: string): 
 }
 
 export function getFileTypeMeta(contentType: string | undefined, filename: string): FileTypeMeta {
+  if (contentType === WEB_PROJECT_TYPE) return {...FILE_TYPES.web, icon:Folder, labelKey:'webProject.kind'};
   return FILE_TYPES[getFileKind(contentType, filename)];
 }
 
@@ -153,6 +157,7 @@ export function getFileTypeMeta(contentType: string | undefined, filename: strin
 
 export type FileFilterGroup =
   | 'documents'
+  | 'pdf'
   | 'sheets'
   | 'slides'
   | 'images'
@@ -178,14 +183,15 @@ export type FileTypeFilter = FileFilterGroup | 'folders' | 'all';
 export type FileSortKey = 'name' | 'recent' | 'size';
 
 export const FILE_FILTER_GROUPS: FileFilterGroupMeta[] = [
-  { id: 'documents', labelKey: 'files.groupDocuments', kinds: ['pdf', 'doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
+  { id: 'web', labelKey: 'files.groupWeb', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
+  { id: 'documents', labelKey: 'files.groupDocuments', kinds: ['doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
+  { id: 'pdf', labelKey: 'files.groupPdf', kinds: ['pdf'], icon: FileText, color: 'var(--file-pdf)' },
   { id: 'sheets', labelKey: 'files.groupSheets', kinds: ['sheet'], icon: FileSpreadsheet, color: 'var(--file-sheet)' },
   { id: 'slides', labelKey: 'files.groupSlides', kinds: ['slides'], icon: Presentation, color: 'var(--file-slides)' },
   { id: 'images', labelKey: 'files.groupImages', kinds: ['image'], icon: ImageIcon, color: 'var(--file-image)' },
   { id: 'audio', labelKey: 'files.groupAudio', kinds: ['audio'], icon: Music, color: 'var(--file-audio)' },
   { id: 'video', labelKey: 'files.groupVideo', kinds: ['video'], icon: Video, color: 'var(--file-video)' },
   { id: 'code', labelKey: 'files.groupCode', kinds: ['code'], icon: FileCode, color: 'var(--file-code)' },
-  { id: 'web', labelKey: 'files.groupWeb', kinds: ['web'], icon: Globe, color: 'var(--file-web)' },
   { id: 'archives', labelKey: 'files.groupArchives', kinds: ['archive'], icon: FileArchive, color: 'var(--file-archive)' },
   { id: 'other', labelKey: 'files.groupOther', kinds: ['unknown'], icon: FileIcon, color: 'var(--file-unknown)' },
 ];
@@ -201,7 +207,7 @@ export function getFileFilterGroup(contentType: string | undefined, filename: st
 
 /** Short uppercase badge for a file — 'PDF', 'PNG', 'WEB', … */
 export function getFileExtensionLabel(filename: string): string {
-  if (/^https?:\/\//i.test(filename)) return 'WEB';
+  if (filename.endsWith('.webproject.zip') || /^https?:\/\//i.test(filename)) return 'WEB';
   const ext = extensionOf(filename);
   return ext ? ext.slice(0, 4).toUpperCase() : 'FILE';
 }
@@ -235,6 +241,7 @@ export function FileTypeTile({
 }) {
   const { icon: Icon, color } = getFileTypeMeta(contentType, filename);
   const extension = getFileExtensionLabel(filename);
+  if (contentType === WEB_PROJECT_TYPE) return <FolderTile className={className} />;
 
   return (
     <div
@@ -415,8 +422,8 @@ function FileThumbnail({
       style={loaded ? { background: `color-mix(in oklab, ${color} 12%, transparent)` } : undefined}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={workspaceApi.getFileUrl(file.id)}
+      <AuthenticatedImage
+        fileId={file.id}
         // Decorative: the filename sits right beside it in every caller.
         alt=""
         loading="lazy"

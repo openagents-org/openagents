@@ -22,6 +22,8 @@ const _activeTunnels = {};
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 
+const v11 = require('./tools-v11');
+
 function buildToolDefs(disabledModules) {
   const tools = [
     // -- Workspace core (always enabled) --
@@ -71,6 +73,21 @@ function buildToolDefs(disabledModules) {
             file_id: { type: 'string', description: 'File ID to read' },
           },
           required: ['file_id'],
+        },
+      },
+      {
+        name: 'workspace_publish_project',
+        description: 'Publish a static web project as one previewable artifact. Include its HTML, images, CSS, JavaScript and data using relative paths. No servers or dependencies are installed. Exclude secrets and hidden files. Reuse project_id and expected_revision to update while keeping its link and pins.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' }, entrypoint: { type: 'string', description: 'Relative HTML entry page, usually index.html' },
+            project_id: { type: 'string' }, expected_revision: { type: 'string', description: 'Revision returned by the last publish or preview' },
+            files: { type: 'array', maxItems: 500, items: { type: 'object', properties: {
+              path: { type: 'string' }, content: { type: 'string', description: 'UTF-8 text, or use content_base64 for binary files' },
+              content_base64: { type: 'string' },
+            }, required: ['path'] } },
+          }, required: ['title', 'files'],
         },
       },
       {
@@ -144,7 +161,7 @@ function buildToolDefs(disabledModules) {
         description:
           'Read a web page as text WITHOUT opening a shared browser tab. Preferred way to read any URL: ' +
           'tries a fast static fetch first, and automatically renders JavaScript-heavy pages (Notion, SPAs) ' +
-          'in a temporary browser session. Only open a shared browser tab (workspace_browser_open) when you ' +
+          'using BrowserFabric. Only open a shared browser tab (workspace_browser_open) when you ' +
           'need to interact with the page (click/type/login) or the result says AUTH_REQUIRED.',
         inputSchema: {
           type: 'object',
@@ -163,7 +180,7 @@ function buildToolDefs(disabledModules) {
       {
         name: 'workspace_browser_open',
         description:
-          'Open a new shared browser tab. Use context_name to open in a persistent browser context ' +
+          'Open a new saved shared browser tab. Reuse existing tabs first. Use context_name to reuse a saved browser context ' +
           '(preserves cookies/login sessions). List contexts with workspace_browser_list_contexts.',
         inputSchema: {
           type: 'object',
@@ -239,7 +256,7 @@ function buildToolDefs(disabledModules) {
       },
       {
         name: 'workspace_browser_close',
-        description: 'Close a shared browser tab.',
+        description: 'Close a shared browser tab only when the user requests it. Do not close after finishing a task; saved tabs are reusable.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -442,6 +459,40 @@ function buildToolDefs(disabledModules) {
     );
   }
 
+  // -- Approvals (always on: a governance primitive, not a skill) --
+  tools.push(
+    {
+      name: 'workspace_request_approval',
+      description: 'Ask a human for permission BEFORE doing something consequential: deploying to production, spending money or calling paid APIs, sending email/messages to customers or external parties, deleting data, or any irreversible action you are unsure about. Workspace policy decides: the request may be auto-approved, auto-blocked, or paused until a person with the right role approves it in the thread. This call blocks (up to wait_seconds) until a decision arrives and returns it. If it returns "pending", stop and wait — the decision will arrive as a message in this thread.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'Short label of what you want to do, e.g. "Deploy 2.4 hotfix to prod-eu" or "Email 38 affected customers"' },
+          kind: {
+            type: 'string',
+            enum: ['deploy', 'spend', 'external_send', 'repo_read', 'repo_write', 'data_delete', 'shell', 'other'],
+            description: 'Category the policy is keyed on. deploy=production deploys; spend=money/paid APIs; external_send=email/messages leaving the workspace; repo_read/repo_write=git; data_delete=destructive data ops; shell=commands with side effects; other=anything else',
+          },
+          details: { type: 'string', description: 'The exact command, diff summary, recipient list, URL or amount — what a reviewer needs to decide' },
+          risk: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Your own risk estimate' },
+          wait_seconds: { type: 'integer', description: 'How long to wait for a decision before returning "pending" (default 300, max 900)' },
+        },
+        required: ['action', 'kind'],
+      },
+    },
+    {
+      name: 'workspace_check_approval',
+      description: 'Check the status of an approval request you made earlier (by id). Use after workspace_request_approval returned "pending".',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          approval_id: { type: 'string', description: 'The approval id returned by workspace_request_approval' },
+        },
+        required: ['approval_id'],
+      },
+    },
+  );
+
   // -- Knowledge Base --
   if (!disabledModules.has('knowledge')) {
     tools.push(
@@ -489,7 +540,35 @@ function buildToolDefs(disabledModules) {
     );
   }
 
+  // -- v1.1 milestone tools (always on) --
+  tools.push(...v11.toolDefs());
+
   return tools;
+}
+
+// ── Approvals ───────────────────────────────────────────────────────────────
+
+/**
+ * What the agent reads back from an approval. The verdict comes first so a
+ * model skimming the tool result cannot miss it.
+ */
+function formatApproval(a) {
+  const who = a.resolved_by === 'policy'
+    ? 'workspace policy'
+    : a.resolved_by ? `${a.resolved_by}${a.resolved_by_role ? ` (${a.resolved_by_role})` : ''}` : null;
+  const note = a.note ? `\nNote from approver: ${a.note}` : '';
+  switch (a.status) {
+    case 'approved':
+      return `APPROVED — "${a.action}" was approved by ${who}. You may proceed.${note}\n(approval id: ${a.id})`;
+    case 'rejected':
+      return `REJECTED — "${a.action}" was rejected by ${who}. Do NOT do it. Explain in the thread what you would have done and ask how to proceed.${note}\n(approval id: ${a.id})`;
+    case 'expired':
+      return `EXPIRED — nobody decided on "${a.action}" in time. Do not proceed; ask in the thread.\n(approval id: ${a.id})`;
+    default: {
+      const role = a.required_role === 'admin' ? 'an Admin' : a.required_role === 'owner' ? 'the Owner' : 'a workspace member';
+      return `PENDING — "${a.action}" is waiting for ${role} to approve. Do NOT proceed with this action. Stop here and end your turn; the decision will arrive as a new message in this thread (@mentioning you), or call workspace_check_approval with id ${a.id} later.`;
+    }
+  }
 }
 
 // ── MIME type detection ─────────────────────────────────────────────────────
@@ -521,12 +600,13 @@ function isTextMime(mime) {
 // ── MCP Server ──────────────────────────────────────────────────────────────
 
 class McpServer {
-  constructor({ wsClient, workspaceId, channelName, agentName, token, disabledModules }) {
+  constructor({ wsClient, workspaceId, channelName, agentName, token, disabledModules, requesterEmail = process.env.OPENAGENTS_REQUESTER_EMAIL || null }) {
     this.ws = wsClient;
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.agentName = agentName;
     this.token = token;
+    this.requesterEmail = requesterEmail;
     this.disabledModules = disabledModules || new Set();
     this.tools = buildToolDefs(this.disabledModules);
   }
@@ -662,6 +742,20 @@ class McpServer {
         return text(str);
       }
 
+      case 'workspace_publish_project': {
+        const channel = this.channelName && !this.channelName.startsWith('dm:') ? this.channelName : undefined;
+        const files = args.files.map(file => {
+          if (typeof file.content_base64 !== 'string' && typeof file.content !== 'string') throw new Error('Each file needs content or content_base64');
+          return { path:file.path, content_base64:file.content_base64 ?? Buffer.from(file.content,'utf8').toString('base64') };
+        });
+        const result = await this.ws.publishWebProject(this.workspaceId, this.token, {
+          title:args.title, entrypoint:args.entrypoint || 'index.html', files,
+          channel_name:channel, visibility:channel ? 'inherit' : 'private',
+          source:`openagents:${this.agentName}`, expected_revision:args.expected_revision,
+        }, args.project_id);
+        return text(`Project published (id: ${result.id}, revision: ${result.revision}). Link it in your reply: [${args.title}](/v1/files/${encodeURIComponent(result.id)})`);
+      }
+
       case 'workspace_write_file': {
         const mime = args.content_type || detectMime(args.filename);
         let b64;
@@ -674,9 +768,10 @@ class McpServer {
           contentType: mime,
           source: `openagents:${this.agentName}`,
           channelName: this.channelName,
+          visibility: this.channelName ? 'inherit' : undefined,
         });
         const fileId = result.id || result.file_id || 'unknown';
-        return text(`File written: ${args.filename} (id: ${fileId})`);
+        return text(`File written: ${args.filename} (id: ${fileId}). Link it in your reply: [${args.filename}](/v1/files/${encodeURIComponent(fileId)})`);
       }
 
       case 'workspace_delete_file': {
@@ -745,6 +840,7 @@ class McpServer {
         const opts = {
           url: args.url || 'about:blank',
           source: `openagents:${this.agentName}`,
+          channel: this.channelName,
         };
         // Resolve context_name to context_id
         if (args.context_name) {
@@ -767,29 +863,29 @@ class McpServer {
       }
 
       case 'workspace_browser_navigate': {
-        const result = await this.ws.browserNavigate(this.workspaceId, this.token, args.tab_id, args.url);
+        const result = await this.ws.browserNavigate(this.workspaceId, this.token, args.tab_id, args.url, { source: `openagents:${this.agentName}`, channel: this.channelName });
         const title = result.title || '';
         return text(`Navigated to: ${args.url}${title ? ` (title: ${title})` : ''}`);
       }
 
       case 'workspace_browser_click': {
-        const result = await this.ws.browserClick(this.workspaceId, this.token, args.tab_id, args.selector);
+        const result = await this.ws.browserClick(this.workspaceId, this.token, args.tab_id, args.selector, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(`Clicked: ${args.selector}${result.url ? ` (url now: ${result.url})` : ''}`);
       }
 
       case 'workspace_browser_type': {
-        await this.ws.browserType(this.workspaceId, this.token, args.tab_id, args.selector, args.text);
+        await this.ws.browserType(this.workspaceId, this.token, args.tab_id, args.selector, args.text, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(`Typed into ${args.selector}: ${args.text.slice(0, 50)}${args.text.length > 50 ? '...' : ''}`);
       }
 
       case 'workspace_browser_screenshot': {
-        const buf = await this.ws.browserScreenshot(this.workspaceId, this.token, args.tab_id);
+        const buf = await this.ws.browserScreenshot(this.workspaceId, this.token, args.tab_id, { source: `openagents:${this.agentName}`, channel: this.channelName });
         const b64 = Buffer.isBuffer(buf) ? buf.toString('base64') : buf;
         return image(b64, 'image/png');
       }
 
       case 'workspace_browser_snapshot': {
-        const snapshot = await this.ws.browserSnapshot(this.workspaceId, this.token, args.tab_id);
+        const snapshot = await this.ws.browserSnapshot(this.workspaceId, this.token, args.tab_id, { source: `openagents:${this.agentName}`, channel: this.channelName });
         return text(typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot));
       }
 
@@ -1039,6 +1135,35 @@ class McpServer {
         return text(lines.join('\n'));
       }
 
+      // ── Approvals ──
+
+      case 'workspace_request_approval': {
+        const waitSec = Math.max(0, Math.min(900, Number(args.wait_seconds) || 300));
+        let approval = await this.ws.createApproval(this.workspaceId, this.token, {
+          channel: this.channelName,
+          kind: args.kind || 'other',
+          action: args.action,
+          details: args.details,
+          risk: args.risk,
+          source: `openagents:${this.agentName}`,
+        });
+        const deadline = Date.now() + waitSec * 1000;
+        while (approval.status === 'pending' && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 3000));
+          try {
+            approval = await this.ws.getApproval(this.workspaceId, this.token, approval.id);
+          } catch (e) {
+            this._log(`approval poll failed: ${e.message}`);
+          }
+        }
+        return text(formatApproval(approval));
+      }
+
+      case 'workspace_check_approval': {
+        const approval = await this.ws.getApproval(this.workspaceId, this.token, args.approval_id);
+        return text(formatApproval(approval));
+      }
+
       // ── Knowledge Base ──
 
       case 'workspace_list_knowledge': {
@@ -1087,8 +1212,11 @@ class McpServer {
         return text(`Knowledge entry deleted: ${args.entry_id}`);
       }
 
-      default:
+      default: {
+        const handled = await v11.dispatch(this, name, args, { text, image });
+        if (handled !== undefined) return handled;
         throw new Error(`Unknown tool: ${name}`);
+      }
     }
   }
 
@@ -1114,7 +1242,8 @@ function jsonRpcError(id, code, message) {
 // ── Entry point (called from cli.js) ────────────────────────────────────────
 
 function runMcpServer(opts) {
-  const wsClient = new WorkspaceClient(opts.endpoint);
+  // Every tool call (incl. tools-v11 via server.ws) is made for opts.agentName.
+  const wsClient = new WorkspaceClient(opts.endpoint, { agentName: opts.agentName });
   const server = new McpServer({
     wsClient,
     workspaceId: opts.workspaceId,

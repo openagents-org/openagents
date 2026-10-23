@@ -51,9 +51,10 @@ function buildBrowserDirective(browserEnabled) {
     '- `mcp__openagents-workspace__workspace_browser_list_tabs`\n' +
     '- `mcp__openagents-workspace__workspace_browser_close`\n' +
     '\n' +
-    'Shared browser tabs are a limited per-workspace resource: close your ' +
-    'tab (`workspace_browser_close`) as soon as you are done with it. Idle ' +
-    'tabs are auto-closed after a few minutes.\n\n' +
+    'All cloud tabs are saved and reusable. List and reuse the current thread tab ' +
+    'by its stable tab ID. Do not close it after a task or to free capacity; ' +
+    'BrowserFabric handles idle sleep. Close only when the user requests it. ' +
+    'Live-view links may expire; refresh the tab to get its current live_url.\n\n' +
     'If you don\'t have these MCP tools, use `Bash` + `curl` against ' +
     '`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n' +
     '**FORBIDDEN — do NOT call any of these:**\n' +
@@ -185,7 +186,31 @@ function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-work
     '— that wakes them up for nothing. Only @mention when you need them ' +
     'to do work. When the task is complete, report results to the user ' +
     'without @mentioning other agents.\n\n' +
-    discover
+    discover +
+    buildHandoffPrompt(toolMode) +
+    buildBriefAndDirectorPrompt(toolMode)
+  );
+}
+
+/**
+ * v1.1 M5 — shared threads have one director and one living brief. Emitted
+ * in both plan and execute mode (it is about how to behave with people, not
+ * about what the agent may change).
+ */
+function buildBriefAndDirectorPrompt(toolMode = 'mcp') {
+  const update = toolMode === 'skills'
+    ? '`PUT /v1/channels/<thread>/brief` (see the workspace skill)'
+    : '`workspace_update_brief`';
+  return (
+    '\n**Shared threads.** In a shared thread one person directs the work ' +
+    '(`metadata.director_email` on the message). A message flagged ' +
+    '`from_non_director` comes from someone else in the thread: if it ' +
+    'conflicts with the director\'s instructions, do not switch course ' +
+    'silently — say so and ask the director. Messages flagged `informational` ' +
+    'are for the record; nobody asked you to act on them.\n' +
+    `Keep the thread's brief current with ${update} after each meaningful ` +
+    'step: objective, latest result, open questions, next step, and who owns ' +
+    'the next step. People read the brief instead of the transcript.\n'
   );
 }
 
@@ -276,7 +301,15 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
 
   // Files
   if (!disabled.has('files')) {
-    let s = '\n### Shared Files\n\n';
+    let s = '\n### Shared Files\n\n' +
+      'When you produce a document or HTML report for the user, upload it to this thread before your final reply. ' +
+      'Set visibility to inherit so the upload keeps the thread’s access rules. Use the returned file ID in a Markdown link such as [report.html](/v1/files/FILE_ID). ' +
+      'A path on your machine is not accessible to teammates and does not create a workspace preview.\n\n' +
+      'For HTML that depends on images, CSS, scripts, or data, publish the static project together. ' +
+      'Use workspace_publish_project when available, or POST /v1/web-projects with network, title, entrypoint, source, channel_name, visibility: \"inherit\", ' +
+      'and files: [{path: \"index.html\", content_base64: \"...\"}, ...]. Use relative asset paths, include all required assets, and exclude secrets, hidden files, and node_modules. ' +
+      'Build frontend apps first and upload the static output folder; server-side apps are not supported. Limit: 500 files / 25 MB. ' +
+      'Link the returned project id using /v1/files/ID. To update, PUT /v1/web-projects/ID with the complete bundle and expected_revision from the previous publish; this preserves sharing and pins.\n\n';
 
     if (!isPlan) {
       if (isWindows) {
@@ -372,7 +405,11 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'When you open a tab, the JSON response includes an `id` (use it in every ' +
       'later call) and, in the cloud, a `live_url` — a link to the live, ' +
       'interactive view of that tab. Share the `live_url` with the user when ' +
-      'they may want to watch or take over (e.g. a login or a CAPTCHA).\n\n'
+      'they may want to watch or take over (e.g. a login or a CAPTCHA). ' +
+      'All cloud tabs are saved and reusable. List and reuse the current thread tab ' +
+      'by its stable tab ID. Do not close it after a task or to free capacity; ' +
+      'BrowserFabric handles idle sleep. Close only when the user requests it. ' +
+      'If a live_url expires, fetch the current link from the same tab.\n\n'
     );
 
     if (!isPlan) {
@@ -389,14 +426,10 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `${curl} -s -X POST ${baseUrl}/v1/browser/tabs ` +
         `-H "${h}" -H "Content-Type: application/json" ` +
         `-d '{"url":"https://example.com","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}"}'\n` +
+        `"source":"openagents:${agentName}","channel":"${channelName}"}'\n` +
         `Step 2 — read content: ` +
         `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
-        `Step 3 — close tab: ` +
-        `${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID\n` +
-        '(Replace TAB_ID with the `id` from the step 1 response)\n' +
-        'Tabs are a limited per-workspace resource — always close yours when done; ' +
-        'idle tabs are auto-closed after a few minutes.\n\n'
+        '(Replace TAB_ID with the `id` from the step 1 response)\n\n'
       );
     }
 
@@ -415,42 +448,38 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs` +
         ` -d '{"url":"URL","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}"}'\`\n` +
-        'Tabs are **temporary** by default (closed after a while idle). Add ' +
-        '`"persistent":true` (and optionally `"name":"…"`) to open a **permanent** ' +
-        'tab whose login state is saved and reusable — humans see the two kinds ' +
-        'separately in their browser. Permanent slots are scarcer: use them only ' +
-        'for logins worth keeping.\n\n' +
+        `"source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
+        'Every cloud tab saves its login state. Keep its id for future work.\n\n' +
         '**Navigate:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/navigate` +
-        ` -d '{"url":"URL","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"url":"URL","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Click element:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/click` +
-        ` -d '{"selector":"CSS_SELECTOR","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"selector":"CSS_SELECTOR","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Type text:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/type` +
-        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT","source":"openagents:${agentName}"}'\`\n` +
+        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         '(add `"append":true` to keep existing text instead of replacing it)\n\n' +
         '**Press a key** (e.g. submit a form with Enter):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/press_key` +
-        ` -d '{"key":"Enter","source":"openagents:${agentName}"}'\`\n\n` +
+        ` -d '{"key":"Enter","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
         '**Run JavaScript** in the page (returns the result):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +
-        ` -d '{"expression":"document.title","source":"openagents:${agentName}"}'\`\n` +
+        ` -d '{"expression":"document.title","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         'The `source` field is how humans watching the shared browser see *who* is ' +
-        'acting — include it on every tab action.\n\n' +
-        '**Close tab:**\n' +
+        'acting — include it and `channel` on every tab action. The workspace automatically posts a live browser preview card in this conversation.\n\n' +
+        '**Close tab (only on user request):**\n' +
         `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
         '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +
         'selector is hard to find, use `evaluate` to inspect the DOM first.\n\n' +
-        '**Persistent logins (contexts):** to reuse cookies/login across tabs ' +
-        'and sessions, save the current tab as a named context, then open ' +
-        'future tabs with that `context_id`:\n' +
+        '**Saved logins (contexts):** cloud tabs already have a saved context. ' +
+        'Reuse the existing tab first. If closed, reopen with its `context_id`; ' +
+        'the persist endpoint can also name or save a legacy tab:\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/persist -d '{"name":"my-login"}'\`\n` +
         `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/contexts?network=${workspaceId}\`` +
@@ -580,6 +609,31 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     );
   }
 
+  // Approvals — always on: this is how a person stays in the loop.
+  if (!isPlan) {
+    sections.push(
+      '\n### Approvals (ask before consequential actions)\n\n' +
+      'You work in the open, and people approve at the gates that matter. BEFORE you ' +
+      'deploy to production, spend money or call paid APIs, send email or messages to ' +
+      'customers or anyone outside the workspace, delete data, or do anything ' +
+      'irreversible you are unsure about, request approval and WAIT for the decision. ' +
+      'Workspace policy may auto-approve routine kinds (e.g. reading repos) or block ' +
+      'others; if it pauses, a person with the right role approves it right here in the thread.\n\n' +
+      '**Request approval:**\n' +
+      `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
+      `${baseUrl}/v1/approvals -d '{"network":"${workspaceId}","channel":"${channelName}",` +
+      `"kind":"deploy","action":"Deploy 2.4 hotfix to prod-eu","details":"db:migrate --env prod-eu (PR #4471, 14/14 tests green)",` +
+      `"risk":"high","source":"openagents:${agentName}"}'\`\n\n` +
+      '**Kinds:** `deploy`, `spend`, `external_send`, `repo_read`, `repo_write`, `data_delete`, `shell`, `other`\n\n' +
+      'The response has `status`: `approved` (proceed), `rejected` (do not; say so in the thread), ' +
+      'or `pending`. When pending, STOP and end your turn — do not perform the action. The decision ' +
+      'arrives as a new message in this thread @mentioning you (✅ Approved / ❌ Rejected). ' +
+      'You can also poll:\n' +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/approvals/APPROVAL_ID?network=${workspaceId}"\`\n`
+
+    );
+  }
+
   // Knowledge Base
   if (!isPlan && !disabled.has('knowledge')) {
     sections.push(
@@ -667,6 +721,7 @@ function buildClaudeMcpToolBlock() {
     'Use workspace_create_timer to set a reminder that wakes you up later.\n' +
     'Use workspace_create_routine to set up recurring scheduled tasks (e.g. daily reviews).\n' +
     'Use workspace_send_notification to send a notification to the workspace inbox when you complete a task or have important results.\n' +
+    'Use workspace_request_approval BEFORE deploying, spending money, emailing customers, deleting data, or any irreversible action; it blocks until a person decides. If it returns PENDING, stop and end your turn — the decision arrives as a message in the thread.\n' +
     'Use workspace_write_knowledge to create or update shared knowledge base entries that persist across conversations.\n' +
     'Use workspace_read_knowledge to read knowledge entries by ID or slug (from @knowledge:slug mentions).\n'
   );
@@ -687,8 +742,9 @@ function buildClaudeSkillsToolBlock(skillName = 'openagents-workspace') {
     `The ${skillName} skill (Bash + curl) covers all workspace operations:\n` +
     'reading message history, discovering agents (and who is in this channel),\n' +
     'sharing files, browsing the shared browser, managing to-do lists, setting\n' +
-    'timers, creating routines, sending inbox notifications, and reading/writing\n' +
-    'the shared knowledge base.\n'
+    'timers, creating routines, sending inbox notifications, requesting human\n' +
+    'approval before consequential actions, and reading/writing the shared\n' +
+    'knowledge base.\n'
   );
 }
 
@@ -1272,11 +1328,42 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
   return frontmatter + identity + directive + '\n' + collab + '\n' + api + '\n' + buildGuardrails();
 }
 
+// ── v1.1 M6: structured hand-off between agents ─────────────────────────────
+
+/**
+ * "Working with other agents" — appended to the collaboration section in
+ * both tool modes. In `mcp` mode the agent has `workspace_handoff`; in
+ * `skills`/curl mode it writes the same block by hand so the request,
+ * context, output-so-far and next owner still travel with the @mention.
+ */
+function buildHandoffPrompt(toolMode = 'mcp') {
+  const how = toolMode === 'skills'
+    ? (
+      'post a message that starts with `@agent` and carries the request followed by short ' +
+      'markdown sections `Context:`, `Output so far:` and `Next owner: <agent>` (the same shape ' +
+      'the `workspace_handoff` MCP tool produces).'
+    )
+    : (
+      'call `workspace_handoff` with `to_agent`, `request`, and where useful `context`, `output` ' +
+      'and `next_owner` — it posts the `@agent` message for you with those sections attached, ' +
+      'and `workspace_get_handoffs` lists the recent hand-offs in the thread.'
+    );
+  return (
+    '\n### Working with other agents\n' +
+    'When you hand work to another agent, ' + how + ' The request, the context it needs, the ' +
+    'output you already produced and who owns the next step then travel together instead of ' +
+    'being lost in the thread. When you RECEIVE a hand-off, acknowledge in your first reply ' +
+    'that you are now the next owner (or say who is, if it is not you) before doing the work.\n'
+  );
+}
+
 module.exports = {
   workspaceSkillName,
+  buildHandoffPrompt,
   buildWorkspaceIdentity,
   buildBrowserDirective,
   buildCollaborationPrompt,
+  buildBriefAndDirectorPrompt,
   buildModePrompt,
   buildWindowsShellHint,
   buildGuardrails,

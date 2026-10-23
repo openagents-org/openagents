@@ -46,7 +46,10 @@
     ],
     "saved_env_key": "KIMI_API_KEY",
     "login_command": "kimi login",
-    "not_ready_message": "Not configured — set an API key (press e) or run: kimi login"
+    "not_ready_message": "Not configured — set an API key in Configure, or run: kimi login",
+    "creds_file": "~/.kimi-code/credentials/kimi-code.json",
+    "creds_no_parse": true,
+    "creds_key": "refresh_token"
   },
   "env_config": [
     {

@@ -20,6 +20,7 @@
     "date-fns": "^4.1.0",
     "firebase": "^12.10.0",
     "lucide-react": "^0.541.0",
+    "mammoth": "^1.13.0",
     "mermaid": "^11.15.0",
     "motion": "^12.23.12",
     "next": "16.1.1",
@@ -37,6 +38,8 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@csstools/postcss-cascade-layers": "^6.0.2",
+    "@csstools/postcss-oklab-function": "^5.0.15",
     "@tailwindcss/postcss": "^4.1.17",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.3.0",
@@ -45,6 +48,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.6",
+    "postcss-nesting": "^14.0.3",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.2",
     "vite": "^7.3.6",

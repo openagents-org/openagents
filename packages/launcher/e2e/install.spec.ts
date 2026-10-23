@@ -7,6 +7,7 @@
 // macOS AND Windows runners?
 
 import { test, expect } from "./fixtures"
+import { openMarketplace } from "./marketplace"
 
 const SLUG = process.env.E2E_AGENT || "openclaw"
 
@@ -14,14 +15,14 @@ const SLUG = process.env.E2E_AGENT || "openclaw"
 const INSTALL_TIMEOUT = 15 * 60 * 1000
 
 test.describe("launcher install smoke", () => {
-  test(`boots and installs ${SLUG}`, async ({ page }) => {
+  test(`boots and installs ${SLUG}`, async ({ page, launcher }) => {
     test.setTimeout(INSTALL_TIMEOUT + 120_000)
 
     // 1. App booted.
     await expect(page).toHaveTitle(/OpenAgents/i)
 
     // 2. Go to the Install (marketplace) tab.
-    await page.getByTestId("nav-install").click()
+    await openMarketplace(launcher.app)
 
     // 3. The agent's card renders.
     const card = page.getByTestId(`agent-card-${SLUG}`)

@@ -255,6 +255,7 @@ export function AgentEnvFields({
           <button
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}
+            data-testid="env-advanced-toggle"
             className="inline-flex cursor-pointer items-center gap-1 self-start border-0 bg-transparent p-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
           >
             {advancedOpen ? (

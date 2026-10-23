@@ -52,7 +52,7 @@
     ],
     "saved_env_key": "CLINE_API_KEY",
     "login_command": "cline auth",
-    "not_ready_message": "Not configured — set an API key (press e) or run: cline auth"
+    "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth"
   },
   "env_config": [
     {

@@ -17,6 +17,8 @@ export type { AppMode } from "../lib/app-entry"
 /** A workspace to open on the Workspace side, asked for from outside it. */
 export interface WorkspaceTarget {
   slug: string
+  /** What its tab says until the page names the workspace itself. */
+  name?: string | null
   /** Select this thread after the workspace has loaded. */
   sessionId?: string | null
   /**
@@ -45,10 +47,11 @@ interface AccountState {
    * This Computer reopens wherever the user last left it.
    */
   exitWorkspace: (tab?: string) => void
-  /** Resume the shared Workspace page. */
+  /** Resume whichever Workspace page — a tab, or All Workspaces — showed last. */
   enterWorkspaceMode: () => void
+  /** Show All Workspaces. Open tabs stay open behind it. */
   openWorkspaces: () => void
-  /** Open one workspace in the app's own Workspace. */
+  /** Open one workspace in its own tab, or bring its tab forward. */
   openWorkspace: (target: WorkspaceTarget) => void
   clearWorkspaceTarget: () => void
   showWelcome: () => void

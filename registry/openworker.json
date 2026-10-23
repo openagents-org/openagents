@@ -54,7 +54,7 @@
       "GEMINI_API_KEY"
     ],
     "saved_env_key": "OPENWORKER_API_KEY",
-    "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY (press e to configure)",
+    "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY in Configure",
     "unreadable_message": "The OpenWorker model key could not be read. Re-enter OPENWORKER_API_KEY in the Configure screen."
   },
   "env_config": [

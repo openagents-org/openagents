@@ -17,10 +17,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, app_version, auth, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, watches, workflows, workspaces
+from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -416,25 +415,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
-    logger.info("LIFESPAN: creating timer task")
-    timer_task = asyncio.create_task(_timer_loop())
-
-    # One-off browser sweep at boot: sessions leaked before a restart (or
-    # closes that failed mid-deploy) get released now instead of waiting
-    # for the first periodic maintenance cycle.
-    from app.browser_maintenance import sweep_browser_tabs
-    startup_browser_sweep = asyncio.create_task(sweep_browser_tabs())  # noqa: F841 — keep ref so it isn't GC'd
+    background_tasks = []
+    # Additional HTTP replicas can share the database/cache without adding
+    # schedulers. At least one deployment must retain background jobs.
+    if os.environ.get("BACKGROUND_JOBS_ENABLED", "true").strip().lower() in ("1", "true", "yes"):
+        logger.info("LIFESPAN: creating background tasks")
+        background_tasks.append(asyncio.create_task(_timer_loop()))
+        from app.browser_maintenance import sweep_browser_tabs
+        background_tasks.append(asyncio.create_task(sweep_browser_tabs()))
+    else:
+        logger.info("LIFESPAN: background jobs disabled on this replica")
 
     logger.info("LIFESPAN: yielding (startup complete)")
-    yield
-    timer_task.cancel()
     try:
-        await timer_task
-    except asyncio.CancelledError:
-        pass
-    # Shutdown: close Playwright browser
-    from app.browser import BrowserManager
-    await BrowserManager.get().shutdown()
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        # Shutdown: close Playwright browser
+        from app.browser import BrowserManager
+        await BrowserManager.get().shutdown()
 
 
 app = FastAPI(
@@ -477,7 +478,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 
-class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
+class NoTransformCompressionHeadersMiddleware:
     """Tell intermediate CDNs (Railway's Fastly layer) not to decompress
     our gzipped responses.
 
@@ -492,18 +493,28 @@ class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
     share across clients.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Don't override if the handler already set cache-control explicitly.
-        if "cache-control" not in response.headers:
-            response.headers["cache-control"] = "private, no-transform, max-age=0"
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_cache_policy(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                if not any(k.lower() == b"cache-control" for k, _ in headers):
+                    headers.append((b"cache-control", b"private, no-transform, max-age=0"))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache_policy)
 
 
 app.add_middleware(NoTransformCompressionHeadersMiddleware)
 
 
-class UserAgentLogMiddleware(BaseHTTPMiddleware):
+class UserAgentLogMiddleware:
     """Log User-Agent on every POST so we can tell which client (iPhone
     URLSession vs Mac vs Chrome) is calling each mutating endpoint.
     GETs are excluded because /v1/events polling would drown the logs.
@@ -511,19 +522,61 @@ class UserAgentLogMiddleware(BaseHTTPMiddleware):
     /v1/devices/register call from the iPhone.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.method == "POST":
-            logger.info(
-                "POST %s ua=%s status=%s",
-                request.url.path,
-                request.headers.get("user-agent", "<none>"),
-                response.status_code,
-            )
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        user_agent = next((v.decode("latin-1") for k, v in scope.get("headers", [])
+                           if k.lower() == b"user-agent"), "<none>")
+
+        async def send_with_log(message):
+            if message["type"] == "http.response.start":
+                logger.info("POST %s ua=%s status=%s", scope["path"], user_agent, message["status"])
+            await send(message)
+
+        await self.app(scope, receive, send_with_log)
 
 
 app.add_middleware(UserAgentLogMiddleware)
+
+
+class AgentIdentityMiddleware:
+    """Pure-ASGI: stash the agent identity of a machine call (header
+    `X-Agent-Name`, else `source=openagents:<name>` in the query string) in a
+    ContextVar so access_model.resolve_principal can pick it up without every
+    router growing a new parameter. A human bearer always wins over it."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from urllib.parse import parse_qs
+
+        from app.services.access_model import (
+            agent_name_from_request,
+            reset_request_agent_name,
+            set_request_agent_name,
+        )
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        query = {}
+        try:
+            raw = scope.get("query_string") or b""
+            if b"source=" in raw:
+                query = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="replace")).items() if v}
+        except Exception:
+            query = {}
+        token = set_request_agent_name(agent_name_from_request(headers, query))
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            reset_request_agent_name(token)
+
+
+app.add_middleware(AgentIdentityMiddleware)
 
 
 # Log Pydantic validation failures with the offending body so we can
@@ -551,8 +604,17 @@ async def _log_validation_errors(request: Request, exc: RequestValidationError):
 
 
 # Routers
+app.include_router(reactions.router)
+app.include_router(agent_services.router)
 app.include_router(account.router)
 app.include_router(app_version.router)
+app.include_router(approvals.router)
+app.include_router(sharing.router)
+app.include_router(groups.router)
+app.include_router(grants.router)
+app.include_router(thread_access.router)
+app.include_router(agent_profile.router)
+app.include_router(briefs.router)
 app.include_router(auth.router)
 app.include_router(campaign.router)
 app.include_router(pilot.router)
@@ -563,17 +625,20 @@ app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
+app.include_router(web_projects.router)
 app.include_router(integrations.router)
 app.include_router(invites.router)
 app.include_router(knowledge.router)
 app.include_router(model_access.router)
 app.include_router(network.router)
 app.include_router(nodes.router)
+app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay after devices.router
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)
+app.include_router(issues.router)
 app.include_router(tasks.router)
 app.include_router(todos.router)
 app.include_router(workflows.router)

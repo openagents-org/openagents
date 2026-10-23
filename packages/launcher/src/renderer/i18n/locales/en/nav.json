@@ -1,13 +1,8 @@
 {
-  "sections": {
-    "overview": "Overview",
-    "manage": "Manage",
-    "system": "System"
-  },
   "items": {
     "dashboard": {
-      "label": "This Computer",
-      "description": "Your device, workspace connections, and the agents running here."
+      "label": "Connect Agents",
+      "description": "Install and configure agents, then connect them to workspaces"
     },
     "install": {
       "label": "Agent Marketplace",
@@ -18,7 +13,7 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Connected workspaces",
+      "label": "Joined Workspaces",
       "description": "Workspaces this computer has joined as a device"
     },
     "chat": {
@@ -60,17 +55,10 @@
     "clear": "Clear",
     "empty": "No notifications yet."
   },
-  "search": "Search…",
-  "menu": {
-    "label": "More options"
-  },
-  "toggleSidebar": "Collapse / expand sidebar",
-  "collapseSidebar": "Collapse sidebar",
-  "expandSidebar": "Expand sidebar",
-  "guide": "Quick start guide",
+  "search": "Search agents, workspaces…",
   "themeToggle": "Theme",
-  "themeTooltip": "Theme: {{mode}} — click for {{next}}",
   "modeSwitch": "Switch between this machine and your workspaces",
-  "modeLauncher": "This Computer",
-  "modeWorkspace": "Workspace"
+  "modeLauncher": "Device",
+  "modeWorkspace": "Workspace",
+  "pages": "This Computer pages"
 }

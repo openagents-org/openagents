@@ -42,7 +42,7 @@
       "DEEPSEEK_API_KEY"
     ],
     "saved_env_key": "LLM_API_KEY",
-    "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) — press e to configure"
+    "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) in Configure"
   },
   "env_config": [
     {

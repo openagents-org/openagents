@@ -1,0 +1,129 @@
+import type { NotificationItem, WorkspaceSession } from './types';
+
+/**
+ * Pure helpers for the inbox — kept framework-free so the grouping can be
+ * unit-tested and shared by the inbox view and anything that counts rows.
+ *
+ * A row is *actionable* when it points at something a person can decide on
+ * from the inbox (v1.1: an approval
+ * on the approvals table). Everything else is a plain notice.
+ */
+
+export type InboxActionKind = 'approval';
+
+export const ACTIONABLE_KINDS: readonly InboxActionKind[] = ['approval'];
+
+export function inboxActionKind(n: Pick<NotificationItem, 'kind' | 'actionRef'>): InboxActionKind | null {
+  if (!n.actionRef) return null;
+  return (ACTIONABLE_KINDS as readonly string[]).includes(n.kind ?? '') ? (n.kind as InboxActionKind) : null;
+}
+
+export function isActionableNotification(n: Pick<NotificationItem, 'kind' | 'actionRef'>): boolean {
+  return inboxActionKind(n) !== null;
+}
+
+/*
+ * DMs and @mentions are not inbox rows: the server keeps them out of the inbox
+ * list, and they surface Slack-style as unread highlights plus desktop
+ * notifications instead (see lib/signals.ts).
+ */
+
+/** Author of the API-credit unlock notices (backend services/campaign.py). */
+export const CAMPAIGN_SOURCE = 'system:campaign';
+
+/** Where clicking a row takes the reader. */
+export type InboxDestination =
+  | { kind: 'credits' }
+  | { kind: 'task'; channel: string }
+  | { kind: 'dm'; channel: string }
+  | { kind: 'thread'; channel: string };
+
+export function inboxDestination(
+  n: Pick<NotificationItem, 'channelName' | 'createdBy'>,
+): InboxDestination | null {
+  // Credit unlocks are not about any thread: they open the checklist.
+  if (n.createdBy === CAMPAIGN_SOURCE) return { kind: 'credits' };
+  const channel = n.channelName;
+  if (!channel) return null;
+  if (channel.startsWith('task:')) return { kind: 'task', channel };
+  if (channel.startsWith('dm:')) return { kind: 'dm', channel };
+  return { kind: 'thread', channel };
+}
+
+type ThreadFilter = 'all' | 'channels' | 'starred' | 'archived' | 'dms';
+
+/**
+ * The thread-list tab to show beside a thread opened from the inbox: keep the
+ * reader's tab when the thread is listed there, otherwise one that lists it,
+ * so the opened thread is never missing from the list next to it.
+ */
+export function threadFilterFor(
+  session: Pick<WorkspaceSession, 'status' | 'starred' | 'isChannel'>,
+  current: ThreadFilter,
+): ThreadFilter {
+  if (session.status === 'archived') return 'archived';
+  if (current === 'channels' && session.isChannel) return current;
+  if (current === 'starred' && session.starred) return current;
+  return 'all';
+}
+
+const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
+  Boolean(a && b) && a!.trim().toLowerCase() === b!.trim().toLowerCase();
+
+/** Addressed to me, or to nobody in particular (the whole workspace). */
+export function isAddressedToMe(
+  n: Pick<NotificationItem, 'recipientEmail'>,
+  myEmail: string | null | undefined,
+): boolean {
+  if (!n.recipientEmail) return true;
+  return sameEmail(n.recipientEmail, myEmail);
+}
+
+const PRIORITY_ORDER: Record<NotificationItem['priority'], number> = { high: 0, normal: 1, low: 2 };
+const ts = (n: NotificationItem) => (n.createdAt ? new Date(n.createdAt).getTime() : 0);
+
+/** High first, then newest first (what the unread list always did). */
+export function byPriorityThenNewest(a: NotificationItem, b: NotificationItem): number {
+  const p = (PRIORITY_ORDER[a.priority] ?? 1) - (PRIORITY_ORDER[b.priority] ?? 1);
+  if (p !== 0) return p;
+  return ts(b) - ts(a);
+}
+
+/** Unread before read, then newest first. */
+export function byUnreadThenNewest(a: NotificationItem, b: NotificationItem): number {
+  if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+  return ts(b) - ts(a);
+}
+
+export interface InboxGroups {
+  /** Unresolved actionable rows addressed to me (or to nobody). */
+  needsYou: NotificationItem[];
+  /** Everything else: notices, other people's requests, resolved requests. */
+  updates: NotificationItem[];
+}
+
+/**
+ * Split the inbox into "Needs you" and "Updates".
+ *
+ * `resolvedRefs` are action refs known to be decided already (the caller
+ * learns this from the live approval records / the pending list); a resolved
+ * request is an update, not a to-do, whoever it was addressed to. Rows are
+ * never dropped: dismissed ones are the caller's job to filter.
+ */
+export function groupInboxRows(
+  notifications: readonly NotificationItem[],
+  myEmail: string | null | undefined,
+  resolvedRefs?: ReadonlySet<string> | null,
+): InboxGroups {
+  const needsYou: NotificationItem[] = [];
+  const updates: NotificationItem[] = [];
+  for (const n of notifications) {
+    const actionable = isActionableNotification(n);
+    const resolved = Boolean(n.actionRef && resolvedRefs?.has(n.actionRef));
+    if (actionable && !resolved && isAddressedToMe(n, myEmail)) needsYou.push(n);
+    else updates.push(n);
+  }
+  needsYou.sort(byPriorityThenNewest);
+  updates.sort(byUnreadThenNewest);
+  return { needsYou, updates };
+}

@@ -4,7 +4,7 @@
  * Unit tests for the DeepSeek Harness adapter.
  *
  * These drive a REAL subprocess — test/fixtures/mock-dsh.js, a scriptable fake
- * that speaks dsh 0.1.0-rc.6's headless contract — rather than a faked `spawn`.
+ * that speaks dsh 0.2.1-rc.2's headless contract — rather than a faked `spawn`.
  * The properties under test (what reaches argv, whether the whole of stdout is
  * captured before the promise settles, whether a process group actually dies)
  * are properties of process handling, and a fake spawn cannot demonstrate them.
@@ -1032,18 +1032,18 @@ describe('DeepSeek adapter — preflight', () => {
   it('rejects a dsh preview other than the pinned one', () => {
     const adapter = makeAdapter();
     adapter._readNodeVersion = () => 'v22.19.0';
-    adapter._readDshVersion = () => '0.1.0-rc.7';
+    adapter._readDshVersion = () => '0.1.0-rc.6';
     const pf = adapter.preflight();
     assert.equal(pf.ok, false);
     assert.equal(pf.reason, 'version_incompatible');
-    assert.match(pf.message, /0\.1\.0-rc\.7 is not supported/);
+    assert.match(pf.message, /0\.1\.0-rc\.6 is not supported/);
   });
 
   it('requires an API key', () => {
     const adapter = makeAdapter({ agentEnv: { DEEPSEEK_API_KEY: '' } });
     adapter.agentEnv = {};
     adapter._readNodeVersion = () => 'v22.19.0';
-    adapter._readDshVersion = () => '0.1.0-rc.6';
+    adapter._readDshVersion = () => '0.2.1-rc.2';
     const pf = adapter.preflight();
     assert.equal(pf.ok, false);
     assert.equal(pf.reason, 'login_required');
@@ -1052,7 +1052,7 @@ describe('DeepSeek adapter — preflight', () => {
   it('passes when everything lines up', () => {
     const adapter = makeAdapter();
     adapter._readNodeVersion = () => 'v22.19.0';
-    adapter._readDshVersion = () => '0.1.0-rc.6';
+    adapter._readDshVersion = () => '0.2.1-rc.2';
     assert.deepEqual(adapter.preflight(), { ok: true });
   });
 
@@ -1060,6 +1060,21 @@ describe('DeepSeek adapter — preflight', () => {
     const adapter = makeAdapter();
     const entry = adapter._registryEntry();
     assert.ok(entry, 'the registry carries a deepseek entry');
-    assert.equal(entry.install.supported_version, '0.1.0-rc.6');
+    assert.equal(entry.install.supported_version, '0.2.1-rc.2');
+  });
+});
+
+describe('DeepSeek adapter — base URL', () => {
+  it('drops DeepSeek\'s OpenAI-style root so dsh uses its own endpoint', () => {
+    const adapter = makeAdapter({ agentEnv: { DEEPSEEK_BASE_URL: 'https://api.deepseek.com' } });
+    assert.equal(adapter._buildSubprocessEnv('workspace-write').DEEPSEEK_BASE_URL, undefined);
+  });
+
+  it('passes a gateway through', () => {
+    const adapter = makeAdapter({ agentEnv: { DEEPSEEK_BASE_URL: 'https://relay.example.com/anthropic' } });
+    assert.equal(
+      adapter._buildSubprocessEnv('workspace-write').DEEPSEEK_BASE_URL,
+      'https://relay.example.com/anthropic',
+    );
   });
 });

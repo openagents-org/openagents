@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { MessageSquare, PanelLeft } from "lucide-react"
+import { Hash, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -10,10 +10,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { addressName, dmCounterpart, dmPair, myAddress } from "@/lib/dm"
+import { useHumanNames } from "@/hooks/use-team-roster"
 import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { DmAvatars } from "@/components/chat/dm-avatars"
+import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
 import { useLayout, type ViewMode } from "./layout-context"
 
 const ACTIONS_SLOT_ID = "app-header-actions"
@@ -124,17 +128,20 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   files: "views.files",
   knowledge: "views.knowledge",
   browser: "views.browser",
-  tasks: "views.tasks",
+  issues: "views.issues",
+  tasks: "views.issues",
   workflows: "views.workflows",
   routines: "views.routines",
   inbox: "views.inbox",
   connect: "views.connect",
   skills: "views.skills",
+  agents: "collab.directoryTitle", // v1.1 M2: agent directory
 }
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 function ThreadTitle() {
-  const { sessions, currentSessionId, renameSession } = useWorkspace()
+  const { sessions, currentSessionId, renameSession, currentUser } = useWorkspace()
+  const humanNames = useHumanNames()
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -147,17 +154,19 @@ function ThreadTitle() {
     // Title the DM by the counterpart alone. A pair that includes the human
     // viewer is a writable conversation (no read-only badge); agent↔agent
     // pairs stay a read-only observation view with both names.
-    const pair = currentSessionId!.slice(3).split(",")
-    const hasHuman = pair.some((a) => a.startsWith("human:"))
-    const title = hasHuman
-      ? (pair.find((a) => !a.startsWith("human:"))
-          ?? pair.find((a) => a !== "human:user")
-          ?? pair[pair.length - 1]
-        ).replace(/^openagents:/, "").replace(/^human:/, "")
-      : pair.map((a) => a.replace(/^openagents:/, "")).join(" ↔ ")
+    const pair = dmPair(currentSessionId)
+    const counterpart = dmCounterpart(pair, myAddress(currentUser))
+    const hasHuman = !!counterpart
+    const nameLabel = (addr: string) => {
+      const n = addressName(addr)
+      return addr.startsWith("human:") ? (humanNames[n.toLowerCase()] ?? n) : n
+    }
+    const title = counterpart
+      ? nameLabel(counterpart)
+      : pair.map(nameLabel).join(" ↔ ")
     return (
       <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
-        <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+        <DmAvatars addresses={counterpart ? [counterpart] : pair} />
         {title}
         {!hasHuman && (
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -200,13 +209,17 @@ function ThreadTitle() {
   }
 
   return (
-    <h3
-      onClick={startEditing}
-      title={t("header.clickToRename")}
-      className="w-0 flex-1 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
-    >
-      {session?.title || t("header.untitledThread")}
-    </h3>
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      {session?.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("threads.channel")} />}
+      <h3
+        onClick={startEditing}
+        title={t("header.clickToRename")}
+        className="min-w-0 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
+      >
+        {session?.title || t("header.untitledThread")}
+      </h3>
+      {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
+    </div>
   )
 }
 

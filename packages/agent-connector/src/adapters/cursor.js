@@ -26,6 +26,8 @@ const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { resolveCursorNodeEntry } = require('./cursor-node-entry');
 
 const IS_WINDOWS = process.platform === 'win32';
+// How long cursor-agent gets to exit by itself after emitting its `result`.
+const RESULT_EXIT_GRACE_MS = 3000;
 
 // What a failed `cursor-agent` run should tell the channel, per cause. The
 // classifier appends the CLI's own words, redacted; see run-failure.js.
@@ -523,6 +525,7 @@ class CursorAdapter extends BaseAdapter {
         let consecutiveTimeouts = 0;
         let lastDataTime = Date.now();
         let timeoutTimer = null;
+        let resultTimer = null;
 
         const resetTimeout = () => {
           consecutiveTimeouts = 0;
@@ -596,6 +599,17 @@ class CursorAdapter extends BaseAdapter {
               resultError = String(event.result || '') || 'Cursor reported an error';
               this._log(`Cursor error: ${resultError.slice(0, 200)}`);
             }
+            // `result` ends the turn, but cursor-agent -p does not always exit
+            // after it. The reply is sent from the exit handler, so a CLI left
+            // hanging held it back until the 300s idle kill — the minutes-long
+            // first message. Give it a moment to exit on its own, then end it.
+            if (!resultTimer) {
+              resultTimer = setTimeout(() => {
+                if (proc.exitCode !== null || proc.signalCode !== null) return;
+                this._log(`CLI still running ${RESULT_EXIT_GRACE_MS}ms after its result, stopping it`);
+                void this._stopProcess(proc);
+              }, RESULT_EXIT_GRACE_MS);
+            }
           } else if (eventType === 'system') {
             const sessionId = event.session_id;
             if (sessionId && !this._channelSessions[msgChannel]) {
@@ -607,6 +621,7 @@ class CursorAdapter extends BaseAdapter {
 
         proc.on('exit', async (code) => {
           if (timeoutTimer) clearInterval(timeoutTimer);
+          if (resultTimer) clearTimeout(resultTimer);
 
           try { await _pendingLines; } catch {}
 
@@ -703,6 +718,7 @@ class CursorAdapter extends BaseAdapter {
 
         proc.on('error', (err) => {
           if (timeoutTimer) clearInterval(timeoutTimer);
+          if (resultTimer) clearTimeout(resultTimer);
           reject(err);
         });
 

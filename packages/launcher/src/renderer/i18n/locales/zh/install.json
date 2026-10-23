@@ -1,7 +1,8 @@
 {
   "topbar": {
     "title": "智能体市场",
-    "subtitle": "发现并安装 AI 智能体"
+    "subtitle": "发现并安装 AI 智能体",
+    "back": "返回连接智能体"
   },
   "stats": {
     "available": "个可用",
@@ -15,7 +16,7 @@
   },
   "status": {
     "installed": "已安装",
-    "update": "可更新",
+    "update": "待更新",
     "available": "未安装",
     "comingSoon": "即将推出"
   },

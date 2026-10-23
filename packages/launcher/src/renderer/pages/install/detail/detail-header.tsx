@@ -20,12 +20,13 @@ interface Props {
   installedAtLabel?: string | null
   /** Versions are still being read, so the status is not known yet. */
   loading: boolean
+  /** The action row, set under the identity where the page is read from. */
+  children?: React.ReactNode
 }
 
 /**
  * Identity block: who this agent is, what state it's in, which version is on
- * the machine and where to read more. Pure display — the install actions sit
- * in the right rail so this stays reusable on narrower surfaces.
+ * the machine and where to read more — then, as children, what to do with it.
  */
 export function DetailHeader({
   entry,
@@ -36,6 +37,7 @@ export function DetailHeader({
   docs,
   installedAtLabel,
   loading,
+  children,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const status = entryStatus(
@@ -101,6 +103,8 @@ export function DetailHeader({
             </a>
           ))}
         </div>
+
+        {children && <div className="mt-4">{children}</div>}
       </div>
     </header>
   )

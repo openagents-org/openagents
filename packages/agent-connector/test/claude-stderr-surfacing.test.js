@@ -31,6 +31,15 @@ describe('ClaudeAdapter._stderrTail', () => {
     assert.match(out, /sk-\[REDACTED\]/);
   });
 
+  test('leaves out Claude Code\'s notice about a model it does not know', () => {
+    // A relay model (glm, kimi, …) makes Claude Code print this on every run;
+    // as "the" error it was all a failed message ever showed.
+    const notice = 'Claude Code doesn\'t recognize the model "glm-5", so it assumes a context window of 200000 tokens. '
+      + 'Until then auto-compact keeps this session within 200k tokens (the context window it assumes).';
+    assert.strictEqual(tail(`${notice}\nAPI Error: 403 insufficient_quota\n`), 'API Error: 403 insufficient_quota');
+    assert.strictEqual(tail(notice), '');
+  });
+
   test('redacts the key this agent was given, whatever its format', () => {
     // No prefix, no length a pattern could key on — only its value gives it away.
     const out = tail('relay rejected relay-key-7f3a9c2e for workspace ws-token-51d0e8');
