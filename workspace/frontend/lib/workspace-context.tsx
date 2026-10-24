@@ -21,6 +21,7 @@ import { dmUnreadCounts } from './dm-unread';
 import { threadUnreadState } from './thread-unread';
 import { unreadCutoffMs } from './unread-window';
 import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
+import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorkspaceSnapshot, type WorkspaceSnapshot } from './workspace-snapshot';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
@@ -1438,8 +1439,13 @@ export function WorkspaceProvider({
         if (!cancelled) apply(result);
       }).catch(() => {});
     };
+    // Coming back to a workspace this page already opened: paint the roster it
+    // had at once and refresh it underneath, instead of holding the full-page
+    // loader over a second fetch of the same data.
+    const key = snapshotKey(workspaceId, token, bearerToken);
+    const snapshot = readWorkspaceSnapshot(key);
     (async () => {
-      setLoading(true);
+      setLoading(!snapshot);
       setError(null);
       setWorkspaceLoadError(null);
       // Don't display the previous workspace's optional data while these load.
@@ -1465,34 +1471,24 @@ export function WorkspaceProvider({
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
       lastKnownLatestRef.current = {};
-      try {
-        const [ws, discovery] = await Promise.all([
-          workspaceApi.getWorkspace(),
-          // Read markers trigger historical unread aggregation. Fetch only
-          // the roster here; background discovery fills in accurate counts.
-          workspaceApi.discover(),
-        ]);
-        if (cancelled) return;
-
+      const applyRoster = ({ workspace: ws, discovery }: WorkspaceSnapshot) => {
         setWorkspace(ws);
-        const wsAgents = discovery.agents.map(networkAgentToWorkspaceAgent);
-        setAgents(wsAgents);
-        capture('workspace_opened', {
-          workspace_id: workspaceId,
-          agent_count: wsAgents.length,
-          agent_types: wsAgents.map((a) => a.agentName),
-        });
-
+        setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
         const channelSessions = discovery.channels.map((ch) =>
           networkChannelToSession(ch, workspaceId)
         );
         setSessions(channelSessions);
-
         // Initialize last-known event timestamps so first discovery poll doesn't re-fetch all
         for (const ch of channelSessions) {
           lastKnownEventAtRef.current[ch.sessionId] = ch.lastEventAt;
         }
+        return channelSessions;
+      };
 
+      // Picks the thread to open and starts the panels that fill in later.
+      // Runs once per open — on the snapshot when there is one, otherwise on
+      // the fresh roster — so a background refresh never moves the selection.
+      const openWith = async (channelSessions: WorkspaceSession[]) => {
         // Auto-select the most-recently-updated thread, mirroring the sidebar's
         // default (non-search) list order so the opened thread === sidebar's
         // first row. Two distinct sets:
@@ -1595,11 +1591,39 @@ export function WorkspaceProvider({
             localStorage.setItem(cacheKey, JSON.stringify(batch));
           } catch { /* storage full */ }
         });
+      };
+
+      try {
+        if (snapshot) {
+          await openWith(applyRoster(snapshot));
+          if (cancelled) return;
+          setLoading(false);
+        }
+        const [ws, discovery] = await Promise.all([
+          workspaceApi.getWorkspace(),
+          // Read markers trigger historical unread aggregation. Fetch only
+          // the roster here; background discovery fills in accurate counts.
+          workspaceApi.discover(),
+        ]);
+        if (cancelled) return;
+        writeWorkspaceSnapshot(key, { workspace: ws, discovery });
+        const channelSessions = applyRoster({ workspace: ws, discovery });
+        capture('workspace_opened', {
+          workspace_id: workspaceId,
+          agent_count: discovery.agents.length,
+          agent_types: discovery.agents.map((a) => networkAgentToWorkspaceAgent(a).agentName),
+        });
+        if (!snapshot) await openWith(channelSessions);
       } catch (e) {
-        if (!cancelled) {
+        const status = e instanceof ApiError ? e.status : null;
+        // Behind a snapshot, a passing network failure leaves the page as it
+        // is; only a lost workspace or lost access takes it over.
+        const lost = status === 401 || status === 403 || status === 404;
+        if (lost) forgetWorkspaceSnapshot(key);
+        if (!cancelled && (!snapshot || lost)) {
           const message = e instanceof Error ? e.message : 'Failed to load workspace';
           setError(message);
-          setWorkspaceLoadError({ message, status: e instanceof ApiError ? e.status : null });
+          setWorkspaceLoadError({ message, status });
         }
       } finally {
         if (!cancelled) setLoading(false);

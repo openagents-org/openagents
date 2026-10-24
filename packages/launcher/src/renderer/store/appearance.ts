@@ -121,9 +121,9 @@ function apply(state: Applied): void {
   const root = document.documentElement
   root.dataset.accent = effectiveAccent(state)
   root.dataset.uiScale = scale
-  // Like `animations` below: the default skin carries no rules, so it leaves
-  // no attribute behind either.
-  if (skin === DEFAULT_SKIN) delete root.dataset.skin
+  // Like `animations` below: the plain skin carries no rules, so it leaves no
+  // attribute behind either. (It is no longer the default — see DEFAULT_SKIN.)
+  if (skin === 'default') delete root.dataset.skin
   else root.dataset.skin = skin
   // Only the off/high states carry a rule, so the default leaves no attribute
   // behind for a stylesheet to trip over.

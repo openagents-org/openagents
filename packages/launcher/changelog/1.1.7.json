@@ -3,36 +3,49 @@
   "date": "2026-10-23",
   "entries": [
     {
+      "type": "improvement",
+      "title": {
+        "en": "Refreshed look, matching openagents.org",
+        "zh": "界面焕新，与官网风格统一"
+      },
+      "description": {
+        "en": "The OpenAgents style is now the default, in the brand's deep blue with fewer lines. The previous look remains available as Classic in Settings → Appearance.",
+        "zh": "默认采用 OpenAgents 风格，主色改为品牌深蓝，线条更简洁。原外观保留为「经典」，可在「设置 → 外观」中切换。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents start and stop faster",
+        "zh": "智能体启动、停止响应更快"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents already removed from their workspace can be deleted again",
+        "zh": "已移出工作区的智能体可以正常删除"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "DeepSeek Harness installs and runs again",
         "zh": "DeepSeek Harness 恢复正常安装与使用"
-      },
-      "description": {
-        "en": "The harness moves to its latest preview, which installs cleanly. Entering DeepSeek's standard API address no longer causes errors, and Test Connection now checks the endpoint the harness actually uses.",
-        "zh": "DeepSeek Harness 升级至最新预览版，安装不再出错；填写 DeepSeek 常用的 API 地址也不会再导致调用失败；「测试连接」改为检测其实际使用的接口。"
       }
     },
     {
       "type": "fix",
       "title": {
-        "en": "OpenClaw keeps working after an upgrade",
-        "zh": "OpenClaw 升级后可继续使用"
-      },
-      "description": {
-        "en": "When a newer OpenClaw needs to migrate data from an earlier version, the migration now runs automatically instead of failing with a request to run a command in the terminal.",
-        "zh": "新版 OpenClaw 需要迁移旧版本数据时，将自动完成迁移，不再报错并要求在终端中手动执行命令。"
+        "en": "OpenClaw migrates its data automatically after an upgrade",
+        "zh": "OpenClaw 升级后自动迁移旧数据"
       }
     },
     {
       "type": "fix",
       "title": {
-        "en": "Agents use the provider they were set up with",
-        "zh": "智能体按自身配置调用模型服务"
-      },
-      "description": {
-        "en": "An agent with its own API key no longer picks up the endpoint or model saved earlier for its agent type, which could send its requests to the wrong service.",
-        "zh": "已单独配置 API Key 的智能体，不再沿用此前为同类智能体保存的接口地址或模型，避免请求被发送至错误的服务。"
+        "en": "Agents with their own API key no longer use another agent's endpoint or model",
+        "zh": "单独配置 API Key 的智能体不再沿用同类智能体的接口地址或模型"
       }
     }
   ]

@@ -40,7 +40,7 @@ export function SettingsCard({
       {/* A shaded title band, then the rows on the card itself: the band is
           what groups them, so the rows need no frame of their own. */}
       {(title || action) && (
-        <div className="flex items-center justify-between gap-3 border-b bg-secondary px-5 py-3">
+        <div data-slot="settings-card-header" className="flex items-center justify-between gap-3 border-b bg-secondary px-5 py-3">
           <div className="min-w-0">
             {title && <h3 className="m-0 text-sm font-semibold">{title}</h3>}
             {desc && (

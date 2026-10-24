@@ -4,8 +4,7 @@ import { Button } from "@renderer/components/ui/button"
 import { useAccountStore } from "@renderer/store/account"
 import { useUiStore } from "@renderer/store/ui"
 import { useThemeStore } from "@renderer/store/theme"
-import logoLight from "./assets/openagents-logo-light.png"
-import logoDark from "./assets/openagents-logo-dark.png"
+import { BrandWordmark } from "@renderer/components/ui-kit"
 import previewEnLight from "./assets/workspace-en-light.png"
 import previewEnDark from "./assets/workspace-en-dark.png"
 import previewZhLight from "./assets/workspace-zh-light.png"
@@ -36,16 +35,7 @@ export default function WelcomePage(): React.JSX.Element {
           the preview reads as a hole, while the outer margins carry the air. */}
       <div className="mx-auto grid min-h-full w-full max-w-7xl items-center gap-10 px-10 py-12 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:gap-6 xl:px-16">
         <section className="flex min-h-[36rem] flex-col justify-center">
-          {/* The full wordmark carries black lettering, so dark mode swaps in a
-              copy with the lettering in white. */}
-          <img
-            src={theme === "dark" ? logoDark : logoLight}
-            width={936}
-            height={153}
-            className="mb-12 block h-auto w-72 select-none"
-            alt="OpenAgents"
-            draggable={false}
-          />
+          <BrandWordmark className="mb-12 h-auto w-72" />
           <h1 className="m-0 text-3xl leading-tight font-bold tracking-tight text-foreground xl:text-4xl">{t("account.welcome.title")}</h1>
           <p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground">{t("account.welcome.description")}</p>
           <div className="mt-8 flex flex-col gap-3">

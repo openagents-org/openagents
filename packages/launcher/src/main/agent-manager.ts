@@ -184,7 +184,16 @@ export class AgentManager extends EventEmitter {
   private _lastHealthRefreshAt = 0
   private _healthQueue: string[] = []
   private _healthProcessing = false
-  private _agentsCache: { value: unknown[]; at: number } = { value: [], at: 0 }
+  /**
+   * The built list, and the status snapshot it was built from. A list is only
+   * reused while that snapshot is still the current one: start and stop change
+   * nothing but the state, and serving a list built before the click left the
+   * row on its old state until the renderer's next 5s poll.
+   */
+  private _agentsCache: { value: unknown[]; at: number; status?: unknown } = {
+    value: [],
+    at: 0,
+  }
   private _catalogCache: {
     value: unknown[] | null
     at: number
@@ -361,7 +370,8 @@ export class AgentManager extends EventEmitter {
     const now = Date.now()
     if (
       this._agentsCache.value.length > 0 &&
-      now - this._agentsCache.at < 1500
+      now - this._agentsCache.at < 1500 &&
+      this._agentsCache.status === this.getAllStatus()
     ) {
       return this._agentsCache.value
     }
@@ -439,7 +449,7 @@ export class AgentManager extends EventEmitter {
         hasCli: !!this.resolveBinary(type),
       }
     })
-    this._agentsCache = { value, at: now }
+    this._agentsCache = { value, at: now, status }
     return value
   }
 
@@ -876,7 +886,14 @@ export class AgentManager extends EventEmitter {
           "This version of the agent core cannot remove a workspace membership. Update the core, or remove the agent from the workspace directly.",
         )
       }
-      await drop.call(this._connector, name)
+      try {
+        await drop.call(this._connector, name)
+      } catch (e) {
+        // The membership is already gone — the goal state. Cores before
+        // 0.2.204 lost the 404 on the way up and threw it as an error, which
+        // left the agent impossible to delete; match the server's message.
+        if (!/member not found/i.test((e as Error)?.message || "")) throw e
+      }
     }
     try {
       await this.stopAgent(name)
@@ -2667,6 +2684,22 @@ export class AgentManager extends EventEmitter {
     return { success: true, message: `Stop command sent for ${name}` }
   }
 
+  /**
+   * Ask the daemon to heartbeat now. The workspace queues device commands
+   * (a Start or Stop clicked on a workspace page) for the next heartbeat,
+   * which is up to 10s away; this collapses that wait to the daemon's 200ms
+   * command poll. A daemon too old to know the line ignores it.
+   */
+  nudgeNodeHeartbeat(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "heartbeat")
+    } catch {
+      // Nothing lost: the regular heartbeat still picks the command up.
+    }
+  }
+
   async startAll(): Promise<unknown> {
     const ready = await this._ensureDaemon()
     if (!ready)
@@ -2698,7 +2731,8 @@ export class AgentManager extends EventEmitter {
 
   getAllStatus(): unknown {
     const now = Date.now()
-    if (this._statusCache.value && now - this._statusCache.at < 1000) {
+    // Short on purpose: the file is small, and this is what start/stop wait on.
+    if (this._statusCache.value && now - this._statusCache.at < 300) {
       return this._statusCache.value
     }
     let value: unknown = {}

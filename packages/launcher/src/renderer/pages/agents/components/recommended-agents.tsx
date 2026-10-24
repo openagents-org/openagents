@@ -57,17 +57,17 @@ export function RecommendedAgents({
   if (compact) {
     return (
       <section
-        className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-primary/20 bg-primary/8 px-5 py-3"
+        className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl border border-primary/20 bg-primary/8 px-5 py-4"
         aria-label={t("agents.shared.recommended.label")}
         data-testid="recommended-agents"
       >
-        <h2 className="m-0 shrink-0 text-sm font-semibold">{t("agents.shared.recommended.label")}</h2>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <h2 className="m-0 shrink-0 text-base font-semibold">{t("agents.shared.recommended.label")}</h2>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           {entries.map((entry) => (
             <RecommendedChip key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)} />
           ))}
         </div>
-        <Button size="sm" className="shrink-0" onClick={onMore} data-testid="new-agent-open">
+        <Button size="lg" className="shrink-0" onClick={onMore} data-testid="new-agent-open">
           {t("agents.shared.recommended.more")}
         </Button>
       </section>
@@ -133,7 +133,11 @@ export function RecommendedAgents({
   )
 }
 
-/** A recommended type in the compact row: its mark and name, then what a click does. */
+/**
+ * A recommended type in the compact row: its mark and name, then what a click
+ * does. Full-size rather than `sm`: these are the way to a first agent of a
+ * new type, and at 32px they read as toolbar chrome rather than as choices.
+ */
 function RecommendedChip({
   entry,
   onInstall,
@@ -147,9 +151,9 @@ function RecommendedChip({
   const action = t(available ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")
   const name = entry.label || entry.name
   return (
-    <Button variant="outline" size="sm" className="bg-card" onClick={onInstall}
+    <Button variant="outline" size="lg" className="bg-card font-semibold" onClick={onInstall}
       title={`${action} · ${name}`} data-testid={`recommended-add-${entry.name}`}>
-      <AgentIcon type={entry.name} size={16} />
+      <AgentIcon type={entry.name} size={20} />
       {name}
       {available ? <Download className="text-muted-foreground" /> : <Plus className="text-muted-foreground" />}
     </Button>

@@ -1431,12 +1431,20 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
+              // Callers act on it: removeAgentFromWorkspace takes a 404 as
+              // "already gone". Without it that check never matched, and an
+              // agent whose membership was already removed could not be
+              // deleted at all ("Member not found").
+              err.status = res.statusCode;
+              reject(err);
             } else {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            const err = new Error(`Invalid response: ${data.slice(0, 200)}`);
+            if (res.statusCode >= 400) err.status = res.statusCode;
+            reject(err);
           }
         });
       });

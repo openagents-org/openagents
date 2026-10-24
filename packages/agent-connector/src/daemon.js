@@ -910,9 +910,8 @@ async _runNodeCommand(n, cmd) {
           if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
         } else {
           // Restart in-process. `agn stop` + `agn start` both round-trip
-          // through daemon.cmd, and writeCommand() OVERWRITES that file — the
-          // start could clobber the unread stop (agent keeps the stale env) or
-          // interleave with the poll so the agent stops and never restarts.
+          // through daemon.cmd, and the pair can interleave with the poll so
+          // the agent stops and never restarts.
           this._saveNodeAgentEnv(name, type, args);
           await this.restartAgent(name);
         }
@@ -1953,6 +1952,11 @@ async _runNodeCommand(n, cmd) {
         } else if (cmd === 'reload') {
           this._log('Command: reload');
           this._reload();
+        } else if (cmd === 'heartbeat') {
+          // A workspace page in the launcher just queued a command for this
+          // device: heartbeat now so it is picked up, instead of on the next
+          // 10s tick. Not logged — it carries nothing worth a line.
+          this._nodeHeartbeat().catch(() => {});
         }
       }
     } catch {}

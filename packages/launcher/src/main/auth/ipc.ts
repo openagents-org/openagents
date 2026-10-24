@@ -43,6 +43,11 @@ export interface AccountIpcDeps {
   nodeStatus: () => Promise<NodeStatus>
   /** Start the daemon unless one is running (agentManager._ensureDaemon); false when it cannot. */
   ensureDaemon: () => Promise<boolean>
+  /**
+   * Have this device heartbeat now, so a command a workspace page just queued
+   * for it is picked up at once instead of on the next 10s tick.
+   */
+  nudgeNode: () => void
 }
 
 const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
@@ -225,6 +230,9 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   })
   ipcMain.on("workspace-view:report-workspace", (event, info: unknown) => {
     if (host.isWorkspaceSender(event.sender)) host.reportWorkspace(event.sender, info)
+  })
+  ipcMain.on("workspace-view:nudge-computer", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.nudgeNode()
   })
   ipcMain.on("workspace-view:open-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")

@@ -16,7 +16,7 @@ export function DetailHeader({
   const { t } = useTranslation()
 
   return (
-    <div className="shrink-0 px-9 pt-7 pb-2">
+    <div className="px-9 pt-7 pb-2">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="m-0 text-2xl font-bold tracking-tight">

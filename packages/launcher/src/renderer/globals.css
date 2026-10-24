@@ -381,18 +381,18 @@
   --accent-orange: 21 90% 48%;   /* #ea580c */
   --accent-rose: 347 77% 50%;    /* #e11d48 */
   --accent-slate: 215 19% 35%;   /* #475569 */
-  /* openagents.org's brand blue (#2F6BFF). Not in ACCENT_COLORS and so never
-     shown as a swatch: the skin owns it. Flipping the skin on writes
+  /* The brand's deep blue, from the OpenAgents poster. Not in ACCENT_COLORS
+     and so never shown as a swatch: the skin owns it. Flipping the skin on writes
      `data-accent="oa"` from the appearance store, which is what locks the
      accent — going through the preset machinery rather than overriding
      `--accent` directly, so `--accent-hover`, `--accent-bg`, `--text-link`,
      `--primary`, `--ring` and the row states all derive from it exactly as
      they do for a user-chosen preset. */
-  --accent-oa: 175 84% 32%;  /* #0d9488 — the teal the splash progress bar
-                                draws in; picked over the site's own #2F6BFF
-                                because that blue lands close enough to indigo
-                                on a dark surface to read as the violet the
-                                skin was meant to get away from. */
+  --accent-oa: 204 72% 40%;  /* #1d75af — the poster's #13679f, one step
+                                lighter at design's request; white on it
+                                still clears 4.5:1. The site's own #2F6BFF
+                                lands close enough to indigo to read as
+                                violet. */
 }
 
 :root[data-theme="dark"] {
@@ -404,8 +404,9 @@
   --accent-orange: 27 96% 61%;   /* #fb923c */
   --accent-rose: 351 94% 71%;    /* #fb7185 */
   --accent-slate: 215 20% 65%;   /* #94a3b8 */
-  /* Lifted for the dark surface, same as every other preset's dark twin. */
-  --accent-oa: 172 66% 50%;  /* #2dd4bf */
+  /* Lifted for the dark surface, same as every other preset's dark twin:
+     same hue, light enough to clear 4.5:1 as link text on the page. */
+  --accent-oa: 204 76% 52%;  /* #2797e2 */
 }
 
 :root[data-accent="indigo"] { --accent-hsl-base: var(--accent-indigo); }
@@ -781,20 +782,30 @@ code {
   display: none;
 }
 
-/* The body under a fixed page header. Scrolled, its top edge gets a rule, so
-   content passing under the header reads as scrolling rather than as a page
-   cut off mid-banner. A border, not a shadow: it is drawn outside the padding
-   box, where the scrolled content can never cover it. Driven by the scroll
-   position itself, so no page needs a listener. */
+/* The body under a fixed page header. Scrolled, its top edge fades out, so
+   content passing under the header reads as sliding beneath it. A rule there
+   did the opposite: it cut a banner off mid-height on a hard line, which
+   users took for a page that had not finished loading. Driven by the scroll
+   position itself, so no page needs a listener, and at rest (scrolled to the
+   top) the fade is zero and nothing is hidden. */
+@property --scroll-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .scroll-edge {
-  border-top: 1px solid transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--scroll-fade));
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--scroll-fade));
   animation: scroll-edge-reveal linear both;
   animation-timeline: scroll(self block);
-  animation-range: 0 12px;
+  animation-range: 0 24px;
 }
 @keyframes scroll-edge-reveal {
+  from {
+    --scroll-fade: 0px;
+  }
   to {
-    border-top-color: var(--border);
+    --scroll-fade: 32px;
   }
 }
 
