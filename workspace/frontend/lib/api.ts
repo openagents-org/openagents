@@ -1177,6 +1177,7 @@ class WorkspaceApi {
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
       asleep: Boolean(t.asleep),
+      connectionStatus: t.connection_status as BrowserTab['connectionStatus'],
     };
   }
 
@@ -1254,10 +1255,18 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Validate a browser tab session — auto-reconnects if expired. */
+  /** Probe a browser session without waking or replacing it. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}?validate=true`,
+    );
+    return this.mapTab(result);
+  }
+
+  /** Wake the existing saved session and refresh its live-view URL. */
+  async reactivateBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reactivate`, { method: 'POST' },
     );
     return this.mapTab(result);
   }

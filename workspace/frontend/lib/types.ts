@@ -400,6 +400,7 @@ export interface BrowserTab {
   lastActiveAt: string | null;
   /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
   asleep?: boolean;
+  connectionStatus?: 'alive' | 'dead' | 'unknown';
 }
 
 /** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */

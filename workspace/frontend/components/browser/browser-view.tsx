@@ -60,6 +60,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [loading, setLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [sessionDead, setSessionDead] = useState(false);
+  const [sessionAsleep, setSessionAsleep] = useState(false);
+  const [liveRevision, setLiveRevision] = useState(0);
+  const recoveryInFlight = useRef(false);
+  const validationGeneration = useRef(0);
   const [navigating, setNavigating] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
   const [editingUrl, setEditingUrl] = useState(false);
@@ -93,25 +97,30 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     else if (document.activeElement === keyboardRef.current) keyboardRef.current?.blur();
   }, [controlling, hasScreenshot]);
 
-  // Validate the live session on mount / tab switch, then keep checking. The
-  // backend probes the BF session and auto-reconnects if it can, returning
-  // fresh tab data (including a new live_url). See git history for why this
-  // repeats: a dead share link silently swaps in BF's own error page.
+  // Probe without waking sleeping browsers. Only an explicit user action
+  // reactivates a session; a provider outage must not destroy a saved login.
   const hasLiveUrl = !!tab?.liveUrl;
   useEffect(() => {
     if (!selectedBrowserTabId || !hasLiveUrl) return;
     let cancelled = false;
+    let validating = false;
+    setSessionAsleep(false);
+    setSessionDead(false);
     const validate = async (initial: boolean) => {
+      if (validating || recoveryInFlight.current) return;
+      validating = true;
+      const generation = validationGeneration.current;
       if (initial) setReconnecting(true);
       try {
-        await workspaceApi.validateBrowserTab(selectedBrowserTabId);
-        if (cancelled) return;
-        setSessionDead(false);
-        await refreshBrowserTabs();
+        const checked = await workspaceApi.validateBrowserTab(selectedBrowserTabId);
+        if (cancelled || recoveryInFlight.current || generation !== validationGeneration.current) return;
+        setSessionDead(checked.connectionStatus === 'unknown' || checked.connectionStatus === 'dead');
+        setSessionAsleep(!!checked.asleep);
       } catch {
-        if (!cancelled) setSessionDead(true);
+        if (!cancelled && generation === validationGeneration.current) setSessionDead(true);
       } finally {
-        if (!cancelled && initial) setReconnecting(false);
+        validating = false;
+        if (!cancelled && initial && !recoveryInFlight.current) setReconnecting(false);
       }
     };
     validate(true);
@@ -199,15 +208,23 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const handleReconnect = async () => {
     if (!tab || reconnecting) return;
     setReconnecting(true);
+    recoveryInFlight.current = true;
+    validationGeneration.current++;
     try {
-      await reconnectBrowserTab(tab.id);
+      if (tab.liveUrl) await workspaceApi.reactivateBrowserTab(tab.id);
+      else await reconnectBrowserTab(tab.id);
+      await refreshBrowserTabs();
+      setSessionAsleep(false);
+      setLiveRevision((value) => value + 1);
       setSessionDead(false);
       failCountRef.current = 0;
       setLoading(true);
       toast.success(t('browser.reconnected'));
     } catch (err) {
+      setSessionDead(true);
       toast.error(err instanceof Error ? err.message : t('browser.reconnectFailed'));
     } finally {
+      recoveryInFlight.current = false;
       setReconnecting(false);
     }
   };
@@ -272,10 +289,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const activityLabel = activity.active
     ? t(`browser.agentAction.${activity.action ?? 'other'}` as MessageKey, { agent: agentWho })
     : null;
-  const liveState: 'live' | 'connecting' | 'expired' | 'none' = !tab
+  const liveState: 'live' | 'connecting' | 'unavailable' | 'asleep' | 'none' = !tab
     ? 'none'
     : sessionDead
-      ? 'expired'
+      ? 'unavailable'
+      : sessionAsleep || tab.asleep ? 'asleep'
       : reconnecting || (!tab.liveUrl && loading && !screenshotUrl)
         ? 'connecting'
         : 'live';
@@ -325,8 +343,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const tabStrip = (
     <div className="flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {permanent.map((entry) => {
-        const awake = !!entry.tab;
-        const active = awake ? entry.tab!.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
+        const awake = !!entry.tab && !entry.tab.asleep;
+        const active = entry.tab ? entry.tab.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
         return (
           <TabChip
             key={entry.key}
@@ -339,7 +357,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               ? <Globe className="size-3.5 text-muted-foreground" />
               : <Moon className="size-3.5 text-zinc-400" />}
             onSelect={() => {
-              if (awake) selectLive(entry.tab!);
+              if (entry.tab) selectLive(entry.tab);
               else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
             }}
             onClose={awake ? () => handleCloseOrSleep(entry.tab!) : undefined}
@@ -393,7 +411,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         disabled={reconnecting}
         className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
         title={t('browser.reconnectHint')}
-        aria-label={t('browser.reconnect')}
+        aria-label={t('browser.reactivate')}
       >
         <RefreshCw className={cn('size-3.5', (reconnecting || navigating) && 'animate-spin')} />
       </button>
@@ -439,7 +457,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
       <button
         onClick={toggleControl}
-        disabled={controlBusy || sessionDead || reconnecting}
+        disabled={controlBusy || sessionDead || sessionAsleep || tab.asleep || reconnecting}
         className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-accent px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
         title={controlling ? t('browser.handBack') : t('browser.takeOver')}
       >
@@ -467,24 +485,29 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         activity.active && 'shadow-[inset_0_0_0_2px_rgba(14,165,233,0.55)]',
       )}
     >
-      {sessionDead ? (
+      {sessionDead || sessionAsleep || tab.asleep ? (
         <div className="flex h-full items-center justify-center text-muted-foreground">
           <div className="space-y-3 text-center">
             <Globe className="mx-auto size-10 opacity-20" />
-            <p className="text-sm font-medium">{t('browser.expiredTitle')}</p>
-            <p className="text-xs text-muted-foreground">{t('browser.expiredBody')}</p>
+            <p className="text-sm font-medium">{t(sessionAsleep || tab.asleep ? 'browser.sleepingTitle' : 'browser.unavailableTitle')}</p>
+            <p className="text-xs text-muted-foreground">{t(sessionAsleep || tab.asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</p>
             <button
               onClick={handleReconnect}
               disabled={reconnecting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <RefreshCw className={cn('size-3.5', reconnecting && 'animate-spin')} />
-              {t('browser.reconnect')}
+              {t('browser.reactivate')}
             </button>
           </div>
         </div>
-      ) : tab.liveUrl && !reconnecting ? (
+      ) : reconnecting ? (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+          <RefreshCw className="size-6 animate-spin" />
+        </div>
+      ) : tab.liveUrl ? (
         <iframe
+          key={`${tab.id}:${liveRevision}`}
           ref={liveFrameRef}
           onLoad={() => { if (controlling) liveFrameRef.current?.focus(); }}
           src={embedUrl(tab.liveUrl)}
@@ -563,7 +586,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {/* Control layer. Watching = a glass sheet that keeps stray clicks away
           from the agent's page and offers "Take over". Controlling = no sheet;
           just a small pill to hand back. */}
-      {tab.liveUrl && !sessionDead && !reconnecting && (
+      {tab.liveUrl && !sessionDead && !sessionAsleep && !tab.asleep && !reconnecting && (
         !controlling ? (
           <div
             className="absolute inset-0 z-10 flex cursor-default flex-col justify-end"
@@ -633,10 +656,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             'size-1.5 rounded-full',
             liveState === 'live' && 'bg-emerald-500 animate-pulse',
             liveState === 'connecting' && 'bg-amber-500 animate-pulse',
-            liveState === 'expired' && 'bg-red-500',
+            liveState === 'unavailable' && 'bg-red-500',
           )}
         />
-        {liveState === 'live' ? t('browser.live') : liveState === 'expired' ? t('browser.expiredTitle') : t('browser.opening')}
+        {liveState === 'live' ? t('browser.live') : liveState === 'unavailable' ? t('browser.unavailableTitle') : liveState === 'asleep' ? t('browser.sleepingTitle') : t('browser.opening')}
         <span className="hidden text-muted-foreground/60 sm:inline">· {t('browser.cloudBrowser')}</span>
       </span>
       <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
