@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { AgentConnector } = require('../src/index');
 const { Daemon } = require('../src/daemon');
+const { workspaceSkillName } = require('../src/adapters/workspace-prompt');
 
 const HOME_KEY = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
 const MODULE = require.resolve('../src/adapters/openclaw');
@@ -43,9 +44,21 @@ beforeEach(() => {
     const provider = config.models?.providers?.[model.split('/')[0]];
     const storedKeyFile = process.env.OPENCLAW_AGENT_DIR && path.join(process.env.OPENCLAW_AGENT_DIR, 'fixture-key.txt');
     const storedKey = storedKeyFile && fs.existsSync(storedKeyFile) ? fs.readFileSync(storedKeyFile, 'utf8') : '';
+    // OpenClaw 2026.10's own rules: a roster of several agents must name an
+    // owner, and an agent's workspace is its entry's, else the default one for
+    // the sole configured id, else a folder per id under the default.
+    const ids = Object.keys(config.agents.entries || {});
+    if (ids.length > 1 && config.agents.ownership !== 'explicit') {
+      throw new Error('multi-agent rosters require agents.ownership="explicit"');
+    }
+    const own = (config.agents.entries || {})[agentId]?.workspace;
+    const sole = ids.length === 0 || (ids.length === 1 && ids[0] === agentId);
+    const workspace = own || (sole ? config.agents.defaults.workspace : path.join(config.agents.defaults.workspace, agentId));
+    const skillsDir = path.join(workspace, 'skills');
     const text = JSON.stringify({ state, configPath, model,
       key: provider?.apiKey || storedKey || process.env.OPENAI_API_KEY,
-      workspace: config.agents.defaults.workspace,
+      workspace,
+      skills: fs.existsSync(skillsDir) ? fs.readdirSync(skillsDir) : [],
       session: process.argv[process.argv.indexOf('--session-id') + 1] });
     console.log(JSON.stringify({payloads:[{text}]}));
   `);
@@ -148,6 +161,29 @@ describe('OpenClaw launcher instance isolation', () => {
     assert.equal((await run(instance)).model, 'custom/deepseek-next');
     assert.equal((await run(adapter('research-dp', { openclawAgentId: 'main' }))).model, 'custom/deepseek-next');
     assert.deepEqual(readJson(globalFile()), globalConfig);
+  });
+
+  it('runs with the workspace skill whichever agent id an instance switches to', async () => {
+    connector.config.addAgent({ name: 'switch-dp', type: 'openclaw', env: deepseek });
+    const skill = workspaceSkillName('switch-dp');
+    for (const id of ['research', 'main', 'research']) {
+      const result = await run(adapter('switch-dp', { openclawAgentId: id }));
+      assert.ok(result.skills.includes(skill), `${id} run sees ${result.skills}`);
+      const agents = readJson(result.configPath).agents;
+      assert.equal(result.workspace, agents.defaults.workspace);
+      if (id === 'main') assert.equal(Object.hasOwn(agents, 'entries'), false);
+      else assert.deepEqual(agents.entries, { [id]: { workspace: agents.defaults.workspace } });
+    }
+  });
+
+  it('repairs the two-agent roster an earlier build left, which OpenClaw 2026.10 refuses to load', async () => {
+    connector.config.addAgent({ name: 'left-dp', type: 'openclaw', env: deepseek });
+    const configPath = runtimeEnv('left-dp').OPENCLAW_CONFIG_PATH;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ agents: { defaults: {}, entries: { research: {}, main: {} } } }));
+    const result = await run(adapter('left-dp'));
+    assert.ok(result.skills.includes(workspaceSkillName('left-dp')), `main run sees ${result.skills}`);
+    assert.equal(Object.hasOwn(readJson(configPath).agents, 'entries'), false);
   });
 
   it('writes no agents.entries for the default agent, which OpenClaw 2026.7 and older refuse to load', async () => {

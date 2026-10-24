@@ -224,6 +224,18 @@ class OpenClawAdapter extends BaseAdapter {
 
   _resolveOpenclawWorkspace() {
     const agentId = this.openclawAgentId;
+    // A private store says in its own config where each id's workspace is
+    // (configureNativeAuth pins them), so the skill goes where the run looks.
+    if (this.agentEnv && this.agentEnv.OPENCLAW_STATE_DIR) {
+      let agents = {};
+      try {
+        const configFile = this.agentEnv.OPENCLAW_CONFIG_PATH || path.join(this._openclawStateDir, 'openclaw.json');
+        agents = JSON.parse(fs.readFileSync(configFile, 'utf-8')).agents || {};
+      } catch {}
+      const entry = (agents.entries || {})[agentId] || {};
+      const pinned = entry.workspace || (agents.defaults || {}).workspace;
+      if (pinned && fs.existsSync(pinned)) return pinned;
+    }
     const wsDir = agentId && agentId !== 'main'
       ? path.join(this._openclawStateDir, `workspace-${agentId}`)
       : path.join(this._openclawStateDir, 'workspace');
@@ -862,20 +874,28 @@ class OpenClawAdapter extends BaseAdapter {
       config.agents.defaults = config.agents.defaults || {};
       config.agents.defaults.model = { primary: `${provider}/${model}` };
       if (env.OPENCLAW_STATE_DIR) {
-        // --agent selects a configured id, even in a single private store, but
-        // `main` needs no entry on any OpenClaw release, and releases up to
-        // 2026.7 refuse to start on an `agents.entries` key at all ("Config
-        // invalid ... Unrecognized key"). So the key is written only for
-        // another id, or added to when the config already has one.
-        const entries = config.agents.entries || {};
-        const needsEntry = agentId !== 'main' || Object.keys(entries).length > 0;
-        if (agentId && needsEntry && !Object.hasOwn(entries, agentId)) {
-          config.agents.entries = { ...entries, [agentId]: {} };
-        }
         // OpenClaw's workspace default can still point at ~/.openclaw/workspace;
         // set it explicitly so skills and memory follow the private state too.
-        config.agents.defaults.workspace = config.agents.defaults.workspace || path.join(stateDir, 'workspace');
-        fs.mkdirSync(config.agents.defaults.workspace, { recursive: true });
+        const workspace = config.agents.defaults.workspace || path.join(stateDir, 'workspace');
+        config.agents.defaults.workspace = workspace;
+        fs.mkdirSync(workspace, { recursive: true });
+        // A private store serves one agent, which runs one OpenClaw agent id.
+        // `main` needs no entry on any OpenClaw release, and releases up to
+        // 2026.7 refuse to start on an `agents.entries` key at all ("Config
+        // invalid ... Unrecognized key"). Another id has to be listed there,
+        // and alone: 2026.10 refuses a roster of more than one agent that
+        // declares no owner ("multi-agent rosters require agents.ownership"),
+        // and gives each id of such a roster a workspace of its own
+        // (workspace/<id>), where the workspace skill is not installed. So the
+        // roster holds the id this agent runs on now, pinned to the private
+        // workspace, and is dropped for main. A save with no id (from the
+        // launcher) leaves it as the adapter last wrote it.
+        if (agentId === 'main') {
+          delete config.agents.entries;
+        } else if (agentId) {
+          const current = (config.agents.entries || {})[agentId] || {};
+          config.agents.entries = { [agentId]: { ...current, workspace: current.workspace || workspace } };
+        }
       }
       fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
     } catch {}
