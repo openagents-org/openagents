@@ -636,3 +636,36 @@ class TestSpecificMemberPolicy:
         a = _request(client, workspace).json()['data']
         assert a['status'] == 'approved'
         assert a['policy_requirements'] is None
+
+
+@pytest.mark.parametrize("kind, expected", [("repo_read", "pending"), ("data_delete", "rejected"), ("deploy", "pending")])
+def test_native_tool_request_requires_human_without_weakening_policy(client, workspace, configured_legacy_policies, kind, expected):
+    response = _request(client, workspace, kind=kind, require_human=True)
+    assert response.status_code == 200
+    approval = response.json()["data"]
+    assert approval["status"] == expected
+    if kind == "deploy":
+        assert approval["required_role"] == "admin"
+
+
+def test_native_tool_request_requires_human_with_no_saved_policy(client, workspace):
+    response = _request(client, workspace, kind="shell", require_human=True)
+    assert response.json()["data"]["status"] == "pending"
+
+
+@pytest.mark.parametrize("verdict", ["approve", "reject"])
+def test_native_resolution_resumes_in_place(client, workspace, db, people, verdict):
+    a = _request(client, workspace, require_human=True, resume_in_place=True).json()["data"]
+    response = client.post(f"/v1/approvals/{a['id']}/{verdict}", json={"network": workspace["id"]}, headers=_bearer("mia"))
+    assert response.status_code == 200
+    out = response.json()["data"]
+    event = next(e for e in _channel_events(db, workspace) if e.id == out["resolution_event_id"])
+    assert event.payload["message_type"] == "approval"
+    assert event.payload["mentions"] == []
+    assert not event.metadata_.get("target_agents")
+
+
+def test_native_permission_cannot_be_approved_by_workspace_token(client, workspace):
+    a = _request(client, workspace, require_human=True).json()["data"]
+    response = client.post(f"/v1/approvals/{a['id']}/approve", json={"network": workspace["id"]}, headers=_tok(workspace))
+    assert response.json()["code"] == 403

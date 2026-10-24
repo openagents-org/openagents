@@ -117,3 +117,14 @@ describe('OpenCode — clean-exit outcome', () => {
     assert.equal(sent[0].opts.metadata.error_category, 'incomplete_run');
   });
 });
+
+
+it('reports native permission rejection instead of claiming the tool crashed', async () => {
+  const { state, stdout, stdoutErr } = await streamed([
+    { type: 'tool_use', part: { type: 'tool', tool: 'bash', state: {
+      status: 'error', error: 'The user rejected permission to use this specific tool call.', input: {command:'uname -a'},
+    } } },
+  ]);
+  const out = OpenCodeAdapter._outcomeForCleanExit({ stdout, stdoutErr, responseState:state });
+  assert.equal(out.failure.category, 'permission_denied');
+});
