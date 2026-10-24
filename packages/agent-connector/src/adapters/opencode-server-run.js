@@ -81,7 +81,9 @@ async function runServer({ binary, cwd, model, sessionId, prompt, env = process.
     const headers = { Authorization: `Basic ${Buffer.from('openagents:' + password).toString('base64')}`,
       'Content-Type': 'application/json' };
     async function request(route, body, requestSignal = controller.signal) {
-      const res = await fetch(`${origin}${route}?directory=${encodeURIComponent(cwd)}`, {
+      const url = new URL(route, origin);
+      url.searchParams.set('directory', cwd);
+      const res = await fetch(url, {
         method: body === undefined ? 'GET' : 'POST', headers,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: requestSignal,
       });
@@ -154,7 +156,7 @@ async function runServer({ binary, cwd, model, sessionId, prompt, env = process.
     });
     await completed;
     await Promise.all(pending);
-    const messages = await request(`/session/${encodeURIComponent(sessionId)}/message`);
+    const messages = await request(`/session/${encodeURIComponent(sessionId)}/message?limit=1`);
     const result = [...messages].reverse().find(message => message.info?.role === 'assistant');
     // Recover the final text if SSE delivery trails the idle notification.
     for (const part of result?.parts || []) {
