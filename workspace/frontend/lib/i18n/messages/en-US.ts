@@ -564,7 +564,8 @@ export const messages = {
     },
     contextHint: 'Attached entries are handed to the agent as context when the task runs.',
     fieldAttachments: 'Attachments',
-    attachAdd: 'Add files or images…',
+    attachAdd: 'Drop files or images here, or click to browse…',
+    attachDrop: 'Drop to attach',
     attachedFile: 'File',
     attachFailed: 'Upload failed — please try again.',
     attachedCount: {
