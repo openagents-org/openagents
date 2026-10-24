@@ -71,6 +71,13 @@ describe('classifyFailure', () => {
     );
   });
 
+  it('reads a gateway refusing a model as a bad model, not a CLI error', () => {
+    assert.equal(
+      classifyFailure('HTTP 400: {"detail":"Model \'gpt-4o-mini\' is not available. This gateway only allows: deepseek-3.2, glm-5.2"}'),
+      CODE.BAD_MODEL,
+    );
+  });
+
   it('falls back to cli_error for unrecognized output', () => {
     assert.equal(classifyFailure('segmentation fault'), CODE.CLI_ERROR);
   });
@@ -601,5 +608,158 @@ describe('out-of-credit is not only an English 402', () => {
   it('still reads the English wording it always did', () => {
     assert.equal(classifyFailure('Your credit balance is too low'), CODE.OUT_OF_CREDIT);
     assert.equal(classifyFailure('402 payment required'), CODE.OUT_OF_CREDIT);
+  });
+});
+
+describe('a direct test runs on the model the agent runs on', () => {
+  // Codex declares no CLI probe: an agent with a key is tested on its API.
+  const CODEX = { name: 'codex', label: 'OpenAI Codex CLI', check_ready: { login_command: 'codex login' } };
+  const connector = fakeConnector({ entry: CODEX, health: { installed: true, ready: true } });
+
+  /** Stand in for the HTTP client, recording what it was asked. */
+  function withLLM(answer, run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return answer; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests a launcher-made codex agent on its CODEX_MODEL', async () => {
+    await withLLM({ success: true, response: 'hi' }, async (seen) => {
+      const r = await probeAgentType(connector, 'codex', { agentEnv: {
+        OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: 'https://api-gateway.example/v1', CODEX_MODEL: 'openai-gpt-oss-20b',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.model, 'openai-gpt-oss-20b');
+    });
+  });
+});
+
+describe('a direct test calls the endpoint the agent\'s key is for', () => {
+  // DeepSeek takes the generic key and endpoint under names of its own.
+  const DEEPSEEK = {
+    name: 'deepseek', label: 'DeepSeek Harness',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'DEEPSEEK_API_KEY' },
+      { from: 'LLM_BASE_URL', to: 'DEEPSEEK_BASE_URL' },
+      { from: 'LLM_MODEL', to: 'DEEPSEEK_MODEL' },
+    ] },
+    env_config: [{ name: 'DEEPSEEK_API_KEY', password: true }, { name: 'DEEPSEEK_BASE_URL' }],
+  };
+  const OPENCODE = {
+    name: 'opencode', label: 'OpenCode',
+    resolve_env: { rules: [{ from: 'LLM_API_KEY', to: 'OPENAI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'OPENAI_BASE_URL' }] },
+  };
+  const ready = (entry) => fakeConnector({ entry, health: { installed: true, ready: true } });
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('calls the endpoint saved under the type\'s own name', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: {
+        LLM_API_KEY: 'sk-ds-123456', DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.baseUrl, 'https://api.deepseek.com');
+    });
+  });
+
+  it('does not send a key of its own to OpenAI when no endpoint is set', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
+  });
+
+  it('leaves the endpoint to the client for a generic one, or an OpenAI-style key', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456', LLM_BASE_URL: 'https://relay.example/v1' } });
+      await probeAgentType(ready(OPENCODE), 'opencode', { agentEnv: { LLM_API_KEY: 'sk-oc-123456' } });
+      assert.equal(seen.length, 2);
+      assert.equal(seen[0].opts.baseUrl, undefined);
+      assert.equal(seen[1].opts.baseUrl, undefined);
+    });
+  });
+});
+
+describe('a direct test of a Pi agent speaks the API format Pi uses', () => {
+  const PI = {
+    name: 'pi', label: 'Pi',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'PI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'PI_BASE_URL' }, { from: 'LLM_MODEL', to: 'PI_MODEL' },
+    ] },
+    env_config: [{ name: 'PI_API_KEY', password: true }, { name: 'PI_BASE_URL' }],
+  };
+  const connector = fakeConnector({ entry: PI, health: { installed: true, ready: true } });
+  const relay = { LLM_API_KEY: 'sk-pi-123456', LLM_BASE_URL: 'https://relay.example/v1', PI_BASE_URL: 'https://relay.example/v1', PI_MODEL: 'm' };
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push(opts); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests an Anthropic-format Pi agent on the Anthropic API', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic', PI_API_FORMAT: 'anthropic-messages' } });
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic' } });
+      assert.deepEqual(seen.map((o) => o.protocol), ['anthropic', 'anthropic']);
+    });
+  });
+
+  it('tests a relay-only Pi agent the way Pi infers it', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: relay });
+      assert.equal(seen[0].protocol, 'openai');
+    });
+  });
+
+  it('leaves a Pi agent on its own provider config to the client', async () => {
+    // No PI_PROVIDER or PI_BASE_URL: the launcher's provider is not in play,
+    // and Pi runs on its own config, here an Anthropic relay.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: {
+        ANTHROPIC_API_KEY: 'sk-ant-123456', ANTHROPIC_BASE_URL: 'https://anthropic-relay.example', PI_MODEL: 'm',
+      } });
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].protocol, undefined);
+      assert.equal(seen[0].baseUrl, undefined);
+    });
+  });
+
+  it('reports static checks for a format the direct test does not speak', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'openai' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
   });
 });

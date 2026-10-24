@@ -26,6 +26,7 @@ const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
+const { classifyClineAuth } = require('./adapters/cline-stream');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -45,6 +46,33 @@ const LOGIN_STATUS_TIMEOUT_MS = 8000;
 let credentialListCache = null;
 /** True while a background (non-blocking) `cmdkey /list` refresh is running. */
 let credentialListRefreshing = false;
+
+/**
+ * Readers for a credential file whose content, not its existence, says whether
+ * the agent is signed in. Named by `check_ready.creds_classifier`. Each takes
+ * the parsed file (or `{ __parse_error: true }`) and returns 'ready',
+ * 'no_credentials' (the file shows no sign-in) or 'unknown' (it cannot tell).
+ * They test fields for presence only; no value is returned or logged.
+ *
+ * Reading the file for one non-empty field said "signed in" for a Cline file
+ * that only remembered which provider and model to use, with no key in it.
+ */
+const CREDS_CLASSIFIERS = {
+  // The adapter's own reading of providers.json. A key-based provider picked
+  // with no key stored is no_credentials; a Cline account sign-in keeps its
+  // credential outside the file, so without a stored key it is unknown, never
+  // "signed out". Keys in the environment are judged by env_vars before this,
+  // which lists every key the adapter takes (CLINE_AUTH_ENV_VARS).
+  cline_providers(creds) {
+    return classifyClineAuth(creds, {}).state;
+  },
+};
+
+/** The named classifier's verdict, or null when the entry names none. */
+function classifyCreds(checkReady, creds) {
+  const classify = checkReady && CREDS_CLASSIFIERS[checkReady.creds_classifier];
+  return classify ? classify(creds) : null;
+}
 
 /**
  * Read a CLI's status output for its sign-in state: true (signed in), false
@@ -989,6 +1017,19 @@ class Installer {
       };
     }
 
+    // The credential file is there but cannot say (a Cline account sign-in
+    // keeps no key in it, or the file is in a shape this version does not
+    // know). Not "signed out": the run decides, as for unreadable above.
+    if (credsFile.unknown && signedIn !== false) {
+      return {
+        ready: false,
+        auth_mode: null,
+        auth_status: 'unknown',
+        execution_mode: 'unavailable',
+        message: checkReady.unknown_message || checkReady.not_ready_message || 'Sign-in could not be confirmed.',
+      };
+    }
+
     // No positive signal. For agents whose auth cannot be reliably probed
     // without running them (generic `check_ready.unverifiable`), this is
     // 'unknown' — they may already be signed in via a CLI login / keychain /
@@ -1034,6 +1075,8 @@ class Installer {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
           const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+          const verdict = classifyCreds(checkReady, creds);
+          if (verdict) return verdict === 'ready';
           if (checkReady.creds_key) return !!creds[checkReady.creds_key];
           return true;
         }
@@ -1095,7 +1138,8 @@ class Installer {
 
   /**
    * Existence/readability of a credential file. Returns 'present' |
-   * 'unreadable' | 'absent'. A non-empty readable file (or a non-empty
+   * 'unreadable' | 'absent', or 'unknown' when the entry's creds_classifier
+   * cannot tell from the content. A non-empty readable file (or a non-empty
    * directory) is normally 'present'. Entries with creds_json_has_entries
    * additionally require at least one top-level JSON entry, allowing an empty
    * auto-created {} file to remain signed out. Credential values are never
@@ -1114,6 +1158,13 @@ class Installer {
       const st = fs.statSync(p);
       if (st.isDirectory()) return fs.readdirSync(p).length > 0 ? 'present' : 'absent';
       fs.accessSync(p, fs.constants.R_OK);
+      if (checkReady.creds_classifier) {
+        const raw = fs.readFileSync(p, 'utf-8');
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch { parsed = { __parse_error: true }; }
+        const verdict = classifyCreds(checkReady, parsed);
+        if (verdict) return verdict === 'ready' ? 'present' : verdict === 'unknown' ? 'unknown' : 'absent';
+      }
       if (checkReady.creds_json_has_entries) {
         const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (Array.isArray(parsed)) return parsed.length > 0 ? 'present' : 'absent';
@@ -1143,14 +1194,20 @@ class Installer {
    * Opt-in, content-free creds-file readiness. Active ONLY when
    * `check_ready.creds_no_parse` is set, so existing creds_file agents (which
    * parse + match `creds_key` via _checkCredsReady) keep their exact behavior.
-   * Returns { ready, unreadable }.
+   * Returns { ready, unreadable }, plus `unknown: true` when the entry's
+   * creds_classifier cannot tell from the file.
    */
   _evaluateCredsFile(checkReady, agentType) {
     if (!this._credsFile(checkReady) || !checkReady.creds_no_parse) {
       return { ready: false, unreadable: false };
     }
     const state = this._credsFileState(checkReady, agentType);
-    return { ready: state === 'present', unreadable: state === 'unreadable' };
+    return {
+      ready: state === 'present',
+      unreadable: state === 'unreadable',
+      // Only a creds_classifier can say this; left out otherwise.
+      ...(state === 'unknown' ? { unknown: true } : {}),
+    };
   }
 
   /**
