@@ -1526,6 +1526,18 @@ class DirectThreadPreference(Base):
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
 
 
+class ReadMarker(Base):
+    """A person's last-read position in one thread or DM, shared by all of
+    their devices. `session_id` is the client session id: the thread name, or
+    a canonical `dm:<a>,<b>` id. Times are unix ms; read_at only moves forward."""
+    __tablename__ = 'read_markers'
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey('workspaces.id', ondelete='CASCADE'), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    session_id = Column(Text, primary_key=True)
+    read_at = Column(BigInteger, nullable=False)
+    updated_at = Column(BigInteger, nullable=False)
+
+
 class ProjectPreviewTicket(Base):
     """Short-lived, project-scoped access; never embeds a workspace credential."""
     __tablename__ = 'project_preview_tickets'

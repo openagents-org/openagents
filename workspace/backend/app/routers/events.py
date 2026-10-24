@@ -26,6 +26,7 @@ from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
+from app.services.read_state import stream_allows as read_state_stream_allows
 from app.services.poll_queries import event_type_filter, resume_cursor, stream_head
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
@@ -1201,6 +1202,11 @@ def list_conversations(
     pairs = db.execute(base).all()
 
     from app.models import DirectThreadLink, DirectThreadPreference
+    # Stored per-person markers (shared across devices) merge with the ones
+    # older clients still send from local storage; the newer one wins.
+    from app.services.read_state import merged_for_viewer
+    read_markers = merged_for_viewer(db, workspace.id, viewer, read_markers, keep=lambda key: key.startswith('dm:'))
+
     preferences = {}
     if viewer.is_human and viewer.email:
         preferences = {key: pref for key, pref in db.execute(
@@ -1482,7 +1488,9 @@ async def stream_events(
                     event = _json.loads(data)
                     if stream_filter is not None:
                         await stream_filter.maybe_refresh(event)
-                    if stream_filter is not None and not stream_filter.allows(event):
+                    if not read_state_stream_allows(event, viewer):
+                        pass
+                    elif stream_filter is not None and not stream_filter.allows(event):
                         pass
                     elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")

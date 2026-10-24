@@ -19,6 +19,7 @@ import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { dmCounterpart, isMyAddress, myAddress } from './dm';
 import { dmUnreadCounts } from './dm-unread';
 import { threadUnreadState } from './thread-unread';
+import { adoptRemoteMarkers, queueRead } from './read-state';
 import { unreadCutoffMs } from './unread-window';
 import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
 import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorkspaceSnapshot, type WorkspaceSnapshot } from './workspace-snapshot';
@@ -319,6 +320,11 @@ export function useWorkspace() {
   return ctx;
 }
 
+/** The person is looking at this window (visible and focused). */
+function windowAttentive(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+}
+
 export function WorkspaceProvider({
   workspaceId,
   token,
@@ -353,9 +359,10 @@ export function WorkspaceProvider({
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
 
   // ── Thread read state ──
-  // The backend has no per-thread read marker, so unread is derived client-side:
-  // a thread is unread when its lastEventAt is newer than the last time the user
-  // had it open. Persisted so a reload doesn't mark everything read again.
+  // A thread is unread when it has messages newer than the last time the user
+  // had it open. The signed-in person's markers are stored on the server and
+  // shared by all their devices; this local copy (keyed per workspace) is the
+  // per-device cache, and also the baseline for threads never read anywhere.
   const readKey = `oa-read-${workspaceId}`;
   const [lastReadBySession, setLastReadBySession] = useState<Record<string, number>>(() => {
     if (typeof window === 'undefined') return {};
@@ -369,15 +376,71 @@ export function WorkspaceProvider({
   lastReadRef.current = lastReadBySession;
 
   const persistRead = useCallback((next: Record<string, number>) => {
+    // Updated eagerly so back-to-back merges (discovery, then DMs) build on
+    // each other instead of the last render's markers.
+    lastReadRef.current = next;
     setLastReadBySession(next);
     try {
       localStorage.setItem(readKey, JSON.stringify(next));
     } catch { /* storage full */ }
   }, [readKey]);
 
+  // Reads (never baselines) are reported for the signed-in person, so their
+  // other devices clear the same badge. Batched briefly: opening a thread and
+  // its first streamed messages become one request. The server keeps the
+  // newest marker and clamps future times to its own clock.
+  const pendingReadsRef = useRef<Record<string, number>>({});
+  const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canReportReads = !!identityUser.isAuthenticated;
+  const reportRead = useCallback((sessionId: string, at: number) => {
+    if (!canReportReads) return;
+    pendingReadsRef.current = queueRead(pendingReadsRef.current, sessionId, at);
+    if (readFlushTimerRef.current) return;
+    readFlushTimerRef.current = setTimeout(() => {
+      readFlushTimerRef.current = null;
+      const batch = pendingReadsRef.current;
+      pendingReadsRef.current = {};
+      if (Object.keys(batch).length === 0 || !workspaceApi.isConfigured()) return;
+      workspaceApi.markRead(batch).catch(() => {
+        // Keep them for the next read rather than dropping them.
+        for (const [id, readAt] of Object.entries(batch)) pendingReadsRef.current = queueRead(pendingReadsRef.current, id, readAt);
+      });
+    }, 1_000);
+  }, [canReportReads]);
+  useEffect(() => () => {
+    // Never send one workspace's pending reads to another.
+    if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+    readFlushTimerRef.current = null;
+    pendingReadsRef.current = {};
+  }, [workspaceId]);
+
   const markSessionRead = useCallback((sessionId: string) => {
     const now = Date.now();
     persistRead({ ...lastReadRef.current, [sessionId]: now });
+    reportRead(sessionId, now);
+  }, [persistRead, reportRead]);
+
+  // A thread left open in a background window keeps its local marker current,
+  // but that is only a read for the person's other devices once they look.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onAttention = () => {
+      const sid = currentSessionIdRef.current;
+      const at = sid ? lastReadRef.current[sid] : undefined;
+      if (sid && at !== undefined && windowAttentive()) reportRead(sid, at);
+    };
+    window.addEventListener('focus', onAttention);
+    document.addEventListener('visibilitychange', onAttention);
+    return () => {
+      window.removeEventListener('focus', onAttention);
+      document.removeEventListener('visibilitychange', onAttention);
+    };
+  }, [reportRead]);
+
+  /** Adopt reads made on the person's other devices (newer server markers). */
+  const adoptRemoteReads = useCallback((remote: Iterable<readonly [string, number | null | undefined]>) => {
+    const next = adoptRemoteMarkers(lastReadRef.current, remote);
+    if (next) persistRead(next);
   }, [persistRead]);
   // Set by setCurrentSessionId({ skipFocus: true }) and consumed by ChatView's
   // auto-focus effect, so keyboard-driven thread switches (1-9) don't steal
@@ -447,6 +510,10 @@ export function WorkspaceProvider({
   const [selectedBrowserContextId, setSelectedBrowserContextId] = useState<string | null>(null);
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
+  const receiveDMConversations = useCallback((conversations: DMConversation[]) => {
+    adoptRemoteReads(conversations.map((c) => [`dm:${c.agents[0]},${c.agents[1]}`, c.readAt] as const));
+    setDMConversations(conversations);
+  }, [adoptRemoteReads]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -778,6 +845,7 @@ export function WorkspaceProvider({
       const updated = discovery.channels.map((ch) =>
         networkChannelToSession(ch, workspaceId)
       );
+      adoptRemoteReads(updated.map((s) => [s.sessionId, s.readAt] as const));
 
       setSessions((prev) => {
         const existingIds = new Set(prev.map((s) => s.sessionId));
@@ -968,7 +1036,7 @@ export function WorkspaceProvider({
       workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); }).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
-      workspaceApi.listConversations(undefined, lastReadRef.current).then((c) => setDMConversations(c)).catch(() => {});
+      workspaceApi.listConversations(undefined, lastReadRef.current).then(receiveDMConversations).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
       workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
       workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {});
@@ -987,7 +1055,7 @@ export function WorkspaceProvider({
     } catch {
       // Non-critical — keep existing state
     }
-  }, [workspaceId, stoppingSessionIds, commitFiles]);
+  }, [workspaceId, stoppingSessionIds, commitFiles, adoptRemoteReads, receiveDMConversations]);
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
@@ -1425,11 +1493,11 @@ export function WorkspaceProvider({
   const refreshDMConversations = useCallback(async () => {
     try {
       const convos = await workspaceApi.listConversations(undefined, lastReadRef.current);
-      setDMConversations(convos);
+      receiveDMConversations(convos);
     } catch {
       // Non-critical
     }
-  }, []);
+  }, [receiveDMConversations]);
 
   // Only workspace metadata and discovery gate initial rendering.
   useEffect(() => {
@@ -1567,7 +1635,7 @@ export function WorkspaceProvider({
           setNotificationsLoaded(true);
           setUnreadNotificationCount(r.unreadCount);
         });
-        loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), setDMConversations);
+        loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), receiveDMConversations);
         void refreshSignals();
 
         // Bulk fetch latest message per channel (1 request instead of N).
@@ -1725,10 +1793,12 @@ export function WorkspaceProvider({
       const at = convo.lastMessage.timestamp || 0;
       if (known[id] === undefined || (id === currentSessionId && known[id] < at)) {
         additions[id] = Math.max(at, id === currentSessionId ? Date.now() : 0);
+        // Only the open DM was read; a first-seen baseline is not a read.
+        if (id === currentSessionId && windowAttentive()) reportRead(id, additions[id]);
       }
     }
     if (Object.keys(additions).length > 0) persistRead({ ...known, ...additions });
-  }, [dmConversations, currentSessionId, persistRead]);
+  }, [dmConversations, currentSessionId, persistRead, reportRead]);
 
   // Baseline threads we've never seen a read marker for, and keep the open
   // thread marked read as messages stream into it.
@@ -1743,11 +1813,13 @@ export function WorkspaceProvider({
     const open = sessions.find((s) => s.sessionId === currentSessionId);
     if (open && (known[open.sessionId] || 0) < activityAt(open)) {
       additions[open.sessionId] = activityAt(open);
+      // Server time, so other devices see everything shown here as read.
+      if (windowAttentive()) reportRead(open.sessionId, activityAt(open));
     }
     if (Object.keys(additions).length > 0) {
       persistRead({ ...known, ...additions });
     }
-  }, [sessions, currentSessionId, persistRead, activityAt]);
+  }, [sessions, currentSessionId, persistRead, activityAt, reportRead]);
 
   // Opening a thread / DM reads its signals. New signals for the open one are
   // read on arrival only while the window is focused — otherwise they stay
