@@ -1360,7 +1360,7 @@ class Installer {
 
     let bootstrapEnv = this._buildShellEnv();
     let installEnv;
-    if (agentType === 'hermes' && process.platform === 'win32') {
+    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && process.platform === 'win32') {
       const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
       cmd = prepared.command;
       bootstrapEnv = prepared.env;
@@ -1459,11 +1459,11 @@ class Installer {
     let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
 
-    // Hermes's registry command names the inbox Windows PowerShell host for
-    // compatibility, but some Windows environments expose only PowerShell 7.
-    // Resolve the host that actually exists and keep module paths from the
-    // launcher's own PowerShell runtime out of both installer processes.
-    if (agentType === 'hermes' && isWin) {
+    // Resolve a compatible host and keep inherited PowerShell 7 modules out
+    // of Windows PowerShell. Qoder otherwise cannot load Get-FileHash when
+    // verifying its download, just as Hermes's uv bootstrap could not load
+    // Get-ExecutionPolicy.
+    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && isWin) {
       const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
       rawCmd = prepared.command;
       env = prepared.env;
@@ -2434,7 +2434,7 @@ class Installer {
       throw new Error('Windows PowerShell or PowerShell 7 is required for this installer.');
     }
     return {
-      command: this._retargetPowerShellCommand(command, host),
+      command: this._retargetPowerShellCommand(this._wrapForWindowsShell(command), host),
       env: this._powerShellChildEnv(env),
       host,
     };
@@ -2890,12 +2890,12 @@ class Installer {
    * `Invoke-RestMethod`, etc. The launcher's install shell is cmd.exe, which
    * doesn't recognize these aliases — without wrapping, e.g. Cursor's
    * `irm '…' | iex` exits 255. Skips commands already prefixed with
-   * `powershell`/`powershell.exe` so we don't double-wrap.
+   * `powershell`/`pwsh` so we don't double-wrap.
    */
   _wrapForWindowsShell(cmd) {
     if (!cmd || process.platform !== 'win32') return cmd;
     const trimmed = cmd.trimStart();
-    if (/^("[^"]*\\)?powershell(\.exe)?["']?\s/i.test(trimmed)) return cmd;
+    if (/^("[^"]*\\)?(powershell|pwsh)(\.exe)?["']?\s/i.test(trimmed)) return cmd;
     const psTokens = /\b(irm|iwr|iex|Invoke-RestMethod|Invoke-WebRequest|Invoke-Expression|Expand-Archive|Get-[A-Z]\w*|Set-[A-Z]\w*)\b/;
     if (!psTokens.test(cmd)) return cmd;
     const escaped = cmd.replace(/"/g, '\\"');

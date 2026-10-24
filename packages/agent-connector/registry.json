@@ -2343,5 +2343,206 @@
       ],
       "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK in Configure. Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
     }
+  },
+  {
+    "name": "qoder",
+    "label": "Qoder CLI",
+    "description": "Qoder's terminal coding agent (qoder.com), driven headless",
+    "homepage": "https://qoder.com/cli",
+    "tags": [
+      "coding",
+      "cli",
+      "headless"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Qoder",
+    "tagline": "Qoder's terminal coding agent, on a Qoder account sign-in or a personal access token. Installed by Qoder's own script.",
+    "logo": {
+      "key": "qoder"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qodercli",
+      "verify": "qodercli --version",
+      "verify_win": "qodercli --version",
+      "macos": "curl -fsSL https://qoder.com/install | bash",
+      "linux": "curl -fsSL https://qoder.com/install | bash",
+      "windows": "irm https://qoder.com/install.ps1 | iex"
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.qoder",
+      "class": "QoderAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "1.0.45",
+      "env_vars": [
+        "QODER_PERSONAL_ACCESS_TOKEN"
+      ],
+      "saved_env_key": "QODER_PERSONAL_ACCESS_TOKEN",
+      "login_command": "qodercli login",
+      "status_args": [
+        "status",
+        "-o",
+        "json"
+      ],
+      "logged_in_pattern": "\"logged_in\":\\s*true",
+      "logged_out_pattern": "\"logged_in\":\\s*false",
+      "not_ready_message": "Not signed in — sign in with `qodercli login` (it opens a browser), or paste a personal access token from https://qoder.com/account/integrations (press e). A Qoder CN (qoder.cn) account belongs to the qoder-cn agent instead."
+    },
+    "env_config": [
+      {
+        "name": "QODER_PERSONAL_ACCESS_TOKEN",
+        "description": "Personal access token from https://qoder.com/account/integrations. Leave blank to use the account signed in with `qodercli login` on this machine; a token set here always takes precedence over that sign-in.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "QODER_MODEL",
+        "description": "Model for each run — auto, lite, performance, or a key from `qodercli --list-models`. Leave blank for the account default. Other providers' API keys do not work here: models come from the Qoder account.",
+        "required": false,
+        "placeholder": "auto"
+      }
+    ],
+    "models": [
+      {
+        "id": "auto",
+        "label": "Auto",
+        "category": "chat"
+      },
+      {
+        "id": "lite",
+        "label": "Lite",
+        "category": "chat"
+      },
+      {
+        "id": "performance",
+        "label": "Performance",
+        "category": "chat"
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "QODER_PERSONAL_ACCESS_TOKEN"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "QODER_MODEL"
+        }
+      ]
+    },
+    "workspace_model": true,
+    "provider_locked": true
+  },
+  {
+    "name": "qoder-cn",
+    "label": "Qoder CLI CN",
+    "description": "Qoder's terminal coding agent, China edition (qoder.com.cn), driven headless",
+    "homepage": "https://qoder.com.cn/cli",
+    "tags": [
+      "coding",
+      "cli",
+      "headless",
+      "china"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Qoder",
+    "tagline": "The China edition of Qoder's terminal agent, on a Qoder CN account (qoder.cn) sign-in or a personal access token. Installed by Qoder's own script.",
+    "logo": {
+      "key": "qoder-cn"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qoderclicn",
+      "verify": "qoderclicn --version",
+      "verify_win": "qoderclicn --version",
+      "macos": "curl -fsSL https://qoder.com.cn/install | bash",
+      "linux": "curl -fsSL https://qoder.com.cn/install | bash",
+      "windows": "irm https://qoder.com.cn/install.ps1 | iex"
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.qoder_cn",
+      "class": "QoderCnAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "1.0.45",
+      "env_vars": [
+        "QODERCN_PERSONAL_ACCESS_TOKEN"
+      ],
+      "saved_env_key": "QODERCN_PERSONAL_ACCESS_TOKEN",
+      "login_command": "qoderclicn login",
+      "status_args": [
+        "status",
+        "-o",
+        "json"
+      ],
+      "logged_in_pattern": "\"logged_in\":\\s*true",
+      "logged_out_pattern": "\"logged_in\":\\s*false",
+      "not_ready_message": "Not signed in — sign in with `qoderclicn login` (it opens a browser), or paste a personal access token from https://qoder.cn/account/integrations (press e). A qoder.com account does not work here: the China edition signs in to qoder.cn."
+    },
+    "env_config": [
+      {
+        "name": "QODERCN_PERSONAL_ACCESS_TOKEN",
+        "description": "Personal access token from https://qoder.cn/account/integrations. Leave blank to use the account signed in with `qoderclicn login` on this machine; a token set here always takes precedence over that sign-in.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "QODERCN_MODEL",
+        "description": "Model for each run — auto, lite, performance, or a key from `qoderclicn --list-models`. Leave blank for the account default. Other providers' API keys do not work here: models come from the Qoder account.",
+        "required": false,
+        "placeholder": "auto"
+      }
+    ],
+    "models": [
+      {
+        "id": "auto",
+        "label": "Auto",
+        "category": "chat"
+      },
+      {
+        "id": "lite",
+        "label": "Lite",
+        "category": "chat"
+      },
+      {
+        "id": "performance",
+        "label": "Performance",
+        "category": "chat"
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "QODERCN_PERSONAL_ACCESS_TOKEN"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "QODERCN_MODEL"
+        }
+      ]
+    },
+    "workspace_model": true,
+    "provider_locked": true
   }
 ]

@@ -73,6 +73,8 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   openworker: { bg: 'bg-blue-600',   text: 'text-white' },
   codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
   codearts:  { bg: 'bg-red-600',     text: 'text-white' },
+  qoder:     { bg: 'bg-emerald-500', text: 'text-white' },
+  'qoder-cn': { bg: 'bg-emerald-500', text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {

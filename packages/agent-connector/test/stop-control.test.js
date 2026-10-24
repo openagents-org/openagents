@@ -813,7 +813,7 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'qoder', 'qoder-cn',
 ];
 
 function fakeProc(pid) {
@@ -1043,6 +1043,14 @@ const START_RUN = {
   },
   codebuddy: {
     start: (a, ch) => a._runCodeBuddy(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  qoder: {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qoder-cn': {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
     stopped: { userStopped: true },
   },
   copilot: { start: (a, ch) => { a._copilotBin = MISSING_BIN; return a._runTurn(ch, []); }, stopped: { userStopped: true } },

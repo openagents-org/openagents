@@ -8,6 +8,12 @@ import {
 } from "./install-progress"
 
 describe("classifyInstallChunk", () => {
+  it("recognises the checksum verification step used by Qoder", () => {
+    expect(classifyInstallChunk("==> Verifying checksum...", "install").phase).toBe(
+      "verifying",
+    )
+  })
+
   it("treats a real size as a download", () => {
     expect(classifyInstallChunk("fetched 12.4 MB", "install").phase).toBe(
       "downloading",
@@ -34,6 +40,40 @@ describe("classifyInstallChunk", () => {
 })
 
 describe("userFacingInstallError", () => {
+  it("explains a missing built-in cmdlet in Chinese PowerShell output", () => {
+    const msg = userFacingInstallError(
+      new Error([
+        'Install failed with exit code 1',
+        'Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://qoder.com.cn/install.ps1 | iex"',
+        'iex : 无法将“Get-FileHash”项识别为 cmdlet、函数、脚本文件或可运行程序的名称。',
+        '+ FullyQualifiedErrorId : CommandNotFoundException,Microsoft.PowerShell.Commands.InvokeExpressionCommand',
+      ].join("\n")),
+      "verifying",
+      "install",
+    )
+    expect(msg).toMatch(/built-in module/)
+    expect(msg).toMatch(/PSModulePath/)
+    expect(msg).not.toMatch(/did not have permission/)
+  })
+
+  it("does not treat the ExecutionPolicy command option as a permission failure", () => {
+    const msg = userFacingInstallError(
+      new Error('Command: powershell.exe -ExecutionPolicy Bypass -Command "install"\nchecksum mismatch'),
+      "verifying",
+      "install",
+    )
+    expect(msg).not.toMatch(/did not have permission/)
+  })
+
+  it("still recognises a genuine execution policy rejection", () => {
+    const msg = userFacingInstallError(
+      new Error('Script cannot be loaded because running scripts is disabled on this system. PSSecurityException'),
+      "preparing",
+      "install",
+    )
+    expect(msg).toMatch(/did not have permission/)
+  })
+
   it("names git when the installer tripped over a missing one", () => {
     const msg = userFacingInstallError(
       new Error("✗ Git not found\nRequesting Apple Command Line Tools"),

@@ -534,6 +534,14 @@ function _addAgentInstallerPaths(dirs) {
   // _addWindowsPaths; this is the half nothing covered.
   _push(dirs, path.join(HOME, '.hermes', 'bin'));
 
+  // qoder / qoder-cn — the official install scripts keep the binary in
+  // ~/.qoder/bin/qodercli (~/.qoder-cn/bin/qoderclicn). On Windows that dir
+  // holds qodercli.exe and reaches PATH only through the user `Path` registry
+  // value; on Unix it holds the versioned builds and the CLI is linked from
+  // ~/.local/bin, which is searched already.
+  _push(dirs, path.join(HOME, '.qoder', 'bin', 'qodercli'));
+  _push(dirs, path.join(HOME, '.qoder-cn', 'bin', 'qoderclicn'));
+
   // Installers that let the user choose the install dir. Each of these CLIs
   // reads an env var for its target, and a user who set one has their ONLY copy
   // there — every hardcoded default above then finds nothing. Added rather than

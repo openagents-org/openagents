@@ -82,6 +82,10 @@ const LOC = {
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
   hermesHome: '.hermes/bin',
+  // Qoder's install.ps1 keeps qodercli.exe in its own versions dir and puts
+  // that dir on the user Path; on Unix the same installer links ~/.local/bin.
+  qoderWin: IS_WINDOWS ? '.qoder/bin/qodercli' : null,
+  qoderCnWin: IS_WINDOWS ? '.qoder-cn/bin/qoderclicn' : null,
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
@@ -204,6 +208,16 @@ const WHERE = {
     [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
   pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+  qoder: [
+    [IS_WINDOWS ? null : LOC.localBin, 'qoder.com/install (~/.local/bin symlink)', 'installer'],
+    [LOC.qoderWin, 'qoder.com/install.ps1', 'installer'],
+    [LOC.nvm20, 'npm i -g @qoder-ai/qodercli (the older route)', 'npm'],
+  ],
+  'qoder-cn': [
+    [IS_WINDOWS ? null : LOC.localBin, 'qoder.com.cn/install (~/.local/bin symlink)', 'installer'],
+    [LOC.qoderCnWin, 'qoder.com.cn/install.ps1', 'installer'],
+    [LOC.nvm20, 'npm i -g @qodercn-ai/qoderclicn (the older route)', 'npm'],
+  ],
 }
 
 /**
