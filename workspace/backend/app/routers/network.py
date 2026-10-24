@@ -602,6 +602,10 @@ def discover(
     ).scalars().all()
 
     visible_channels = [c for c in channels_rows if c.name not in hidden_channels]
+    # The person's stored markers (shared by their devices) win over an older
+    # local marker the client sent; without a sent marker the stored one applies.
+    from app.services.read_state import merged_for_viewer
+    markers = merged_for_viewer(db, workspace.id, viewer, markers, keep=lambda key: not key.startswith('dm:'))
     activity = thread_activity(db, str(workspace.id), visible_channels, markers, viewer.email)
     from app.models import ThreadPin, ChannelHumanMember
     human_counts = dict(db.execute(select(ChannelHumanMember.channel_id, func.count()).where(

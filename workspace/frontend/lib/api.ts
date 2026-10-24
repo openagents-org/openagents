@@ -2199,6 +2199,19 @@ class WorkspaceApi {
     };
   }
 
+  /**
+   * Store the signed-in person's read markers ({sessionId: readAtMs}) so their
+   * other devices see the thread / DM as read. Markers only move forward; the
+   * result is the stored marker per session (empty for token-only callers).
+   */
+  async markRead(markers: Record<string, number>): Promise<Record<string, number>> {
+    const raw = await this.request<{ markers?: Record<string, number> }>('/v1/read-state', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), markers }),
+    });
+    return raw?.markers ?? {};
+  }
+
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */
   async markChannelSignalsRead(channel: string): Promise<number> {
     const params = new URLSearchParams({ network: this.workspaceId, channel });
