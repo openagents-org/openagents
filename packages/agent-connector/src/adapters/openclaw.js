@@ -862,9 +862,15 @@ class OpenClawAdapter extends BaseAdapter {
       config.agents.defaults = config.agents.defaults || {};
       config.agents.defaults.model = { primary: `${provider}/${model}` };
       if (env.OPENCLAW_STATE_DIR) {
-        if (agentId && !Object.hasOwn(config.agents.entries || {}, agentId)) {
-          // --agent selects a configured id, even in a single private store.
-          config.agents.entries = { ...config.agents.entries, [agentId]: {} };
+        // --agent selects a configured id, even in a single private store, but
+        // `main` needs no entry on any OpenClaw release, and releases up to
+        // 2026.7 refuse to start on an `agents.entries` key at all ("Config
+        // invalid ... Unrecognized key"). So the key is written only for
+        // another id, or added to when the config already has one.
+        const entries = config.agents.entries || {};
+        const needsEntry = agentId !== 'main' || Object.keys(entries).length > 0;
+        if (agentId && needsEntry && !Object.hasOwn(entries, agentId)) {
+          config.agents.entries = { ...entries, [agentId]: {} };
         }
         // OpenClaw's workspace default can still point at ~/.openclaw/workspace;
         // set it explicitly so skills and memory follow the private state too.

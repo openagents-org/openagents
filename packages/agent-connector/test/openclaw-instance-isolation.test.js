@@ -150,6 +150,13 @@ describe('OpenClaw launcher instance isolation', () => {
     assert.deepEqual(readJson(globalFile()), globalConfig);
   });
 
+  it('writes no agents.entries for the default agent, which OpenClaw 2026.7 and older refuse to load', async () => {
+    connector.addAgent({ name: 'plain-dp', type: 'openclaw', env: deepseek });
+    const result = await run(adapter('plain-dp'));
+    assert.equal(result.model, 'custom/deepseek-flash');
+    assert.equal(Object.hasOwn(readJson(result.configPath).agents, 'entries'), false);
+  });
+
   it('does not let an inherited native auth directory override saved provider keys', async () => {
     const sharedAuth = path.join(home, 'shared-native-auth');
     fs.mkdirSync(sharedAuth);
