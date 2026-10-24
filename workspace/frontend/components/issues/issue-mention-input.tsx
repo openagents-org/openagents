@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useId, useRef, useState, type ComponentProps } from 'react';
+import { clipboardMarkdown } from '@/lib/clipboard-markdown';
 import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ export function IssueMentionInput({
   onKeyDown,
   onSelect,
   onBlur,
+  onPaste,
   ...props
 }: Props) {
   const t = useT();
@@ -86,6 +88,21 @@ export function IssueMentionInput({
         aria-activedescendant={
           open && items.length ? `${listId}-${active}` : undefined
         }
+        onPaste={(e) => {
+          onPaste?.(e);
+          if (e.defaultPrevented || props.disabled || props.readOnly) return;
+          const markdown = clipboardMarkdown(e.clipboardData);
+          if (markdown === null) return;
+          const { selectionStart: start, selectionEnd: end } = e.currentTarget;
+          const next = replaceMentionDraft(draft, start, end, markdown);
+          e.preventDefault();
+          if (props.maxLength !== undefined && next.length > props.maxLength) return;
+          onValueChange(next);
+          setRange(null);
+          requestAnimationFrame(() => {
+            input.current?.setSelectionRange(start + markdown.length, start + markdown.length);
+          });
+        }}
         onChange={(e) => {
           onValueChange(editMentionDraft(draft, e.target.value));
           detect(e.target);
