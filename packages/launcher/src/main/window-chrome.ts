@@ -169,13 +169,12 @@ const ACCENT_HEX = {
     orange: "#ea580c",
     rose: "#e11d48",
     slate: "#475569",
-    /* The skin's locked accent — teal, the colour this very progress bar
-       draws in. Not a user-selectable preset, but it arrives here through the
+    /* The skin's locked accent — the brand's deep blue. Not a user-selectable preset, but it arrives here through the
        same door as the others, because the appearance store mirrors the
        EFFECTIVE accent rather than the stored one. Without an entry the lookup
        below would fall back to indigo and the splash would come up violet in
-       front of a teal app. Keep in step with `--accent-oa` in globals.css. */
-    oa: "#0d9488",
+       front of a blue app. Keep in step with `--accent-oa` in globals.css. */
+    oa: "#1d75af",
   },
   dark: {
     indigo: "#818cf8",
@@ -186,7 +185,7 @@ const ACCENT_HEX = {
     orange: "#fb923c",
     rose: "#fb7185",
     slate: "#94a3b8",
-    oa: "#2dd4bf",
+    oa: "#2797e2",
   },
 } as const
 
@@ -215,10 +214,13 @@ export function splashPalette(prefs: { accent: unknown; skin: unknown }): {
   const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
   const accents = ACCENT_HEX[scheme]
   const stored = prefs.accent
+  // Nothing stored yet (a fresh install, before the renderer's first sync):
+  // the skin's own accent if it pins one, so the splash matches the window.
+  const fallback = getSkin(prefs.skin).lockedAccent ?? "indigo"
   const accent =
     typeof stored === "string" && stored in accents
       ? accents[stored as keyof typeof accents]
-      : accents.indigo
+      : accents[fallback as keyof typeof accents] ?? accents.indigo
   // Straight from the shared skin table, so a skin added there gets a splash
   // in its own colours without a second table to remember. An unknown id (an
   // older build reading a newer settings.json) falls back to the default skin.

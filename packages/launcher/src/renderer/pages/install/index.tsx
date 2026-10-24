@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, FilterX, SearchX } from "lucide-react"
+import { ArrowLeft, ChevronRight, FilterX, SearchX } from "lucide-react"
 
-import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Skeleton } from "@renderer/components/ui/skeleton"
@@ -152,35 +151,40 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
 
   return (
     <section className="flex h-full flex-col">
-      {/* The list has no tab of its own: it opens from Connect Agents, so that
-          is where the way back leads. */}
-      <div className="shrink-0 px-9 pt-5">
-        <Button size="sm" variant="ghost" className="-ml-2" onClick={() => setCurrentTab("dashboard")}
-          data-testid="marketplace-back">
-          <ArrowLeft />
-          {t("install.topbar.back")}
-        </Button>
-      </div>
-      <PageHeader
-        className="pt-2"
-        title={t("install.topbar.title")}
-        subtitle={t("install.topbar.subtitle")}
-        actions={
-          market.loading ? null : (
-            <MarketplaceStats
-              counts={counts}
-              active={market.statusFilter}
-              onSelect={selectStatusFilter}
-            />
-          )
-        }
-      />
+      {/* One row: the way back and the title as a breadcrumb, the counts on
+          the right. The list has no tab of its own — it opens from Connect
+          Agents, so that is where the crumb leads. It used to take three rows
+          (back link, title, subtitle) of fixed space above a scrolling page. */}
+      <header className="flex shrink-0 items-center justify-between gap-4 px-9 pt-5 pb-1">
+        <div className="flex min-w-0 items-center gap-1">
+          <Button size="sm" variant="ghost" className="-ml-2 text-muted-foreground"
+            onClick={() => setCurrentTab("dashboard")} title={t("install.topbar.back")}
+            data-testid="marketplace-back">
+            <ArrowLeft />
+            {t("nav.items.dashboard.label")}
+          </Button>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          {/* Crumb-sized, told apart from the link only by weight. A span, not
+              an h1: the brand skin sets every h1 at weight 800, which is a
+              page title's voice, not a breadcrumb's. */}
+          <span aria-current="page" className="truncate pl-1 text-sm font-semibold">{t("install.topbar.title")}</span>
+        </div>
+        {market.loading ? null : (
+          <MarketplaceStats
+            counts={counts}
+            active={market.statusFilter}
+            onSelect={selectStatusFilter}
+          />
+        )}
+      </header>
 
       {/* A block container, not a flex column: flex children default to
           `shrink: 1`, so inside a scroll box with a definite height they get
           squashed instead of overflowing — which flattened the banner to a
           sliver. `space-y` gives the same rhythm without the shrinking. */}
-      <div className="scroll-edge flex-1 space-y-4 overflow-y-auto px-9 py-6">
+      {/* No scroll-edge fade here: the filter row below sticks to the top of
+          this box, and the fade would wash it out with everything else. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-9 pt-4 pb-6">
         <MarketplaceHero
           catalog={market.catalog}
           installed={installedList}
@@ -188,20 +192,27 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           onOpen={setSelectedName}
         />
 
-        <MarketplaceToolbar
-          search={market.search}
-          onSearchChange={market.setSearch}
-          sort={prefs.sort}
-          onSortChange={setSort}
-          view={prefs.view}
-          onViewChange={setView}
-        />
-
-        <MarketplaceCategories
-          catalog={market.catalog}
-          category={prefs.category}
-          onCategoryChange={setCategory}
-        />
+        {/* Categories and search in one row that sticks while the catalog
+            scrolls: browsing a long list, these are what gets reached for,
+            and they used to scroll away with the banner. Bled to the box's
+            edges so cards pass under an opaque band. `-top-4` cancels the
+            box's `pt-4`: a sticky element stops at the padding edge, which
+            left a strip of cards showing above it. */}
+        <div className="sticky -top-4 z-10 -mx-9 flex h-14 items-center justify-between gap-6 bg-background px-9">
+          <MarketplaceCategories
+            catalog={market.catalog}
+            category={prefs.category}
+            onCategoryChange={setCategory}
+          />
+          <MarketplaceToolbar
+            search={market.search}
+            onSearchChange={market.setSearch}
+            sort={prefs.sort}
+            onSortChange={setSort}
+            view={prefs.view}
+            onViewChange={setView}
+          />
+        </div>
 
         {market.loading ? (
           <div className={GRID}>

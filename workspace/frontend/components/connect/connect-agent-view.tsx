@@ -926,9 +926,16 @@ function NodeCard({
         return Object.keys(next).length === Object.keys(prev).length ? prev : next;
       });
     };
-    const id = setInterval(tick, 2000);
+    // 1s: on this computer the command now lands within a second (see
+    // nudge below), and a 2s tick alone could add most of that again.
+    const id = setInterval(tick, 1000);
     return () => { cancelled = true; clearInterval(id); };
   }, [togglingNames.join('|'), node.nodeId]);
+
+  // The device picks queued commands up on its heartbeat, every 10s. When it
+  // is the computer this desktop app runs on, the app can make it check in
+  // straight away, which is most of the wait behind a Start or Stop.
+  const nudge = () => { if (isThisComputer) desktopHost()?.nudgeComputer?.(); };
 
   const togglingRef = useRef(toggling);
   togglingRef.current = toggling;
@@ -939,6 +946,7 @@ function NodeCard({
     setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], phase: 'starting', commandId: undefined, at: Date.now() } } : prev));
     try {
       const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'start_agent', { name });
+      nudge();
       setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {
@@ -956,6 +964,7 @@ function NodeCard({
     setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now(), ...(restart ? { phase: 'stopping' as const } : {}) } }));
     try {
       const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, restart ? 'stop_agent' : action, { name: agent.name });
+      nudge();
       setToggling((prev) => (prev[agent.name] ? { ...prev, [agent.name]: { ...prev[agent.name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {

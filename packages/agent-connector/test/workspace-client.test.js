@@ -80,6 +80,24 @@ describe('WorkspaceClient', () => {
     }
   });
 
+  it('removeMember rejects with the HTTP status, so a 404 reads as already gone', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 404, message: 'Member not found' }));
+    });
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+      await assert.rejects(
+        () => client.removeMember('ws1', 'tok', 'gone-agent'),
+        (e) => e.status === 404 && e.message === 'Member not found',
+      );
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it('sendEvent embeds session_id in event.metadata when provided', () => {
     const client = new WorkspaceClient('http://127.0.0.1:19999');
     // Capture what _post receives by stubbing it

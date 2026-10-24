@@ -841,7 +841,7 @@ describe('Daemon', () => {
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     // The restart happens in-process (NOT via `agn stop`/`agn start` —
-    // writeCommand() overwrites daemon.cmd, so that pair can drop one side).
+    // a CLI round trip through daemon.cmd only to be read back here).
     const restarted = [];
     daemon.restartAgent = async (name) => { restarted.push(name); };
     // Stub the post-reconfigure background probe — the real one would write
@@ -1166,6 +1166,19 @@ describe('Daemon', () => {
     daemon._processCommands();
 
     assert.equal(restarted, 's-agent', 'start: must launch an agent that is not running');
+  });
+
+  it('heartbeat command sends a node heartbeat straight away', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    let beats = 0;
+    daemon._nodeHeartbeat = async () => { beats += 1; };
+
+    fs.writeFileSync(config.cmdFile, 'heartbeat\n', 'utf-8');
+    daemon._processCommands();
+
+    assert.equal(beats, 1);
   });
 
   it('readDaemonPid returns null when no pid file', () => {

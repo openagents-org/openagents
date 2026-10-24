@@ -41,12 +41,6 @@
       "description": "App settings and preferences"
     }
   },
-  "daemon": {
-    "running": "Daemon running",
-    "starting": "Daemon starting",
-    "stopped": "Daemon stopped",
-    "offline": "Daemon offline"
-  },
   "notifications": {
     "tooltip": "Notifications",
     "title": "Notifications",
@@ -60,5 +54,15 @@
   "modeSwitch": "Switch between this machine and your workspaces",
   "modeLauncher": "Device",
   "modeWorkspace": "Workspace",
-  "pages": "This Computer pages"
+  "pages": "This Computer pages",
+  "agentsSummary": {
+    "running_one": "{{count}} agent running",
+    "running_other": "{{count}} agents running",
+    "starting_one": "{{count}} agent starting",
+    "starting_other": "{{count}} agents starting",
+    "error_one": "{{count}} agent needs attention",
+    "error_other": "{{count}} agents need attention",
+    "stopped": "No agents running",
+    "none": "No agents yet"
+  }
 }

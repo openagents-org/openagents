@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceProvider, useWorkspace } from './workspace-context';
 import { ApiError } from './api';
+import { clearWorkspaceSnapshots } from './workspace-snapshot';
 
 const api = vi.hoisted(() => Object.fromEntries([
   'configure', 'getWorkspace', 'discover', 'listFiles', 'listTrash',
@@ -69,6 +70,7 @@ beforeEach(() => {
     removeItem: (key: string) => storage.delete(key),
   });
   state = undefined;
+  clearWorkspaceSnapshots();
   for (const method of Object.values(api)) {
     method.mockReset().mockImplementation(() => new Promise(() => {}));
   }
@@ -152,6 +154,35 @@ describe('workspace initial loading', () => {
     expect(state?.workspaceLoadError).toBeNull();
     expect(state?.workspace?.name).toBe('Workspace one');
     expect(api.discover).toHaveBeenCalledTimes(2);
+  });
+
+  it('paints a workspace it already opened at once and refreshes it underneath', async () => {
+    essentials();
+    await render();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+
+    const workspace = deferred<{ name: string }>();
+    api.getWorkspace.mockReturnValue(workspace.promise);
+    await render();
+    expect(state?.loading).toBe(false);
+    expect(container.textContent).toBe('Workspace one');
+    expect(state?.agents[0].agentName).toBe('helper');
+
+    await act(async () => workspace.resolve({ name: 'Workspace renamed' }));
+    expect(container.textContent).toBe('Workspace renamed');
+  });
+
+  it('keeps the painted workspace when its background refresh fails in passing', async () => {
+    essentials();
+    await render();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+
+    api.discover.mockRejectedValueOnce(new ApiError(503, '{"message":"Busy"}'));
+    await render();
+    expect(container.textContent).toBe('Workspace one');
+    expect(state?.workspaceLoadError).toBeNull();
   });
 
   it('clears old optional data and ignores late responses after switching workspaces', async () => {
