@@ -1132,7 +1132,7 @@ class WorkspaceClient {
   /** File an approval request (POST /v1/approvals). Returns the record; its
    * `status` may already be approved/rejected when policy auto-decided. */
   async createApproval(workspaceId, token, {
-    channel, kind, action, details, risk, source, assignee_email, requester_email,
+    channel, kind, action, details, risk, source, assignee_email, requester_email, require_human, resume_in_place,
   } = {}) {
     const body = {
       network: workspaceId,
@@ -1145,6 +1145,8 @@ class WorkspaceClient {
     if (risk) body.risk = risk;
     if (assignee_email) body.assignee_email = assignee_email;
     if (requester_email) body.requester_email = requester_email;
+    if (require_human) body.require_human = true;
+    if (resume_in_place) body.resume_in_place = true;
     const data = await this._post('/v1/approvals', body, this._wsHeaders(token));
     return data.data || data;
   }

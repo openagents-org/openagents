@@ -2,7 +2,8 @@
  * OpenCode adapter for OpenAgents workspace.
  *
  * Bridges OpenCode (opencode-ai) to an OpenAgents workspace by running
- * `opencode run --format json` as a subprocess. OpenCode handles its own
+ * a local authenticated OpenCode server with workspace approval prompts.
+ * CLI-only derivatives keep `run --format json`. OpenCode handles its own
  * model configuration, provider selection, and tool chain.
  *
  * Port of Python PR #316: sdk/src/openagents/adapters/opencode.py
@@ -18,7 +19,7 @@ const { execSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
-const { spawn } = require('../wsl');
+const { spawn, isWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
@@ -82,7 +83,8 @@ const FAILURE_MESSAGES = {
   timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
   stream_parse_error: 'OpenCode produced output this version could not parse. Update to a supported OpenCode version, or open diagnostics.',
   empty_response: 'OpenCode finished without producing a final reply. Retry; if it persists, open diagnostics.',
-  incomplete_run: 'OpenCode stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off. If this keeps happening, that tool call itself is failing (on Windows, prefer single-line commands over multi-line PowerShell).',
+  incomplete_run: 'OpenCode stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off. Check the tool error or permission request before retrying.',
+  permission_denied: 'OpenCode could not get permission for a tool call. Review the workspace approval request or the agent’s access settings; sending continue alone will not grant access.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
@@ -190,6 +192,11 @@ class OpenCodeAdapter extends BaseAdapter {
     touch();
     return { touch, cancel, timeoutMs };
   }
+  _approvalBridgeEnabled() {
+    return this._cliLabel() === 'OpenCode' && !isWslBinary(this._opencodeBinary)
+      && !/\.cmd$/i.test(this._opencodeBinary);
+  }
+
   _spawnEnv() {
     return { ...(this.agentEnv || process.env) };
   }
@@ -569,6 +576,10 @@ class OpenCodeAdapter extends BaseAdapter {
       if (responseState) {
         responseState.finalText = '';
         responseState.lastTool = OpenCodeAdapter._toolNameFromEvent(event);
+        const item = event.part || event.item || event;
+        if (item.state?.status === 'error' && /reject.*permission|permission.*reject|permission.*denied/i.test(item.state.error || '')) {
+          responseState.permissionDenied = true;
+        }
       }
       await this.sendStatus(msgChannel, status);
       return;
@@ -860,6 +871,14 @@ class OpenCodeAdapter extends BaseAdapter {
 
     let spawnBinary = binary;
     let spawnArgs = args;
+    if (this._approvalBridgeEnabled()) {
+      spawnBinary = process.execPath;
+      spawnArgs = [path.join(__dirname, 'opencode-server-run.js')];
+      // Secrets travel in the child environment, never command arguments.
+      spawnEnv.OPENAGENTS_OPENCODE_BRIDGE = JSON.stringify({ binary, cwd: runCwd, model, sessionId,
+        workspaceId: this.workspaceId, token: this.token, channel: msgChannel,
+        endpoint: spawnEnv.OPENAGENTS_APPROVAL_ENDPOINT || this.client.endpoint, agentName: this.agentName });
+    }
     // Only the npm `.cmd` shim needs a cmd.exe host. The native opencode.exe
     // (preferred by _findOpencodeBinary) is spawned directly — no console host.
     if (IS_WINDOWS && spawnBinary.toLowerCase().endsWith('.cmd')) {
@@ -1008,6 +1027,10 @@ class OpenCodeAdapter extends BaseAdapter {
     const lastTool = state.lastTool || null;
     const endedOnTool = !!lastTool && !(state.finalText || '').trim();
 
+    if (state.permissionDenied && !(state.finalText || '').trim()) {
+      return { failure: { category: 'permission_denied', diagnostic: `permission rejected for ${lastTool}`,
+        detail: `Tool: \`${lastTool}\`` } };
+    }
     if (endedOnTool) {
       if (stdoutErr) {
         const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
