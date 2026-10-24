@@ -945,14 +945,22 @@ async def get_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    data = _tab_to_dict(tab)
     if validate and tab.status == "active":
+        # Polling must neither wake nor replace a saved browser. An inconclusive
+        # provider response is not evidence that the user's session expired.
+        manager = BrowserManager.get()
         try:
-            await _ensure_connected(tab, db, workspace)
-            db.commit()
-        except Exception as e:
-            logger.warning("Tab %s validation/reconnect failed: %s", tab_id, e)
-
-    return success_response(_tab_to_dict(tab))
+            key = resolve_tab_key(tab, workspace)
+            if tab.session_id:
+                await manager.reconnect(tab.id, tab.session_id, api_key=key)
+            probe = await manager.probe_session(tab.id, api_key=key)
+            data["connection_status"] = probe["status"]
+            data["asleep"] = bool(probe.get("hibernated"))
+        except Exception:
+            logger.warning("Tab %s validation unavailable", tab_id)
+            data["connection_status"] = "unknown"
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -1127,9 +1135,41 @@ async def navigate_tab(
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/browser/tabs/{tab_id}/reconnect — create new session for expired tab
+# POST /v1/browser/tabs/{tab_id}/reactivate — wake the existing saved session
 # ---------------------------------------------------------------------------
 
+@router.post("/tabs/{tab_id}/reactivate", dependencies=[Depends(_guard_browser_control)])
+async def reactivate_tab(
+    tab_id: str,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    tab = _get_tab(db, tab_id)
+    if not tab or tab.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    manager = BrowserManager.get()
+    try:
+        key = resolve_tab_key(tab, workspace)
+        await manager.reconnect(tab.id, tab.session_id, api_key=key)
+        page = await manager.reactivate_tab(tab.id)
+    except Exception:
+        logger.warning("BrowserFabric reactivation failed for tab %s", tab_id)
+        # Do not leak provider responses or replace sessions on transient errors.
+        return json_response(ResponseCode.INTERNAL_ERROR,
+                             "BrowserFabric could not reactivate this browser. Your saved session has not been replaced. Please retry.")
+    tab.live_url = manager.get_live_url(tab.id)
+    tab.url = page.get("url") or tab.url
+    tab.title = page.get("title") or tab.title
+    _touch(tab)
+    db.commit()
+    return success_response({**_tab_to_dict(tab), "asleep": False, "connection_status": "alive"})
+
+
+# Explicit legacy replacement/reopen operation; live-view recovery uses reactivate.
 @router.post("/tabs/{tab_id}/reconnect", dependencies=[Depends(_guard_browser_control)])
 async def reconnect_tab(
     tab_id: str,

@@ -780,6 +780,28 @@ class BrowserManager:
             except Exception:
                 return None
 
+    async def reactivate_tab(self, tab_id: str) -> dict:
+        """Wake the same cloud session and refresh its share link, without closing it.
+
+        Unlike polling, get_page_info without probe=True is an explicit user
+        action: BrowserFabric wakes hibernated sessions before running it.
+        Any failure leaves the existing session and saved context untouched.
+        """
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            raise RuntimeError("Browser session is unavailable")
+        info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+        page = info.get("result", {})
+        if page.get("hibernated") or page.get("error"):
+            raise RuntimeError("BrowserFabric could not wake this browser")
+        listing = await self._bf_call("list_sessions", tab_id=tab_id)
+        session = next((item for item in listing.get("result", {}).get("sessions", [])
+                        if item.get("session_id") == session_id), None)
+        if not session or not session.get("share_url"):
+            raise RuntimeError("BrowserFabric did not return a live view for this session")
+        self._live_urls[tab_id] = session["share_url"]
+        return page
+
     async def probe_session(self, tab_id: str, api_key: str = None) -> dict:
         """Classify a session's liveness without tearing it down on a hiccup.
 
