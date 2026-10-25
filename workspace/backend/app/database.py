@@ -7,7 +7,7 @@ Uses SQLAlchemy with any PostgreSQL database (not Supabase-specific).
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -164,6 +164,16 @@ if _is_pgbouncer:
 engine = create_engine(config.DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Bound application transactions, including lock waits in authentication and
+# channel updates. A pool checkout timeout cannot interrupt a query that already
+# owns a connection. Without these limits, one abandoned transaction can fill
+# every worker's pool with blocked requests and take both replicas out of service.
+# SET LOCAL works with transaction poolers and resets at commit/rollback. Apply
+# this to ORM sessions only: Alembic's connection-level DDL is unaffected.
+from app.db_timeouts import apply_transaction_timeouts
+
+event.listen(SessionLocal, "after_begin", apply_transaction_timeouts)
 
 Base = declarative_base()
 
