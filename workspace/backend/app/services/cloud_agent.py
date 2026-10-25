@@ -10,7 +10,10 @@ as push.py.
 import asyncio
 import json as _json
 import logging
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,6 +30,17 @@ from app.services.cloud_providers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Keep blocking ORM work (including channel lock waits) off the HTTP loop.
+# Bound concurrent invocations and queue excess work before opening a session.
+_cloud_executor = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("CLOUD_AGENT_WORKERS", "2")),
+    thread_name_prefix="cloud-agent",
+)
+# Follow-up hooks can invoke another cloud agent. They must outlive the current
+# invocation loop, whose default executor asyncio.run() joins on shutdown.
+_followup_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud-followup")
+_in_cloud_worker = ContextVar("in_cloud_worker", default=False)
 
 # The image prompt composer only needs enough history to resolve references
 # like "the brief above" and runs on a small router model, so it gets a much
@@ -93,6 +107,26 @@ def _coordinated_handoff(metadata):
 
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
+    if _in_cloud_worker.get():
+        # A coordinated handoff stays on its current worker. Re-queueing it
+        # could deadlock when all workers are awaiting their next handoff.
+        await _invoke_cloud_agents(workspace_id, event_data)
+        return
+    await asyncio.get_running_loop().run_in_executor(
+        _cloud_executor, copy_context().run, _run_cloud_invocation, workspace_id, event_data,
+    )
+
+
+def _run_cloud_invocation(workspace_id: str, event_data: dict) -> None:
+    token = _in_cloud_worker.set(True)
+    try:
+        # Session creation, use, and closure all belong to this worker thread.
+        asyncio.run(_invoke_cloud_agents(workspace_id, event_data))
+    finally:
+        _in_cloud_worker.reset(token)
+
+
+async def _invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     metadata = event_data.get("metadata") or {}
     target_agents = metadata.get("target_agents") or []
 
@@ -1018,8 +1052,7 @@ async def _post_response(
             "payload": event.payload,
             "metadata": event.metadata,
         }
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             advance_workflow,
             workspace_id,
             wf_event,
@@ -1030,12 +1063,9 @@ async def _post_response(
     # Cloud replies bypass POST /v1/events, so the route's Slack/Telegram
     # relay hook never sees them either — schedule it here the same way.
     try:
-        import asyncio as _asyncio
-
         from app.services.integrations import relay_for_event
 
-        _asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             relay_for_event,
             workspace_id,
             snapshot,
@@ -1048,8 +1078,7 @@ async def _post_response(
     try:
         from app.services.watches import notify_watchers
 
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             notify_watchers,
             workspace_id,
             snapshot,

@@ -324,7 +324,7 @@ def _attribute_direct_sender(db, workspace, token, authorization, source, payloa
 def send_event(
     body: SendEventRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -621,7 +621,7 @@ def resolve_routing_choice(
     body: RoutingChoiceRequest,
     network: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
