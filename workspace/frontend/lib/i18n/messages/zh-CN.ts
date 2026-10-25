@@ -565,7 +565,8 @@ export const messages: Messages = {
     },
     contextHint: '任务运行时，附加的上下文条目会一并提供给智能体。',
     fieldAttachments: '附件',
-    attachAdd: '添加文件或图片…',
+    attachAdd: '拖放文件或图片到此处，或点击选择…',
+    attachDrop: '松开以添加附件',
     attachedFile: '文件',
     attachFailed: '上传失败，请重试。',
     attachedCount: {
