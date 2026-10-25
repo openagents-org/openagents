@@ -1,13 +1,14 @@
 'use client';
+import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
+import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
-import { desktopHost } from '@/lib/desktop-host';
 import Image from 'next/image';
 import {
   BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Monitor, Settings, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Settings, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -24,8 +25,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
-import { cn } from '@/lib/utils';
+import { AgentRosterHints, isDeviceOffline } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { cn, hasTruncatedLabel } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
 import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentPresence } from '@/lib/approvals';
@@ -205,6 +206,9 @@ export function NavRail() {
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
+  // The agent row under the pointer whose name is cut off, if any: with
+  // labels showing, only such a row repeats its name in a tooltip.
+  const [truncatedAgent, setTruncatedAgent] = React.useState<string | null>(null);
 
   const recentAgents = sidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
@@ -244,7 +248,9 @@ export function NavRail() {
   ];
 
   const isConnectActive = viewMode === 'connect';
-  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const setupStep = useFirstDeviceGuide();
+  const showFirstDeviceHint = !!setupStep && !isConnectActive;
+  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -390,7 +396,15 @@ export function NavRail() {
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
                         aria-label={agentLabel(agent)}
-                        tooltip={{ children: agentLabel(agent), hidden: showLabels }}
+                        // Collapsed, the tooltip is the only name there is. With
+                        // labels, it shows only for a name cut off by the ellipsis,
+                        // or to say what the device-offline marker means (it is the
+                        // row's one hover hint; the marker no longer has its own).
+                        tooltip={{
+                          children: isDeviceOffline(agent) ? `${agentLabel(agent)} · ${t('collab.deviceOffline')}` : agentLabel(agent),
+                          hidden: showLabels && truncatedAgent !== agent.agentName && !isDeviceOffline(agent),
+                        }}
+                        onPointerEnter={(e) => setTruncatedAgent(hasTruncatedLabel(e.currentTarget) ? agent.agentName : null)}
                         onClick={() => {
                           setSelectedAgentName(null);
                           setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
@@ -406,12 +420,14 @@ export function NavRail() {
                           showStatus
                           className="[&_svg]:size-full!"
                         />
-                        {showLabels && <span className="truncate">{agentLabel(agent)}</span>}
+                        {showLabels && <span className="truncate" data-truncatable>{agentLabel(agent)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
-                        {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="ml-auto" />}
+                        {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
-                      <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>
+                      {/* Labelled rail only: collapsed, it landed on the avatar
+                          and stacked its own hint on the row's. */}
+                      {showLabels && <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>}
                     </SidebarMenuItem>
                     {groups.map(group => group.shown.at(-1)?.agentName === agent.agentName && group.all.length > group.shown.length ? <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={group.moreOnline} owned={group.owned} showLabels={showLabels} /> : null)}
                     </React.Fragment>
@@ -428,30 +444,17 @@ export function NavRail() {
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
-        {desktopHost() && (
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className={cn(!showLabels && 'justify-center!')}
-                aria-label={t('nav.thisComputer')}
-                tooltip={{ children: t('nav.thisComputer'), hidden: showLabels }}
-                onClick={() => desktopHost()?.openComputer()}
-              >
-                <Monitor />
-                {showLabels && <span>{t('nav.thisComputer')}</span>}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
         {showLabels && <CampaignSidebarCard />}
+        {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(
                 !showLabels && 'justify-center!',
-                !hasAgents &&
+                showFirstDeviceHint && SETUP_STEP_BUTTON,
+                !hasAgents && !showFirstDeviceHint &&
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
               )}

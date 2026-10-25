@@ -95,24 +95,23 @@ function DesktopAuth() {
           alt="OpenAgents"
           className={`size-16 hidden dark:block ${phase === 'working' ? 'animate-[pulse_2s_ease-in-out_infinite]' : ''}`}
         />
-        <div className="text-center max-w-md px-8">
-          <h1
-            className={`text-xl font-semibold tracking-tight ${phase === 'failed' ? 'text-destructive' : ''}`}
-          >
-            {phase === 'done'
-              ? t('auth.signedIn')
-              : phase === 'failed'
-                ? t('auth.signInFailed')
-                : t('auth.signingIn')}
+        {phase === 'done' ? (
+          // One line the user can read from across the room: they are done here.
+          <h1 className="max-w-3xl px-8 text-center text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            {t('auth.desktopReturn')}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {phase === 'done'
-              ? t('auth.desktopReturn')
-              : error
-                ? ('key' in error ? t(error.key) : error.text)
-                : t('metadata.title')}
-          </p>
-        </div>
+        ) : (
+          <div className="text-center max-w-md px-8">
+            <h1
+              className={`text-xl font-semibold tracking-tight ${phase === 'failed' ? 'text-destructive' : ''}`}
+            >
+              {phase === 'failed' ? t('auth.signInFailed') : t('auth.signingIn')}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {error ? ('key' in error ? t(error.key) : error.text) : t('metadata.title')}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

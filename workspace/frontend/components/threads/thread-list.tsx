@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
-  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, RefreshCw, Search,
+  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -65,12 +65,14 @@ function dmDedupKey(pair: string[], me: string): string {
 
 type FilterTab = 'all' | 'channels' | 'starred' | 'archived' | 'dms';
 
+// Ordered the way people grow into the product: everything, then 1:1 DMs,
+// then channels, then the bookkeeping views.
 const TABS: { id: FilterTab; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'threads.tabAll' },
+  { id: 'dms', labelKey: 'threads.tabDms' },
   { id: 'channels', labelKey: 'threads.tabChannels' },
   { id: 'starred', labelKey: 'threads.tabStarred' },
   { id: 'archived', labelKey: 'threads.tabArchived' },
-  { id: 'dms', labelKey: 'threads.tabDms' },
 ];
 
 type SortOrder = 'recent' | 'oldest' | 'title';
@@ -325,7 +327,7 @@ export function ThreadList() {
   } = useWorkspace();
   const me = myAddress(currentUser);
   const humanNames = useHumanNames();
-  const { isMobile, openMobileDetail, openNewThread, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
+  const { isMobile, openMobileDetail, openNewThread, openNewChannel, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
   const prompt = usePrompt();
   const confirm = useConfirm();
   const t = useT();
@@ -904,6 +906,12 @@ export function ThreadList() {
             {t('threads.newThread')}
           </Button>
         )}
+        {tab === 'channels' && (
+          <Button size="sm" className="gap-1.5" onClick={openNewChannel}>
+            <Plus className="size-3.5" />
+            {t('threads.newChannel')}
+          </Button>
+        )}
       </div>
     );
   };
@@ -924,6 +932,10 @@ export function ThreadList() {
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
+          <Button size="sm" className="mr-1 gap-1 font-semibold" onClick={openNewThread}>
+            <Plus className="size-3.5" />
+            {t('threads.newThread')}
+          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -969,20 +981,6 @@ export function ThreadList() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon" size="sm"
-                aria-label={t('threads.newThread')}
-                onClick={openNewThread}
-                className="text-muted-foreground"
-              >
-                <MessageSquarePlus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('threads.newThread')}</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
@@ -1070,6 +1068,16 @@ export function ThreadList() {
                 </>
               ) : tab.id === 'starred' ? (
                 starredRows.length === 0 ? emptyState('starred') : starredRows.map((row, idx) => row.kind === 'thread' ? renderSessionRows([row.thread], false, idx) : renderDMRows([row.dm], idx))
+              ) : tab.id === 'channels' && visibleSessions.length > 0 && !isSearching ? (
+                <>
+                  <div className="flex px-1 py-2">
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={openNewChannel}>
+                      <Plus className="size-3.5" />
+                      {t('threads.newChannel')}
+                    </Button>
+                  </div>
+                  {renderSessionRows(visibleSessions, false)}
+                </>
               ) : visibleSessions.length === 0 ? (
                 emptyState(tab.id)
               ) : (

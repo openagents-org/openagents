@@ -80,6 +80,24 @@ describe('WorkspaceClient', () => {
     }
   });
 
+  it('removeMember rejects with the HTTP status, so a 404 reads as already gone', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 404, message: 'Member not found' }));
+    });
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+      await assert.rejects(
+        () => client.removeMember('ws1', 'tok', 'gone-agent'),
+        (e) => e.status === 404 && e.message === 'Member not found',
+      );
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it('sendEvent embeds session_id in event.metadata when provided', () => {
     const client = new WorkspaceClient('http://127.0.0.1:19999');
     // Capture what _post receives by stubbing it
@@ -255,4 +273,44 @@ describe('WorkspaceClient request deadlines', () => {
       });
     }
   }
+});
+
+describe('WorkspaceClient.updateRoutine', () => {
+  const capture = () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    const seen = {};
+    client._patch = async (path, body) => {
+      seen.path = path;
+      seen.body = body;
+      return { data: { id: 'r1' } };
+    };
+    return { client, seen };
+  };
+
+  it('PATCHes the routine and sends only the fields given', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { name: 'Renamed' });
+    assert.equal(seen.path, '/v1/routines/r1');
+    assert.deepEqual(seen.body, { network: 'ws-1', name: 'Renamed' });
+  });
+
+  it('keeps the schedule modes exclusive', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { interval_minutes: 30, hour: 9, minute: 0 });
+    assert.equal(seen.body.interval_minutes, 30);
+    assert.ok(!('hour' in seen.body), 'hour must not ride along in interval mode');
+    assert.ok(!('minute' in seen.body), 'minute must not ride along in interval mode');
+  });
+
+  it('sends a days-only edit without inventing a time', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { days: [0, 4] });
+    assert.deepEqual(seen.body, { network: 'ws-1', days: [0, 4] });
+  });
+
+  it('forwards a pause', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { status: 'paused' });
+    assert.deepEqual(seen.body, { network: 'ws-1', status: 'paused' });
+  });
 });

@@ -11,6 +11,7 @@ import {
 } from './locales';
 import { translate, type MessageKey, type TranslateParams } from './translate';
 import { FALLBACK_CATALOGUE, getCatalogue } from './messages';
+import { setActiveLocale } from './active-locale';
 import {
   formatDate,
   formatDateTime,
@@ -63,6 +64,7 @@ export function I18nProvider({
 }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale ?? DEFAULT_LOCALE);
   const [isAutoDetected, setIsAutoDetected] = useState(!hasStoredLocale);
+  setActiveLocale(locale);
 
   // Refine the server's guess once we're in the browser. This only runs when
   // the visitor has no stored choice — e.g. a request that reached us without

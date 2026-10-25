@@ -54,6 +54,8 @@ interface HostConfig {
   webUrl?: string
   theme: "light" | "dark" | "system"
   locale: string
+  /** Which page this view holds — see shared/workspace-view's WorkspaceViewScope. */
+  scope?: { kind: "home" } | { kind: "workspace"; aliases: string[] } | null
 }
 
 let config: HostConfig | null = null
@@ -98,6 +100,12 @@ ipcRenderer.on("workspace-view:session", (_e, session: EmbeddedSession) => {
   }
 })
 
+/**
+ * The names this view's workspace answers to. Kept here so the page's router
+ * can ask, synchronously, whether a route is its own before it navigates.
+ */
+const aliases = new Set(config?.scope?.kind === "workspace" ? config.scope.aliases : [])
+
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const handler = (_e: unknown, value: T): void => callback(value)
   ipcRenderer.on(channel, handler)
@@ -116,14 +124,39 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   signOut: () => ipcRenderer.send("workspace-view:sign-out"),
   connectComputer: (workspaceId: string) => ipcRenderer.invoke("workspace-view:connect-computer", workspaceId),
   getComputerStatus: (workspaceId: string) => ipcRenderer.invoke("workspace-view:computer-status", workspaceId),
+  /** A command was just queued for this computer; have it check in now. */
+  nudgeComputer: () => ipcRenderer.send("workspace-view:nudge-computer"),
   notifyAgentReply: (input: { workspaceId: string; sessionId: string; eventId: string; sender: string; content: string }) =>
     ipcRenderer.send("workspace-view:agent-reply", input),
   /** The account's session changed in main (a renewal). Returns an unsubscribe function. */
   onSession: (callback: (session: EmbeddedSession) => void) =>
     subscribe("workspace-view:session", callback),
+  /** The launcher's Sign out was clicked; confirm it here, then call signOut. */
+  onSignOutRequest: (callback: () => void) =>
+    subscribe("workspace-view:request-sign-out", callback),
   /** A launcher notice to show here, where the launcher's own toasts cannot be seen. */
   onNotice: (callback: (notice: { message: string; type: string }) => void) =>
     subscribe("workspace-view:notice", callback),
+  /**
+   * The launcher shows each workspace in its own tab. What this page is:
+   * "home" for All Workspaces, a workspace's names otherwise; null when the
+   * host has no tabs. A copy, so the page cannot edit the real set.
+   */
+  tab: () => config?.scope
+    ? config.scope.kind === "home" ? { kind: "home" } : { kind: "workspace", aliases: [...aliases] }
+    : null,
+  /** Hand a route that belongs to another tab to the launcher. */
+  openRoute: (route: string) => ipcRenderer.send("workspace-view:open-route", route),
+  /** Name this tab, and let it answer to both the workspace's slug and its id. */
+  reportWorkspace: (info: { id: string; slug: string; name: string }) => {
+    if (config?.scope?.kind !== "workspace") return
+    if (info?.id) aliases.add(info.id)
+    if (info?.slug) aliases.add(info.slug)
+    ipcRenderer.send("workspace-view:report-workspace", info)
+  },
+  /** The launcher routed a deeper path of this workspace here. */
+  onNavigate: (callback: (route: string) => void) =>
+    subscribe("workspace-view:navigate", callback),
   appearance: {
     theme: config?.theme ?? DEFAULT_THEME_MODE,
     locale: config?.locale ?? "en-US",

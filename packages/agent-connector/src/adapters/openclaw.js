@@ -21,11 +21,30 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
+// What a failed `openclaw agent` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const OPENCLAW_GUIDANCE = {
+  auth:
+    'OpenClaw could not authenticate with its model provider. Set LLM_API_KEY ' +
+    '(with LLM_BASE_URL and LLM_MODEL) for this agent, or sign in with ' +
+    '`openclaw auth` on the device.',
+  quota:
+    'The provider is rate-limiting this agent, or its quota is exhausted. Wait ' +
+    'and try again, or use a key with more quota.',
+  network:
+    "OpenClaw could not reach its provider from this device. Check the device's " +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Check LLM_MODEL for this agent.',
+  timeout: 'OpenClaw timed out before producing a response.',
+};
+
 const OPENCLAW_STATE_DIR = path.join(
   IS_WINDOWS ? (process.env.USERPROFILE || '') : (process.env.HOME || ''),
   '.openclaw'
@@ -65,6 +84,23 @@ function retireOwnLegacyAuthProfiles(knownKeys) {
     return false;
   }
 }
+
+/**
+ * Whether OpenClaw refused to start because local state from an older release
+ * still needs its own migration ("Legacy workspace setup state requires
+ * migration …; run openclaw doctor --fix", "requires legacy credential
+ * migration; run openclaw doctor --fix").
+ *
+ * Every upgrade across a storage change hits this, and the user's only way out
+ * was a terminal. The adapter runs that same Doctor repair itself and retries.
+ */
+function needsDoctorMigration(message) {
+  const text = String(message || '');
+  return /requires[^\n]*\bmigration\b/i.test(text) && /openclaw doctor --fix/i.test(text);
+}
+
+/** Budget for one `openclaw doctor --fix` run. */
+const DOCTOR_REPAIR_TIMEOUT_MS = 120000;
 
 class OpenClawAdapter extends BaseAdapter {
   /**
@@ -281,7 +317,7 @@ class OpenClawAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const responseText = await this._runCliAgent(content, msgChannel);
+      const responseText = await this._runCliAgentWithMigration(content, msgChannel);
       if (this._stoppingChannels.has(msgChannel)) return;
 
       if (responseText) {
@@ -291,13 +327,111 @@ class OpenClawAdapter extends BaseAdapter {
       }
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
+      );
     }
   }
 
   // ------------------------------------------------------------------
   // CLI mode (openclaw agent --local)
   // ------------------------------------------------------------------
+
+  /**
+   * Run the turn; when OpenClaw refuses to start over an unmigrated state
+   * store, run its Doctor repair once and retry. Doctor archives what it
+   * migrates rather than deleting it.
+   */
+  async _runCliAgentWithMigration(userMessage, channel) {
+    try {
+      return await this._runCliAgent(userMessage, channel);
+    } catch (e) {
+      // At most one repair per turn; a repair that failed is not retried on
+      // every later message.
+      if (!needsDoctorMigration(e && e.message) || this._doctorRepairFailed) throw e;
+      this._log('OpenClaw needs a state migration — running openclaw doctor --fix --non-interactive');
+      await this.sendStatus(channel, 'Migrating OpenClaw local data...').catch(() => {});
+      const repair = await this._runDoctorRepair();
+      this._log(`Doctor repair ${repair.ok ? 'finished' : `failed: ${repair.detail}`}`);
+      if (!repair.ok) {
+        this._doctorRepairFailed = true;
+        throw e;
+      }
+      return this._runCliAgent(userMessage, channel);
+    }
+  }
+
+  /** `openclaw doctor --fix --non-interactive`, resolved to {ok, detail}. */
+  _runDoctorRepair() {
+    return new Promise((resolve) => {
+      const binary = this._openclawBinary || this._findOpenclawBinary();
+      if (!binary) { resolve({ ok: false, detail: 'OpenClaw binary not found' }); return; }
+      const { spawnBin, spawnArgs } = this._spawnTarget(binary, ['doctor', '--fix', '--non-interactive']);
+      let tail = '';
+      const keepTail = (d) => { tail = (tail + d).slice(-300); };
+      let proc;
+      try {
+        proc = spawn(spawnBin, spawnArgs, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: this._spawnEnv(),
+          cwd: this.workingDir || process.env.HOME || '/',
+          timeout: DOCTOR_REPAIR_TIMEOUT_MS,
+          windowsHide: true,
+        });
+      } catch (err) {
+        resolve({ ok: false, detail: err.message });
+        return;
+      }
+      proc.stdout.on('data', keepTail);
+      proc.stderr.on('data', keepTail);
+      proc.on('error', (err) => resolve({ ok: false, detail: err.message }));
+      proc.on('exit', (code) => resolve({ ok: code === 0, detail: `exit ${code}: ${tail.trim()}` }));
+    });
+  }
+
+  /** The child environment for an `openclaw` run. */
+  _spawnEnv() {
+    const spawnEnv = { ...(this.agentEnv || process.env) };
+    if (IS_WINDOWS) {
+      const nodeBinDir = path.dirname(process.execPath);
+      const npmBin = path.join(process.env.APPDATA || '', 'npm');
+      const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
+      const runtimeBin = path.join(getRuntimePrefix('openclaw'), 'node_modules', '.bin');
+      for (const p of [runtimeBin, nodeBinDir, npmBin, portableDir]) {
+        if (p && !(spawnEnv.PATH || '').includes(p)) {
+          spawnEnv.PATH = p + path.delimiter + (spawnEnv.PATH || '');
+        }
+      }
+    }
+    return spawnEnv;
+  }
+
+  /**
+   * How to start `openclaw <args>`: always node + openclaw.mjs directly (no
+   * shims, no cmd.exe, cross-platform). This avoids Windows .cmd shim issues
+   * and Unicode path encoding problems.
+   */
+  _spawnTarget(binary, args) {
+    const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
+    // Unified path first (symlink on Unix), then legacy bin/ fallback, then system node
+    const nodeUnified = path.join(portableDir, IS_WINDOWS ? 'node.exe' : 'node');
+    let nodeBin = fs.existsSync(nodeUnified) ? nodeUnified : path.join(portableDir, 'bin', 'node');
+    if (!fs.existsSync(nodeBin)) nodeBin = whereBinary('node') || 'node';
+
+    // binary from _findOpenclawBinary() is already resolved to .mjs when possible
+    if (binary && binary.endsWith('.mjs')) {
+      // Direct node + .mjs invocation (works for managed, legacy, AND global installs)
+      return { spawnBin: nodeBin, spawnArgs: [binary, ...args] };
+    }
+    // Check managed locations explicitly
+    const runtimeMjs = path.join(getRuntimePrefix('openclaw'), 'node_modules', 'openclaw', 'openclaw.mjs');
+    const legacyMjs = path.join(portableDir, 'node_modules', 'openclaw', 'openclaw.mjs');
+    const openclawMjs = fs.existsSync(runtimeMjs) ? runtimeMjs : (fs.existsSync(legacyMjs) ? legacyMjs : null);
+    if (openclawMjs) return { spawnBin: nodeBin, spawnArgs: [openclawMjs, ...args] };
+    // Last resort: spawn binary directly with shell (handles .cmd on Windows)
+    return { spawnBin: binary, spawnArgs: args };
+  }
 
   _runCliAgent(userMessage, channel) {
     return new Promise((resolve, reject) => {
@@ -333,18 +467,7 @@ class OpenClawAdapter extends BaseAdapter {
 
       this._log(`CLI: ${binary} ${args.slice(0, 5).join(' ')} ...`);
 
-      const spawnEnv = { ...(this.agentEnv || process.env) };
-      if (IS_WINDOWS) {
-        const nodeBinDir = path.dirname(process.execPath);
-        const npmBin = path.join(process.env.APPDATA || '', 'npm');
-        const portableDir2 = path.join(os.homedir(), '.openagents', 'nodejs');
-        const runtimeBin = path.join(getRuntimePrefix('openclaw'), 'node_modules', '.bin');
-        for (const p of [runtimeBin, nodeBinDir, npmBin, portableDir2]) {
-          if (p && !(spawnEnv.PATH || '').includes(p)) {
-            spawnEnv.PATH = p + path.delimiter + (spawnEnv.PATH || '');
-          }
-        }
-      }
+      const spawnEnv = this._spawnEnv();
 
       // Tool name → human-readable status
       const toolLabels = {
@@ -382,34 +505,7 @@ class OpenClawAdapter extends BaseAdapter {
       const stderrFd = fs.openSync(stderrFile, 'w');
       this._log('Spawn: stderr → ' + stderrFile);
 
-      // Always spawn node + openclaw.mjs directly (no shims, no cmd.exe, cross-platform)
-      // This avoids Windows .cmd shim issues and Unicode path encoding problems.
-      const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
-      // Unified path first (symlink on Unix), then legacy bin/ fallback, then system node
-      const nodeUnified = path.join(portableDir, IS_WINDOWS ? 'node.exe' : 'node');
-      let nodeBin = fs.existsSync(nodeUnified) ? nodeUnified : path.join(portableDir, 'bin', 'node');
-      if (!fs.existsSync(nodeBin)) nodeBin = whereBinary('node') || 'node';
-
-      // binary from _findOpenclawBinary() is already resolved to .mjs when possible
-      let spawnBin, spawnArgs;
-      if (binary && binary.endsWith('.mjs')) {
-        // Direct node + .mjs invocation (works for managed, legacy, AND global installs)
-        spawnBin = nodeBin;
-        spawnArgs = [binary, ...args];
-      } else {
-        // Check managed locations explicitly
-        const runtimeMjs = path.join(getRuntimePrefix('openclaw'), 'node_modules', 'openclaw', 'openclaw.mjs');
-        const legacyMjs = path.join(portableDir, 'node_modules', 'openclaw', 'openclaw.mjs');
-        const openclawMjs = fs.existsSync(runtimeMjs) ? runtimeMjs : (fs.existsSync(legacyMjs) ? legacyMjs : null);
-        if (openclawMjs) {
-          spawnBin = nodeBin;
-          spawnArgs = [openclawMjs, ...args];
-        } else {
-          // Last resort: spawn binary directly with shell (handles .cmd on Windows)
-          spawnBin = binary;
-          spawnArgs = args;
-        }
-      }
+      const { spawnBin, spawnArgs } = this._spawnTarget(binary, args);
       const proc = spawn(spawnBin, spawnArgs, {
         stdio: ['ignore', 'pipe', stderrFd],
         env: spawnEnv,
@@ -457,7 +553,10 @@ class OpenClawAdapter extends BaseAdapter {
         closeFd();
         try { fs.unlinkSync(stderrFile); } catch {}
         try { proc.kill(); } catch {}
-        reject(new Error('CLI timed out after 600 seconds'));
+        reject(classifiedError(
+          'OpenClaw ran for 10 minutes without finishing and was stopped. Send the '
+          + 'request again, or break a long task into smaller steps.',
+        ));
       }, 600000);
 
       proc.on('error', (err) => {
@@ -503,7 +602,24 @@ class OpenClawAdapter extends BaseAdapter {
           return;
         }
         if (code !== 0) {
-          reject(new Error(`CLI exited ${code}: ${allOutput.slice(-300)}`));
+          // --log-level trace fills stderr with diagnostics, so quote the lines
+          // that say something about the failure rather than the last 300
+          // characters of the trace — and strip secrets from what is quoted.
+          // Only OpenClaw's own words are read for the cause: its trace, and
+          // the error object a failed --json run prints. The reply is the
+          // model's, and a reply that mentions a sign-in page or a
+          // settings.json is not an auth or a config failure.
+          const failure = classifyRunFailure({
+            code,
+            stderr: OpenClawAdapter._traceOnly(stderrContent),
+            error: OpenClawAdapter._cliError(output),
+            cli: 'OpenClaw',
+            guidance: OPENCLAW_GUIDANCE,
+            skip: ['session'],
+            secrets: this._knownSecrets(),
+          });
+          this._log(`Run failed (${failure.kind}, exit ${code})`, 'error');
+          reject(classifiedError(failure.message));
           return;
         }
         this._parseCliOutput(allOutput, resolve);
@@ -528,6 +644,48 @@ class OpenClawAdapter extends BaseAdapter {
         proc.on('exit', () => { clearTimeout(timeout); resolve(); });
       });
     } catch {}
+  }
+
+  /**
+   * stderr without the `{"payloads": …}` reply --json writes into it: what is
+   * left is OpenClaw's trace.
+   */
+  static _traceOnly(stderr) {
+    const text = String(stderr || '');
+    const start = text.search(/\{\s*"payloads"/);
+    if (start < 0) return text;
+    // Braces inside JSON strings (the reply text) are not structure: skip
+    // string contents, honoring backslash escapes.
+    let depth = 0;
+    let end = text.length;
+    let inString = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (ch === '\\') i++;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) { end = i + 1; break; }
+    }
+    return text.slice(0, start) + text.slice(end);
+  }
+
+  /**
+   * The error a failed `--json` run reports on stdout, as
+   * `{"ok":false,"error":{"type","message"}}` (openclaw 2026.9.8), or null.
+   * Older releases print nothing there and leave the reason in the trace.
+   */
+  static _cliError(stdout) {
+    const text = String(stdout || '').trim();
+    for (const candidate of [text, ...text.split('\n').map((l) => l.trim())]) {
+      if (!candidate.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && parsed.ok === false && parsed.error) return parsed.error;
+      } catch {}
+    }
+    return null;
   }
 
   _parseCliOutput(output, resolve) {
@@ -680,6 +838,13 @@ class OpenClawAdapter extends BaseAdapter {
         config.models.providers.custom = {
           baseUrl: baseUrl.replace(/\/+$/, ''),
           apiKey,
+          // Without it OpenClaw tries its stored auth profiles BEFORE this
+          // apiKey (model-auth-provider-config: shouldPreferExplicitConfig-
+          // ApiKeyAuth). A `custom` token profile an older launcher wrote, and
+          // `openclaw doctor --fix` copied into SQLite, then outranks every key
+          // saved since: the test passes on the new key, the run sends the old
+          // one, and the relay answers "Invalid token".
+          auth: 'api-key',
           api: 'openai-completions',
           models: [{ id: model, name: model }],
         };
@@ -696,3 +861,4 @@ class OpenClawAdapter extends BaseAdapter {
 
 module.exports = OpenClawAdapter;
 module.exports.retireOwnLegacyAuthProfiles = retireOwnLegacyAuthProfiles;
+module.exports.needsDoctorMigration = needsDoctorMigration;

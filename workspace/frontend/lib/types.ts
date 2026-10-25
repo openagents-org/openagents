@@ -1,4 +1,6 @@
 export interface Workspace {
+  /** Workspace-wide setup state; absent until a compatible backend responds. */
+  needsFirstDevice?: boolean;
   workspaceId: string;
   slug: string;
   name: string;
@@ -64,6 +66,8 @@ export interface NodeAgent {
   /** Hostname of the endpoint the agent is configured to call. Null or absent:
    * its CLI's default, or a launcher too old to report it. */
   baseUrlHost?: string | null;
+  /** Custom Codex endpoint mode, reported by launcher 0.2.197+. */
+  codexWireApi?: 'responses' | 'chat' | null;
   /** Models the agent's own CLI offers the account it is signed in to (a
    * ChatGPT or Claude subscription). Null or absent: the agent runs on a key
    * or a relay, its CLI has not answered, or the launcher is too old to ask. */
@@ -396,6 +400,7 @@ export interface BrowserTab {
   lastActiveAt: string | null;
   /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
   asleep?: boolean;
+  connectionStatus?: 'alive' | 'dead' | 'unknown';
 }
 
 /** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */
@@ -481,6 +486,22 @@ export interface TimerItem {
   createdAt: string | null;
 }
 
+/**
+ * The fields a routine is created or edited with. Shared by the dialog, the
+ * workspace context and the API client so the three can't drift apart.
+ * Schedule is either/or: `interval_minutes`, or `hour`/`minute`/`days`.
+ */
+export interface RoutineDraft {
+  name: string;
+  message: string;
+  source: string;
+  hour?: number;
+  minute?: number;
+  days?: number[];
+  interval_minutes?: number;
+  conversation_history?: string;
+}
+
 export interface RoutineItem {
   id: string;
   name: string;
@@ -493,7 +514,8 @@ export interface RoutineItem {
   timezone: string;
   nextFiresAt: string;
   lastFiredAt: string | null;
-  status: string;
+  /** `paused` routines stay listed but never fire; `cancelled` is terminal. */
+  status: 'active' | 'paused' | 'cancelled';
   createdBy: string;
   channelName: string;
   createdAt: string | null;

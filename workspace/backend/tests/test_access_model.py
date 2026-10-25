@@ -455,3 +455,36 @@ class TestFileQueryBatching:
         assert data['total'] == 13
         assert len(data['files']) == 5
         assert all(f['visibility'] == 'public' and f['channel_name'] == 'paged' for f in data['files'])
+
+
+def test_builtin_yumi_is_usable_without_private_agent_grants(db, world, monkeypatch):
+    from app.config import config
+    from app.services.thread_agent_requests import request_access
+    from app.services.yumi import provision_yumi
+    monkeypatch.setattr(config, 'YUMI_ENABLED', True)
+    monkeypatch.setattr(config, 'YUMI_API_KEY', 'test-key')
+    provision_yumi(db, world['ws'])
+    db.flush()
+    yumi = db.get(WorkspaceMember, (world['wid'], 'yumi'))
+    resource = am.resource_for_agent(yumi)
+    welcome = _channel(db, world['wid'], 'welcome', agents=('yumi',))
+    for name in ('mia', 'vic', 'gus'):
+        principal = world[name]
+        assert am.explain(db, principal, resource, 'act', world['wid']).allowed
+        assert request_access(db, world['wid'], welcome, yumi, principal.email) == 'yes'
+        assert 'yumi' not in am.hidden_agent_names(db, world['wid'], principal, [yumi])
+        assert not am.can_manage(db, principal, resource, world['wid'])
+    outsider = am.Principal('human', email='outsider@acme.test', workspace_id=world['wid'])
+    assert not am.explain(db, outsider, resource, 'act', world['wid']).allowed
+    assert not am.explain(db, world['anon'], resource, 'act', world['wid']).allowed
+    assert not am.explain(db, world['mia'], resource, 'share', world['wid']).allowed
+    private = _channel(db, world['wid'], 'still-private', owner='adam@acme.test')
+    assert not am.can_view_channel(db, world['wid'], world['mia'], private)
+
+
+def test_yumi_name_and_cloud_type_alone_do_not_grant_access(db, world):
+    fake = WorkspaceMember(workspace_id=world['wid'], agent_name='yumi', agent_type='cloud:openagents', status='online')
+    db.add(fake)
+    db.flush()
+    assert not am.can_use_agent(db, world['wid'], world['mia'], fake)
+    assert 'yumi' in am.hidden_agent_names(db, world['wid'], world['mia'], [fake])

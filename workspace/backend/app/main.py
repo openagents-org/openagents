@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 
 from app.config import config
-from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
+from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -246,6 +246,13 @@ async def _fire_due_in_thread():
             # the winner commits, see a future time, and match nothing. We fire
             # only if we claimed a row; committing straight away releases the
             # lock so a losing replica isn't stalled for the whole cycle.
+            #
+            # synchronize_session=False: the default re-evaluates this WHERE in
+            # Python against the rows loaded above, which is wasted work (the
+            # commit below expires them anyway) and makes the claim depend on
+            # how the driver hands datetimes back — on a database that returns
+            # them naive, `next_fires_at <= now` raised TypeError and no
+            # routine ever fired.
             claimed = db.execute(
                 update(RoutineRecord)
                 .where(
@@ -254,6 +261,7 @@ async def _fire_due_in_thread():
                     RoutineRecord.next_fires_at <= now,
                 )
                 .values(next_fires_at=next_fire)
+                .execution_options(synchronize_session=False)
             )
             db.commit()
             if claimed.rowcount == 0:
@@ -635,6 +643,7 @@ app.include_router(nodes.router)
 app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay after devices.router
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
+app.include_router(read_state.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)

@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -203,6 +203,71 @@ class CodexAdapter extends BaseAdapter {
     return resolveWslBinary('codex');
   }
 
+  /**
+   * How to spawn `bin`: `{ file, args, shell }`, with `args` going before the
+   * codex arguments. On Windows an npm `.cmd` shim is resolved to
+   * `[node, <entry>.js]` (or the native `.exe` it forwards to) and spawned
+   * without a shell. Handing the shim to cmd.exe instead joined everything
+   * into one unquoted command line, so a profile folder with a space in it
+   * (`C:\Users\Windows 用户\…`) was cut at the space and the run died with
+   * "'C:\Users\Windows' 不是内部或外部命令".
+   */
+  _resolveExec(bin, isWindows = IS_WINDOWS) {
+    const lower = String(bin).toLowerCase();
+    if (/\.[cm]?js$/.test(lower)) return { file: this._findNodeBin(), args: [bin], shell: false };
+    if (!isWindows || !/\.(cmd|bat)$/.test(lower)) return { file: bin, args: [], shell: false };
+    try {
+      const content = fs.readFileSync(bin, 'utf-8');
+      // Both npm shim styles: `"%dp0%\x.js"` and the older `"%~dp0\x.js"`.
+      const js = content.match(/%~?dp0%?\\([^\s"*?]+\.[cm]?js)/i);
+      if (js) {
+        return { file: this._findNodeBin(), args: [path.resolve(path.dirname(bin), js[1])], shell: false };
+      }
+      const exe = content.match(/%~?dp0%?\\([^\s"*?]+\.exe)/i);
+      if (exe) return { file: path.resolve(path.dirname(bin), exe[1]), args: [], shell: false };
+    } catch {}
+    // A shim we can't read through still has to run under cmd.exe. Build that
+    // command line here (see _spawnArgv): `shell: true` would join the
+    // arguments unquoted, cutting a working dir or relay flag at a space.
+    return { file: process.env.ComSpec || 'cmd.exe', args: [], shell: false, cmdShim: bin };
+  }
+
+  /**
+   * argv + spawn options for `exec` running `rest`. A `cmdShim` goes through
+   * `cmd /d /s /c "<line>"` with every part quoted (`/s` strips only the
+   * outer pair), passed verbatim so Node adds no quoting of its own.
+   */
+  _spawnArgv(exec, rest) {
+    if (!exec.cmdShim) return { argv: [...exec.args, ...rest], windowsVerbatimArguments: false };
+    const quote = (a) => `"${String(a).replace(/"/g, '""')}"`;
+    const line = [exec.cmdShim, ...rest].map(quote).join(' ');
+    return { argv: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true };
+  }
+
+  _findNodeBin() {
+    const home = os.homedir();
+    const candidates = IS_WINDOWS
+      ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
+      : [path.join(home, '.openagents', 'nodejs', 'bin', 'node'),
+         path.join(home, '.openagents', 'nodejs', 'node')];
+    for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
+    return process.execPath || 'node';
+  }
+
+  static _dirExists(p) {
+    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * Decode CLI output. Codex writes UTF-8, but text that came from Windows
+   * itself (cmd.exe, a system error) is in the console code page, which on a
+   * Chinese system is GBK and showed up in chat as rows of "�". Fall back to
+   * GB18030 only when UTF-8 fails and GB18030 reads the bytes cleanly.
+   */
+  static _decodeOutput(buf, isWindows = IS_WINDOWS) {
+    return decodeConsoleOutput(buf, isWindows);
+  }
+
   _buildSystemContext(channelName) {
     const base = buildOpenclawSystemPrompt({
       agentName: this.agentName,
@@ -314,6 +379,18 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _handleViaSubprocess(content, msgChannel, attachments = []) {
+    // A missing cwd fails the spawn itself, and Node blames the shell for it
+    // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
+    // user can fix. A configured folder that was never made (or was cleaned
+    // up) is simply created; only one that cannot be is named instead.
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      try { fs.mkdirSync(this.workingDir, { recursive: true }); } catch {}
+    }
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      await this.sendError(msgChannel, `Working directory does not exist: ${this.workingDir}`);
+      return;
+    }
+
     const env = { ...(this.agentEnv || process.env) };
     const effectiveModel = this._effectiveModel();
 
@@ -412,26 +489,29 @@ class CodexAdapter extends BaseAdapter {
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(msgChannel)) return { stopped: true, responseText: '', exitCode: null };
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd[0], cmd.slice(1), {
+      const exec = this._resolveExec(cmd[0]);
+      const { argv, windowsVerbatimArguments } = this._spawnArgv(exec, cmd.slice(1));
+      const proc = spawn(exec.file, argv, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env,
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
-        shell: IS_WINDOWS,
+        shell: exec.shell,
+        windowsVerbatimArguments,
       });
       this._channelProcesses[msgChannel] = proc;
 
       const responseTexts = [];
       let hasToolUseSinceLastText = false;
       let lineBuffer = '';
-      let stderrBuf = '';
+      const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
-        proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+        proc.stderr.on('data', (chunk) => { stderrChunks.push(chunk); });
       }
 
       if (proc.stdin) {
@@ -518,6 +598,7 @@ class CodexAdapter extends BaseAdapter {
 
         delete this._channelProcesses[msgChannel];
 
+        const stderrBuf = CodexAdapter._decodeOutput(Buffer.concat(stderrChunks));
         if (code !== 0) {
           this._log(`Codex CLI exited with code ${code}`);
           if (stderrBuf.trim()) {

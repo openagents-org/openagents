@@ -3,7 +3,7 @@ import { MoreAgents } from './more-agents';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, Users } from 'lucide-react';
+import { ChevronDown, Plus, Users } from 'lucide-react';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -11,10 +11,11 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
-import { cn } from '@/lib/utils';
+import { cn, hasTruncatedLabel } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
 import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
@@ -33,10 +34,13 @@ import { useLayout } from './layout-context';
  * parked over the very panel the tap just opened.
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
-  const { setSelectedAgentName, openMobileDetail, openView, setThreadFilter } = useLayout();
+  const { setSelectedAgentName, openMobileDetail, openView, openAddAgent, setThreadFilter } = useLayout();
   const { agents, onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations, pendingApprovalsByAgent } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
+  // Expanded, a row repeats its name in a tooltip only when the name is cut off.
+  const { state: sidebarState } = useSidebar();
+  const [truncatedAgent, setTruncatedAgent] = useState<string | null>(null);
 
   const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
@@ -50,9 +54,10 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {recentAgents.length > 0 && (
         <SidebarGroup>
+          <div className="flex items-center">
           <SidebarGroupLabel
             asChild
-            className="w-full cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+            className="min-w-0 flex-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
           >
             <button
               type="button"
@@ -69,6 +74,17 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               />
             </button>
           </SidebarGroupLabel>
+          {/* Same "+" as the Members header: straight to the add-agent gallery. */}
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:hidden"
+            aria-label={t('nav.addAgent')}
+            title={t('nav.addAgent')}
+            onClick={() => { openAddAgent(); onNavigate?.(); }}
+          >
+            <Plus className="size-3.5" />
+          </button>
+          </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}
           <SidebarGroupContent
@@ -90,7 +106,10 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                     </li>}
                   <SidebarMenuItem>
                     <SidebarMenuButton
-                      tooltip={`${agentLabel(agent)} · ${label}`}
+                      // Collapsed, the only place the name shows; open, only for a
+                      // name cut off by the ellipsis.
+                      tooltip={{ children: `${agentLabel(agent)} · ${label}`, hidden: sidebarState !== 'collapsed' && truncatedAgent !== agent.agentName }}
+                      onPointerEnter={(e) => setTruncatedAgent(hasTruncatedLabel(e.currentTarget) ? agent.agentName : null)}
                       onClick={() => {
                         // Same as the desktop rail: a person-click opens the DM
                         // (the profile is one more tap away via the overlay).
@@ -103,7 +122,9 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         onNavigate?.();
                       }}
                     >
-                      <span className="relative shrink-0" title={label} aria-label={label}>
+                      {/* No title: the row's tooltip already gives the status,
+                          and a native one on top showed two hints at once. */}
+                      <span className="relative shrink-0" aria-label={label}>
                         <AgentAvatar
                           name={agent.agentName}
                           size={20}
@@ -116,9 +137,9 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                           )}
                         />
                       </span>
-                      <span className="min-w-0 truncate">{agentLabel(agent)}</span>
+                      <span className="min-w-0 truncate" data-truncatable>{agentLabel(agent)}</span>
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
-                      {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="ml-auto" />}
+                      {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>

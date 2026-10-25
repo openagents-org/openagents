@@ -18,7 +18,7 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
 const { buildThreadHistory } = require('./thread-history');
 const { publishResponseArtifacts } = require('./response-artifacts');
@@ -299,6 +299,30 @@ class BaseAdapter {
     // The control poller (Stop, mode changes) fails silently otherwise: its
     // errors are caught so the loop keeps going, and nothing else logs them.
     this._controlFailures = new FailureStreak();
+  }
+
+  // ------------------------------------------------------------------
+  // Redaction of text quoted into the channel
+  // ------------------------------------------------------------------
+
+  /**
+   * The exact values this agent must never quote back: the credentials in the
+   * environment its CLI runs with, and its own workspace token. A CLI that
+   * fails on auth tends to echo the key it was handed, in whatever format the
+   * provider issues — matching by value catches it where no pattern would.
+   */
+  _knownSecrets() {
+    return secretValues(this.agentEnv, [this.token]);
+  }
+
+  /**
+   * Redact CLI or exception text on its way to the channel: this agent's own
+   * secrets by value first, then anything shaped like a credential. For quoted
+   * text only — authored guidance names variables ("set GEMINI_API_KEY") that
+   * the shape rules would rewrite.
+   */
+  _redact(text) {
+    return redactSecrets(text, this._knownSecrets());
   }
 
   // ------------------------------------------------------------------
@@ -1095,8 +1119,8 @@ class BaseAdapter {
   }
 
   /**
-   * Post a markdown table of the agent's active routines back to the
-   * requesting channel. Used by the `/routines` slash command. Each agent
+   * Post a markdown table of the agent's routines (active and paused) back
+   * to the requesting channel. Used by the `/routines` slash command. Each agent
    * reports only routines it owns (created_by === openagents:<agentName>)
    * so the user sees a clear "my routines" view per agent, mirroring how
    * /status reports per-agent uptime.
@@ -1130,15 +1154,18 @@ class BaseAdapter {
 
     let content;
     if (!routines.length) {
-      content = `**Routines for \`${this.agentName}\`**\n\n_No active routines._`;
+      content = `**Routines for \`${this.agentName}\`**\n\n_No routines._`;
     } else {
       const rows = routines.map((r) => {
         const schedule = (r.schedule_interval_minutes != null)
           ? `every ${r.schedule_interval_minutes} min`
           : `${String(r.schedule_hour ?? 0).padStart(2, '0')}:${String(r.schedule_minute ?? 0).padStart(2, '0')} UTC` +
             (r.schedule_days ? ` (days [${r.schedule_days.join(',')}])` : ' daily');
-        const next = r.next_fires_at || '—';
-        const name = String(r.name || '').replace(/\|/g, '\\|');
+        // A paused routine keeps its last next_fires_at, which is stale (often
+        // in the past) — show that it's paused instead of a time it won't fire.
+        const paused = r.status && r.status !== 'active';
+        const next = paused ? '—' : (r.next_fires_at || '—');
+        const name = String(r.name || '').replace(/\|/g, '\\|') + (paused ? ` [${r.status}]` : '');
         const id = String(r.id || '').slice(0, 8);
         return `| \`${id}\` | ${name} | ${schedule} | ${next} |`;
       });
@@ -1446,7 +1473,7 @@ class BaseAdapter {
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        try { await this.sendError(channel, `Agent error: ${this._redact(e.message)}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
       delete this._channelRequestContent[channel];

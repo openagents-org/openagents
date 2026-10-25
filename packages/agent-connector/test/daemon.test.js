@@ -279,8 +279,8 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, cliModels: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, codexWireApi: null, cliModels: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, baseUrlHost: null, codexWireApi: 'chat', cliModels: null, probe: null },
       ],
     );
   });
@@ -736,6 +736,7 @@ describe('Daemon', () => {
 
   it('_refreshRuntimes parses child JSON into the roster', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [] };
     const runtimes = [{ type: 'claude', installed: true, ready: true, version: '1.0.0' }];
     daemon._runAgn = async (args) => {
       assert.deepEqual(args, ['runtimes', '--json']);
@@ -745,6 +746,40 @@ describe('Daemon', () => {
     assert.deepEqual(daemon._runtimes, runtimes);
   });
 
+  it('_refreshRuntimes splits the catalog and keeps a slow group\'s last result', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const types = ['a', 'b', 'c', 'd', 'e', 'f'];
+    daemon.registry = { getCatalogSync: () => types.map((name) => ({ name })) };
+    daemon._runtimes = [{ type: 'b', installed: true, ready: false }];
+    const seen = [];
+    daemon._runAgn = async (args, opts) => {
+      assert.equal(args[2], '--types');
+      assert.ok(opts.timeoutMs > 0);
+      const group = args[3].split(',');
+      seen.push(...group);
+      // The group holding 'b' hangs and is cut off.
+      if (group.includes('b')) return { code: 1, stdout: '', stderr: 'timed out', timedOut: true };
+      return { code: 0, stdout: JSON.stringify(group.map((type) => ({ type, installed: false, ready: false }))), stderr: '' };
+    };
+    await daemon._refreshRuntimes();
+    assert.deepEqual(seen.sort(), types);
+    // Catalog order; 'b' from before, 'f' (same group, no earlier result) absent.
+    assert.deepEqual(daemon._runtimes.map((rt) => rt.type), ['a', 'b', 'c', 'd', 'e']);
+    assert.equal(daemon._runtimes[1].installed, true);
+  });
+
+  it('_refreshRuntimes joins a detection already running', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [{ name: 'a' }] };
+    let runs = 0;
+    daemon._runAgn = async () => {
+      runs++;
+      await new Promise((r) => setTimeout(r, 10));
+      return { code: 0, stdout: JSON.stringify([{ type: 'a' }]), stderr: '' };
+    };
+    await Promise.all([daemon._refreshRuntimes(), daemon._refreshRuntimes()]);
+    assert.equal(runs, 1);
+  });
   it('_runNodeCommand detect_runtimes refreshes and reports ok', async () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
     let refreshed = false;
@@ -771,6 +806,21 @@ describe('Daemon', () => {
     assert.equal(roster[0].workingDir, '/home/ubuntu/proj');
   });
 
+  it('saves Codex capability mode per agent and reports it without changing siblings', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coding', type: 'codex' });
+    config.addAgent({ name: 'chat', type: 'codex', env: { CODEX_WIRE_API: 'chat' } });
+    config.setAgentNetwork('coding', 'ws1');
+    config.setAgentNetwork('chat', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'responses' });
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
+    assert.equal(config.getAgent('chat').env.CODEX_WIRE_API, 'chat');
+    assert.deepEqual(daemon._buildRoster({ workspace_slug: 'ws1' }).map((a) => a.codexWireApi), ['responses', 'chat']);
+    assert.throws(() => daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'invalid' }), /Choose Responses/);
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
+  });
+
   it('_buildRoster hides agents connected to a different workspace', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 'mine', type: 'claude' });
@@ -791,7 +841,7 @@ describe('Daemon', () => {
     const calls = [];
     daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
     // The restart happens in-process (NOT via `agn stop`/`agn start` —
-    // writeCommand() overwrites daemon.cmd, so that pair can drop one side).
+    // a CLI round trip through daemon.cmd only to be read back here).
     const restarted = [];
     daemon.restartAgent = async (name) => { restarted.push(name); };
     // Stub the post-reconfigure background probe — the real one would write
@@ -934,10 +984,69 @@ describe('Daemon', () => {
     daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
     await daemon._runNodeCommand(
       { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
-      { commandId: 'c2', action: 'stop_agent', args: { name: 'coder' } },
+      { commandId: 'c2', action: 'remove_agent', args: { name: 'coder' } },
     );
     assert.equal(reported.ok, false);
     assert.match(reported.message, /boom/);
+  });
+
+  // A Stop clicked in the workspace used to go through `agn stop` → daemon.cmd
+  // → the next 10s heartbeat, so the card sat at "running" for up to ~30s.
+  it('_runNodeCommand stop_agent stops in-process and reports the new state at once', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._processes.coder = { state: 'running' };
+    let ranAgn = false;
+    daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
+    let releaseStop;
+    const stopped = [];
+    daemon.stopAgent = (name) => {
+      stopped.push(name);
+      daemon._processes[name].state = 'stopped';
+      return new Promise((r) => { releaseStop = r; });
+    };
+    const beats = [];
+    daemon._nodeHeartbeat = async () => { beats.push(daemon._processes.coder.state); };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+
+    const run = daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c3', action: 'stop_agent', args: { name: 'coder' } },
+    );
+    // The workspace hears 'stopped' before the agent has finished exiting.
+    assert.deepEqual(beats, ['stopped']);
+    assert.equal(reported, null);
+    releaseStop();
+    await run;
+    assert.equal(ranAgn, false, 'no `agn stop` round trip');
+    assert.deepEqual(stopped, ['coder']);
+    assert.equal(reported.ok, true);
+    assert.equal(beats.length, 2);
+  });
+
+  it('_runNodeCommand start_agent leaves a running agent alone and starts a stopped one', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    daemon._nodeHeartbeat = async () => {};
+    const reports = [];
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reports.push(res); } });
+    const node = { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' };
+
+    daemon._processes.coder = { state: 'running' };
+    await daemon._runNodeCommand(node, { commandId: 'c4', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, []);
+
+    daemon._processes.coder = { state: 'stopped' };
+    await daemon._runNodeCommand(node, { commandId: 'c5', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, ['coder']);
+    assert.deepEqual(reports.map((r) => r.ok), [true, true]);
   });
 
   it('_runNodeCommand refuses to act on an agent from another workspace', async () => {
@@ -1057,6 +1166,19 @@ describe('Daemon', () => {
     daemon._processCommands();
 
     assert.equal(restarted, 's-agent', 'start: must launch an agent that is not running');
+  });
+
+  it('heartbeat command sends a node heartbeat straight away', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    let beats = 0;
+    daemon._nodeHeartbeat = async () => { beats += 1; };
+
+    fs.writeFileSync(config.cmdFile, 'heartbeat\n', 'utf-8');
+    daemon._processCommands();
+
+    assert.equal(beats, 1);
   });
 
   it('readDaemonPid returns null when no pid file', () => {

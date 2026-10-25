@@ -31,7 +31,10 @@ export function sidebarAgentGroups(agents: WorkspaceAgent[], email: string, conv
       }
     }
   }
+  // Yumi leads its group: with five of the viewer's own agents online it
+  // otherwise sorted past the cut-off and the help it offers went out of sight.
   const permitted = sidebarAgents(agents, email).filter(agent => agent.status === 'online').sort((a, b) =>
+    Number(b.builtin === true) - Number(a.builtin === true) ||
     Number(b.status === 'online') - Number(a.status === 'online') ||
     (recency.get(b.agentName) || 0) - (recency.get(a.agentName) || 0) || a.agentName.localeCompare(b.agentName));
   return [true, false].map(owned => {

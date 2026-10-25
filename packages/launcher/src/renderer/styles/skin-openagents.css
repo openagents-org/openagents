@@ -13,8 +13,11 @@
 
    Its own product mock has a 2.5px black frame with a `border-neutral-200`
    sidebar inside it. Painting all 370 `border` call sites black would be
-   louder than the site itself, so containers and controls take the ink and
-   everything inside them keeps a hairline (see the hairline section below).
+   louder than the site itself, so only top-level containers and solid CTAs
+   take the ink; every other line — chrome edges, inputs, outline buttons,
+   chips — is grey (`--skin-line`), and lines inside containers are hairlines.
+   User testing put the budget at about two black lines per screen: past
+   that, the frames compete with the content for attention.
 
    Layering: this file is UNLAYERED. The tokens it overrides live in
    `@layer base` in globals.css, and unlayered rules outrank every layer, so
@@ -70,6 +73,8 @@
   --skin-ink: #000000;
   --skin-ink-shadow: #000000;
   --skin-hairline: #e5e5e5; /* neutral-200 — what the site's mock uses inside */
+  /* neutral-300 — every line that is not a container frame or a CTA. */
+  --skin-line: #d4d4d4;
   --skin-border-w: 2px;
   --skin-border-w-lg: 2.5px;
   /* Offset of the hard shadow, and the distance a control travels when
@@ -93,8 +98,11 @@
   --text-secondary: #525252;
   --text-tertiary: #a3a3a3;
 
-  --border: var(--skin-ink);
-  --border-hover: var(--skin-ink);
+  /* Grey, not ink: this is what the global border reset hands to all 370
+     `border` call sites (title bar, tab strip, status footer, …). The rules
+     below put the ink back on the few surfaces that should carry it. */
+  --border: var(--skin-line);
+  --border-hover: #a3a3a3;
 
   /* Hard shadows: zero blur, zero spread, offset only. This is the single
      change that carries most of the style — `shadow-sm/md/lg` are already
@@ -111,9 +119,7 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
 
-  /* shadcn HSL aliases. `--border-hsl` goes to full ink for the same reason
-     `--border` does; the hairline section below is what keeps that from
-     reaching table rows and separators. */
+  /* shadcn HSL aliases. `--border-hsl` follows `--border` to the grey. */
   --background: 220 20% 98%; /* #f9fafb */
   --foreground: 0 0% 4%;
   --card: 0 0% 100%;
@@ -126,8 +132,8 @@
   --muted-foreground: 0 0% 64%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  --border-hsl: 0 0% 0%;
-  --input-hsl: 0 0% 0%;
+  --border-hsl: 0 0% 83%;
+  --input-hsl: 0 0% 83%;
   /* ONE green, and it is the skin's own — teal-700, a single step down from
      the accent's teal-600 and the same hue (175°).
 
@@ -148,12 +154,11 @@
   --success: #0f766e;
   --success-text: #0f766e;
   --success-bg: rgba(13, 148, 136, 0.1);
-  --success-border: var(--skin-ink);
+  --success-border: var(--skin-line);
   --warning-hsl: 38 92% 47%;
   --warning-foreground: 33 90% 34%;
-  /* Status tints are chips, and every chip in this skin is inked. */
-  --warning-border: var(--skin-ink);
-  --danger-border: var(--skin-ink);
+  --warning-border: var(--skin-line);
+  --danger-border: var(--skin-line);
   --info: #2f6bff;
   --info-bg: rgba(47, 107, 255, 0.1);
   --info-text: #1d4ed8;
@@ -207,6 +212,8 @@
      smudge rather than as a second object. */
   --skin-ink-shadow: rgba(0, 0, 0, 0.92);
   --skin-hairline: rgba(255, 255, 255, 0.12);
+  --skin-line: rgba(255, 255, 255, 0.2);
+  --border-hover: rgba(255, 255, 255, 0.36);
 
   /* The page is deliberately NOT the site's #0B1121. At 8% lightness a black
      shadow has nothing to fall on: every card kept its white frame and lost
@@ -243,8 +250,8 @@
   --muted-foreground: 221 15% 49%;
   --destructive: 0 84% 66%;
   --destructive-foreground: 222 42% 12%;
-  --border-hsl: 220 56% 94%;
-  --input-hsl: 220 56% 94%;
+  --border-hsl: 222 20% 30%;
+  --input-hsl: 222 20% 30%;
   /* Same collapse as the light block, at the accent's own dark value — one
      teal for every "succeeded" surface in the theme. It clears 8:1 on the page
      here, so nothing is given up by using it for text as well as for fills. */
@@ -253,11 +260,11 @@
   --success: #2dd4bf;
   --success-text: #2dd4bf;
   --success-bg: rgba(45, 212, 191, 0.14);
-  --success-border: var(--skin-ink);
+  --success-border: var(--skin-line);
   --warning-hsl: 43 96% 56%;
   --warning-foreground: 43 96% 76%;
-  --warning-border: var(--skin-ink);
-  --danger-border: var(--skin-ink);
+  --warning-border: var(--skin-line);
+  --danger-border: var(--skin-line);
   --info: #6b9bff;
   --info-bg: rgba(107, 155, 255, 0.16);
   --info-text: #a8c3ff;
@@ -270,8 +277,8 @@
   --sidebar-accent-foreground: #f2f5fa;
   --sidebar-border: var(--skin-hairline);
   --sidebar-muted: #6b7791;
-  /* The accent is already a bright teal here, so a label painted in it on a
-     fill made of the same colour is the one pairing that does not read. */
+  /* A label painted in the accent on a fill made of the same colour is the
+     one pairing that does not read. */
   --sidebar-hover-foreground: #ffffff;
 }
 
@@ -407,21 +414,21 @@
 /* ===========================================================================
    Controls
    ===========================================================================
-   `rounded-full border-2 border-black px-3 py-1 text-[12px] font-extrabold` is
-   the site's pill; its solid CTA is `rounded-lg bg-blue-600`. Both are framed,
-   so every control here takes the ink at the standard 2px.
+   The site's solid CTA is `rounded-lg bg-blue-600` in a black frame. Only the
+   solid buttons (default, destructive) keep that ink — they are the one or two
+   actions a screen is built around. Everything else that needs an edge
+   (outline and secondary buttons, fields, toggles) takes the same 2px in grey:
+   a row of inked "Enter workspace / Terminal" buttons on every table row was
+   the main source of black lines users called out as noise.
 
-   Ghost and link buttons are excluded — they are text, and framing them would
-   turn every toolbar into a grid of boxes. The site does the same: its nav
-   items are bare `font-bold text-neutral-700`.
+   Ghost and link buttons stay bare — they are text. */
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='default'], [data-variant='destructive']) {
+  border-width: var(--skin-border-w);
+  border-style: solid;
+  border-color: var(--skin-ink);
+}
 
-   `destructive-ghost` is NOT excluded, though it is in the default skin. There
-   it is deliberately bare: red text among outlines already carries the weight.
-   Here every neighbouring control is framed and shadowed, so bare text read as
-   an unstyled button rather than a quiet one — Settings → Data put "Clear" and
-   "Reset" in ink next to a "Reset all settings" with no edges at all. It takes
-   the same frame and lift as the rest; see the danger fill further down. */
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']),
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='outline'], [data-variant='secondary'], [data-variant='destructive-ghost']),
 :root[data-skin='openagents'] [data-slot='input'],
 :root[data-skin='openagents'] [data-slot='textarea'],
 :root[data-skin='openagents'] [data-slot='select-trigger'],
@@ -430,24 +437,27 @@
 /* The search fields are `InputGroup`, not `Input` — a wrapper that draws the
    frame around a borderless control plus its icon addons. Matching only
    `[data-slot=input]` left every search box in the app on the default 1px
-   hairline while the sort dropdown beside it was inked. */
+   hairline while the sort dropdown beside it was framed. */
 :root[data-skin='openagents'] [data-slot='input-group'],
-/* Filter chips and the grid/list switch are ui-kit, not shadcn, and had no
-   slot to aim at until now. They already inherited the ink through `border`
-   + `--border`, but only at 1px — half the weight of every control beside
-   them. */
-:root[data-skin='openagents'] [data-slot='filter-chip'],
+/* The grid/list switch is ui-kit, not shadcn. Filter chips are left alone:
+   they are labels with a count, and boxing each one only added lines. */
 :root[data-skin='openagents'] [data-slot='icon-toggle'] {
   border-width: var(--skin-border-w);
   border-style: solid;
-  border-color: var(--skin-ink);
+  border-color: var(--skin-line);
 }
 
-/* Badges are the site's pill, near enough exactly. */
+/* Fields show where focus is by taking the accent, the one moment a field
+   earns a colour of its own. */
+:root[data-skin='openagents'] [data-slot='input']:focus-visible,
+:root[data-skin='openagents'] [data-slot='textarea']:focus-visible,
+:root[data-skin='openagents'] [data-slot='input-group']:focus-within {
+  border-color: var(--accent);
+}
+
+/* Badges are the site's pill, set bold; their frame stays the component's own
+   (grey, or the status tint) rather than ink. */
 :root[data-skin='openagents'] [data-slot='badge'] {
-  border-width: var(--skin-border-w);
-  border-style: solid;
-  border-color: var(--skin-ink);
   font-weight: 700;
 }
 
@@ -455,10 +465,9 @@
    `--sidebar-border` at 60% behind `--sidebar-muted` text — both of which this
    skin resolves to hairline weight, so the shortcut came out grey on grey and
    was effectively unreadable. The site's own key cap is
-   `bg-white ring-1 ring-neutral-200`: a solid tile with a frame around it, and
-   that is what this restores at the skin's weight. */
+   `bg-white ring-1 ring-neutral-200`: a solid tile with a frame around it. */
 :root[data-skin='openagents'] [data-slot='kbd'] {
-  border: 1px solid var(--skin-ink);
+  border: 1px solid var(--skin-line);
   background-color: var(--bg-card);
   color: var(--text-secondary);
   font-weight: 700;
@@ -503,12 +512,16 @@
     var(--skin-ink-shadow);
 }
 
-/* Controls: shadowed at rest, lifted on hover, and driven into the page on
+/* Solid buttons: shadowed at rest, lifted on hover, and driven into the page on
    press. The press value is the one place this leaves the site behind, because
    the site has no pressed state to copy — a link navigates away. Landing at
    exactly `--skin-lift` with the shadow removed puts the control where its own
-   shadow was, which is what reads as "pushed down" rather than "slid across". */
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']) {
+   shadow was, which is what reads as "pushed down" rather than "slid across".
+
+   Outline and secondary buttons stay flat: a black offset block under a grey
+   frame reads as a rendering fault, and an ink one would bring back the lines
+   the grey frame just removed. */
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='default'], [data-variant='destructive']) {
   box-shadow: var(--skin-lift) var(--skin-lift) 0 0 var(--skin-ink-shadow);
   transition:
     transform var(--skin-lift-duration) var(--ease),
@@ -516,15 +529,20 @@
     background-color var(--skin-lift-duration) var(--ease);
 }
 
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):hover:not(:disabled) {
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='default'], [data-variant='destructive']):hover:not(:disabled) {
   transform: translateY(calc(var(--skin-lift) * -1));
   box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
     var(--skin-ink-shadow);
 }
 
-:root[data-skin='openagents'] [data-slot='button']:not([data-variant='ghost']):not([data-variant='link']):active:not(:disabled) {
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='default'], [data-variant='destructive']):active:not(:disabled) {
   transform: translate(var(--skin-lift), var(--skin-lift));
   box-shadow: 0 0 0 0 var(--skin-ink-shadow);
+}
+
+/* Flat buttons show the pointer by darkening their frame instead. */
+:root[data-skin='openagents'] [data-slot='button']:is([data-variant='outline'], [data-variant='secondary']):hover:not(:disabled) {
+  border-color: var(--border-hover);
 }
 
 /* Disabled controls have nothing to lift or sink. */
@@ -534,11 +552,9 @@
 }
 
 /* Destructive entry points — remove, uninstall, reset, clear, disconnect.
-   The frame comes from the shared rule above; what makes them read as danger
-   is the fill, exactly as this skin already does it for a danger badge or
-   toast (`--danger-border` here resolves to the ink, not to red). Red text on
-   a red tint inside a black frame, so it sits in the family and still stops
-   the eye. */
+   The frame comes from the grey control rule above; what makes them read as
+   danger is the fill. Red text on a red tint, so it sits in the family and
+   still stops the eye. */
 :root[data-skin='openagents']
   [data-slot='button'][data-variant='destructive-ghost'] {
   background-color: var(--danger-bg);
@@ -592,8 +608,8 @@
    Sonner's own rule is `[data-sonner-toast][data-styled='true']` (0,2,0) and
    it sets `border` and `box-shadow` as shorthands; this selector is (0,3,0),
    so the longhands below win on the cascade without `!important`. The border
-   COLOUR comes from Sonner's per-type classes, which read `--*-border` — this
-   skin points all three of those at the ink.
+   colour is restated as ink here because Sonner's per-type classes read
+   `--*-border`, which this skin keeps grey for the chips that share them.
 
    `border-radius` has to be restated as a real declaration because Sonner
    drives it from its own `--border-radius` custom property, handed over in
@@ -601,6 +617,7 @@
 :root[data-skin='openagents'] [data-sonner-toast] {
   border-width: var(--skin-border-w-lg);
   border-style: solid;
+  border-color: var(--skin-ink);
   border-radius: var(--radius-lg);
   box-shadow: var(--skin-hover-shadow) var(--skin-hover-shadow) 0 0
     var(--skin-ink-shadow);
@@ -648,10 +665,10 @@
 /* ===========================================================================
    Hairlines — the other half of the contract
    ===========================================================================
-   `--border` and `--border-hsl` are full ink now, and they are what the global
+   `--border` is the grey line, and the global
    `*, ::before, ::after { border-color: var(--border) }` reset in globals.css
-   feeds to all 370 `border` call sites. That is right for the containers and
-   controls above and wrong for everything living inside them.
+   feeds it to all 370 `border` call sites. Inside a container even that is
+   one step too heavy.
 
    These rules pull the interior back to a hairline, matching what the site's
    own mock does inside its 2.5px frame. Anything not listed here that sits
@@ -718,6 +735,22 @@
   box-shadow: none;
 }
 
+/* Settings cards: the inked frame already groups the rows, so the shaded
+   title band and the rule under it were a second and third wrapper around
+   the same group. The title sits on the card itself here; the classic skin
+   keeps its band. */
+:root[data-skin='openagents'] [data-slot='settings-card-header'] {
+  background-color: transparent;
+  border-bottom-width: 0;
+  padding-top: 1.25rem;
+  padding-bottom: 0.25rem;
+}
+
+:root[data-skin='openagents'] [data-slot='settings-card-header'] h3 {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
 /* The active tab is the site's `border-b-2 border-blue-600` — a brand-coloured
    underline, not an inked box. */
 :root[data-skin='openagents'] [data-slot='tabs-trigger'][data-state='active'] {
@@ -727,17 +760,17 @@
 /* ===========================================================================
    Chrome
    ===========================================================================
-   The rail is a full-height edge, so it takes the ink as a single dividing
-   line rather than a frame — the same way the site's mock separates its
-   sidebar from its content pane, just at the skin's weight.
+   The rail is a full-height edge, so it takes a single grey dividing line
+   rather than a frame — the same way the site's mock separates its sidebar
+   from its content pane. Grey rather than ink: a full-height black rule beside
+   every page used up most of the screen's black-line budget on its own.
 
    `AppSidebar` writes its own `border-r border-sidebar-border` on top of the
-   container, and that utility is a 1px hairline. Both properties have to be
+   container, and that utility is a 1px hairline. The colour has to be
    restated here to beat it. */
 :root[data-skin='openagents'] [data-slot='sidebar-container'],
 :root[data-skin='openagents'] [data-slot='sidebar-inner'] {
-  border-right-width: var(--skin-border-w);
-  border-right-color: var(--skin-ink);
+  border-right-color: var(--skin-line);
 }
 
 /* The selected nav row. The fill arrives through `--sidebar-active` above; what
@@ -757,23 +790,24 @@
 }
 
 /* The update-count pill rides on the selected row, where the fill is now the
-   accent it paints itself with. Ink it so the number stays a separate object
+   accent it paints itself with. Frame it so the number stays a separate object
    instead of dissolving into the row underneath. */
 :root[data-skin='openagents'] [data-slot='sidebar-menu-badge'] {
-  border: 1px solid var(--skin-ink);
+  border: 1px solid var(--skin-line);
 }
 
-/* The search affordance reads as a field, so it is inked like one — it carries
-   `border-sidebar-border` (the hairline) of its own, which this overrides. */
+/* The search affordance reads as a field, so it is framed like one — it
+   carries `border-sidebar-border` (the hairline) of its own, which this
+   overrides. */
 :root[data-skin='openagents'] [data-testid='sidebar-search'] {
   border-width: var(--skin-border-w);
-  border-color: var(--skin-ink);
+  border-color: var(--skin-line);
   border-radius: var(--radius-sm);
 }
 
 /* Collapsed there is no field left to ink — only a magnifier, in a column of
    bare icons. The frame made it the one boxed thing in that column, and in this
-   skin the box is heavy black, so it read as a mis-drawn button rather than as
+   skin the box is heavy, so it read as a mis-drawn button rather than as
    search. The component asks for `border-transparent` there; this is the rule
    that was overriding it. */
 :root[data-skin='openagents']
@@ -789,7 +823,7 @@
   --panel-border: rgba(255, 255, 255, 0.16);
 }
 
-/* Scrollbars — square and inked, like everything else. */
+/* Scrollbars — square, in the hairline. */
 :root[data-skin='openagents'] ::-webkit-scrollbar-thumb {
   background: var(--skin-hairline);
   border-radius: 0;
@@ -798,19 +832,18 @@
 /* ===========================================================================
    High contrast
    ===========================================================================
-   `data-contrast="high"` lifts `--border` for the default skin. Here the
-   border is already full ink and cannot go further, so the setting is left to
-   do what it still can — the text steps — and the hairline is what tightens.
-   Without this the two settings fight: high contrast would push interior lines
-   back toward the ink the skin just pulled them away from. */
+   `data-contrast="high"` darkens the grey lines and hairlines a step each;
+   the ink is already at full strength and stays as it is. */
 :root[data-skin='openagents'][data-contrast='high'] {
   --skin-hairline: #9a9a9a;
-  --border: var(--skin-ink);
+  --skin-line: #737373;
+  --border: var(--skin-line);
   --border-hover: var(--skin-ink);
 }
 
 :root[data-skin='openagents'][data-theme='dark'][data-contrast='high'] {
   --skin-hairline: rgba(255, 255, 255, 0.32);
-  --border: var(--skin-ink);
+  --skin-line: rgba(255, 255, 255, 0.45);
+  --border: var(--skin-line);
   --border-hover: var(--skin-ink);
 }

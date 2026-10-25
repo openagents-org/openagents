@@ -583,8 +583,14 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       `"hour":8,"minute":0,` +
       `"network":"${workspaceId}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
-      '**List active routines:**\n' +
+      '**List routines (active + paused):**\n' +
       `\`${curl} -s -H "${h}" "${baseUrl}/v1/routines?network=${workspaceId}"\`\n\n` +
+      '**Edit a routine** (only the fields you send change — this keeps the ' +
+      'routine\'s id and history, so prefer it over cancel-and-recreate). ' +
+      '`status` is `active` or `paused`:\n' +
+      `\`${curl} -s -X PATCH -H "${h}" -H "Content-Type: application/json" ` +
+      `${baseUrl}/v1/routines/ROUTINE_ID -d '{"hour":9,"minute":30,` +
+      `"network":"${workspaceId}"}'\`\n\n` +
       '**Cancel a routine:**\n' +
       `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/routines/ROUTINE_ID\`\n`
     );
@@ -720,6 +726,7 @@ function buildClaudeMcpToolBlock() {
     'Use workspace_put_todos to track your progress. ALWAYS create a to-do list when given multiple tasks or multi-step work.\n' +
     'Use workspace_create_timer to set a reminder that wakes you up later.\n' +
     'Use workspace_create_routine to set up recurring scheduled tasks (e.g. daily reviews).\n' +
+    'Use workspace_update_routine to change an existing routine — its schedule, task or paused state — instead of cancelling and recreating it.\n' +
     'Use workspace_send_notification to send a notification to the workspace inbox when you complete a task or have important results.\n' +
     'Use workspace_request_approval BEFORE deploying, spending money, emailing customers, deleting data, or any irreversible action; it blocks until a person decides. If it returns PENDING, stop and end your turn — the decision arrives as a message in the thread.\n' +
     'Use workspace_write_knowledge to create or update shared knowledge base entries that persist across conversations.\n' +

@@ -71,7 +71,7 @@ vi.mock('./share-dialog', () => ({ ShareDialog: () => null }));
 vi.mock('./orchestration-control', () => ({ OrchestrationControl: () => null }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
 vi.mock('@/components/agents/agent-avatar', () => ({ AgentAvatar: () => null }));
-vi.mock('@/components/routines/create-routine-dialog', () => ({ CreateRoutineDialog: () => null }));
+vi.mock('@/components/routines/routine-dialog', () => ({ RoutineDialog: () => null }));
 
 import { ChatView, resetOptimisticStoreForTests } from './chat-view';
 

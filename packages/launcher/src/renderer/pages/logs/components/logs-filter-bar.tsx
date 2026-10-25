@@ -18,7 +18,6 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { Separator } from "@renderer/components/ui/separator"
-import { Switch } from "@renderer/components/ui/switch"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 import type { LogEventType, LogLevel } from "@renderer/services/logs/log-parser"
@@ -38,15 +37,17 @@ export const EVENT_TYPES: LogEventType[] = [
   "log",
 ]
 
-/** Selected-state tint per level; unselected pills stay neutral. */
-const LEVEL_ACTIVE: Record<LogLevel, string> = {
-  error: "bg-(--danger-bg) text-(--danger-text)",
-  warn: "bg-(--warning-bg) text-(--warning-text)",
-  info: "bg-(--info-bg) text-(--info-text)",
-  debug: "bg-muted text-foreground",
-  trace: "bg-muted text-foreground",
-  unknown: "bg-muted text-foreground",
+/** Each level's dot, so the segment names its colour as well as its word. */
+const LEVEL_DOT: Record<LogLevel, string> = {
+  error: "bg-(--danger)",
+  warn: "bg-(--warning)",
+  info: "bg-(--info)",
+  debug: "bg-muted-foreground",
+  trace: "bg-muted-foreground",
+  unknown: "bg-muted-foreground",
 }
+
+const SEGMENT = "flex h-9 items-center gap-1.5 px-3.5 text-sm whitespace-nowrap transition-colors"
 
 interface Props {
   agents: Agent[]
@@ -61,8 +62,8 @@ interface Props {
   onEventTypesChange: (next: Set<LogEventType>) => void
   onlyWithStack: boolean
   onOnlyWithStackChange: (v: boolean) => void
-  live: boolean
-  onLiveChange: (v: boolean) => void
+  /** Rendered first in the row — the time range. */
+  leading?: React.ReactNode
 }
 
 export function LogsFilterBar({
@@ -78,8 +79,7 @@ export function LogsFilterBar({
   onEventTypesChange,
   onlyWithStack,
   onOnlyWithStackChange,
-  live,
-  onLiveChange,
+  leading,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const allLevels = LEVEL_ORDER.every((l) => levels.has(l))
@@ -106,13 +106,14 @@ export function LogsFilterBar({
     // The query group takes the leftover width — it holds the only control that
     // gets more useful the wider it is — and drops to a full line of its own
     // once the two no longer fit, which is where the search field gets roomy.
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-2.5 border-b px-4 py-3">
-      <div className="flex min-w-80 flex-1 items-center gap-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+      <div className="flex min-w-80 flex-1 items-center gap-3">
+        {leading}
         <Select
           value={agentFilter || ALL_AGENTS}
           onValueChange={(v) => onAgentFilterChange(v === ALL_AGENTS ? "" : v)}
         >
-          <SelectTrigger size="sm" className="w-32 shrink-0">
+          <SelectTrigger className="w-36 shrink-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -137,42 +138,40 @@ export function LogsFilterBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <div className="flex items-center gap-1">
+        <div role="radiogroup" className="flex overflow-hidden rounded-md border bg-card">
           <button
             type="button"
+            role="radio"
+            aria-checked={allLevels}
             onClick={() => onLevelsChange(new Set(LEVEL_ORDER))}
-            className={cn(
-              "rounded-md border-0 px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-              allLevels
-                ? "bg-primary/10 text-primary"
-                : "bg-transparent text-muted-foreground hover:bg-accent",
-            )}
+            className={cn(SEGMENT, allLevels ? "bg-(--accent-bg) font-medium text-primary" : "hover:bg-muted")}
           >
             {t("logs.levels.all")}
           </button>
-          {LEVEL_ORDER.map((level) => (
-            <button
-              key={level}
-              type="button"
-              onClick={() => pickLevel(level)}
-              title={t("logs.levelCount", { count: levelCounts[level] })}
-              className={cn(
-                "rounded-md border-0 px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                levels.has(level) && !allLevels
-                  ? LEVEL_ACTIVE[level]
-                  : "bg-transparent text-muted-foreground hover:bg-accent",
-              )}
-            >
-              {/* Same keys the table badge and the timeline read, so the three
-                  places a level is named can never drift apart. */}
-              {t(`logs.levels.${level}`)}
-            </button>
-          ))}
+          {LEVEL_ORDER.map((level) => {
+            const active = levels.has(level) && !allLevels
+            return (
+              <button
+                key={level}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => pickLevel(level)}
+                title={t("logs.levelCount", { count: levelCounts[level] })}
+                className={cn(SEGMENT, "border-l", active ? "bg-(--accent-bg) font-medium text-primary" : "hover:bg-muted")}
+              >
+                <span className={cn("size-2 rounded-full", LEVEL_DOT[level])} />
+                {/* Same keys the table badge and the timeline read, so the three
+                    places a level is named can never drift apart. */}
+                {t(`logs.levels.${level}`)}
+              </button>
+            )
+          })}
         </div>
 
         <Popover>
           <PopoverTrigger asChild>
-            <Button size="sm" variant="outline">
+            <Button variant="outline">
               <SlidersHorizontal />
               {t("logs.actions.moreFilters")}
               {extraCount > 0 && (
@@ -221,10 +220,6 @@ export function LogsFilterBar({
           </PopoverContent>
         </Popover>
 
-        <Label className="cursor-pointer gap-2 text-xs font-normal whitespace-nowrap text-muted-foreground">
-          {t("logs.actions.live")}
-          <Switch checked={live} onCheckedChange={onLiveChange} />
-        </Label>
       </div>
     </div>
   )

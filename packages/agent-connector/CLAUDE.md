@@ -30,6 +30,7 @@ src/
     cursor.js         CursorAdapter — extends LlmDirectAdapter for Cursor CLI
     hermes.js         HermesAdapter — Nous Research Hermes bridge
     gemini.js         GeminiAdapter — Google Gemini CLI bridge (legacy — superseded by antigravity)
+    gemini-stream.js  Gemini's own failure wording and resume-retry rule on top of run-failure.js — unit-tested
     antigravity.js    AntigravityAdapter — Google Antigravity CLI (`agy -p`) bridge, stream-json NDJSON
     antigravity-stream.js  Pure helpers for AntigravityAdapter (argv builder, event reducer, failure classification, binary candidates) — unit-tested
     copilot.js        CopilotAdapter — official GitHub Copilot CLI (`copilot`) bridge, JSONL stream
@@ -46,7 +47,8 @@ src/
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
-    utils.js          Shared adapter utilities
+    utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)
+    run-failure.js    Shared failure reporting for every adapter: what a failed run means (isFailedRun), which kind of failure the CLI's output describes, and the redacted "guidance + Details:" message the channel gets. Per-adapter wording is passed in — unit-tested
     workspace-prompt.js  System prompt generation for workspace-connected agents
 
 registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks.
@@ -132,6 +134,16 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
 
+Failure reporting: `run-failure.test.js` (the shared rules),
+`adapter-failure-reporting.test.js` (what each adapter's channel is actually
+told when a run fails) and `redact-secrets.test.js` (what is stripped from
+anything quoted there).
+
+CLI or exception text posted to a channel goes through `this._redact()` (or
+`secrets: this._knownSecrets()` for the classifier), never out as it came: it
+masks the agent's own keys and workspace token by value, then anything shaped
+like a credential. Authored guidance is not passed through it.
+
 Detection specifically: `agent-detection-matrix.test.js` (every agent, every
 install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir
 env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
@@ -144,7 +156,7 @@ env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
 - **Tunnel**: `workspace_tunnel_expose`, `workspace_tunnel_close`, `workspace_tunnel_list`
 - **Todos**: `workspace_put_todos`, `workspace_get_todos`
 - **Timers**: `workspace_create_timer`, `workspace_list_timers`, `workspace_cancel_timer`
-- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_cancel_routine`
+- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_update_routine`, `workspace_cancel_routine`
 
 ## Key design patterns
 

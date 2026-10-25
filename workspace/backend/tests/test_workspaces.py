@@ -76,6 +76,30 @@ class TestGetWorkspace:
         assert agents[0]["agentName"] == "agent-alpha"
         assert agents[0]["role"] == "master"
 
+    @pytest.mark.parametrize("setup", ["yumi_only", "offline_device", "offline_agent", "hidden_agent"])
+    def test_first_device_guidance_uses_entire_workspace(self, client, workspace, db, setup):
+        from sqlalchemy import select
+        from app.models import Node, WorkspaceMember
+        member = db.execute(select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace["id"],
+            WorkspaceMember.agent_name == "agent-alpha",
+        )).scalar_one()
+        member.agent_type = "cloud:openagents" if setup != "offline_agent" else "claude"
+        member.status = "offline"
+        if setup == "offline_device":
+            db.add(Node(workspace_id=workspace["id"], node_key="another-owners-device",
+                        owner_email="someone-else@example.com", status="offline"))
+        if setup == "hidden_agent":
+            db.add(WorkspaceMember(workspace_id=workspace["id"], agent_name="private-agent",
+                                   agent_type="claude", owner_email="someone-else@example.com",
+                                   status="offline"))
+        db.commit()
+        resp = client.get(f"/v1/workspaces/{workspace['id']}",
+                          headers={"X-Workspace-Token": workspace["token"]})
+        data = resp.json()["data"]
+        assert data["needsFirstDevice"] is (setup == "yumi_only")
+        assert "nodes" not in data
+
     def test_get_nonexistent_workspace(self, client):
         """Nonexistent workspace returns 404."""
         resp = client.get("/v1/workspaces/nonexistent")

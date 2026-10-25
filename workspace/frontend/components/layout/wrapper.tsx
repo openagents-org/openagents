@@ -6,7 +6,7 @@ import { resourcePath } from '@/lib/resource-link';
 import { threadPath, messagePath, requestedThreadId, requestedMessageId } from '@/lib/thread-link';
 import { desktopHost } from '@/lib/desktop-host';
 
-import { Activity, useEffect, useRef } from 'react';
+import { Activity, useEffect, useRef, useState } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 import { useSignalNotifications } from './use-signal-notifications';
 import { useDesktopThreadLinks } from './use-desktop-thread-links';
@@ -38,6 +38,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
+import { WorkspaceLoadError } from './workspace-load-error';
 
 function WorkspaceLoadingScreen() {
   const t = useT();
@@ -94,6 +95,7 @@ export function Wrapper() {
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   // Resolve a stable identity before writing the URL; never expose DM participants.
   useEffect(() => {
     if (loading || workspaceLoadError || desktopHost()) return;
@@ -162,7 +164,7 @@ export function Wrapper() {
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
     !currentSessionId?.startsWith('dm:');
 
   if (loading) {
@@ -170,11 +172,7 @@ export function Wrapper() {
   }
 
   if (workspaceLoadError) {
-    return <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-lg font-semibold">{t('admin.loadFailed')}</h1>
-      <p className="max-w-md text-sm text-muted-foreground">{t('workspaceGate.loadFailedBody')}</p>
-      <button type="button" onClick={retryWorkspace} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{t('common.retry')}</button>
-    </div>;
+    return <WorkspaceLoadError status={workspaceLoadError.status} onRetry={retryWorkspace} />;
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──
@@ -186,7 +184,7 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {showOnboarding ? (
             <div className="h-full bg-background overflow-hidden">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -301,7 +299,7 @@ export function Wrapper() {
             /* No agents yet: guided first-run onboarding (choose node vs local,
                node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */

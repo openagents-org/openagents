@@ -771,3 +771,22 @@ def test_legacy_yumi_chat_row_uses_server_managed_assistant_runtime():
         asyncio.run(_invoke_single(None, 'workspace', {}, legacy, 0))
         assistant.assert_awaited_once()
         chat.assert_not_called()
+
+
+def test_identity_welcome_includes_the_new_user(db, yumi_enabled):
+    from app.access import provision_workspace
+    from app.models import User, Channel, ChannelHumanMember
+    user = User(email='new-onboarding@example.com', display_name='New User')
+    db.add(user)
+    db.flush()
+    ws = provision_workspace(db, user)
+    channel = db.execute(select(Channel).where(Channel.workspace_id == ws.id, Channel.name == 'welcome')).scalar_one()
+    assert channel.owner_email == user.email
+    assert db.get(ChannelHumanMember, (channel.id, user.email)) is not None
+
+
+def test_yumi_does_not_advertise_identity_only_device_pairing():
+    from app.services.yumi import build_tools
+    names = {tool['function']['name'] for tool in build_tools()}
+    assert 'create_pairing_code' not in names
+    assert 'list_nodes' in names

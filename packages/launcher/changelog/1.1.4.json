@@ -1,0 +1,50 @@
+{
+  "version": "1.1.4",
+  "date": "2026-10-21",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Connect this computer from any workspace",
+        "zh": "在工作区内直接连接此电脑"
+      },
+      "description": {
+        "en": "Connect in a workspace now offers the same choice as first-time setup: connect this computer, or connect another device with a pairing code. Once this computer is online in that workspace, you go straight to adding an agent. The device list marks this computer and explains when the connection status cannot be checked.",
+        "zh": "工作区中的「连接设备」与首次引导提供相同的选择：连接此电脑，或通过配对码连接其他设备。此电脑在该工作区上线后，将直接进入添加智能体。设备列表会标识此电脑，无法检查连接状态时也会给出说明。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer agent setup form",
+        "zh": "智能体配置表单更清晰"
+      },
+      "description": {
+        "en": "Cancel and Add agent now sit at the end of the form, next to the fields they submit. The name field notes that several agents of the same type can be added under different names, and a name already in use is reported right below it.",
+        "zh": "「取消」与「添加智能体」移至表单末尾，紧邻所填内容。名称字段下方说明同一类型可使用不同名称创建多个智能体；名称已被使用时，提示会直接显示在该字段下方。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Refined welcome screen and recommended agents",
+        "zh": "欢迎页与推荐智能体布局优化"
+      },
+      "description": {
+        "en": "The welcome screen has a tighter layout. On Connect Agents, the recommended agents sit in their own highlighted panel, with a larger button for browsing more agents.",
+        "zh": "欢迎页布局更紧凑。「连接智能体」中的推荐智能体使用独立的高亮面板，「查看并连接更多智能体」按钮也更醒目。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Clearer progress when creating a workspace",
+        "zh": "创建工作区时的进度更清晰"
+      },
+      "description": {
+        "en": "A slow workspace creation now says so and, if the result cannot be confirmed, suggests checking the workspace list instead of creating it again. If the workspace was created but did not open, you can open it directly.",
+        "zh": "创建工作区耗时较长时会给出提示；结果暂未确认时，会建议先核对工作区列表，避免重复创建。工作区已创建但未成功打开时，可直接打开。"
+      }
+    }
+  ]
+}

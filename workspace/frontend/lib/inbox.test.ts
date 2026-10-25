@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupInboxRows, inboxActionKind, isActionableNotification, isAddressedToMe, inboxSessionTarget } from './inbox';
+import { groupInboxRows, inboxActionKind, isActionableNotification, isAddressedToMe, inboxDestination, threadFilterFor } from './inbox';
 import type { NotificationItem } from './types';
 
 let seq = 0;
@@ -90,11 +90,29 @@ describe('groupInboxRows', () => {
   });
 });
 
-describe('inboxSessionTarget', () => {
-  it('opens a thread only when it is known', () => {
-    const has = (id: string) => id === 'launch';
-    expect(inboxSessionTarget(row({ channelName: 'launch' }), has)).toBe('launch');
-    expect(inboxSessionTarget(row({ channelName: 'gone' }), has)).toBeNull();
-    expect(inboxSessionTarget(row({ channelName: null }), has)).toBeNull();
+describe('inboxDestination', () => {
+  it('sends credit notices to the checklist, whatever thread they name', () => {
+    expect(inboxDestination(row({ createdBy: 'system:campaign', channelName: null }))).toEqual({ kind: 'credits' });
+  });
+
+  it('tells task threads, DMs and ordinary threads apart', () => {
+    expect(inboxDestination(row({ channelName: 'task:42' }))).toEqual({ kind: 'task', channel: 'task:42' });
+    expect(inboxDestination(row({ channelName: 'dm:a,b' }))).toEqual({ kind: 'dm', channel: 'dm:a,b' });
+    expect(inboxDestination(row({ channelName: 'launch' }))).toEqual({ kind: 'thread', channel: 'launch' });
+    expect(inboxDestination(row({ channelName: null }))).toBeNull();
+  });
+});
+
+describe('threadFilterFor', () => {
+  const thread = { status: 'active', starred: false, isChannel: false };
+  it('shows an archived thread under Archived', () => {
+    expect(threadFilterFor({ ...thread, status: 'archived' }, 'all')).toBe('archived');
+  });
+
+  it('keeps the tab when it lists the thread, and falls back to All when not', () => {
+    expect(threadFilterFor({ ...thread, isChannel: true }, 'channels')).toBe('channels');
+    expect(threadFilterFor({ ...thread, starred: true }, 'starred')).toBe('starred');
+    expect(threadFilterFor(thread, 'channels')).toBe('all');
+    expect(threadFilterFor(thread, 'dms')).toBe('all');
   });
 });

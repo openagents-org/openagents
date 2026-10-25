@@ -5,6 +5,7 @@ import { AgentMessageAccessProvider } from './agent-message-access';
 import { ThreadResources } from './thread-resources';
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
+import { hasCollapsedSteps } from './intermediate-steps';
 import { YumiGuide } from './yumi-guide';
 import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
@@ -33,7 +34,7 @@ import { cn } from '@/lib/utils';
 import { DmAvatars } from './dm-avatars';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
+import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -286,7 +287,8 @@ export function ChatView() {
     initialMessages: initialMessagesRef.current,
   });
   const { notifyFocus, notifyBlur, notifyTyping } = useComposingSignal(currentSessionId);
-  const [showAllSteps, setShowAllSteps] = useState(false);
+  // Every step shows by default; the toggle is there to hide them.
+  const [showAllSteps, setShowAllSteps] = useState(true);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -680,7 +682,7 @@ export function ChatView() {
     [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
   );
 
-  const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
+  const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
 
   if (!currentSessionId) {
     const isRoutinesView = viewMode === 'routines';
@@ -819,19 +821,18 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle */}
-          {hasStatusMessages && (
+          {/* All steps toggle — its label says what a click does; an icon
+              alone went unnoticed */}
+          {hasCollapsibleSteps && (
             <Button
-              variant={showAllSteps ? 'outline' : 'ghost'}
+              variant="outline"
               size="sm"
               onClick={() => setShowAllSteps((prev) => !prev)}
-              className={cn(
-                'gap-1.5 h-7 text-xs font-medium',
-                showAllSteps && 'border-primary/30 text-primary bg-primary/5'
-              )}
-              title={showAllSteps ? t('chat.showAllSteps') : t('chat.showLatestSteps')}
+              className="gap-1.5 h-7 text-xs font-medium"
+              aria-pressed={showAllSteps}
             >
               <ListTree className="size-3.5" />
+              {showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             </Button>
           )}
 
@@ -1059,7 +1060,7 @@ export function ChatView() {
 
         <HumanProfile email={profileEmail} onClose={() => setProfileEmail(null)} />
 
-        <CreateRoutineDialog
+        <RoutineDialog
           open={showCreateRoutine}
           onOpenChange={setShowCreateRoutine}
           agents={agents}

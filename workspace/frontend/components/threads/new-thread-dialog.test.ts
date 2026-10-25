@@ -82,7 +82,7 @@ it('searches a large roster and preserves selections across filters', async () =
   await act(async () => button('Person 29').click());
   expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
   await act(async () => button('newThread.start').click());
-  expect(create).toHaveBeenCalledWith({ participants: ['agent-14'], humanParticipants: [], resumeFrom: undefined, visibility: 'private' });
+  expect(create).toHaveBeenCalledWith({ participants: ['agent-14'], humanParticipants: [], resumeFrom: undefined, visibility: 'private', asChannel: false });
 });
 
 vi.mock('@/hooks/use-team-roster', () => ({ useTeamRoster: () => [] }));

@@ -1,3 +1,5 @@
+import { normalizePolicyRequirements } from './approvals';
+import { getApiBaseUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -31,6 +33,8 @@ import type {
   ONMEvent,
   IntegrationBinding,
   PairingCode,
+  RoutineDraft,
+  RoutineItem,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -77,7 +81,7 @@ import type {
 } from './types';
 import { eventToMessage } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 /** Deadline for the static catalogs the Connect Agent view loads (and retries). */
 const CATALOG_TIMEOUT_MS = 15_000;
 
@@ -181,6 +185,26 @@ export class ApiError extends Error {
     try { msg = (JSON.parse(body) as { message?: string })?.message || ''; } catch { /* not JSON */ }
     this.serverMessage = msg;
   }
+}
+
+function toRoutineItem(raw: Record<string, unknown>): RoutineItem {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    message: raw.message as string,
+    context: (raw.context || null) as string | null,
+    scheduleHour: (raw.schedule_hour || 0) as number,
+    scheduleMinute: (raw.schedule_minute || 0) as number,
+    scheduleDays: (raw.schedule_days || null) as number[] | null,
+    scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
+    timezone: (raw.timezone || 'UTC') as string,
+    nextFiresAt: (raw.next_fires_at || '') as string,
+    lastFiredAt: (raw.last_fired_at || null) as string | null,
+    status: (raw.status || 'active') as RoutineItem['status'],
+    createdBy: (raw.created_by || '') as string,
+    channelName: (raw.channel_name || '') as string,
+    createdAt: (raw.created_at || null) as string | null,
+  };
 }
 
 class WorkspaceApi {
@@ -1154,6 +1178,7 @@ class WorkspaceApi {
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
       asleep: Boolean(t.asleep),
+      connectionStatus: t.connection_status as BrowserTab['connectionStatus'],
     };
   }
 
@@ -1231,10 +1256,18 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Validate a browser tab session — auto-reconnects if expired. */
+  /** Probe a browser session without waking or replacing it. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}?validate=true`,
+    );
+    return this.mapTab(result);
+  }
+
+  /** Wake the existing saved session and refresh its live-view URL. */
+  async reactivateBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reactivate`, { method: 'POST' },
     );
     return this.mapTab(result);
   }
@@ -1917,7 +1950,7 @@ class WorkspaceApi {
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
-      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+      policyRequirements: normalizePolicyRequirements(a.policy_requirements),
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
@@ -2080,40 +2113,13 @@ class WorkspaceApi {
     });
   }
 
-  async listRoutines(): Promise<{ routines: import('./types').RoutineItem[] }> {
+  async listRoutines(): Promise<{ routines: RoutineItem[] }> {
     const params = new URLSearchParams({ network: this.workspaceId });
     const raw = await this.request<{ routines: Record<string, unknown>[] }>(`/v1/routines?${params}`);
-    return {
-      routines: (raw.routines || []).map((r) => ({
-        id: r.id as string,
-        name: r.name as string,
-        message: r.message as string,
-        context: (r.context || null) as string | null,
-        scheduleHour: (r.schedule_hour || 0) as number,
-        scheduleMinute: (r.schedule_minute || 0) as number,
-        scheduleDays: (r.schedule_days || null) as number[] | null,
-        scheduleIntervalMinutes: (r.schedule_interval_minutes || null) as number | null,
-        timezone: (r.timezone || 'UTC') as string,
-        nextFiresAt: (r.next_fires_at || '') as string,
-        lastFiredAt: (r.last_fired_at || null) as string | null,
-        status: (r.status || 'active') as string,
-        createdBy: (r.created_by || '') as string,
-        channelName: (r.channel_name || '') as string,
-        createdAt: (r.created_at || null) as string | null,
-      })),
-    };
+    return { routines: (raw.routines || []).map(toRoutineItem) };
   }
 
-  async createRoutine(params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }): Promise<import('./types').RoutineItem> {
+  async createRoutine(params: RoutineDraft): Promise<RoutineItem> {
     const raw = await this.request<Record<string, unknown>>('/v1/routines', {
       method: 'POST',
       body: JSON.stringify({
@@ -2121,23 +2127,26 @@ class WorkspaceApi {
         network: this.workspaceId,
       }),
     });
-    return {
-      id: raw.id as string,
-      name: raw.name as string,
-      message: raw.message as string,
-      context: (raw.context || null) as string | null,
-      scheduleHour: (raw.schedule_hour || 0) as number,
-      scheduleMinute: (raw.schedule_minute || 0) as number,
-      scheduleDays: (raw.schedule_days || null) as number[] | null,
-      scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
-      timezone: (raw.timezone || 'UTC') as string,
-      nextFiresAt: (raw.next_fires_at || '') as string,
-      lastFiredAt: (raw.last_fired_at || null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdBy: (raw.created_by || '') as string,
-      channelName: (raw.channel_name || '') as string,
-      createdAt: (raw.created_at || null) as string | null,
-    };
+    return toRoutineItem(raw);
+  }
+
+  /**
+   * Edit a routine in place. Omitted fields keep their current value; the
+   * schedule follows the same either/or rule as creation (`interval_minutes`
+   * or `hour`/`minute`/`days`).
+   */
+  async updateRoutine(
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ): Promise<RoutineItem> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/routines/${routineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...params,
+        network: this.workspaceId,
+      }),
+    });
+    return toRoutineItem(raw);
   }
 
   async cancelRoutine(routineId: string): Promise<void> {
@@ -2198,6 +2207,19 @@ class WorkspaceApi {
       notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
       unreadCount: raw.unread_count || 0,
     };
+  }
+
+  /**
+   * Store the signed-in person's read markers ({sessionId: readAtMs}) so their
+   * other devices see the thread / DM as read. Markers only move forward; the
+   * result is the stored marker per session (empty for token-only callers).
+   */
+  async markRead(markers: Record<string, number>): Promise<Record<string, number>> {
+    const raw = await this.request<{ markers?: Record<string, number> }>('/v1/read-state', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), markers }),
+    });
+    return raw?.markers ?? {};
   }
 
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */

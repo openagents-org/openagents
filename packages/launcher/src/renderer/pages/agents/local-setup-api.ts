@@ -1,4 +1,4 @@
-import { throwIfInstallFailed } from "@renderer/utils/installErrors"
+import { installErrorMessage, throwIfInstallFailed } from "@renderer/utils/installErrors"
 import type { AgentSetupApi } from "@/components/agents/agent-setup"
 import type { EnvField } from "@renderer/types"
 import { envForAuthTab } from "@renderer/lib/agent-auth"
@@ -15,9 +15,18 @@ export interface LocalConfiguration {
   authTab?: "cli" | "key"
 }
 
+/** Reports an agent whose create waited on its runtime install, after the form has already closed. */
+export interface DeferredCreateEvents {
+  onCreated: (name: string) => void
+  onFailed: (name: string, message: string) => void
+}
+
+// Module-level, not per form: a create that waits on an install outlives the
+// form that started it, and reopening the form must not start the same one twice.
+const pending = new Set<string>()
+
 /** The local backend stays on the existing launcher IPC surface; no account or network service is needed. */
-export function createLocalSetupApi(api: Window["api"], configuration: () => LocalConfiguration | null): AgentSetupApi {
-  const pending = new Set<string>()
+export function createLocalSetupApi(api: Window["api"], configuration: () => LocalConfiguration | null, deferred?: DeferredCreateEvents): AgentSetupApi {
   return {
     async getAgentCatalogDetail(type) {
       const entry = (await api.getCatalog()).find((item) => item.name === type)
@@ -39,6 +48,7 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
       if (pending.has(name)) throw new Error("This agent is already being saved.")
       pending.add(name)
       const values = config.authTab ? envForAuthTab(config.authTab, config.fields, config.values) : config.values
+      let detached = false
       try {
         const agents = await api.listAgents()
         const existing = agents.find((agent) => agent.name === name)
@@ -47,9 +57,22 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
           const catalog = await api.getCatalog()
           const entry = catalog.find((item) => item.name === type)
           if (!entry || entry.comingSoon || !(await api.getSupportedAgentTypes()).includes(type)) throw new Error("This agent cannot run on this computer.")
+          const add = async (): Promise<void> => {
+            const home = (await api.listPaths()).home
+            await api.addAgent({ name, type, path: String(args.workingDir || home), env: Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")) })
+          }
+          if (!entry.installed && deferred) {
+            // An install can take minutes. It runs in main and the global install
+            // banner tracks it, so the form need not hold the user hostage: the
+            // agent is added once the runtime lands, wherever they are by then.
+            detached = true
+            void api.installAgentTypeStreaming(type).then(throwIfInstallFailed).then(add)
+              .then(() => deferred.onCreated(name), (err: unknown) => deferred.onFailed(name, installErrorMessage(err)))
+              .finally(() => pending.delete(name))
+            return { deferred: true }
+          }
           if (!entry.installed) throwIfInstallFailed(await api.installAgentTypeStreaming(type))
-          const home = (await api.listPaths()).home
-          await api.addAgent({ name, type, path: String(args.workingDir || home), env: Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")) })
+          await add()
         } else {
           if (!existing || existing.type !== type) throw new Error("This agent has changed. Reopen its settings.")
           const changes = Object.fromEntries(Object.entries(values).filter(([key, value]) => (config.initial[key] ?? "") !== value))
@@ -57,7 +80,7 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
           if (args.workingDir && args.workingDir !== existing.path) await api.setAgentWorkingDir(name, String(args.workingDir))
         }
         return {}
-      } finally { pending.delete(name) }
+      } finally { if (!detached) pending.delete(name) }
     },
     async listNodeCommands() { return [] },
     async listModelAccess() { return [] },
