@@ -1,3 +1,4 @@
+import { normalizePolicyRequirements } from './approvals';
 import { getApiBaseUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
@@ -1949,7 +1950,7 @@ class WorkspaceApi {
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
-      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+      policyRequirements: normalizePolicyRequirements(a.policy_requirements),
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],

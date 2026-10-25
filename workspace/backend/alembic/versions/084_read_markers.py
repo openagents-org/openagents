@@ -3,6 +3,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
+# Additive table only; older application versions do not reference it.
+deployment_backward_compatible = True
+
 revision = '084'
 down_revision = '083'
 branch_labels = None
