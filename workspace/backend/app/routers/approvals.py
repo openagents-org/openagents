@@ -57,8 +57,6 @@ class CreateApprovalRequest(BaseModel):
     # Who should decide and whose request the agent was handling.
     assignee_email: Optional[str] = None
     requester_email: Optional[str] = None
-    require_human: bool = False  # native tool prompt: never silently auto-allow
-    resume_in_place: bool = False  # requester is already waiting for the decision
 
 
 class ResolveApprovalRequest(BaseModel):
@@ -154,8 +152,6 @@ def create_approval(
         risk=(body.risk or "").lower() or None,
         assignee_email=body.assignee_email,
         requester_email=requester_email,
-        require_human=body.require_human,
-        resume_in_place=body.resume_in_place,
     )
     db.commit()
     return success_response(svc.serialize_with_owner(db, a, requester_email=requester_email))

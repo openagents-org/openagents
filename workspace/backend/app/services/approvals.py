@@ -254,8 +254,6 @@ def can_resolve(approval: ApprovalRequest, actor_id: Optional[str], role: Option
       another person just because ``required_role`` is ``any``.
     """
     requirements = approval.policy_requirements or {}
-    if requirements.get("require_human") and (not actor_id or actor_id == "token"):
-        return False
     if requirements.get("members"):
         actor = _norm_email(actor_id)
         if not actor or actor == "token" or not role_can_resolve(role, POLICY_ANY):
@@ -455,8 +453,6 @@ def create_request(
     assignee_email: Optional[str] = None,
     requester_email: Optional[str] = None,
     expires_at: Optional[datetime] = None,
-    require_human: bool = False,
-    resume_in_place: bool = False,
 ) -> ApprovalRequest:
     """File an approval request, apply policy, post it into the thread.
 
@@ -478,12 +474,6 @@ def create_request(
     requirements = {}
     rules = effective_rules(db, ws_id, channel_name)
     policy, policy_note = evaluate_policy(rules, kind, action, details, requirements=requirements)
-    if require_human:
-        requirements["require_human"] = True
-    if resume_in_place:
-        requirements["resume_in_place"] = True
-    if require_human and policy == POLICY_ALLOW:
-        policy = POLICY_ANY
     if requirements.get("members"):
         assignee = requirements["members"][0] if len(requirements["members"]) == 1 else None
 
@@ -623,8 +613,6 @@ def resolve(
         return approval
 
     ws_id = str(workspace.id)
-    resume_in_place = bool((approval.policy_requirements or {}).get("resume_in_place"))
-    # Native tool prompts already have a waiting process; do not start another turn.
     # A regular human message @mentioning the agent: routed exactly like any
     # other human reply, so the agent (blocked in request_approval, or idle)
     # picks the decision up through its normal poll.
@@ -634,17 +622,17 @@ def resolve(
         target=f"channel/{approval.channel_name}",
         payload={
             "content": _resolution_text(approval, actor_label),
-            "message_type": "approval" if resume_in_place else "chat",
+            "message_type": "chat",
             "sender_type": "human",
             "sender_name": actor_label,
             "sender_id": actor_id,
-            "mentions": [] if resume_in_place else [approval.requested_by],
+            "mentions": [approval.requested_by],
             "approval": serialize_with_owner(db, approval),
         },
-        metadata={"approval_id": approval.id, "target_agents": [] if resume_in_place else [approval.requested_by]},
+        metadata={"approval_id": approval.id, "target_agents": [approval.requested_by]},
     )
     approval.resolution_event_id = event.id
-    _emit(db, workspace, event, approved_agent=None if resume_in_place else approval.requested_by)
+    _emit(db, workspace, event, approved_agent=approval.requested_by)
 
     # The card was parked while the person decided; either answer unblocks the
     # agent, so back to In Progress.
