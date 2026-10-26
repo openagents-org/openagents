@@ -4,6 +4,7 @@
 // keeps every spawn from popping a stray console window. See win-console.js.
 require('./win-console').installWindowsHideDefault();
 
+const fs = require('fs');
 const { Config } = require('./config');
 const { EnvManager, isCliLogin, typeEnvFor } = require('./env');
 const { Registry } = require('./registry');
@@ -249,7 +250,16 @@ class AgentConnector {
   }
 
   removeAgent(name) {
+    const agent = this.config.getAgent(name);
     this.config.removeAgent(name);
+    // Its private OpenClaw store keeps the key in openclaw.json, and would
+    // hand old sessions to a new agent added later under the same name.
+    if (agent && agent.type === 'openclaw') {
+      try {
+        const dir = require('./adapters/openclaw').instanceStateDir(name, this._configDir);
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
     return { success: true };
   }
 

@@ -143,14 +143,19 @@ class OpenClawAdapter extends BaseAdapter {
     this._installWorkspaceSkill();
   }
 
+  /** An agent's private OpenClaw store, whether or not it exists yet. */
+  static instanceStateDir(agentName, configDir = path.join(os.homedir(), '.openagents')) {
+    // Hash the identity so case-insensitive filesystems and path-like names
+    // cannot alias another agent or escape the managed root.
+    const id = createHash('sha256').update(String(agentName)).digest('hex').slice(0, 24);
+    return path.resolve(configDir, 'openclaw', id);
+  }
+
   /** The save path and every CLI launch must agree on an instance's store. */
   static instanceEnv(agentName, env, configDir = path.join(os.homedir(), '.openagents')) {
     // Native OpenClaw users with no launcher-managed key retain their own setup.
     if (!env.LLM_API_KEY) return env;
-    // Hash the identity so case-insensitive filesystems and path-like names
-    // cannot alias another agent or escape the managed root.
-    const id = createHash('sha256').update(String(agentName)).digest('hex').slice(0, 24);
-    const stateDir = path.resolve(configDir, 'openclaw', id);
+    const stateDir = OpenClawAdapter.instanceStateDir(agentName, configDir);
     const scoped = { ...env, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: path.join(stateDir, 'openclaw.json') };
     // This supported native override relocates auth outside the state root;
     // an inherited profile there can outrank the instance's provider env key.
@@ -847,7 +852,8 @@ class OpenClawAdapter extends BaseAdapter {
     retireOwnLegacyAuthProfiles([apiKey], stateDir);
 
     try {
-      fs.mkdirSync(path.dirname(configFile), { recursive: true });
+      // A private store holds the agent's key and sessions: owner only.
+      fs.mkdirSync(path.dirname(configFile), { recursive: true, mode: env.OPENCLAW_STATE_DIR ? 0o700 : 0o777 });
       let config = {};
       try { config = JSON.parse(fs.readFileSync(configFile, 'utf-8')); } catch {}
       const provider = isAnthropic ? 'anthropic' : (isOpenAI ? 'openai' : 'custom');

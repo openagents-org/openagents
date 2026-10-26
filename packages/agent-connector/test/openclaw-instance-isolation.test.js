@@ -113,6 +113,19 @@ describe('OpenClaw launcher instance isolation', () => {
     assert.equal((await run(adapter('glm'))).model, 'custom/glm-5.3-flash');
   });
 
+  it('removing an agent deletes its private store and leaves the others', () => {
+    connector.addAgent({ name: 'deepseek', type: 'openclaw', env: deepseek });
+    connector.addAgent({ name: 'glm', type: 'openclaw', env: glm });
+    const dsDir = OpenClaw.instanceStateDir('deepseek', connector.config.configDir);
+    const glmDir = OpenClaw.instanceStateDir('glm', connector.config.configDir);
+    assert.ok(fs.existsSync(path.join(dsDir, 'openclaw.json')));
+    if (process.platform !== 'win32') assert.equal(fs.statSync(dsDir).mode & 0o777, 0o700);
+    connector.removeAgent('deepseek');
+    assert.equal(fs.existsSync(dsDir), false);
+    assert.ok(fs.existsSync(path.join(glmDir, 'openclaw.json')));
+    assert.deepEqual(readJson(globalFile()), globalConfig);
+  });
+
   it('repairs already-saved agents at startup without copying shared sessions or auth', async () => {
     connector.config.addAgent({ name: 'old-dp', type: 'openclaw', env: deepseek });
     connector.config.addAgent({ name: 'old-glm', type: 'openclaw', env: glm });
