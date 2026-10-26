@@ -2039,7 +2039,7 @@ export const messages = {
     },
     agentGeneric: 'An agent',
     watching: 'Watching',
-    watchingHint: 'The agent is driving. Your clicks are held back so you don’t collide.',
+    watchingHint: 'Click the page or Take over to use it yourself.',
     youAreInControl: 'You are in control',
     controlHint: 'Clicks and keys go straight to the cloud browser.',
     controlInstructions: 'Click the page to interact. Type, paste, or scroll as usual. Press Escape to leave the page controls.',

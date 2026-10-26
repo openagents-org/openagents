@@ -22,9 +22,13 @@ import { buildTabEntries, displayUrl, normalizeUrl, whoLabel, type PermanentEntr
 
 import { useBrowserControl } from './use-browser-control';
 
-/** The live view is embedded chrome-less; the workspace draws the browser around it. */
+/**
+ * The live view is embedded chrome-less; the workspace draws the browser around it.
+ * This is the surface people take over to read and type, so ask for the sharper
+ * stream: the default preset downscales a 1920px page to 1024px JPEG.
+ */
 function embedUrl(liveUrl: string): string {
-  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + 'embed=1';
+  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + 'embed=1&q=high';
 }
 
 /**
@@ -69,6 +73,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [editingUrl, setEditingUrl] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [wakingId, setWakingId] = useState<string | null>(null);
+  const [nudgeTakeOver, setNudgeTakeOver] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const screenshotRef = useRef<HTMLImageElement>(null);
   const keyboardRef = useRef<HTMLTextAreaElement>(null);
@@ -589,8 +594,17 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {tab.liveUrl && !sessionDead && !sessionAsleep && !tab.asleep && !reconnecting && (
         !controlling ? (
           <div
-            className="absolute inset-0 z-10 flex cursor-default flex-col justify-end"
-
+            className={cn('absolute inset-0 z-10 flex flex-col justify-end', activity.active ? 'cursor-default' : 'cursor-pointer')}
+            onClick={(event) => {
+              if (event.target !== event.currentTarget || controlBusy) return;
+              // A click on the page means "let me use it". Take over when the
+              // agent is idle; while it is acting, point at the switch instead.
+              if (!activity.active) void toggleControl();
+              else {
+                setNudgeTakeOver(true);
+                setTimeout(() => setNudgeTakeOver(false), 1200);
+              }
+            }}
           >
             <div className="pointer-events-none flex items-end justify-between gap-3 bg-gradient-to-t from-black/45 to-transparent px-3 pb-3 pt-10">
               <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[12px] text-white shadow backdrop-blur">
@@ -613,7 +627,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               <button
                 onClick={toggleControl}
                 disabled={controlBusy}
-                className="pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100"
+                className={cn(
+                  'pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100',
+                  nudgeTakeOver && 'scale-110 ring-4 ring-sky-400/70',
+                )}
               >
                 <Hand className="size-3.5" />
                 {t('browser.takeOver')}
@@ -635,7 +652,6 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
                 onClick={toggleControl}
                 disabled={controlBusy}
                 className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium hover:bg-white/25"
-                title={t('browser.watchingHint')}
               >
                 {t('browser.handBack')}
               </button>
