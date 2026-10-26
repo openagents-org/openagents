@@ -1096,7 +1096,12 @@ class ClaudeAdapter extends BaseAdapter {
         }
       } catch {}
     }
-    return pp.lastResponseText.join('\n').trim();
+    const response = pp.lastResponseText.join('\n').trim();
+    // Consume this turn before posting it. A persistent CLI can emit another
+    // turn when a background task finishes, without a new user message (and
+    // therefore without _sendToPersistentProc resetting the buffer).
+    pp.lastResponseText = [];
+    return response;
   }
 
   /** True when the CLI reported the resumed conversation no longer fits. */
