@@ -2010,7 +2010,7 @@ export const messages: Messages = {
     },
     agentGeneric: '智能体',
     watching: '旁观中',
-    watchingHint: '智能体正在操作。你的点击会被暂时拦住,以免互相干扰。',
+    watchingHint: '点击页面或「接管」即可自己操作。',
     youAreInControl: '由你控制',
     controlHint: '点击和按键会直接发送到云端浏览器。',
     controlInstructions: '点击页面进行操作，可以输入、粘贴和滚动。按 Escape 退出页面控制。',
