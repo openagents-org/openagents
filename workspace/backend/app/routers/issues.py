@@ -97,6 +97,7 @@ class UpdateIssueRequest(ActorRequest):
 
 
 class CommentRequest(ActorRequest):
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
     content: str = Field(default="", max_length=50000)
     source_event_id: Optional[str] = None
 
@@ -696,6 +697,16 @@ def add_comment(
         targets = _mentioned_agents(content, sorted(active))
         if targets and issue.status == "closed":
             raise HTTPException(409, "Reopen the issue before asking an agent to work")
+    if body.knowledge_ids:
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human requests can attach knowledge context")
+        from types import SimpleNamespace
+        from app.routers.tasks import _context_block
+        knowledge_ids, _ = _validate_context(db, workspace,
+            _viewer(db, workspace, x_workspace_token, authorization), body.knowledge_ids, [])
+        # Preserve request-specific context in the discussion and kickoff without
+        # changing the issue's default context or treating document titles as mentions.
+        content += _context_block(db, str(workspace.id), SimpleNamespace(issue_id=None, knowledge_ids=knowledge_ids))
     comment = _add_comment(
         db, issue, actor, content, kind, body.source_event_id, author_name=actor_name
     )

@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/responsive-dialog';
 import { IssueAssigneePicker, type AssigneeChoice } from './issue-assignee-picker';
+import { IssueContextPicker } from './issue-context-picker';
 import { ErrorNotice, errorMessage } from './issue-ui';
 
 /** Invite an agent, then use the same mention dispatch as an ordinary comment. */
@@ -22,6 +23,7 @@ export function IssueWork({ issueId, closed, onPosted }: {
   const [choices, setChoices] = useState<AssigneeChoice[] | null>(null);
   const [agent, setAgent] = useState('');
   const [instruction, setInstruction] = useState('');
+  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
@@ -56,11 +58,13 @@ export function IssueWork({ issueId, closed, onPosted }: {
       await workspaceApi.addIssueParticipants(issueId, [{ kind: 'agent', id: name }]);
       const result = await workspaceApi.commentOnIssue(issueId, {
         source: `human:${currentUser.id}`, source_name: currentUser.name,
+        ...(knowledgeIds.length ? { knowledge_ids: knowledgeIds } : {}),
         content: `@${name}${instruction.trim() ? ` ${instruction.trim()}` : ''}`,
       });
       // Dispatch errors mean the comment was saved: clear the draft rather than
       // encouraging a duplicate request. Show the delivery warning on the issue.
       setInstruction('');
+      setKnowledgeIds([]);
       setAgent('');
       setOpen(false);
       onPosted(result.dispatch_error);
@@ -80,6 +84,7 @@ export function IssueWork({ issueId, closed, onPosted }: {
               <span>{t('issueWork.instruction')}</span>
               <textarea aria-label={t('issueWork.instruction')} value={instruction} onChange={e => setInstruction(e.target.value)} disabled={busy} maxLength={Math.max(0, 49998 - agent.length)} placeholder={t('issueWork.instructionPlaceholder')} className="min-h-28 w-full resize-y rounded-lg border bg-background p-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
             </label>
+            <IssueContextPicker value={knowledgeIds} onChange={setKnowledgeIds} disabled={busy} />
             {error && <ErrorNotice message={error} />}
             {!choices && error && <Button type="button" variant="outline" onClick={() => setAttempt(n => n + 1)}>{t('common.retry')}</Button>}
           </DialogBody>

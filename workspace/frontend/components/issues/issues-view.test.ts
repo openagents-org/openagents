@@ -631,3 +631,43 @@ it('opens a completion notification in the requested issue even while another is
   expect(window.location.pathname).toBe('/workspace-1/issues/finished-issue');
   expect(mocks.layout.setPendingIssueId).toHaveBeenCalledWith(null);
 });
+
+it('autocompletes knowledge context, removes selections, and sends selected ids with the request', async () => {
+  mocks.ws.knowledge = [
+    { id: 'guide', title: 'Support guide', description: 'Runtime troubleshooting' },
+    { id: 'spec', title: 'Product spec', description: 'Workspace behavior' },
+  ];
+  await chooseWorkAgent();
+  const input = host.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
+  await fill(input, 'runtime');
+  expect(host.querySelector('[role="option"]')?.textContent).toContain('Support guide');
+  expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
+  expect(host.querySelector('[aria-label="Remove Support guide"]')).not.toBeNull();
+  await fill(input, 'product');
+  await click(host.querySelector('[role="option"]')!);
+  await click(host.querySelector('[aria-label="Remove Support guide"]')!);
+  await click(button('Assign to agent'));
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ content: '@research-agent', knowledge_ids: ['spec'] }));
+  expect(mocks.api.updateIssue).not.toHaveBeenCalled();
+});
+
+it('keeps selected knowledge on failure and prevents empty searches from submitting the job', async () => {
+  mocks.ws.knowledge = [{ id: 'guide', title: 'Support guide', description: 'Troubleshooting' }];
+  await chooseWorkAgent();
+  const input = host.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
+  await fill(input, 'guide');
+  await click(host.querySelector('[role="option"]')!);
+  await fill(input, 'missing');
+  expect(host.textContent).toContain('No matching knowledge entries.');
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
+  mocks.api.commentOnIssue.mockRejectedValueOnce(new Error('Network unavailable'));
+  await click(button('Assign to agent'));
+  expect(host.querySelector('[aria-label="Remove Support guide"]')).not.toBeNull();
+  await click(button('Assign to agent'));
+  expect(mocks.api.commentOnIssue).toHaveBeenLastCalledWith(issue.id, expect.objectContaining({ knowledge_ids: ['guide'] }));
+  await click(button('Assign to an agent'));
+  expect(host.querySelector('[aria-label="Remove Support guide"]')).toBeNull();
+});
