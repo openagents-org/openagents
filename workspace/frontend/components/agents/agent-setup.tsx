@@ -565,6 +565,22 @@ export function AgentSetup({
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
+  // A model the form cannot save without is reported under the model field,
+  // which takes focus, rather than on the line beside the buttons.
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  const failModel = (message: string) => {
+    // No model field on screen yet (the key's model list is still loading):
+    // the form-wide line is the only place left to say it.
+    if (!modelFieldRef.current) { setError(message); return; }
+    setModelError(message);
+    requestAnimationFrame(() => {
+      const field = modelFieldRef.current?.querySelector<HTMLElement>('input, button');
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      field?.focus({ preventScroll: true });
+    });
+  };
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
   // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
@@ -655,8 +671,8 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
-    if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
-    if (byok && byokAccessId && !model.trim()) { setError(t('connect.byokChooseModel')); return; }
+    if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
+    if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokChooseModel')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
@@ -922,7 +938,7 @@ export function AgentSetup({
 
                   {/* Model — the ones this key can actually use */}
                   {byokModels && (
-                    <div className="space-y-1.5">
+                    <div ref={modelFieldRef} className="space-y-1.5">
                       <Select
                         value={byokCustomModel ? CUSTOM_MODEL : model || undefined}
                         onValueChange={(v) => {
@@ -931,7 +947,7 @@ export function AgentSetup({
                           setByokTest({ state: 'idle' });
                         }}
                       >
-                        <SelectTrigger className="h-10 w-full">
+                        <SelectTrigger aria-invalid={!!modelError} className="h-10 w-full">
                           <SelectValue placeholder={t('connect.byokChooseModel')} />
                         </SelectTrigger>
                         <SelectContent>
@@ -946,11 +962,13 @@ export function AgentSetup({
                       {byokCustomModel && (
                         <Input
                           value={model}
+                          aria-invalid={!!modelError}
                           onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
                           placeholder="claude-sonnet-4-6"
                           className="h-10 text-sm font-mono"
                         />
                       )}
+                      {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
                       <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
@@ -1122,7 +1140,10 @@ export function AgentSetup({
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
               {(!modelOptions || !!baseUrl.trim()) && (
-                <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                <div ref={modelFieldRef} className="space-y-1.5">
+                  <Input data-testid="agent-setup-model" aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} aria-invalid={!!modelError} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                  {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                </div>
               )}
             </div>
           )}

@@ -301,6 +301,7 @@
     "cancel": "Cancel"
   },
   "envFields": {
+    "required": "{{name}} is required",
     "enterField": "Enter {{name}}",
     "model": {
       "placeholder": "Default model",
