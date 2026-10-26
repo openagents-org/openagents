@@ -185,38 +185,37 @@
   50% { box-shadow: 0 0 8px 2px rgba(251, 191, 36, 0.4); }
 }
 
-/** Thread work-in-progress shimmer **/
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+/** Shared thread/issue activity: a visible band sweeps across the row. **/
+@keyframes work-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@keyframes work-fade {
+  0%, 100% { background-color: var(--work-rest); }
+  50% { background-color: var(--work-highlight); }
 }
 .thread-wip {
-  background: linear-gradient(
-    90deg,
-    rgba(24, 24, 27, 0.03) 0%,
-    rgba(24, 24, 27, 0.08) 30%,
-    rgba(24, 24, 27, 0.13) 50%,
-    rgba(24, 24, 27, 0.08) 70%,
-    rgba(24, 24, 27, 0.03) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2.5s ease-in-out infinite;
+  --work-rest: rgba(24, 24, 27, 0.025);
+  --work-highlight: rgba(24, 24, 27, 0.09);
+  --work-band: rgba(24, 24, 27, 0.12);
+  background-color: var(--work-rest);
+  background-image: linear-gradient(90deg,
+    transparent 38%, var(--work-band) 50%, transparent 62%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: work-sweep 2.4s linear infinite;
 }
 .dark .thread-wip {
-  background: linear-gradient(
-    90deg,
-    rgba(244, 244, 245, 0.03) 0%,
-    rgba(244, 244, 245, 0.09) 30%,
-    rgba(244, 244, 245, 0.14) 50%,
-    rgba(244, 244, 245, 0.09) 70%,
-    rgba(244, 244, 245, 0.03) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2.5s ease-in-out infinite;
+  --work-rest: rgba(244, 244, 245, 0.025);
+  --work-highlight: rgba(244, 244, 245, 0.09);
+  --work-band: rgba(244, 244, 245, 0.14);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thread-wip, .dark .thread-wip { animation: none; }
+  .thread-wip {
+    background-image: none;
+    animation: work-fade 3s ease-in-out infinite;
+  }
 }
 
 /** Global Styles **/
