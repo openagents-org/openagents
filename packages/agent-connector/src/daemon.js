@@ -883,6 +883,12 @@ class Daemon {
       changes[MODEL_MODE_KEY] = String(args.model || '').trim() ? '' : MODEL_DEFAULT;
     }
     if (Object.keys(changes).length) this.config.updateAgentEnv(name, changes);
+    // Hermes reads its endpoint from config.yaml, not the agent env: without
+    // this a Hermes agent moved to the sign-in kept calling the relay
+    // (AgentConnector._configureAgentNativeAuth does the same for agn).
+    if (type === 'hermes' && changes[AUTH_MODE_KEY] === CLI_LOGIN) {
+      try { require('./adapters/hermes').restoreNativeAuth(); } catch {}
+    }
   }
 
   /**

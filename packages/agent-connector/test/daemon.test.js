@@ -11,13 +11,23 @@ const { EnvManager } = require('../src/env');
 const { Registry } = require('../src/registry');
 
 let tmpDir;
+let scrubbedEnv;
+
+// The roster and agent env read the daemon's own process.env, so a model or
+// key set in the shell running the tests would leak into what they assert.
+const AMBIENT_CREDENTIAL = /^(MODEL|.*_(MODEL|API_KEY|BASE_URL|AUTH_TOKEN))$/;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-daemon-'));
+  scrubbedEnv = {};
+  for (const k of Object.keys(process.env)) {
+    if (AMBIENT_CREDENTIAL.test(k)) { scrubbedEnv[k] = process.env[k]; delete process.env[k]; }
+  }
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  Object.assign(process.env, scrubbedEnv);
 });
 
 /** Run body with process.env overridden (undefined deletes a var), then restore it. */

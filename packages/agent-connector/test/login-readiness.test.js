@@ -126,13 +126,12 @@ describe('claude', () => {
     });
   }
 
-  // The Keychain holds what the file would. A stand-in `security` prints it.
+  // The Keychain item's presence is the signal: its secret is never read
+  // (#842), so what it holds is not judged. A stand-in `security` finds it.
   for (const [label, body, ready] of [
     ['a full sign-in', CLAUDE_OAUTH, true],
-    ['an empty object', {}, false],
-    ['a null OAuth entry', { claudeAiOauth: null }, false],
   ]) {
-    it(`judges ${label} in the macOS Keychain the way it judges the file`, { skip: IS_WINDOWS }, () => {
+    it(`counts ${label} in the macOS Keychain`, { skip: IS_WINDOWS }, () => {
       const dir = fs.mkdtempSync(path.join(tmpDir, 'keychain-'));
       fs.writeFileSync(path.join(dir, 'security'), `#!/bin/sh\necho '${JSON.stringify(body)}'\n`, 'utf-8');
       fs.chmodSync(path.join(dir, 'security'), 0o755);

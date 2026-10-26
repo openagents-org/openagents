@@ -977,7 +977,7 @@ export function AgentSetup({
             <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {nameError || nameClash
               ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
-              : !isEdit && <p className="text-xs text-destructive">{t('connect.agentNameUniqueHint')}</p>}
+              : !isEdit && <p className="text-xs text-muted-foreground">{t('connect.agentNameUniqueHint')}</p>}
             {/* Always on, not a tooltip: a second agent of a type someone
                 already runs is a different name away, nothing more. */}
             {!isEdit && selected && (
