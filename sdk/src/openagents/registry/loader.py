@@ -515,24 +515,24 @@ def _make_plugin_from_yaml(data: dict):
                             return True, "Ready (logged in)"
                 except Exception:
                     pass
-            # Check macOS Keychain
+            # Check macOS Keychain. Attributes only, like the JS core's
+            # _checkMacKeychain: ``-w`` would print the stored secret, which
+            # EDR tools flag as credential dumping, and the item's presence is
+            # all sign-in detection needs. ``creds_key`` is therefore not
+            # checked against the Keychain value.
             keychain_svc = check_cfg.get("keychain_service")
             if keychain_svc and platform.system() == "Darwin":
                 try:
                     import subprocess
                     result = subprocess.run(
-                        ["security", "find-generic-password",
-                         "-s", keychain_svc, "-w"],
-                        capture_output=True, text=True, timeout=5,
+                        ["security", "find-generic-password", "-s", keychain_svc],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
                     )
-                    if result.returncode == 0 and result.stdout.strip():
-                        creds_key = check_cfg.get("creds_key")
-                        if creds_key:
-                            creds = json.loads(result.stdout.strip())
-                            if creds.get(creds_key):
-                                return True, "Ready (logged in)"
-                        else:
-                            return True, "Ready (logged in)"
+                    if result.returncode == 0:
+                        return True, "Ready (logged in)"
                 except Exception:
                     pass
             msg = check_cfg.get("not_ready_message", "Not ready")
