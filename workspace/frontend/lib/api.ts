@@ -2663,6 +2663,16 @@ class WorkspaceApi {
     });
     return mapFileResponse(raw);
   }
+
+  /** Save an edited markdown file in place. `baseSha256` is the hash of the
+   *  text the editor opened; the server answers 409 if the file moved on. */
+  async updateFileContent(fileId: string, content: string, baseSha256?: string): Promise<WorkspaceFile> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.requireWorkspace(), content, base_sha256: baseSha256 }),
+    });
+    return mapFileResponse(raw);
+  }
 }
 
 export const workspaceApi = new WorkspaceApi();
