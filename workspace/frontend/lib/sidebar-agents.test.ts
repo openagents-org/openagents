@@ -57,3 +57,17 @@ it('keeps Yumi in view ahead of five of the viewer\'s own online agents', () => 
   expect(mine.shown[0].agentName).toBe('yumi');
   expect(mine.shown[1].agentName).toBe('a-3');
 });
+
+it('counts each ownership section, offline agents included, for its heading', () => {
+  const agents = [
+    { agentName: 'yumi', builtin: true, ownerEmail: null, status: 'online', canStartThread: true },
+    { agentName: 'mine-online', ownerEmail: 'me@example.com', status: 'online' },
+    { agentName: 'mine-offline', ownerEmail: 'me@example.com', status: 'offline' },
+    { agentName: 'shared-online', ownerEmail: 'other@example.com', status: 'online', canStartThread: true },
+    { agentName: 'shared-offline', ownerEmail: 'other@example.com', status: 'offline', canStartThread: true },
+    { agentName: 'not-mine', ownerEmail: 'other@example.com', status: 'online', canStartThread: false },
+  ] as WorkspaceAgent[];
+  const [mine, shared] = sidebarAgentGroups(agents, 'me@example.com');
+  expect([mine.all.length, mine.total]).toEqual([2, 3]);
+  expect([shared.all.length, shared.total]).toEqual([1, 2]);
+});
