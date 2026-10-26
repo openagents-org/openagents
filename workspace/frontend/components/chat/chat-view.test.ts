@@ -131,6 +131,7 @@ beforeEach(() => {
     activeSessionIds: new Set(),
     stoppingSessionIds: new Set(),
     knowledge: [],
+    routines: [],
     updateLastMessage: () => {},
     setSessionActive: () => {},
     updateAgentMode: () => {},
