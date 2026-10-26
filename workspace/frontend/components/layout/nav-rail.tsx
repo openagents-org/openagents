@@ -2,6 +2,7 @@
 import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
+import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
@@ -29,6 +30,8 @@ import { AgentRosterHints, isDeviceOffline } from '@/components/agents/agent-ros
 import { cn, hasTruncatedLabel } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
 import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
+import { displayNameFromEmail } from '@/lib/collab';
+import { useHumanNames } from '@/hooks/use-team-roster';
 import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
@@ -218,6 +221,9 @@ export function NavRail() {
   const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
   const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
+  const humanNames = useHumanNames();
+  // Shared agents carry their owner's name, so they never pass for the viewer's own.
+  const ownerName = (email: string | null | undefined) => email ? humanNames[email.toLowerCase()] || displayNameFromEmail(email) : '';
 
   // Unread threads, @mentions and DMs — only what the Threads view lists.
 
@@ -387,11 +393,7 @@ export function NavRail() {
                 <SidebarMenu className="gap-0.5">
                   {visibleAgents.map((agent, index) => (
                     <React.Fragment key={agent.agentName}>
-                      {index === firstSharedIndex && <li role="separator" aria-label={t('collab.sharedByOthers')} className="mx-2 flex items-center gap-2">
-                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
-                        {showLabels && <span className="shrink-0 text-center text-[10px] leading-5 text-muted-foreground">{t('collab.sharedByOthers')}</span>}
-                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
-                      </li>}
+                      {(index === 0 || index === firstSharedIndex) && <AgentSectionLabel owned={index !== firstSharedIndex} online={groups[index === firstSharedIndex ? 1 : 0].all.length} total={groups[index === firstSharedIndex ? 1 : 0].total} first={index === 0} showLabels={showLabels} />}
                     <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
                         className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
@@ -421,6 +423,7 @@ export function NavRail() {
                           className="[&_svg]:size-full!"
                         />
                         {showLabels && <span className="truncate" data-truncatable>{agentLabel(agent)}</span>}
+                        {showLabels && !isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
                         {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
