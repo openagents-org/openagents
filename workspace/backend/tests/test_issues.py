@@ -787,3 +787,25 @@ def test_label_suggestions_are_workspace_scoped_and_deduplicated(client, workspa
     assert response.status_code == 200
     assert response.json()['data']['labels'] == ['API', 'Bug', '暂停']
     assert client.get(path(workspace, '/labels'), headers={'X-Workspace-Token': 'invalid'}).status_code == 403
+
+
+def test_active_issues_exclude_paused_closed_before_pagination(client, workspace, two_members, db):
+    from app.models import Issue
+    by_status = {}
+    for status in ('open', 'in_progress', 'paused', 'closed'):
+        item = create(client, workspace, title=f'Follow-up {status}')
+        record = db.get(Issue, item['id'])
+        record.status = status
+        record.assignee = 'human:ann@acme.test'
+        db.commit()
+        by_status[status] = item['id']
+    query = path(workspace) + '&active_only=true&assigned_to_me=true&q=Follow-up&limit=1'
+    first = client.get(query, headers=_bearer('ann')).json()['data']
+    second = client.get(query + '&offset=1', headers=_bearer('ann')).json()['data']
+    assert {first['issues'][0]['id'], second['issues'][0]['id']} == {by_status['open'], by_status['in_progress']}
+    assert first['next_offset'] == 1 and second['next_offset'] is None
+    for status in ('paused', 'closed'):
+        response = client.get(path(workspace) + f'&status={status}', headers=headers(workspace))
+        assert [row['id'] for row in response.json()['data']['issues']] == [by_status[status]]
+    # Existing API callers can still explicitly enumerate every issue.
+    assert len(client.get(path(workspace), headers=headers(workspace)).json()['data']['issues']) == 4

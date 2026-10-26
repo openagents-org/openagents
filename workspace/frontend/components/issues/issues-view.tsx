@@ -67,6 +67,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [board, setBoard] = useState(false);
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
+  const activeOnly = status === 'all' || status === 'mine';
+  const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,6 +89,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
             workspaceApi.listIssues({
               status: status === 'all' || status === 'mine' ? undefined : status,
               assignedToMe: status === 'mine',
+              activeOnly,
               query,
               offset: page * 100,
             }),
@@ -120,7 +123,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       clearTimeout(debounce);
       clearInterval(interval);
     };
-  }, [status, query, revision, pages]);
+  }, [status, activeOnly, query, revision, pages]);
 
   const preview = (description: string) =>
     description
@@ -266,7 +269,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {value === 'all' ? t('issues.allIssues') : value === 'mine' ? t('issues.assignedToMe') : t(statusKeys[value])}
+              {value === 'all' ? t('issues.activeIssues') : value === 'mine' ? t('issues.assignedToMe') : t(statusKeys[value])}
             </button>
           ))}
         </div>
@@ -361,8 +364,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
             )}
           </div>
         ) : board ? (
-          <div className="grid min-h-full grid-cols-1 gap-6 bg-muted/15 p-5 sm:grid-cols-4 sm:px-8 sm:py-6">
-            {statuses.map((value) => (
+          <div className={cn("grid min-h-full grid-cols-1 gap-6 bg-muted/15 p-5 sm:px-8 sm:py-6", boardStatuses.length > 1 && "sm:grid-cols-2")}>
+            {boardStatuses.map((value) => (
               <section key={value} className="min-w-0">
                 <div className="mb-4 flex items-center gap-2.5 px-1">
                   <StatusIcon status={value} />

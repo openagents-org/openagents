@@ -118,6 +118,7 @@ export const messages: Messages = {
     dismiss: '忽略分配建议', dismissAction: '忽略',
   },
   issues: {
+    activeIssues: '进行中的议题',
     assignedToMe: '分配给我',
     dueDate: '截止日期', noDueDate: '未设置截止日期', setDueDate: '设置截止日期', clearDueDate: '移除截止日期', dueDateOwnerOnly: '只有创建此议题的人可以更改截止日期。', dueDateSet: '将截止日期设为 {date}', dueDateRemoved: '移除了截止日期',
     chooseAgent: '选择智能体',

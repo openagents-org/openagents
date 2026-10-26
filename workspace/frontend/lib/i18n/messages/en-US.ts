@@ -125,6 +125,7 @@ export const messages = {
     dismiss: 'Dismiss assignment suggestion', dismissAction: 'Dismiss',
   },
   issues: {
+    activeIssues: 'Active issues',
     assignedToMe: 'Assigned to me',
     dueDate: 'Due date', noDueDate: 'No due date', setDueDate: 'Set due date', clearDueDate: 'Remove due date', dueDateOwnerOnly: 'Only the person who opened this issue can change the due date.', dueDateSet: 'set the due date to {date}', dueDateRemoved: 'removed the due date',
     chooseAgent: 'Choose an agent',

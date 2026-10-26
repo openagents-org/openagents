@@ -339,6 +339,7 @@ def list_issues(
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
     assigned_to_me: bool = False,
+    active_only: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -354,6 +355,8 @@ def list_issues(
         query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
     if status:
         query = query.where(Issue.status == status)
+    elif active_only:
+        query = query.where(Issue.status.in_(("open", "in_progress")))
     if q.strip():
         query = query.where(
             Issue.title.icontains(q.strip(), autoescape=True)

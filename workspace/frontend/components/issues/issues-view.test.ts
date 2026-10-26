@@ -481,7 +481,7 @@ it('requests assignments to the signed-in user across search, pagination, and bo
   mocks.api.listIssues.mockResolvedValue({ issues: [issue], next_offset: 100 });
   await click(button('Assigned to me'));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
-  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, status: undefined, offset: 0 }));
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, activeOnly: true, status: undefined, offset: 0 }));
   await click(button('Load more'));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
   expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, offset: 100 }));
@@ -490,9 +490,9 @@ it('requests assignments to the signed-in user across search, pagination, and bo
   expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, query: 'follow-up', offset: 0 }));
   await click(host.querySelector('button[aria-label="Board view"]')!);
   expect(host.textContent).toContain('Improve onboarding');
-  await click(button('All issues'));
+  await click(button('Active issues'));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
-  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: false, offset: 0 }));
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: false, activeOnly: true, offset: 0 }));
 });
 
 it('autocompletes existing labels by keyboard and preserves their spelling', async () => {
@@ -506,4 +506,18 @@ it('autocompletes existing labels by keyboard and preserves their spelling', asy
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
   expect(mocks.api.updateIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ labels: ['暂停'] }));
+});
+
+it('defaults to active issues and only requests inactive issues through their tabs', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ activeOnly: true, status: undefined }));
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(Array.from(host.querySelectorAll('section h2')).map(h => h.textContent)).toEqual(['Open', 'In progress']);
+  for (const [label, status] of [['Paused', 'paused'], ['Closed', 'closed']]) {
+    await click(button(label));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ activeOnly: false, status }));
+    expect(Array.from(host.querySelectorAll('section h2')).map(h => h.textContent)).toEqual([label]);
+  }
 });
