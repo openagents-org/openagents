@@ -91,24 +91,15 @@ export function RoutineList() {
               {visibleRoutines.length}
             </Badge>
           )}
+          {/* Primary action sits beside the title, where the eye lands —
+              not in the right corner, where it went unnoticed. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openCreateDialog}>
+            <Plus className="size-4" />
+            {t('routines.createShort')}
+          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon"
-                size="sm"
-                aria-label={t('routines.createShort')}
-                onClick={openCreateDialog}
-                className="text-muted-foreground"
-              >
-                <Plus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('routines.createShort')}</TooltipContent>
-          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

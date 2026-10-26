@@ -929,13 +929,15 @@ export function ThreadList() {
               {unreadCount}
             </Badge>
           )}
+          {/* Primary action sits beside the title, where the eye lands —
+              not in the right corner, where it went unnoticed. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openNewThread}>
+            <Plus className="size-4" />
+            {t('threads.newThread')}
+          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <Button size="sm" className="mr-1 gap-1 font-semibold" onClick={openNewThread}>
-            <Plus className="size-3.5" />
-            {t('threads.newThread')}
-          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
