@@ -161,6 +161,30 @@ describe('stream handling (fake CLI)', () => {
     if (pp.idleTimer) clearTimeout(pp.idleTimer);
   });
 
+  it('does not replay the completed answer when a background task reports later', async () => {
+    const adapter = mkAdapter();
+    adapter.getRemainingTodos = async () => [];
+    const { pp, proc } = attach(adapter);
+    try {
+      const turn = adapter._sendToPersistentProc(pp, 'Fix the issue');
+      proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'The fix is committed.' }] } });
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await turn;
+      await adapter._postTurnOutcome(pp, 'general', adapter._composeFinalResponse(pp));
+      // No new user message resets the buffer before this background turn.
+      proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'The background search timed out.' }] } });
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await settle(pp);
+      assert.deepEqual(adapter.responses, ['The fix is committed.', 'The background search timed out.']);
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await settle(pp);
+      assert.equal(adapter.responses.length, 2);
+    } finally {
+      adapter._stopWatchdog(pp);
+      if (pp.idleTimer) clearTimeout(pp.idleTimer);
+    }
+  });
+
   it('waits past an empty leftover result after resume instead of posting an error', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';

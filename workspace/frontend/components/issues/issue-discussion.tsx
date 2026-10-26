@@ -21,6 +21,7 @@ import {
   Pencil,
   PanelRight,
   Send,
+  Reply,
   ChevronDown,
 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -75,6 +76,8 @@ export function IssueDiscussion({
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [comment, setComment] = useState('');
+  const [replyTo, setReplyTo] = useState<{ eventId: string; name: string } | null>(null);
+  useEffect(() => { setReplyTo(null); setComment(''); }, [id]);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -438,6 +441,22 @@ export function IssueDiscussion({
                               humanNames={humanNames}
                             />
                           </div>
+                          {c.kind === 'result' && c.source_event_id && c.reply_channel_name && (
+                            <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+                              disabled={busy || issue.status === 'closed'}
+                              onClick={() => {
+                                setReplyTo({ eventId: c.source_event_id!, name });
+                                const mention = `@${c.author.replace(/^openagents:/, '')}`;
+                                setComment(value => value.startsWith(`${mention} `) || value === mention ? value : `${mention} ${value}`);
+                                requestAnimationFrame(() => {
+                                  const input = document.getElementById(`issue-comment-${id}`);
+                                  input?.focus();
+                                  input?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                                });
+                              }}>
+                              <Reply className="size-3.5" />{t('issues.reply')}
+                            </Button>
+                          )}
                         </div>
                       </article>
                     );
@@ -460,9 +479,10 @@ export function IssueDiscussion({
                       () =>
                         workspaceApi.commentOnIssue(id, {
                           content: comment,
+                          ...(replyTo ? { reply_to_event_id: replyTo.eventId } : {}),
                           ...identity,
                         }).then((result) => { if (result.dispatch_error) setError(result.dispatch_error); }),
-                      () => setComment(''),
+                      () => { setComment(''); setReplyTo(null); },
                     );
                   }}
                 >
@@ -470,6 +490,10 @@ export function IssueDiscussion({
                     <IssueAvatar name={currentUser.name} source={source} />
                   </span>
                   <div className="min-w-0 flex-1 rounded-lg border border-border bg-background shadow-xs transition-shadow focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/10">
+                    {replyTo && <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+                      <span>{t('issues.replyingTo', { name: replyTo.name })}</span>
+                      <button type="button" disabled={busy} onClick={() => setReplyTo(null)} aria-label={t('issues.cancelReply')} className="rounded p-1 hover:bg-muted"><X className="size-3.5" /></button>
+                    </div>}
                     <label
                       className="block px-4 pt-3 text-xs font-medium"
                       htmlFor={`issue-comment-${id}`}

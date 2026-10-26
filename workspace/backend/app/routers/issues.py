@@ -100,6 +100,7 @@ class CommentRequest(ActorRequest):
     knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
     content: str = Field(default="", max_length=50000)
     source_event_id: Optional[str] = None
+    reply_to_event_id: Optional[str] = None
 
 
 class LinkThreadRequest(ActorRequest):
@@ -476,6 +477,15 @@ def _discussion_entries(db, issue, channels, limit=None):
                 "content": (reply.payload or {}).get("content", ""), "kind": "result",
                 "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
     discussion.sort(key=lambda item: (item["created_at"], item["id"]))
+    replyable = {f"channel/{c.name}": c.name for c in channels if c.status == "active" and not c.service_id}
+    source_ids = [item["source_event_id"] for item in discussion if item.get("source_event_id")]
+    if replyable and source_ids:
+        origins = dict(db.execute(select(EventRecord.id, EventRecord.target).where(
+            EventRecord.network_id == issue.workspace_id, EventRecord.id.in_(source_ids),
+            EventRecord.target.in_(replyable),
+        )).all())
+        for item in discussion:
+            item["reply_channel_name"] = replyable.get(origins.get(item.get("source_event_id")))
     return discussion[-limit:] if limit else discussion
 
 
@@ -697,6 +707,26 @@ def add_comment(
         targets = _mentioned_agents(content, sorted(active))
         if targets and issue.status == "closed":
             raise HTTPException(409, "Reopen the issue before asking an agent to work")
+    reply_channel = None
+    if body.reply_to_event_id:
+        event = db.get(EventRecord, body.reply_to_event_id)
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human comments can reply to agent work")
+        reply_channel = next((c for c in visible if event and event.target == f"channel/{c.name}"), None)
+        if (not event or event.network_id != workspace.id or not reply_channel
+                or event.type != "workspace.message.posted" or not event.source.startswith("openagents:")
+                or (event.payload or {}).get("message_type", "chat") != "chat"):
+            raise HTTPException(404, "Agent reply not found in this issue's linked work")
+        if reply_channel.status != "active" or reply_channel.service_id:
+            raise HTTPException(409, "This thread cannot receive replies")
+        if not targets or not set(targets).issubset({p.agent_name for p in reply_channel.participants}):
+            raise HTTPException(422, "Mention an agent in the thread you are replying to")
+    elif targets:
+        # A direct mention continues the most recently active accessible work
+        # with these agents. Never select another viewer's hidden thread.
+        candidates = [c for c in visible if c.status == "active" and not c.service_id
+                      and set(targets).issubset({p.agent_name for p in c.participants})]
+        reply_channel = max(candidates, key=lambda c: (c.last_event_at or 0, c.created_at, c.name), default=None)
     if body.knowledge_ids:
         if kind != "comment" or not actor.startswith("human:"):
             raise HTTPException(422, "Only human requests can attach knowledge context")
@@ -741,7 +771,10 @@ def add_comment(
         targets = allowed_targets
     if targets:
         try:
-            result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
+            if reply_channel:
+                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks)
+            else:
+                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
         except Exception:
             # The comment is saved. Do not encourage reposting it (which could
             # create duplicate work); expose delivery failure separately.
@@ -765,6 +798,27 @@ def link_thread(
     _link_thread(db, issue, _visible_channel(db, workspace, viewer, body.channel_name))
     db.commit()
     return success_response({"linked": True})
+
+
+def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks):
+    sent = _emit_event_blocking(Event(
+        type="workspace.message.posted", source=actor, target=f"channel/{channel.name}",
+        payload={"content": content, "message_type": "chat", "sender_name": actor_name,
+                 "sender_email": actor.removeprefix("human:") if "@" in actor else None},
+        metadata={"target_agents": agents},
+    ), workspace, db, token=workspace.password_hash)
+    if sent is None:
+        raise HTTPException(502, "Could not deliver the reply to the linked thread")
+    db.refresh(issue)
+    if issue.status == "open":
+        issue.status = "in_progress"
+    db.commit()
+    from app.services.cloud_agent import invoke_cloud_agents
+    background_tasks.add_task(invoke_cloud_agents, str(workspace.id), {
+        "id": str(sent.id), "type": sent.type, "source": sent.source,
+        "target": sent.target, "payload": sent.payload, "metadata": sent.metadata,
+    })
+    return channel.name
 
 
 def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):

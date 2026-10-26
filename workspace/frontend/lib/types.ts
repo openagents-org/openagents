@@ -1442,6 +1442,7 @@ export interface WorkspaceIssue {
   comment_count?: number;
 }
 export interface IssueComment {
+  reply_channel_name?: string | null;
   dispatch_error?: string;
   channel_name?: string;
   id: string;
