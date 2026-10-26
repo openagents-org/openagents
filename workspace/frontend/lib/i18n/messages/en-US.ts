@@ -1926,6 +1926,8 @@ export const messages = {
     nodeBackToAgents: 'Back to agents',
     nodeModel: 'Model',
     nodeModelAuto: 'Auto (agent default)',
+    nodeModelAccountHint: 'These are the models {label} on the device offers the account it is signed in to.',
+    nodeModelUnlisted: '{model} (not in this list)',
     nodeWorkingDir: 'Working directory',
     nodeWorkingDirOptional: 'Working directory (optional)',
     nodeWorkingDirPlaceholder: 'Leave blank for a managed folder',

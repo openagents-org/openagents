@@ -301,11 +301,14 @@ class Daemon {
    * their own env says otherwise (a token or a config dir of their own), so
    * those with the same env share an answer: a device with nine Claude agents
    * starts the CLI once, not nine times. The model each runs is left out, it
-   * does not change what the account is offered. Hashed, since that env can
-   * hold a token.
+   * does not change what the account is offered, and so is the sign-in
+   * marker: an agent is only asked while it runs on the sign-in, marked or
+   * not, and then its CLI gets the same env either way. Hashed, since that
+   * env can hold a token.
    */
   _cliModelsKey(a) {
     const skip = modelKeys(a.type, this.registry);
+    skip.add(AUTH_MODE_KEY);
     const own = Object.entries(a.env || {})
       .filter(([k]) => !skip.has(k))
       .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
@@ -313,16 +316,57 @@ class Daemon {
   }
 
   /**
+   * The agent the workspace's add form creates for `type` when "sign in on
+   * the device" is picked: none of its own env but the sign-in marker. It
+   * does not exist yet, so the form has no roster entry to read a list from;
+   * its list rides the runtime entry for the type instead (see
+   * _heartbeatRuntimes). Every agent on the device's sign-in shares its key.
+   */
+  _signInAgent(type) {
+    return { name: null, type, env: { [AUTH_MODE_KEY]: CLI_LOGIN } };
+  }
+
+  /** Whether this device is paired to any workspace, whose add form could ask. */
+  _isPaired() {
+    try {
+      return require('./node-config').listPairings().some((p) => p && p.node_id && p.token);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Types whose CLI is installed here and can list what its sign-in is
+   * offered. Only on a paired device: nothing else reads these lists.
+   */
+  _signInTypes() {
+    const installed = (this._runtimes || [])
+      .filter((rt) => rt && rt.installed && supportsCliModels(rt.type))
+      .map((rt) => rt.type);
+    return installed.length && this._isPaired() ? installed : [];
+  }
+
+  /** Whether the list kept under `key` is missing or has aged out. */
+  _cliModelsStale(key) {
+    const last = this._cliModels[key];
+    if (!last) return true;
+    const maxAge = last.models ? CLI_MODELS_MAX_AGE_MS : CLI_MODELS_RETRY_MS;
+    return Date.now() - last.askedAt >= maxAge;
+  }
+
+  /**
    * Ask an agent's CLI for its models via a child `agn models <name> --json`
-   * (off the event loop, and on that agent's own env, like a probe).
-   * Resolves true when the list it keeps for that sign-in changed.
+   * (off the event loop, and on that agent's own env, like a probe), or for
+   * a type's device sign-in (`_signInAgent`) via `agn models <type> --json
+   * --sign-in`. Resolves true when the list it keeps for that sign-in changed.
    */
   async _listCliModels(a) {
     const key = this._cliModelsKey(a);
     if (this._cliModelsInFlight.has(key)) return false;
     this._cliModelsInFlight.add(key);
     try {
-      const r = await this._runAgn(['models', a.name, '--json']);
+      const args = a.name ? ['models', a.name, '--json'] : ['models', a.type, '--json', '--sign-in'];
+      const r = await this._runAgn(args);
       let parsed = null;
       try { parsed = JSON.parse(r.stdout.trim()); } catch {}
       const models = parsed && parsed.ok && Array.isArray(parsed.models) ? parsed.models : [];
@@ -350,24 +394,64 @@ class Daemon {
 
   /**
    * Periodic sweep: ask for every sign-in whose list is missing or has aged
-   * out, and forget the ones no agent is on any more. Sequential, like the
-   * probe sweep: there is no hurry.
+   * out, and forget the ones no agent is on any more. Besides the agents',
+   * that is each installed type's device sign-in, which the add form shows
+   * before an agent exists. Sequential, like the probe sweep: there is no
+   * hurry.
    */
   async _refreshCliModels() {
     const signIns = new Set();
+    const ask = async (a) => {
+      const key = this._cliModelsKey(a);
+      if (signIns.has(key)) return;
+      signIns.add(key);
+      if (!this._cliModelsStale(key)) return;
+      try { await this._listCliModels(a); } catch {}
+    };
     for (const a of this.config.getAgents()) {
       if (!a.network || !this._onCliSignIn(a)) continue;
-      const key = this._cliModelsKey(a);
-      if (signIns.has(key)) continue;
-      signIns.add(key);
-      const last = this._cliModels[key];
-      const maxAge = last && last.models ? CLI_MODELS_MAX_AGE_MS : CLI_MODELS_RETRY_MS;
-      if (last && Date.now() - last.askedAt < maxAge) continue;
-      try { await this._listCliModels(a); } catch {}
+      await ask(a);
     }
+    for (const type of this._signInTypes()) await ask(this._signInAgent(type));
     for (const key of Object.keys(this._cliModels)) {
       if (!signIns.has(key)) delete this._cliModels[key];
     }
+  }
+
+  /**
+   * Re-ask a type's device sign-in once its CLI was installed, upgraded,
+   * signed in or out: what it is offered changes with each (Claude Code
+   * lists four aliases signed out and eleven models on a Max account; an
+   * older Codex is not offered the newest ones), and the add form should not show
+   * the old answer for the next hour. The list on hand stays until the new
+   * one is in.
+   */
+  _cliModelsAfterDetection(previous) {
+    const sig = (rt) => (rt ? JSON.stringify([
+      !!rt.installed, rt.version || null, !!rt.ready, rt.authStatus || null, (rt.auth && rt.auth.mode) || null,
+    ]) : null);
+    let changed = false;
+    for (const rt of this._runtimes || []) {
+      if (!rt || !supportsCliModels(rt.type) || sig(rt) === sig(previous.get(rt.type))) continue;
+      const kept = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
+      if (kept) kept.askedAt = 0;
+      changed = true;
+    }
+    if (changed) this._refreshCliModels().catch(() => {});
+  }
+
+  /**
+   * The runtime list as the heartbeat sends it: each type whose CLI can list
+   * its sign-in's models carries that list, for the add form's model picker.
+   * Null until the CLI has answered, and from devices too old to ask, where
+   * the form keeps the catalog's list.
+   */
+  _heartbeatRuntimes() {
+    return (this._runtimes || []).map((rt) => {
+      if (!rt || !rt.installed || !supportsCliModels(rt.type)) return rt;
+      const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
+      return { ...rt, cliModels: (listed && listed.models) || null };
+    });
   }
 
   /**
@@ -389,7 +473,7 @@ class Daemon {
     if (!pairings.length) return;  // no node connected
     // deviceInfo, not gatherDeviceInfo: the heartbeat sends no device key, and
     // must never be the thing that writes node.json.
-    const info = { ...nodeCfg.deviceInfo(), runtimes: this._runtimes || [], fs: this._buildFs() };
+    const info = { ...nodeCfg.deviceInfo(), runtimes: this._heartbeatRuntimes(), fs: this._buildFs() };
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
@@ -866,6 +950,7 @@ class Daemon {
     const previous = new Map((this._runtimes || []).map((rt) => [rt.type, rt]));
     const order = types.length ? types : [...found.keys()];
     this._runtimes = order.map((type) => found.get(type) || previous.get(type)).filter(Boolean);
+    this._cliModelsAfterDetection(previous);
   }
 
   /**

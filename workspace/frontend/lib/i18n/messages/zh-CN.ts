@@ -1889,6 +1889,8 @@ export const messages: Messages = {
     nodeBackToAgents: '返回智能体列表',
     nodeModel: '模型',
     nodeModelAuto: '自动（智能体默认）',
+    nodeModelAccountHint: '列表来自设备上 {label} 登录的账号，是这个账号能用的模型。',
+    nodeModelUnlisted: '{model}（不在列表中）',
     nodeWorkingDir: '工作目录',
     nodeWorkingDirOptional: '工作目录（可选）',
     nodeWorkingDirPlaceholder: '留空则使用托管目录',

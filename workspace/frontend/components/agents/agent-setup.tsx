@@ -622,6 +622,28 @@ export function AgentSetup({
   const signInType = byok && !!detail?.check_ready?.login_command;
   const signInChosen = signInType && !byokAccessId && !keepCurrent && !apiKey.trim();
   const loginCommand = detail?.check_ready?.login_command || '';
+  // The models the device's own CLI offers its sign-in (a ChatGPT or Claude
+  // subscription), for an agent that will run on that sign-in ("sign in on
+  // the device" picked) rather than on a key. The catalog's list is the
+  // vendor's line-up, kept by hand: it offered models the account behind the
+  // sign-in is not served, and missed ones it is. The edited agent's own
+  // answer comes first; a new agent gets what its type's CLI said for the
+  // device. Null on a launcher too old to ask and until the CLI has
+  // answered: the catalog stands in.
+  const accountModels = useMemo(() => {
+    if (!signInChosen || !selected || baseUrl.trim()) return null;
+    // The device sends an agent's own list only while it is on its sign-in.
+    if (editAgent?.type === selected && editAgent.cliModels?.length) return editAgent.cliModels;
+    const runtime = runtimeByType[selected];
+    return runtime?.cliModels?.length ? runtime.cliModels : null;
+  }, [signInChosen, selected, baseUrl, editAgent, runtimeByType]);
+  const pickerModels = useMemo(
+    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : modelOptions),
+    [accountModels, modelOptions],
+  );
+  // A model the list does not hold (one saved before, or one the account is
+  // no longer offered) is still shown as the one picked, not as a blank.
+  const unlistedModel = model.trim() && pickerModels && !pickerModels.some((m) => m.id === model.trim()) ? model.trim() : null;
   const currentKeyDetail = [editAgent?.apiKeyMasked, editAgent?.baseUrlHost].filter(Boolean).join(' · ');
   const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || (editAgent?.baseUrlHost && keepCurrent));
   const launcherParts = (node.launcherVersion || '').replace(/^v/, '').split('.').map(Number);
@@ -1185,23 +1207,31 @@ export function AgentSetup({
 
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
-          {!extensions?.configuration && modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
+          {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
               <Select
-                value={model || AUTO_MODEL}
+                value={model.trim() || AUTO_MODEL}
                 onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
               >
-                <SelectTrigger className="h-10 w-full">
+                <SelectTrigger aria-label={t('connect.nodeModel')} className="h-10 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
-                  {modelOptions.map((m) => (
+                  {pickerModels.map((m) => (
                     <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                   ))}
+                  {unlistedModel && (
+                    <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {accountModels && (
+                <p data-testid="agent-setup-account-models" className="text-xs text-muted-foreground">
+                  {t('connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+                </p>
+              )}
             </div>
           )}
 
@@ -1244,7 +1274,7 @@ export function AgentSetup({
                 </div>
               ))}
               <p className="text-xs text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
-              {!modelOptions && (
+              {!pickerModels && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>
@@ -1285,7 +1315,7 @@ export function AgentSetup({
               )}
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
-              {(!modelOptions || !!baseUrl.trim()) && (
+              {(!pickerModels || !!baseUrl.trim()) && (
                 <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>

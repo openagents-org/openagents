@@ -709,6 +709,136 @@ describe('Daemon', () => {
     assert.equal(asked.length, 0);
   });
 
+  // The add form has no agent to read a list from yet: each installed type's
+  // device sign-in is asked too, and rides the runtime entry for the type.
+  const SIGN_IN_ASK = (type) => ['models', type, '--json', '--sign-in'];
+  const signInModelsOf = (daemon, type) => daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent(type))];
+
+  it('_refreshCliModels asks the device sign-in of each installed type whose CLI can list', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: true },
+      { type: 'claude', installed: false, ready: false },
+      { type: 'gemini', installed: true, ready: true },
+    ];
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, [SIGN_IN_ASK('codex')]);
+    assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+
+    // Fresh, so not asked again on the next pass.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_refreshCliModels asks no device sign-in on a device paired to no workspace', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => false;
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, []);
+  });
+
+  it('_refreshCliModels asks once for a type and the agents on its device sign-in', async () => {
+    const { daemon, asked } = daemonListingModels([
+      // Added from the workspace form on "sign in on the device".
+      { name: 'marked', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', LLM_MODEL: 'gpt-6-astra' } },
+      // An older one with nothing of its own, on the sign-in all the same.
+      { name: 'unmarked', type: 'codex', env: { CODEX_MODEL: 'gpt-6-sol' } },
+    ], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.deepEqual(asked, [['models', 'marked', '--json']]);
+    assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+    assert.deepEqual(roster.map((a) => a.cliModels), [ACCOUNT_MODELS, ACCOUNT_MODELS]);
+  });
+
+  it('_refreshCliModels forgets a type whose CLI is no longer installed', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [{ type: 'codex', installed: false, ready: false }];
+    daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(daemon._cliModels, {});
+    assert.equal(asked.length, 0);
+  });
+
+  it('_heartbeatRuntimes puts each type sign-in list on its runtime entry', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: true },
+      { type: 'claude', installed: true, ready: false },
+      { type: 'gemini', installed: true, ready: true },
+      { type: 'cursor', installed: false, ready: false },
+    ];
+    daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+    assert.deepEqual(daemon._heartbeatRuntimes(), [
+      { type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS },
+      // Not answered yet: the form keeps the catalog list.
+      { type: 'claude', installed: true, ready: false, cliModels: null },
+      { type: 'gemini', installed: true, ready: true },
+      { type: 'cursor', installed: false, ready: false },
+    ]);
+    // The detection snapshot itself is left as it was.
+    assert.equal(daemon._runtimes[0].cliModels, undefined);
+  });
+
+  it('_nodeHeartbeat sends the runtimes with their sign-in lists', async () => {
+    await withPairings([P1], async () => {
+      const daemon = heartbeatDaemon();
+      daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+      daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+      let sent = null;
+      daemon._nodeClients.set('n1', { nodeHeartbeat: async (id, token, body) => { sent = body; return {}; } });
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS }]);
+    });
+  });
+
+  it('_refreshRuntimes asks a type sign-in again once its CLI was upgraded or signed in', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [{ name: 'codex' }, { name: 'claude' }] };
+    daemon._isPaired = () => true;
+    let detected = [
+      { type: 'codex', installed: true, ready: true, version: '0.154.0', authStatus: 'ready', auth: { mode: 'subscription' } },
+      { type: 'claude', installed: true, ready: true, version: '2.1.289', authStatus: 'ready', auth: { mode: 'subscription' } },
+    ];
+    const asked = [];
+    daemon._runAgn = async (args) => {
+      if (args[0] === 'runtimes') return { code: 0, stdout: JSON.stringify(detected), stderr: '' };
+      asked.push(args);
+      return agnListed();
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+    await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      // First detection: both are new.
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.deepEqual(asked, [SIGN_IN_ASK('codex'), SIGN_IN_ASK('claude')]);
+
+      // Nothing changed: the hour holds.
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.equal(asked.length, 2);
+
+      // Codex upgraded: asked again now, and its old list kept until then.
+      detected = [{ ...detected[0], version: '0.160.0' }, detected[1]];
+      daemon._runAgn = async (args) => {
+        if (args[0] === 'runtimes') return { code: 0, stdout: JSON.stringify(detected), stderr: '' };
+        asked.push(args);
+        assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+        return agnListed();
+      };
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.deepEqual(asked.slice(2), [SIGN_IN_ASK('codex')]);
+    });
+  });
+
   // Stub node-config with a fixed pairing list, so the heartbeat tests don't
   // touch the developer's real ~/.openagents/node.json.
   function withPairings(pairings, body) {

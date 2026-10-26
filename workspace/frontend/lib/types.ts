@@ -102,6 +102,11 @@ export interface NodeRuntime {
   reason: string | null;
   message: string | null;
   authStatus?: string | null;
+  /** Models the type's CLI offers the device's own sign-in (a ChatGPT or
+   * Claude subscription): what an agent added with "sign in on the device"
+   * can run. Null or absent: the CLI cannot be asked, has not answered yet,
+   * or the launcher is too old to ask. */
+  cliModels?: AgentCatalogModel[] | null;
   probe?: NodeProbe | null;
 }
 
