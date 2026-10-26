@@ -133,6 +133,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const instanceEnv = useRef<Record<string, string>>({})
   const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">("idle")
   const [testing, setTesting] = useState(false)
+  // A required field the last save stopped on; its message sits under it and it takes focus.
+  const [invalid, setInvalid] = useState<{ name: string; nonce: number } | null>(null)
+  const reveal = (field: string): void => setInvalid((prev) => ({ name: field, nonce: (prev?.nonce ?? 0) + 1 }))
   const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
   const entry = catalog.find((item) => item.name === type)
   const loginCmd = entry?.check_ready?.login_command || null
@@ -144,7 +147,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     return reason ? t(`agents.credentials.endpointMismatch.${reason}`) : undefined
   }
   const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
-    blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
+    blocked: blockedBy(next), reveal, authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
   const modelNames = (fs: EnvField[]): string[] => fs.filter((field) => hasModelPicker(type, field.name)).map((field) => field.name)
   // What a tab shows once chosen: the sign-in tab drops a model that came with the type's key.
   const shownFor = (tab: "cli" | "key", next: Record<string, string>, fs = fields): Record<string, string> =>
@@ -188,7 +191,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     return () => { active = false; callback.current(null) }
   }, [type, name])
   // Built from and written back to the ref, not the render's `values`: confirmLogin can resume before the next render.
-  const change = (key: string, value: string): void => { const next = { ...valuesRef.current, [key]: value }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
+  const change = (key: string, value: string): void => { const next = { ...valuesRef.current, [key]: value }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null); setInvalid((prev) => prev?.name === key ? null : prev) }
   const importValues = (imported: Record<string, string>): void => { const next = { ...valuesRef.current, ...imported }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult(null)
@@ -242,7 +245,8 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       }} /></div>}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
-      values={values} onChange={change} onImport={keyForm ? importValues : undefined} />
+      values={values} onChange={change} onImport={keyForm ? importValues : undefined}
+      focusField={invalid} errors={invalid ? { [invalid.name]: t("agents.envFields.required", { name: invalid.name }) } : undefined} />
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
     </p>}
