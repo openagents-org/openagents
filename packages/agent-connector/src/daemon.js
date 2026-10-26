@@ -21,8 +21,9 @@ const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 
-/** Types whose endpoint is one device-wide config file of their own. */
-const SHARED_NATIVE_CONFIG = new Set(['hermes', 'openclaw']);
+/** Types whose endpoint is one device-wide config file of their own. OpenClaw
+ *  left it: each keyed agent gets a private store (adapters/openclaw.js). */
+const SHARED_NATIVE_CONFIG = new Set(['hermes']);
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -707,10 +708,11 @@ class Daemon {
    * set up in the launcher onto another one's key, endpoint and model: add a
    * second DeepSeek or CodeArts agent from the workspace, and the first one
    * ran on the new one's settings from its next restart.
-   * Hermes and OpenClaw keep sharing: their endpoint lives in one config file
-   * of their own for the whole device, which only a save to <type>.env
-   * updates (index.js _configureNativeAuth), so a key kept on the agent would
-   * never reach it.
+   * Hermes keeps sharing: its endpoint lives in one config file of its own
+   * for the whole device, which only a save to <type>.env updates (index.js
+   * _configureNativeAuth), so a key kept on the agent would never reach it.
+   * OpenClaw writes each keyed agent's private openclaw.json from the agent's
+   * own env when it starts, so it keeps its key on the agent like the rest.
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);
@@ -1901,6 +1903,7 @@ async _runNodeCommand(n, cmd) {
         agentName: name,
         endpoint,
         agentType,
+        configDir: this.config.configDir,
         openclawAgentId: agentCfg.openclaw_agent_id || 'main',
         disabledModules: skillsToDisabledModules(agentCfg.skills),
         agentEnv: this._buildAgentEnv(agentCfg),
@@ -2088,7 +2091,10 @@ async _runNodeCommand(n, cmd) {
     const type = agentCfg.type || 'openclaw';
     const merged = this.envManager.getForAgent(type, this.registry, agentCfg.env);
     // A signed-in agent drops every key, the launcher's own environment's too.
-    return stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    const env = stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    return type === 'openclaw'
+      ? require('./adapters/openclaw').instanceEnv(agentCfg.name, env, this.config.configDir)
+      : env;
   }
 
   _agentConfigFingerprint(agentCfg) {

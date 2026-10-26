@@ -115,7 +115,7 @@ const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode
  *  agent of the type on a device runs on the same key, endpoint and model.
  *  Mirrors SHARED_NATIVE_CONFIG in packages/agent-connector/src/daemon.js;
  *  every other type keeps what this form sends on the agent alone. */
-const SHARED_CONFIG_TYPES = new Set(['hermes', 'openclaw']);
+const SHARED_CONFIG_TYPES = new Set(['hermes']);
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
