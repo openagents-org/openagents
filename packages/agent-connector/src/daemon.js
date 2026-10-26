@@ -787,7 +787,7 @@ class Daemon {
    * (Credential contract: config flows down transiently, secrets persist
    * only here, in the device's env store.)
    */
-  async _applyConfigMap(type, config) {
+  async _applyConfigMap(type, config, name) {
     if (!config || typeof config !== 'object') return;
     let allowed = null;
     try {
@@ -798,14 +798,20 @@ class Daemon {
     } catch {
       return; // no registry entry — refuse everything rather than guess
     }
+    const own = {};
     for (const [key, value] of Object.entries(config)) {
       if (!allowed.has(key)) {
         this._log(`config for '${type}': refused non-env_config key '${key}'`, 'warn');
         continue;
       }
       if (value === null || value === undefined) continue;
+      if (type === 'openclaw' && name) {
+        own[key] = String(value);
+        continue;
+      }
       await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
     }
+    if (Object.keys(own).length) this.config.updateAgentEnv(name, own);
   }
 
 async _runNodeCommand(n, cmd) {
@@ -841,11 +847,14 @@ async _runNodeCommand(n, cmd) {
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model) await this._setModelEnv(type, args.model);
-        if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
-        await this._applyConfigMap(type, args.config);
+        // OpenClaw's native config is now private to each launcher instance.
+        if (type !== 'openclaw') {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model) await this._setModelEnv(type, args.model);
+          if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        }
+        await this._applyConfigMap(type, args.config, name);
         this._saveNodeAgentEnv(name, type, args);
         // Attach to this node's workspace BY SLUG: the daemon already knows
         // which workspace this command came from, so there is no token to
@@ -892,17 +901,24 @@ async _runNodeCommand(n, cmd) {
         // restart it so the change takes effect. Working-dir changes require a
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model !== undefined) await this._setModelEnv(type, args.model);
-        if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
-        await this._applyConfigMap(type, args.config);
+        if (type !== 'openclaw') {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model !== undefined) await this._setModelEnv(type, args.model);
+          if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+          await this._applyConfigMap(type, args.config, name);
+        }
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
+          const openclawEnv = type === 'openclaw' ? { ...(this.config.getAgent(name).env || {}) } : null;
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          if (type === 'openclaw') {
+            this.config.updateAgentEnv(name, openclawEnv);
+            await this._applyConfigMap(type, args.config, name);
+          }
           this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
             'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
@@ -912,6 +928,7 @@ async _runNodeCommand(n, cmd) {
           // Restart in-process. `agn stop` + `agn start` both round-trip
           // through daemon.cmd, and the pair can interleave with the poll so
           // the agent stops and never restarts.
+          if (type === 'openclaw') await this._applyConfigMap(type, args.config, name);
           this._saveNodeAgentEnv(name, type, args);
           await this.restartAgent(name);
         }
@@ -1679,6 +1696,7 @@ async _runNodeCommand(n, cmd) {
         agentName: name,
         endpoint,
         agentType,
+        configDir: this.config.configDir,
         openclawAgentId: agentCfg.openclaw_agent_id || 'main',
         disabledModules: skillsToDisabledModules(agentCfg.skills),
         agentEnv: this._buildAgentEnv(agentCfg),
@@ -1866,7 +1884,10 @@ async _runNodeCommand(n, cmd) {
     const type = agentCfg.type || 'openclaw';
     const merged = this.envManager.getForAgent(type, this.registry, agentCfg.env);
     // A signed-in agent drops every key, the launcher's own environment's too.
-    return stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    const env = stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    return type === 'openclaw'
+      ? require('./adapters/openclaw').instanceEnv(agentCfg.name, env, this.config.configDir)
+      : env;
   }
 
   _agentConfigFingerprint(agentCfg) {

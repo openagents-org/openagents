@@ -45,6 +45,10 @@ const LOGIN_STATUS_TIMEOUT_MS = 8000;
 let credentialListCache = null;
 /** True while a background (non-blocking) `cmdkey /list` refresh is running. */
 let credentialListRefreshing = false;
+/** Whether a macOS Keychain item exists, by service: { found, ts }. No secrets. */
+const keychainItemCache = new Map();
+/** Services with a background (non-blocking) Keychain lookup in flight. */
+const keychainRefreshing = new Set();
 
 /**
  * Read a CLI's status output for its sign-in state: true (signed in), false
@@ -143,6 +147,7 @@ function compareVersions(a, b) {
 function clearVersionCache() {
   versionCache.clear();
   loginStatusCache.clear();
+  keychainItemCache.clear();
 }
 
 /**
@@ -1040,8 +1045,10 @@ class Installer {
       } catch {}
     }
 
+    // The item's presence is the signal; creds_key cannot be checked here
+    // without reading the secret out, which is what _checkMacKeychain avoids.
     if (checkReady.keychain_service && process.platform === 'darwin') {
-      if (this._checkMacKeychain(checkReady.keychain_service, checkReady.creds_key)) {
+      if (this._checkMacKeychain(checkReady.keychain_service)) {
         return true;
       }
     }
@@ -1176,23 +1183,46 @@ class Installer {
   }
 
   /**
-   * Check a macOS Keychain generic-password entry. If creds_key is provided the
-   * stored value is parsed as JSON and required to contain that key; otherwise any
-   * non-empty value counts as ready. Returns false on non-macOS or on any error.
+   * Whether a macOS Keychain generic-password item exists for `service`.
+   *
+   * Asks for the item's attributes only. `-w` would print the stored secret,
+   * and a background process pulling a CLI's token out of the Keychain every
+   * detection round is the credential-dumping pattern EDR tools flag
+   * (CrowdStrike Falcon raised it every two minutes, once per round). Sign-in
+   * detection only needs to know the item is there, so nothing is decrypted
+   * and no ACL prompt can appear. Spawned without a shell, so the process
+   * chain ends at `security` itself.
+   *
+   * Cached like _checkWindowsCredential, and never waited on in Electron main.
    */
-  _checkMacKeychain(service, credsKey) {
-    try {
-      const stdout = execSync(
-        `security find-generic-password -s ${JSON.stringify(service)} -w`,
-        { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, encoding: 'utf-8' },
-      ).trim();
-      if (!stdout) return false;
-      if (!credsKey) return true;
-      const creds = JSON.parse(stdout);
-      return !!creds[credsKey];
-    } catch {
-      return false;
+  _checkMacKeychain(service) {
+    if (!service) return false;
+    const cached = keychainItemCache.get(service);
+    const fresh = cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS;
+    const args = ['find-generic-password', '-s', service];
+    if (!fresh && canBlock()) {
+      let found = false;
+      try {
+        const run = (this._spawnSyncForTest || spawnSync)('security', args, {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          timeout: 5000,
+        });
+        found = !run.error && run.status === 0;
+      } catch {}
+      keychainItemCache.set(service, { found, ts: Date.now() });
+    } else if (!fresh && !keychainRefreshing.has(service)) {
+      // Answer from the last lookup now; the refresh lands for the next call.
+      keychainRefreshing.add(service);
+      try {
+        execFile('security', args, { timeout: 5000 }, (err) => {
+          keychainRefreshing.delete(service);
+          keychainItemCache.set(service, { found: !err, ts: Date.now() });
+        });
+      } catch {
+        keychainRefreshing.delete(service);
+      }
     }
+    return !!(keychainItemCache.get(service) || {}).found;
   }
 
   /**
