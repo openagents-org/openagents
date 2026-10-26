@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     getTeam: vi.fn(),
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
+    listIssueLabels: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('@/components/layout/layout-context', () => ({
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({
   useT: () => t,
+  useI18n: () => ({ locale: 'en-US' }),
   useFormatters: () => ({ timeAgo: () => 'just now' }),
 }));
 vi.mock('@/components/layout/app-header', () => ({
@@ -137,6 +139,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/workspace-1?token=private-token');
   mocks.ws.agents = [];
   mocks.api.getTeam.mockResolvedValue([]);
+  mocks.api.listIssueLabels.mockResolvedValue([]);
   mocks.api.discover.mockResolvedValue({ agents: [] });
   mocks.api.addIssueParticipants.mockResolvedValue(undefined);
   mocks.api.listIssues.mockResolvedValue({
@@ -470,4 +473,37 @@ it('requires an agent assignment when creating from Agent work and supports keyb
   expect(button('Create issue').disabled).toBe(false);
   await click(button('Create issue'));
   expect(mocks.api.createIssue).toHaveBeenCalledWith(expect.objectContaining({ assignee: 'openagents:research-agent' }));
+});
+
+it('requests assignments to the signed-in user across search, pagination, and board view', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  mocks.api.listIssues.mockResolvedValue({ issues: [issue], next_offset: 100 });
+  await click(button('Assigned to me'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, status: undefined, offset: 0 }));
+  await click(button('Load more'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, offset: 100 }));
+  await fill(host.querySelector('input[aria-label="Search issues"]')!, 'follow-up');
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, query: 'follow-up', offset: 0 }));
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(host.textContent).toContain('Improve onboarding');
+  await click(button('All issues'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: false, offset: 0 }));
+});
+
+it('autocompletes existing labels by keyboard and preserves their spelling', async () => {
+  mocks.api.listIssueLabels.mockResolvedValue(['Bug', '暂停', '待验证']);
+  mocks.api.updateIssue.mockResolvedValue({ ...issue, labels: ['暂停'] });
+  await openIssue();
+  await click(button('Add a label'));
+  const input = host.querySelector('input[role="combobox"]') as HTMLInputElement;
+  await fill(input, '暂');
+  expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+  expect(mocks.api.updateIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ labels: ['暂停'] }));
 });

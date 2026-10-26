@@ -7,7 +7,7 @@ Adding participants, ordinary discussion, and linking existing work stay passive
 import uuid
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Query
@@ -59,6 +59,15 @@ class CreateIssueRequest(ActorRequest):
 
 
 class UpdateIssueRequest(ActorRequest):
+    due_date: Optional[date] = None
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def calendar_date_only(cls, value):
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)):
+            raise PydanticCustomError("due_date_format", "Due date must be YYYY-MM-DD or null")
+        return value
+
     knowledge_ids: Optional[list[str]] = Field(default=None, max_length=100)
     file_ids: Optional[list[str]] = Field(default=None, max_length=100)
     title: Optional[str] = Field(default=None, min_length=1, max_length=240)
@@ -217,6 +226,7 @@ def _serialize(issue):
             "participants",
         )
     } | {
+        "due_date": issue.due_date.isoformat() if issue.due_date else None,
         "created_at": _iso(issue.created_at),
         "updated_at": _iso(issue.updated_at),
     }
@@ -328,6 +338,7 @@ def list_issues(
     network: str,
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
+    assigned_to_me: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -336,6 +347,11 @@ def list_issues(
 ):
     workspace = _access(network, db, x_workspace_token, authorization)
     query = select(Issue).where(Issue.workspace_id == workspace.id)
+    if assigned_to_me:
+        user = resolve_current_user(db, authorization)
+        if not user:
+            raise HTTPException(401, "Sign in to view issues assigned to you")
+        query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
     if status:
         query = query.where(Issue.status == status)
     if q.strip():
@@ -409,6 +425,21 @@ def create_issue(
             assignee=assignee.removeprefix("openagents:"), created_by=actor))
     db.commit()
     return success_response(_serialize(issue))
+
+
+@router.get("/labels")
+def list_issue_labels(
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization)
+    labels = {}
+    for values in db.scalars(select(Issue.labels).where(Issue.workspace_id == workspace.id)):
+        for value in values or []:
+            labels.setdefault(value.casefold(), value)
+    return success_response({"labels": sorted(labels.values(), key=str.casefold)})
 
 
 @router.get("/{issue_id}")
@@ -539,6 +570,16 @@ def update_issue(
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
     actor, actor_name = _actor(db, authorization, body.source, body.source_name)
+    if "due_date" in body.model_fields_set:
+        # Attribution in the request is not proof of ownership. Require the
+        # creator's authenticated human identity, even for workspace tokens.
+        user = resolve_current_user(db, authorization)
+        if not user or f"human:{user.email}".lower() != issue.created_by.lower():
+            raise HTTPException(403, "Only the person who opened this issue can change its due date")
+        if body.due_date != issue.due_date:
+            issue.due_date = body.due_date
+            _add_comment(db, issue, actor, body.due_date.isoformat() if body.due_date else "",
+                         "due_date", author_name=actor_name)
     if "assignee" in body.model_fields_set and body.assignee != issue.assignee:
         current_agent = None
         if (issue.assignee or "").startswith("openagents:"):

@@ -1768,12 +1768,18 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
       ...(input.status ? { status: input.status } : {}),
+      ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueLabels(): Promise<string[]> {
+    const result = await this.request<{ labels: string[] }>(this.issuePath('/labels'));
+    return result.labels;
   }
 
   async getIssue(id: string): Promise<IssueDetail> {
@@ -1791,7 +1797,7 @@ class WorkspaceApi {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 

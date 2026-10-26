@@ -1,12 +1,13 @@
 'use client';
 
 import { IssueWork } from './issue-work';
+import { IssueAttachments } from './issue-attachments';
 import { resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Paperclip,
+  CalendarDays,
   BookOpen,
   ArrowLeft,
   ArrowUpRight,
@@ -312,7 +313,7 @@ export function IssueDiscussion({
                   </time>
                 </div>
               </header>
-              <article className="mb-10 text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
+              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
                 {issue.description ? (
                   <MarkdownContent
                     content={issue.description}
@@ -328,7 +329,7 @@ export function IssueDiscussion({
               </article>
               {((issue.attachments?.length ?? 0) > 0 || (issue.knowledge?.length ?? 0) > 0) && (
                 <div className="mb-8 flex flex-wrap gap-2">
-                  {issue.attachments?.map(file => <a key={file.file_id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'files', file.file_id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{file.filename}</span></a>)}
+                  <IssueAttachments files={issue.attachments || []} workspaceId={workspace?.slug || workspace?.workspaceId || ''} />
                   {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
                 </div>
               )}
@@ -353,7 +354,7 @@ export function IssueDiscussion({
                     if (c.approval) return <ApprovalCard key={c.id} approval={c.approval} onResolved={() => void refresh()} />;
                     const name = c.author_name || authorName(c.author);
                     const activity =
-                      c.kind === 'status' || c.kind === 'activity';
+                      c.kind === 'status' || c.kind === 'activity' || c.kind === 'due_date';
                     const status = c.content.split(' → ')[1] as IssueStatus;
                     if (activity)
                       return (
@@ -362,7 +363,7 @@ export function IssueDiscussion({
                           className="relative flex gap-3 text-xs"
                         >
                           <span className="z-10 flex size-7 shrink-0 items-center justify-center rounded-full bg-background ring-4 ring-background">
-                            {c.kind === 'status' ? (
+                            {c.kind === 'due_date' ? <CalendarDays className="size-3.5 text-muted-foreground" /> : c.kind === 'status' ? (
                               <StatusIcon
                                 status={
                                   statuses.includes(status) ? status : 'open'
@@ -383,7 +384,7 @@ export function IssueDiscussion({
                                     statusKeys[status] ?? 'issues.open',
                                   ),
                                 })
-                              : t('issues.workStarted')}
+                              : c.kind === 'due_date' ? (c.content ? t('issues.dueDateSet', { date: c.content }) : t('issues.dueDateRemoved')) : t('issues.workStarted')}
                             <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">
                               {timeAgo(c.created_at)}
                             </span>
