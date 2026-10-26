@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { messages } from '@/lib/i18n/messages/en-US';
 import { translate } from '@/lib/i18n/translate';
 import { IssueDueDate } from './issue-due-date';
-vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => translate(messages, messages, 'en-US', key) }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'en-US' }), useT: () => (key: string) => translate(messages, messages, 'en-US', key) }));
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
@@ -24,14 +24,13 @@ it('shows everyone the exact calendar date, with no editing controls for nonowne
 it('lets the creator select a date and explicitly clear it', async () => {
   const update = vi.fn();
   const render = async (due_date: string | null) => { await act(async () => root.render(createElement(IssueDueDate, { issue: { id: 'one', due_date }, busy: false, canEdit: true, update }))); };
-  await render(null);
+  await render('2028-02-10');
   await act(async () => host.querySelector('button')!.click());
-  const input = document.querySelector('input[type="date"]') as HTMLInputElement;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '2028-02-29');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await act(async () => input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(document.querySelector('input[type="date"]')).toBeNull();
+  expect(document.querySelector('[role="grid"]')).not.toBeNull();
+  const day = document.querySelector('[data-day="2028-02-29"] button') as HTMLButtonElement;
+  expect(day).not.toBeNull();
+  await act(async () => day.click());
   expect(update).toHaveBeenLastCalledWith({ due_date: '2028-02-29' });
   await render('2028-02-29');
   await act(async () => host.querySelector('button')!.click());

@@ -40,6 +40,7 @@ vi.mock('@/components/layout/layout-context', () => ({
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({
   useT: () => t,
+  useI18n: () => ({ locale: 'en-US' }),
   useFormatters: () => ({ timeAgo: () => 'just now' }),
 }));
 vi.mock('@/components/layout/app-header', () => ({

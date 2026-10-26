@@ -1,13 +1,13 @@
 'use client';
 
 import { IssueWork } from './issue-work';
+import { IssueAttachments } from './issue-attachments';
 import { resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarDays,
-  Paperclip,
   BookOpen,
   ArrowLeft,
   ArrowUpRight,
@@ -313,7 +313,7 @@ export function IssueDiscussion({
                   </time>
                 </div>
               </header>
-              <article className="mb-10 text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
+              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
                 {issue.description ? (
                   <MarkdownContent
                     content={issue.description}
@@ -329,7 +329,7 @@ export function IssueDiscussion({
               </article>
               {((issue.attachments?.length ?? 0) > 0 || (issue.knowledge?.length ?? 0) > 0) && (
                 <div className="mb-8 flex flex-wrap gap-2">
-                  {issue.attachments?.map(file => <a key={file.file_id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'files', file.file_id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{file.filename}</span></a>)}
+                  <IssueAttachments files={issue.attachments || []} workspaceId={workspace?.slug || workspace?.workspaceId || ''} />
                   {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
                 </div>
               )}
