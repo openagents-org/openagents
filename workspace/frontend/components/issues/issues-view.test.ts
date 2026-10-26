@@ -472,3 +472,23 @@ it('requires an agent assignment when creating from Agent work and supports keyb
   await click(button('Create issue'));
   expect(mocks.api.createIssue).toHaveBeenCalledWith(expect.objectContaining({ assignee: 'openagents:research-agent' }));
 });
+
+it('requests assignments to the signed-in user across search, pagination, and board view', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  mocks.api.listIssues.mockResolvedValue({ issues: [issue], next_offset: 100 });
+  await click(button('Assigned to me'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, status: undefined, offset: 0 }));
+  await click(button('Load more'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, offset: 100 }));
+  await fill(host.querySelector('input[aria-label="Search issues"]')!, 'follow-up');
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: true, query: 'follow-up', offset: 0 }));
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(host.textContent).toContain('Improve onboarding');
+  await click(button('All issues'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: false, offset: 0 }));
+});

@@ -338,6 +338,7 @@ def list_issues(
     network: str,
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
+    assigned_to_me: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -346,6 +347,11 @@ def list_issues(
 ):
     workspace = _access(network, db, x_workspace_token, authorization)
     query = select(Issue).where(Issue.workspace_id == workspace.id)
+    if assigned_to_me:
+        user = resolve_current_user(db, authorization)
+        if not user:
+            raise HTTPException(401, "Sign in to view issues assigned to you")
+        query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
     if status:
         query = query.where(Issue.status == status)
     if q.strip():

@@ -66,7 +66,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   useEffect(() => { selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
   const [board, setBoard] = useState(false);
-  const [status, setStatus] = useState<IssueStatus | 'all'>('all');
+  const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -85,7 +85,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         const batches = await Promise.all(
           Array.from({ length: pages }, (_, page) =>
             workspaceApi.listIssues({
-              status: status === 'all' ? undefined : status,
+              status: status === 'all' || status === 'mine' ? undefined : status,
+              assignedToMe: status === 'mine',
               query,
               offset: page * 100,
             }),
@@ -244,12 +245,14 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           role="group"
           aria-label={t('issues.status')}
         >
-          {(['all', ...statuses] as const).map((value) => (
+          {(['all', 'mine', ...statuses] as const).map((value) => (
             <button
               key={value}
               aria-pressed={status === value}
               onClick={() => {
                 setStatus(value);
+                setIssues([]);
+                setNextOffset(null);
                 setPages(1);
               }}
               className={cn(
@@ -259,7 +262,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {value === 'all' ? t('issues.allIssues') : t(statusKeys[value])}
+              {value === 'all' ? t('issues.allIssues') : value === 'mine' ? t('issues.assignedToMe') : t(statusKeys[value])}
             </button>
           ))}
         </div>

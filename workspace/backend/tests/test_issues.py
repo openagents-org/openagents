@@ -757,3 +757,20 @@ def test_due_date_visible_in_list_and_editable_on_closed_issues(client, workspac
     assert response.status_code == 200
     listing = client.get(path(workspace), headers=_bearer('ben')).json()['data']['issues']
     assert next(row for row in listing if row['id'] == issue['id'])['due_date'] == '2026-01-01'
+
+
+def test_assigned_to_me_filters_before_pagination_and_search(client, workspace, two_members, db):
+    from app.models import Issue
+    owned = create(client, workspace, title='My follow-up')
+    other = create(client, workspace, title='Other follow-up')
+    create(client, workspace, title='Unassigned follow-up')
+    db.get(Issue, owned['id']).assignee = 'human:ANN@acme.test'
+    db.get(Issue, other['id']).assignee = 'human:ben@acme.test'
+    db.commit()
+    result = client.get(path(workspace) + '&assigned_to_me=true&limit=1&q=follow-up', headers=_bearer('ann'))
+    assert result.status_code == 200
+    assert [row['id'] for row in result.json()['data']['issues']] == [owned['id']]
+    assert result.json()['data']['next_offset'] is None
+    result = client.get(path(workspace) + '&assigned_to_me=true', headers=_bearer('ben'))
+    assert [row['id'] for row in result.json()['data']['issues']] == [other['id']]
+    assert client.get(path(workspace) + '&assigned_to_me=true', headers=headers(workspace)).status_code == 401
