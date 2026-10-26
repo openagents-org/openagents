@@ -1891,6 +1891,20 @@ def _task_has_pending_approval(db, workspace, task) -> bool:
 _DEFAULT_TITLES = {"New Thread", "Session 1", None, ""}
 
 
+def _stamp_sender_display_name(event, email: Optional[str], db) -> None:
+    """Put the sender's account name (the one they set in their profile) on
+    the message so agents address them by name rather than by email.
+    Clients send only a login-provider name or the email itself, so the
+    server-side profile name wins over whatever the payload carried."""
+    if not email or not isinstance(event.payload, dict):
+        return
+    from app.models import User
+    name = db.execute(select(User.display_name).where(User.email == email)).scalar_one_or_none()
+    name = (name or "").strip()
+    if name:
+        event.payload["sender_display_name"] = name
+
+
 def _upsert_human_collaborator(workspace, payload: dict, db, metadata: dict | None = None) -> None:
     """First-write registration of a signed-in human into the workspace
     roster, used downstream by the push fan-out to resolve `@bary` →
@@ -2089,6 +2103,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if event.source.startswith("human:"):
         from app.services.message_identity import human_sender_email
         _sender_email = human_sender_email(event.payload or {}, event.metadata)
+        _stamp_sender_display_name(event, _sender_email, db)
 
     # Resolve channel (needed for both agent and human message routing)
     channel = None

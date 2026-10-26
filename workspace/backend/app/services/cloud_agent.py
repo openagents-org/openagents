@@ -71,8 +71,9 @@ def _reply_route(target: str, trigger_source: Optional[str]) -> Optional[tuple[s
 def speaker_label(source: str, payload: Optional[dict] = None) -> str:
     """Short author label for speaker-attributed context.
 
-    Agents by agent name; humans by the display name / email local part the
-    client put in the payload. Flattened to one short token run so a name
+    Agents by agent name; humans by their profile name (stamped on the
+    payload server-side), else the client-sent name, else the email local
+    part. Flattened to one short token run so a name
     can never inject extra transcript lines or fake labels.
     """
     import re as _re
@@ -87,6 +88,12 @@ def speaker_label(source: str, payload: Optional[dict] = None) -> str:
         name = source
     else:
         name = (payload.get("sender_display_name") or "").strip()
+        if not name:
+            # Older messages carry no server-stamped name; the client's
+            # sender_name is usable unless it is just the email again.
+            name = (payload.get("sender_name") or "").strip()
+            if "@" in name or name.lower() in ("user", "unknown"):
+                name = ""
         if not name:
             email = (payload.get("sender_email") or "").strip()
             name = email.split("@", 1)[0] if email else ""
