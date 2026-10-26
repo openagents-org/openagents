@@ -610,7 +610,7 @@ def add_comment(
     body: CommentRequest,
     network: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):

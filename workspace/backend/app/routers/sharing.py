@@ -909,7 +909,7 @@ def start_request(
     agent: str,
     body: AgentRequestCreate,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
