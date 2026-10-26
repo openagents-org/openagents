@@ -16,3 +16,16 @@ export function nodeCommandErrorKey(message: string, creating = false): MessageK
   if (/^API 403\b/.test(message)) return 'connect.nodeCommandForbidden';
   return null;
 }
+
+/**
+ * The agent name a create_agent command collided with on the device, or null.
+ *
+ * The device refuses a name already in its own config. That agent is often
+ * invisible here — left over from an earlier failed add, created on the device
+ * itself, or bound to another workspace — so the bare "already exists" gave
+ * the user nothing to go on.
+ */
+export function deviceNameClash(message: string | null | undefined): string | null {
+  const m = /Agent '([^']+)' already exists/.exec(message || '');
+  return m ? m[1] : null;
+}

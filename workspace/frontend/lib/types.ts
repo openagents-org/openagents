@@ -63,6 +63,9 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** How the agent authenticates: on a key, or on its CLI's own sign-in
+   * (`codex login`). Absent: a launcher too old to report it. */
+  authMode?: 'api_key' | 'cli_login' | null;
   /** Hostname of the endpoint the agent is configured to call. Null or absent:
    * its CLI's default, or a launcher too old to report it. */
   baseUrlHost?: string | null;
@@ -99,6 +102,11 @@ export interface NodeRuntime {
   reason: string | null;
   message: string | null;
   authStatus?: string | null;
+  /** Models the type's CLI offers the device's own sign-in (a ChatGPT or
+   * Claude subscription): what an agent added with "sign in on the device"
+   * can run. Null or absent: the CLI cannot be asked, has not answered yet,
+   * or the launcher is too old to ask. */
+  cliModels?: AgentCatalogModel[] | null;
   probe?: NodeProbe | null;
 }
 
