@@ -31,14 +31,18 @@ export function IssueWork({ issueId, closed, onPosted }: {
     let active = true;
     setChoices(null);
     setError('');
-    workspaceApi.discover().then(result => {
-      if (active) setChoices(result.agents.filter(a => a.status !== 'removed').map(a => ({
+    Promise.all([workspaceApi.discover(), workspaceApi.getIssue(issueId)]).then(([result, issue]) => {
+      // Discovery grants allow new requests anywhere. Issue-specific sharing
+      // can additionally allow an agent already participating in this issue.
+      const allowedHere = new Set(issue.participants.filter(p => p.request_access === 'yes' || p.request_access === 'approval').map(p => p.source));
+      if (active) setChoices(result.agents.filter(a => a.status === 'online' &&
+        (a.can_start_thread === true || allowedHere.has(`openagents:${a.address.replace(/^openagents:/, '')}`))).map(a => ({
         id: `openagents:${a.address.replace(/^openagents:/, '')}`,
         name: a.display_name?.trim() || a.address.replace(/^openagents:/, ''),
       })));
     }).catch(e => { if (active) setError(errorMessage(e)); });
     return () => { active = false; };
-  }, [open, attempt]);
+  }, [open, attempt, issueId]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting.current || closed || !choices?.some(a => a.id === agent)) return;

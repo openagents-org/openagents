@@ -478,7 +478,7 @@ it('defaults to active issues and only requests inactive issues through their ta
 });
 
 async function chooseWorkAgent() {
-  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:research-agent', display_name: 'Research agent', status: 'online' }] });
+  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:research-agent', display_name: 'Research agent', status: 'online', can_start_thread: true }] });
   await openIssue();
   await click(button('Assign to an agent'));
   await click(document.querySelector('button[aria-label="Agent"]')!);
@@ -551,4 +551,35 @@ it('requires reopening a closed issue before assigning an agent', async () => {
   mocks.api.getIssue.mockResolvedValue({ ...issue, status: 'closed' });
   await openIssue();
   expect(button('Assign to an agent').disabled).toBe(true);
+});
+
+it('offers only online agents with global or current-issue access', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, participants: [
+    ...issue.participants,
+    { source: 'openagents:issue-shared', name: 'Issue shared', request_access: 'yes' },
+    { source: 'openagents:approval-agent', name: 'Approval agent', request_access: 'approval' },
+    { source: 'openagents:blocked', name: 'Blocked', request_access: 'no' },
+  ] });
+  mocks.api.discover.mockResolvedValue({ agents: [
+    { address: 'openagents:owned', display_name: 'Owned online', status: 'online', can_start_thread: true },
+    { address: 'openagents:shared', display_name: 'Shared online', status: 'online', can_start_thread: true },
+    { address: 'openagents:offline', display_name: 'Owned offline', status: 'offline', can_start_thread: true },
+    { address: 'openagents:blocked', display_name: 'Blocked', status: 'online', can_start_thread: false },
+    { address: 'openagents:elsewhere', display_name: 'Shared elsewhere', status: 'online', can_start_thread: false, is_shared: true },
+    { address: 'openagents:issue-shared', display_name: 'Issue shared', status: 'online', can_start_thread: false },
+    { address: 'openagents:approval-agent', display_name: 'Approval agent', status: 'online', can_start_thread: false },
+  ] });
+  await openIssue();
+  await click(button('Assign to an agent'));
+  await click(document.querySelector('button[aria-label="Agent"]')!);
+  const options = Array.from(document.querySelectorAll('[cmdk-item]')).map(item => item.getAttribute('data-value'));
+  expect(options).toEqual(['openagents:owned', 'openagents:shared', 'openagents:issue-shared', 'openagents:approval-agent']);
+});
+
+it('explains when no accessible agents are online', async () => {
+  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:offline', status: 'offline', can_start_thread: true }] });
+  await openIssue();
+  await click(button('Assign to an agent'));
+  expect(host.textContent).toContain('No agents you can use are online right now.');
+  expect(button('Assign to agent').disabled).toBe(true);
 });
