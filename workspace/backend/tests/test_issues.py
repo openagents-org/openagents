@@ -882,3 +882,45 @@ def test_followup_does_not_copy_private_linked_replies_into_public_work(client, 
     result = request_work(client, workspace, issue).json()['data']
     kickoff = db.scalars(select(EventRecord).where(EventRecord.target == 'channel/' + result['channel_name'], EventRecord.type == 'workspace.message.posted')).first()
     assert 'Here are my findings.' not in kickoff.payload['content']
+
+
+def test_work_request_includes_selected_knowledge_without_changing_issue_context(client, workspace, db, cloud_dispatch):
+    from app.models import KnowledgeEntry
+    entry = KnowledgeEntry(workspace_id=workspace['id'], slug='runtime-guide', title='Runtime guide @agent-beta',
+                           created_by='human:alice', visibility='public')
+    db.add(entry)
+    db.commit()
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                           json={'source': 'human:alice', 'content': '@agent-alpha', 'knowledge_ids': [entry.id, entry.id]})
+    assert response.status_code == 200, response.text
+    comment = response.json()['data']
+    assert comment['content'].count('@knowledge:runtime-guide') == 1
+    event = cloud_dispatch.call_args.args[1]
+    assert '@knowledge:runtime-guide' in event['payload']['content']
+    assert event['metadata']['target_agents'] == ['agent-alpha']
+    assert detail(client, workspace, issue)['knowledge_ids'] == []
+    db.refresh(entry)
+    assert entry.visibility == 'public'
+
+
+@pytest.mark.parametrize('selection', ['private', 'missing', 'deleted', 'foreign'])
+def test_request_context_checks_access_before_saving_or_dispatching(client, workspace, db, two_members, selection):
+    from app.models import IssueComment
+    entry, _ = seed_issue_context(db, workspace)
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    selected = entry.id
+    if selection == 'missing': selected = 'missing-knowledge'
+    if selection == 'deleted': entry.status = 'deleted'
+    if selection == 'foreign':
+        other = client.post('/v1/workspaces', json={'name': 'Other workspace'}).json()['data']
+        entry.workspace_id = other['workspaceId']
+    db.commit()
+    with patch('app.routers.issues._emit_event_blocking') as emit:
+        response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ben'),
+            json={'content': '@agent-alpha investigate', 'knowledge_ids': [selected]})
+        assert response.status_code == 404, response.text
+        emit.assert_not_called()
+    assert db.scalar(select(func.count()).select_from(IssueComment).where(IssueComment.issue_id == issue['id'])) == 0

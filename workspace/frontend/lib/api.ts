@@ -1802,7 +1802,7 @@ class WorkspaceApi {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
