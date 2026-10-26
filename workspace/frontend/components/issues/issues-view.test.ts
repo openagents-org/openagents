@@ -7,11 +7,14 @@ import { translate } from '@/lib/i18n/translate';
 import type { IssueDetail, KanbanTask } from '@/lib/types';
 
 const mocks = vi.hoisted(() => ({
+  layout: { openView: vi.fn(), pendingIssueId: null as string | null, setPendingIssueId: vi.fn() },
   ws: {
     workspace: { workspaceId: 'workspace-1' },
     currentUser: { id: 'alice-id', name: 'Alice' },
     agents: [] as unknown[],
     sessions: [],
+    activeSessionIds: new Set<string>(),
+    completedSessionIds: new Set<string>(),
     tasks: [] as KanbanTask[],
     workflows: [], knowledge: [] as {id: string; title: string; description: string}[], files: [],
     createTask: vi.fn(), runTask: vi.fn(), updateTask: vi.fn(), stopTask: vi.fn(), deleteTask: vi.fn(),
@@ -36,7 +39,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
 vi.mock('@/components/layout/layout-context', () => ({
-  useLayout: () => ({ openView: vi.fn() }),
+  useLayout: () => mocks.layout,
 }));
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({
@@ -130,7 +133,10 @@ async function openIssue() {
 }
 
 beforeEach(() => {
+  mocks.layout.pendingIssueId = null;
   mocks.ws.tasks = [];
+  mocks.ws.activeSessionIds = new Set();
+  mocks.ws.completedSessionIds = new Set();
   mocks.ws.knowledge = [];
   vi.useFakeTimers();
   vi.clearAllMocks();
@@ -525,11 +531,14 @@ it('shows activity only for online agents working in a linked conversation and c
     { agentName: 'offline', status: 'offline', busyChannels: ['linked'] },
   ];
   await openIssue();
-  expect(host.querySelector('[role="status"]')?.textContent).toBe('Research agent is working');
-  expect(host.textContent?.match(/Research agent is working/g)).toHaveLength(2);
+  expect(host.querySelector('[role="status"]')?.getAttribute('aria-label')).toBe(t('chat.agentWorkingNamed', { name: 'Research agent' }));
+  expect(host.querySelectorAll('.thread-wip')).toHaveLength(2);
+  expect(host.querySelectorAll('.typing-dot')).toHaveLength(6);
+  expect(host.textContent).toContain('Research agent is working');
   mocks.ws.agents = [{ agentName: 'research-agent', status: 'online', busyChannels: [] }];
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('[role="status"]')).toBeNull();
+  expect(host.querySelectorAll('.thread-wip')).toHaveLength(0);
   expect(host.textContent).not.toContain('is working');
 });
 
@@ -582,4 +591,43 @@ it('explains when no accessible agents are online', async () => {
   await click(button('Assign to an agent'));
   expect(host.textContent).toContain('No agents you can use are online right now.');
   expect(button('Assign to agent').disabled).toBe(true);
+});
+
+it('puts newest active linked conversations first, followed by newest idle conversations', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, threads: ['old-idle', 'old-active', 'new-active', 'new-idle'].map(name => ({ channel_name: name, title: name, agents: ['research-agent'], status: 'active' })) });
+  mocks.ws.agents = [{ agentName: 'research-agent', status: 'online', busyChannels: ['old-active', 'new-active'] }];
+  await openIssue();
+  const linked = Array.from(host.querySelectorAll('button')).map(b => b.textContent?.trim()).filter(text => text && /^(old|new)-(idle|active)/.test(text));
+  expect(linked.map(text => text!.split(/research-agent/)[0])).toEqual(['new-active', 'old-active', 'new-idle', 'old-idle']);
+});
+
+
+it('shows live issue work and requester completion, with active work taking precedence', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [{...issue, linked_channels: ['work-thread']}], next_offset: null });
+  mocks.ws.agents = [{ name: 'research-agent', status: 'online', busyChannels: ['work-thread'] }];
+  mocks.ws.completedSessionIds = new Set(['work-thread']);
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(host.querySelector('button.thread-wip')).not.toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent is working');
+  expect(host.textContent).not.toContain('Agent work finished');
+  mocks.ws.agents = [];
+  await act(async () => root.render(createElement(IssuesView)));
+  expect(host.querySelector('button.thread-wip')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent work finished');
+  expect(host.querySelector('button.bg-amber-50')).not.toBeNull();
+  mocks.ws.completedSessionIds = new Set(['unrelated-thread']);
+  await act(async () => root.render(createElement(IssuesView)));
+  expect(host.querySelector('[role="status"]')).toBeNull();
+});
+
+
+it('opens a completion notification in the requested issue even while another issue is open', async () => {
+  window.history.replaceState(null, '', '/workspace-1/issues/old-issue');
+  await act(async () => root.render(createElement(IssuesView)));
+  mocks.layout.pendingIssueId = 'finished-issue';
+  await act(async () => root.render(createElement(IssuesView)));
+  expect(mocks.api.getIssue).toHaveBeenCalledWith('finished-issue');
+  expect(window.location.pathname).toBe('/workspace-1/issues/finished-issue');
+  expect(mocks.layout.setPendingIssueId).toHaveBeenCalledWith(null);
 });

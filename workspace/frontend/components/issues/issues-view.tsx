@@ -7,6 +7,7 @@ import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CircleDot,
+  Check,
   LayoutList,
   KanbanSquare,
   MessageSquare,
@@ -41,8 +42,8 @@ export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
 }
 
 function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
-  const { tasks = [] } = useWorkspace();
-  const { pendingTaskChannel } = useLayout();
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds } = useWorkspace();
+  const { pendingTaskChannel, pendingIssueId, setPendingIssueId } = useLayout();
   const [showWork, setShowWork] = useState(initialWork);
   useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
   const t = useT();
@@ -63,7 +64,13 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     window.history.replaceState(window.history.state, '', isHashRoute ? outer : url);
     setSelected(id);
   };
-  useEffect(() => { selectIssue(selected); }, []); // Normalize legacy issue links.
+  useEffect(() => {
+    if (!pendingIssueId) return;
+    selectIssue(pendingIssueId);
+    setShowWork(false);
+    setPendingIssueId(null);
+  }, [pendingIssueId, setPendingIssueId]);
+  useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
   const [board, setBoard] = useState(false);
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
@@ -130,8 +137,10 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       .split(/\n\s*\n/)[0]
       .replace(/[#*_`>]/g, '')
       .trim();
-  const row = (issue: WorkspaceIssue, asCard = false) => (
-    <button
+  const row = (issue: WorkspaceIssue, asCard = false) => {
+    const working = issue.linked_channels?.some(id => activeSessionIds?.has(id) || agents.some(agent => agent.status === 'online' && agent.busyChannels?.includes(id)));
+    const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
+    return <button
       key={issue.id}
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
       onClick={() => selectIssue(issue.id)}
@@ -140,6 +149,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
+        working && 'thread-wip',
+        finished && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       <StatusIcon
@@ -168,6 +179,10 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           )}
         </div>
         {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
+        {(working || finished) && <span role="status" className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          {working ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span> : <Check aria-hidden="true" className="size-3 text-amber-600 dark:text-amber-400" />}
+          {t(working ? 'chat.agentWorking' : 'issueWork.finished')}
+        </span>}
         {issue.description && (
           <p
             className={cn(
@@ -214,8 +229,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           )}
         </div>
       </div>
-    </button>
-  );
+    </button>;
+  };
 
   if (selected)
     return (

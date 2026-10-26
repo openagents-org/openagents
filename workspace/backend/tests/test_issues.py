@@ -469,6 +469,10 @@ def test_private_linked_thread_is_hidden_from_non_participants(client, workspace
 
     ben_view = client.get(path(workspace, f"/{issue['id']}"), headers=_bearer("ben")).json()["data"]
     assert ben_view["threads"] == []
+    ann_list = client.get(path(workspace), headers=_bearer("ann")).json()["data"]["issues"]
+    ben_list = client.get(path(workspace), headers=_bearer("ben")).json()["data"]["issues"]
+    assert next(i for i in ann_list if i["id"] == issue["id"])["linked_channels"] == ["ann-private"]
+    assert next(i for i in ben_list if i["id"] == issue["id"])["linked_channels"] == []
     assert not any(c["content"] == "secret result" for c in ben_view["comments"])
 
     # Ben cannot share the private reply into the discussion either.
@@ -831,3 +835,50 @@ def test_invite_then_mention_posts_discussion_and_dispatches_without_changing_as
     assert any(c["content"] == content for c in result["comments"])
     assert result["threads"][0]["agents"] == ["agent-alpha"]
     assert db.scalar(select(KanbanTask).where(KanbanTask.issue_id == issue['id'])) is None
+
+
+@pytest.mark.parametrize('shared', [False, True])
+def test_followup_includes_previous_agent_reply_once(client, workspace, db, shared):
+    import time
+    issue = create(client, workspace)
+    first = request_work(client, workspace, issue, instruction='Investigate the cause').json()['data']['channel_name']
+    db.add_all([
+        EventRecord(id='prior-finding', network_id=workspace['id'], type='workspace.message.posted',
+                    source='openagents:agent-alpha', target=f'channel/{first}',
+                    payload={'content': 'The discovery cache replaces the agent roster.', 'message_type': 'chat'}, timestamp=int(time.time() * 1000)),
+        EventRecord(id='prior-thinking', network_id=workspace['id'], type='workspace.message.posted',
+                    source='openagents:agent-alpha', target=f'channel/{first}',
+                    payload={'content': 'INTERNAL_THINKING', 'message_type': 'thinking'}, timestamp=int(time.time() * 1000)),
+        EventRecord(id='unlinked-finding', network_id=workspace['id'], type='workspace.message.posted',
+                    source='openagents:agent-alpha', target='channel/unlinked',
+                    payload={'content': 'UNRELATED_DISCUSSION', 'message_type': 'chat'}, timestamp=int(time.time() * 1000)),
+    ])
+    db.commit()
+    if shared:
+        assert client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                           json={'source_event_id': 'prior-finding'}).status_code == 200
+    followup = request_work(client, workspace, issue, instruction='Fix it using those findings')
+    assert followup.status_code == 200, followup.text
+    channel = followup.json()['data']['channel_name']
+    kickoff = db.scalars(select(EventRecord).where(EventRecord.target == f'channel/{channel}', EventRecord.type == 'workspace.message.posted')).first()
+    content = kickoff.payload['content']
+    assert content.count('The discovery cache replaces the agent roster.') == 1
+    assert 'openagents:agent-alpha' in content
+    assert 'Investigate the cause' in content
+    assert 'Fix it using those findings' in content
+    assert 'INTERNAL_THINKING' not in content
+    assert 'UNRELATED_DISCUSSION' not in content
+
+
+def test_followup_does_not_copy_private_linked_replies_into_public_work(client, workspace, db):
+    import time
+    channel = db.scalar(select(Channel).where(Channel.workspace_id == workspace['id'], Channel.name == workspace['channel']['name']))
+    channel.visibility = 'private'
+    db.commit()
+    issue = create(client, workspace, channel_name=channel.name)
+    seed_reply(db, workspace, 'private-result', timestamp=int(time.time() * 1000))
+    # A machine caller can view it, but the destination audience is still public.
+    assert any(c['content'] == 'Here are my findings.' for c in detail(client, workspace, issue)['comments'])
+    result = request_work(client, workspace, issue).json()['data']
+    kickoff = db.scalars(select(EventRecord).where(EventRecord.target == 'channel/' + result['channel_name'], EventRecord.type == 'workspace.message.posted')).first()
+    assert 'Here are my findings.' not in kickoff.payload['content']

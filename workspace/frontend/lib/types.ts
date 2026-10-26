@@ -1424,6 +1424,7 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  linked_channels?: string[];
   due_date?: string | null;
   knowledge_ids?: string[];
   file_ids?: string[];
