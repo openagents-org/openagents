@@ -20,6 +20,8 @@ function runWithConfig(tmpDir, ...args) {
   return execFileSync(process.execPath, [CLI, ...args, '--config', tmpDir], {
     encoding: 'utf-8',
     timeout: 10000,
+    // --config isolates the connector, but native auth saves also use HOME.
+    env: { ...process.env, HOME: tmpDir, USERPROFILE: tmpDir },
   }).trim();
 }
 
@@ -52,6 +54,30 @@ function envWithoutTokens(extra = {}) {
 }
 
 describe('CLI', () => {
+  it('keeps native OpenClaw test side effects inside the temporary home', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-native-home-'));
+    const hostHome = path.join(root, 'host');
+    const nativeConfig = path.join(hostHome, '.openclaw', 'openclaw.json');
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    fs.mkdirSync(path.dirname(nativeConfig), { recursive: true });
+    const original = { agents: { defaults: { model: { primary: 'custom/personal-model' } } } };
+    fs.writeFileSync(nativeConfig, JSON.stringify(original));
+    process.env.HOME = hostHome;
+    process.env.USERPROFILE = hostHome;
+    try {
+      runWithConfig(path.join(root, 'connector'), 'env', 'openclaw', '--set', 'LLM_API_KEY=sk-fixture');
+      assert.deepEqual(JSON.parse(fs.readFileSync(nativeConfig, 'utf8')), original);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      assert.equal(path.dirname(path.resolve(root)), path.resolve(os.tmpdir()));
+      assert.ok(path.basename(root).startsWith('ac-cli-native-home-'));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('help', () => {
     const out = run('help');
     assert.ok(out.includes('Usage: agn'));
