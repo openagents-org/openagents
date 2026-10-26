@@ -1777,6 +1777,11 @@ class WorkspaceApi {
     }));
   }
 
+  async listIssueLabels(): Promise<string[]> {
+    const result = await this.request<{ labels: string[] }>(this.issuePath('/labels'));
+    return result.labels;
+  }
+
   async getIssue(id: string): Promise<IssueDetail> {
     const raw = await this.request<IssueDetail>(this.issuePath(`/${encodeURIComponent(id)}`));
     return { ...raw, comments: raw.comments.map(comment => ({ ...comment,

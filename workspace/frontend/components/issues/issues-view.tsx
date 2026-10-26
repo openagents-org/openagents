@@ -183,12 +183,16 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         >
           <IssueAvatar
             name={issue.created_by_name || authorName(issue.created_by)}
+            source={issue.created_by}
             size={18}
           />
           <span className="truncate">
             {issue.created_by_name || authorName(issue.created_by)}
           </span>
-          {issue.assignee && <span className="ml-2 truncate" title={t('issues.assignee')}>{t('issues.assignee')}: {issue.assignee_name || authorName(issue.assignee)}</span>}
+          {issue.assignee && <span className="ml-2 inline-flex min-w-0 items-center gap-1.5" title={t('issues.assignee')}>
+            <IssueAvatar name={issue.assignee_name || authorName(issue.assignee)} source={issue.assignee} size={18} />
+            <span className="truncate">{t('issues.assignee')}: {issue.assignee_name || authorName(issue.assignee)}</span>
+          </span>}
           {asCard && (
             <span className="ml-auto shrink-0">
               {timeAgo(issue.updated_at)}

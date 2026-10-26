@@ -427,6 +427,21 @@ def create_issue(
     return success_response(_serialize(issue))
 
 
+@router.get("/labels")
+def list_issue_labels(
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization)
+    labels = {}
+    for values in db.scalars(select(Issue.labels).where(Issue.workspace_id == workspace.id)):
+        for value in values or []:
+            labels.setdefault(value.casefold(), value)
+    return success_response({"labels": sorted(labels.values(), key=str.casefold)})
+
+
 @router.get("/{issue_id}")
 def get_issue(
     issue_id: str,

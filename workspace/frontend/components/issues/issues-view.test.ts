@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     getTeam: vi.fn(),
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
+    listIssueLabels: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -138,6 +139,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/workspace-1?token=private-token');
   mocks.ws.agents = [];
   mocks.api.getTeam.mockResolvedValue([]);
+  mocks.api.listIssueLabels.mockResolvedValue([]);
   mocks.api.discover.mockResolvedValue({ agents: [] });
   mocks.api.addIssueParticipants.mockResolvedValue(undefined);
   mocks.api.listIssues.mockResolvedValue({
@@ -491,4 +493,17 @@ it('requests assignments to the signed-in user across search, pagination, and bo
   await click(button('All issues'));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
   expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ assignedToMe: false, offset: 0 }));
+});
+
+it('autocompletes existing labels by keyboard and preserves their spelling', async () => {
+  mocks.api.listIssueLabels.mockResolvedValue(['Bug', '暂停', '待验证']);
+  mocks.api.updateIssue.mockResolvedValue({ ...issue, labels: ['暂停'] });
+  await openIssue();
+  await click(button('Add a label'));
+  const input = host.querySelector('input[role="combobox"]') as HTMLInputElement;
+  await fill(input, '暂');
+  expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+  expect(mocks.api.updateIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ labels: ['暂停'] }));
 });

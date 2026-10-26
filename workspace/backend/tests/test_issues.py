@@ -774,3 +774,16 @@ def test_assigned_to_me_filters_before_pagination_and_search(client, workspace, 
     result = client.get(path(workspace) + '&assigned_to_me=true', headers=_bearer('ben'))
     assert [row['id'] for row in result.json()['data']['issues']] == [other['id']]
     assert client.get(path(workspace) + '&assigned_to_me=true', headers=headers(workspace)).status_code == 401
+
+
+def test_label_suggestions_are_workspace_scoped_and_deduplicated(client, workspace, db):
+    from app.models import Issue
+    first = create(client, workspace)
+    second = create(client, workspace)
+    db.get(Issue, first['id']).labels = ['Bug', '暂停']
+    db.get(Issue, second['id']).labels = ['Bug', 'API']
+    db.commit()
+    response = client.get(path(workspace, '/labels'), headers=headers(workspace))
+    assert response.status_code == 200
+    assert response.json()['data']['labels'] == ['API', 'Bug', '暂停']
+    assert client.get(path(workspace, '/labels'), headers={'X-Workspace-Token': 'invalid'}).status_code == 403
