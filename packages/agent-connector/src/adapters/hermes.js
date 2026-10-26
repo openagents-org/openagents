@@ -30,7 +30,7 @@ const { execSync, execFile } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
-const { spawn, bridgeSpawn } = require('../wsl');
+const { spawn, bridgeSpawn, isWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
@@ -814,6 +814,9 @@ class HermesAdapter extends BaseAdapter {
    *
    * Only acts when LLM_BASE_URL is set: a user signed in via `hermes setup`
    * (the Nous login) must keep their own provider selection untouched.
+   *
+   * The `model:` lines this replaces are recorded (recordNativeAuth), so
+   * restoreNativeAuth can hand them back when an agent moves to the sign-in.
    */
   static configureNativeAuth(env) {
     const vals = env || {};
@@ -827,6 +830,9 @@ class HermesAdapter extends BaseAdapter {
     probe._log = () => {};
     const bin = probe._findHermesBinary();
     if (!bin) return { skipped: true, reason: 'hermes binary not found' };
+    // An in-distro hermes keeps its config inside WSL, out of reach of a file read.
+    const configFile = isWslBinary(bin) ? null : HermesAdapter.configFile();
+    const before = configFile ? readTextOrEmpty(configFile) : null;
 
     const { execFileSync } = require('child_process');
     const run = (args) => {
@@ -844,7 +850,159 @@ class HermesAdapter extends BaseAdapter {
     run(['config', 'set', 'model.base_url', baseUrl]);
     if (model) run(['config', 'set', 'model.default', model]);
     if (apiKey) run(['config', 'set', 'model.api_key', apiKey]);
+    if (configFile) {
+      try { HermesAdapter.recordNativeAuth(configFile, before, readTextOrEmpty(configFile)); } catch {}
+    }
     return { configured: true };
+  }
+
+  /** The default profile's config.yaml, the one `hermes config set` writes. */
+  static configFile(env = process.env) {
+    const homeEnv = String(env.HERMES_HOME || '').trim();
+    const home = homeEnv || (IS_WINDOWS
+      ? path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
+      : path.join(os.homedir(), '.hermes'));
+    return path.join(home, 'config.yaml');
+  }
+
+  /** Where the `model:` lines from before configureNativeAuth are kept. */
+  static nativeAuthRecordFile() {
+    return path.join(os.homedir(), '.openagents', 'native-auth', 'hermes.json');
+  }
+
+  /**
+   * Remember what configureNativeAuth replaced. `original` is each managed
+   * `model:` line from before the FIRST custom endpoint, kept across later
+   * ones; `written` identifies each as configureNativeAuth left it, by hash
+   * only, so the key it wrote is not copied here.
+   */
+  static recordNativeAuth(configFile, beforeText, afterText) {
+    const recordFile = HermesAdapter.nativeAuthRecordFile();
+    const previous = readRecord(recordFile);
+    const original = previous && previous.configFile === configFile
+      ? previous.original
+      : HermesAdapter.modelLines(beforeText);
+    const written = {};
+    for (const [name, line] of Object.entries(HermesAdapter.modelLines(afterText))) written[name] = hashLine(line);
+    fs.mkdirSync(path.dirname(recordFile), { recursive: true });
+    // `original` may hold a key of the user's own provider.
+    fs.writeFileSync(recordFile, JSON.stringify({ configFile, original, written }, null, 2), { mode: 0o600 });
+  }
+
+  /**
+   * Hand Hermes back the `model:` lines configureNativeAuth replaced, for an
+   * agent that now runs on the `hermes setup` sign-in. Without this the custom
+   * endpoint and key stayed in config.yaml, and the signed-in agent kept
+   * calling them (401 once the key was gone or wrong).
+   *
+   * Only while every one of them is still exactly what configureNativeAuth
+   * wrote: lines the user has changed since (`hermes setup`, `hermes model`)
+   * are theirs and stay. Either way the record is dropped.
+   */
+  static restoreNativeAuth() {
+    const recordFile = HermesAdapter.nativeAuthRecordFile();
+    const record = readRecord(recordFile);
+    if (!record) return { skipped: true, reason: 'nothing recorded' };
+    const drop = () => { try { fs.unlinkSync(recordFile); } catch {} };
+    let text;
+    try { text = fs.readFileSync(record.configFile, 'utf8'); } catch {
+      drop();
+      return { skipped: true, reason: 'config.yaml not found' };
+    }
+    const current = HermesAdapter.modelLines(text);
+    if (Object.keys(current).some((name) => hashLine(current[name]) !== (record.written || {})[name])) {
+      drop();
+      return { skipped: true, reason: 'model section changed since' };
+    }
+    fs.writeFileSync(record.configFile, HermesAdapter.restoreModelLines(text, record.original || {}));
+    drop();
+    return { restored: true };
+  }
+
+  /**
+   * The lines of a config.yaml text that configureNativeAuth writes, verbatim
+   * or null where absent: the top-level `model:` line itself (`hermes config
+   * set` turns a plain `model: <id>` into a mapping) and its `default`,
+   * `provider`, `base_url` and `api_key` keys.
+   */
+  static modelLines(text) {
+    const { lines, at } = locateModelLines(text);
+    const out = {};
+    for (const name of MODEL_LINE_NAMES) out[name] = at[name] >= 0 ? lines[at[name]] : null;
+    return out;
+  }
+
+  /**
+   * `text` with each managed `model:` line put back as `original` has it: a
+   * line that was not there before is removed, one that was is restored in
+   * place (or under `model:`). Every other line, comments included, is left
+   * exactly as it is.
+   */
+  static restoreModelLines(text, original) {
+    const { lines, at } = locateModelLines(text);
+    const eol = /\r\n/.test(String(text || '')) ? '\r\n' : '\n';
+    const drop = new Set();
+    const insert = [];
+    for (const name of MODEL_LINE_NAMES) {
+      const was = original[name] == null ? null : String(original[name]);
+      if (at[name] >= 0) {
+        if (was == null) drop.add(at[name]);
+        else lines[at[name]] = was;
+      } else if (was != null && name !== 'header') {
+        insert.push(was);
+      }
+    }
+    const out = [];
+    lines.forEach((line, i) => {
+      if (!drop.has(i)) out.push(line);
+      if (i === at.header && !drop.has(i)) out.push(...insert);
+    });
+    return out.join(eol);
+  }
+}
+
+// What configureNativeAuth writes into config.yaml: the `model:` line and these keys under it.
+const MODEL_KEYS = ['default', 'provider', 'base_url', 'api_key'];
+const MODEL_LINE_NAMES = ['header', ...MODEL_KEYS];
+
+/**
+ * Line indexes of the managed `model:` lines (-1 where absent). The section
+ * runs to the next top-level key: Hermes's own config.yaml has a long run of
+ * column-0 comments inside it, and `hermes config set model.api_key` appends
+ * the key after them. Only direct children count, by their indentation.
+ */
+function locateModelLines(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const at = Object.fromEntries(MODEL_LINE_NAMES.map((name) => [name, -1]));
+  at.header = lines.findIndex((line) => /^model[ \t]*:/.test(line));
+  if (at.header < 0) return { lines, at };
+  let indent = null;
+  for (let i = at.header + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === '' || line.startsWith('#')) continue;
+    const m = /^([ \t]+)([A-Za-z_]+)[ \t]*:/.exec(line);
+    if (!/^[ \t]/.test(line)) break;
+    if (/^[ \t]*#/.test(line) || !m) continue;
+    if (indent == null) indent = m[1];
+    if (m[1] === indent && MODEL_KEYS.includes(m[2]) && at[m[2]] < 0) at[m[2]] = i;
+  }
+  return { lines, at };
+}
+
+function hashLine(line) {
+  return line == null ? null : crypto.createHash('sha256').update(line).digest('hex');
+}
+
+function readTextOrEmpty(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+
+function readRecord(file) {
+  try {
+    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return record && typeof record.configFile === 'string' ? record : null;
+  } catch {
+    return null;
   }
 }
 
