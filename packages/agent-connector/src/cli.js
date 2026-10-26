@@ -6,6 +6,7 @@ require('./win-console').installWindowsHideDefault();
 
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
+const { isCliLogin } = require('./env');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -366,16 +367,33 @@ async function cmdRuntimes(connector, flags) {
       ? new Set(flags.types.split(',').map((s) => s.trim()).filter(Boolean))
       : null;
     const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
+    let agents = [];
+    try { agents = connector.config.getAgents() || []; } catch {}
     const runtimes = catalog.map((e) => {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      // The workspace's Configure saves a key on the AGENT (daemon.yaml), never
+      // in <type>.env, so judged on the type alone a Kimi or Pi agent that
+      // answered fine read "Needs login" in the workspace while the launcher,
+      // which judges the type again with its agents' env, said Ready. Judge it
+      // the way the daemon launches it: a type is ready when one of its agents
+      // is.
+      let agentEnv = null;
+      if (h.installed && !h.ready) {
+        for (const a of agents) {
+          if ((a.type || 'openclaw') !== e.name) continue;
+          let ah;
+          try { ah = connector.healthCheck(e.name, { cliLogin: isCliLogin(a.env), agentEnv: a.env || {} }); } catch { continue; }
+          if (ah && ah.ready) { h = { ...h, ...ah, installed: true }; agentEnv = a.env || {}; break; }
+        }
+      }
       // Credential contract, upward half: STATUS goes up, the secret stays on
       // this device. `mode` says how the type authenticates today
       // (subscription = CLI/OAuth login, api_key = a stored key, none = not
       // configured); keyMasked shows only the key's tail.
       let keyMasked = null;
       try {
-        const env = connector.env.load(e.name) || {};
+        const env = { ...(connector.env.load(e.name) || {}), ...(agentEnv || {}) };
         const key = env.LLM_API_KEY || null;
         if (key && key.length > 7) keyMasked = `…${key.slice(-4)}`;
         else if (key) keyMasked = '…';

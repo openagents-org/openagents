@@ -731,6 +731,7 @@ export class AgentManager extends EventEmitter {
   async refreshHostedLogin(type: string): Promise<unknown> {
     if (!this._login.specFor(type)) return this.healthCheck(type)
     await this._login.refresh(type, true)
+    this.nudgeRuntimeDetect()
     // Pure hosted-login → login-only verdict. Dual-auth (Claude) → the combined
     // health, now reflecting the just-refreshed sign-in probe.
     if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
@@ -1288,6 +1289,7 @@ export class AgentManager extends EventEmitter {
     // stale cache would keep showing the previous one for up to its lifetime.
     this._agentsCache = { value: [], at: 0 }
     this.signalReload()
+    this.nudgeRuntimeDetect()
     return { success: true }
   }
 
@@ -2697,6 +2699,23 @@ export class AgentManager extends EventEmitter {
       sendCmd.call(this._connector, "heartbeat")
     } catch {
       // Nothing lost: the regular heartbeat still picks the command up.
+    }
+  }
+
+  /**
+   * Ask the daemon to re-detect its runtimes and report them now. The
+   * workspace's Ready / Needs login badges come from that report, refreshed
+   * every 2 minutes; after a sign-in or a saved key the launcher already says
+   * Ready, and without this the workspace kept saying Needs login meanwhile.
+   * A daemon too old to know the line ignores it.
+   */
+  nudgeRuntimeDetect(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "detect")
+    } catch {
+      // Nothing lost: the periodic detection still catches up.
     }
   }
 

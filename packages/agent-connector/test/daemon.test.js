@@ -1133,6 +1133,21 @@ describe('Daemon', () => {
     assert.equal(restarted, 'r-agent');
   });
 
+  it('detect command re-detects runtimes and reports them (OA-038)', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    const calls = [];
+    daemon._refreshRuntimes = async () => { calls.push('detect'); };
+    daemon._nodeHeartbeat = async () => { calls.push('heartbeat'); };
+
+    fs.writeFileSync(config.cmdFile, 'detect\n', 'utf-8');
+    daemon._processCommands();
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepEqual(calls, ['detect', 'heartbeat']);
+  });
+
   it('start command is idempotent — skips restart when already running', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 's-agent', type: 'openclaw', role: 'worker' });

@@ -201,6 +201,38 @@ describe('CLI', () => {
     assert.ok(out.includes('NAME') || out.includes('No agent runtimes'));
   });
 
+  it('runtimes --json judges a type with its agents\' env (OA-038)', { skip: process.platform === 'win32' }, () => {
+    // The workspace saves a key on the agent, not in <type>.env; judged on the
+    // type alone a working Kimi agent was reported "Needs login".
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const bin = path.join(tmpDir, 'bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'kimi'), '#!/bin/sh\necho "kimi, version 1.0.0"\n', { mode: 0o755 });
+      const env = {
+        ...process.env, HOME: tmpDir, USERPROFILE: tmpDir,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        KIMI_API_KEY: '', MOONSHOT_API_KEY: '', LLM_API_KEY: '',
+      };
+      const detect = () => JSON.parse(execFileSync(process.execPath,
+        [CLI, 'runtimes', '--json', '--types', 'kimi', '--config', tmpDir],
+        { encoding: 'utf-8', timeout: 20000, env }).trim())[0];
+
+      const before = detect();
+      assert.equal(before.installed, true);
+      assert.equal(before.ready, false);
+
+      fs.writeFileSync(path.join(tmpDir, 'daemon.yaml'),
+        'version: 2\nagents:\n- name: kimi-bot\n  type: kimi\n  env: {"LLM_API_KEY":"sk-test-agent-key-1234"}\nnetworks: []\n');
+      const after = detect();
+      assert.equal(after.ready, true);
+      assert.equal(after.auth.mode, 'api_key');
+      assert.equal(after.auth.keyMasked, '…1234');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('logs with temp config returns empty', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
     try {

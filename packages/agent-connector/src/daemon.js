@@ -1973,6 +1973,11 @@ async _runNodeCommand(n, cmd) {
         } else if (cmd === 'reload') {
           this._log('Command: reload');
           this._reload();
+        } else if (cmd === 'detect') {
+          // The launcher just saw a sign-in finish (or a key saved): re-detect
+          // and report, so the workspace doesn't keep "Needs login" until the
+          // next 2-minute refresh. A run already in flight is joined.
+          this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
         } else if (cmd === 'heartbeat') {
           // A workspace page in the launcher just queued a command for this
           // device: heartbeat now so it is picked up, instead of on the next
@@ -2050,9 +2055,17 @@ async _runNodeCommand(n, cmd) {
       }
     }
 
+    // A type's reported readiness is judged with its agents' env too (agn
+    // runtimes), so adding an agent or saving a key on one changes what the
+    // workspace should show. Report it now rather than on the 2-minute tick.
+    const agentsChanged = newNames.size !== oldNames.size
+      || [...newNames].some((n) => (oldConfigs[n] || '') !== newConfigs[n]);
     this._cachedAgentNames = newNames;
     this._cachedAgentConfigs = newConfigs;
     this._writeStatus();
+    if (agentsChanged && this._runtimesInterval) {
+      this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
+    }
   }
 
   /**
