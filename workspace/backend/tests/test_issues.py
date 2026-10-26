@@ -475,6 +475,12 @@ def test_private_linked_thread_is_hidden_from_non_participants(client, workspace
     assert next(i for i in ben_list if i["id"] == issue["id"])["linked_channels"] == []
     assert not any(c["content"] == "secret result" for c in ben_view["comments"])
 
+    before = len(ben_view['comments'])
+    r = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer("ben"),
+                    json={"content": "@agent-alpha continue", "reply_to_event_id": "evt-private-reply"})
+    assert r.status_code == 404
+    assert len(client.get(path(workspace, f"/{issue['id']}"), headers=_bearer("ben")).json()['data']['comments']) == before
+
     # Ben cannot share the private reply into the discussion either.
     r = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer("ben"),
                     json={"content": "", "source_event_id": "evt-private-reply", "source": "human:ben"})
@@ -838,7 +844,7 @@ def test_invite_then_mention_posts_discussion_and_dispatches_without_changing_as
 
 
 @pytest.mark.parametrize('shared', [False, True])
-def test_followup_includes_previous_agent_reply_once(client, workspace, db, shared):
+def test_new_agent_work_includes_previous_agent_reply_once(client, workspace, db, shared):
     import time
     issue = create(client, workspace)
     first = request_work(client, workspace, issue, instruction='Investigate the cause').json()['data']['channel_name']
@@ -857,10 +863,12 @@ def test_followup_includes_previous_agent_reply_once(client, workspace, db, shar
     if shared:
         assert client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
                            json={'source_event_id': 'prior-finding'}).status_code == 200
-    followup = request_work(client, workspace, issue, instruction='Fix it using those findings')
+    db.add(WorkspaceMember(workspace_id=workspace['id'], agent_name='agent-beta'))
+    db.commit()
+    followup = request_work(client, workspace, issue, names=('agent-beta',), instruction='Fix it using those findings')
     assert followup.status_code == 200, followup.text
     channel = followup.json()['data']['channel_name']
-    kickoff = db.scalars(select(EventRecord).where(EventRecord.target == f'channel/{channel}', EventRecord.type == 'workspace.message.posted')).first()
+    kickoff = db.scalars(select(EventRecord).where(EventRecord.target == f'channel/{channel}', EventRecord.type == 'workspace.message.posted', EventRecord.source == 'human:alice')).first()
     content = kickoff.payload['content']
     assert content.count('The discovery cache replaces the agent roster.') == 1
     assert 'openagents:agent-alpha' in content
@@ -877,9 +885,11 @@ def test_followup_does_not_copy_private_linked_replies_into_public_work(client, 
     db.commit()
     issue = create(client, workspace, channel_name=channel.name)
     seed_reply(db, workspace, 'private-result', timestamp=int(time.time() * 1000))
-    # A machine caller can view it, but the destination audience is still public.
+    # A new agent starts a public thread, so private results must not be copied.
     assert any(c['content'] == 'Here are my findings.' for c in detail(client, workspace, issue)['comments'])
-    result = request_work(client, workspace, issue).json()['data']
+    db.add(WorkspaceMember(workspace_id=workspace['id'], agent_name='agent-beta'))
+    db.commit()
+    result = request_work(client, workspace, issue, names=('agent-beta',)).json()['data']
     kickoff = db.scalars(select(EventRecord).where(EventRecord.target == 'channel/' + result['channel_name'], EventRecord.type == 'workspace.message.posted')).first()
     assert 'Here are my findings.' not in kickoff.payload['content']
 
@@ -924,3 +934,56 @@ def test_request_context_checks_access_before_saving_or_dispatching(client, work
         assert response.status_code == 404, response.text
         emit.assert_not_called()
     assert db.scalar(select(func.count()).select_from(IssueComment).where(IssueComment.issue_id == issue['id'])) == 0
+
+
+def test_direct_mentions_continue_latest_thread_and_reply_targets_exact_thread(client, workspace, db, cloud_dispatch):
+    from app.models import ChannelMember, IssueThread
+    issue = create(client, workspace)
+    first = request_work(client, workspace, issue).json()['data']['channel_name']
+    other = Channel(workspace_id=workspace['id'], name='newer-work', last_event_at=10**13)
+    db.add(other)
+    db.flush()
+    db.add_all([ChannelMember(channel_id=other.id, agent_name='agent-alpha'),
+                IssueThread(issue_id=issue['id'], channel_id=other.id),
+                EventRecord(id='original-answer', network_id=workspace['id'], type='workspace.message.posted',
+                    source='openagents:agent-alpha', target=f'channel/{first}',
+                    payload={'content': 'Original answer', 'message_type': 'chat'}, timestamp=10)])
+    db.commit()
+    before = db.scalar(select(func.count()).select_from(Channel))
+    result = request_work(client, workspace, issue, instruction='Follow up').json()['data']
+    assert result['channel_name'] == 'newer-work'
+    assert cloud_dispatch.call_args.args[1]['payload']['content'] == '@agent-alpha Follow up'
+    assert cloud_dispatch.call_args.args[1]['metadata']['target_agents'] == ['agent-alpha']
+    answer = next(c for c in detail(client, workspace, issue)['comments'] if c['id'] == 'original-answer')
+    assert answer['reply_channel_name'] == first
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+        json={'content': '@agent-alpha Fix this one', 'source': 'human:alice', 'reply_to_event_id': 'original-answer'})
+    assert response.status_code == 200, response.text
+    assert response.json()['data']['channel_name'] == first
+    assert cloud_dispatch.call_args.args[1]['target'] == f'channel/{first}'
+    assert cloud_dispatch.call_args.args[1]['payload']['content'] == '@agent-alpha Fix this one'
+    assert db.scalar(select(func.count()).select_from(Channel)) == before
+
+
+@pytest.mark.parametrize('invalid', ['missing', 'unlinked', 'thinking', 'archived', 'other-agent'])
+def test_invalid_reply_does_not_save_comment_or_dispatch(client, workspace, db, cloud_dispatch, invalid):
+    issue = create(client, workspace, channel_name=workspace['channel']['name'])
+    seed_reply(db, workspace, 'answer', message_type='thinking' if invalid == 'thinking' else 'chat')
+    if invalid == 'unlinked':
+        from app.models import IssueThread
+        db.query(IssueThread).filter(IssueThread.issue_id == issue['id']).delete()
+    if invalid == 'archived':
+        db.scalar(select(Channel).where(Channel.workspace_id == workspace['id'], Channel.name == workspace['channel']['name'])).status = 'archived'
+    if invalid == 'other-agent':
+        db.add(WorkspaceMember(workspace_id=workspace['id'], agent_name='agent-beta'))
+        db.commit()
+        add_agents(client, workspace, issue, ('agent-beta',))
+    db.commit()
+    before = len(detail(client, workspace, issue)['comments'])
+    cloud_dispatch.reset_mock()
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+        json={'content': '@agent-beta hi' if invalid == 'other-agent' else '@agent-alpha hi',
+              'reply_to_event_id': 'missing' if invalid == 'missing' else 'answer'})
+    assert response.status_code in (404, 409, 422), response.text
+    assert len(detail(client, workspace, issue)['comments']) == before
+    cloud_dispatch.assert_not_called()
