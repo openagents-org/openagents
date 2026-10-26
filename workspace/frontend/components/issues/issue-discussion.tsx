@@ -1,6 +1,7 @@
 'use client';
 
 import { IssueWork } from './issue-work';
+import { WorkingBubble } from '@/components/chat/working-bubble';
 import { IssueAttachments } from './issue-attachments';
 import { resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
@@ -69,7 +70,7 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents, workspace } = useWorkspace();
+  const { currentUser, sessions, refreshAgents, workspace, agents } = useWorkspace();
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -150,6 +151,13 @@ export function IssueDiscussion({
     );
   }
 
+  const workingIn = (channel: string) => agents.filter(agent => agent.status === 'online' && agent.busyChannels?.includes(channel));
+  // The API returns links oldest first. Reverse before stable activity sorting
+  // so the newest active conversation leads, followed by the newest idle ones.
+  const linkedThreads = [...(issue?.threads || [])].reverse().sort((a, b) => Number(workingIn(b.channel_name).length > 0) - Number(workingIn(a.channel_name).length > 0));
+  const workingAgents = agents.filter(agent => agent.status === 'online' && issue?.threads.some(thread => agent.busyChannels?.includes(thread.channel_name)));
+  const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
+  const activityIndicator = (names: typeof agents) => <span className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span aria-hidden="true" className="inline-flex shrink-0 items-center gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />)}</span><span className="truncate">{workingLabel(names)}</span></span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
   const mentions = useIssueMentions(issue);
   const agentNames = mentions
@@ -333,7 +341,7 @@ export function IssueDiscussion({
                   {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
                 </div>
               )}
-              <IssueWork issueId={id} title={issue.title} />
+              <IssueWork key={id} issueId={id} closed={issue.status === 'closed'} onPosted={warning => { setError(warning || ''); void refresh(); void refreshAgents(); onChanged(); }} />
               <section aria-label={t('issues.discussion')}>
                 <div className="mb-6 flex items-center gap-2 border-b border-border/70 pb-3">
                   <MessageSquare className="size-3.5 text-muted-foreground" />
@@ -435,6 +443,7 @@ export function IssueDiscussion({
                     );
                   })}
                 </div>
+                {workingAgents.length > 0 && <div className="thread-wip mt-6 space-y-2 rounded-xl border border-border/60 px-4 py-3">{workingAgents.map(agent => <WorkingBubble key={agent.agentName} agentName={agent.agentName} agents={workingAgents} status={t('chat.agentWorking')} />)}</div>}
                 <form
                   className="relative mt-8 flex gap-3"
                   onKeyDownCapture={(e) => {
@@ -599,8 +608,8 @@ export function IssueDiscussion({
                     </button>
                   </div>
                   <div className="space-y-4">
-                    {issue.threads.map((th) => (
-                      <div key={th.channel_name}>
+                    {linkedThreads.map((th) => (
+                      <div key={th.channel_name} className={cn("relative rounded-lg transition-colors", workingIn(th.channel_name).length > 0 && "thread-wip border border-border/60 p-3")}>
                         <button
                           className="group flex w-full items-start gap-2 text-left text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() =>
@@ -615,8 +624,8 @@ export function IssueDiscussion({
                             <span className="line-clamp-2 font-medium group-hover:underline">
                               {th.title}
                             </span>
-                            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                              {th.agents.join(', ')}
+                            <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+                              {workingIn(th.channel_name).length > 0 ? activityIndicator(workingIn(th.channel_name)) : th.agents.join(', ')}
                             </span>
                           </span>
                           <ArrowUpRight className="mt-1 size-3 shrink-0 text-muted-foreground/50" />

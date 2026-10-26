@@ -116,3 +116,9 @@ describe('threadFilterFor', () => {
     expect(threadFilterFor(thread, 'dms')).toBe('all');
   });
 });
+
+
+it('opens issue completion notifications on the issue instead of its execution thread', () => {
+  expect(inboxDestination(row({ kind: 'issue_completed', linkUrl: '/workspace/issues/issue-1', channelName: 'work-thread' }))).toEqual({ kind: 'issue', path: '/workspace/issues/issue-1' });
+  expect(inboxDestination(row({ kind: 'issue_completed', linkUrl: 'https://other.example/issues/issue-1', channelName: 'work-thread' }))).toEqual({ kind: 'thread', channel: 'work-thread' });
+});

@@ -215,6 +215,10 @@
   animation: shimmer 2.5s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .thread-wip, .dark .thread-wip { animation: none; }
+}
+
 /** Global Styles **/
 @layer base {
   * {

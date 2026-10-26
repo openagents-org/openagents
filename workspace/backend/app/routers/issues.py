@@ -169,12 +169,8 @@ def _resolve_assignee(db, workspace, actor, assignee):
         if member is None:
             raise HTTPException(422, "Choose a workspace member")
         assignee = f"human:{member.email.lower()}"
-    elif kind == "openagents":
-        member = db.get(WorkspaceMember, (str(workspace.id), identifier))
-        if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
-            raise HTTPException(403, "You can only assign your own agents")
     else:
-        raise HTTPException(422, "Choose a person or one of your agents")
+        raise HTTPException(422, "Issue assignees must be human workspace members. Mention an agent in the discussion to request work.")
     return assignee, member.display_name or identifier
 
 
@@ -339,6 +335,7 @@ def list_issues(
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
     assigned_to_me: bool = False,
+    active_only: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -354,6 +351,8 @@ def list_issues(
         query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
     if status:
         query = query.where(Issue.status == status)
+    elif active_only:
+        query = query.where(Issue.status.in_(("open", "in_progress")))
     if q.strip():
         query = query.where(
             Issue.title.icontains(q.strip(), autoescape=True)
@@ -376,10 +375,22 @@ def list_issues(
             .group_by(IssueComment.issue_id)
         ).all()
     )
+    from app.services.visibility import hidden_channel_names
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    hidden = hidden_channel_names(db, str(workspace.id), viewer)
+    linked = {}
+    for issue_id, channel_name in db.execute(
+        select(IssueThread.issue_id, Channel.name)
+        .join(Channel, Channel.id == IssueThread.channel_id)
+        .where(IssueThread.issue_id.in_([i.id for i in rows[:limit]]),
+               Channel.workspace_id == workspace.id, Channel.status != "deleted")
+    ):
+        if channel_name not in hidden:
+            linked.setdefault(issue_id, []).append(channel_name)
     return success_response(
         {
             "issues": [
-                _serialize(i) | {"comment_count": counts.get(i.id, 0)}
+                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, [])}
                 for i in rows[:limit]
             ],
             "next_offset": offset + limit if len(rows) > limit else None,
@@ -418,11 +429,6 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
-    if assignee and assignee.startswith("openagents:"):
-        from app.models import KanbanTask
-        db.add(KanbanTask(workspace_id=workspace.id, issue_id=issue.id,
-            title=issue.title, description=issue.description, status="backlog",
-            assignee=assignee.removeprefix("openagents:"), created_by=actor))
     db.commit()
     return success_response(_serialize(issue))
 
@@ -442,6 +448,36 @@ def list_issue_labels(
     return success_response({"labels": sorted(labels.values(), key=str.casefold)})
 
 
+def _discussion_entries(db, issue, channels, limit=None):
+    """Merge saved comments and projected replies for display and handoff."""
+    query = select(IssueComment).where(IssueComment.issue_id == issue.id)
+    if limit:
+        query = query.where(IssueComment.kind.in_(["comment", "result"]))
+    query = query.order_by(IssueComment.created_at.desc(), IssueComment.id.desc())
+    comments = db.scalars(query.limit(limit) if limit else query).all()
+    discussion = [_comment(comment) for comment in comments]
+    names = [f"channel/{channel.name}" for channel in channels]
+    if names:
+        shared = select(IssueComment.source_event_id).where(
+            IssueComment.issue_id == issue.id, IssueComment.source_event_id.is_not(None))
+        replies = select(EventRecord).where(
+            EventRecord.network_id == issue.workspace_id,
+            EventRecord.target.in_(names),
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.startswith("openagents:"),
+            func.coalesce(EventRecord.payload["message_type"].as_string(), "chat") == "chat",
+            func.trim(EventRecord.payload["content"].as_string()) != "",
+            EventRecord.id.not_in(shared),
+        ).order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
+        for reply in db.scalars(replies.limit(limit) if limit else replies):
+            discussion.append({"id": reply.id, "source_event_id": reply.id,
+                "author": reply.source, "author_name": reply.source.split(":", 1)[-1],
+                "content": (reply.payload or {}).get("content", ""), "kind": "result",
+                "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
+    discussion.sort(key=lambda item: (item["created_at"], item["id"]))
+    return discussion[-limit:] if limit else discussion
+
+
 @router.get("/{issue_id}")
 def get_issue(
     issue_id: str,
@@ -453,15 +489,6 @@ def get_issue(
     workspace = _access(network, db, x_workspace_token, authorization)
     viewer = _viewer(db, workspace, x_workspace_token, authorization)
     issue = _issue(db, workspace, issue_id)
-    comments = (
-        db.execute(
-            select(IssueComment)
-            .where(IssueComment.issue_id == issue.id)
-            .order_by(IssueComment.created_at, IssueComment.id)
-        )
-        .scalars()
-        .all()
-    )
     channels = [c for c in _linked_channels(db, issue) if _can_see(db, workspace, viewer, c.name)]
     # Only expose replies from linked execution threads the caller may read.
     names = {c.name for c in channels}
@@ -501,24 +528,7 @@ def get_issue(
             }
     # Project completed chat replies into the discussion without copying
     # private thread content into a workspace-visible IssueComment record.
-    discussion = [_comment(c) for c in comments]
-    already = {c.source_event_id for c in comments if c.source_event_id}
-    if names:
-        replies = db.execute(select(EventRecord).where(
-            EventRecord.network_id == workspace.id,
-            EventRecord.target.in_([f"channel/{n}" for n in names]),
-            EventRecord.type == "workspace.message.posted",
-            EventRecord.source.startswith("openagents:"),
-            func.coalesce(EventRecord.payload["message_type"].as_string(), "chat") == "chat",
-        ).order_by(EventRecord.timestamp, EventRecord.id)).scalars()
-        for reply in replies:
-            content = (reply.payload or {}).get("content", "")
-            if reply.id in already or not content.strip():
-                continue
-            discussion.append({"id": reply.id, "source_event_id": reply.id,
-                "author": reply.source, "author_name": reply.source.split(":", 1)[-1],
-                "content": content, "kind": "result",
-                "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
+    discussion = _discussion_entries(db, issue, channels)
     from app.services.approvals import serialize_with_owner
     for approval in db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace.id,
             ApprovalRequest.channel_name.in_(names), ApprovalRequest.kind == "issue_agent_request")).scalars():
@@ -747,17 +757,17 @@ def link_thread(
 
 
 def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):
-    # Bound the initial context. The durable discussion remains on the issue.
-    comments = list(
-        db.execute(
-            select(IssueComment)
-            .where(IssueComment.issue_id == issue.id, IssueComment.kind != "status")
-            .order_by(IssueComment.created_at.desc(), IssueComment.id.desc())
-            .limit(20)
-        ).scalars()
-    )
+    # New work threads are workspace-visible. Include the same projected
+    # replies shown in the issue, but never copy private linked-thread content
+    # into that wider audience. Explicitly shared result comments are public.
+    from app.services.access_model import resource_for_channel
+    channels = [channel for channel in _linked_channels(db, issue)
+                if not channel.service_id and resource_for_channel(channel).visibility == "public"]
+    comments = _discussion_entries(db, issue, channels, limit=20)
     discussion = "\n\n".join(
-        f"{c.author}: {c.content[:4000]}" for c in reversed(comments)
+        f"{comment['author_name'] or comment['author']} ({comment['author']}): "
+        f"{comment['content'][:4000]}{' [truncated]' if len(comment['content']) > 4000 else ''}"
+        for comment in comments
     )
     name = f"issue-work-{uuid.uuid4().hex[:12]}"
     created = _emit_event_blocking(

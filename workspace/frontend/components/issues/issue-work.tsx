@@ -1,59 +1,94 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bot, Loader2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
-import { TaskCard } from '@/components/tasks/tasks-view';
-import { NewTaskDialog } from '@/components/tasks/new-task-dialog';
-import { TaskChatPopup } from '@/components/tasks/task-chat-popup';
-import type { KanbanTask } from '@/lib/types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/responsive-dialog';
+import { IssueAssigneePicker, type AssigneeChoice } from './issue-assignee-picker';
+import { ErrorNotice, errorMessage } from './issue-ui';
 
-/** Execution has its own lifecycle; no action here changes issue status. */
-export function IssueWork({ issueId, title }: { issueId: string; title: string }) {
-  const { tasks = [], refreshTasks, createTask, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
+/** Invite an agent, then use the same mention dispatch as an ordinary comment. */
+export function IssueWork({ issueId, closed, onPosted }: {
+  issueId: string;
+  closed: boolean;
+  onPosted: (warning?: string) => void;
+}) {
+  const { currentUser } = useWorkspace();
   const t = useT();
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<KanbanTask | null>(null);
-  const [chatId, setChatId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [choices, setChoices] = useState<AssigneeChoice[] | null>(null);
+  const [agent, setAgent] = useState('');
+  const [instruction, setInstruction] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const runs = tasks.filter(task => task.issueId === issueId);
-  const chat = runs.find(task => task.id === chatId);
-  useEffect(() => { void refreshTasks(); }, [refreshTasks]);
-  const act = async (action: () => Promise<unknown>) => {
-    if (busy) return;
+  const submitting = useRef(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setChoices(null);
+    setError('');
+    Promise.all([workspaceApi.discover(), workspaceApi.getIssue(issueId)]).then(([result, issue]) => {
+      // Discovery grants allow new requests anywhere. Issue-specific sharing
+      // can additionally allow an agent already participating in this issue.
+      const allowedHere = new Set(issue.participants.filter(p => p.request_access === 'yes' || p.request_access === 'approval').map(p => p.source));
+      if (active) setChoices(result.agents.filter(a => a.status === 'online' &&
+        (a.can_start_thread === true || allowedHere.has(`openagents:${a.address.replace(/^openagents:/, '')}`))).map(a => ({
+        id: `openagents:${a.address.replace(/^openagents:/, '')}`,
+        name: a.display_name?.trim() || a.address.replace(/^openagents:/, ''),
+      })));
+    }).catch(e => { if (active) setError(errorMessage(e)); });
+    return () => { active = false; };
+  }, [open, attempt, issueId]);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting.current || closed || !choices?.some(a => a.id === agent)) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
-    try { await action(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
-  };
-  return <section className="mb-8 rounded-xl border border-border/70 bg-muted/10 p-4" aria-label={t('issues.agentWork')}>
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-sm font-medium">{t('issues.agentWork')} <span className="ml-1 text-xs tabular-nums text-muted-foreground">{runs.length || ''}</span></h2>
-      <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus className="size-3.5" />{t('issueWork.add')}</Button>
-    </div>
-    <p className="mt-2 text-xs leading-5 text-muted-foreground">{t(runs.length ? 'issueWork.hint' : 'issueWork.empty')}</p>
-    {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
-    <fieldset disabled={busy} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2 disabled:opacity-70">
-      {runs.map(task => <div key={task.id} className="min-w-0 space-y-2">
-        <p className="text-[11px] font-medium text-muted-foreground">{t(`tasks.col.${task.status === 'todo' ? 'backlog' : task.status}`)}</p>
-        <TaskCard task={task}
-          onSetAssignee={assignee => void act(() => updateTask(task.id, { assignee }))}
-          onRun={() => void act(() => runTask(task.id))}
-          onStop={() => void act(() => stopTask(task.id))}
-          onEdit={() => setEditing(task)}
-          onDelete={() => void act(() => deleteTask(task.id))}
-          onOpenChat={() => setChatId(task.id)} />
-      </div>)}
-    </fieldset>
-    <NewTaskDialog open={adding || !!editing} issueTitle={title} task={editing}
-      onOpenChange={open => { if (!open) { setAdding(false); setEditing(null); } }}
-      onSubmit={async input => {
-        if (editing) await updateTask(editing.id, input);
-        else await createTask({ ...input, issueId, status: 'backlog' });
-      }} />
-    {chat?.channelName && <TaskChatPopup open sessionId={chat.channelName} taskTitle={chat.title} assignee={chat.assignee} onOpenChange={open => { if (!open) setChatId(null); }} />}
+    try {
+      const name = agent.slice('openagents:'.length);
+      // Adding an existing participant is idempotent, so a failed comment can
+      // safely be retried without duplicating participants or losing the draft.
+      await workspaceApi.addIssueParticipants(issueId, [{ kind: 'agent', id: name }]);
+      const result = await workspaceApi.commentOnIssue(issueId, {
+        source: `human:${currentUser.id}`, source_name: currentUser.name,
+        content: `@${name}${instruction.trim() ? ` ${instruction.trim()}` : ''}`,
+      });
+      // Dispatch errors mean the comment was saved: clear the draft rather than
+      // encouraging a duplicate request. Show the delivery warning on the issue.
+      setInstruction('');
+      setAgent('');
+      setOpen(false);
+      onPosted(result.dispatch_error);
+    } catch (e) { setError(errorMessage(e)); }
+    finally { submitting.current = false; setBusy(false); }
+  }
+  return <section className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/10 p-4">
+    <p className="text-xs text-muted-foreground">{t(closed ? 'issueWork.closed' : 'issueWork.assignHint')}</p>
+    <Button size="sm" variant="outline" disabled={closed} onClick={() => setOpen(true)}><Bot className="size-4" />{t('issueWork.assignAgent')}</Button>
+    <Dialog open={open} onOpenChange={value => { if (!submitting.current) setOpen(value); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{t('issueWork.assignAgent')}</DialogTitle><DialogDescription>{t('issueWork.assignHint')}</DialogDescription></DialogHeader>
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogBody className="space-y-4">
+            {choices ? choices.length ? <IssueAssigneePicker agentsOnly value={agent} onChange={setAgent} choices={choices} disabled={busy} /> : <p className="text-sm text-muted-foreground">{t('issueWork.noAgents')}</p> : !error && <Loader2 className="size-4 animate-spin" />}
+            <label className="block space-y-2 text-xs font-medium">
+              <span>{t('issueWork.instruction')}</span>
+              <textarea aria-label={t('issueWork.instruction')} value={instruction} onChange={e => setInstruction(e.target.value)} disabled={busy} maxLength={Math.max(0, 49998 - agent.length)} placeholder={t('issueWork.instructionPlaceholder')} className="min-h-28 w-full resize-y rounded-lg border bg-background p-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            </label>
+            {error && <ErrorNotice message={error} />}
+            {!choices && error && <Button type="button" variant="outline" onClick={() => setAttempt(n => n + 1)}>{t('common.retry')}</Button>}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" disabled={busy || closed || !choices?.some(a => a.id === agent)}>{busy && <Loader2 className="size-4 animate-spin" />}{t('issueWork.send')}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   </section>;
 }
