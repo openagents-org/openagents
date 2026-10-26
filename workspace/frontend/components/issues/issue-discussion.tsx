@@ -69,7 +69,7 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents, workspace } = useWorkspace();
+  const { currentUser, sessions, refreshAgents, workspace, agents } = useWorkspace();
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -150,6 +150,10 @@ export function IssueDiscussion({
     );
   }
 
+  const workingIn = (channel: string) => agents.filter(agent => agent.status === 'online' && agent.busyChannels?.includes(channel));
+  const workingAgents = agents.filter(agent => agent.status === 'online' && issue?.threads.some(thread => agent.busyChannels?.includes(thread.channel_name)));
+  const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
+  const activityIndicator = (names: typeof agents) => <span className="inline-flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400"><span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-blue-500 motion-safe:animate-pulse" />{workingLabel(names)}</span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
   const mentions = useIssueMentions(issue);
   const agentNames = mentions
@@ -333,7 +337,7 @@ export function IssueDiscussion({
                   {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
                 </div>
               )}
-              <IssueWork issueId={id} title={issue.title} />
+              <IssueWork key={id} issueId={id} closed={issue.status === 'closed'} onPosted={warning => { setError(warning || ''); void refresh(); void refreshAgents(); onChanged(); }} />
               <section aria-label={t('issues.discussion')}>
                 <div className="mb-6 flex items-center gap-2 border-b border-border/70 pb-3">
                   <MessageSquare className="size-3.5 text-muted-foreground" />
@@ -435,6 +439,7 @@ export function IssueDiscussion({
                     );
                   })}
                 </div>
+                {workingAgents.length > 0 && <div role="status" className="mt-6 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/20">{activityIndicator(workingAgents)}</div>}
                 <form
                   className="relative mt-8 flex gap-3"
                   onKeyDownCapture={(e) => {
@@ -600,7 +605,7 @@ export function IssueDiscussion({
                   </div>
                   <div className="space-y-4">
                     {issue.threads.map((th) => (
-                      <div key={th.channel_name}>
+                      <div key={th.channel_name} className={cn(workingIn(th.channel_name).length > 0 && "rounded-lg border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-900 dark:bg-blue-950/20")}>
                         <button
                           className="group flex w-full items-start gap-2 text-left text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() =>
@@ -621,6 +626,7 @@ export function IssueDiscussion({
                           </span>
                           <ArrowUpRight className="mt-1 size-3 shrink-0 text-muted-foreground/50" />
                         </button>
+                        {workingIn(th.channel_name).length > 0 && <div className="mt-2">{activityIndicator(workingIn(th.channel_name))}</div>}
                         {share(th.latest_reply)}
                       </div>
                     ))}

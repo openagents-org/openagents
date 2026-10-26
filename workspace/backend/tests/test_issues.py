@@ -598,13 +598,14 @@ def test_assignment_handoffs_labels_and_paused(client, workspace, db, two_member
     agent = db.get(WorkspaceMember, (workspace['id'], 'agent-alpha'))
     agent.owner_email = 'ben@acme.test'
     db.commit()
-    # Creator cannot delegate to somebody else's private agent.
-    assert client.patch(url, headers=_bearer('ann'), json={'assignee':'openagents:agent-alpha'}).status_code == 403
-    with patch('app.routers.issues._emit_event_blocking') as emit:
-        response = client.patch(url, headers=_bearer('ben'), json={'assignee':'openagents:agent-alpha'})
-        assert response.status_code == 200, response.text
-        emit.assert_not_called()
-    assert any(p['source'] == 'openagents:agent-alpha' for p in response.json()['data']['participants'])
+    # Neither the creator nor the agent owner can assign an issue to an agent.
+    for person in ('ann', 'ben'):
+        assert client.patch(url, headers=_bearer(person), json={'assignee':'openagents:agent-alpha'}).status_code == 422
+    # Preserve the ability to correct a legacy agent assignment.
+    from app.models import Issue
+    legacy = db.get(Issue, issue['id'])
+    legacy.assignee = 'openagents:agent-alpha'
+    db.commit()
     # The assigned agent's owner retains the ability to hand work to a human.
     assert client.patch(url, headers=_bearer('ben'), json={'assignee':'human:ann@acme.test'}).status_code == 200
     assert client.patch(url, headers=_bearer('ben'), json={'assignee':None}).status_code == 403
@@ -622,16 +623,15 @@ def seed_issue_context(db, workspace, owner="human:ann@acme.test"):
     return entry, file
 
 
-def test_create_assigned_issue_prepares_work_with_context(client, workspace, db, two_members):
+def test_create_human_assigned_issue_preserves_context(client, workspace, db, two_members):
     from app.models import KanbanTask
-    from app.routers.tasks import _context_block, _task_attachments
     agent = db.get(WorkspaceMember, (workspace['id'], 'agent-alpha'))
     agent.owner_email = 'ann@acme.test'
     entry, file = seed_issue_context(db, workspace)
     before = db.scalar(select(func.count()).select_from(Channel))
     with patch('app.routers.issues._emit_event_blocking') as emit:
         response = client.post(path(workspace), headers=_bearer('ann'), json={
-            'title': 'Check evidence', 'source': 'human:spoof', 'assignee': 'openagents:agent-alpha',
+            'title': 'Check evidence', 'source': 'human:spoof', 'assignee': 'human:ben@acme.test',
             'knowledge_ids': [entry.id, entry.id], 'file_ids': [file.id],
         })
         assert response.status_code == 200, response.text
@@ -640,10 +640,8 @@ def test_create_assigned_issue_prepares_work_with_context(client, workspace, db,
     assert issue['created_by'] == 'human:ann@acme.test'
     assert issue['knowledge_ids'] == [entry.id]
     task = db.scalar(select(KanbanTask).where(KanbanTask.issue_id == issue['id']))
-    assert task.status == 'backlog' and task.assignee == 'agent-alpha'
+    assert task is None
     assert db.scalar(select(func.count()).select_from(Channel)) == before
-    assert '@knowledge:issue-context' in _context_block(db, workspace['id'], task)
-    assert _task_attachments(db, workspace['id'], task)[0]['file_id'] == file.id
     result = client.get(path(workspace, '/' + issue['id']), headers=_bearer('ben')).json()['data']
     assert result['attachments'][0]['filename'] == 'evidence.txt'
     assert result['knowledge'] == []  # Private knowledge is not shared by attaching its reference.
@@ -677,11 +675,15 @@ def test_issue_context_rejects_unreadable_or_missing_resources(client, workspace
     assert file.visibility == 'private'
 
 
-def test_create_cannot_assign_someone_elses_agent(client, workspace, db, two_members):
+@pytest.mark.parametrize('owner', ['ann@acme.test', 'ben@acme.test'])
+def test_create_cannot_assign_an_agent(client, workspace, db, two_members, owner):
+    agent = db.get(WorkspaceMember, (workspace['id'], 'agent-alpha'))
+    agent.owner_email = owner
+    db.commit()
     response = client.post(path(workspace), headers=_bearer('ann'), json={
         'title': 'Cannot assign', 'source': 'human:test@example.com', 'assignee': 'openagents:agent-alpha',
     })
-    assert response.status_code == 403
+    assert response.status_code == 422
 
 
 def test_issue_mention_work_inherits_context(client, workspace, db):
@@ -809,3 +811,23 @@ def test_active_issues_exclude_paused_closed_before_pagination(client, workspace
         assert [row['id'] for row in response.json()['data']['issues']] == [by_status[status]]
     # Existing API callers can still explicitly enumerate every issue.
     assert len(client.get(path(workspace), headers=headers(workspace)).json()['data']['issues']) == 4
+
+
+@pytest.mark.parametrize("instruction", ["", "Investigate the screenshots"])
+def test_invite_then_mention_posts_discussion_and_dispatches_without_changing_assignee(client, workspace, db, instruction):
+    from app.models import KanbanTask
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    add_agents(client, workspace, issue)  # safe retry after a comment failure
+    content = "@agent-alpha" + (" " + instruction if instruction else "")
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+                           json={"content": content, "source": "human:alice"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"].get("channel_name")
+    result = detail(client, workspace, issue)
+    assert result["assignee"] is None
+    assert result["status"] == "in_progress"
+    assert len([p for p in result["participants"] if p["source"] == "openagents:agent-alpha"]) == 1
+    assert any(c["content"] == content for c in result["comments"])
+    assert result["threads"][0]["agents"] == ["agent-alpha"]
+    assert db.scalar(select(KanbanTask).where(KanbanTask.issue_id == issue['id'])) is None

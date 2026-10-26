@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
     tasks: [] as KanbanTask[],
     workflows: [], knowledge: [] as {id: string; title: string; description: string}[], files: [],
     createTask: vi.fn(), runTask: vi.fn(), updateTask: vi.fn(), stopTask: vi.fn(), deleteTask: vi.fn(),
-    refreshTasks: vi.fn(),
+    refreshTasks: vi.fn(), refreshAgents: vi.fn(),
   },
   api: {
     getTeam: vi.fn(),
@@ -354,36 +354,15 @@ it('searches the assignee picker and saves a selected person', async () => {
   mocks.api.getTeam.mockResolvedValue([{ email: 'bob@example.com', displayName: 'Bob', role: 'member' }]);
   await openIssue();
   await click(host.querySelector<HTMLButtonElement>('button[aria-labelledby="issue-assignee-issue-1"]')!);
-  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search people or your agents…"]')!;
+  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search people…"]')!;
   expect(search).not.toBeNull();
   await fill(search, 'Bob');
   const choice = Array.from(document.querySelectorAll('button')).find(item => item.textContent === 'Bob')!;
   await click(choice);
   expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ assignee: 'human:bob@example.com' }));
-  expect(document.querySelector('input[aria-label="Search people or your agents…"]')).toBeNull();
+  expect(document.querySelector('input[aria-label="Search people…"]')).toBeNull();
 });
 
-
-it('prepares work within the issue without starting it', async () => {
-  mocks.ws.createTask.mockResolvedValue({ id: 'run-1' });
-  await openIssue();
-  await click(button('Add agent work'));
-  const dialog = host.querySelector('[role="dialog"]')!;
-  await fill(dialog.querySelector('textarea')!, 'Investigate the drop');
-  await click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Create')!);
-  expect(mocks.ws.createTask).toHaveBeenCalledWith(expect.objectContaining({ issueId: issue.id, title: issue.title, description: 'Investigate the drop', status: 'backlog' }));
-  expect(mocks.ws.runTask).not.toHaveBeenCalled();
-});
-
-it('runs linked work without changing the issue status', async () => {
-  mocks.ws.tasks = [{ id: 'run-1', issueId: issue.id, title: 'Investigate', description: '', status: 'backlog', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: null } as unknown as KanbanTask];
-  mocks.ws.runTask.mockResolvedValue(undefined);
-  await openIssue();
-  await click(button('Run'));
-  expect(mocks.ws.runTask).toHaveBeenCalledWith('run-1');
-  expect(mocks.api.updateIssue).not.toHaveBeenCalled();
-  expect(host.textContent).toContain('Completing a run does not close the issue');
-});
 
 it('keeps existing standalone work reachable inside Issues', async () => {
   mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
@@ -394,19 +373,7 @@ it('keeps existing standalone work reachable inside Issues', async () => {
 });
 
 
-it('keeps the work draft when preparing a run fails', async () => {
-  mocks.ws.createTask.mockRejectedValueOnce(new Error('Could not save work'));
-  await openIssue();
-  await click(button('Add agent work'));
-  const dialog = host.querySelector('[role="dialog"]')!;
-  await fill(dialog.querySelector('textarea')!, 'Keep my investigation notes');
-  await click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Create')!);
-  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
-  expect(dialog.querySelector('textarea')!.value).toBe('Keep my investigation notes');
-  expect(dialog.textContent).toContain('Could not save work');
-});
-
-it('creates assigned agent work with knowledge and waits for attachments to upload', async () => {
+it('creates a human-assigned issue and waits for attachments to upload', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
     { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
   mocks.ws.knowledge = [{ id: 'guide-1', title: 'Support guide', description: 'Reference notes' }];
@@ -417,12 +384,8 @@ it('creates assigned agent work with knowledge and waits for attachments to uplo
   await fill(host.querySelector('input[required]')!, 'Review evidence');
   await click(host.querySelector('button[aria-label="Assignee"]')!);
   expect(document.querySelector('[cmdk-list]')?.textContent).not.toContain('Other agent');
-  expect(host.textContent).not.toContain('Support guide');
-  expect(document.querySelector('[cmdk-list]')?.textContent).toContain('Your agents');
-  const search = document.querySelector('input[cmdk-input]')! as HTMLInputElement;
-  await fill(search, 'Research');
-  await click(document.querySelector('[cmdk-item][data-value="openagents:research-agent"]')!);
-  await click(Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes('Support guide'))!);
+  expect(document.querySelector('[cmdk-list]')?.textContent).not.toContain('Research agent');
+  await click(document.querySelector('[cmdk-item][data-value="human:alice-id"]')!);
   let finish!: (value: unknown) => void;
   mocks.api.uploadFile.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const input = host.querySelector('input[type="file"]')!;
@@ -439,7 +402,7 @@ it('creates assigned agent work with knowledge and waits for attachments to uplo
   expect(host.textContent).toContain('evidence.txt');
   await click(button('Create issue'));
   expect(mocks.api.createIssue).toHaveBeenLastCalledWith(expect.objectContaining({
-    assignee: 'openagents:research-agent', knowledge_ids: ['guide-1'], file_ids: ['file-1'],
+    assignee: 'human:alice-id', file_ids: ['file-1'],
   }));
   expect(mocks.ws.runTask).not.toHaveBeenCalled();
 });
@@ -454,25 +417,17 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
-it('requires an agent assignment when creating from Agent work and supports keyboard selection', async () => {
-  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' }];
+it('offers only human assignees even when creating from My agent tasks', async () => {
+  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'online' }];
   await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
   await click(button('New issue'));
-  await fill(host.querySelector('input[required]')!, 'Agent investigation');
-  expect(button('Create issue').disabled).toBe(true);
+  await fill(host.querySelector('input[required]')!, 'Investigation');
+  expect(button('Create issue').disabled).toBe(false);
   await click(host.querySelector('button[aria-label="Assignee"]')!);
   const list = document.querySelector('[cmdk-list]')!;
-  expect(list.textContent).toContain('Your agents');
-  expect(list.textContent).not.toContain('Alice');
-  expect(list.textContent).not.toContain('Unassigned');
-  const search = document.querySelector('input[cmdk-input]')! as HTMLInputElement;
-  await fill(search, 'Research');
-  await act(async () => { search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
-  expect(document.querySelector('[cmdk-list]')).toBeNull();
-  expect(mocks.api.createIssue).not.toHaveBeenCalled();
-  expect(button('Create issue').disabled).toBe(false);
-  await click(button('Create issue'));
-  expect(mocks.api.createIssue).toHaveBeenCalledWith(expect.objectContaining({ assignee: 'openagents:research-agent' }));
+  expect(list.textContent).toContain('Alice');
+  expect(list.textContent).toContain('Unassigned');
+  expect(list.textContent).not.toContain('Research agent');
 });
 
 it('requests assignments to the signed-in user across search, pagination, and board view', async () => {
@@ -520,4 +475,80 @@ it('defaults to active issues and only requests inactive issues through their ta
     expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ activeOnly: false, status }));
     expect(Array.from(host.querySelectorAll('section h2')).map(h => h.textContent)).toEqual([label]);
   }
+});
+
+async function chooseWorkAgent() {
+  mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:research-agent', display_name: 'Research agent', status: 'online' }] });
+  await openIssue();
+  await click(button('Assign to an agent'));
+  await click(document.querySelector('button[aria-label="Agent"]')!);
+  await click(document.querySelector('[cmdk-item][data-value="openagents:research-agent"]')!);
+}
+
+it.each(['Investigate the screenshots', ''])('invites an agent and posts its mention with optional instructions: %s', async instruction => {
+  await chooseWorkAgent();
+  await fill(host.querySelector('textarea[aria-label="Instructions (optional)"]')!, instruction);
+  await click(button('Assign to agent'));
+  expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith(issue.id, [{ kind: 'agent', id: 'research-agent' }]);
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ content: '@research-agent' + (instruction ? ' ' + instruction : '') }));
+  expect(mocks.api.addIssueParticipants.mock.invocationCallOrder[0]).toBeLessThan(mocks.api.commentOnIssue.mock.invocationCallOrder[0]);
+  expect(mocks.api.updateIssue).not.toHaveBeenCalled();
+  expect(mocks.ws.createTask).not.toHaveBeenCalled();
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it('preserves instructions when adding the participant fails and does not post a comment', async () => {
+  await chooseWorkAgent();
+  await fill(host.querySelector('textarea[aria-label="Instructions (optional)"]')!, 'Keep these notes');
+  mocks.api.addIssueParticipants.mockRejectedValueOnce(new Error('Could not add agent'));
+  await click(button('Assign to agent'));
+  expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Could not add agent');
+  expect((host.querySelector('textarea[aria-label="Instructions (optional)"]') as HTMLTextAreaElement).value).toBe('Keep these notes');
+  await click(button('Assign to agent'));
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledTimes(1);
+});
+
+it('does not offer reposting when the comment saved but dispatch failed', async () => {
+  await chooseWorkAgent();
+  mocks.api.commentOnIssue.mockResolvedValueOnce({ id: 'comment-1', dispatch_error: 'Comment saved but delivery failed' });
+  await click(button('Assign to agent'));
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toContain('Comment saved but delivery failed');
+});
+
+it('shows activity only for online agents working in a linked conversation and clears it on completion', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, threads: [{ channel_name: 'linked', title: 'Investigation', agents: ['research-agent'], status: 'active' }] });
+  mocks.ws.agents = [
+    { agentName: 'research-agent', displayName: 'Research agent', status: 'online', busyChannels: ['linked'] },
+    { agentName: 'unrelated', status: 'online', busyChannels: ['other'] },
+    { agentName: 'offline', status: 'offline', busyChannels: ['linked'] },
+  ];
+  await openIssue();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Research agent is working');
+  expect(host.textContent?.match(/Research agent is working/g)).toHaveLength(2);
+  mocks.ws.agents = [{ agentName: 'research-agent', status: 'online', busyChannels: [] }];
+  await act(async () => root.render(createElement(IssuesView)));
+  expect(host.querySelector('[role="status"]')).toBeNull();
+  expect(host.textContent).not.toContain('is working');
+});
+
+it('retains the draft on comment failure and prevents duplicate submissions while pending', async () => {
+  await chooseWorkAgent();
+  await fill(host.querySelector('textarea[aria-label="Instructions (optional)"]')!, 'Investigate');
+  let reject!: (e: Error) => void;
+  mocks.api.commentOnIssue.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  await click(button('Assign to agent'));
+  expect(button('Assign to agent').disabled).toBe(true);
+  await click(button('Assign to agent'));
+  expect(mocks.api.commentOnIssue).toHaveBeenCalledTimes(1);
+  await act(async () => reject(new Error('Comment unavailable')));
+  expect((host.querySelector('textarea[aria-label="Instructions (optional)"]') as HTMLTextAreaElement).value).toBe('Investigate');
+  expect(host.textContent).toContain('Comment unavailable');
+});
+
+it('requires reopening a closed issue before assigning an agent', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, status: 'closed' });
+  await openIssue();
+  expect(button('Assign to an agent').disabled).toBe(true);
 });

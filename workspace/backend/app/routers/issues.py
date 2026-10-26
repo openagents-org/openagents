@@ -169,12 +169,8 @@ def _resolve_assignee(db, workspace, actor, assignee):
         if member is None:
             raise HTTPException(422, "Choose a workspace member")
         assignee = f"human:{member.email.lower()}"
-    elif kind == "openagents":
-        member = db.get(WorkspaceMember, (str(workspace.id), identifier))
-        if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
-            raise HTTPException(403, "You can only assign your own agents")
     else:
-        raise HTTPException(422, "Choose a person or one of your agents")
+        raise HTTPException(422, "Issue assignees must be human workspace members. Mention an agent in the discussion to request work.")
     return assignee, member.display_name or identifier
 
 
@@ -421,11 +417,6 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
-    if assignee and assignee.startswith("openagents:"):
-        from app.models import KanbanTask
-        db.add(KanbanTask(workspace_id=workspace.id, issue_id=issue.id,
-            title=issue.title, description=issue.description, status="backlog",
-            assignee=assignee.removeprefix("openagents:"), created_by=actor))
     db.commit()
     return success_response(_serialize(issue))
 
