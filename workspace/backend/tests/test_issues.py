@@ -707,3 +707,53 @@ def test_edit_attachment_does_not_require_access_to_unchanged_knowledge(client, 
     assert response.status_code == 200, response.text
     assert response.json()['data']['knowledge_ids'] == [entry.id]
     assert response.json()['data']['file_ids'] == []
+
+
+def test_creator_sets_changes_and_clears_calendar_due_date(client, workspace, two_members):
+    issue = create(client, workspace, source='human:ann@acme.test')
+    assert issue['due_date'] is None
+    url = path(workspace, f"/{issue['id']}")
+    for value in ('2028-02-29', '2028-03-01', None):
+        response = client.patch(url, headers=_bearer('ann'), json={'due_date': value, 'source': 'human:ben@acme.test'})
+        assert response.status_code == 200, response.text
+        assert response.json()['data']['due_date'] == value
+        assert detail(client, workspace, issue)['due_date'] == value
+    history = detail(client, workspace, issue)['comments']
+    assert [(c['kind'], c['content'], c['author']) for c in history] == [
+        ('due_date', '2028-02-29', 'human:ann@acme.test'),
+        ('due_date', '2028-03-01', 'human:ann@acme.test'),
+        ('due_date', '', 'human:ann@acme.test'),
+    ]
+    # Omission and a no-op clear preserve the value/history.
+    client.patch(url, headers=_bearer('ann'), json={'title': 'Updated'})
+    client.patch(url, headers=_bearer('ann'), json={'due_date': None})
+    assert len(detail(client, workspace, issue)['comments']) == 3
+
+
+@pytest.mark.parametrize('value', ['2027-01-01', None])
+def test_assignee_and_spoofed_creator_cannot_edit_due_date(client, workspace, two_members, value):
+    issue = create(client, workspace, source='human:ann@acme.test')
+    url = path(workspace, f"/{issue['id']}")
+    client.patch(url, headers=_bearer('ann'), json={'assignee': 'human:ben@acme.test', 'due_date': '2026-12-31'})
+    for auth in (_bearer('ben'), headers(workspace)):
+        response = client.patch(url, headers=auth, json={'due_date': value, 'source': 'human:ann@acme.test', 'title': 'Must not save'})
+        assert response.status_code == 403, response.text
+    result = detail(client, workspace, issue)
+    assert result['due_date'] == '2026-12-31'
+    assert result['title'] == issue['title']
+
+
+@pytest.mark.parametrize('value', ['2026-02-29', '2026-13-01', '2026-1-01', '2026-01-01T00:00:00Z', '', 1792895521, True])
+def test_due_date_rejects_invalid_dates_and_timestamps(client, workspace, two_members, value):
+    issue = create(client, workspace, source='human:ann@acme.test')
+    response = client.patch(path(workspace, f"/{issue['id']}"), headers=_bearer('ann'), json={'due_date': value})
+    assert response.status_code == 422, response.text
+    assert detail(client, workspace, issue)['due_date'] is None
+
+
+def test_due_date_visible_in_list_and_editable_on_closed_issues(client, workspace, two_members):
+    issue = create(client, workspace, source='human:ann@acme.test')
+    response = client.patch(path(workspace, f"/{issue['id']}"), headers=_bearer('ann'), json={'status': 'closed', 'due_date': '2026-01-01'})
+    assert response.status_code == 200
+    listing = client.get(path(workspace), headers=_bearer('ben')).json()['data']['issues']
+    assert next(row for row in listing if row['id'] == issue['id'])['due_date'] == '2026-01-01'

@@ -16,6 +16,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -828,6 +829,7 @@ class Issue(Base):
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False, default="", server_default="")
     status = Column(Text, nullable=False, default="open", server_default="open")
+    due_date = Column(Date, nullable=True)
     assignee = Column(Text, nullable=True)
     assignee_name = Column(Text, nullable=True)
     labels = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))

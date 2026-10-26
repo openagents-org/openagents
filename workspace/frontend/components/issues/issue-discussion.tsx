@@ -6,6 +6,7 @@ import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  CalendarDays,
   Paperclip,
   BookOpen,
   ArrowLeft,
@@ -353,7 +354,7 @@ export function IssueDiscussion({
                     if (c.approval) return <ApprovalCard key={c.id} approval={c.approval} onResolved={() => void refresh()} />;
                     const name = c.author_name || authorName(c.author);
                     const activity =
-                      c.kind === 'status' || c.kind === 'activity';
+                      c.kind === 'status' || c.kind === 'activity' || c.kind === 'due_date';
                     const status = c.content.split(' → ')[1] as IssueStatus;
                     if (activity)
                       return (
@@ -362,7 +363,7 @@ export function IssueDiscussion({
                           className="relative flex gap-3 text-xs"
                         >
                           <span className="z-10 flex size-7 shrink-0 items-center justify-center rounded-full bg-background ring-4 ring-background">
-                            {c.kind === 'status' ? (
+                            {c.kind === 'due_date' ? <CalendarDays className="size-3.5 text-muted-foreground" /> : c.kind === 'status' ? (
                               <StatusIcon
                                 status={
                                   statuses.includes(status) ? status : 'open'
@@ -383,7 +384,7 @@ export function IssueDiscussion({
                                     statusKeys[status] ?? 'issues.open',
                                   ),
                                 })
-                              : t('issues.workStarted')}
+                              : c.kind === 'due_date' ? (c.content ? t('issues.dueDateSet', { date: c.content }) : t('issues.dueDateRemoved')) : t('issues.workStarted')}
                             <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">
                               {timeAgo(c.created_at)}
                             </span>

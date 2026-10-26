@@ -7,6 +7,7 @@ import { useMe } from '@/hooks/use-me';
 import { useT } from '@/lib/i18n';
 import type { IssueDetail, TeamMember } from '@/lib/types';
 import { IssueLabel } from './issue-label';
+import { IssueDueDate } from './issue-due-date';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { HumanAvatar } from '@/components/chat/human-avatar';
@@ -19,7 +20,7 @@ function AssigneeAvatar({ id }: { id: string }) {
 
 export function IssueProperties({ issue, busy, update }: {
   issue: IssueDetail; busy: boolean;
-  update: (values: { assignee?: string | null; labels?: string[] }) => void;
+  update: (values: { due_date?: string | null; assignee?: string | null; labels?: string[] }) => void;
 }) {
   const { workspace, agents } = useWorkspace();
   const me = useMe(workspace?.workspaceId);
@@ -68,6 +69,7 @@ export function IssueProperties({ issue, busy, update }: {
         </PopoverContent>
       </Popover>
     </section>
+    <IssueDueDate issue={issue} busy={busy} canEdit={!!actor && actor === issue.created_by.toLowerCase()} update={update} />
     <section className="space-y-2.5">
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-medium text-muted-foreground">{t('issues.labels')}</h3>
