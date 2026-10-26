@@ -1,0 +1,55 @@
+{
+  "version": "1.1.8",
+  "date": "2026-10-26",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Issues: filter by assignee, set due dates, preview images",
+        "zh": "议题支持按指派人筛选、设置截止日期和预览图片"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Read status syncs across your devices",
+        "zh": "已读状态在多台设备间同步"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Drag files into attachments; pasted rich text keeps its formatting",
+        "zh": "附件支持拖拽上传，粘贴富文本时保留格式"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "A missing model is now flagged at the model field",
+        "zh": "未填写模型时，提示直接显示在模型字段下方"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Hermes signed in through its CLI no longer uses a custom endpoint or API key",
+        "zh": "通过 CLI 登录的 Hermes 不再沿用自定义接口地址和 API Key"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Sign-in checks no longer read stored credentials from the macOS Keychain",
+        "zh": "登录检测不再读取 macOS 钥匙串中保存的凭据内容"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agent health warnings can be dismissed",
+        "zh": "智能体健康提醒可以关闭"
+      }
+    }
+  ]
+}
