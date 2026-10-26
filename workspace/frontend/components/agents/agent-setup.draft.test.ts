@@ -92,8 +92,8 @@ it('marks the model required above the picker and says so there when it is skipp
   expect(host.textContent).toContain(`${messages.connect.byokModelLabel} * ${messages.connect.requiredMark}`);
   await act(async () => addButton().click());
   expect(api.enqueueNodeCommand).not.toHaveBeenCalled();
-  // Once beside the picker, once in the footer beside Add.
-  expect(alerts().filter((a) => a === messages.connect.byokModelRequired)).toHaveLength(2);
+  // Under the picker only; the footer stays clear.
+  expect(alerts().filter((a) => a === messages.connect.byokModelRequired)).toHaveLength(1);
 });
 
 it('says a name is taken while it is typed', async () => {

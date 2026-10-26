@@ -26,7 +26,8 @@ from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
-from app.services.poll_queries import event_type_filter, resume_cursor, stream_head
+from app.services.read_state import stream_allows as read_state_stream_allows
+from app.services.poll_queries import event_type_filter, poll_generation, resume_cursor, stream_head
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -323,7 +324,7 @@ def _attribute_direct_sender(db, workspace, token, authorization, source, payloa
 def send_event(
     body: SendEventRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -620,7 +621,7 @@ def resolve_routing_choice(
     body: RoutingChoiceRequest,
     network: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -809,8 +810,14 @@ def poll_events(
     # This is a strict correctness guarantee: we only route to Level 2 when
     # the caller's cursor is EQUAL to the tracked head. Agents that are
     # behind (historical backfill) fall through to Level 1 / DB.
+    #
+    # Both cached answers carry the workspace's event-write generation, which
+    # changes on every committed event write. The enumerated invalidation in
+    # _invalidate_poll_cache only covers workspace-wide filters, so without
+    # the generation a `channel=`/`target=`/`conversation=` poll could be
+    # served a page cached just before a new event landed in its thread.
     cache_key = None
-    at_head_key = None
+    athead_cache_key = None
     head_tracker_key = None
     incoming_after = after or ""
     # `target_agents` is a per-agent filter — every agent sends a distinct
@@ -828,6 +835,8 @@ def poll_events(
             key_parts.append(exclude_message_types)
         if dm_scope:
             key_parts.append("viewer=" + dm_scope)
+        generation = poll_generation(workspace_id)
+        key_parts.append("gen=" + generation)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
@@ -841,6 +850,7 @@ def poll_events(
             dm_scope or "",
         )
         head_tracker_key = "v1events:head:" + filter_hash
+        athead_cache_key = "v1events:athead:" + filter_hash + ":" + generation
 
         import json as _json
 
@@ -861,8 +871,7 @@ def poll_events(
             if head_id is not None:
                 head_id_str = head_id.decode("utf-8") if isinstance(head_id, bytes) else str(head_id)
                 if head_id_str and head_id_str == incoming_after:
-                    at_head_key = "v1events:athead:" + filter_hash
-                    cached_empty = cache.get_bytes(at_head_key)
+                    cached_empty = cache.get_bytes(athead_cache_key)
                     if cached_empty is not None:
                         try:
                             return _json.loads(cached_empty)
@@ -1091,14 +1100,13 @@ def poll_events(
                         # confirms "after = head" for this filter. Populate
                         # both the head tracker (so other clients can match)
                         # and the shared at-head empty response.
-                        filter_hash = head_tracker_key.split(":")[-1]
                         cache.set_bytes(
                             head_tracker_key,
                             incoming_after.encode("utf-8"),
                             ttl_seconds=30.0,
                         )
                         cache.set_bytes(
-                            "v1events:athead:" + filter_hash,
+                            athead_cache_key,
                             serialized,
                             ttl_seconds=1.5,
                         )
@@ -1201,6 +1209,11 @@ def list_conversations(
     pairs = db.execute(base).all()
 
     from app.models import DirectThreadLink, DirectThreadPreference
+    # Stored per-person markers (shared across devices) merge with the ones
+    # older clients still send from local storage; the newer one wins.
+    from app.services.read_state import merged_for_viewer
+    read_markers = merged_for_viewer(db, workspace.id, viewer, read_markers, keep=lambda key: key.startswith('dm:'))
+
     preferences = {}
     if viewer.is_human and viewer.email:
         preferences = {key: pref for key, pref in db.execute(
@@ -1482,7 +1495,9 @@ async def stream_events(
                     event = _json.loads(data)
                     if stream_filter is not None:
                         await stream_filter.maybe_refresh(event)
-                    if stream_filter is not None and not stream_filter.allows(event):
+                    if not read_state_stream_allows(event, viewer):
+                        pass
+                    elif stream_filter is not None and not stream_filter.allows(event):
                         pass
                     elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")

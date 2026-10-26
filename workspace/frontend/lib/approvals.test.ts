@@ -86,3 +86,14 @@ it('requires the named reviewer, retaining independent role requirements', () =>
   approval.policyRequirements.approved_by = ['sam@example.com'];
   expect(canActOnApproval({ ...me('member'), email: 'sam@example.com' }, approval, true)).toBe(false);
 });
+
+
+it('normalizes flag-only metadata and preserves reviewer restrictions when approval history is absent', () => {
+  const base = { id: 'native', required_role: 'any', policy_requirements: { require_human: true, resume_in_place: true } };
+  const flags = approvalFromMetadata({ approval: base })!;
+  expect(flags.policyRequirements).toMatchObject({ members: [], approved_by: [] });
+  expect(canActOnApproval({ ...me('member'), email: 'sam@example.com' }, flags, true)).toBe(true);
+  const named = approvalFromMetadata({ approval: { ...base, policy_requirements: { members: ['sam@example.com'] } } })!;
+  expect(canActOnApproval({ ...me('member'), email: 'sam@example.com' }, named, true)).toBe(true);
+  expect(canActOnApproval({ ...me('member'), email: 'other@example.com' }, named, true)).toBe(false);
+});

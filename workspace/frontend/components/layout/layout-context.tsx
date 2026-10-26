@@ -193,6 +193,8 @@ interface LayoutState {
    * board: a `task:<id>` channel whose chat popup should open on arrival.
    * TasksView consumes and clears it.
    */
+  pendingIssueId: string | null;
+  setPendingIssueId: (id: string | null) => void;
   pendingTaskChannel: string | null;
   setPendingTaskChannel: (channel: string | null) => void;
 }
@@ -214,6 +216,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   }, []);
   const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
+  const [pendingIssueId, setPendingIssueId] = useState<string | null>(null);
   const [pendingTaskChannel, setPendingTaskChannel] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
   useEffect(() => {
@@ -339,6 +342,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setFilesSection,
       filesBrowse,
       setFilesBrowse,
+      pendingIssueId,
+      setPendingIssueId,
       pendingTaskChannel,
       setPendingTaskChannel,
       openView,

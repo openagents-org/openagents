@@ -1,12 +1,14 @@
 'use client';
 
 import { IssueWork } from './issue-work';
+import { WorkingBubble } from '@/components/chat/working-bubble';
+import { IssueAttachments } from './issue-attachments';
 import { resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Paperclip,
+  CalendarDays,
   BookOpen,
   ArrowLeft,
   ArrowUpRight,
@@ -19,6 +21,7 @@ import {
   Pencil,
   PanelRight,
   Send,
+  Reply,
   ChevronDown,
 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -68,11 +71,13 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents, workspace } = useWorkspace();
+  const { currentUser, sessions, refreshAgents, workspace, agents } = useWorkspace();
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [comment, setComment] = useState('');
+  const [replyTo, setReplyTo] = useState<{ eventId: string; name: string } | null>(null);
+  useEffect(() => { setReplyTo(null); setComment(''); }, [id]);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -149,6 +154,13 @@ export function IssueDiscussion({
     );
   }
 
+  const workingIn = (channel: string) => agents.filter(agent => agent.status === 'online' && agent.busyChannels?.includes(channel));
+  // The API returns links oldest first. Reverse before stable activity sorting
+  // so the newest active conversation leads, followed by the newest idle ones.
+  const linkedThreads = [...(issue?.threads || [])].reverse().sort((a, b) => Number(workingIn(b.channel_name).length > 0) - Number(workingIn(a.channel_name).length > 0));
+  const workingAgents = agents.filter(agent => agent.status === 'online' && issue?.threads.some(thread => agent.busyChannels?.includes(thread.channel_name)));
+  const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
+  const activityIndicator = (names: typeof agents) => <span className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span aria-hidden="true" className="inline-flex shrink-0 items-center gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />)}</span><span className="truncate">{workingLabel(names)}</span></span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
   const mentions = useIssueMentions(issue);
   const agentNames = mentions
@@ -312,7 +324,7 @@ export function IssueDiscussion({
                   </time>
                 </div>
               </header>
-              <article className="mb-10 text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
+              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
                 {issue.description ? (
                   <MarkdownContent
                     content={issue.description}
@@ -328,11 +340,11 @@ export function IssueDiscussion({
               </article>
               {((issue.attachments?.length ?? 0) > 0 || (issue.knowledge?.length ?? 0) > 0) && (
                 <div className="mb-8 flex flex-wrap gap-2">
-                  {issue.attachments?.map(file => <a key={file.file_id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'files', file.file_id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><Paperclip className="size-3.5 shrink-0" /><span className="truncate">{file.filename}</span></a>)}
+                  <IssueAttachments files={issue.attachments || []} workspaceId={workspace?.slug || workspace?.workspaceId || ''} />
                   {issue.knowledge?.map(entry => <a key={entry.id} href={resourcePath(workspace?.slug || workspace?.workspaceId || '', 'knowledge', entry.id)} className="inline-flex max-w-full items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted"><BookOpen className="size-3.5 shrink-0" /><span className="truncate">{entry.title}</span></a>)}
                 </div>
               )}
-              <IssueWork issueId={id} title={issue.title} />
+              <IssueWork key={id} issueId={id} closed={issue.status === 'closed'} onPosted={warning => { setError(warning || ''); void refresh(); void refreshAgents(); onChanged(); }} />
               <section aria-label={t('issues.discussion')}>
                 <div className="mb-6 flex items-center gap-2 border-b border-border/70 pb-3">
                   <MessageSquare className="size-3.5 text-muted-foreground" />
@@ -353,7 +365,7 @@ export function IssueDiscussion({
                     if (c.approval) return <ApprovalCard key={c.id} approval={c.approval} onResolved={() => void refresh()} />;
                     const name = c.author_name || authorName(c.author);
                     const activity =
-                      c.kind === 'status' || c.kind === 'activity';
+                      c.kind === 'status' || c.kind === 'activity' || c.kind === 'due_date';
                     const status = c.content.split(' → ')[1] as IssueStatus;
                     if (activity)
                       return (
@@ -362,7 +374,7 @@ export function IssueDiscussion({
                           className="relative flex gap-3 text-xs"
                         >
                           <span className="z-10 flex size-7 shrink-0 items-center justify-center rounded-full bg-background ring-4 ring-background">
-                            {c.kind === 'status' ? (
+                            {c.kind === 'due_date' ? <CalendarDays className="size-3.5 text-muted-foreground" /> : c.kind === 'status' ? (
                               <StatusIcon
                                 status={
                                   statuses.includes(status) ? status : 'open'
@@ -383,7 +395,7 @@ export function IssueDiscussion({
                                     statusKeys[status] ?? 'issues.open',
                                   ),
                                 })
-                              : t('issues.workStarted')}
+                              : c.kind === 'due_date' ? (c.content ? t('issues.dueDateSet', { date: c.content }) : t('issues.dueDateRemoved')) : t('issues.workStarted')}
                             <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">
                               {timeAgo(c.created_at)}
                             </span>
@@ -429,11 +441,28 @@ export function IssueDiscussion({
                               humanNames={humanNames}
                             />
                           </div>
+                          {c.kind === 'result' && c.source_event_id && c.reply_channel_name && (
+                            <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+                              disabled={busy || issue.status === 'closed'}
+                              onClick={() => {
+                                setReplyTo({ eventId: c.source_event_id!, name });
+                                const mention = `@${c.author.replace(/^openagents:/, '')}`;
+                                setComment(value => value.startsWith(`${mention} `) || value === mention ? value : `${mention} ${value}`);
+                                requestAnimationFrame(() => {
+                                  const input = document.getElementById(`issue-comment-${id}`);
+                                  input?.focus();
+                                  input?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                                });
+                              }}>
+                              <Reply className="size-3.5" />{t('issues.reply')}
+                            </Button>
+                          )}
                         </div>
                       </article>
                     );
                   })}
                 </div>
+                {workingAgents.length > 0 && <div className="thread-wip mt-6 space-y-2 rounded-xl border border-border/60 px-4 py-3">{workingAgents.map(agent => <WorkingBubble key={agent.agentName} agentName={agent.agentName} agents={workingAgents} status={t('chat.agentWorking')} />)}</div>}
                 <form
                   className="relative mt-8 flex gap-3"
                   onKeyDownCapture={(e) => {
@@ -450,9 +479,10 @@ export function IssueDiscussion({
                       () =>
                         workspaceApi.commentOnIssue(id, {
                           content: comment,
+                          ...(replyTo ? { reply_to_event_id: replyTo.eventId } : {}),
                           ...identity,
                         }).then((result) => { if (result.dispatch_error) setError(result.dispatch_error); }),
-                      () => setComment(''),
+                      () => { setComment(''); setReplyTo(null); },
                     );
                   }}
                 >
@@ -460,6 +490,10 @@ export function IssueDiscussion({
                     <IssueAvatar name={currentUser.name} source={source} />
                   </span>
                   <div className="min-w-0 flex-1 rounded-lg border border-border bg-background shadow-xs transition-shadow focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/10">
+                    {replyTo && <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+                      <span>{t('issues.replyingTo', { name: replyTo.name })}</span>
+                      <button type="button" disabled={busy} onClick={() => setReplyTo(null)} aria-label={t('issues.cancelReply')} className="rounded p-1 hover:bg-muted"><X className="size-3.5" /></button>
+                    </div>}
                     <label
                       className="block px-4 pt-3 text-xs font-medium"
                       htmlFor={`issue-comment-${id}`}
@@ -598,8 +632,8 @@ export function IssueDiscussion({
                     </button>
                   </div>
                   <div className="space-y-4">
-                    {issue.threads.map((th) => (
-                      <div key={th.channel_name}>
+                    {linkedThreads.map((th) => (
+                      <div key={th.channel_name} className={cn("relative rounded-lg transition-colors", workingIn(th.channel_name).length > 0 && "thread-wip border border-border/60 p-3")}>
                         <button
                           className="group flex w-full items-start gap-2 text-left text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() =>
@@ -614,8 +648,8 @@ export function IssueDiscussion({
                             <span className="line-clamp-2 font-medium group-hover:underline">
                               {th.title}
                             </span>
-                            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                              {th.agents.join(', ')}
+                            <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+                              {workingIn(th.channel_name).length > 0 ? activityIndicator(workingIn(th.channel_name)) : th.agents.join(', ')}
                             </span>
                           </span>
                           <ArrowUpRight className="mt-1 size-3 shrink-0 text-muted-foreground/50" />

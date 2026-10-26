@@ -456,10 +456,6 @@ export function AgentSetup({
   // Name problems sit under the name field, not with the form-wide error, so
   // a taken name is fixed where it is typed and nothing else is cleared.
   const [nameError, setNameError] = useState<string | null>(null);
-  // Set when Add is pressed without a model; the model picker then says so
-  // itself, since the footer error sits far below it on a tall form.
-  const [modelMissing, setModelMissing] = useState(false);
-  const modelRef = useRef<HTMLDivElement>(null);
   // Marketplace toolbar state (selection mode).
   const [marketQuery, setMarketQuery] = useState('');
   const [marketCat, setMarketCat] = useState('all');
@@ -652,6 +648,22 @@ export function AgentSetup({
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
+  // A model the form cannot save without is reported under the model field,
+  // which takes focus, rather than on the line beside the buttons.
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  const failModel = (message: string) => {
+    // No model field on screen yet (the key's model list is still loading):
+    // the form-wide line is the only place left to say it.
+    if (!modelFieldRef.current) { setError(message); return; }
+    setModelError(message);
+    requestAnimationFrame(() => {
+      const field = modelFieldRef.current?.querySelector<HTMLElement>('input, button');
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      field?.focus({ preventScroll: true });
+    });
+  };
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
   // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
@@ -756,13 +768,8 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
-    if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
-    if (byok && byokAccessId && !model.trim()) {
-      setModelMissing(true);
-      setError(t('connect.byokModelRequired'));
-      modelRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-      return;
-    }
+    if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
+    if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
@@ -1100,14 +1107,11 @@ export function AgentSetup({
                       required up here: the only other word of it was the
                       footer error, out of sight below a tall form. */}
                   {byokModels && (
-                    <div ref={modelRef} className="space-y-1.5">
+                    <div ref={modelFieldRef} className="space-y-1.5">
                       <Label className="text-xs font-medium">
                         {t('connect.byokModelLabel')}{' '}
                         <span className="text-destructive">* {t('connect.requiredMark')}</span>
                       </Label>
-                      {modelMissing && !model.trim() && (
-                        <p role="alert" className="text-xs font-medium text-destructive">{t('connect.byokModelRequired')}</p>
-                      )}
                       <Select
                         value={byokCustomModel ? CUSTOM_MODEL : model || undefined}
                         onValueChange={(v) => {
@@ -1116,7 +1120,7 @@ export function AgentSetup({
                           setByokTest({ state: 'idle' });
                         }}
                       >
-                        <SelectTrigger aria-invalid={modelMissing && !model.trim()} className="h-10 w-full">
+                        <SelectTrigger aria-invalid={!!modelError} className="h-10 w-full">
                           <SelectValue placeholder={t('connect.byokChooseModel')} />
                         </SelectTrigger>
                         <SelectContent>
@@ -1130,13 +1134,14 @@ export function AgentSetup({
                       </Select>
                       {byokCustomModel && (
                         <Input
-                          aria-invalid={modelMissing && !model.trim()}
                           value={model}
+                          aria-invalid={!!modelError}
                           onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
                           placeholder="claude-sonnet-4-6"
                           className="h-10 text-sm font-mono"
                         />
                       )}
+                      {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
                       <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
@@ -1316,7 +1321,10 @@ export function AgentSetup({
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
               {(!pickerModels || !!baseUrl.trim()) && (
-                <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                <div ref={modelFieldRef} className="space-y-1.5">
+                  <Input data-testid="agent-setup-model" aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} aria-invalid={!!modelError} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                  {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                </div>
               )}
             </div>
           )}

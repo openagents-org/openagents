@@ -7,6 +7,7 @@ POST   /v1/files/upload           Upload into a folder, keeping the filename
 GET    /v1/files                  List files in a workspace
 GET    /v1/files/browse           Browse one folder: subfolders, files, counts
 GET    /v1/files/{file_id}        Download a file
+PUT    /v1/files/{file_id}/content  Save an edited markdown file
 DELETE /v1/files/{file_id}        Soft-delete a file
 POST   /v1/files/trash            Move files/folders to the trash
 GET    /v1/files/trash            List the trash
@@ -16,6 +17,7 @@ POST   /v1/files/trash/purge      Delete trash entries permanently
 
 import asyncio
 import base64
+import hashlib
 import logging
 import re
 import uuid
@@ -1679,6 +1681,107 @@ def update_file_access(
         "uploaded_by": record.uploaded_by,
         "channel_name": record.channel_name,
         "created_at": record.created_at.isoformat() if record.created_at else None,
+        **_access_meta(db, workspace.id, _viewer, record),
+    })
+
+
+# ---------------------------------------------------------------------------
+# PUT /v1/files/{file_id}/content — save an edited markdown file
+# ---------------------------------------------------------------------------
+
+class FileContentPut(BaseModel):
+    """PUT /v1/files/{id}/content: the whole new text. `base_sha256` is the
+    hash of the bytes the editor opened; a mismatch means someone (often an
+    agent) saved in between, and the save is refused rather than clobbering it."""
+    network: str
+    content: str
+    base_sha256: Optional[str] = None
+    source: Optional[str] = None
+
+
+@router.put("/files/{file_id}/content")
+async def update_file_content(
+    file_id: str,
+    body: FileContentPut,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Overwrite a markdown file's text in place. Markdown only, for now."""
+    record = db.execute(
+        select(FileRecord).where(FileRecord.id == file_id)
+    ).scalar_one_or_none()
+    if not record or record.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "File not found")
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace or str(workspace.id) != str(record.workspace_id):
+        return json_response(ResponseCode.NOT_FOUND, "File not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    if kind_for(record.filename, record.content_type) != "markdown":
+        return json_response(ResponseCode.BAD_REQUEST, "Only markdown files can be edited")
+    # Editing takes `act`, same as editing a knowledge entry or deleting the file.
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    if not allowed(db, _viewer, resource_for_file(record), "act", str(workspace.id)):
+        return json_response(ResponseCode.FORBIDDEN, "No permission to edit this file")
+
+    data = body.content.encode("utf-8")
+    if len(data) > config.MAX_FILE_SIZE:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"File too large. Maximum size: {config.MAX_FILE_SIZE // (1024*1024)}MB",
+        )
+
+    store = get_file_store()
+    loop = asyncio.get_event_loop()
+    if body.base_sha256:
+        try:
+            current = await loop.run_in_executor(None, store.read, record.storage_key)
+        except FileNotFoundError:
+            current = b""
+        if hashlib.sha256(current).hexdigest() != body.base_sha256.strip().lower():
+            return json_response(
+                ResponseCode.CONFLICT,
+                "This file changed since you opened it. Reload it to see the latest version.",
+            )
+
+    # Write back to the same key (workspace/file_id/name), so every link to
+    # the file keeps working and nothing is orphaned in storage.
+    workspace_part, _, rest = record.storage_key.partition("/")
+    key_file_id, _, storage_name = rest.partition("/")
+    try:
+        storage_key = await loop.run_in_executor(
+            None, store.save, workspace_part, key_file_id, storage_name, data,
+        )
+    except ValueError as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
+    record.storage_key = storage_key
+    record.size = len(data)
+
+    db.commit()
+
+    event = Event(
+        type="workspace.file.updated",
+        source=_viewer.label,
+        target=f"channel/{record.channel_name}" if record.channel_name else "core",
+        payload={
+            "file_id": record.id,
+            "filename": record.filename,
+            "content_type": record.content_type,
+            "size": record.size,
+        },
+    )
+    await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+
+    return success_response({
+        "id": record.id,
+        "filename": record.filename,
+        "content_type": record.content_type,
+        "size": record.size,
+        "uploaded_by": record.uploaded_by,
+        "channel_name": record.channel_name,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "sha256": hashlib.sha256(data).hexdigest(),
         **_access_meta(db, workspace.id, _viewer, record),
     })
 

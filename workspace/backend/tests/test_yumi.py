@@ -590,6 +590,35 @@ class TestSpeakerAttribution:
         assert [m["content"] for m in plain] == ["hello team", "on it"]
         assert [m["content"] for m in labelled] == ["[Raphael] hello team", "[agent-alpha] on it"]
 
+    def test_profile_name_beats_email(self, client, yumi_enabled, db, quiet_background):
+        """OA-018: the web client sends only the email (or a login-provider
+        name); the name the user set in their profile must win."""
+        import time
+        from app.models import User
+        from app.services.cloud_agent import _build_conversation_context
+
+        db.add(User(email="cherie@example.com", display_name="Cherie Chen"))
+        db.commit()
+        data = _create_workspace(client)
+        ws, ch = data["workspaceId"], data["channel"]["name"]
+        _post(client, data, ch, "human:cherie@example.com", "hi yumi",
+              sender_name="cherie@example.com", sender_id="cherie@example.com")
+        horizon = int(time.time() * 1000) + 5000
+
+        ev = next(e for e in _events(client, data, ch) if e["source"].startswith("human:"))
+        assert ev["payload"]["sender_display_name"] == "Cherie Chen"
+        labelled = _build_conversation_context(
+            db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon, attribute_speakers=True,
+        )
+        assert labelled[-1]["content"] == "[Cherie Chen] hi yumi"
+
+    def test_label_falls_back_past_email_sender_name(self):
+        from app.services.cloud_agent import speaker_label
+
+        assert speaker_label("human:x", {"sender_name": "Cherie"}) == "Cherie"
+        assert speaker_label("human:x", {"sender_name": "c@example.com", "sender_email": "c@example.com"}) == "c"
+        assert speaker_label("human:x", {"sender_display_name": "Cherie Chen", "sender_name": "c@example.com"}) == "Cherie Chen"
+
 
 class TestDelegationRouting:
     def test_explicit_targets_are_honored_and_invite(self, client, yumi_enabled, quiet_background):

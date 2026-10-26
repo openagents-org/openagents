@@ -59,6 +59,8 @@ interface Props {
    * section when the field lives behind it, then scrolls it into view.
    */
   focusField?: { name: string; nonce: number } | null
+  /** Messages shown under their field, keyed by field name (e.g. a required one left empty). */
+  errors?: Record<string, string>
   /** Namespaces the input ids so two of these can coexist on one screen. */
   idPrefix?: string
   className?: string
@@ -89,6 +91,7 @@ export function AgentEnvFields({
   onChange,
   onImport,
   focusField,
+  errors,
   idPrefix = "agent-env",
   className,
 }: Props): React.JSX.Element {
@@ -203,6 +206,12 @@ export function AgentEnvFields({
               t("agents.envFields.enterField", { name: f.name })
             }
           />
+        )}
+        {errors?.[f.name] && (
+          <p role="alert" className="m-0 flex items-start gap-1.5 text-2xs leading-relaxed text-(--danger-text)">
+            <AlertCircle className="mt-px size-3.5 shrink-0" />
+            {errors[f.name]}
+          </p>
         )}
         {mismatch && (
           <p className="m-0 flex items-start gap-1.5 text-2xs leading-relaxed text-(--danger-text)">
