@@ -1,3 +1,4 @@
+import { normalizePolicyRequirements } from './approvals';
 import { getApiBaseUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
@@ -1177,6 +1178,7 @@ class WorkspaceApi {
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
       asleep: Boolean(t.asleep),
+      connectionStatus: t.connection_status as BrowserTab['connectionStatus'],
     };
   }
 
@@ -1254,10 +1256,18 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Validate a browser tab session — auto-reconnects if expired. */
+  /** Probe a browser session without waking or replacing it. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}?validate=true`,
+    );
+    return this.mapTab(result);
+  }
+
+  /** Wake the existing saved session and refresh its live-view URL. */
+  async reactivateBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reactivate`, { method: 'POST' },
     );
     return this.mapTab(result);
   }
@@ -1758,12 +1768,19 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
       ...(input.status ? { status: input.status } : {}),
+      ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
+      ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueLabels(): Promise<string[]> {
+    const result = await this.request<{ labels: string[] }>(this.issuePath('/labels'));
+    return result.labels;
   }
 
   async getIssue(id: string): Promise<IssueDetail> {
@@ -1781,11 +1798,11 @@ class WorkspaceApi {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
@@ -1940,7 +1957,7 @@ class WorkspaceApi {
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
-      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+      policyRequirements: normalizePolicyRequirements(a.policy_requirements),
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
@@ -2197,6 +2214,19 @@ class WorkspaceApi {
       notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
       unreadCount: raw.unread_count || 0,
     };
+  }
+
+  /**
+   * Store the signed-in person's read markers ({sessionId: readAtMs}) so their
+   * other devices see the thread / DM as read. Markers only move forward; the
+   * result is the stored marker per session (empty for token-only callers).
+   */
+  async markRead(markers: Record<string, number>): Promise<Record<string, number>> {
+    const raw = await this.request<{ markers?: Record<string, number> }>('/v1/read-state', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), markers }),
+    });
+    return raw?.markers ?? {};
   }
 
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */
@@ -2630,6 +2660,16 @@ class WorkspaceApi {
     const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ network: this.requireWorkspace(), visibility }),
+    });
+    return mapFileResponse(raw);
+  }
+
+  /** Save an edited markdown file in place. `baseSha256` is the hash of the
+   *  text the editor opened; the server answers 409 if the file moved on. */
+  async updateFileContent(fileId: string, content: string, baseSha256?: string): Promise<WorkspaceFile> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.requireWorkspace(), content, base_sha256: baseSha256 }),
     });
     return mapFileResponse(raw);
   }

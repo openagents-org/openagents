@@ -7,7 +7,7 @@ Adding participants, ordinary discussion, and linking existing work stay passive
 import uuid
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Query
@@ -59,6 +59,15 @@ class CreateIssueRequest(ActorRequest):
 
 
 class UpdateIssueRequest(ActorRequest):
+    due_date: Optional[date] = None
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def calendar_date_only(cls, value):
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)):
+            raise PydanticCustomError("due_date_format", "Due date must be YYYY-MM-DD or null")
+        return value
+
     knowledge_ids: Optional[list[str]] = Field(default=None, max_length=100)
     file_ids: Optional[list[str]] = Field(default=None, max_length=100)
     title: Optional[str] = Field(default=None, min_length=1, max_length=240)
@@ -88,8 +97,10 @@ class UpdateIssueRequest(ActorRequest):
 
 
 class CommentRequest(ActorRequest):
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
     content: str = Field(default="", max_length=50000)
     source_event_id: Optional[str] = None
+    reply_to_event_id: Optional[str] = None
 
 
 class LinkThreadRequest(ActorRequest):
@@ -160,12 +171,8 @@ def _resolve_assignee(db, workspace, actor, assignee):
         if member is None:
             raise HTTPException(422, "Choose a workspace member")
         assignee = f"human:{member.email.lower()}"
-    elif kind == "openagents":
-        member = db.get(WorkspaceMember, (str(workspace.id), identifier))
-        if member is None or member.status == "removed" or actor.lower() != f"human:{member.owner_email}".lower():
-            raise HTTPException(403, "You can only assign your own agents")
     else:
-        raise HTTPException(422, "Choose a person or one of your agents")
+        raise HTTPException(422, "Issue assignees must be human workspace members. Mention an agent in the discussion to request work.")
     return assignee, member.display_name or identifier
 
 
@@ -217,6 +224,7 @@ def _serialize(issue):
             "participants",
         )
     } | {
+        "due_date": issue.due_date.isoformat() if issue.due_date else None,
         "created_at": _iso(issue.created_at),
         "updated_at": _iso(issue.updated_at),
     }
@@ -328,6 +336,8 @@ def list_issues(
     network: str,
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
+    assigned_to_me: bool = False,
+    active_only: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -336,8 +346,15 @@ def list_issues(
 ):
     workspace = _access(network, db, x_workspace_token, authorization)
     query = select(Issue).where(Issue.workspace_id == workspace.id)
+    if assigned_to_me:
+        user = resolve_current_user(db, authorization)
+        if not user:
+            raise HTTPException(401, "Sign in to view issues assigned to you")
+        query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
     if status:
         query = query.where(Issue.status == status)
+    elif active_only:
+        query = query.where(Issue.status.in_(("open", "in_progress")))
     if q.strip():
         query = query.where(
             Issue.title.icontains(q.strip(), autoescape=True)
@@ -360,10 +377,22 @@ def list_issues(
             .group_by(IssueComment.issue_id)
         ).all()
     )
+    from app.services.visibility import hidden_channel_names
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    hidden = hidden_channel_names(db, str(workspace.id), viewer)
+    linked = {}
+    for issue_id, channel_name in db.execute(
+        select(IssueThread.issue_id, Channel.name)
+        .join(Channel, Channel.id == IssueThread.channel_id)
+        .where(IssueThread.issue_id.in_([i.id for i in rows[:limit]]),
+               Channel.workspace_id == workspace.id, Channel.status != "deleted")
+    ):
+        if channel_name not in hidden:
+            linked.setdefault(issue_id, []).append(channel_name)
     return success_response(
         {
             "issues": [
-                _serialize(i) | {"comment_count": counts.get(i.id, 0)}
+                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, [])}
                 for i in rows[:limit]
             ],
             "next_offset": offset + limit if len(rows) > limit else None,
@@ -402,13 +431,62 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
-    if assignee and assignee.startswith("openagents:"):
-        from app.models import KanbanTask
-        db.add(KanbanTask(workspace_id=workspace.id, issue_id=issue.id,
-            title=issue.title, description=issue.description, status="backlog",
-            assignee=assignee.removeprefix("openagents:"), created_by=actor))
     db.commit()
     return success_response(_serialize(issue))
+
+
+@router.get("/labels")
+def list_issue_labels(
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization)
+    labels = {}
+    for values in db.scalars(select(Issue.labels).where(Issue.workspace_id == workspace.id)):
+        for value in values or []:
+            labels.setdefault(value.casefold(), value)
+    return success_response({"labels": sorted(labels.values(), key=str.casefold)})
+
+
+def _discussion_entries(db, issue, channels, limit=None):
+    """Merge saved comments and projected replies for display and handoff."""
+    query = select(IssueComment).where(IssueComment.issue_id == issue.id)
+    if limit:
+        query = query.where(IssueComment.kind.in_(["comment", "result"]))
+    query = query.order_by(IssueComment.created_at.desc(), IssueComment.id.desc())
+    comments = db.scalars(query.limit(limit) if limit else query).all()
+    discussion = [_comment(comment) for comment in comments]
+    names = [f"channel/{channel.name}" for channel in channels]
+    if names:
+        shared = select(IssueComment.source_event_id).where(
+            IssueComment.issue_id == issue.id, IssueComment.source_event_id.is_not(None))
+        replies = select(EventRecord).where(
+            EventRecord.network_id == issue.workspace_id,
+            EventRecord.target.in_(names),
+            EventRecord.type == "workspace.message.posted",
+            EventRecord.source.startswith("openagents:"),
+            func.coalesce(EventRecord.payload["message_type"].as_string(), "chat") == "chat",
+            func.trim(EventRecord.payload["content"].as_string()) != "",
+            EventRecord.id.not_in(shared),
+        ).order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
+        for reply in db.scalars(replies.limit(limit) if limit else replies):
+            discussion.append({"id": reply.id, "source_event_id": reply.id,
+                "author": reply.source, "author_name": reply.source.split(":", 1)[-1],
+                "content": (reply.payload or {}).get("content", ""), "kind": "result",
+                "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
+    discussion.sort(key=lambda item: (item["created_at"], item["id"]))
+    replyable = {f"channel/{c.name}": c.name for c in channels if c.status == "active" and not c.service_id}
+    source_ids = [item["source_event_id"] for item in discussion if item.get("source_event_id")]
+    if replyable and source_ids:
+        origins = dict(db.execute(select(EventRecord.id, EventRecord.target).where(
+            EventRecord.network_id == issue.workspace_id, EventRecord.id.in_(source_ids),
+            EventRecord.target.in_(replyable),
+        )).all())
+        for item in discussion:
+            item["reply_channel_name"] = replyable.get(origins.get(item.get("source_event_id")))
+    return discussion[-limit:] if limit else discussion
 
 
 @router.get("/{issue_id}")
@@ -422,15 +500,6 @@ def get_issue(
     workspace = _access(network, db, x_workspace_token, authorization)
     viewer = _viewer(db, workspace, x_workspace_token, authorization)
     issue = _issue(db, workspace, issue_id)
-    comments = (
-        db.execute(
-            select(IssueComment)
-            .where(IssueComment.issue_id == issue.id)
-            .order_by(IssueComment.created_at, IssueComment.id)
-        )
-        .scalars()
-        .all()
-    )
     channels = [c for c in _linked_channels(db, issue) if _can_see(db, workspace, viewer, c.name)]
     # Only expose replies from linked execution threads the caller may read.
     names = {c.name for c in channels}
@@ -470,24 +539,7 @@ def get_issue(
             }
     # Project completed chat replies into the discussion without copying
     # private thread content into a workspace-visible IssueComment record.
-    discussion = [_comment(c) for c in comments]
-    already = {c.source_event_id for c in comments if c.source_event_id}
-    if names:
-        replies = db.execute(select(EventRecord).where(
-            EventRecord.network_id == workspace.id,
-            EventRecord.target.in_([f"channel/{n}" for n in names]),
-            EventRecord.type == "workspace.message.posted",
-            EventRecord.source.startswith("openagents:"),
-            func.coalesce(EventRecord.payload["message_type"].as_string(), "chat") == "chat",
-        ).order_by(EventRecord.timestamp, EventRecord.id)).scalars()
-        for reply in replies:
-            content = (reply.payload or {}).get("content", "")
-            if reply.id in already or not content.strip():
-                continue
-            discussion.append({"id": reply.id, "source_event_id": reply.id,
-                "author": reply.source, "author_name": reply.source.split(":", 1)[-1],
-                "content": content, "kind": "result",
-                "created_at": datetime.fromtimestamp(reply.timestamp / 1000, timezone.utc).isoformat()})
+    discussion = _discussion_entries(db, issue, channels)
     from app.services.approvals import serialize_with_owner
     for approval in db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace.id,
             ApprovalRequest.channel_name.in_(names), ApprovalRequest.kind == "issue_agent_request")).scalars():
@@ -539,6 +591,16 @@ def update_issue(
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
     actor, actor_name = _actor(db, authorization, body.source, body.source_name)
+    if "due_date" in body.model_fields_set:
+        # Attribution in the request is not proof of ownership. Require the
+        # creator's authenticated human identity, even for workspace tokens.
+        user = resolve_current_user(db, authorization)
+        if not user or f"human:{user.email}".lower() != issue.created_by.lower():
+            raise HTTPException(403, "Only the person who opened this issue can change its due date")
+        if body.due_date != issue.due_date:
+            issue.due_date = body.due_date
+            _add_comment(db, issue, actor, body.due_date.isoformat() if body.due_date else "",
+                         "due_date", author_name=actor_name)
     if "assignee" in body.model_fields_set and body.assignee != issue.assignee:
         current_agent = None
         if (issue.assignee or "").startswith("openagents:"):
@@ -590,7 +652,7 @@ def add_comment(
     body: CommentRequest,
     network: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -645,6 +707,36 @@ def add_comment(
         targets = _mentioned_agents(content, sorted(active))
         if targets and issue.status == "closed":
             raise HTTPException(409, "Reopen the issue before asking an agent to work")
+    reply_channel = None
+    if body.reply_to_event_id:
+        event = db.get(EventRecord, body.reply_to_event_id)
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human comments can reply to agent work")
+        reply_channel = next((c for c in visible if event and event.target == f"channel/{c.name}"), None)
+        if (not event or event.network_id != workspace.id or not reply_channel
+                or event.type != "workspace.message.posted" or not event.source.startswith("openagents:")
+                or (event.payload or {}).get("message_type", "chat") != "chat"):
+            raise HTTPException(404, "Agent reply not found in this issue's linked work")
+        if reply_channel.status != "active" or reply_channel.service_id:
+            raise HTTPException(409, "This thread cannot receive replies")
+        if not targets or not set(targets).issubset({p.agent_name for p in reply_channel.participants}):
+            raise HTTPException(422, "Mention an agent in the thread you are replying to")
+    elif targets:
+        # A direct mention continues the most recently active accessible work
+        # with these agents. Never select another viewer's hidden thread.
+        candidates = [c for c in visible if c.status == "active" and not c.service_id
+                      and set(targets).issubset({p.agent_name for p in c.participants})]
+        reply_channel = max(candidates, key=lambda c: (c.last_event_at or 0, c.created_at, c.name), default=None)
+    if body.knowledge_ids:
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human requests can attach knowledge context")
+        from types import SimpleNamespace
+        from app.routers.tasks import _context_block
+        knowledge_ids, _ = _validate_context(db, workspace,
+            _viewer(db, workspace, x_workspace_token, authorization), body.knowledge_ids, [])
+        # Preserve request-specific context in the discussion and kickoff without
+        # changing the issue's default context or treating document titles as mentions.
+        content += _context_block(db, str(workspace.id), SimpleNamespace(issue_id=None, knowledge_ids=knowledge_ids))
     comment = _add_comment(
         db, issue, actor, content, kind, body.source_event_id, author_name=actor_name
     )
@@ -679,7 +771,10 @@ def add_comment(
         targets = allowed_targets
     if targets:
         try:
-            result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
+            if reply_channel:
+                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks)
+            else:
+                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
         except Exception:
             # The comment is saved. Do not encourage reposting it (which could
             # create duplicate work); expose delivery failure separately.
@@ -705,18 +800,39 @@ def link_thread(
     return success_response({"linked": True})
 
 
+def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks):
+    sent = _emit_event_blocking(Event(
+        type="workspace.message.posted", source=actor, target=f"channel/{channel.name}",
+        payload={"content": content, "message_type": "chat", "sender_name": actor_name,
+                 "sender_email": actor.removeprefix("human:") if "@" in actor else None},
+        metadata={"target_agents": agents},
+    ), workspace, db, token=workspace.password_hash)
+    if sent is None:
+        raise HTTPException(502, "Could not deliver the reply to the linked thread")
+    db.refresh(issue)
+    if issue.status == "open":
+        issue.status = "in_progress"
+    db.commit()
+    from app.services.cloud_agent import invoke_cloud_agents
+    background_tasks.add_task(invoke_cloud_agents, str(workspace.id), {
+        "id": str(sent.id), "type": sent.type, "source": sent.source,
+        "target": sent.target, "payload": sent.payload, "metadata": sent.metadata,
+    })
+    return channel.name
+
+
 def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):
-    # Bound the initial context. The durable discussion remains on the issue.
-    comments = list(
-        db.execute(
-            select(IssueComment)
-            .where(IssueComment.issue_id == issue.id, IssueComment.kind != "status")
-            .order_by(IssueComment.created_at.desc(), IssueComment.id.desc())
-            .limit(20)
-        ).scalars()
-    )
+    # New work threads are workspace-visible. Include the same projected
+    # replies shown in the issue, but never copy private linked-thread content
+    # into that wider audience. Explicitly shared result comments are public.
+    from app.services.access_model import resource_for_channel
+    channels = [channel for channel in _linked_channels(db, issue)
+                if not channel.service_id and resource_for_channel(channel).visibility == "public"]
+    comments = _discussion_entries(db, issue, channels, limit=20)
     discussion = "\n\n".join(
-        f"{c.author}: {c.content[:4000]}" for c in reversed(comments)
+        f"{comment['author_name'] or comment['author']} ({comment['author']}): "
+        f"{comment['content'][:4000]}{' [truncated]' if len(comment['content']) > 4000 else ''}"
+        for comment in comments
     )
     name = f"issue-work-{uuid.uuid4().hex[:12]}"
     created = _emit_event_blocking(

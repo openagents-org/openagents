@@ -5,7 +5,7 @@
 require('./win-console').installWindowsHideDefault();
 
 const { Config } = require('./config');
-const { EnvManager } = require('./env');
+const { EnvManager, isCliLogin, typeEnvFor } = require('./env');
 const { Registry } = require('./registry');
 const { Installer } = require('./installer');
 const { Daemon } = require('./daemon');
@@ -119,9 +119,26 @@ class AgentConnector {
     // key while the run used a stale one ("401 Invalid token") or none at all
     // (Hermes falling back to OpenRouter: "401 Missing Authentication header").
     if (env && Object.keys(env).length) {
-      this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...env }, name);
+      this._configureAgentNativeAuth(agentType, env, name);
     }
     return { success: true };
+  }
+
+  /**
+   * _configureNativeAuth for one agent, on the env it actually runs with: the
+   * type's keys and endpoint only when it has none of its own and does not
+   * sign in through its CLI (typeEnvFor). Merging all of <type>.env pushed a
+   * key saved there earlier into Hermes's config.yaml for an agent created on
+   * the sign-in tab, which then ran on that key (401).
+   */
+  _configureAgentNativeAuth(agentType, agentEnv, agentName) {
+    const typeEnv = typeEnvFor(agentType, this.env.load(agentType), this.registry, agentEnv);
+    this._configureNativeAuth(agentType, { ...typeEnv, ...agentEnv }, agentName);
+    // A Hermes agent moved to the `hermes setup` sign-in gets back the
+    // provider the custom endpoint replaced.
+    if (agentType === 'hermes' && isCliLogin(agentEnv)) {
+      try { require('./adapters/hermes').restoreNativeAuth(); } catch {}
+    }
   }
 
   /** Push an agent's endpoint and key into the CLI's own config, for the types that need it. */
@@ -273,7 +290,7 @@ class AgentConnector {
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
     const agentType = agent.type || 'openclaw';
-    this._configureNativeAuth(agentType, { ...this.env.load(agentType), ...saved }, agentName);
+    this._configureAgentNativeAuth(agentType, saved, agentName);
 
     return { success: true };
   }

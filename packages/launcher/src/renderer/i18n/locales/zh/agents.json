@@ -300,6 +300,7 @@
     "cancel": "取消"
   },
   "envFields": {
+    "required": "{{name}} 为必填项",
     "enterField": "请输入 {{name}}",
     "model": {
       "placeholder": "默认模型",

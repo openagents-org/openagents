@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n';
 import type { WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { AttachmentPicker, KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
+import { AttachmentPicker } from '@/components/tasks/new-task-dialog';
 import { IssueAssigneePicker } from './issue-assignee-picker';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
@@ -27,25 +27,21 @@ export function IssueEditor({
   onOpenChange,
   issue,
   onSaved,
-  agentsOnly = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   issue?: WorkspaceIssue;
-  agentsOnly?: boolean;
   onSaved: (issue: WorkspaceIssue) => void;
 }) {
   const t = useT();
   const descriptionId = useId();
-  const { currentUser, sessions, agents } = useWorkspace();
+  const { currentUser, sessions } = useWorkspace();
   const mentions = useIssueMentions(issue);
   const [title, setTitle] = useState(issue?.title ?? '');
   const [description, setDescription] = useState(issue?.description ?? '');
   const [assignee, setAssignee] = useState('');
-  const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
   const [fileIds, setFileIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const ownAgents = agents.filter(a => a.ownerEmail?.toLowerCase() === currentUser.id.toLowerCase());
   const [channel, setChannel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -55,14 +51,13 @@ export function IssueEditor({
       setDescription(issue?.description ?? '');
       setChannel('');
       setAssignee(issue?.assignee ?? '');
-      setKnowledgeIds(issue?.knowledge_ids ?? []);
       setFileIds(issue?.file_ids ?? []);
       setError('');
     }
   }, [open, issue?.id]);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || uploading || (agentsOnly && !ownAgents.some(a => `openagents:${a.agentName}` === assignee))) return;
+    if (busy || uploading) return;
     setBusy(true);
     setError('');
     try {
@@ -78,7 +73,6 @@ export function IssueEditor({
         : await workspaceApi.createIssue({
             ...input,
             assignee: assignee || null,
-            knowledge_ids: assignee.startsWith("openagents:") ? knowledgeIds : [],
             ...(channel ? { channel_name: channel } : {}),
           });
       onSaved(result);
@@ -137,17 +131,10 @@ export function IssueEditor({
               <div className="space-y-3 border-t border-border/60 pt-4">
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">{t('issues.assignee')}</p>
-                  <IssueAssigneePicker value={assignee} onChange={setAssignee} disabled={busy} agentsOnly={agentsOnly} choices={[
+                  <IssueAssigneePicker value={assignee} onChange={setAssignee} disabled={busy} choices={[
                     ...mentions.filter(m => m.kind === 'human').map(m => ({ id: m.source, name: m.name })),
-                    ...ownAgents.map(a => ({ id: `openagents:${a.agentName}`, name: a.displayName || a.agentName })),
                   ]} />
                 </div>
-                {assignee.startsWith('openagents:') && (
-                  <fieldset disabled={busy} className="space-y-3">
-                    <p className="text-xs text-muted-foreground">{t('issues.assignmentRunHint')}</p>
-                    <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
-                  </fieldset>
-                )}
               </div>
             )}
             <AttachmentPicker value={fileIds} onChange={setFileIds} disabled={busy} onUploadingChange={setUploading} />
@@ -202,7 +189,7 @@ export function IssueEditor({
                 size="sm"
                 variant="mono"
                 type="submit"
-                disabled={busy || uploading || !title.trim() || (agentsOnly && !ownAgents.some(a => `openagents:${a.agentName}` === assignee))}
+                disabled={busy || uploading || !title.trim()}
               >
                 {t(
                   busy
