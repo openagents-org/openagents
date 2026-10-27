@@ -671,7 +671,7 @@ async def open_tab(
     if context_record:
         context_record.last_used_at = datetime.now(timezone.utc)
 
-    session_id = manager.get_session_id(tab_id)
+    session_id = result.get("session_id")
     warnings = result.get("warnings") or []
     record = BrowserTab(
         id=tab_id,
@@ -682,7 +682,7 @@ async def open_tab(
         shared_with=[],
         context_id=body.context_id,
         session_id=session_id,
-        live_url=manager.get_live_url(tab_id),
+        live_url=result.get("live_url"),
         bf_key_source=bf_source if (bf_key and session_id) else None,
         bf_key_fingerprint=key_fingerprint(bf_key) if session_id else None,
         session_closed=not session_id,
@@ -723,7 +723,7 @@ async def open_tab(
     usage = BrowserUsage(
         workspace_id=str(workspace.id),
         tab_id=tab_id,
-        session_id=manager.get_session_id(tab_id),
+        session_id=session_id,
         opened_by=body.source or "human:user",
     )
     db.add(usage)
@@ -1254,9 +1254,10 @@ async def reconnect_tab(
         logger.error("Reconnect failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
 
-    # Update DB record
+    # Save the creation response, not the cache a concurrent validator can
+    # overwrite with the previous DB mapping while open_tab awaits I/O.
     _replace_session_mapping(db, tab, original_session_id, original_status,
-                             manager.get_session_id(tab_id), manager.get_live_url(tab_id))
+                             result.get("session_id"), result.get("live_url"))
     _stamp_credential(tab, bf_key, bf_source)
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)

@@ -63,12 +63,19 @@ replica still contains the destructive automatic recovery path. Rollout should
 avoid interrupting an active editor operation. This change cannot restore page
 state already lost and does not deploy the separate BrowserFabric patch.
 
+Creation returns its own session ID and live URL. Both initial opens and
+replacements persist that response directly, including when navigation fails.
+They must not read these values back from the worker cache: a concurrent
+validator can still adopt the previous database mapping while creation awaits
+provider I/O, otherwise orphaning the new browser and saving the closed one.
+
 ## Regression validation
 
 - `tests/test_browser_session_recovery.py`: stale ORM/cache mapping, live-link
   invalidation, explicit close identity, retryable read/action failures,
   overlapping ordinary recovery attempts, replacement confirmation and CAS,
-  context saving without replacement, and missing-session default prevention.
+  context saving without replacement, missing-session default prevention, and
+  creation interleaved with stale validation (successful and failed initialization).
 - `tests/test_browser_postgres_concurrency.py`: real concurrent connections
   invoking replacement, rejected overlap, stale retry, and conditional writes.
   Run only against a disposable `TEST_DATABASE_URL`; its fixture creates/drops

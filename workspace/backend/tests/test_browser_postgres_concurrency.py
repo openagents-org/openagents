@@ -175,7 +175,8 @@ def test_explicit_recovery_serializes_two_workers_and_rejects_stale_retry(pg_eng
             calls.append(('create', 'sess-new'))
             entered.set()
             assert await asyncio.to_thread(release.wait, 5), 'contender did not finish'
-            return {'url': 'https://example.com', 'title': 'Restored'}
+            return {'url': 'https://example.com', 'title': 'Restored',
+                    'session_id': 'sess-new', 'live_url': 'new-link'}
 
         manager.close_tab = close
         manager.open_tab = create

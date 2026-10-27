@@ -265,7 +265,7 @@ class BrowserManager:
         return len(dead)
 
     async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = True) -> dict:
-        """Create a new browser tab. Returns {url, title}.
+        """Create a tab and return its display state and immutable session identity.
 
         Shared cloud tabs always persist. The legacy persist argument is
         accepted for older callers but cannot disable saving. BrowserFabric
@@ -319,7 +319,12 @@ class BrowserManager:
                                tab_id, redact(str(e), key_used))
                 warnings.append(f"page_info_failed: {redact(str(e), key_used)}")
                 page_info = {}
-            return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "warnings": warnings}
+            # Validation may adopt the old DB mapping while initialization
+            # awaits provider I/O. Never make callers recover this newly created
+            # identity from that mutable worker cache.
+            return {"url": page_info.get("url", url), "title": page_info.get("title", ""),
+                    "warnings": warnings, "session_id": session_id,
+                    "live_url": session_data.get("share_url")}
         else:
             # Local mode
             async with self._global_lock:
