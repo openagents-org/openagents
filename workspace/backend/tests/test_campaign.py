@@ -605,3 +605,33 @@ def test_reconcile_does_no_history_queries_when_all_rewards_complete(db, campaig
     campaign.reconcile(db, user.id)
     responding.assert_not_called()
     connected.assert_not_called()
+
+
+@pytest.mark.parametrize("second_already_granted", [False, True])
+def test_message_hook_only_scans_for_unearned_reward(db, campaign_on, gateway, monkeypatch, second_already_granted):
+    user = _mk_user(db)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "codexbot", "codex")
+    _mk_message(db, ws, "human:test@example.com")
+    campaign.ensure_account(db, user)
+    campaign.grant(db, user.id, "first_conversation", campaign.MILESTONE_AMOUNTS["first_conversation"])
+    if second_already_granted:
+        campaign.grant(db, user.id, "second_agent_response", campaign.MILESTONE_AMOUNTS["second_agent_response"])
+    responding = MagicMock(return_value={"codex", "claude"})
+    monkeypatch.setattr(campaign, "_responding_agent_types", responding)
+    monkeypatch.setattr(campaign, "_notify_grant", MagicMock())
+    monkeypatch.setattr(campaign, "SessionLocal", lambda: _NoCloseSession(db))
+
+    campaign.on_agent_message(str(ws.id), "openagents:codexbot")
+    assert responding.call_count == (0 if second_already_granted else 1)
+    daily_key = "daily:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert {"first_conversation", "second_agent_response", daily_key} <= milestones
+    total = campaign.total_granted(db, user.id)
+    responding.reset_mock()
+
+    # Subsequent messages after today's grant cannot re-scan history or mint
+    # more credit. The durable grant ledger, not an in-process cache, gates it.
+    campaign.on_agent_message(str(ws.id), "openagents:codexbot")
+    responding.assert_not_called()
+    assert campaign.total_granted(db, user.id) == total
