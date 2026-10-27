@@ -340,3 +340,27 @@ describe('WorkspaceClient.updateRoutine', () => {
     assert.deepEqual(seen.body, { network: 'ws-1', status: 'paused' });
   });
 });
+
+describe('reliable message delivery', () => {
+  it('preserves HTTP status for HTML 503 responses', async () => {
+    const server = http.createServer((req, res) => { res.writeHead(503, { 'Content-Type': 'text/html' }); res.end('<html>Unavailable</html>'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+      await assert.rejects(client.sendMessage('ws', 'general', 'token', 'answer'), e => e.status === 503);
+    } finally { server.close(); }
+  });
+  it('includes delivery keys for channel messages and DMs', async () => {
+    const client = new WorkspaceClient(); const events = [];
+    client.sendEvent = async (ws, event) => events.push(event);
+    for (const channel of ['general', 'dm:human:person@example.com']) {
+      await client.sendMessage('ws', channel, 'token', 'answer', { idempotencyKey: 'key' });
+    }
+    assert.ok(events.every(e => e.idempotency_key === 'key'));
+  });
+  it('detects old servers without assuming safe retry support', async () => {
+    const client = new WorkspaceClient();
+    client._get = async () => { throw Object.assign(new Error('Not Found'), { status: 404 }); };
+    assert.equal(await client.supportsMessageDelivery(), false);
+  });
+});

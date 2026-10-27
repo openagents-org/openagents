@@ -526,14 +526,17 @@ class ClaudeAdapter extends BaseAdapter {
     // process.cwd() as the fallback — on a packaged Windows daemon that is
     // C:\WINDOWS\system32 and mkdir there throws EPERM.
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-    const skillDir = path.join(workDir, '.claude', 'skills');
-    fs.mkdirSync(skillDir, { recursive: true });
-    // Per-agent filename: agents sharing a working directory used to clobber
+    const skillsRoot = path.join(workDir, '.claude', 'skills');
+    const skillDir = path.join(skillsRoot, workspaceSkillName(this.agentName));
+    fs.mkdirSync(skillDir, { recursive: true, mode: 0o700 });
+    // Per-agent directory: Claude discovers <name>/SKILL.md, not flat .md files.
+    // Agents sharing a working directory used to clobber
     // one shared openagents-workspace.md, so uploads carried the identity of
     // whichever agent wrote the file last. Drop that legacy file so a stale
     // copy (with another agent's embedded identity) can never be read again.
-    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
-    try { fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md')); } catch {}
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    try { fs.unlinkSync(path.join(skillsRoot, 'openagents-workspace.md')); } catch {}
+    try { fs.unlinkSync(path.join(skillsRoot, `${workspaceSkillName(this.agentName)}.md`)); } catch {}
 
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,
@@ -544,7 +547,8 @@ class ClaudeAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       browserEnabled: this._browserEnabledCache === true,
     });
-    fs.writeFileSync(skillFile, skillContent, 'utf-8');
+    fs.writeFileSync(skillFile, skillContent, { encoding: 'utf-8', mode: 0o600 });
+    fs.chmodSync(skillFile, 0o600);
     this._log(`Wrote workspace skill to ${skillFile}`);
 
     return { cmd, skillFile };
