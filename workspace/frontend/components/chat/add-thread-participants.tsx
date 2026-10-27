@@ -15,11 +15,19 @@ import { addThreadParticipants, THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread
 import { useT } from '@/lib/i18n';
 import type { ChannelParticipants, Grantee } from '@/lib/types';
 
-export function AddThreadParticipants({ channelName }: { channelName: string }) {
+export function AddThreadParticipants({ channelName, kind, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+  channelName: string;
+  kind?: 'human' | 'agent';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
+}) {
   const t = useT();
   const { refreshAgents } = useWorkspace();
   const access = useThreadAccess(channelName);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => { setInternalOpen(next); onOpenChange?.(next); };
   const [participants, setParticipants] = useState<ChannelParticipants | null>(null);
   const [options, setOptions] = useState<ParticipantOption[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -52,10 +60,10 @@ export function AddThreadParticipants({ channelName }: { channelName: string }) 
     return () => { active = false; };
   }, [open, channelName, attempt, t]);
 
-  const mayAddPeople = !!access?.can_add_people;
-  const mayAddAgents = !!access?.can_add_agents;
+  const mayAddPeople = kind !== 'agent' && !!access?.can_add_people;
+  const mayAddAgents = kind !== 'human' && !!access?.can_add_agents;
   const mayAdd = mayAddPeople || mayAddAgents;
-  const title = t('threadAccess.addParticipants');
+  const title = t(kind === 'human' ? 'threadAccess.addMember' : kind === 'agent' ? 'threadAccess.addAgent' : 'threadAccess.addParticipants');
   const exclude = [
     ...(participants?.humans.map((p) => `human:${p.email.toLowerCase()}`) ?? []),
     ...(participants?.agents.map((a) => `agent:${a.agent_name}`) ?? []),
@@ -90,9 +98,9 @@ export function AddThreadParticipants({ channelName }: { channelName: string }) 
 
   return (
     <>
-      <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" title={title} aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
+      {!hideTrigger && <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" title={title} aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
         <UserPlus className="size-3.5" />
-      </Button>
+      </Button>}
       <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader className="space-y-2 px-6 pt-6 pb-2">

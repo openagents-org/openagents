@@ -81,3 +81,22 @@ it('does not offer stale selections when the roster fails to load', async () => 
   await act(async () => button('common.retry').click());
   expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(2);
 });
+
+it.each(['human', 'agent'] as const)('limits the controlled %s picker to its participant type', async (kind) => {
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  const onOpenChange = vi.fn();
+  await act(async () => root.render(React.createElement(AddThreadParticipants, { channelName: 'thread-1', kind, open: true, hideTrigger: true, onOpenChange })));
+  expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
+  expect(document.body.textContent).toContain(kind === 'human' ? 'Sam' : 'helper');
+  expect(document.body.textContent).not.toContain(kind === 'human' ? 'helper' : 'Sam');
+  await act(async () => button(kind === 'human' ? 'Sam' : 'helper').click());
+  await act(async () => button('threadAccess.addParticipantsButton').click());
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+  if (kind === 'human') {
+    expect(workspaceApi.inviteHumanToChannel).toHaveBeenCalledWith('thread-1', 'sam@example.com');
+    expect(workspaceApi.addChannelParticipant).not.toHaveBeenCalled();
+  } else {
+    expect(workspaceApi.addChannelParticipant).toHaveBeenCalledWith('thread-1', 'helper');
+    expect(workspaceApi.inviteHumanToChannel).not.toHaveBeenCalled();
+  }
+});
