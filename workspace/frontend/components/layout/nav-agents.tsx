@@ -69,6 +69,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               onClick={() => setOpen((prev) => !prev)}
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
+              title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
             >
               {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
               <ChevronDown

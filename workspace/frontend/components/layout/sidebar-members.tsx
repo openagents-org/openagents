@@ -31,6 +31,8 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name);
   const online = onlineMemberNames(team, onlineUsers);
   const shownEmails = new Set(members.map(person => person.email));
+  // Online/total, the same reading as the agent group's heading.
+  const membersLabel = t('nav.membersWithCount', { online: team.filter(person => online.has(person.email.toLowerCase())).length, total: team.length });
   const moreCount = team.filter(person => !shownEmails.has(person.email.toLowerCase())).length;
   const memberLabel = (email: string, name: string) => email.toLowerCase() === currentUser.id.toLowerCase() ? `${name} (${t('threads.you')})` : name;
   const candidates = team.filter(person => `${person.displayName || ''} ${person.email}`.toLowerCase().includes(query.trim().toLowerCase()));
@@ -43,7 +45,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
     <div className="px-3"><Separator /></div>
     <SidebarGroup className="px-1.5">
       <div className={cn('flex items-center', !showLabels && 'justify-center')}>
-        {showLabels && <SidebarGroupLabel className="flex-1 px-2"><Users className="me-1 size-3" />{t('nav.members')}</SidebarGroupLabel>}
+        {showLabels && <SidebarGroupLabel className="min-w-0 flex-1 px-2" title={membersLabel}><Users className="me-1 size-3 shrink-0" /><span className="truncate">{membersLabel}</span></SidebarGroupLabel>}
         <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" aria-label={t('nav.newHumanDM')} title={t('nav.newHumanDM')} onClick={() => { setQuery(''); setOpen(true); }}><Plus className="size-3.5" /></button>
       </div>
       <SidebarGroupContent><SidebarMenu className="gap-0.5">

@@ -230,6 +230,7 @@ export const messages = {
     unreadMessages: '{count} unread messages',
     memberOnline: 'Online',
     members: 'Members',
+    membersWithCount: 'Members ({online}/{total})',
     unreadCount: '{count} unread',
     agentSettings: 'Settings for {name}',
     viewAllMembers: 'View all members',

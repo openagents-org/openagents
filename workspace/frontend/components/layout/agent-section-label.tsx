@@ -32,7 +32,7 @@ export function AgentSectionLabel({ owned, online, total, first, showLabels = tr
     <li role="presentation" aria-label={label} className={cn('mx-2', !first && 'mt-1.5 border-t border-sidebar-border pt-1.5')}>
       <span className={cn('flex items-center gap-1.5 px-0.5 pb-0.5 text-[11px] font-medium leading-5 text-sidebar-foreground/70', labelClassName)}>
         <Icon className="size-3 shrink-0" />
-        <span className="truncate">{label}</span>
+        <span className="truncate" title={label}>{label}</span>
       </span>
     </li>
   );

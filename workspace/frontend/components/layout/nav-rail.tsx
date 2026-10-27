@@ -375,6 +375,7 @@ export function NavRail() {
                     onClick={() => setAgentsOpen((prev) => !prev)}
                     aria-expanded={agentsOpen}
                     aria-controls="rail-agent-list"
+                    title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                   >
                     {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                     <ChevronDown

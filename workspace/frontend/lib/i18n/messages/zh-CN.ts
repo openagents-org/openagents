@@ -223,6 +223,7 @@ export const messages: Messages = {
     unreadMessages: '{count} 条未读消息',
     memberOnline: '在线',
     members: '成员',
+    membersWithCount: '成员({online}/{total})',
     unreadCount: '{count} 条未读',
     agentSettings: '{name} 的设置',
     viewAllMembers: '查看所有成员',
