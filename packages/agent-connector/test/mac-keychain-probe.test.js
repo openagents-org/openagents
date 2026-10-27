@@ -3,8 +3,8 @@
 /**
  * macOS Keychain sign-in detection asks whether the item EXISTS and never for
  * its secret. `security find-generic-password … -w` run from the daemon's
- * detection round (every two minutes, through /bin/sh) was flagged by
- * CrowdStrike Falcon as credential dumping, and the value was only ever used
+ * detection round (every two minutes, through /bin/sh) resembles credential
+ * dumping to endpoint security tools, and the value was only ever used
  * as a yes/no signal.
  */
 

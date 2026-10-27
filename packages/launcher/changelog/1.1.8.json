@@ -1,6 +1,6 @@
 {
   "version": "1.1.8",
-  "date": "2026-10-26",
+  "date": "2026-10-27",
   "entries": [
     {
       "type": "improvement",
@@ -49,6 +49,13 @@
       "title": {
         "en": "Agent health warnings can be dismissed",
         "zh": "智能体健康提醒可以关闭"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Desktop releases bundle and verify the current agent connector",
+        "zh": "桌面版本打包并验证当前智能体连接器，避免携带旧版本"
       }
     }
   ]

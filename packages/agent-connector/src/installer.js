@@ -1245,7 +1245,7 @@ class Installer {
    * Asks for the item's attributes only. `-w` would print the stored secret,
    * and a background process pulling a CLI's token out of the Keychain every
    * detection round is the credential-dumping pattern EDR tools flag
-   * (CrowdStrike Falcon raised it every two minutes, once per round). Sign-in
+   * (a possible explanation for the reported two-minute alerts). Sign-in
    * detection only needs to know the item is there, so nothing is decrypted
    * and no ACL prompt can appear. Spawned without a shell, so the process
    * chain ends at `security` itself.
