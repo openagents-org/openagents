@@ -19,7 +19,8 @@ export function sidebarAgents(agents: WorkspaceAgent[], email: string) {
   )).sort((a, b) => Number(isOwnedAgent(b, viewer)) - Number(isOwnedAgent(a, viewer)));
 }
 
-/** Presence first, then the viewer's latest DM; each category has its own budget. */
+/** Presence first, then the viewer's latest DM; each category has its own budget.
+ * `total` also counts the category's offline agents, for the section's count. */
 export function sidebarAgentGroups(agents: WorkspaceAgent[], email: string, conversations: import('./types').DMConversation[] = []) {
   const recency = new Map<string, number>();
   for (const conversation of conversations) {
@@ -33,13 +34,15 @@ export function sidebarAgentGroups(agents: WorkspaceAgent[], email: string, conv
   }
   // Yumi leads its group: with five of the viewer's own agents online it
   // otherwise sorted past the cut-off and the help it offers went out of sight.
-  const permitted = sidebarAgents(agents, email).filter(agent => agent.status === 'online').sort((a, b) =>
+  const roster = sidebarAgents(agents, email);
+  const permitted = roster.filter(agent => agent.status === 'online').sort((a, b) =>
     Number(b.builtin === true) - Number(a.builtin === true) ||
     Number(b.status === 'online') - Number(a.status === 'online') ||
     (recency.get(b.agentName) || 0) - (recency.get(a.agentName) || 0) || a.agentName.localeCompare(b.agentName));
   return [true, false].map(owned => {
     const all = permitted.filter(agent => isMySidebarAgent(agent, email) === owned);
     const shown = all.slice(0, 5);
-    return { owned, all, shown, moreOnline: all.length - shown.length };
+    const total = roster.filter(agent => isMySidebarAgent(agent, email) === owned).length;
+    return { owned, all, shown, moreOnline: all.length - shown.length, total };
   });
 }

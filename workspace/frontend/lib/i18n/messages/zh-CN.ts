@@ -235,6 +235,8 @@ export const messages: Messages = {
     thisComputer: '此电脑',
     collaboration: '协作',
     agentsWithCount: '智能体({online}/{total})',
+    myAgentsWithCount: '我的智能体({online}/{total})',
+    sharedAgentsWithCount: '他人共享的智能体({online}/{total})',
     onlineWithCount: '在线({count})',
     you: '{name}(你)',
     workspaceFallback: '工作区',

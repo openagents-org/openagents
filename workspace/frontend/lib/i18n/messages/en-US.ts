@@ -242,6 +242,8 @@ export const messages = {
     thisComputer: 'This Computer',
     collaboration: 'Collaboration',
     agentsWithCount: 'Agents ({online}/{total})',
+    myAgentsWithCount: 'My agents ({online}/{total})',
+    sharedAgentsWithCount: 'Shared by others ({online}/{total})',
     onlineWithCount: 'Online ({count})',
     you: '{name} (you)',
     workspaceFallback: 'Workspace',
