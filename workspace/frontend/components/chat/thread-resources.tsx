@@ -48,6 +48,9 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
   const active = members.length ? section : 'artifacts';
   const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : members.length) > 1;
   const selectedAgent = members.find(a => a.agentName === editing);
+  const editable = !!selectedAgent && collaboration.canEdit(selectedAgent);
+  // The backend only accepts another agent that is already in this thread as reviewer.
+  const reviewers = selectedAgent ? members.filter(agent => agent.agentName !== selectedAgent.agentName) : [];
   return <section className="min-w-0 shrink-0 border-b bg-muted/15 px-3 py-2" aria-label={t('threadResources.title')}>
     <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="min-w-0 gap-1.5">
       <div className="flex items-center gap-2">
@@ -76,16 +79,16 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
             </div><AgentSharingAction agentName={agent.agentName} /></li>)}
           </ul>
           {selectedAgent && <form className="mt-2 rounded-lg border bg-background p-2" onSubmit={event => {
-            event.preventDefault(); if (saving || !currentSessionId || !collaboration.canEdit(selectedAgent)) return;
+            event.preventDefault(); if (saving || !currentSessionId || !editable) return;
             setSaving(true);
             void workspaceApi.saveThreadCollaboration(currentSessionId, selectedAgent.agentName, instruction.trim(), reviewAfter).then(() => {
               window.dispatchEvent(new Event(THREAD_PARTICIPANTS_CHANGED)); setEditing(null); toast.success(t('threadCollaboration.saved'));
             }).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed'))).finally(() => setSaving(false));
           }}>
             <div className="mb-1 flex items-center gap-2 text-xs"><span className="min-w-0 flex-1 truncate font-medium">{t('threadResources.instructAgent', { agent: agentLabel(selectedAgent) })}</span><button type="button" aria-label={t('threadResources.cancel')} onClick={() => setEditing(null)} className="rounded p-1 hover:bg-muted"><X className="size-3" /></button></div>
-            <textarea autoFocus value={instruction} onChange={event => setInstruction(event.target.value)} rows={2} aria-label={t('threadResources.instructions')} placeholder={t('threadResources.placeholder')} className="w-full resize-none rounded border bg-transparent px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring" />
-            <label className="mt-1 flex items-center gap-2 text-xs">{t('threadCollaboration.reviewAfter')}<select value={reviewAfter || ''} onChange={event => setReviewAfter(event.target.value || null)} className="min-w-0 flex-1 rounded border bg-background p-1"><option value="">{t('threadCollaboration.noReview')}</option>{members.filter(agent => agent.agentName !== selectedAgent.agentName).map(agent => <option key={agent.agentName} value={agent.agentName}>{agentLabel(agent)}</option>)}</select></label>
-            <div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{t(collaboration.supported ? 'threadCollaboration.onlyHere' : 'messageAgentAccess.rolloutPending')}</span><button type="submit" disabled={saving || !collaboration.canEdit(selectedAgent)} className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">{t('common.save')}</button></div>
+            <textarea autoFocus={editable} readOnly={!editable} value={instruction} onChange={event => setInstruction(event.target.value)} rows={2} aria-label={t('threadResources.instructions')} placeholder={t('threadResources.placeholder')} className="w-full resize-none rounded border bg-transparent px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring" />
+            <label className="mt-1 flex items-center gap-2 text-xs">{t('threadCollaboration.reviewAfter')}<select value={reviewAfter || ''} disabled={!editable || !reviewers.length} onChange={event => setReviewAfter(event.target.value || null)} className="min-w-0 flex-1 rounded border bg-background p-1 disabled:opacity-60"><option value="">{t(reviewers.length ? 'threadCollaboration.noReview' : 'threadCollaboration.noReviewer')}</option>{reviewers.map(agent => <option key={agent.agentName} value={agent.agentName}>{agentLabel(agent)}</option>)}</select></label>
+            <div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{t(!collaboration.supported ? 'messageAgentAccess.rolloutPending' : editable ? 'threadCollaboration.onlyHere' : 'threadCollaboration.noPermission')}</span><button type="submit" disabled={saving || !editable} className="shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">{t('common.save')}</button></div>
           </form>}
         </TabsContent>
         <TabsContent value="artifacts" className="mt-0 min-w-0">
