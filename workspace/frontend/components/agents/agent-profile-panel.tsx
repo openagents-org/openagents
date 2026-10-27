@@ -536,6 +536,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 onBlur={handleSaveDescription}
                 rows={3}
               />
+              <p className="text-[11px] text-muted-foreground">{t('agents.descriptionScope')}</p>
               {descDirty && (
                 <div className="flex justify-end mt-1.5">
                   <button
