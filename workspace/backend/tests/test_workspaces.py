@@ -285,6 +285,35 @@ class TestGenerateMemberDescription:
         r = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
         assert r.status_code == 400
 
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_openai_description_allows_reasoning_before_answer(self, _key, get_client, client, workspace):
+        model_client = MagicMock()
+
+        def complete(**kwargs):
+            # Simulate a model that spends 100 tokens reasoning before emitting text.
+            content = "Reviews code and fixes backend bugs" if kwargs["max_tokens"] > 100 else ""
+            return MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+
+        model_client.chat.completions.create.side_effect = complete
+        get_client.return_value = (model_client, "openai")
+        response = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert response.status_code == 200
+        assert response.json()["data"]["description"] == "Reviews code and fixes backend bugs"
+
+    @pytest.mark.parametrize("content", [None, "", "   ", '"".'])
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_empty_openai_description_is_not_success(self, _key, get_client, content, client, workspace):
+        model_client = MagicMock()
+        model_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=content))]
+        )
+        get_client.return_value = (model_client, "openai")
+        response = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert response.status_code == 500
+        assert "empty description" in response.text
+
     def test_generate_unknown_member_returns_404(self, client, workspace):
         r = client.post(self._url(workspace, "nope-bot"), headers={"X-Workspace-Token": workspace["token"]})
         assert r.status_code == 404
