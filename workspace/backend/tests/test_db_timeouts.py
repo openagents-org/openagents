@@ -26,6 +26,7 @@ def test_database_timeouts_return_retryable_response_with_cors(client, monkeypat
     def blocked(*args, **kwargs):
         raise OperationalError("query", {}, Exception("lock timeout"))
 
+    monkeypatch.setattr(workspaces, "resolve_current_user", lambda *args: type("Viewer", (), {"id": "test", "email": "test@example.com"})())
     monkeypatch.setattr(workspaces, "select", blocked)
     response = client.get("/v1/workspaces", headers={"Origin": "https://workspace.openagents.org"})
     assert response.status_code == 503

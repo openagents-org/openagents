@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import naming
@@ -56,6 +56,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 
 AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
+
+PUBLIC_WORKSPACE_SETTINGS = frozenset({
+    "theme", "monitorMode", "browser_enabled", "slack_browser_previews",
+})
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -174,13 +178,16 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
         })
 
     settings = ws.settings or {}
+    # Only documented display/behavior settings cross the API boundary.
+    # Credentials and server-only settings must never ride along in this map.
+    public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,
         "name": ws.name,
         "creatorEmail": ws.creator_email,
         "requireLogin": bool(ws.require_login),
-        "settings": settings,
+        "settings": public_settings,
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
         "browserEnabled": bool(settings.get("browser_enabled", False)),
@@ -354,9 +361,25 @@ def list_workspaces(
     creator_email: Optional[str] = Query(None),
     agent_name: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ):
-    """List workspaces, optionally filtered by creator or agent membership."""
-    query = select(Workspace).where(Workspace.status != "deleted")
+    """List only workspaces accessible to the verified human identity.
+
+    Filters narrow that set; an email or agent name is never authorization.
+    Legacy creator/collaborator access matches resolve_user_role without a
+    migration or a membership backfill during this read.
+    """
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    email = user.email.strip().lower()
+    memberships = select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == user.id)
+    collaborations = select(WorkspaceCollaborator.workspace_id).where(func.lower(WorkspaceCollaborator.email) == email)
+    query = select(Workspace).where(
+        Workspace.status != "deleted",
+        or_(Workspace.id.in_(memberships), func.lower(Workspace.creator_email) == email,
+            Workspace.id.in_(collaborations)),
+    )
 
     if creator_email:
         query = query.where(Workspace.creator_email == creator_email)
@@ -370,7 +393,7 @@ def list_workspaces(
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    results = [_format_workspace(ws, ws.members, now) for ws in workspaces]
+    results = [_format_workspace(ws, ws.members, now, authorization=authorization) for ws in workspaces]
 
     return success_response(results)
 
@@ -455,7 +478,12 @@ def update_workspace(
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
-        workspace.settings = body.settings
+        unknown = set(body.settings) - PUBLIC_WORKSPACE_SETTINGS
+        if unknown:
+            return json_response(ResponseCode.BAD_REQUEST, "Unsupported workspace settings; use the dedicated configuration fields")
+        # Clients only receive public settings. Replacing the entire stored map
+        # with that round-trip would silently erase keys and server metadata.
+        workspace.settings = {**(workspace.settings or {}), **body.settings}
     if body.browser_enabled is not None:
         current = dict(workspace.settings or {})
         current["browser_enabled"] = body.browser_enabled
