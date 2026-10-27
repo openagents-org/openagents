@@ -489,11 +489,15 @@ class BrowserManager:
         required for cross-restart closes where the in-memory `_tab_keys`
         mapping is gone.
         """
-        session_id = self._sessions.pop(tab_id, None) or session_id_hint
-        tab_key = api_key or self._tab_keys.pop(tab_id, None)
-        if api_key:
+        # A caller holding the authoritative tab row names the exact session
+        # to release. Never substitute a different cached session.
+        cached_session = self._sessions.get(tab_id)
+        session_id = session_id_hint or cached_session
+        tab_key = api_key or self._tab_keys.get(tab_id)
+        if cached_session == session_id or not cached_session:
+            self._sessions.pop(tab_id, None)
             self._tab_keys.pop(tab_id, None)
-        self._live_urls.pop(tab_id, None)
+            self._live_urls.pop(tab_id, None)
         if session_id and self.is_cloud_for(tab_key):
             try:
                 await self._bf_call("close_session", {}, session_id, api_key=tab_key)
@@ -675,12 +679,16 @@ class BrowserManager:
         fall back to the global key). The next operation will use it to
         call the BF API.
         """
+        if not session_id:
+            raise KeyError(f"No saved session for tab: {tab_id}")
         if not self.is_cloud_for(api_key):
             raise KeyError(f"Cannot reconnect to local tab: {tab_id}")
         if api_key:
             self._tab_keys[tab_id] = api_key
-        if tab_id in self._sessions:
-            return
+        # The database mapping wins over this worker's cache. Another worker
+        # may have explicitly replaced the session since our last request.
+        if self._sessions.get(tab_id) != session_id:
+            self._live_urls.pop(tab_id, None)
         self._sessions[tab_id] = session_id
 
     # ------------------------------------------------------------------
@@ -807,10 +815,10 @@ class BrowserManager:
 
         Returns {"status": "alive"|"dead"|"unknown", "url", "title"}.
           - alive:   Browser Fabric returned page info.
-          - dead:    BF reports the session/page is gone (recreate it).
-          - unknown: a transient transport error (timeout / 5xx). The caller
-                     MUST keep the existing session — a slow get_page_info on a
-                     heavy SPA must not kill a healthy, logged-in tab.
+          - dead:    no local page/mapping exists; do not silently replace it.
+          - unknown: provider failure without a structured lifecycle verdict.
+                     Keep the existing session and offer a retry; text errors
+                     and HTTP 404 do not establish permanent session death.
         """
         if not self._is_cloud_tab(tab_id):
             page = self._pages.get(tab_id)
@@ -834,16 +842,15 @@ class BrowserManager:
                     "hibernated": bool(page_info.get("hibernated"))}
         except httpx.TimeoutException:
             return {"status": "unknown"}
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code if e.response is not None else 0
-            # 5xx / 429 are transient; a hard 404 means the session is gone.
-            return {"status": "dead"} if code == 404 else {"status": "unknown"}
-        except RuntimeError as e:
-            # BF application-level error (HTTP 200, success=false).
-            msg = str(e).lower()
-            dead_markers = ("no active session", "session not found", "session expired",
-                            "unknown session", "no session", "not found")
-            return {"status": "dead"} if any(m in msg for m in dead_markers) else {"status": "unknown"}
+        except httpx.HTTPStatusError:
+            # The call endpoint's 404 is not a structured permanent-session
+            # verdict (it may be routing/registry state). Keep the mapping.
+            return {"status": "unknown"}
+        except RuntimeError:
+            # Provider text such as "No active session" does not distinguish
+            # permanent deletion from a temporarily inaccessible registry.
+            # Only a future structured lifecycle contract can establish death.
+            return {"status": "unknown"}
         except Exception:
             return {"status": "unknown"}
 

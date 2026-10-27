@@ -704,7 +704,7 @@ class TestOrphanTombstones:
         manager.get_session_id.return_value = "sess-new"
         manager.close_tab = AsyncMock(return_value=(False, "HTTP 502 closing session"))
 
-        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect",
+        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
                            headers={"X-Workspace-Token": ws["token"]})
         assert resp.status_code == 200
         assert resp.json()["data"]["session_id"] == "sess-new"
@@ -723,7 +723,7 @@ class TestOrphanTombstones:
 
         manager.get_session_id.return_value = "sess-new"
 
-        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect",
+        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
                            headers={"X-Workspace-Token": ws["token"]})
         assert resp.status_code == 200
 

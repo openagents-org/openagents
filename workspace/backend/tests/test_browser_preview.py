@@ -155,6 +155,7 @@ def bridged_channel(workspace, slack_binding):
 def _mock_manager():
     manager = MagicMock()
     manager.is_cloud = False
+    manager.probe_session = AsyncMock(return_value={"status": "alive"})
     manager.is_cloud_for = MagicMock(return_value=False)
     manager.get_session_id.return_value = None
     manager.get_live_url.return_value = LIVE_URL
