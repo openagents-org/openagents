@@ -57,3 +57,11 @@ it('always allows reactivation when the embedded viewer fails but the session pr
   expect(state.reactivate).toHaveBeenCalledWith('saved');
   expect(host.querySelector('iframe')).not.toBe(previous);
 });
+
+it('refreshes a changed live URL discovered by validation without recreating the session', async () => {
+  state.validate.mockResolvedValue({connectionStatus: 'alive', liveUrl: 'https://browserfabric.com/live/new'});
+  await render();
+  expect(state.refresh).toHaveBeenCalled();
+  expect(state.reconnect).not.toHaveBeenCalled();
+  expect(state.reactivate).not.toHaveBeenCalled();
+});
