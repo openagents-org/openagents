@@ -1077,4 +1077,18 @@ describe('DeepSeek adapter — base URL', () => {
       'https://relay.example.com/anthropic',
     );
   });
+
+  it('reaches an OpenAI-compatible gateway through the patch, not DEEPSEEK_BASE_URL', async () => {
+    // OpenAgents credits: the workspace hands the harness the gateway's /v1
+    // root, which serves chat completions and 404s the Messages API.
+    const adapter = makeAdapter({
+      agentEnv: { LLM_BASE_URL: 'https://api-gateway.openagents.org/v1', DEEPSEEK_MODEL: 'deepseek-v4-flash' },
+    });
+    assert.equal(adapter._buildSubprocessEnv('workspace-write').DEEPSEEK_BASE_URL, undefined);
+    await run(adapter, 'hello');
+    const patch = fs.readFileSync(adapter._patchFile, 'utf-8');
+    assert.match(patch, /api: openai-completions/);
+    assert.match(patch, /baseURL: "https:\/\/api-gateway\.openagents\.org\/v1"/);
+    assert.match(patch, /provider: openai-gateway/);
+  });
 });

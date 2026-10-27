@@ -229,6 +229,20 @@ describe('Daemon', () => {
     assert.equal(daemon._agentEndpoint({ name: 'codex-key', type: 'codex' }).baseUrl, 'https://relay.example/v1');
   });
 
+  it('lists a DeepSeek Harness agent\'s models where its endpoint keeps them', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const official = daemon._agentEndpoint({ name: 'ds', type: 'deepseek', env: { DEEPSEEK_API_KEY: 'sk-ds' } });
+    assert.deepEqual(official, { baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai', apiKey: 'sk-ds' });
+    const anthropic = daemon._agentEndpoint({
+      name: 'ds2', type: 'deepseek', env: { DEEPSEEK_API_KEY: 'sk-ds', DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic' },
+    });
+    assert.equal(anthropic.baseUrl, 'https://api.deepseek.com/v1');
+    const gateway = daemon._agentEndpoint({
+      name: 'ds3', type: 'deepseek', env: { LLM_API_KEY: 'sk-oa', LLM_BASE_URL: 'https://api-gateway.openagents.org/v1' },
+    });
+    assert.deepEqual(gateway, { baseUrl: 'https://api-gateway.openagents.org/v1', protocol: 'openai', apiKey: 'sk-oa' });
+  });
+
   it('a key sent by the workspace switches a signed-in agent back to that key', () => {
     const config = new Config(tmpDir);
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));

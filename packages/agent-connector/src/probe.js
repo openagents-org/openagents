@@ -291,6 +291,13 @@ function directBaseUrl(entry, env) {
  * sent /chat/completions and reported broken.
  */
 function directProtocol(type, env) {
+  if (type === 'deepseek') {
+    // dsh calls a gateway in the format its URL says (see classifyDshEndpoint);
+    // DeepSeek's own host is left to the client, which knows it.
+    const { classifyDshEndpoint } = require('./adapters/deepseek-runtime');
+    const api = classifyDshEndpoint(env.DEEPSEEK_BASE_URL || env.LLM_BASE_URL);
+    return api === 'native' ? undefined : api;
+  }
   if (type !== 'pi') return undefined;
   const { piApiFormat } = require('./adapters/pi-stream');
   const format = piApiFormat(env);
