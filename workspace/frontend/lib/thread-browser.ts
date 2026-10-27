@@ -30,20 +30,46 @@ export function threadBrowserLinks(messages: WorkspaceMessage[], channel: string
     }).filter((url, i, urls) => urls.indexOf(url) === i);
 }
 
+/** Read literal tab references in tool activity, including a shell variable
+ * assigned in the same command. Never execute/expand arbitrary shell text or
+ * carry variables between messages (agents can run concurrent processes). */
+export function browserTabIdsInToolStatus(content: string): Set<string> {
+  const ids = new Set<string>();
+  const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  for (const match of content.matchAll(new RegExp(`/v1/browser/tabs/(${uuid})(?=[/\\s?"'\x60]|$)`, 'gi'))) ids.add(match[1]);
+  const variables = new Map<string, { value: string; at: number }[]>();
+  for (const match of content.matchAll(/(?:^|[;\s])\$?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\s]+)/g)) {
+    const value = match[2].replace(/^["']|["']$/g, '');
+    variables.set(match[1], [...(variables.get(match[1]) || []), { value, at: match.index! }]);
+  }
+  for (const match of content.matchAll(/\/v1\/browser\/tabs\/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(?=[/\s?"'`]|$)/g)) {
+    const values = variables.get(match[1] || match[2]);
+    if (values?.length === 1 && values[0].at < match.index! && new RegExp(`^${uuid}$`, 'i').test(values[0].value)) ids.add(values[0].value);
+  }
+  return ids;
+}
+
+/** Explicit agent tool references can use a human-created or shared tab.
+ * Creation identity is not the identity of the agent currently driving it. */
+export function agentReferencedBrowserTabs(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[], actor?: string): Set<string> {
+  const ids = new Set<string>();
+  const accessible = new Set(tabs.map(tab => tab.id));
+  for (const message of messages) {
+    if (message.sessionId !== channel || message.metadata?.recalled || message.senderType !== 'agent' || message.messageType !== 'status') continue;
+    if (actor && message.senderAddress !== actor) continue;
+    for (const id of browserTabIdsInToolStatus(message.content)) if (accessible.has(id)) ids.add(id);
+  }
+  return ids;
+}
+
 /** Older connectors share the live URL without sending a thread association.
  * Match only an exact live URL of an already accessible workspace tab. A page
  * URL or an agent's presence is not evidence that a tab belongs here. */
 function referencedTabs(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[]): Set<string> {
   const links = new Set<string>();
-  const ids = new Set<string>();
+  const ids = agentReferencedBrowserTabs(tabs, channel, messages);
   for (const message of messages) {
     if (message.sessionId !== channel || message.metadata?.recalled) continue;
-    if (message.senderType === 'agent' && message.messageType === 'status') {
-      for (const match of message.content.matchAll(/\/v1\/browser\/tabs\/([0-9a-f-]{36})(?=[/\s?"'`]|$)/gi)) {
-        const tab = tabs.find(tab => tab.id === match[1] && tab.createdBy === message.senderAddress);
-        if (tab) ids.add(tab.id);
-      }
-    }
     for (const match of message.content.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
       try { links.add(new URL(match[0].replace(/[),.;!?]+$/, '')).href); } catch { /* Not a URL. */ }
     }
@@ -84,6 +110,7 @@ export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channe
   const publisher = messages.filter(message => message.sessionId === channel && message.senderType === 'agent' && message.messageType === 'chat' && !message.metadata?.recalled && browserLinksInText(message.content).includes(live))
     .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))[0];
   if (!publisher?.senderAddress) return undefined;
-  const candidates = threadBrowserTabs(tabs, channel, messages).filter(tab => tab.createdBy === publisher.senderAddress);
+  const referenced = agentReferencedBrowserTabs(tabs, channel, messages, publisher.senderAddress);
+  const candidates = threadBrowserTabs(tabs, channel, messages).filter(tab => referenced.has(tab.id) || tab.createdBy === publisher.senderAddress);
   return candidates.length === 1 ? candidates[0] : undefined;
 }

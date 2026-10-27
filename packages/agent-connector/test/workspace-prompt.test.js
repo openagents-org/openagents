@@ -330,3 +330,14 @@ describe('saved browser lifecycle instructions', () => {
     });
   }
 });
+
+describe('durable browser previews', () => {
+  it('teaches both MCP and REST agents to share saved tab links', () => {
+    const system = buildClaudeSystemPrompt({...COMMON, agentName: 'browser-agent', browserEnabled: true});
+    const skill = buildClaudeSkillMd({...COMMON, agentName: 'browser-agent', browserEnabled: true});
+    for (const prompt of [system, skill]) {
+      assert.ok(prompt.includes('[Open browser](/v1/browser/tabs/{tab_id})'));
+      assert.ok(prompt.includes('human-created') || prompt.includes('opened by a person'));
+    }
+  });
+});

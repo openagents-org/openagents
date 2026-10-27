@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('shows only awake agent tabs whose latest association is this conversation', async () => {
-  h.ws.browserTabs = [tab('other', 'other'), { ...tab('old', 'other'), artifactChannels: ['other','dm:me,bot'] }, { ...tab('closed'), status: 'closed' }, { ...tab('asleep'), asleep: true }, { ...tab('human'), createdBy: 'human:me' }];
+  h.ws.browserTabs = [tab('other', 'other'), { ...tab('old', 'other'), artifactChannels: ['other','dm:me,bot'] }, { ...tab('closed'), status: 'closed' }, { ...tab('human'), createdBy: 'human:me' }];
   await render(); expect(host.querySelector('aside')).toBeNull();
   h.ws.browserTabs.push(tab()); await render();
   expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://browser.example/live?embed=1');
@@ -86,4 +86,21 @@ it('opens the current tab when a selected chat link predates a reconnect', async
   const messages = [{ sessionId: 'dm:me,bot', senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'chat', content: h.layout.selectedArtifact.id }] as any;
   await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
   expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(id);
+});
+
+it('shows a reused human browser during tool work, then keeps the stable preview after link rotation', async () => {
+  const id = '3100acd9-8150-4729-a2ff-af059d440335';
+  h.ws.browserTabs = [{ ...tab(id), createdBy: 'human:user', artifactChannels: [], liveUrl: 'https://www.browserfabric.com/live/current' }];
+  const messages: any[] = [{ sessionId: 'dm:me,bot', senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'status', content: `Bash › TAB=${id}; curl "$B/v1/browser/tabs/$TAB/screenshot"` }];
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(id);
+  const expired = 'https://www.browserfabric.com/live/expired';
+  messages.push({ sessionId: 'dm:me,bot', senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'chat', content: expired });
+  h.layout.selectedArtifact = {kind: 'browser', id: expired};
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(id);
+});
+it('keeps sleeping associated tabs visible with the recovery controls', async () => {
+  h.ws.browserTabs = [{ ...tab(), asleep: true }]; await render();
+  expect(host.querySelector('[data-preview="tab"]')).not.toBeNull();
 });

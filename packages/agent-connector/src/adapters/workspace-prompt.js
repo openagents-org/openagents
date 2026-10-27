@@ -54,7 +54,8 @@ function buildBrowserDirective(browserEnabled) {
     'All cloud tabs are saved and reusable. List and reuse the current thread tab ' +
     'by its stable tab ID. Do not close it after a task or to free capacity; ' +
     'BrowserFabric handles idle sleep. Close only when the user requests it. ' +
-    'Live-view links may expire; refresh the tab to get its current live_url.\n\n' +
+    'Share `[Open browser](/v1/browser/tabs/{tab_id})` with the saved tab ID, not a temporary BrowserFabric live URL. ' +
+    'When using REST, include your source and current channel on every tab action, even for reused human-created tabs.\n\n' +
     'If you don\'t have these MCP tools, use `Bash` + `curl` against ' +
     '`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n' +
     '**FORBIDDEN — do NOT call any of these:**\n' +
@@ -472,7 +473,8 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +
         ` -d '{"expression":"document.title","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
         'The `source` field is how humans watching the shared browser see *who* is ' +
-        'acting — include it and `channel` on every tab action. The workspace automatically posts a live browser preview card in this conversation.\n\n' +
+        'acting — include it and `channel` on every tab action, including when reusing a tab opened by a person. The workspace automatically posts a live browser preview card in this conversation.\n' +
+        'When sharing the browser in your reply, link to `[Open browser](/v1/browser/tabs/{tab_id})` using the saved tab id. Do not copy the temporary BrowserFabric live/share URL: it changes when the session reconnects.\n\n' +
         '**Close tab (only on user request):**\n' +
         `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
         '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +

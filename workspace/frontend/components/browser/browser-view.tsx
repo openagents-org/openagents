@@ -121,6 +121,9 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         if (cancelled || recoveryInFlight.current || generation !== validationGeneration.current) return;
         setSessionDead(checked.connectionStatus === 'unknown' || checked.connectionStatus === 'dead');
         setSessionAsleep(!!checked.asleep);
+        // Another worker may have recreated this saved tab since the iframe
+        // mounted. Refresh its current URL even after the agent has finished.
+        if (checked.liveUrl && checked.liveUrl !== tab?.liveUrl) await refreshBrowserTabs();
       } catch {
         if (!cancelled && generation === validationGeneration.current) setSessionDead(true);
       } finally {
@@ -131,7 +134,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     validate(true);
     const interval = setInterval(() => validate(false), 30000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [selectedBrowserTabId, hasLiveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedBrowserTabId, hasLiveUrl, tab?.liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screenshot polling — only for local (non-cloud) tabs without a live view.
   useEffect(() => {
