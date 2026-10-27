@@ -422,6 +422,10 @@ export function ChatView() {
         : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
+  const personalAssistantConversation = agents.some(agent => agent.builtin && (
+    isDM ? dmCounterpart === `openagents:${agent.agentName}`
+      : currentSession?.participants?.length === 1 && currentSession.participants[0] === agent.agentName
+  ));
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   useEffect(() => { setProfileEmail(null); }, [currentSessionId, viewMode]);
 
@@ -869,8 +873,8 @@ export function ChatView() {
             </Button>
           )}
 
-          {/* Share conversation */}
-          <Button
+          {/* Personal assistant conversations cannot be shared. */}
+          {!personalAssistantConversation && <Button
             variant="ghost"
             size="sm"
             onClick={() => setShareDialogOpen(true)}
@@ -878,7 +882,7 @@ export function ChatView() {
             title={t('chat.shareConversation')}
           >
             <Share2 className="size-3.5" />
-          </Button>
+          </Button>}
           {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
             <ThreadSettings key={`thread-settings:${currentSessionId}`} session={currentSession} />
           )}

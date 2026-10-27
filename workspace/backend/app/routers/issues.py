@@ -924,6 +924,8 @@ def add_participants(
             )).scalar_one_or_none()
             source = f"human:{identity}"
         else:
+            from app.services.personal_assistant import require_group_agent
+            require_group_agent(db, workspace.id, identity)
             member = db.execute(select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
                 WorkspaceMember.agent_name == identity,

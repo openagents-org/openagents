@@ -35,7 +35,7 @@ export function MessageAudience({ message, isSender }: { message: WorkspaceMessa
       .then(([participants, discovery]) => {
         if (!active) return;
         const members = new Set(participants.agents.map(agent => agent.agent_name));
-        setOptions(discovery.agents.filter(agent => agent.status === 'online')
+        setOptions(discovery.agents.filter(agent => !agent.builtin && agent.status === 'online')
           .map(agent => ({ name: agent.address.replace(/^openagents:/, ''), label: agent.display_name?.trim() || agent.address.replace(/^openagents:/, '') }))
           .filter(agent => members.has(agent.name)));
       }).catch(e => { if (active) setError(e instanceof Error ? e.message : String(e)); });

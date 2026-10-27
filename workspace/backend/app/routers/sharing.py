@@ -284,6 +284,9 @@ def _can_manage_channel(db: Session, ctx: _Ctx, channel: Channel) -> bool:
     the `share` right — and any participant when the owner switched on
     `participants_can_invite` (or the thread has no owner at all: legacy
     workspace-owned threads keep the M1 "participants manage" rule)."""
+    from app.services.personal_assistant import is_personal_channel
+    if is_personal_channel(db, channel):
+        return False
     from app.services.access_model import can_manage_thread_settings
     if can_manage_thread_settings(db, ctx.viewer, channel):
         return True
@@ -350,7 +353,11 @@ def list_participants(
         "joined_at": h.joined_at.isoformat() if h.joined_at else None,
     } for h in human_rows]
 
-    agent_names = [p.agent_name for p in (ch.participants or []) if p.agent_name != "__no_response__"]
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    personal = is_personal_channel(db, ch)
+    builtin_yumi = is_yumi(db, ctx.wid, "yumi")
+    agent_names = [p.agent_name for p in (ch.participants or [])
+                   if p.agent_name != "__no_response__" and (personal or not builtin_yumi or p.agent_name != "yumi")]
     members = {}
     if agent_names:
         members = {
@@ -397,18 +404,18 @@ def list_participants(
         "collaboration_supported": config.THREAD_COLLABORATION_ENABLED,
         "collaboration": collaboration_settings(db, ctx.wid, ch.name) if config.THREAD_COLLABORATION_ENABLED else {},
         "thread_access_requests_supported": config.THREAD_AGENT_ACCESS_ENABLED,
-        "can_manage": manage,
+        "can_manage": manage and not personal,
         "can_add_people": _can_manage_channel(db, ctx, ch),
-        "can_add_agents": manage or bool(participant and ch.members_can_add_agents),
+        "can_add_agents": not personal and (manage or bool(participant and ch.members_can_add_agents)),
         "is_participant": participant,
         "sharing_my_agents": bool(sharing and sharing.enabled),
         "agent_sharing_mode": sharing_mode(sharing),
         "own_agent_count": len(own_agents),
         "channel": ch.name,
-        "visibility": normalize_visibility(ch.visibility, "public") or "public",
+        "visibility": "private" if personal else normalize_visibility(ch.visibility, "public") or "public",
         "owner_email": _norm(ch.owner_email),
-        "participants_can_invite": bool(ch.participants_can_invite),
-        "members_can_add_agents": bool(ch.members_can_add_agents),
+        "participants_can_invite": not personal and bool(ch.participants_can_invite),
+        "members_can_add_agents": not personal and bool(ch.members_can_add_agents),
         "director_email": ch.director_email,
         "humans": humans,
         "agents": agents,
@@ -706,6 +713,8 @@ def add_grant(
     member = _get_agent(db, ctx, agent)
     if member is None:
         return json_response(ResponseCode.NOT_FOUND, "Agent not found")
+    from app.services.personal_assistant import require_group_agent
+    require_group_agent(db, ctx.wid, agent)
     if not _can_manage_agent(ctx, member):
         return json_response(ResponseCode.FORBIDDEN, "Only the agent's owner or an admin can share it")
     email = _norm(body.email)
@@ -931,6 +940,9 @@ def start_request(
     from app.services.access_model import can_start_agent_thread
     if not can_start_agent_thread(db, ctx.wid, ctx.viewer, member):
         return json_response(ResponseCode.FORBIDDEN, "You do not have access to this agent")
+
+    from app.services.personal_assistant import require_group_agent
+    require_group_agent(db, ctx.wid, agent)
 
     email = ctx.viewer.email
     source = f"human:{_actor_name(db, ctx)}"

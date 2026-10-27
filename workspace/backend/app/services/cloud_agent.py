@@ -193,6 +193,10 @@ async def _invoke_single(
 ) -> None:
     """Invoke a single cloud agent and post the response."""
     from app.services.yumi import YUMI_PROVIDER
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        logger.info("Yumi: ignoring invocation outside a personal conversation")
+        return
     if cloud_config.provider == YUMI_PROVIDER or cloud_config.category == "assistant":
         await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
     elif cloud_config.category == "image":
@@ -316,6 +320,9 @@ async def _invoke_assistant_agent(
     final answer, which is posted as a normal chat message.
     """
     from app.services import yumi
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == yumi.YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        return
 
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
