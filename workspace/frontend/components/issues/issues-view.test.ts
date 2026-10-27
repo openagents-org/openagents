@@ -167,6 +167,43 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
+  it('announces task retirement on the tasks board and links to Team issues', async () => {
+    await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+    expect(host.querySelector('[role="note"]')?.textContent).toContain('My agent tasks will be retired');
+    await click(button('Go to Team issues'));
+    expect(host.querySelector('[role="note"]')).toBeNull();
+    expect(button('Team issues').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(
+    'keeps $pages loaded pages when clicking the selected $label filter again',
+    async ({ label, pages }) => {
+      mocks.api.listIssues.mockResolvedValueOnce({ issues: [issue], next_offset: 100 });
+      await act(async () => root.render(createElement(IssuesView)));
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      if (label !== 'Active issues') {
+        mocks.api.listIssues.mockResolvedValueOnce({ issues: [issue], next_offset: 100 });
+        await click(button(label));
+        await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      }
+      mocks.api.listIssues.mockImplementation(({ offset }) => Promise.resolve({
+        issues: [offset ? { ...issue, id: 'issue-2', title: 'Second page issue' } : issue],
+        next_offset: 200,
+      }));
+      if (pages === 2) {
+        await click(button(t('issues.loadMore')));
+        await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      }
+      const requestCount = mocks.api.listIssues.mock.calls.length;
+      await click(button(label));
+      expect(host.textContent).toContain(issue.title);
+      if (pages === 2) expect(host.textContent).toContain('Second page issue');
+      expect(button(t('issues.loadMore'))).toBeDefined();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mocks.api.listIssues).toHaveBeenCalledTimes(requestCount);
+    },
+  );
+
   it('creates an issue without agents or an execution request', async () => {
     mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
     await act(async () => root.render(createElement(IssuesView)));

@@ -38,7 +38,7 @@ import {
   launcherAuthFields,
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
-import { deriveAgentModel } from "../shared/agent-model"
+import { listedAgentModel } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -441,7 +441,7 @@ export class AgentManager extends EventEmitter {
         // list showed "—" for an agent that was configured correctly, and a
         // user with no way to check what it was running had to take the
         // agent's word for it (it guessed, and guessed wrong).
-        model: deriveAgentModel(typeEnv(type), a.env as Record<string, string> | undefined),
+        model: listedAgentModel(typeEnv(type), a as { env?: Record<string, string>; instanceEnv?: Record<string, string> }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides

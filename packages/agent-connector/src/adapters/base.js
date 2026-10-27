@@ -20,6 +20,7 @@
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const { configuredModel } = require('../agent-model');
 const { buildThreadHistory } = require('./thread-history');
 const { publishResponseArtifacts } = require('./response-artifacts');
 const fs = require('fs');
@@ -133,18 +134,6 @@ const HEARTBEAT_ERROR_THRESHOLD = 2;
 const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
 const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
 const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
-
-/**
- * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
- * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
- * and `LLM_MODEL` last, so nothing else needs an entry here.
- */
-const MODEL_ENV_ALIASES = {
-  claude: ['ANTHROPIC_MODEL', 'CLAUDE_MODEL'],
-  gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
-  antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
-  codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
-};
 
 /**
  * Wrap an adapter's `_channelProcesses` so registering a child for a turn that
@@ -422,17 +411,7 @@ class BaseAdapter {
   modelLabel() {
     const fromWorkspace = String(this.workspaceModel || '').trim();
     if (fromWorkspace) return fromWorkspace;
-    const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-    const candidates = [
-      ...(type ? [`${type}_MODEL`] : []),
-      ...(MODEL_ENV_ALIASES[this.agentType] || []),
-      'LLM_MODEL',
-    ];
-    for (const key of candidates) {
-      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
-      if (value) return value;
-    }
-    return null;
+    return configuredModel(this.agentType, this.agentEnv);
   }
 
   async run() {
