@@ -14,9 +14,11 @@ Configured at the user's request October 26, 2026. Preview is a separate applica
 
 ## Deployment
 
-Every push to `develop` triggers `.github/workflows/deploy-preview.yml`. GitHub runners build both images from that exact commit, then transfer the artifact using an environment-scoped preview SSH key. The deploy user has no Docker group membership; sudo permits only the installed preview deployment program. The GitHub environment `workspace-preview-isolated` accepts only the `develop` branch.
+The systemd timer `openagents-preview-develop.timer` checks the public `develop` branch every two minutes. A root-owned tracker fetches the exact commit without repository credentials, builds both images on the droplet and invokes the guarded deployer. Builds have a 2.5 GB per-process memory limit and run serially with low scheduling priority. A failed commit is retried after 30 minutes, or immediately when develop changes. Existing services stay up while images build.
 
-Manual run: `gh workflow run deploy-preview.yml --repo openagents-org/openagents --ref develop`.
+Manual run: `ssh root@164.92.127.159 systemctl start openagents-preview-develop.service`.
+
+Logs: `journalctl -u openagents-preview-develop.service`. Status: `systemctl list-timers openagents-preview-develop.timer`. Use `/usr/local/sbin/openagents-preview-track-develop --retry` to retry a failed build immediately.
 
 The deployer validates the full SHA, image revision labels and local DB URL, takes a PostgreSQL dump, stops application writers, runs Alembic, starts both images, reloads nginx and checks API readiness and frontend routing. Failure restores only the isolated database and previous images. Large incoming archives retain the latest two builds; Docker images and DB backups require periodic disk-space review. Production uses its existing separate release process.
 
@@ -24,7 +26,7 @@ The deployer validates the full SHA, image revision labels and local DB URL, tak
 
 ## Host setup
 
-Copy `workspace/operations/preview/` to a root-owned staging directory and run `provision.py` as root. It generates dedicated database and signing secrets and copies only public login settings from the previous preview container. Install the preview deploy public key in `/home/preview-deploy/.ssh/authorized_keys` with forwarding/PTY disabled. Set `PREVIEW_DEPLOY_SSH_KEY` and `PREVIEW_DEPLOY_KNOWN_HOSTS` in the GitHub environment.
+Copy `workspace/operations/preview/` to a root-owned staging directory and run `provision.py` as root. It generates dedicated database and signing secrets and copies only public login settings from the previous preview container. It installs root-owned tracker/deployer scripts and systemd units. Enable the timer only after validating the first isolated deployment and switching the public proxy.
 
 The first stack is validated on `127.0.0.1:8081`; then stop the legacy stack, set `PREVIEW_HTTP_BIND=0.0.0.0:80` in the root-only `.env` and recreate nginx. Keep the old config and data volumes. Never run `docker compose down -v` as part of a deployment.
 

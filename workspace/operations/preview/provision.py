@@ -52,17 +52,13 @@ def main():
         shutil.copy2(Path('/opt/openagents-preview') / name, ROOT / name)
     shutil.copy2(SOURCE / 'deploy.py', '/usr/local/sbin/openagents-preview-deploy')
     Path('/usr/local/sbin/openagents-preview-deploy').chmod(0o755)
-    if subprocess.run(['id', 'preview-deploy'], capture_output=True).returncode:
-        subprocess.run(['useradd', '--create-home', '--shell', '/bin/bash', 'preview-deploy'], check=True)
-    incoming = Path('/var/lib/openagents-preview/incoming')
-    incoming.mkdir(parents=True, exist_ok=True)
-    shutil.chown(incoming, user='preview-deploy', group='preview-deploy')
-    incoming.chmod(0o700)
-    sudoers = Path('/etc/sudoers.d/openagents-preview-deploy')
-    sudoers.write_text('preview-deploy ALL=(root) NOPASSWD: /usr/local/sbin/openagents-preview-deploy\n')
-    sudoers.chmod(0o440)
-    subprocess.run(['visudo', '-cf', str(sudoers)], check=True)
-    print('Provisioned isolated preview config, local DB credentials and dedicated deploy user.')
+    shutil.copy2(SOURCE / 'track_develop.py', '/usr/local/sbin/openagents-preview-track-develop')
+    Path('/usr/local/sbin/openagents-preview-track-develop').chmod(0o755)
+    for name in ('openagents-preview-develop.service', 'openagents-preview-develop.timer'):
+        shutil.copy2(SOURCE / name, Path('/etc/systemd/system') / name)
+    Path('/var/lib/openagents-preview/incoming').mkdir(parents=True, exist_ok=True)
+    subprocess.run(['systemctl', 'daemon-reload'], check=True)
+    print('Provisioned isolated preview config, local DB credentials and develop tracking service.')
 
 
 if __name__ == '__main__':
