@@ -104,3 +104,23 @@ it('keeps sleeping associated tabs visible with the recovery controls', async ()
   h.ws.browserTabs = [{ ...tab(), asleep: true }]; await render();
   expect(host.querySelector('[data-preview="tab"]')).not.toBeNull();
 });
+it('previews the last browser used before a reply, even when an older browser was refreshed later', async () => {
+  const oldId = 'b74094a9-d5c9-4680-9c7a-1b694bc8ef51';
+  const newId = 'a4d76856-7089-46fd-a4c9-a3a9447e277f';
+  h.ws.browserTabs = [
+    {...tab(oldId), artifactChannels:[], createdBy:'human:user', lastActiveAt:'2026-10-27T09:00:00Z'},
+    {...tab(newId), artifactChannels:[], lastActiveAt:'2026-10-27T08:40:00Z'},
+  ];
+  const expired = 'https://www.browserfabric.com/live/old-token';
+  const base = {sessionId:'dm:me,bot', senderType:'agent', senderAddress:'openagents:bot'};
+  const messages: any[] = [
+    {...base, messageType:'status', createdAt:'2026-10-27T08:40:00Z', content:`T=${oldId}; curl /v1/browser/tabs/$T/evaluate`},
+    {...base, messageType:'status', createdAt:'2026-10-27T08:43:00Z', content:`T=${newId}; curl /v1/browser/tabs/$T/evaluate`},
+    {...base, messageType:'chat', createdAt:'2026-10-27T08:44:00Z', content:expired},
+  ];
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, {messages})));
+  expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(newId);
+  h.layout.selectedArtifact = {kind:'browser', id:expired};
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, {messages})));
+  expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(newId);
+});

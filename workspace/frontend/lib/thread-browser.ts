@@ -85,8 +85,15 @@ function referencedTabs(tabs: BrowserTab[], channel: string, messages: Workspace
 
 export function threadBrowserArtifacts(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[] = []): BrowserTab[] {
   const referenced = referencedTabs(tabs, channel, messages);
+  const usedAt = new Map<string, number>();
+  for (const message of messages) {
+    if (message.sessionId !== channel || message.metadata?.recalled || message.senderType !== 'agent' || message.messageType !== 'status') continue;
+    for (const id of browserTabIdsInToolStatus(message.content)) {
+      usedAt.set(id, Math.max(usedAt.get(id) || 0, Date.parse(message.createdAt || '') || 0));
+    }
+  }
   return tabs.filter(tab => tab.status === 'active' && (tab.artifactChannels?.includes(channel) || referenced.has(tab.id)))
-    .sort((a, b) => timestamp(b) - timestamp(a));
+    .sort((a, b) => (usedAt.get(b.id) || 0) - (usedAt.get(a.id) || 0) || timestamp(b) - timestamp(a));
 }
 
 /** The first association is the latest thread driving this shared tab. */
@@ -100,7 +107,7 @@ function timestamp(tab: BrowserTab): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-/** Resolve a connector's latest shared link through stable tab references in
+/** Resolve a connector's shared link through stable tab references in
  * this conversation when a reconnect has rotated the ephemeral live URL.
  * Never guess from the website or agent alone, or choose between multiple tabs. */
 export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[]): BrowserTab | undefined {
@@ -108,11 +115,24 @@ export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channe
   if (!live) return undefined;
   const exact = tabs.find(tab => browserFabricLiveUrl(tab.liveUrl || '') === live);
   if (exact) return exact;
-  if (!threadBrowserLinks(messages, channel).includes(live)) return undefined;
   const publisher = messages.filter(message => message.sessionId === channel && message.senderType === 'agent' && message.messageType === 'chat' && !message.metadata?.recalled && browserLinksInText(message.content).includes(live))
     .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))[0];
   if (!publisher?.senderAddress) return undefined;
   const referenced = agentReferencedBrowserTabs(tabs, channel, messages, publisher.senderAddress);
   const candidates = threadBrowserTabs(tabs, channel, messages).filter(tab => referenced.has(tab.id) || tab.createdBy === publisher.senderAddress);
-  return candidates.length === 1 ? candidates[0] : undefined;
+  // A thread can contain several browser jobs. Match the reply to its last
+  // preceding browser action, never to a later job or an unrelated tab refresh.
+  // Equal-time steps or a command touching multiple tabs remain ambiguous.
+  const publishedAt = Date.parse(publisher.createdAt || '');
+  const steps = messages.filter(message => message.sessionId === channel && !message.metadata?.recalled && message.senderType === 'agent'
+    && message.senderAddress === publisher.senderAddress && message.messageType === 'status'
+    && Date.parse(message.createdAt || '') <= publishedAt)
+    .map(message => ({ at: Date.parse(message.createdAt || ''), ids: browserTabIdsInToolStatus(message.content) }))
+    .filter(step => step.ids.size).sort((a, b) => b.at - a.at);
+  if (steps.length) {
+    const latest = new Set(steps.filter(step => step.at === steps[0].at).flatMap(step => [...step.ids]));
+    return latest.size === 1 ? candidates.find(tab => latest.has(tab.id)) : undefined;
+  }
+  // Legacy messages without timestamps may only fall back for the latest link.
+  return threadBrowserLinks(messages, channel).includes(live) && candidates.length === 1 ? candidates[0] : undefined;
 }
