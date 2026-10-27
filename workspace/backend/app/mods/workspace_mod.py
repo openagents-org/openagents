@@ -2385,25 +2385,12 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         from app.services.thread_collaboration import instruction_blocks
         event.metadata['thread_agent_instructions'] = instruction_blocks(db, workspace.id, channel.name, targets)
 
-    # Immediate heads-up when a human posts but NO agent in the thread is
-    # online. Without this the client just spins on a reply that can't come.
-    # The message is still recorded (and delivered to the target so it's picked
-    # up on reconnect); this only adds a visible notice so the user isn't left
-    # guessing. Skips routine channels and threads with no real agents.
-    if (
-        event.source.startswith("human:")
-        and not channel.name.startswith("routines:")
-        and real_participants
-        and targets
-        and not online_names
-    ):
-        offline = ", ".join(f"@{p.agent_name}" for p in real_participants)
-        _post_system_notice(
-            db, workspace, channel.name,
-            f"⚠️ No agent in this thread is online right now ({offline}). "
-            f"Your message was saved and will be answered when an agent reconnects.",
-            notice="no_agents_online",
-        )
+    # No "no agent online" message is posted here when a human writes to a
+    # thread whose agents all look offline. Liveness is a heartbeat within
+    # AGENT_TIMEOUT_SECONDS, so an agent that had just reconnected drew a
+    # System message saying nobody was there, followed by its own reply in the
+    # same minute. The thread's offline banner (chat-view) follows live status
+    # and says the same without leaving a stale message in the history.
 
     # Auto-add targeted agents as channel participants so they can poll
     # for messages on this channel. Three guards:

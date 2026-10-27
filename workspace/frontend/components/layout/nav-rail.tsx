@@ -346,7 +346,10 @@ export function NavRail() {
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
-                    {!!item.count && <span className={cn('shrink-0 rounded-full px-1.5 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute -right-1 -top-1', (item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+                    {/* Collapsed, the badge sits inside the button's corner: the button
+                        (and the scrolling rail) clip overflow, so a negative
+                        offset cut it in half. */}
+                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
 
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -372,6 +375,7 @@ export function NavRail() {
                     onClick={() => setAgentsOpen((prev) => !prev)}
                     aria-expanded={agentsOpen}
                     aria-controls="rail-agent-list"
+                    title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                   >
                     {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                     <ChevronDown

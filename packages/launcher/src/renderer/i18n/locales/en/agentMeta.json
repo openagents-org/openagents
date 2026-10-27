@@ -248,7 +248,7 @@
     },
     "DEEPSEEK_MODEL": {
       "label": "DeepSeek model",
-      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the default."
+      "hint": "Pick from the models your API key can use, or type a model id. Leave blank to use the DeepSeek Harness default."
     },
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",

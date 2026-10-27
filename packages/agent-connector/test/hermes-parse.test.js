@@ -42,3 +42,13 @@ test('hermes parse: no session_id anywhere yields null, body untouched', () => {
   assert.strictEqual(sessionId, null);
   assert.strictEqual(text, 'JUST_A_BODY');
 });
+
+test('hermes parse: unknown-toolset config warning ahead of the reply is dropped', () => {
+  const { text } = parse('Warning: Unknown toolsets: messaging\nHi! I am hermes.', '');
+  assert.strictEqual(text, 'Hi! I am hermes.');
+});
+
+test('hermes parse: the same line inside the reply is kept', () => {
+  const body = 'Your config prints:\nWarning: Unknown toolsets: messaging';
+  assert.strictEqual(parse(body, '').text, body);
+});

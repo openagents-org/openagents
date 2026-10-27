@@ -378,6 +378,16 @@
   box-shadow: none;
 }
 
+/* …and the notification list, a tall panel of grey text where the 2.5px frame
+   and offset shadow read as a heavy black outline rather than a surface. It
+   keeps the hairline every other line in the app is drawn with, and a soft
+   shadow so it still sits above the page. */
+:root[data-skin='openagents'] [data-slot='popover-content'][data-panel='notifications'] {
+  border-width: 1px;
+  border-color: var(--border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+
 /* The marketplace banner. Its frame is `border-primary/25` and its fill is a
    brand gradient — an explicit colour, so unlike every `border` in the app it
    does not follow `--border` and stayed soft while the spec cards inside it

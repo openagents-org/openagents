@@ -324,7 +324,10 @@ export function IssueDiscussion({
                   </time>
                 </div>
               </header>
-              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
+              {/* Issue text is typed in a plain textarea, where Enter means a new
+                  line; Markdown would fold a single newline into a space. Only
+                  paragraphs keep them, so lists and code blocks are untouched. */}
+              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
                 {issue.description ? (
                   <MarkdownContent
                     content={issue.description}
@@ -433,7 +436,7 @@ export function IssueDiscussion({
                               {timeAgo(c.created_at)}
                             </time>
                           </div>
-                          <div className="text-[13px] leading-6 text-foreground/85">
+                          <div className="text-[13px] leading-6 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line">
                             <MarkdownContent
                               content={c.content}
                               agentNames={agentNames}

@@ -911,8 +911,8 @@ export function ChatView() {
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
-          notice (the backend also posts an inline "no agent online" message on
-          send). Shown for single-agent threads too, not just groups. */}
+          notice; this banner is the only one, the backend posts nothing into
+          the thread for it. Shown for single-agent threads too, not just groups. */}
       {(() => {
         const participants = currentSession?.participants || [];
         if (participants.length === 0) return null;

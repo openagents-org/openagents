@@ -309,8 +309,9 @@ function ThreadRow({
 
       </div>
 
-      {/* Row actions */}
-      <div className="shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100 has-data-[state=open]:opacity-100">
+      {/* Row actions. Always shown: a menu that appears only on hover was
+          never found, and DM rows put theirs in this same slot. */}
+      <div className="shrink-0 self-center">
         {actions}
       </div>
     </div>
@@ -815,7 +816,7 @@ export function ThreadList() {
             }
           }}
           className={cn(
-            'group/dm flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
+            'flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
             'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
             currentSessionId === dmId
               ? 'rounded-md border-transparent bg-black/5.5 ring-1 ring-inset ring-black/25 dark:bg-white/9 dark:ring-white/30'
@@ -856,13 +857,6 @@ export function ThreadList() {
                     ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
                     : ''}
                 </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild><button type="button" aria-label={t('threads.dmActions')} disabled={pendingDm === dmId} onClick={e => e.stopPropagation()} className="rounded p-1 opacity-0 hover:bg-muted group-hover/dm:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"><MoreVertical className="size-3.5" /></button></DropdownMenuTrigger>
-                  <DropdownMenuContent onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 {signalCount > 0 && <DmUnreadMarker count={signalCount} />}
                 {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
               </div>
@@ -870,6 +864,27 @@ export function ThreadList() {
             <p className={cn('truncate text-xs leading-snug', isUnread ? 'text-foreground/80' : 'text-muted-foreground')}>
               {sender}: {displayHumanMentions(convo.lastMessage.content, humanNames)}
             </p>
+          </div>
+          {/* Same slot and button as the thread rows' menu. */}
+          <div className="shrink-0 self-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  mode="icon" size="sm"
+                  aria-label={t('threads.dmActions')}
+                  disabled={pendingDm === dmId}
+                  className="text-muted-foreground"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <MoreVertical className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       );

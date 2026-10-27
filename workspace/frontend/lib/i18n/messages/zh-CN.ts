@@ -223,6 +223,7 @@ export const messages: Messages = {
     unreadMessages: '{count} 条未读消息',
     memberOnline: '在线',
     members: '成员',
+    membersWithCount: '成员({online}/{total})',
     unreadCount: '{count} 条未读',
     agentSettings: '{name} 的设置',
     viewAllMembers: '查看所有成员',
@@ -2152,6 +2153,7 @@ export const messages: Messages = {
 
     description: '描述',
     descriptionPlaceholder: '描述 {agent} 的职责,便于其他智能体判断何时把工作交给它…',
+    ownerOnlyHint: '只有智能体的所有者可以修改它的配置。',
     descriptionScope: '该智能体在整个工作区内的默认职责。如需在某个会话中设置不同职责，请在该会话的智能体卡片中修改。',
     displayNameSaved: '名称已保存',
     displayNameSaveFailed: '保存名称失败',
