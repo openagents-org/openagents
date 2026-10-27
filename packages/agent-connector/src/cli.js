@@ -6,6 +6,7 @@ require('./win-console').installWindowsHideDefault();
 
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
+const { AUTH_MODE_KEY, CLI_LOGIN } = require('./env');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -1054,16 +1055,23 @@ async function cmdProbe(connector, flags, positional) {
 
 async function cmdModels(connector, flags, positional) {
   const target = positional[0];
-  if (!target) { print('Usage: agn models <type|agent> [--json]'); return; }
+  if (!target) { print('Usage: agn models <type|agent> [--json] [--sign-in]'); return; }
 
   // Accept an agent name, as `agn probe` does: its CLI is asked on that
   // agent's own env, so a signed-in agent answers for its sign-in.
+  // --sign-in: the target is a type, asked on the device's own sign-in with
+  // no key at all, as an agent added with "sign in on the device" runs. Not
+  // looked up as an agent: the first agent of a type is often named after it.
   let type = target;
   let agentEnv;
-  try {
-    const agent = connector.config.getAgent(target);
-    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
-  } catch {}
+  if (flags && flags['sign-in']) {
+    agentEnv = { [AUTH_MODE_KEY]: CLI_LOGIN };
+  } else {
+    try {
+      const agent = connector.config.getAgent(target);
+      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+    } catch {}
+  }
 
   const result = await connector.listCliModels(type, { agentEnv });
 
@@ -1156,6 +1164,7 @@ Commands:
   test-llm <type>             Test LLM connection
   probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
   models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
+                              (--sign-in: a type, on the device's own sign-in)
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token

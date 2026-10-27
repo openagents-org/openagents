@@ -145,6 +145,20 @@ function isCliLogin(agentEnv) {
 }
 
 /**
+ * Set on an agent's own env when its model is cleared from the workspace, so
+ * it runs on its CLI's default. A cleared model used to be dropped from the
+ * agent's env alone, and a model left in <type>.env (earlier versions saved
+ * workspace models there) filled the gap again at the agent's next start. A
+ * model in the agent's own env still wins; this only keeps the type's out.
+ */
+const MODEL_MODE_KEY = 'OPENAGENTS_MODEL_MODE';
+const MODEL_DEFAULT = 'default';
+
+function usesDefaultModel(agentEnv) {
+  return !!agentEnv && agentEnv[MODEL_MODE_KEY] === MODEL_DEFAULT;
+}
+
+/**
  * Keys and endpoints a CLI reads under a name of its own that no registry
  * field or readiness check declares (the launcher's auth-specs.ts offers the
  * endpoints). Named per type rather than by suffix: the env stripped is the
@@ -225,14 +239,18 @@ function hasOwnKey(agentType, registry, agentEnv) {
  * maps the generic LLM_* names over the provider ones, so a relay left in
  * <type>.env used to override an agent configured for DeepSeek: its
  * LLM_BASE_URL and LLM_MODEL became PI_BASE_URL and PI_MODEL, and the agent's
- * key went to the relay. Its model is the one in its own env, else the CLI's
- * default.
+ * key went to the relay. An agent whose model was cleared (MODEL_MODE_KEY)
+ * takes no model from it either. Its model is the one in its own env, else the
+ * CLI's default.
  */
 function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
   const signedIn = isCliLogin(agentEnv);
-  if (!signedIn && !hasOwnKey(agentType, registry, agentEnv)) return typeEnv;
+  const ownKey = hasOwnKey(agentType, registry, agentEnv);
+  if (!signedIn && !ownKey && !usesDefaultModel(agentEnv)) return typeEnv;
   const out = { ...typeEnv };
-  for (const key of credentialKeys(agentType, registry)) delete out[key];
+  if (signedIn || ownKey) {
+    for (const key of credentialKeys(agentType, registry)) delete out[key];
+  }
   for (const key of modelKeys(agentType, registry)) delete out[key];
   return out;
 }
@@ -263,5 +281,6 @@ function normalizeAnthropicBase(url) {
 }
 
 module.exports = {
-  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, modelKeys, stripForCliLogin, typeEnvFor,
+  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, isCliLogin, credentialKeys, modelKeys,
+  stripForCliLogin, typeEnvFor,
 };

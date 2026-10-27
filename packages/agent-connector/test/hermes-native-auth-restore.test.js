@@ -188,6 +188,20 @@ describe('Hermes native auth restore', () => {
     assert.equal(fs.readFileSync(configFile, 'utf8'), CUSTOM);
   });
 
+  it('restores when the workspace moves a Hermes agent to the sign-in', () => {
+    const { Config } = require('../src/config');
+    const { EnvManager } = require('../src/env');
+    const { Registry } = require('../src/registry');
+    const { Daemon } = require('../src/daemon');
+    const config = new Config(dir);
+    config.addAgent({ name: 'h1', type: 'hermes', env: { LLM_API_KEY: 'sk-relay', LLM_BASE_URL: 'https://relay.example/v1' } });
+    const daemon = new Daemon(config, new EnvManager(dir), new Registry(dir));
+    daemon._hasCliSignIn = () => true;
+    pointAtRelay(SIGNED_IN, CUSTOM);
+    daemon._saveNodeAgentEnv('h1', 'hermes', { authMode: 'cli_login' });
+    assert.equal(fs.readFileSync(configFile, 'utf8'), SIGNED_IN);
+  });
+
   it('does not copy the key it wrote into the record', () => {
     pointAtRelay(SIGNED_IN, CUSTOM);
     assert.doesNotMatch(fs.readFileSync(recordFile, 'utf8'), /sk-relay/);
