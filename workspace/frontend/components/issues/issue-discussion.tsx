@@ -240,39 +240,6 @@ export function IssueDiscussion({
           <PanelRight />
           {t('issues.details')}
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={t(copied ? 'common.copied' : 'issues.copyLink')}
-          title={t(copied ? 'common.copied' : 'issues.copyLink')}
-          onClick={async () => {
-            try {
-              const url = new URL(
-                resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id),
-                shareOrigin(),
-              );
-              await navigator.clipboard.writeText(url.toString());
-              setCopied(true);
-            } catch (e) {
-              setError(errorMessage(e));
-            }
-          }}
-        >
-          {copied ? (
-            <Check className="size-3.5" />
-          ) : (
-            <Link2 className="size-3.5" />
-          )}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!issue}
-          onClick={() => setEdit(true)}
-        >
-          <Pencil className="size-3.5" />
-          {t('common.edit')}
-        </Button>
       </DetailHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {(error || loadError) && (
@@ -322,6 +289,43 @@ export function IssueDiscussion({
                   <time dateTime={issue.created_at}>
                     {timeAgo(issue.created_at)}
                   </time>
+                </div>
+                {/* Under the title, where the eye already is — tucked in the
+                    detail header's right corner they were easy to miss. */}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={async () => {
+                      try {
+                        const url = new URL(
+                          resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id),
+                          shareOrigin(),
+                        );
+                        await navigator.clipboard.writeText(url.toString());
+                        setCopied(true);
+                      } catch (e) {
+                        setError(errorMessage(e));
+                      }
+                    }}
+                  >
+                    {copied ? (
+                      <Check className="size-4" />
+                    ) : (
+                      <Link2 className="size-4" />
+                    )}
+                    {t(copied ? 'common.copied' : 'issues.copyLink')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setEdit(true)}
+                  >
+                    <Pencil className="size-4" />
+                    {t('common.edit')}
+                  </Button>
                 </div>
               </header>
               {/* Issue text is typed in a plain textarea, where Enter means a new
@@ -627,11 +631,11 @@ export function IssueDiscussion({
                     <button
                       aria-label={t('issues.linkThread')}
                       title={t('issues.linkThread')}
-                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       disabled={busy}
                       onClick={() => setActionOpen(true)}
                     >
-                      <Link2 className="size-3.5" />
+                      <Link2 className="size-4" />
                     </button>
                   </div>
                   <div className="space-y-4">
