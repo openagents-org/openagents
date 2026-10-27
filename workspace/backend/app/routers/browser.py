@@ -35,7 +35,7 @@ from app.access import resolve_current_user
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
-from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser import BLANK_PAGE, BROWSERFABRIC_API_KEY, BrowserManager
 from app.browser_maintenance import BROWSER_TAB_IDLE_MINUTES
 from app.services.browser_frame import standard_browser_frame
 from app.browser_creds import (
@@ -510,6 +510,20 @@ async def _attach_saved_context(tab, db, manager, *, name=None):
     tab.context_id = context.id
 
 
+async def _open_restored_tab(manager, tab, *, bb_context_id, api_key):
+    """Restore saved display state without navigating to Chromium internals."""
+    # Chromium reports this internal document after a failed navigation. It is
+    # not a restorable target; keep the saved context and start on a blank page.
+    # The normal policy gate still refuses every arbitrary internal URL.
+    error_page = tab.url == "chrome-error://chromewebdata/"
+    url = BLANK_PAGE if error_page else (tab.url or BLANK_PAGE)
+    result = await manager.open_tab(tab.id, url, bb_context_id=bb_context_id, api_key=api_key)
+    if error_page:
+        result = {**result, "warnings": [*(result.get("warnings") or []),
+                  "The previous page failed to load; navigate to a website to continue."]}
+    return result
+
+
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
     """Ensure the browser tab has a live Playwright page.
 
@@ -615,7 +629,7 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
         bf_key, bf_source = await _resolve_bf_key(workspace, db)
     else:
         bf_key, bf_source = session_key, tab.bf_key_source
-    result = await manager.open_tab(tab.id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+    result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
 
     # Update the tab record with the new session info
     tab.session_id = manager.get_session_id(tab.id)
@@ -1095,6 +1109,8 @@ async def navigate_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.navigate(tab_id, body.url)
@@ -1241,7 +1257,10 @@ async def reconnect_tab(
     # Create a new session
     bf_key, bf_source = await _resolve_bf_key(workspace, db)
     try:
-        result = await manager.open_tab(tab_id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+        result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
+    except UnsafeURLError as e:
+        db.commit()  # keep any tombstone recorded above
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except Exception as e:
         db.commit()  # keep any tombstone recorded above
         logger.error("Reconnect failed: %s", e)
@@ -1301,6 +1320,8 @@ async def click_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.click(tab_id, body.selector)
@@ -1344,6 +1365,8 @@ async def type_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         await manager.type_text(tab_id, body.selector, body.text, append=body.append)
@@ -1385,6 +1408,8 @@ async def press_key_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         await manager.press_key(tab_id, body.key)
@@ -1426,6 +1451,8 @@ async def evaluate_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.evaluate(tab_id, body.expression)
@@ -1469,6 +1496,8 @@ async def get_screenshot(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         data = await manager.screenshot(tab_id)
@@ -1531,6 +1560,8 @@ async def get_snapshot(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         tree = await manager.snapshot(tab_id)
@@ -1637,6 +1668,8 @@ async def persist_tab(
             bb_context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab_id)
         except BrowserCredentialError as e:
             return json_response(ResponseCode.BAD_REQUEST, str(e))
+        except UnsafeURLError as e:
+            return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
         except Exception as e:
             logger.error("Failed to create persistent context: %s", e)
             return json_response(ResponseCode.INTERNAL_ERROR, "Failed to create persistent context")
@@ -1659,7 +1692,7 @@ async def persist_tab(
                 manager._tab_keys.pop(tab_id, None)
             if not released:
                 _orphan_session_tombstone(db, tab, close_err or "close failed during persist swap")
-            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id, api_key=bf_key)
+            result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
             tab.session_id = manager.get_session_id(tab_id)
             tab.live_url = manager.get_live_url(tab_id)
             _stamp_credential(tab, bf_key, bf_source)
