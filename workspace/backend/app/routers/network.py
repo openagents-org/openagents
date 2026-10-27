@@ -614,6 +614,9 @@ def discover(
     pinned_channels = set(db.execute(select(ThreadPin.channel_id).join(Channel).where(
         Channel.workspace_id == workspace.id, ThreadPin.user_email == viewer.email,
     )).scalars()) if viewer.kind == "human" and viewer.email else set()
+    from app.services.personal_assistant import personal_channels, is_yumi
+    personal_names = {c.name for c in personal_channels(db, workspace.id)}
+    builtin_yumi = is_yumi(db, workspace.id, "yumi")
     channels = []
     for c in channels_rows:
         if c.name in hidden_channels:
@@ -626,19 +629,19 @@ def discover(
             "title": c.title,
             "icon": c.icon,
             "human_count": human_counts.get(c.id, 0),
-            "master": c.master_agent,
+            "master": None if builtin_yumi and c.master_agent == "yumi" and c.name not in personal_names else c.master_agent,
             "orchestration_mode": "workflow" if c.orchestration_mode == "workflow" else "dynamic",
             "response_mode": c.response_mode or "proactive",
             "orchestration_instruction": c.orchestration_instruction,
             "workflow_id": c.workflow_id,
-            "participants": [p.agent_name for p in (c.participants or [])],
+            "participants": [p.agent_name for p in (c.participants or []) if not (builtin_yumi and p.agent_name == "yumi" and c.name not in personal_names)],
             "created_at": created_at_ts,
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
             "pinned": c.id in pinned_channels,
             "is_channel": bool(c.is_channel),
-            "visibility": normalize_visibility(c.visibility, "public") or "public",
+            "visibility": "private" if c.name in personal_names else normalize_visibility(c.visibility, "public") or "public",
             "owner_email": c.owner_email,
             "participants_can_invite": bool(c.participants_can_invite),
             "members_can_add_agents": bool(c.members_can_add_agents),

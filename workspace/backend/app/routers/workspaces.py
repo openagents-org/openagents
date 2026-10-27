@@ -192,7 +192,10 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     }
 
 
-def _format_channel(ch: Channel) -> dict:
+def _format_channel(ch: Channel, db=None) -> dict:
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    personal = db is not None and is_personal_channel(db, ch)
+    builtin = db is not None and is_yumi(db, ch.workspace_id, "yumi")
     return {
         "channelId": str(ch.id),
         "workspaceId": str(ch.workspace_id),
@@ -200,7 +203,7 @@ def _format_channel(ch: Channel) -> dict:
         "title": ch.title,
         "titleManuallySet": bool(ch.title_manually_set),
         "createdBy": ch.created_by,
-        "masterAgent": ch.master_agent,
+        "masterAgent": None if builtin and not personal and ch.master_agent == "yumi" else ch.master_agent,
         "orchestrationMode": "workflow" if ch.orchestration_mode == "workflow" else "dynamic",
         "responseMode": ch.response_mode or "proactive",
         "orchestrationInstruction": ch.orchestration_instruction,
@@ -209,8 +212,8 @@ def _format_channel(ch: Channel) -> dict:
         "status": ch.status,
         "starred": bool(ch.starred),
         "isChannel": bool(ch.is_channel),
-        "participants": [p.agent_name for p in (ch.participants or [])],
-        "visibility": "private" if (ch.visibility or "") == "private" else "public",
+        "participants": [p.agent_name for p in (ch.participants or []) if not (builtin and not personal and p.agent_name == "yumi")],
+        "visibility": "private" if personal or (ch.visibility or "") == "private" else "public",
         "ownerEmail": ch.owner_email,
         "participantsCanInvite": bool(ch.participants_can_invite),
         "membersCanAddAgents": bool(ch.members_can_add_agents),
@@ -338,7 +341,7 @@ def create_workspace(
         "slug": workspace.slug,
         "name": workspace.name,
         "token": token,
-        "channel": _format_channel(channel) if channel else None,
+        "channel": _format_channel(channel, db) if channel else None,
     })
 
 
@@ -1530,7 +1533,11 @@ def get_channel(
     if not channel:
         return json_response(ResponseCode.NOT_FOUND, "Channel not found")
 
-    return success_response(_format_channel(channel))
+    from app.services.visibility import resolve_viewer, can_view_channel
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if not can_view_channel(db, str(workspace.id), viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+    return success_response(_format_channel(channel, db))
 
 
 # ---------------------------------------------------------------------------
@@ -1583,6 +1590,9 @@ def update_channel(
         return json_response(ResponseCode.BAD_REQUEST, "Choose proactive, passive, or a workflow; master mode is no longer supported")
     if body.master_agent is not None:
         return json_response(ResponseCode.BAD_REQUEST, "Master mode is no longer supported")
+    from app.services.personal_assistant import require_shareable_channel
+    if body.visibility is not None or body.is_channel or body.director_email is not None:
+        require_shareable_channel(db, channel)
     if body.visibility is not None:
         vis = normalize_visibility(body.visibility)
         if vis not in ("private", "public"):
@@ -1662,7 +1672,7 @@ def update_channel(
 
     db.commit()
     db.refresh(channel)
-    return success_response(_format_channel(channel) | ({"pinned": body.pinned} if body.pinned is not None else {}))
+    return success_response(_format_channel(channel, db) | ({"pinned": body.pinned} if body.pinned is not None else {}))
 
 
 # ---------------------------------------------------------------------------

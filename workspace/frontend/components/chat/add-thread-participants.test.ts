@@ -28,6 +28,7 @@ beforeEach(() => {
   vi.mocked(workspaceApi.discover).mockResolvedValue({ agents: [
     { address: 'openagents:existing-bot', status: 'online' },
     { address: 'openagents:helper', status: 'online' },
+    { address: 'openagents:yumi', status: 'online', builtin: true },
     { address: 'openagents:offline-bot', status: 'offline' },
     { address: 'openagents:unknown-bot' },
   ] } as Awaited<ReturnType<typeof workspaceApi.discover>>);
@@ -52,6 +53,7 @@ it('shows the roster immediately, excludes existing members, and adds selected p
   expect(document.body.textContent).not.toContain('Already Joined');
   expect(document.body.textContent).not.toContain('existing-bot');
   expect(document.body.textContent).not.toContain('offline-bot');
+  expect(document.body.textContent).not.toContain('yumi');
   expect(document.body.textContent).not.toContain('unknown-bot');
   expect(button('newThread.agents').textContent).toBe('newThread.agents 1');
   await act(async () => button('Sam').click());

@@ -456,6 +456,11 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     workspace = ctx.extra["workspace"]
     payload = event.payload or {}
 
+    from app.services.personal_assistant import is_yumi, PERSONAL_ONLY
+    requested = set(payload.get("participants") or []) | {payload.get("master")}
+    if any(is_yumi(db, workspace.id, name) for name in requested):
+        raise EventRejected("workspace_mod", PERSONAL_ONLY)
+
     # Permission model v1.1: a thread an identified person creates is PRIVATE
     # and owned by them unless the payload says 'public' ('workspace' is the
     # legacy alias). Threads without an identifiable human creator (agents,
@@ -598,6 +603,9 @@ def _guard_private_resume(db, workspace, event: Event, payload: dict, creator_em
             Channel.name == resume_from,
         )
     ).scalar_one_or_none()
+    from app.services.personal_assistant import is_personal_channel, PERSONAL_ONLY
+    if source_channel is not None and is_personal_channel(db, source_channel):
+        raise EventRejected("workspace_mod", PERSONAL_ONLY)
     if source_channel is None or (source_channel.visibility or "workspace") != "private":
         return
 
@@ -717,6 +725,10 @@ async def _handle_channel_join(event: Event, ctx: PipelineContext) -> Optional[E
     if not channel:
         raise EventRejected("workspace_mod", "channel_not_found")
 
+    from app.services.personal_assistant import is_yumi, is_personal_channel, PERSONAL_ONLY
+    if is_yumi(db, workspace.id, agent_name) or is_personal_channel(db, channel):
+        raise EventRejected("workspace_mod", PERSONAL_ONLY)
+
     if not _can_change_agent_membership(event, ctx, channel, agent_name, adding=True):
         raise EventRejected(
             "workspace_mod",
@@ -772,6 +784,10 @@ async def _handle_channel_leave(event: Event, ctx: PipelineContext) -> Optional[
     ).scalar_one_or_none()
     if not channel:
         raise EventRejected("workspace_mod", "channel_not_found")
+
+    from app.services.personal_assistant import is_personal_channel, PERSONAL_ONLY
+    if is_personal_channel(db, channel):
+        raise EventRejected("workspace_mod", PERSONAL_ONLY)
 
     if not _can_change_agent_membership(event, ctx, channel, agent_name, adding=False):
         raise EventRejected(
@@ -2116,10 +2132,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             )
         ).scalar_one_or_none()
 
+    from app.services.personal_assistant import is_personal_channel
+    personal_channel = channel is not None and is_personal_channel(db, channel)
+
     # v1.1: a person may not post into a private thread they are not in.
     # (The REST layer already refuses identified callers; this catches the
     # pipeline path and token-only clients that still identify the sender.)
-    if channel is not None and (channel.visibility or "workspace") == "private" and event.source.startswith("human:"):
+    if channel is not None and (personal_channel or (channel.visibility or "workspace") == "private") and event.source.startswith("human:"):
         from app.services.visibility import Viewer as _Viewer, can_view_channel as _cvc
         if not _cvc(db, str(workspace.id), _Viewer(False, _sender_email), channel):
             logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)
@@ -2175,6 +2194,12 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         # chat in the channel pushes to this human's devices.
         _join_channel_as_human(channel, event.payload or {}, db, event.metadata)
 
+    if personal_channel:
+        # Mentions and old workflows must never invite specialists into personal
+        # history. Yumi can delegate into a separate work thread instead.
+        event.metadata["target_agents"] = ["yumi"] if event.source.startswith(("human:", "system:watch")) else ["__no_response__"]
+        return event
+
     # ── Workflow-driven channel: the workflow engine owns routing ──
     # When a WorkflowRun is active on this channel, a step-instruction message
     # (posted by the engine under a system: source) is targeted at the current
@@ -2196,6 +2221,9 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             # the *agent's* replies as step output, so an interjection can't
             # accidentally advance the run. During a human step, the engine
             # checks the assignee and requires a clear completion response.
+            from app.services.personal_assistant import is_yumi
+            if is_yumi(db, workspace.id, step_agent):
+                step_agent = None
             if step_agent and (source.startswith("system:") or source.startswith("human:")):
                 conversation_targets = (await _conversation_targets(event, channel, db, workspace, [step_agent])) if source.startswith("human:") else None
                 targets = conversation_targets if conversation_targets is not None else [step_agent]
@@ -2231,29 +2259,19 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # daemon is down (an offline target just strands the message).
     online_names = _online_participant_names(db, workspace, channel)
 
-    # Explicit addressing by an agent (declared targets or a leading @mention)
-    # is resolved once here and used by every routing branch below. The
-    # built-in assistant is exempt from being pulled in: it only joins a
-    # thread when a HUMAN adds it (thread picker, @mention, or its seeded
-    # welcome thread), so an agent addressing it from a thread it isn't in
-    # is not delivered to it.
-    participant_names = {p.agent_name for p in (channel.participants or [])}
-    protected = {n for n in builtin_names if n not in participant_names}
+    # Personal Yumi may only respond in a legacy personal/welcome conversation.
+    # Old group memberships do not grant permission to invoke it.
+    protected = builtin_names
     explicit = _explicit_agent_targets(event, content, known_agents, exclude=protected)
 
-    # The built-in is never pulled into a thread by routing — not even by a
-    # human's @mention. It lives in its own threads (the seeded Welcome
-    # thread, or threads a user deliberately created with it / added it to
-    # from the thread's agent menu). Strip it from the mentions so no branch
-    # below can target it, and tell the human where to find it.
     if protected and any(m in protected for m in mentions):
         mentions = [m for m in mentions if m not in protected]
         if event.source.startswith("human:") and not channel.name.startswith("routines:"):
             names = ", ".join(sorted(protected))
             _post_system_notice(
                 db, workspace, channel.name,
-                f"ℹ️ {names} isn't part of this thread. To chat with {names}, open "
-                f"its own thread — or add it here from this thread's agent menu.",
+                f"ℹ️ {names} is a personal assistant and cannot join team threads. "
+                f"Open a direct conversation with {names} from the sidebar.",
                 notice="builtin_not_in_thread",
             )
 
@@ -2275,7 +2293,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # ── Multi-agent channel: route per the thread's orchestration mode ──
     real_participants = [
         p for p in (channel.participants or [])
-        if p.agent_name != "__no_response__"
+        if p.agent_name != "__no_response__" and p.agent_name not in protected
     ]
     conversation_targets = await _conversation_targets(
         event, channel, db, workspace, [n for n in known_agents if n not in protected]
@@ -2348,6 +2366,8 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             targets = explicit
         else:
             targets = _fallback_targets(event, channel, mentions, online_names)
+
+    targets = [name for name in targets if name not in protected]
 
     # ALWAYS set target_agents, even when nobody should respond.
     #

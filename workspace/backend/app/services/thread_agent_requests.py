@@ -13,6 +13,9 @@ def sharing_mode(setting):
 def request_access(db, workspace_id, channel, member, email):
     if not member or member.status == "removed" or not email:
         return "no"
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    if is_yumi(db, workspace_id, member.agent_name):
+        return "yes" if channel and is_personal_channel(db, channel) and email.lower() == (channel.owner_email or "").lower() else "no"
     # Explicit agent grants remain independent of this thread-only setting.
     principal = Principal("human", email=email, workspace_id=str(workspace_id))
     if explain(db, principal, resource_for_agent(member), "act", str(workspace_id), include_thread_sharing=False).allowed:
@@ -99,6 +102,9 @@ def issue_for_work(db, channel):
 def issue_request_access(db, workspace_id, issue, member, email):
     from app.models import IssueAgentSharing
     from app.routers.issues import _participants, _linked_channels
+    from app.services.personal_assistant import is_yumi
+    if member and is_yumi(db, workspace_id, member.agent_name):
+        return "no"
     if not member or member.status == "removed" or not email:
         return "no"
     if explain(db, Principal("human", email=email, workspace_id=str(workspace_id)),

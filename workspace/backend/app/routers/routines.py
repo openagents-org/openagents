@@ -104,6 +104,8 @@ def _get_or_create_routine_channel(db: Session, workspace: Workspace, agent: str
     threads; reverted because the product surface — Inbox tab — is
     organized per-agent.)
     """
+    from app.services.personal_assistant import require_group_agent
+    require_group_agent(db, workspace.id, agent)
     name = _routine_channel_name(agent)
     existing = db.execute(
         select(Channel).where(

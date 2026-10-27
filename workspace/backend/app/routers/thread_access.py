@@ -102,6 +102,12 @@ def update_thread_access(
     is_admin = ctx.is_admin
     from app.services.access_model import can_manage_thread_settings
     manage = can_manage_thread_settings(db, ctx.viewer, ch)
+    from app.services.personal_assistant import is_personal_channel, require_shareable_channel
+    if is_personal_channel(db, ch) and (
+        body.visibility is not None or body.owner_email is not None
+        or body.participants_can_invite is not None or body.members_can_add_agents is not None
+    ):
+        require_shareable_channel(db, ch)
     changed = {}
 
     if 'icon' in body.model_fields_set:

@@ -37,7 +37,7 @@ export function IssueWork({ issueId, closed, onPosted }: {
       // Discovery grants allow new requests anywhere. Issue-specific sharing
       // can additionally allow an agent already participating in this issue.
       const allowedHere = new Set(issue.participants.filter(p => p.request_access === 'yes' || p.request_access === 'approval').map(p => p.source));
-      if (active) setChoices(result.agents.filter(a => a.status === 'online' &&
+      if (active) setChoices(result.agents.filter(a => !a.builtin && a.status === 'online' &&
         (a.can_start_thread === true || allowedHere.has(`openagents:${a.address.replace(/^openagents:/, '')}`))).map(a => ({
         id: `openagents:${a.address.replace(/^openagents:/, '')}`,
         name: a.display_name?.trim() || a.address.replace(/^openagents:/, ''),

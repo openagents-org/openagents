@@ -41,7 +41,7 @@ export function AddThreadParticipants({ channelName }: { channelName: string }) 
       if (!active) return;
       setOptions([
         ...people.map((person) => ({ kind: 'human' as const, id: person.email.toLowerCase(), label: person.displayName || person.email, detail: person.email })),
-        ...discovery.agents.filter((agent) => agent.status === 'online').map((agent) => {
+        ...discovery.agents.filter((agent) => !agent.builtin && agent.status === 'online').map((agent) => {
           const name = agent.address.replace(/^openagents:/, '');
           return { kind: 'agent' as const, id: name, label: agent.display_name?.trim() || name, detail: t('newThread.agent') };
         }),
