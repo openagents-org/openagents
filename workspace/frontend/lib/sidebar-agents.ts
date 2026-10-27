@@ -41,7 +41,9 @@ export function sidebarAgentGroups(agents: WorkspaceAgent[], email: string, conv
     (recency.get(b.agentName) || 0) - (recency.get(a.agentName) || 0) || a.agentName.localeCompare(b.agentName));
   return [true, false].map(owned => {
     const all = permitted.filter(agent => isMySidebarAgent(agent, email) === owned);
-    const shown = all.slice(0, 5);
+    // Four of the viewer's own (about what people connect) and three shared:
+    // at five each the agents pushed the members group below the fold.
+    const shown = all.slice(0, owned ? 4 : 3);
     const total = roster.filter(agent => isMySidebarAgent(agent, email) === owned).length;
     return { owned, all, shown, moreOnline: all.length - shown.length, total };
   });

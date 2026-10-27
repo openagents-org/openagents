@@ -128,6 +128,10 @@ export function RoutineList() {
             <CalendarClock className="size-8 opacity-30" />
             <p className="text-sm">{t('routines.emptyTitle')}</p>
             <p className="text-xs opacity-60">{t('routines.emptyHint')}</p>
+            <Button className="mt-4" variant="outline" size="sm" onClick={openCreateDialog}>
+              <Plus className="size-4" />
+              {t('routines.createShort')}
+            </Button>
           </div>
         ) : (
           <div className="py-1">

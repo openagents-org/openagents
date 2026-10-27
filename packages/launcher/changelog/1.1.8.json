@@ -1,82 +1,71 @@
 {
   "version": "1.1.8",
-  "date": "2026-10-26",
+  "date": "2026-10-27",
   "entries": [
     {
+      "type": "feature",
+      "title": {
+        "en": "Issues: filter by assignee, set due dates, preview attachments",
+        "zh": "议题支持按指派人筛选、设置截止日期和预览附件"
+      },
+      "description": {
+        "en": "Images and videos open in place, and descriptions and comments keep their line breaks.",
+        "zh": "图片与视频可直接查看，描述和评论保留原有换行。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Permissions and privacy",
+        "zh": "权限与隐私"
+      },
+      "description": {
+        "en": "Only an agent's owner can change its settings. Sign-in checks no longer read credentials stored in the macOS Keychain.",
+        "zh": "仅智能体所有者可修改其配置；登录检测不再读取 macOS 钥匙串中保存的凭据。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Hermes: official icon, and no config warnings in replies",
+        "zh": "Hermes 换用官方图标，回复中不再夹带配置警告"
+      },
+      "description": {
+        "en": "When signed in through its CLI, it no longer uses a custom endpoint or API key.",
+        "zh": "通过 CLI 登录时，不再沿用自定义接口地址和 API Key。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Display and notice fixes",
+        "zh": "显示与提示修复"
+      },
+      "description": {
+        "en": "Notifications, workspace tabs and pop-up messages display correctly, and \"no agent online\" is no longer reported by mistake.",
+        "zh": "通知列表、工作区标签和提示消息显示正常，不再误报「没有在线智能体」。"
+      }
+    },
+    {
       "type": "improvement",
       "title": {
-        "en": "Issues: filter by assignee, set due dates, preview images",
-        "zh": "议题支持按指派人筛选、设置截止日期和预览图片"
+        "en": "A tidier workspace with easier-to-find actions",
+        "zh": "工作区布局更简洁，常用操作更易发现"
+      },
+      "description": {
+        "en": "Every list can be collapsed, New buttons sit beside each list's title, and conversation actions are always shown. The sidebar lists fewer agents, members can be folded and invited from there, and the title bar drops the logo.",
+        "zh": "所有列表均可收起，新建按钮置于列表标题旁，会话操作按钮常驻显示。侧栏精简智能体数量，成员可折叠并可直接邀请，标题栏去掉标志。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Read status syncs across your devices",
-        "zh": "已读状态在多台设备间同步"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Drag files into attachments; pasted rich text keeps its formatting",
-        "zh": "附件支持拖拽上传，粘贴富文本时保留格式"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "Hermes Agent shows its official icon",
-        "zh": "Hermes Agent 换用官方图标"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "No more false \"no agent online\" messages",
-        "zh": "不再误报“没有在线智能体”"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "A missing model is now flagged at the model field",
-        "zh": "未填写模型时，提示直接显示在模型字段下方"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Hermes signed in through its CLI no longer uses a custom endpoint or API key",
-        "zh": "通过 CLI 登录的 Hermes 不再沿用自定义接口地址和 API Key"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Sign-in checks no longer read stored credentials from the macOS Keychain",
-        "zh": "登录检测不再读取 macOS 钥匙串中保存的凭据内容"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Agent health warnings can be dismissed",
-        "zh": "智能体健康提醒可以关闭"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Notification list no longer overflows its panel",
-        "zh": "通知列表不再超出面板"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Workspace tabs no longer show a black edge",
-        "zh": "工作区标签不再有黑边"
+        "en": "Everyday improvements",
+        "zh": "使用体验优化"
+      },
+      "description": {
+        "en": "Read status syncs across devices, attachments can be dragged in, pasted rich text keeps its formatting, a missing model is flagged at its field, and health warnings can be dismissed.",
+        "zh": "已读状态多设备同步，附件支持拖拽上传，粘贴富文本保留格式，未填写模型时在字段下方提示，健康提醒可以关闭。"
       }
     }
   ]

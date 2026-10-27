@@ -2,7 +2,6 @@ import React from "react"
 import { ChevronRight, MessagesSquare, Monitor } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { LauncherUpdateBanner } from "@renderer/components/LauncherUpdateBanner"
-import { BrandWordmark } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
 import { useWorkspaceTabsStore } from "@renderer/store/workspace-tabs"
 import { cn } from "@renderer/lib/utils"
@@ -109,10 +108,11 @@ export function ModeBar(): React.JSX.Element {
   return (
     <header className="relative z-20 shrink-0 border-b bg-background">
       <div className="titlebar-drag flex h-(--mode-bar-h) items-center gap-4 pr-(--window-controls-w) pl-(--traffic-lights-w)">
-        <div className="flex shrink-0 items-center pl-4">
-          <BrandWordmark className="h-6" />
-        </div>
-        <div role="tablist" aria-label={t("nav.modeSwitch")} className="flex min-w-0 flex-1 items-center gap-2 self-stretch">
+        {/* No wordmark here: the title bar is for switching, and the brand
+            already shows in the workspace rail and the window's own title. The
+            left inset it used to provide stays, for Windows, where there are no
+            traffic lights in front of the tabs. */}
+        <div role="tablist" aria-label={t("nav.modeSwitch")} className="flex min-w-0 flex-1 items-center gap-2 self-stretch pl-4">
           <div className="flex shrink-0 items-center rounded-lg bg-muted p-1">
             <ModeTab active={local} onClick={() => useAccountStore.getState().exitWorkspace()}
               icon={Monitor} label={t("nav.modeLauncher")} testId="mode-launcher" />

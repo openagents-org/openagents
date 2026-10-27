@@ -247,14 +247,18 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     );
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* New issue sits beside the title, as the list panels' New buttons do:
+          in the header's right corner it went unnoticed on a wide screen. */}
       <DetailHeader
-        title={<h1 className="text-sm font-semibold">{t('views.issues')}</h1>}
-      >
-        <Button size="sm" variant="mono" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-3.5" />
-          {t('issues.newIssue')}
-        </Button>
-      </DetailHeader>
+        titleInHeader
+        title={<div className="flex min-w-0 items-center gap-2">
+          <h1 className="truncate text-sm font-semibold">{t('views.issues')}</h1>
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            {t('issues.newIssue')}
+          </Button>
+        </div>}
+      />
       <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
         <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}</Button>
         <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
