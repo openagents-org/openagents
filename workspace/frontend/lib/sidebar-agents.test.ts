@@ -28,13 +28,13 @@ it('removes a shared agent when its access is revoked without removing owned age
     .map((agent) => agent.agentName)).toEqual(['mine']);
 });
 
-it('bounds each category to five, sorts by DM recency and excludes offline agents from the picker', () => {
+it('shows four of my agents and three shared ones, sorts by DM recency and excludes offline agents from the picker', () => {
   const agents = Array.from({ length: 16 }, (_, i) => ({ agentName: `agent-${i}`, ownerEmail: i < 7 ? 'me@example.com' : 'other@example.com', status: i === 15 ? 'offline' : 'online', canStartThread: true })) as WorkspaceAgent[];
   const conversations = [{ agents: ['human:me@example.com', 'openagents:agent-6'], lastMessage: { timestamp: 10 } }, { agents: ['human:me@example.com', 'openagents:agent-14'], lastMessage: { timestamp: 20 } }] as import('./types').DMConversation[];
   const [mine, shared] = sidebarAgentGroups(agents, 'me@example.com', conversations);
-  expect(mine.shown).toHaveLength(5); expect(shared.shown).toHaveLength(5);
+  expect(mine.shown).toHaveLength(4); expect(shared.shown).toHaveLength(3);
   expect(mine.shown[0].agentName).toBe('agent-6'); expect(shared.shown[0].agentName).toBe('agent-14');
-  expect(mine.moreOnline).toBe(2); expect(shared.moreOnline).toBe(3);
+  expect(mine.moreOnline).toBe(3); expect(shared.moreOnline).toBe(5);
   expect(shared.all.some(agent => agent.agentName === 'agent-15')).toBe(false);
 });
 
