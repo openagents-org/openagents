@@ -90,4 +90,8 @@ it('binds a rotated reply to the last preceding browser action in a multi-browse
   expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [...messages, step(older.id, latest.createdAt)])).toBeUndefined();
   const ambiguous = {...latest, content: `/v1/browser/tabs/${older.id}/snapshot /v1/browser/tabs/${current.id}/snapshot`};
   expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [earlier, ambiguous, reply])).toBeUndefined();
+  const nextReply = {...reply, content:'https://www.browserfabric.com/live/next-job', createdAt:'2026-10-27T08:46:00Z'};
+  const subsequentJob = [...messages, step(older.id, '2026-10-27T08:45:00Z'), nextReply];
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', subsequentJob)).toEqual(current);
+  expect(resolveThreadBrowserLink(nextReply.content, [older, current], 'paper-review', subsequentJob)).toEqual(older);
 });

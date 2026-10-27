@@ -107,7 +107,7 @@ function timestamp(tab: BrowserTab): number {
   return Number.isFinite(value) ? value : 0;
 }
 
-/** Resolve a connector's latest shared link through stable tab references in
+/** Resolve a connector's shared link through stable tab references in
  * this conversation when a reconnect has rotated the ephemeral live URL.
  * Never guess from the website or agent alone, or choose between multiple tabs. */
 export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[]): BrowserTab | undefined {
@@ -115,7 +115,6 @@ export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channe
   if (!live) return undefined;
   const exact = tabs.find(tab => browserFabricLiveUrl(tab.liveUrl || '') === live);
   if (exact) return exact;
-  if (!threadBrowserLinks(messages, channel).includes(live)) return undefined;
   const publisher = messages.filter(message => message.sessionId === channel && message.senderType === 'agent' && message.messageType === 'chat' && !message.metadata?.recalled && browserLinksInText(message.content).includes(live))
     .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))[0];
   if (!publisher?.senderAddress) return undefined;
@@ -134,5 +133,6 @@ export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channe
     const latest = new Set(steps.filter(step => step.at === steps[0].at).flatMap(step => [...step.ids]));
     return latest.size === 1 ? candidates.find(tab => latest.has(tab.id)) : undefined;
   }
-  return candidates.length === 1 ? candidates[0] : undefined;
+  // Legacy messages without timestamps may only fall back for the latest link.
+  return threadBrowserLinks(messages, channel).includes(live) && candidates.length === 1 ? candidates[0] : undefined;
 }
