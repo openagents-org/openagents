@@ -954,10 +954,12 @@ def generate_member_description(
         model = _get_router_model()
         if provider == "openai":
             resp = client.chat.completions.create(
-                model=model, max_tokens=60,
+                # Reasoning models share this budget with the visible answer;
+                # 60 tokens can be exhausted before any description is emitted.
+                model=model, max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = resp.choices[0].message.content.strip()
+            text = (resp.choices[0].message.content or "").strip()
         else:
             resp = client.messages.create(
                 model=model, max_tokens=60,
@@ -970,6 +972,9 @@ def generate_member_description(
 
     # Strip stray wrapping quotes / trailing period the model sometimes adds.
     text = text.strip().strip('"').strip("'").rstrip(".").strip()
+    if not text:
+        logger.warning("generate-description returned an empty answer")
+        return json_response(ResponseCode.INTERNAL_ERROR, "Model returned an empty description; please retry")
     return success_response({"agentName": agent_name, "description": text})
 
 
