@@ -7,6 +7,16 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
+@pytest.fixture
+def list_headers(monkeypatch):
+    import app.access as access
+    monkeypatch.setattr(access, "verify_identity_claims", lambda token: {
+        "provider": "firebase", "email": "test@example.com", "firebase_uid": "test-list-user",
+        "apple_sub": None, "display_name": "Test",
+    } if token == "list-user" else None)
+    return {"Authorization": "Bearer list-user"}
+
+
 class TestCreateWorkspace:
     """POST /v1/workspaces — create a workspace."""
 
@@ -188,13 +198,13 @@ class TestDeleteWorkspace:
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "deleted"
 
-    def test_deleted_workspace_hidden_from_list(self, client, workspace):
+    def test_deleted_workspace_hidden_from_list(self, client, workspace, list_headers):
         """Deleted workspace doesn't appear in list."""
         client.delete(
             f"/v1/workspaces/{workspace['id']}",
             headers={"X-Workspace-Token": workspace["token"]},
         )
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         ids = [w["workspaceId"] for w in resp.json()["data"]]
         assert workspace["id"] not in ids
 
@@ -383,23 +393,23 @@ class TestGenerateMemberDescription:
 class TestListWorkspaces:
     """GET /v1/workspaces — list workspaces."""
 
-    def test_list_empty(self, client):
+    def test_list_empty(self, client, list_headers):
         """Empty workspace list."""
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         assert resp.status_code == 200
         assert resp.json()["data"] == []
 
-    def test_list_returns_workspaces(self, client, workspace):
+    def test_list_returns_workspaces(self, client, workspace, list_headers):
         """Workspaces appear in list."""
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         assert len(resp.json()["data"]) >= 1
 
-    def test_list_filter_by_agent(self, client, workspace):
+    def test_list_filter_by_agent(self, client, workspace, list_headers):
         """Filter workspaces by agent membership."""
-        resp = client.get("/v1/workspaces", params={"agent_name": "agent-alpha"})
+        resp = client.get("/v1/workspaces", params={"agent_name": "agent-alpha"}, headers=list_headers)
         assert len(resp.json()["data"]) >= 1
 
-        resp2 = client.get("/v1/workspaces", params={"agent_name": "nonexistent"})
+        resp2 = client.get("/v1/workspaces", params={"agent_name": "nonexistent"}, headers=list_headers)
         assert resp2.json()["data"] == []
 
 
