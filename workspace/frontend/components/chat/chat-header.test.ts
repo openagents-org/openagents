@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   currentUser: { id: 'person@example.com', name: 'Person', isAuthenticated: true },
   currentSessionId: 'alpha',
   sessions: ['alpha', 'beta'].map(sessionId => ({ sessionId, title: sessionId, participants: [], responseMode: 'proactive' })),
-  agents: [], knowledge: [], files: [], browserTabs: [], activeSessionIds: new Set(), stoppingSessionIds: new Set(),
+  agents: [], knowledge: [], routines: [], files: [], browserTabs: [], activeSessionIds: new Set(), stoppingSessionIds: new Set(),
   consumeSkipFocus: () => false, updateLastMessage: () => {}, setSessionActive: () => {},
 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => state }));
@@ -30,7 +30,9 @@ vi.mock('./empty-state', () => ({ EmptyState: () => null, EmptyConversation: () 
 vi.mock('./yumi-guide', () => ({ YumiGuide: () => null }));
 vi.mock('./yumi-dm-intro', () => ({ YumiDmIntro: () => null }));
 vi.mock('./share-dialog', () => ({ ShareDialog: () => null }));
-vi.mock('@/components/routines/routine-dialog', () => ({ RoutineDialog: () => null }));
+vi.mock('@/components/routines/routine-dialog', () => ({
+  RoutineDialog: ({ routine }: { routine?: { name: string } | null }) => routine ? createElement('div', { 'data-editing-routine': routine.name }) : null,
+}));
 vi.mock('./thread-participant-count', () => ({ ThreadParticipantCount: () => null }));
 vi.mock('./thread-privacy-control', () => ({ threadPrivacyApplies: () => true, ThreadPrivacyControl: () => null }));
 vi.mock('@/hooks/use-thread-access', () => ({ useThreadAccess: () => null }));
@@ -87,4 +89,30 @@ it('opens DM profiles only after clicking the name in the header', async () => {
     await act(async () => person!.click());
     expect(document.querySelector('[data-human-profile]')?.getAttribute('data-human-profile')).toBe('sam@example.com');
   } finally { await act(async () => root.unmount()); }
+});
+
+it('edits the open routine from its conversation header', async () => {
+  document.body.innerHTML = '<div id="root"></div><div id="app-header-actions"></div>';
+  const root = createRoot(document.getElementById('root')!);
+  const previous = { sessions: state.sessions, routines: state.routines };
+  try {
+    state.currentSessionId = 'routine:r1';
+    state.sessions = [{ sessionId: 'routine:r1', title: 'Daily digest', participants: [], responseMode: 'proactive' }];
+    (state as { routines: unknown[] }).routines = [{ id: 'r1', name: 'Daily digest', channelName: 'routine:r1' }];
+    await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
+    expect(document.querySelector('[data-editing-routine]')).toBeNull();
+    const edit = document.querySelector<HTMLButtonElement>('#app-header-actions button[title="routines.edit"]');
+    expect(edit).not.toBeNull();
+    await act(async () => edit!.click());
+    expect(document.querySelector('[data-editing-routine]')?.getAttribute('data-editing-routine')).toBe('Daily digest');
+
+    state.currentSessionId = 'alpha';
+    state.sessions = previous.sessions;
+    await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
+    expect(document.querySelector('#app-header-actions button[title="routines.edit"]')).toBeNull();
+  } finally {
+    state.sessions = previous.sessions;
+    state.routines = previous.routines;
+    await act(async () => root.unmount());
+  }
 });

@@ -20,7 +20,7 @@ import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu, X } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Pencil, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu, X } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
 import { ThreadParticipantCount } from './thread-participant-count';
@@ -36,7 +36,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { eventToMessage } from '@/lib/types';
-import type { WorkspaceMessage } from '@/lib/types';
+import type { RoutineItem, WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { acknowledgeMessage, pendingMessagesForDisplay } from '@/lib/optimistic-messages';
 import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
@@ -171,9 +171,14 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
+  // Snapshot on open: polling replaces routine objects, and the dialog resets
+  // its form whenever the routine it is given changes.
+  const [editingRoutine, setEditingRoutine] = useState<RoutineItem | null>(null);
+  // An open routine queue is edited right here, not only from the Routines list.
+  const currentRoutine = currentSessionId ? routines.find((r) => r.channelName === currentSessionId) ?? null : null;
 
   // Per-agent smoke-test results ride the node heartbeat's roster. A failing
   // probe means a participant will likely never answer even though it shows
@@ -851,6 +856,19 @@ export function ChatView() {
             </div>
           )}
 
+          {currentRoutine && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingRoutine(currentRoutine)}
+              title={t('routines.edit')}
+              className="gap-1.5 h-7 text-xs font-medium"
+            >
+              <Pencil className="size-3.5" />
+              <span className="hidden sm:inline">{t('routines.edit')}</span>
+            </Button>
+          )}
+
           {/* Share conversation */}
           <Button
             variant="ghost"
@@ -1072,6 +1090,17 @@ export function ChatView() {
           })()}
           onCreateRoutine={createRoutine}
         />
+
+        {editingRoutine && (
+          <RoutineDialog
+            open
+            onOpenChange={(open) => { if (!open) setEditingRoutine(null); }}
+            agents={agents}
+            routine={editingRoutine}
+            onCreateRoutine={createRoutine}
+            onUpdateRoutine={updateRoutine}
+          />
+        )}
 
         {currentSessionId && (
           <ShareDialog
