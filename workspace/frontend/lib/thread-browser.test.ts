@@ -71,3 +71,23 @@ it('recovers a human-created tab from explicit shell activity and follows its ro
   expect(threadBrowserTabs([], 'paper-review', [step])).toEqual([]);
   expect(threadBrowserTabs([reused], 'other', [step])).toEqual([]);
 });
+
+it('binds a rotated reply to the last preceding browser action in a multi-browser thread', () => {
+  const older = { ...tab, id: 'b74094a9-d5c9-4680-9c7a-1b694bc8ef51', createdBy: 'human:user', lastActiveAt: '2026-10-27T09:00:00Z' };
+  const current = { ...tab, id: 'a4d76856-7089-46fd-a4c9-a3a9447e277f', lastActiveAt: '2026-10-27T08:40:00Z' };
+  const expired = 'https://www.browserfabric.com/live/rotated';
+  const step = (id: string, createdAt: string, extra = {}) => ({ ...message(`T=${id}; curl /v1/browser/tabs/$T/evaluate`), createdAt, senderType: 'agent', messageType: 'status', senderAddress: 'openagents:bot', ...extra });
+  const reply = { ...message(expired), createdAt: '2026-10-27T08:44:00Z', senderType: 'agent', messageType: 'chat', senderAddress: 'openagents:bot' };
+  const earlier = step(older.id, '2026-10-27T08:40:00Z');
+  const latest = step(current.id, '2026-10-27T08:43:00Z');
+  const messages = [reply, earlier, latest];
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', messages)).toEqual(current);
+  expect(threadBrowserTabs([older, current], 'paper-review', messages)).toEqual([current, older]);
+  // Later jobs and another agent's activity cannot reinterpret this reply.
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [...messages, step(older.id, '2026-10-27T08:45:00Z'), step(older.id, '2026-10-27T08:43:30Z', {senderAddress:'openagents:other'})])).toEqual(current);
+  expect(resolveThreadBrowserLink(expired, [older], 'paper-review', messages)).toBeUndefined();
+  expect(resolveThreadBrowserLink(expired, [older, {...current, artifactChannels:['other']}], 'paper-review', messages)).toBeUndefined();
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [...messages, step(older.id, latest.createdAt)])).toBeUndefined();
+  const ambiguous = {...latest, content: `/v1/browser/tabs/${older.id}/snapshot /v1/browser/tabs/${current.id}/snapshot`};
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [earlier, ambiguous, reply])).toBeUndefined();
+});

@@ -85,8 +85,15 @@ function referencedTabs(tabs: BrowserTab[], channel: string, messages: Workspace
 
 export function threadBrowserArtifacts(tabs: BrowserTab[], channel: string, messages: WorkspaceMessage[] = []): BrowserTab[] {
   const referenced = referencedTabs(tabs, channel, messages);
+  const usedAt = new Map<string, number>();
+  for (const message of messages) {
+    if (message.sessionId !== channel || message.metadata?.recalled || message.senderType !== 'agent' || message.messageType !== 'status') continue;
+    for (const id of browserTabIdsInToolStatus(message.content)) {
+      usedAt.set(id, Math.max(usedAt.get(id) || 0, Date.parse(message.createdAt || '') || 0));
+    }
+  }
   return tabs.filter(tab => tab.status === 'active' && (tab.artifactChannels?.includes(channel) || referenced.has(tab.id)))
-    .sort((a, b) => timestamp(b) - timestamp(a));
+    .sort((a, b) => (usedAt.get(b.id) || 0) - (usedAt.get(a.id) || 0) || timestamp(b) - timestamp(a));
 }
 
 /** The first association is the latest thread driving this shared tab. */
@@ -114,5 +121,18 @@ export function resolveThreadBrowserLink(url: string, tabs: BrowserTab[], channe
   if (!publisher?.senderAddress) return undefined;
   const referenced = agentReferencedBrowserTabs(tabs, channel, messages, publisher.senderAddress);
   const candidates = threadBrowserTabs(tabs, channel, messages).filter(tab => referenced.has(tab.id) || tab.createdBy === publisher.senderAddress);
+  // A thread can contain several browser jobs. Match the reply to its last
+  // preceding browser action, never to a later job or an unrelated tab refresh.
+  // Equal-time steps or a command touching multiple tabs remain ambiguous.
+  const publishedAt = Date.parse(publisher.createdAt || '');
+  const steps = messages.filter(message => message.sessionId === channel && !message.metadata?.recalled && message.senderType === 'agent'
+    && message.senderAddress === publisher.senderAddress && message.messageType === 'status'
+    && Date.parse(message.createdAt || '') <= publishedAt)
+    .map(message => ({ at: Date.parse(message.createdAt || ''), ids: browserTabIdsInToolStatus(message.content) }))
+    .filter(step => step.ids.size).sort((a, b) => b.at - a.at);
+  if (steps.length) {
+    const latest = new Set(steps.filter(step => step.at === steps[0].at).flatMap(step => [...step.ids]));
+    return latest.size === 1 ? candidates.find(tab => latest.has(tab.id)) : undefined;
+  }
   return candidates.length === 1 ? candidates[0] : undefined;
 }
