@@ -172,6 +172,32 @@ describe('WorkspaceClient', () => {
       assert.equal(cursor, 'e9');
     });
   });
+
+  describe('getRecentMessages', () => {
+    // OA-026: agent progress events must not eat the history window.
+    it('excludes agent progress events server-side by default', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 100, { before: 'e5' });
+
+      const params = new URL(capturedPath, 'http://x').searchParams;
+      assert.equal(params.get('exclude_message_types'), 'status,thinking,todos,loading');
+      assert.equal(params.get('before'), 'e5');
+      assert.equal(params.get('limit'), '100');
+    });
+
+    it('sends no exclusion when excludeMessageTypes is empty', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 30, { excludeMessageTypes: '' });
+
+      assert.ok(!capturedPath.includes('exclude_message_types'), capturedPath);
+    });
+  });
 });
 
 // Regression guard for the "online but deaf" wedge: a request whose socket

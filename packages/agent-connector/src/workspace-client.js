@@ -4,6 +4,8 @@ const https = require('https');
 const http = require('http');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+// Agent progress noise that never belongs in a conversation transcript.
+const RECENT_MESSAGES_EXCLUDED_TYPES = 'status,thinking,todos,loading';
 
 /**
  * The error a request deadline produces. Every request carries a hard
@@ -436,8 +438,16 @@ class WorkspaceClient {
    * to rebuild context for a fresh Claude Code session when --resume of the
    * previous session fails (the channel's chat history is the only thing
    * that survives a session-storage rotation).
+   *
+   * Agent status/thinking/todos/loading events are dropped server-side by
+   * default: one tool-heavy agent turn posts dozens of them into the same
+   * channel, and filtering only after the fetch left a "100 event" window
+   * holding a handful of real chat messages (OA-026). Pass
+   * `excludeMessageTypes: ''` to get every event.
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc', before, timeout, throwOnError = false } = {}) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, {
+    sort = 'desc', before, timeout, throwOnError = false, excludeMessageTypes = RECENT_MESSAGES_EXCLUDED_TYPES,
+  } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
@@ -447,6 +457,7 @@ class WorkspaceClient {
         limit: String(limit),
       });
       if (before) params.set('before', before);
+      if (excludeMessageTypes) params.set('exclude_message_types', excludeMessageTypes);
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token), timeout);
       const result = data.data || data;
       const events = (result && result.events) || [];
