@@ -607,30 +607,39 @@ def reconcile(db: Session, user_id: str) -> None:
         if needed <= have:
             return
 
-        n_types = len(_connected_agent_types(db, user_id))
-        if n_types >= 1 and "first_agent" not in have:
-            if grant(db, user_id, "first_agent", MILESTONE_AMOUNTS["first_agent"]):
-                have.add("first_agent")
-        if n_types >= 2 and "second_agent" not in have:
-            if grant(db, user_id, "second_agent", MILESTONE_AMOUNTS["second_agent"]):
-                have.add("second_agent")
+        if not {"first_agent", "second_agent"} <= have:
+            n_types = len(_connected_agent_types(db, user_id))
+            if n_types >= 1 and "first_agent" not in have:
+                if grant(db, user_id, "first_agent", MILESTONE_AMOUNTS["first_agent"]):
+                    have.add("first_agent")
+            if n_types >= 2 and "second_agent" not in have:
+                if grant(db, user_id, "second_agent", MILESTONE_AMOUNTS["second_agent"]):
+                    have.add("second_agent")
 
-        resp_types = _responding_agent_types(db, user_id)
-        if resp_types and _human_spoke_in_owned(db, user_id):
-            if "first_conversation" not in have:
-                if grant(db, user_id, "first_conversation", MILESTONE_AMOUNTS["first_conversation"]):
-                    have.add("first_conversation")
-            if len(resp_types) >= 2 and "second_agent_response" not in have:
-                grant(db, user_id, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"])
-            # Daily active: a qualifying agent reply today (UTC), gated on the
-            # first conversation existing.
-            if "first_conversation" in have and daily_key not in have:
-                day_start_ms = int(datetime.now(timezone.utc)
-                                   .replace(hour=0, minute=0, second=0, microsecond=0)
-                                   .timestamp() * 1000)
-                if _responding_agent_types(db, user_id, min_ts_ms=day_start_ms):
-                    grant(db, user_id, daily_key, config.CAMPAIGN_DAILY_GRANT_USD)
+        # Completed lifetime milestones are the proof of past conversation.
+        # Re-scanning every historical message for each daily status fetch can
+        # time out on large workspaces, even though only today's reply matters.
+        if not {"first_conversation", "second_agent_response"} <= have:
+            resp_types = _responding_agent_types(db, user_id)
+            if resp_types and _human_spoke_in_owned(db, user_id):
+                if "first_conversation" not in have:
+                    if grant(db, user_id, "first_conversation", MILESTONE_AMOUNTS["first_conversation"]):
+                        have.add("first_conversation")
+                if len(resp_types) >= 2 and "second_agent_response" not in have:
+                    grant(db, user_id, "second_agent_response", MILESTONE_AMOUNTS["second_agent_response"])
+        # Daily active: a qualifying agent reply today (UTC), gated on the
+        # first conversation existing. Keep this query timestamp-bounded.
+        if "first_conversation" in have and daily_key not in have:
+            day_start_ms = int(datetime.now(timezone.utc)
+                               .replace(hour=0, minute=0, second=0, microsecond=0)
+                               .timestamp() * 1000)
+            if _responding_agent_types(db, user_id, min_ts_ms=day_start_ms):
+                grant(db, user_id, daily_key, config.CAMPAIGN_DAILY_GRANT_USD)
     except Exception as exc:  # noqa: BLE001 — reconcile must never break status
+        # PostgreSQL leaves the transaction aborted after a statement timeout.
+        # Catching alone makes the following status SELECT fail with 500 too.
+        # Successful grants have already committed; incomplete work can retry.
+        db.rollback()
         logger.warning("campaign: reconcile failed for %s: %s", user_id, exc)
 
 
