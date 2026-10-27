@@ -58,7 +58,7 @@ class LlmDirectAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the system prompt.
+    // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
     this._adapterLabel = opts.adapterLabel || 'LLM';
     this._modelEnvVar = opts.modelEnvVar || '';

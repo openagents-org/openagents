@@ -39,7 +39,6 @@ function mkAdapter() {
   adapter.getBrowserEnabled = async () => false;
   adapter._resetIdleTimer = () => {};
   adapter._titledSessions.add('general');
-  adapter._fetchDecisionLog = async () => ({ available: false });
   adapter._fetchGlossary = async () => ({ available: false });
   return adapter;
 }
