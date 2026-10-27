@@ -36,7 +36,9 @@ export function threadBrowserLinks(messages: WorkspaceMessage[], channel: string
 export function browserTabIdsInToolStatus(content: string): Set<string> {
   const ids = new Set<string>();
   const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-  for (const match of content.matchAll(new RegExp(`/v1/browser/tabs/(${uuid})(?=[/\\s?"'\x60]|$)`, 'gi'))) ids.add(match[1]);
+  // Keep this a regex literal: the production minifier can emit an unescaped
+  // backtick when this character class is constructed inside a template literal.
+  for (const match of content.matchAll(/\/v1\/browser\/tabs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=[/\s?"'`]|$)/gi)) ids.add(match[1]);
   const variables = new Map<string, { value: string; at: number }[]>();
   for (const match of content.matchAll(/(?:^|[;\s])\$?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\s]+)/g)) {
     const value = match[2].replace(/^["']|["']$/g, '');
