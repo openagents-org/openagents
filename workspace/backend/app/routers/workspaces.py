@@ -2479,3 +2479,56 @@ def create_pairing_code(
         "expiresAt": expires.isoformat(),
         "expiresInSeconds": int(PAIRING_TTL.total_seconds()),
     })
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/workspaces/{id}/pairing-codes/{code} — has the device redeemed it?
+# ---------------------------------------------------------------------------
+
+@router.get("/{workspace_id}/pairing-codes/{code}")
+def get_pairing_code_status(
+    workspace_id: str,
+    code: str,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Whether a pairing code has been redeemed, and by which device.
+
+    The screen showing the code polls this to learn the pairing worked. Watching
+    the device list for a new node cannot tell: a device that was paired before
+    is upserted on redeem and keeps its node id, so nothing new ever appears.
+    Only the member who minted the code may read it.
+    """
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    user = resolve_current_user(db, authorization)
+    if not user or not verify_workspace_access(workspace, None, authorization, db=db, min_role="member"):
+        return json_response(ResponseCode.FORBIDDEN, "Sign in as a workspace member")
+
+    from app.models import NodePairingCode
+    from app.routers.nodes import format_pairing_code, normalize_pairing_code, _aware
+
+    pc = db.execute(
+        select(NodePairingCode).where(
+            NodePairingCode.code == normalize_pairing_code(code),
+            NodePairingCode.workspace_id == workspace.id,
+        )
+    ).scalar_one_or_none()
+    # Someone else's code reads as unknown rather than forbidden: whether a
+    # code exists is not theirs to learn.
+    if not pc or (pc.created_by or "").lower() != user.email.strip().lower():
+        return json_response(ResponseCode.NOT_FOUND, "Pairing code not found")
+
+    expires = _aware(pc.expires_at)
+    redeemed = _aware(pc.redeemed_at)
+    return success_response({
+        "code": format_pairing_code(pc.code),
+        "redeemed": redeemed is not None,
+        "redeemedAt": redeemed.isoformat() if redeemed else None,
+        "nodeId": str(pc.node_id) if pc.node_id else None,
+        "expired": redeemed is None and expires is not None and expires < datetime.now(timezone.utc),
+        "expiresAt": expires.isoformat() if expires else None,
+    })
