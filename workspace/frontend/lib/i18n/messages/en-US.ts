@@ -3005,6 +3005,8 @@ export const messages = {
 
   // ── v1.1 permission model — thread Private/Public, owner, join, share dialog ──
   threadAccess: {
+    addMember: 'Add member',
+    addAgent: 'Add agent',
     addPeople: 'Add people',
     addAgents: 'Add agents',
     choosePeople: 'Choose people…',

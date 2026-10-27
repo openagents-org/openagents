@@ -2950,6 +2950,8 @@ export const messages: Messages = {
 
   // ── v1.1 权限模型 — 线程私密/公开、所有者、加入、共享对话框 ──
   threadAccess: {
+    addMember: '添加成员',
+    addAgent: '添加智能体',
     addPeople: '添加成员',
     addAgents: '添加智能体',
     choosePeople: '选择成员…',
