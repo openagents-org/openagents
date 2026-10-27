@@ -371,10 +371,24 @@ class WorkspaceClient {
   }
 
   /**
-   * Send a chat message to a workspace channel.
+   * Detect safe retry support before using a durable message outbox.
    */
+  async supportsMessageDelivery() {
+    if (this._messageDeliverySupported !== undefined && Date.now() < this._messageDeliveryCheckUntil) return this._messageDeliverySupported;
+    try {
+      const result = await this._get('/v1/events/delivery-capabilities');
+      this._messageDeliverySupported = (result.data || result).idempotent_messages === true;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      this._messageDeliverySupported = false;
+    }
+    this._messageDeliveryCheckUntil = Date.now() + 60000;
+    return this._messageDeliverySupported;
+  }
+
+  /** Send a chat message, optionally with a stable delivery key. */
   async sendMessage(workspaceId, channelName, token, content, {
-    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId,
+    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId, idempotencyKey,
   } = {}) {
     const sourcePrefix = senderType === 'agent' ? 'openagents' : 'human';
     const source = senderName ? `${sourcePrefix}:${senderName}` : `${sourcePrefix}:unknown`;
@@ -395,6 +409,7 @@ class WorkspaceClient {
       }
       return this.sendEvent(workspaceId, {
         type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         source,
         target: counterpart,
         payload,
@@ -405,6 +420,7 @@ class WorkspaceClient {
 
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       source,
       target: `channel/${channelName}`,
       payload,
@@ -1324,7 +1340,9 @@ class WorkspaceClient {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            const err = new Error(`Invalid response (HTTP ${res.statusCode})`);
+            err.status = res.statusCode;
+            reject(err);
           }
         });
       });
