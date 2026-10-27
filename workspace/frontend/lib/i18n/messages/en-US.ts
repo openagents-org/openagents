@@ -2193,6 +2193,7 @@ export const messages = {
     description: 'Description',
     descriptionPlaceholder:
       'Describe what {agent} does so other agents know when to delegate work...',
+    ownerOnlyHint: "Only the agent's owner can change its settings.",
     descriptionScope: 'Default role for this agent across the whole workspace. To give it a different role in one thread, use the agent card in that thread.',
     displayNameSaved: 'Name saved',
     displayNameSaveFailed: 'Failed to save name',
