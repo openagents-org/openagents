@@ -24,6 +24,20 @@
       }
     },
     {
+      "type": "improvement",
+      "title": {
+        "en": "Hermes Agent shows its official icon",
+        "zh": "Hermes Agent 换用官方图标"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "No more false \"no agent online\" messages",
+        "zh": "不再误报“没有在线智能体”"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "A missing model is now flagged at the model field",
@@ -49,6 +63,20 @@
       "title": {
         "en": "Agent health warnings can be dismissed",
         "zh": "智能体健康提醒可以关闭"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Notification list no longer overflows its panel",
+        "zh": "通知列表不再超出面板"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace tabs no longer show a black edge",
+        "zh": "工作区标签不再有黑边"
       }
     }
   ]

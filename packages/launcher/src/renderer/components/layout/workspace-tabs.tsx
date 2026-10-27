@@ -27,7 +27,7 @@ function labelsFor(tabs: WorkspaceTab[]): Map<string, { title: string; hint: str
 
 /**
  * Tab chrome, shared by the workspace tabs and All Workspaces. They sit in the
- * Workspace button's box, so the active tab is a raised page in the accent
+ * Workspace button's box, so the active tab is a flat page in the accent
  * text — a quieter version of the filled switch beside it — and the two read
  * as one hierarchy: which half, then which page in it. Inactive tabs stay flat
  * until hovered.
@@ -36,7 +36,9 @@ function tabClass(active: boolean): string {
   return cn(
     "group relative flex h-8 items-center gap-2 rounded-md text-sm transition-colors",
     active
-      ? "bg-background font-medium text-primary shadow-sm"
+      // No shadow: the skin draws `shadow-sm` as a hard black offset, and the
+      // strip's overflow clipping left only a black sliver at the tab's edge.
+      ? "bg-background font-medium text-primary"
       : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
   )
 }
@@ -97,7 +99,7 @@ function TabButton({ tab, label, active, dragging, onSelect, onClose, drag }: {
       <button type="button" aria-label={t("workspaceTabs.close", { name: full })} title={t("workspaceTabs.close", { name: full })}
         onClick={(e) => { e.stopPropagation(); onClose() }}
         className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-md transition-opacity hover:bg-foreground/10 focus-visible:opacity-100",
+          "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100",
           active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}>
         <X className="size-3.5" />
