@@ -46,6 +46,10 @@ const HERMES_INSTALL_HINT = IS_WINDOWS
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
 const SESSION_LINE_RE = /^session_id:\s*\S+$/;
+// Hermes validates the toolsets in its own config.yaml before the turn starts
+// and prints this to stdout, ahead of the reply, when one is unknown to the
+// installed version (e.g. `messaging` left over in `platform_toolsets.cli`).
+const TOOLSET_WARNING_RE = /^Warning: Unknown toolsets:/;
 // What Hermes prints, in place of a session_id, when `--resume` names a
 // session it no longer has. Upstream localises that line
 // (t("cli.resume.session_not_found")), so this only matches the English text;
@@ -509,6 +513,11 @@ class HermesAdapter extends BaseAdapter {
       const stripped = line.trim();
       if (!stripped) continue;
       if (stripped.startsWith('↻ Resumed session ')) continue;
+      // Only before the reply begins: the reply itself may quote the line.
+      if (!lines.length && TOOLSET_WARNING_RE.test(stripped)) {
+        this._log?.(`Hermes config: ${stripped} (check toolsets in ~/.hermes/config.yaml)`, 'warn');
+        continue;
+      }
       lines.push(line);
     }
     return { text: lines.join('\n').trim(), sessionId };
