@@ -274,16 +274,22 @@ class ClaudeAdapter extends BaseAdapter {
    *
    * Excludes the user's current message (the caller appends it normally)
    * and any status/thinking events, which are mostly tool-call noise.
+   * `current` is the triggering message: when given, the trigger itself and
+   * anything posted after it (queued follow-ups) are left out by event, since
+   * `currentMessage` text no longer matches once history is prepended.
    */
-  async _buildChannelRecap(channelName, currentMessage) {
-    // The head window is raw events — status/thinking noise is filtered out
-    // AFTER the fetch, and an opening turn is often mostly noise, so fetch
-    // well more than the 5 chat messages the sampler will keep.
+  async _buildChannelRecap(channelName, currentMessage, current = null) {
+    const before = current?.messageId;
     const [headMsgs, tailMsgs] = await Promise.all([
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { sort: 'asc' }),
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, before ? { before } : {}),
     ]);
-    const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
+    const cutoff = Date.parse(current?.createdAt || '');
+    const priorOnly = (msgs) => (msgs || []).filter((m) => {
+      if (before && m.messageId === before) return false;
+      return !(Number.isFinite(cutoff) && Date.parse(m.createdAt || '') > cutoff);
+    });
+    const lines = sampleRecap(priorOnly(headMsgs), priorOnly(tailMsgs), currentMessage);
     if (lines.length === 0) return null;
 
     return (
@@ -1396,12 +1402,14 @@ class ClaudeAdapter extends BaseAdapter {
 
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;
+    // The trigger's own text, before thread history was prepended to it.
+    const recapExclude = String(msg.originalContent ?? msg.content ?? '').trim();
 
     // When starting without a session (no --resume), prepend channel
     // history so the fresh CLI has conversation context.
     if (!this._channelSessions[msgChannel]) {
       try {
-        const recap = await this._buildChannelRecap(msgChannel, content);
+        const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
         if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
       } catch {}
     }
@@ -1413,7 +1421,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._killPersistentProc(msgChannel);
         // Rebuild recap for retry without resume
         try {
-          const recap = await this._buildChannelRecap(msgChannel, content);
+          const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
           if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
         } catch {}
       }
