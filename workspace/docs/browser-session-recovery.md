@@ -10,6 +10,10 @@ initiating failure before the inspected history remains unproven.
 
 ## Invariants
 
+- Worker shutdown clears cloud caches without closing remote sessions. The
+  sessions belong to the shared database, not to an individual API worker.
+  Explicit close and orphan maintenance retain responsibility for remote cleanup.
+  Local Playwright pages/processes still close during worker shutdown.
 - The database's `browser_tabs.session_id` is authoritative. Reconnecting a
   cached tab updates that mapping and invalidates its stale live-link cache.
 - Ordinary reads/actions, validation and Retry never close or create a session.
@@ -17,6 +21,14 @@ initiating failure before the inspected history remains unproven.
   HTTP 404 and generic provider text such as `No active session` are inconclusive.
 - Retry calls `/tabs/{id}/reactivate`, even when a preview URL is missing. It
   attempts the same session. Local retries only verify the existing local page.
+- Reactivation failures return retryable 503 responses with safe codes separating
+  inaccessible sessions, failed wake-up, and unavailable live views. Logs include
+  the tab/session IDs, stage, code and exception type, never provider payloads.
+  Generic provider absence remains inconclusive; it does not authorize replacement.
+- The unavailable view offers an explicit replacement for tabs with saved contexts.
+  It fetches the current session identity before asking for confirmation and sends
+  that identity to the guarded replacement endpoint. Error messages are shown inline
+  without exposing the raw API response. Cancelling never replaces the session.
 - Saving a persistent context saves cookies/storage without restarting the page.
 - Closing an explicitly identified session must not substitute a cached ID.
 

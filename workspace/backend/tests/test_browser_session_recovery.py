@@ -1,6 +1,6 @@
 """Regression coverage for the 2026-10-27 stale-worker replacement loop."""
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -11,6 +11,51 @@ from app.browser import BrowserManager
 from app.models import BrowserTab, Workspace
 from app.routers import browser
 from tests.conftest import TestingSessionLocal
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_preserves_cloud_sessions_for_other_workers():
+    exiting, surviving = BrowserManager(), BrowserManager()
+    provider_sessions = {'shared-session': True, 'stale-session': True}
+
+    async def provider(tool, arguments=None, session_id=None, **kwargs):
+        if tool == 'close_session':
+            provider_sessions.pop(session_id, None)
+            return {'success': True}
+        assert session_id in provider_sessions
+        return {'result': {'title': 'Unsaved editor', 'url': 'https://example.com/editor'}}
+
+    exiting._bf_call = AsyncMock(side_effect=provider)
+    surviving._bf_call = AsyncMock(side_effect=provider)
+    await exiting.reconnect('tab', 'shared-session', api_key='test-key')
+    await exiting.reconnect('old-tab', 'stale-session', api_key='test-key')
+    await surviving.reconnect('tab', 'shared-session', api_key='test-key')
+    exiting._live_urls['tab'] = 'private-live-url'
+    await exiting.shutdown()
+    exiting._bf_call.assert_not_awaited()
+    assert provider_sessions == {'shared-session': True, 'stale-session': True}
+    assert not exiting._sessions and not exiting._tab_keys and not exiting._live_urls
+    assert (await surviving.probe_session('tab'))['status'] == 'alive'
+    assert surviving.get_session_id('tab') == 'shared-session'
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_still_releases_local_browser_resources():
+    manager = BrowserManager()
+    page = MagicMock(close=AsyncMock())
+    local_browser = MagicMock(close=AsyncMock())
+    playwright = MagicMock(stop=AsyncMock())
+    proxy = MagicMock(stop=AsyncMock())
+    manager._pages['local'] = page
+    manager._browser = local_browser
+    manager._playwright = playwright
+    manager._egress_proxy = proxy
+    await manager.shutdown()
+    page.close.assert_awaited_once()
+    local_browser.close.assert_awaited_once()
+    playwright.stop.assert_awaited_once()
+    proxy.stop.assert_awaited_once()
+    assert not manager._pages
 
 
 @pytest.fixture

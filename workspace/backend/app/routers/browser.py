@@ -35,7 +35,7 @@ from app.access import resolve_current_user
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
-from app.browser import BLANK_PAGE, BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser import BLANK_PAGE, BROWSERFABRIC_API_KEY, BrowserManager, BrowserReactivationError
 from app.browser_maintenance import BROWSER_TAB_IDLE_MINUTES
 from app.services.browser_frame import standard_browser_frame
 from app.browser_creds import (
@@ -1117,11 +1117,25 @@ async def reactivate_tab(
         key = resolve_tab_key(tab, workspace)
         await manager.reconnect(tab.id, tab.session_id, api_key=key)
         page = await manager.reactivate_tab(tab.id)
-    except Exception:
-        logger.warning("BrowserFabric reactivation failed for tab %s", tab_id)
-        # Do not leak provider responses or replace sessions on transient errors.
-        return json_response(ResponseCode.INTERNAL_ERROR,
-                             "BrowserFabric could not reactivate this browser. Your saved session has not been replaced. Please retry.")
+    except BrowserCredentialError:
+        return json_response(ResponseCode.CONFLICT,
+                             "The saved browser's credential is unavailable. Ask your workspace administrator to restore it.",
+                             data={"error_code": "BROWSER_CREDENTIAL_UNAVAILABLE"})
+    except Exception as exc:
+        code = exc.code if isinstance(exc, BrowserReactivationError) else "WAKE_FAILED"
+        stage = exc.stage if isinstance(exc, BrowserReactivationError) else "connect"
+        cause = exc.__cause__ or exc
+        logger.warning("Browser reactivation failed tab=%s session=%s stage=%s code=%s exception=%s",
+                       tab_id, session_id, stage, code, type(cause).__name__)
+        messages = {
+            "SESSION_UNAVAILABLE": "BrowserFabric cannot access this saved session. It may have been closed or be temporarily unavailable. Retrying will not create a replacement.",
+            "LIVE_VIEW_UNAVAILABLE": "The browser responded, but its live preview is unavailable. Please retry; the session has not been replaced.",
+        }
+        response = json_response(503, messages.get(code,
+            "The browser could not be reactivated right now. Please retry; the session has not been replaced."),
+            data={"error_code": code, "retryable": True})
+        response.headers["Retry-After"] = "2"
+        return response
     db.refresh(tab)
     if tab.session_id != session_id or tab.status != "active":
         raise HTTPException(409, "Browser session changed. Refresh and retry.")
