@@ -4,6 +4,8 @@ const https = require('https');
 const http = require('http');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+// Agent progress noise that never belongs in a conversation transcript.
+const RECENT_MESSAGES_EXCLUDED_TYPES = 'status,thinking,todos,loading';
 
 /**
  * The error a request deadline produces. Every request carries a hard
@@ -369,10 +371,24 @@ class WorkspaceClient {
   }
 
   /**
-   * Send a chat message to a workspace channel.
+   * Detect safe retry support before using a durable message outbox.
    */
+  async supportsMessageDelivery() {
+    if (this._messageDeliverySupported !== undefined && Date.now() < this._messageDeliveryCheckUntil) return this._messageDeliverySupported;
+    try {
+      const result = await this._get('/v1/events/delivery-capabilities');
+      this._messageDeliverySupported = (result.data || result).idempotent_messages === true;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      this._messageDeliverySupported = false;
+    }
+    this._messageDeliveryCheckUntil = Date.now() + 60000;
+    return this._messageDeliverySupported;
+  }
+
+  /** Send a chat message, optionally with a stable delivery key. */
   async sendMessage(workspaceId, channelName, token, content, {
-    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId,
+    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId, idempotencyKey,
   } = {}) {
     const sourcePrefix = senderType === 'agent' ? 'openagents' : 'human';
     const source = senderName ? `${sourcePrefix}:${senderName}` : `${sourcePrefix}:unknown`;
@@ -393,6 +409,7 @@ class WorkspaceClient {
       }
       return this.sendEvent(workspaceId, {
         type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         source,
         target: counterpart,
         payload,
@@ -403,6 +420,7 @@ class WorkspaceClient {
 
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       source,
       target: `channel/${channelName}`,
       payload,
@@ -436,8 +454,16 @@ class WorkspaceClient {
    * to rebuild context for a fresh Claude Code session when --resume of the
    * previous session fails (the channel's chat history is the only thing
    * that survives a session-storage rotation).
+   *
+   * Agent status/thinking/todos/loading events are dropped server-side by
+   * default: one tool-heavy agent turn posts dozens of them into the same
+   * channel, and filtering only after the fetch left a "100 event" window
+   * holding a handful of real chat messages (OA-026). Pass
+   * `excludeMessageTypes: ''` to get every event.
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc', before, timeout, throwOnError = false } = {}) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, {
+    sort = 'desc', before, timeout, throwOnError = false, excludeMessageTypes = RECENT_MESSAGES_EXCLUDED_TYPES,
+  } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
@@ -447,6 +473,7 @@ class WorkspaceClient {
         limit: String(limit),
       });
       if (before) params.set('before', before);
+      if (excludeMessageTypes) params.set('exclude_message_types', excludeMessageTypes);
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token), timeout);
       const result = data.data || data;
       const events = (result && result.events) || [];
@@ -1313,7 +1340,9 @@ class WorkspaceClient {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            const err = new Error(`Invalid response (HTTP ${res.statusCode})`);
+            err.status = res.statusCode;
+            reject(err);
           }
         });
       });

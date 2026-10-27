@@ -558,4 +558,32 @@ describe('_buildChannelRecap head+tail sampling', () => {
     assert.ok(headIdx !== -1 && tailIdx !== -1 && headIdx < tailIdx);
     assert.ok(recap.includes('[… earlier messages omitted …]'));
   });
+
+  // OA-026: the caller's content already carries the thread-history block,
+  // so the trigger must be excluded by event, not by text.
+  it('leaves out the trigger and anything posted after it', async () => {
+    const adapter = mkAdapter();
+    const tailOpts = [];
+    const mk = (id, content, at) => ({
+      messageId: id, content, createdAt: at, senderType: 'human', senderName: 'u', messageType: 'chat',
+    });
+    adapter.client = {
+      getRecentMessages: async (ws, ch, tok, limit, opts = {}) => {
+        if (opts.sort === 'asc') {
+          return [mk('m1', 'opening', '2026-10-01T00:00:00Z'), mk('m2', 'please fix', '2026-10-01T00:01:00Z'),
+            mk('m3', 'queued follow-up', '2026-10-01T00:02:00Z')];
+        }
+        tailOpts.push(opts);
+        return [mk('m1', 'opening', '2026-10-01T00:00:00Z')];
+      },
+    };
+
+    const recap = await adapter._buildChannelRecap('general', 'please fix',
+      { messageId: 'm2', createdAt: '2026-10-01T00:01:00Z' });
+
+    assert.equal(tailOpts[0].before, 'm2');
+    assert.ok(recap.includes('opening'));
+    assert.ok(!recap.includes('please fix'));
+    assert.ok(!recap.includes('queued follow-up'));
+  });
 });

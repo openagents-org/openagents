@@ -1,0 +1,11 @@
+[Unit]
+Description=Check develop for OpenAgents preview updates every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Persistent=true
+Unit=openagents-preview-develop.service
+
+[Install]
+WantedBy=timers.target

@@ -746,6 +746,8 @@ function buildClaudeSkillsToolBlock(skillName = 'openagents-workspace') {
     'action. It is your ONLY interface to the workspace — every operation goes\n' +
     'through the exact Bash + curl commands documented there. Do not guess\n' +
     'endpoints or improvise; open and follow the skill instructions.\n' +
+    `If skill lookup fails, read .claude/skills/${skillName}/SKILL.md directly\n` +
+    'from your working directory. Do not search the filesystem for it.\n' +
     `The ${skillName} skill (Bash + curl) covers all workspace operations:\n` +
     'reading message history, discovering agents (and who is in this channel),\n' +
     'sharing files, browsing the shared browser, managing to-do lists, setting\n' +

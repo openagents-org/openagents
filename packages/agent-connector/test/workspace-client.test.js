@@ -172,6 +172,32 @@ describe('WorkspaceClient', () => {
       assert.equal(cursor, 'e9');
     });
   });
+
+  describe('getRecentMessages', () => {
+    // OA-026: agent progress events must not eat the history window.
+    it('excludes agent progress events server-side by default', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 100, { before: 'e5' });
+
+      const params = new URL(capturedPath, 'http://x').searchParams;
+      assert.equal(params.get('exclude_message_types'), 'status,thinking,todos,loading');
+      assert.equal(params.get('before'), 'e5');
+      assert.equal(params.get('limit'), '100');
+    });
+
+    it('sends no exclusion when excludeMessageTypes is empty', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 30, { excludeMessageTypes: '' });
+
+      assert.ok(!capturedPath.includes('exclude_message_types'), capturedPath);
+    });
+  });
 });
 
 // Regression guard for the "online but deaf" wedge: a request whose socket
@@ -312,5 +338,29 @@ describe('WorkspaceClient.updateRoutine', () => {
     const { client, seen } = capture();
     await client.updateRoutine('ws-1', 'tok', 'r1', { status: 'paused' });
     assert.deepEqual(seen.body, { network: 'ws-1', status: 'paused' });
+  });
+});
+
+describe('reliable message delivery', () => {
+  it('preserves HTTP status for HTML 503 responses', async () => {
+    const server = http.createServer((req, res) => { res.writeHead(503, { 'Content-Type': 'text/html' }); res.end('<html>Unavailable</html>'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+      await assert.rejects(client.sendMessage('ws', 'general', 'token', 'answer'), e => e.status === 503);
+    } finally { server.close(); }
+  });
+  it('includes delivery keys for channel messages and DMs', async () => {
+    const client = new WorkspaceClient(); const events = [];
+    client.sendEvent = async (ws, event) => events.push(event);
+    for (const channel of ['general', 'dm:human:person@example.com']) {
+      await client.sendMessage('ws', channel, 'token', 'answer', { idempotencyKey: 'key' });
+    }
+    assert.ok(events.every(e => e.idempotency_key === 'key'));
+  });
+  it('detects old servers without assuming safe retry support', async () => {
+    const client = new WorkspaceClient();
+    client._get = async () => { throw Object.assign(new Error('Not Found'), { status: 404 }); };
+    assert.equal(await client.supportsMessageDelivery(), false);
   });
 });

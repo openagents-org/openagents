@@ -42,6 +42,14 @@ describe('ClaudeAdapter._buildChildEnv — SDK-harness stripping', () => {
     assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, 'sk-ant-oat01-abc');
   });
 
+  // Users with more than one Claude account point each at its own config dir.
+  // Stripping it sent the agent to the default ~/.claude, so it ran without
+  // the user's global CLAUDE.md and memory (OA-024).
+  test('keeps CLAUDE_CONFIG_DIR — the global memory lives there', () => {
+    const env = build({ CLAUDE_CONFIG_DIR: '/home/u/.claude-work' });
+    assert.strictEqual(env.CLAUDE_CONFIG_DIR, '/home/u/.claude-work');
+  });
+
   test('does not mutate the env it was handed', () => {
     const input = { CLAUDECODE: '1', ANTHROPIC_API_KEY: 'k' };
     build(input);

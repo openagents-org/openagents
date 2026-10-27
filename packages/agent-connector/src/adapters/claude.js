@@ -40,7 +40,10 @@ class ClaudeAdapter extends BaseAdapter {
    *    gets a 403). Cloud-provider and model config is kept, and so is the
    *    subscription token from `claude setup-token` — that one IS the
    *    credential, and sweeping it up as a stray CLAUDE_* left anyone who
-   *    pasted one authenticating as nobody, silently.
+   *    pasted one authenticating as nobody, silently. CLAUDE_CONFIG_DIR is
+   *    kept too: it is where the user's global CLAUDE.md, settings, skills and
+   *    project memory live, and dropping it started the agent from a blank
+   *    ~/.claude with none of the memory it has outside the workspace.
    *
    * 2. Mirror the API key into ANTHROPIC_AUTH_TOKEN for third-party relays. The
    *    CLI sends ANTHROPIC_API_KEY as `x-api-key`, which most Anthropic-
@@ -62,6 +65,7 @@ class ClaudeAdapter extends BaseAdapter {
       'CLAUDE_API_KEY',
       'CLAUDE_CODE_MAX_TURNS',
       'CLAUDE_CODE_OAUTH_TOKEN',
+      'CLAUDE_CONFIG_DIR',
     ]);
     const env = { ...(baseEnv || {}) };
     for (const k of Object.keys(env)) {
@@ -270,16 +274,22 @@ class ClaudeAdapter extends BaseAdapter {
    *
    * Excludes the user's current message (the caller appends it normally)
    * and any status/thinking events, which are mostly tool-call noise.
+   * `current` is the triggering message: when given, the trigger itself and
+   * anything posted after it (queued follow-ups) are left out by event, since
+   * `currentMessage` text no longer matches once history is prepended.
    */
-  async _buildChannelRecap(channelName, currentMessage) {
-    // The head window is raw events — status/thinking noise is filtered out
-    // AFTER the fetch, and an opening turn is often mostly noise, so fetch
-    // well more than the 5 chat messages the sampler will keep.
+  async _buildChannelRecap(channelName, currentMessage, current = null) {
+    const before = current?.messageId;
     const [headMsgs, tailMsgs] = await Promise.all([
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { sort: 'asc' }),
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, before ? { before } : {}),
     ]);
-    const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
+    const cutoff = Date.parse(current?.createdAt || '');
+    const priorOnly = (msgs) => (msgs || []).filter((m) => {
+      if (before && m.messageId === before) return false;
+      return !(Number.isFinite(cutoff) && Date.parse(m.createdAt || '') > cutoff);
+    });
+    const lines = sampleRecap(priorOnly(headMsgs), priorOnly(tailMsgs), currentMessage);
     if (lines.length === 0) return null;
 
     return (
@@ -516,14 +526,17 @@ class ClaudeAdapter extends BaseAdapter {
     // process.cwd() as the fallback — on a packaged Windows daemon that is
     // C:\WINDOWS\system32 and mkdir there throws EPERM.
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-    const skillDir = path.join(workDir, '.claude', 'skills');
-    fs.mkdirSync(skillDir, { recursive: true });
-    // Per-agent filename: agents sharing a working directory used to clobber
+    const skillsRoot = path.join(workDir, '.claude', 'skills');
+    const skillDir = path.join(skillsRoot, workspaceSkillName(this.agentName));
+    fs.mkdirSync(skillDir, { recursive: true, mode: 0o700 });
+    // Per-agent directory: Claude discovers <name>/SKILL.md, not flat .md files.
+    // Agents sharing a working directory used to clobber
     // one shared openagents-workspace.md, so uploads carried the identity of
     // whichever agent wrote the file last. Drop that legacy file so a stale
     // copy (with another agent's embedded identity) can never be read again.
-    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
-    try { fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md')); } catch {}
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    try { fs.unlinkSync(path.join(skillsRoot, 'openagents-workspace.md')); } catch {}
+    try { fs.unlinkSync(path.join(skillsRoot, `${workspaceSkillName(this.agentName)}.md`)); } catch {}
 
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,
@@ -534,7 +547,8 @@ class ClaudeAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       browserEnabled: this._browserEnabledCache === true,
     });
-    fs.writeFileSync(skillFile, skillContent, 'utf-8');
+    fs.writeFileSync(skillFile, skillContent, { encoding: 'utf-8', mode: 0o600 });
+    fs.chmodSync(skillFile, 0o600);
     this._log(`Wrote workspace skill to ${skillFile}`);
 
     return { cmd, skillFile };
@@ -1392,12 +1406,14 @@ class ClaudeAdapter extends BaseAdapter {
 
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;
+    // The trigger's own text, before thread history was prepended to it.
+    const recapExclude = String(msg.originalContent ?? msg.content ?? '').trim();
 
     // When starting without a session (no --resume), prepend channel
     // history so the fresh CLI has conversation context.
     if (!this._channelSessions[msgChannel]) {
       try {
-        const recap = await this._buildChannelRecap(msgChannel, content);
+        const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
         if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
       } catch {}
     }
@@ -1409,7 +1425,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._killPersistentProc(msgChannel);
         // Rebuild recap for retry without resume
         try {
-          const recap = await this._buildChannelRecap(msgChannel, content);
+          const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
           if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
         } catch {}
       }

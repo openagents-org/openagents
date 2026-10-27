@@ -93,6 +93,10 @@ export function CampaignMilestoneToasts({ idToken }: { idToken: string }) {
                 cap: String(cap),
               }),
               duration: 8000,
+              // Sonner defaults to bottom-right, which sits right on top of
+              // the chat composer's send button (OA-040).
+              position: 'top-center',
+              closeButton: true,
             });
           }
         }

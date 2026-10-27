@@ -23,6 +23,7 @@ const { defaultAgentWorkdir } = require('../paths');
 const { configuredModel } = require('../agent-model');
 const { buildThreadHistory } = require('./thread-history');
 const { publishResponseArtifacts } = require('./response-artifacts');
+const { ResponseOutbox } = require('./response-outbox');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -447,6 +448,8 @@ class BaseAdapter {
     // /status responsive immediately after join.
     await this._skipExistingControlEvents();
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+    const responseInterval = setInterval(() => this._flushResponses(), 10000);
+    void this._flushResponses();
     const controlPoller = this._controlPollerLoop();
 
     try {
@@ -462,6 +465,7 @@ class BaseAdapter {
       this._running = false;
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
+      clearInterval(responseInterval);
       if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
       try {
@@ -1832,33 +1836,54 @@ class BaseAdapter {
   async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
     if (this._isMuted(channel)) return;
     try {
-      let attachments = [];
-      if (!(this.disabledModules || new Set()).has('files') && channel && !channel.startsWith('dm:') && this.client.uploadFile) {
-        const published = await publishResponseArtifacts({
-          content,
-          workingDir: this.workingDir,
-          upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
-            contentType, source: `openagents:${this.agentName}`, channelName: channel, visibility: 'inherit',
-          }),
-          onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
-        });
-        content = published.content;
-        attachments = published.attachments;
-      }
-      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
-        attachments,
-        senderType: 'agent',
-        senderName: this.agentName,
+      await this._replyOutbox().enqueue({
+        channel, content,
         metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
-        sessionId: this._sessionId,
       });
     } catch (e) {
-      if (e instanceof SessionRevokedError) {
-        this._onSessionRevoked();
-        return;
-      }
+      this._log('Could not save or deliver the final reply; check the local response outbox and disk permissions.', 'error');
       throw e;
     }
+  }
+
+  _replyOutbox() {
+    if (!this._responseOutbox) this._responseOutbox = new ResponseOutbox({
+      endpoint: this.endpoint, workspaceId: this.workspaceId, agentName: this.agentName,
+      directory: this._responseOutboxDirectory,
+      log: (message, level) => this._log(message, level),
+      onRevoked: () => this._onSessionRevoked(),
+      prepare: async (entry) => {
+        // Old/custom servers may not support idempotency. Never blindly retry
+        // an ambiguous send against one of those servers.
+        const safeRetry = this.client.supportsMessageDelivery
+          ? await this.client.supportsMessageDelivery() : false;
+        let published = { content: entry.content, attachments: [] };
+        if (!(this.disabledModules || new Set()).has('files') && entry.channel && !entry.channel.startsWith('dm:') && this.client.uploadFile) {
+          published = await publishResponseArtifacts({
+            content: entry.content, workingDir: this.workingDir,
+            upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
+              contentType, source: `openagents:${this.agentName}`, channelName: entry.channel, visibility: 'inherit',
+            }),
+            onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
+          });
+        }
+        return { ...published, safeRetry };
+      },
+      send: async (entry) => {
+        if (this._isMuted(entry.channel)) throw new Error('Channel is muted');
+        return this.client.sendMessage(this.workspaceId, entry.channel, this.token, entry.content, {
+          attachments: entry.attachments, senderType: 'agent', senderName: this.agentName,
+          metadata: entry.metadata, sessionId: this._sessionId,
+          idempotencyKey: entry.safeRetry ? entry.id : undefined,
+        });
+      },
+    });
+    return this._responseOutbox;
+  }
+
+  async _flushResponses() {
+    try { await this._replyOutbox().flush(); }
+    catch { this._log('Could not drain the response outbox; saved replies retained.', 'error'); }
   }
 
   async cleanupTodos(channel) {

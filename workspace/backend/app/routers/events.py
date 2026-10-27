@@ -11,6 +11,7 @@ import hashlib
 import json as _json
 import logging
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
@@ -48,6 +49,7 @@ class SendEventRequest(BaseModel):
     metadata: Optional[dict] = None
     visibility: Optional[str] = "channel"
     network: Optional[str] = None   # workspace ID or slug
+    idempotency_key: Optional[UUID] = None
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +322,11 @@ def _attribute_direct_sender(db, workspace, token, authorization, source, payloa
     return f"human:{viewer.email}", payload
 
 
+@router.get("/events/delivery-capabilities")
+def delivery_capabilities():
+    return success_response({"idempotent_messages": True})
+
+
 @router.post("/events")
 def send_event(
     body: SendEventRequest,
@@ -420,6 +427,30 @@ def send_event(
         token=x_workspace_token,
         bearer_token=_extract_bearer(authorization),
     )
+
+    if body.idempotency_key:
+        if body.type != "workspace.message.posted":
+            return json_response(ResponseCode.BAD_REQUEST, "Idempotency keys are supported only for messages")
+        # A receipt lookup must not bypass auth or let a replaced session keep
+        # posting. Normal first delivery still runs the complete pipeline below.
+        from app.mods.auth import AuthMod
+        if asyncio.run(AuthMod().process(event, context)) is None:
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+        if source.startswith("openagents:"):
+            from app.mods.workspace_mod import _validate_session
+            if _validate_session(db, workspace.id, source[len("openagents:"):], event.metadata.get("session_id")):
+                return json_response(ResponseCode.UNAUTHORIZED, "session_revoked: another client is now running as this agent")
+        from app.services.message_delivery import prepare_delivery
+        try:
+            receipt = prepare_delivery(db, event, body.idempotency_key)
+        except ValueError as exc:
+            return json_response(ResponseCode.CONFLICT, str(exc))
+        if receipt:
+            return success_response({
+                "id": receipt.id, "type": receipt.type, "source": receipt.source,
+                "target": receipt.target, "payload": receipt.payload,
+                "timestamp": receipt.timestamp, "metadata": receipt.metadata_,
+            })
 
     # Run through pipeline (fresh loop in this worker thread — pipeline is
     # async-shaped but contains only sync I/O, nothing bound to the main loop)
