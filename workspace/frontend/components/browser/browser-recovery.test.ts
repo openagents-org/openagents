@@ -24,6 +24,7 @@ const retry = () => act(async () => (host.querySelector('button[aria-label="brow
 beforeEach(() => {
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
   state.tab.asleep=false;
+  state.tab.liveUrl="https://browserfabric.com/live/old";
   state.validate.mockReset().mockResolvedValue({connectionStatus:'alive'});
   state.reactivate.mockReset().mockResolvedValue({connectionStatus:'alive'});
   state.refresh.mockReset().mockResolvedValue(undefined);
@@ -64,4 +65,12 @@ it('refreshes a changed live URL discovered by validation without recreating the
   expect(state.refresh).toHaveBeenCalled();
   expect(state.reconnect).not.toHaveBeenCalled();
   expect(state.reactivate).not.toHaveBeenCalled();
+});
+
+it('a missing preview URL never turns Retry into destructive replacement', async () => {
+  state.tab.liveUrl = '';
+  await render();
+  await retry();
+  expect(state.reactivate).toHaveBeenCalledWith('saved');
+  expect(state.reconnect).not.toHaveBeenCalled();
 });

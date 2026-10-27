@@ -28,7 +28,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from app.access import resolve_current_user
@@ -525,138 +525,76 @@ async def _open_restored_tab(manager, tab, *, bb_context_id, api_key):
 
 
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
-    """Ensure the browser tab has a live Playwright page.
+    """Adopt the authoritative session, without ever replacing an editor.
 
-    Handles three cases:
-    1. Page already in memory → no-op.
-    2. Page missing (serverless cold start) but session alive → reconnect via CDP.
-    3. Session expired/dead → create a brand-new session (preserving persistent
-       context cookies if available) and update the tab record.
-
-    After (re)connecting, syncs the live page URL/title back to the tab record
-    so the DB reflects any in-iframe navigation that happened.
+    Ordinary actions and reads may retry an unavailable provider, but cannot
+    close/create sessions. Cookies and a URL cannot restore unsaved page state.
     """
-    manager = BrowserManager.get()
-    if tab.id in manager._pages:
-        # Page in memory — but the CDP connection may be dead.  Do a quick
-        # liveness check so we don't hand back a zombie page.
-        try:
-            page = manager._pages[tab.id]
-            await page.title()  # lightweight CDP call
-            return
-        except Exception:
-            logger.warning("Tab %s has a stale page object — will recreate session", tab.id)
-            # Fall through to session recreation below
-            manager._pages.pop(tab.id, None)
-            manager._locks.pop(tab.id, None)
-            manager._sessions.pop(tab.id, None)
-            manager._live_urls.pop(tab.id, None)
-
-    if not tab.session_id and not manager.is_cloud:
-        return  # local mode, nothing to reconnect to
-
-    # --- Resolve the credential reference for the EXISTING session ---
-    session_key = None
-    credential_rotated = False
-    if tab.session_id:
-        try:
-            session_key = resolve_tab_key(tab, workspace)
-        except BrowserCredentialError as e:
-            if e.reason == "credential_missing":
-                raise  # no key at all — surface, don't guess
-            # credential_mismatch: the key was rotated. The old session must
-            # NOT be touched with the new key — record it for the sweeper
-            # (it will exhaust retries visibly) and recreate below.
-            credential_rotated = True
-
-    # --- Try reconnecting to the existing session first ---
-    if tab.session_id and not credential_rotated:
-        try:
-            await manager.reconnect(tab.id, tab.session_id, api_key=session_key)
-            # Probe liveness. Only a definitive "dead" verdict tears the session
-            # down; a transient error (timeout / 5xx) keeps the healthy session
-            # so a slow get_page_info on a heavy SPA can't kill a logged-in tab.
-            probe = await manager.probe_session(tab.id, api_key=session_key)
-            status = probe.get("status")
-            if status == "alive":
-                if probe.get("url") and probe["url"] != tab.url:
-                    tab.url = probe["url"]
-                if probe.get("title") and probe["title"] != tab.title:
-                    tab.title = probe["title"]
-                return
-            if status == "unknown":
-                # Inconclusive (transient BF error). Reconnect already restored
-                # the session mapping; keep it rather than churning the tab.
-                logger.warning(
-                    "Tab %s liveness probe inconclusive; keeping session %s",
-                    tab.id, tab.session_id,
-                )
-                return
-            # status == "dead" — session is really gone, fall through to recreate.
-            logger.info("Session %s is dead (liveness probe), will recreate", tab.session_id)
-            manager._sessions.pop(tab.id, None)
-            manager._live_urls.pop(tab.id, None)
-        except Exception as e:
-            logger.info("Reconnect failed for tab %s (session %s), will create new session: %s",
-                        tab.id, tab.session_id, e)
-
-    # --- Session is dead or unreachable — create a fresh one ---
-    if credential_rotated:
-        if db is not None:
-            _orphan_session_tombstone(db, tab, "credential_mismatch: key rotated before release")
-        tab.session_id = None
-    else:
-        # Clean up old session (best-effort); if the release isn't confirmed,
-        # keep it tracked so the sweeper retries instead of leaking it.
-        released, close_err = await manager.close_tab(
-            tab.id, session_id_hint=tab.session_id, api_key=session_key
-        )
-        if tab.session_id and not released and db is not None:
-            _orphan_session_tombstone(db, tab, close_err or "close failed during session recreate")
-
-    # Resolve persistent context (cookies/localStorage) if available
-    bb_context_id = None
-    if tab.context_id and db:
-        ctx = db.execute(
-            select(BrowserContext)
-            .where(BrowserContext.id == tab.context_id)
-            .where(BrowserContext.status == "active")
-        ).scalar_one_or_none()
-        if ctx:
-            bb_context_id = ctx.bb_context_id
-
-    if workspace is not None and db is not None:
-        bf_key, bf_source = await _resolve_bf_key(workspace, db)
-    else:
-        bf_key, bf_source = session_key, tab.bf_key_source
-    result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
-
-    # Update the tab record with the new session info
-    tab.session_id = manager.get_session_id(tab.id)
-    tab.live_url = manager.get_live_url(tab.id)
-    _stamp_credential(tab, bf_key, bf_source)
-    tab.url = result.get("url", tab.url)
-    tab.title = result.get("title", tab.title)
-    warnings = result.get("warnings") or []
-    if db is not None and not tab.context_id and manager.is_cloud_for(bf_key):
-        try:
-            await _attach_saved_context(tab, db, manager)
-        except Exception:
-            warnings.append("context_save_failed: retry saving this browser context")
-    tab.last_error = "; ".join(warnings) if warnings else None
-    _touch(tab)
-    # Persist the new session/live_url NOW, in its own transaction. Otherwise a
-    # later failure in the same request rolls this back and the live pane keeps
-    # polling the dead share token ("Invalid or expired share link").
     if db is not None:
-        try:
-            db.add(tab)
-            db.commit()
-            db.refresh(tab)
-        except Exception as commit_err:
-            db.rollback()
-            logger.warning("Failed to persist recreated session for tab %s: %s", tab.id, commit_err)
-    logger.info("Tab %s auto-reconnected with new session %s", tab.id, tab.session_id)
+        db.refresh(tab)
+    if tab.status != "active":
+        raise HTTPException(409, "This browser is no longer open. Refresh the browser list.")
+    manager = BrowserManager.get()
+    key = resolve_tab_key(tab, workspace) if tab.session_id else None
+    if tab.session_id:
+        await manager.reconnect(tab.id, tab.session_id, api_key=key)
+    try:
+        probe = await manager.probe_session(tab.id, api_key=key)
+    except Exception:
+        probe = {"status": "unknown"}
+    if probe.get("status") != "alive":
+        raise HTTPException(
+            503,
+            "Browser temporarily unavailable. Its session has not been replaced. "
+            "Retry; replacing a browser loses unsaved page content.",
+            headers={"Retry-After": "2"},
+        )
+    if probe.get("url"):
+        tab.url = probe["url"]
+    if probe.get("title"):
+        tab.title = probe["title"]
+
+
+def _lock_browser_lifecycle(db: Session, tab_id: str) -> BrowserTab:
+    """Re-read and serialize explicit lifecycle changes across workers.
+
+    NOWAIT prevents an async worker from blocking its event loop while another
+    request holds the row during provider I/O. Callers must not commit until
+    the lifecycle change is complete. Normal actions never acquire this lock.
+    """
+    try:
+        tab = db.execute(
+            select(BrowserTab).where(BrowserTab.id == tab_id)
+            .execution_options(populate_existing=True).with_for_update(nowait=True)
+        ).scalar_one_or_none()
+    except OperationalError:
+        db.rollback()
+        raise HTTPException(409, "This browser is already being changed. Retry shortly.")
+    if tab is None:
+        raise HTTPException(404, "Browser tab not found")
+    if db.get_bind().dialect.name == "postgresql":
+        # Creation includes several provider calls (each has a 60s I/O timeout).
+        # Allow them to finish without releasing the lock mid-operation; keep
+        # the ordinary application transaction limits unchanged.
+        db.execute(text("SET LOCAL idle_in_transaction_session_timeout = 300000"))
+    return tab
+
+
+def _replace_session_mapping(db, tab, expected_session_id, expected_status, session_id, live_url):
+    """CAS the mapping before any ORM assignment can flush over a newer one."""
+    with db.no_autoflush:
+        changed = db.execute(
+            update(BrowserTab).where(
+                BrowserTab.id == tab.id,
+                BrowserTab.session_id == expected_session_id,
+                BrowserTab.status == expected_status,
+            ).values(session_id=session_id, live_url=live_url)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+    if changed != 1:
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    # Refresh just the CAS fields; retain a newly saved context on this object.
+    db.refresh(tab, attribute_names=["session_id", "live_url"])
 
 
 # ---------------------------------------------------------------------------
@@ -1167,7 +1105,14 @@ async def reactivate_tab(
     workspace = _resolve_workspace(db, str(tab.workspace_id))
     if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    db.refresh(tab)
+    if tab.status != "active":
+        raise HTTPException(409, "This browser is no longer open.")
     manager = BrowserManager.get()
+    if not tab.session_id:
+        await _ensure_connected(tab, db, workspace)
+        return success_response(_tab_to_dict(tab))
+    session_id = tab.session_id
     try:
         key = resolve_tab_key(tab, workspace)
         await manager.reconnect(tab.id, tab.session_id, api_key=key)
@@ -1177,6 +1122,9 @@ async def reactivate_tab(
         # Do not leak provider responses or replace sessions on transient errors.
         return json_response(ResponseCode.INTERNAL_ERROR,
                              "BrowserFabric could not reactivate this browser. Your saved session has not been replaced. Please retry.")
+    db.refresh(tab)
+    if tab.session_id != session_id or tab.status != "active":
+        raise HTTPException(409, "Browser session changed. Refresh and retry.")
     tab.live_url = manager.get_live_url(tab.id)
     tab.url = page.get("url") or tab.url
     tab.title = page.get("title") or tab.title
@@ -1190,6 +1138,8 @@ async def reactivate_tab(
 async def reconnect_tab(
     tab_id: str,
     reopen: bool = False,
+    confirm_replace: bool = False,
+    expected_session_id: Optional[str] = None,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -1204,7 +1154,24 @@ async def reconnect_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    # Resolve/provision credentials before taking a lifecycle lock: provisioning
+    # may commit. After the lock, no helper may release this transaction.
+    bf_key, bf_source = await _resolve_bf_key(workspace, db)
+    tab = _lock_browser_lifecycle(db, tab_id)
+    if tab.status != "active" and not (reopen and tab.status == "closed"):
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
     was_closed = tab.status == "closed"
+    if reopen and not was_closed:
+        # A concurrent reopen already completed. Never replace its new session.
+        return success_response(_tab_to_dict(tab))
+    if not was_closed and not confirm_replace:
+        return json_response(ResponseCode.BAD_REQUEST,
+                             "Replacing this browser loses unsaved page content and JavaScript state. "
+                             "Use reactivate to retry, or explicitly confirm replacement.")
+    if not was_closed and expected_session_id != tab.session_id:
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    original_session_id, original_status = tab.session_id, tab.status
+
     if was_closed and tab.context_id:
         existing = db.execute(select(BrowserTab).where(
             BrowserTab.workspace_id == tab.workspace_id,
@@ -1230,6 +1197,9 @@ async def reconnect_tab(
     # Release the old session with ITS OWN credential; if the release can't
     # be confirmed (failure or rotated key), leave a tombstone so the
     # sweeper keeps the old session tracked instead of leaking it.
+    db.refresh(tab, attribute_names=["session_id", "status"])
+    if (tab.session_id, tab.status) != (original_session_id, original_status):
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
     if tab.session_id:
         try:
             old_key = resolve_tab_key(tab, workspace)
@@ -1254,8 +1224,12 @@ async def reconnect_tab(
         if ctx:
             bb_context_id = ctx.bb_context_id
 
-    # Create a new session
-    bf_key, bf_source = await _resolve_bf_key(workspace, db)
+    # Re-read under the held lock immediately before replacing. Never act on
+    # a session selected by an earlier request or the process cache.
+    db.refresh(tab, attribute_names=["session_id", "status"])
+    if (tab.session_id, tab.status) != (original_session_id, original_status):
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    # Create a new session only for this explicit replacement/reopen request.
     try:
         result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
     except UnsafeURLError as e:
@@ -1267,8 +1241,8 @@ async def reconnect_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
 
     # Update DB record
-    tab.session_id = manager.get_session_id(tab_id)
-    tab.live_url = manager.get_live_url(tab_id)
+    _replace_session_mapping(db, tab, original_session_id, original_status,
+                             manager.get_session_id(tab_id), manager.get_live_url(tab_id))
     _stamp_credential(tab, bf_key, bf_source)
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
@@ -1666,6 +1640,8 @@ async def persist_tab(
         try:
             await _ensure_connected(tab, db, workspace)
             bb_context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab_id)
+        except HTTPException:
+            raise
         except BrowserCredentialError as e:
             return json_response(ResponseCode.BAD_REQUEST, str(e))
         except UnsafeURLError as e:
@@ -1674,32 +1650,8 @@ async def persist_tab(
             logger.error("Failed to create persistent context: %s", e)
             return json_response(ResponseCode.INTERNAL_ERROR, "Failed to create persistent context")
 
-    # Close the current session and reopen with the context so that
-    # future sessions restore cookies/localStorage from the saved state.
-    # The old and new sessions are distinct identities: the old one is
-    # released (or tombstoned for the sweeper) BEFORE tab.session_id is
-    # overwritten with the new one.
-    if manager.is_cloud_for(bf_key) and tab.session_id:
-        try:
-            current_url = tab.url
-            try:
-                old_key = resolve_tab_key(tab, workspace)
-                released, close_err = await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=old_key)
-            except BrowserCredentialError as e:
-                released, close_err = False, str(e)
-                manager._sessions.pop(tab_id, None)
-                manager._live_urls.pop(tab_id, None)
-                manager._tab_keys.pop(tab_id, None)
-            if not released:
-                _orphan_session_tombstone(db, tab, close_err or "close failed during persist swap")
-            result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
-            tab.session_id = manager.get_session_id(tab_id)
-            tab.live_url = manager.get_live_url(tab_id)
-            _stamp_credential(tab, bf_key, bf_source)
-            tab.url = result.get("url", current_url)
-            tab.title = result.get("title", tab.title)
-        except Exception as e:
-            logger.warning("Could not swap session for context (will activate on next open): %s", e)
+    # Saving login state must not replace the live page. The context will be
+    # restored on a future explicit reopen; unsaved editor state stays intact.
 
     context = BrowserContext(
         workspace_id=str(workspace.id),
@@ -1887,6 +1839,9 @@ async def close_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    tab = _lock_browser_lifecycle(db, tab_id)
+    if tab.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
     tab.status = "closed"
 
     # Finalize usage record

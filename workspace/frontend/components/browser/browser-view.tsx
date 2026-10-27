@@ -43,7 +43,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     browserTabs, browserContexts, browserTabLimits, agents,
     selectedBrowserTabId: workspaceBrowserTabId, setSelectedBrowserTabId,
     selectedBrowserContextId, setSelectedBrowserContextId,
-    closeBrowserTab, navigateBrowserTab, reconnectBrowserTab,
+    closeBrowserTab, navigateBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
   } = useWorkspace();
   const { isMobile } = useLayout();
@@ -219,8 +219,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     recoveryInFlight.current = true;
     validationGeneration.current++;
     try {
-      if (tab.liveUrl) await workspaceApi.reactivateBrowserTab(tab.id);
-      else await reconnectBrowserTab(tab.id);
+      await workspaceApi.reactivateBrowserTab(tab.id);
       await refreshBrowserTabs();
       setSessionAsleep(false);
       setLiveRevision((value) => value + 1);
