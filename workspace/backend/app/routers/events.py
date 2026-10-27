@@ -1508,6 +1508,10 @@ async def stream_events(
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 
     async def event_generator():
+        # Flush headers immediately, even when the workspace is quiet. Without
+        # a first chunk, compression/proxies can hold the response until the
+        # 30s keepalive; worker recycling before then turns an idle SSE into 500.
+        yield ": connected\n\n"
         keepalive_interval = 30
         last_keepalive = asyncio.get_event_loop().time()
 
