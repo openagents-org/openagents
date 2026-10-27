@@ -129,12 +129,15 @@ def dead_browser(db, workspace, monkeypatch):
     return tab, mgr
 
 
-def test_screenshot_recovers_chromium_error_page(client, db, workspace, dead_browser):
+@pytest.mark.parametrize("operation", ["screenshot", "reconnect"])
+def test_browser_recovers_chromium_error_page(client, db, workspace, dead_browser, operation):
     tab, mgr = dead_browser
-    response = client.get(f"/v1/browser/tabs/{tab.id}/screenshot",
-                          headers={"X-Workspace-Token": workspace["token"]})
+    request = client.get if operation == "screenshot" else client.post
+    response = request(f"/v1/browser/tabs/{tab.id}/{operation}",
+                       headers={"X-Workspace-Token": workspace["token"]})
     assert response.status_code == 200
-    assert response.content == b"png-test"
+    if operation == "screenshot":
+        assert response.content == b"png-test"
     mgr.open_tab.assert_awaited_once_with(tab.id, "about:blank", bb_context_id="saved-cookies", api_key="test-key")
     db.refresh(tab)
     assert tab.session_id == "replacement-session"
