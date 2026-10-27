@@ -75,6 +75,15 @@ async def guard_browser_url(url: Optional[str]) -> str:
     return url
 
 
+class BrowserReactivationError(RuntimeError):
+    """Safe recovery diagnostics; never include provider payloads or credentials."""
+
+    def __init__(self, code: str, stage: str):
+        self.code = code
+        self.stage = stage
+        super().__init__(code)
+
+
 class BrowserNavigationError(RuntimeError):
     """Navigation failure with a machine-readable code the agent can act on."""
 
@@ -645,8 +654,16 @@ class BrowserManager:
                     pass
 
     async def shutdown(self) -> None:
-        """Close all tabs and the browser."""
-        for tab_id in list(self._sessions.keys()) + list(self._pages.keys()):
+        """Release this worker's resources without closing shared cloud sessions.
+
+        Cloud mappings are only a cache: other workers and live viewers still
+        use those sessions. Worker recycling/deployment must not send remote
+        close calls. Explicit tab closure and orphan maintenance own that work.
+        """
+        self._sessions.clear()
+        self._live_urls.clear()
+        self._tab_keys.clear()
+        for tab_id in list(self._pages.keys()):
             await self.close_tab(tab_id)
         if self._browser:
             try:
@@ -798,15 +815,26 @@ class BrowserManager:
         session_id = self._sessions.get(tab_id)
         if not session_id:
             raise RuntimeError("Browser session is unavailable")
-        info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+        try:
+            info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+        except Exception as exc:
+            # This means inaccessible, not permanently dead. Never use this
+            # text to authorize replacement or discard the saved mapping.
+            code = ("SESSION_UNAVAILABLE" if str(exc) ==
+                    "Browser Fabric error: No active session. Create a session first."
+                    else "WAKE_FAILED")
+            raise BrowserReactivationError(code, "wake") from exc
         page = info.get("result", {})
         if page.get("hibernated") or page.get("error"):
-            raise RuntimeError("BrowserFabric could not wake this browser")
-        listing = await self._bf_call("list_sessions", tab_id=tab_id)
+            raise BrowserReactivationError("WAKE_FAILED", "wake")
+        try:
+            listing = await self._bf_call("list_sessions", tab_id=tab_id)
+        except Exception as exc:
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view") from exc
         session = next((item for item in listing.get("result", {}).get("sessions", [])
                         if item.get("session_id") == session_id), None)
         if not session or not session.get("share_url"):
-            raise RuntimeError("BrowserFabric did not return a live view for this session")
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view")
         self._live_urls[tab_id] = session["share_url"]
         return page
 

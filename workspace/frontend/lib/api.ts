@@ -1272,6 +1272,16 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
+  /** Explicit replacement, guarded against replacing a newer session. */
+  async replaceBrowserTab(tabId: string, expectedSessionId: string | null): Promise<BrowserTab> {
+    const query = new URLSearchParams({ confirm_replace: 'true' });
+    if (expectedSessionId) query.set('expected_session_id', expectedSessionId);
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reconnect?${query}`, { method: 'POST' },
+    );
+    return this.mapTab(result);
+  }
+
   /** Reconnect an expired browser tab (creates a new session). */
   async reconnectBrowserTab(tabId: string, reopen = false): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(

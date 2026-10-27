@@ -9,7 +9,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
-import { workspaceApi } from '@/lib/api';
+import { ApiError, workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -65,6 +65,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const [reconnecting, setReconnecting] = useState(false);
   const [sessionDead, setSessionDead] = useState(false);
   const [sessionAsleep, setSessionAsleep] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [liveRevision, setLiveRevision] = useState(0);
   const recoveryInFlight = useRef(false);
   const validationGeneration = useRef(0);
@@ -85,6 +86,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
   const selectedBrowserTabId = artifactTabId || workspaceBrowserTabId;
   const tab = browserTabs.find((x) => x.id === selectedBrowserTabId);
+  useEffect(() => { setRecoveryError(null); }, [selectedBrowserTabId]);
   const { permanent, temporary } = buildTabEntries(browserTabs, browserContexts);
   const asleepEntry = !tab && selectedBrowserContextId
     ? permanent.find((e) => e.context.id === selectedBrowserContextId && !e.tab) ?? null
@@ -216,6 +218,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const handleReconnect = async () => {
     if (!tab || reconnecting) return;
     setReconnecting(true);
+    setRecoveryError(null);
     recoveryInFlight.current = true;
     validationGeneration.current++;
     try {
@@ -229,7 +232,41 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       toast.success(t('browser.reconnected'));
     } catch (err) {
       setSessionDead(true);
-      toast.error(err instanceof Error ? err.message : t('browser.reconnectFailed'));
+      const message = err instanceof ApiError
+        ? err.serverMessage || t('browser.reconnectFailed')
+        : t('browser.reconnectFailed');
+      setRecoveryError(message);
+    } finally {
+      recoveryInFlight.current = false;
+      setReconnecting(false);
+    }
+  };
+
+  const handleReplace = async () => {
+    if (!tab || reconnecting) return;
+    setReconnecting(true);
+    recoveryInFlight.current = true;
+    validationGeneration.current++;
+    try {
+      const current = await workspaceApi.getBrowserTab(tab.id);
+      const ok = await confirm({
+        title: t('browser.replaceTitle'),
+        description: t('browser.replaceDescription'),
+        confirmText: t('browser.replace'),
+        destructive: true,
+      });
+      if (!ok) return;
+      await workspaceApi.replaceBrowserTab(current.id, current.sessionId);
+      await refreshBrowserTabs();
+      setRecoveryError(null);
+      setSessionAsleep(false);
+      setSessionDead(false);
+      setLiveRevision((value) => value + 1);
+      failCountRef.current = 0;
+      setLoading(true);
+    } catch (err) {
+      setRecoveryError(err instanceof ApiError
+        ? err.serverMessage || t('browser.reconnectFailed') : t('browser.reconnectFailed'));
     } finally {
       recoveryInFlight.current = false;
       setReconnecting(false);
@@ -497,7 +534,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           <div className="space-y-3 text-center">
             <Globe className="mx-auto size-10 opacity-20" />
             <p className="text-sm font-medium">{t(sessionAsleep || tab.asleep ? 'browser.sleepingTitle' : 'browser.unavailableTitle')}</p>
-            <p className="text-xs text-muted-foreground">{t(sessionAsleep || tab.asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</p>
+            <p className="text-xs text-muted-foreground" role={recoveryError ? 'alert' : undefined}>{recoveryError || t(sessionAsleep || tab.asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</p>
             <button
               onClick={handleReconnect}
               disabled={reconnecting}
@@ -506,6 +543,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               <RefreshCw className={cn('size-3.5', reconnecting && 'animate-spin')} />
               {t('browser.reactivate')}
             </button>
+            {sessionDead && tab.contextId && (
+              <div>
+                <button onClick={handleReplace} disabled={reconnecting}
+                  className="text-xs underline underline-offset-4 disabled:opacity-50">
+                  {t('browser.replace')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : reconnecting ? (
