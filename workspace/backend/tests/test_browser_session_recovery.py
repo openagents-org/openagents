@@ -220,3 +220,54 @@ async def test_missing_mapping_cannot_call_provider_default_session():
     with pytest.raises(KeyError):
         await manager.reconnect('tab', None, api_key='test-key')
     manager._bf_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('initialization_fails', [False, True])
+async def test_restore_persists_created_identity_when_validation_overwrites_cache(
+    db, saved_tab, monkeypatch, initialization_fails,
+):
+    from app.models import BrowserContext
+
+    tab, ws = saved_tab
+    context = BrowserContext(workspace_id=ws.id, name='Saved login',
+                             created_by='human:user', bb_context_id='saved-context')
+    db.add(context)
+    db.flush()
+    tab.context_id = context.id
+    db.commit()
+    manager = BrowserManager()
+    monkeypatch.setattr(browser.BrowserManager, 'get', lambda: manager)
+    monkeypatch.setattr(browser, '_resolve_bf_key', AsyncMock(return_value=('test-only-key', 'workspace')))
+    monkeypatch.setattr('app.browser.guard_browser_url', AsyncMock(side_effect=lambda url: url))
+    calls = []
+
+    async def provider(tool, arguments=None, session_id=None, **kwargs):
+        calls.append((tool, session_id))
+        if tool == 'close_session':
+            return {'success': True}
+        if tool == 'create_session':
+            assert arguments['context_id'] == 'saved-context'
+            return {'result': {'session_id': 'created-session', 'share_url': 'created-link'}}
+        # A concurrent validator still sees the old DB mapping while creation
+        # awaits navigation. It replaces the cache and invalidates its live URL.
+        await manager.reconnect(tab.id, 'current-session', api_key='test-only-key')
+        if initialization_fails:
+            raise httpx.ReadTimeout('initialization timeout')
+        return {'result': {'url': tab.url, 'title': 'Restored editor'}}
+
+    manager._bf_call = AsyncMock(side_effect=provider)
+    response = await browser.reconnect_tab(
+        tab.id, reopen=False, confirm_replace=True, expected_session_id='current-session',
+        x_workspace_token=ws.password_hash, authorization=None, db=db,
+    )
+    data = response['data']
+    assert data['session_id'] == 'created-session'
+    assert data['live_url'] == 'created-link'
+    db.refresh(tab)
+    assert tab.session_id == 'created-session'
+    assert tab.live_url == 'created-link'
+    assert calls.count(('create_session', None)) == 1
+    assert ('close_session', 'created-session') not in calls
+    assert ('navigate', 'created-session') in calls
+    assert ('get_page_info', 'created-session') in calls

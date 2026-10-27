@@ -67,7 +67,8 @@ def _mock_cloud_manager(session_id="sess-1"):
     manager.is_cloud_for = MagicMock(return_value=True)
     manager.get_session_id.return_value = session_id
     manager.get_live_url.return_value = None
-    manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example", "warnings": []})
+    manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example", "warnings": [],
+                                            "session_id": session_id, "live_url": None})
     manager.close_tab = AsyncMock(return_value=(True, None))
     manager.reconnect = AsyncMock()
     manager.get_current_url = AsyncMock(return_value={"url": "https://example.com", "title": "Example"})
@@ -422,6 +423,7 @@ class TestRouterOpenClose:
         manager.open_tab = AsyncMock(return_value={
             "url": "https://example.com", "title": "",
             "warnings": ["navigation_failed: Browser Fabric error: timeout"],
+            "session_id": "sess-1", "live_url": None,
         })
         _patch_manager_cls(MockManager, manager)
 
@@ -701,7 +703,7 @@ class TestOrphanTombstones:
         _patch_manager_cls(MockManager, manager)
         tab = _open_tab(client, ws).json()["data"]
 
-        manager.get_session_id.return_value = "sess-new"
+        manager.open_tab.return_value["session_id"] = "sess-new"
         manager.close_tab = AsyncMock(return_value=(False, "HTTP 502 closing session"))
 
         resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
@@ -721,7 +723,7 @@ class TestOrphanTombstones:
         _patch_manager_cls(MockManager, manager)
         tab = _open_tab(client, ws).json()["data"]
 
-        manager.get_session_id.return_value = "sess-new"
+        manager.open_tab.return_value["session_id"] = "sess-new"
 
         resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
                            headers={"X-Workspace-Token": ws["token"]})
