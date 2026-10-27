@@ -248,7 +248,7 @@
     },
     "DEEPSEEK_MODEL": {
       "label": "DeepSeek 模型",
-      "hint": "模型 ID，例如 deepseek-v4-flash。留空则使用默认模型。"
+      "hint": "从你的 API 密钥可用的模型中选择，也可以直接输入模型 ID。留空则使用 DeepSeek Harness 的默认模型。"
     },
     "DSH_PERMISSION_MODE": {
       "label": "文件权限",
