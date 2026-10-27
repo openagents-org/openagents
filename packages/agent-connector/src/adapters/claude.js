@@ -40,7 +40,10 @@ class ClaudeAdapter extends BaseAdapter {
    *    gets a 403). Cloud-provider and model config is kept, and so is the
    *    subscription token from `claude setup-token` — that one IS the
    *    credential, and sweeping it up as a stray CLAUDE_* left anyone who
-   *    pasted one authenticating as nobody, silently.
+   *    pasted one authenticating as nobody, silently. CLAUDE_CONFIG_DIR is
+   *    kept too: it is where the user's global CLAUDE.md, settings, skills and
+   *    project memory live, and dropping it started the agent from a blank
+   *    ~/.claude with none of the memory it has outside the workspace.
    *
    * 2. Mirror the API key into ANTHROPIC_AUTH_TOKEN for third-party relays. The
    *    CLI sends ANTHROPIC_API_KEY as `x-api-key`, which most Anthropic-
@@ -62,6 +65,7 @@ class ClaudeAdapter extends BaseAdapter {
       'CLAUDE_API_KEY',
       'CLAUDE_CODE_MAX_TURNS',
       'CLAUDE_CODE_OAUTH_TOKEN',
+      'CLAUDE_CONFIG_DIR',
     ]);
     const env = { ...(baseEnv || {}) };
     for (const k of Object.keys(env)) {
