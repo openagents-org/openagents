@@ -47,7 +47,7 @@ class AntigravityAdapter extends BaseAdapter {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
     // Read-only pinned context, same as gemini: agy has no MCP bridge to the
-    // workspace knowledge tools, so it can see the decision log but not write it.
+    // workspace knowledge tools, so it can see the glossary but not write it.
     this._usesPinnedContext = true;
     this._channelConversations = {}; // channel → agy conversation_id
     this._channelProcesses = {}; // channel → child process
@@ -166,7 +166,6 @@ class AntigravityAdapter extends BaseAdapter {
       channelName,
       mode: this._mode,
       model: this.modelLabel(),
-      decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
       glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });
 

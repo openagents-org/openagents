@@ -101,7 +101,7 @@ class ClaudeAdapter extends BaseAdapter {
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
-    // Knowledge pinning (decision log + glossary) lives in BaseAdapter; this
+    // Knowledge pinning (glossary) lives in BaseAdapter; this
     // adapter fetches directly in _handleMessage because the result also
     // drives the persistent-process staleness check.
     this._IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
@@ -458,7 +458,7 @@ class ClaudeAdapter extends BaseAdapter {
     return null;
   }
 
-  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, decisionLog = null, glossary = null } = {}) {
+  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, glossary = null } = {}) {
     const claudeBin = this._findClaudeBinary();
     if (!claudeBin) {
       throw new Error('claude CLI not found. Install with: curl -fsSL https://claude.ai/install.sh | bash');
@@ -475,7 +475,6 @@ class ClaudeAdapter extends BaseAdapter {
       model: this.modelLabel(),
       browserEnabled,
       toolMode: this.toolMode,
-      decisionLog,
       glossary,
     });
 
@@ -576,7 +575,7 @@ class ClaudeAdapter extends BaseAdapter {
       mcpWriteTools.push(`${pfx}workspace_image_save`);
     }
     if (!this.disabledModules.has('knowledge')) {
-      // The decision-log/glossary protocol instructs these by name — they
+      // The glossary protocol instructs these by name — they
       // must be callable or the pinned knowledge silently stops updating.
       mcpTools.push(`${pfx}workspace_list_knowledge`, `${pfx}workspace_read_knowledge`);
       mcpWriteTools.push(`${pfx}workspace_write_knowledge`);
@@ -1138,7 +1137,7 @@ class ClaudeAdapter extends BaseAdapter {
     try {
       await this.sendStatus(
         msgChannel,
-        'Claude context reached its limit. Starting a fresh session from the channel recap and pinned decisions.'
+        'Claude context reached its limit. Starting a fresh session from the channel recap.'
       );
     } catch {}
   }
@@ -1222,16 +1221,15 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   /**
-   * The pinned decision log / glossary, rendered exactly as in the system
+   * The pinned glossary, rendered exactly as in the system
    * prompt, framed as replacing the copy the running session started with.
    * Returns '' when nothing is pinned.
    */
-  _pinnedUpdatePreamble(msgChannel, decisionLog, glossary) {
+  _pinnedUpdatePreamble(msgChannel, glossary) {
     const sections = buildPinnedSections({
       toolMode: this.toolMode,
       channelName: msgChannel,
       mode: this._mode,
-      decisionLog,
       glossary,
     }).join('').trim();
     if (!sections) return '';
@@ -1313,23 +1311,18 @@ class ClaudeAdapter extends BaseAdapter {
 
     await this.sendStatus(msgChannel, 'thinking...');
 
-    // Read the channel's pinned knowledge (decision log + glossary) up front
-    // — the fast-path staleness check and any (re)spawn below both need it.
-    const decisions = await this._fetchDecisionLog(msgChannel);
+    // Read the channel's pinned knowledge (glossary) up front — the
+    // fast-path staleness check and any (re)spawn below both need it.
     const glossary = await this._fetchGlossary(msgChannel);
     // null fingerprint = a fetch failed, current state unknown; never treat
     // that as a change (it would churn respawns on every workspace hiccup).
     // The fingerprint covers entry ids AND content — both are pinned into
     // the prompt, and a recreated entry can change id without changing content.
-    const pinnedHash = (decisions.error || glossary.error)
+    const pinnedHash = glossary.error
       ? null
       : pinnedFingerprint([
-        { entryId: decisions.entryId, content: decisions.content },
         { entryId: glossary.entryId, content: glossary.content },
       ]);
-    const decisionLogOpt = decisions.available
-      ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
-      : null;
     const glossaryOpt = (glossary.available && glossary.state === 'found' && glossary.content)
       ? { enabled: true, entryId: glossary.entryId, content: glossary.content, scope: glossary.scope || 'channel' }
       : null;
@@ -1357,15 +1350,14 @@ class ClaudeAdapter extends BaseAdapter {
           : `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`);
         await this._killPersistentProc(msgChannel);
       } else {
-        // A pinned-knowledge change no longer restarts the process. Agents
-        // edit the decision log themselves on nearly every decision, and the
+        // A pinned-knowledge change no longer restarts the process. The
         // restart killed whatever they had running in the background (a
         // sub-agent mid-build) and replayed into a false "agent hit an error".
         // The new version rides in with this message instead and supersedes
         // the copy baked into the system prompt.
         let turnContent = content;
         if (pinnedStale) {
-          const update = this._pinnedUpdatePreamble(msgChannel, decisionLogOpt, glossaryOpt);
+          const update = this._pinnedUpdatePreamble(msgChannel, glossaryOpt);
           if (update) turnContent = `${update}\n\n---\n\n${content}`;
           existingPP.pinnedHash = pinnedHash;
           this._log(`Pinned knowledge changed for ${msgChannel} — passing the update to the running session`);
@@ -1435,7 +1427,6 @@ class ClaudeAdapter extends BaseAdapter {
         const built = this._buildClaudeCmd(effectiveContent, msgChannel, {
           skipResume: attempt > 0,
           browserEnabled,
-          decisionLog: decisionLogOpt,
           glossary: glossaryOpt,
         });
         cmd = built.cmd;
@@ -1454,7 +1445,6 @@ class ClaudeAdapter extends BaseAdapter {
         // When the fetch errored (pinnedHash null) hash what was actually
         // pinned, so the next successful fetch triggers a re-pin.
         pp.pinnedHash = pinnedHash !== null ? pinnedHash : pinnedFingerprint([
-          { entryId: decisionLogOpt && decisionLogOpt.entryId, content: decisionLogOpt && decisionLogOpt.content },
           { entryId: glossaryOpt && glossaryOpt.entryId, content: glossaryOpt && glossaryOpt.content },
         ]);
         pp.spawnMode = this._mode;
@@ -1490,7 +1480,7 @@ class ClaudeAdapter extends BaseAdapter {
             try {
               await this.sendStatus(
                 msgChannel,
-                'Claude session could not be resumed. Rebuilding context from the channel recap and pinned decisions.'
+                'Claude session could not be resumed. Rebuilding context from the channel recap.'
               );
             } catch {}
             continue;

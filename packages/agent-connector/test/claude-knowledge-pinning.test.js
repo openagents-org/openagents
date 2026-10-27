@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Adapter-level tests for decision-log pinning in the Claude adapter:
- * - _fetchDecisionLog caching, 404 fallback, duplicate handling, failure mode
+ * Adapter-level tests for knowledge pinning in the Claude adapter:
+ * - pinned-entry fetch caching, 404 fallback, duplicate handling, failure mode
  * - fast-path hash check killing a stale persistent process (respawn+resume)
  * - fast-path prompt-too-long detection resetting the session VISIBLY
  * - stale-session retry announcing itself
@@ -13,14 +13,11 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const ClaudeAdapter = require('../src/adapters/claude');
-const { decisionLogTitle, pinnedFingerprint } = require('../src/adapters/decision-log');
+const { glossaryTitle, pinnedFingerprint } = require('../src/adapters/decision-log');
 
-/** Combined pin fingerprint: decision log first, then the glossary. */
-function pinHash(entryId = null, content = null, gEntryId = null, gContent = null) {
-  return pinnedFingerprint([
-    { entryId, content },
-    { entryId: gEntryId, content: gContent },
-  ]);
+/** Pin fingerprint of the glossary. */
+function pinHash(entryId = null, content = null) {
+  return pinnedFingerprint([{ entryId, content }]);
 }
 
 function mkAdapter(overrides = {}) {
@@ -44,8 +41,8 @@ function mkAdapter(overrides = {}) {
   adapter.getBrowserEnabled = async () => false;
   adapter._resetIdleTimer = () => {};
   adapter._titledSessions.add('general'); // skip the auto-title lookup
-  // Message-flow tests stub _fetchDecisionLog per case; default the glossary
-  // to absent so no test reaches the network.
+  // Message-flow tests stub _fetchGlossary per case; default it to absent so
+  // no test reaches the network.
   adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
   return adapter;
 }
@@ -65,27 +62,31 @@ function mkPP(overrides = {}) {
   };
 }
 
-describe('_fetchDecisionLog', () => {
+describe('_fetchGlossary (pinned-entry fetch)', () => {
+  // mkAdapter stubs the glossary fetch for the message-flow tests; drop the
+  // stub here so the real fetch runs.
+  const real = (overrides) => { const a = mkAdapter(overrides); delete a._fetchGlossary; return a; };
+
   it('is inactive (with one warning) when the knowledge module is disabled', async () => {
-    const adapter = mkAdapter({ disabledModules: new Set(['knowledge']) });
+    const adapter = real({ disabledModules: new Set(['knowledge']) });
     const logs = [];
     adapter._log = (m) => logs.push(m);
-    const first = await adapter._fetchDecisionLog('general');
-    const second = await adapter._fetchDecisionLog('general');
+    const first = await adapter._fetchGlossary('general');
+    const second = await adapter._fetchGlossary('general');
     assert.equal(first.available, false);
     assert.equal(second.available, false);
     assert.equal(logs.filter((l) => /pinning is INACTIVE/.test(l)).length, 1);
   });
 
   it('lists, matches by exact title, caches the id, then reads by id', async () => {
-    const adapter = mkAdapter();
+    const adapter = real();
     const calls = [];
     adapter.client = {
       listKnowledge: async (ws, tok, opts) => {
         calls.push(['list', opts]);
         return { entries: [
           { id: 'other', title: 'unrelated' },
-          { id: 'e-1', title: decisionLogTitle('general'), created_at: '2026-07-01T00:00:00Z' },
+          { id: 'e-1', title: glossaryTitle('general'), created_at: '2026-07-01T00:00:00Z' },
         ] };
       },
       getKnowledge: async (ws, tok, id, opts) => {
@@ -94,21 +95,21 @@ describe('_fetchDecisionLog', () => {
       },
     };
 
-    const res = await adapter._fetchDecisionLog('general');
-    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', title: decisionLogTitle('general'), content: '- pinned fact', error: false });
-    assert.equal(adapter._decisionEntryIds.general, 'e-1');
+    const res = await adapter._fetchGlossary('general');
+    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', title: glossaryTitle('general'), content: '- pinned fact', error: false, scope: 'channel' });
+    assert.equal(adapter._glossaryEntryIds.general, 'e-1');
     // Short deadline on every request.
     for (const c of calls) assert.equal(c.at(-1).timeout, adapter._DECISION_FETCH_TIMEOUT_MS);
 
     // Steady state: a single GET, no listing.
     calls.length = 0;
-    await adapter._fetchDecisionLog('general');
+    await adapter._fetchGlossary('general');
     assert.deepEqual(calls.map((c) => c[0]), ['get']);
   });
 
   it('invalidates the cached id on 404 and re-lists', async () => {
-    const adapter = mkAdapter();
-    adapter._decisionEntryIds.general = 'gone';
+    const adapter = real();
+    adapter._glossaryEntryIds.general = 'gone';
     let listed = false;
     adapter.client = {
       getKnowledge: async (ws, tok, id) => {
@@ -117,22 +118,22 @@ describe('_fetchDecisionLog', () => {
       },
       listKnowledge: async () => {
         listed = true;
-        return { entries: [{ id: 'e-2', title: decisionLogTitle('general') }] };
+        return { entries: [{ id: 'e-2', title: glossaryTitle('general') }] };
       },
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(listed, true);
     assert.equal(res.entryId, 'e-2');
     assert.equal(res.content, '- recreated');
   });
 
   it('reports error=true with unknown content on transient failure', async () => {
-    const adapter = mkAdapter();
-    adapter._decisionEntryIds.general = 'e-1';
+    const adapter = real();
+    adapter._glossaryEntryIds.general = 'e-1';
     adapter.client = {
       getKnowledge: async () => { throw new Error('Request timed out'); },
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(res.error, true);
     assert.equal(res.content, null);
     // The id is still known, so the state stays found — not unknown.
@@ -140,74 +141,74 @@ describe('_fetchDecisionLog', () => {
   });
 
   it('reports state unknown on cold-start failure so the prompt cannot claim absence', async () => {
-    const adapter = mkAdapter();
+    const adapter = real();
     adapter.client = {
       listKnowledge: async () => { throw new Error('Request timed out'); },
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(res.error, true);
     assert.equal(res.state, 'unknown');
     assert.equal(res.entryId, null);
   });
 
   it('treats a soft-deleted cached entry as gone and re-lists', async () => {
-    const adapter = mkAdapter();
-    adapter._decisionEntryIds.general = 'dead';
+    const adapter = real();
+    adapter._glossaryEntryIds.general = 'dead';
     let listed = false;
     adapter.client = {
       // The backend keeps deleted rows readable by id with status "deleted".
       getKnowledge: async (ws, tok, id) => {
-        if (id === 'dead') return { id, status: 'deleted', content: '- stale decision' };
-        return { id, status: 'active', content: '- fresh decision' };
+        if (id === 'dead') return { id, status: 'deleted', content: '- stale definition' };
+        return { id, status: 'active', content: '- fresh definition' };
       },
       listKnowledge: async () => {
         listed = true;
-        return { entries: [{ id: 'e-new', title: decisionLogTitle('general'), status: 'active' }] };
+        return { entries: [{ id: 'e-new', title: glossaryTitle('general'), status: 'active' }] };
       },
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(listed, true);
     assert.equal(res.entryId, 'e-new');
-    assert.equal(res.content, '- fresh decision');
+    assert.equal(res.content, '- fresh definition');
     assert.equal(res.state, 'found');
   });
 
   it('reports absent when the entry vanishes between listing and read', async () => {
-    const adapter = mkAdapter();
+    const adapter = real();
     adapter.client = {
-      listKnowledge: async () => ({ entries: [{ id: 'e-1', title: decisionLogTitle('general') }] }),
+      listKnowledge: async () => ({ entries: [{ id: 'e-1', title: glossaryTitle('general') }] }),
       getKnowledge: async (ws, tok, id) => ({ id, status: 'deleted', content: '- was here' }),
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(res.state, 'absent');
     assert.equal(res.entryId, null);
-    assert.equal(adapter._decisionEntryIds.general, undefined);
+    assert.equal(adapter._glossaryEntryIds.general, undefined);
   });
 
   it('warns about duplicate titles and uses the earliest entry', async () => {
-    const adapter = mkAdapter();
+    const adapter = real();
     const logs = [];
     adapter._log = (m) => logs.push(m);
     adapter.client = {
       listKnowledge: async () => ({ entries: [
-        { id: 'late', title: decisionLogTitle('general'), created_at: '2026-07-30T00:00:00Z' },
-        { id: 'early', title: decisionLogTitle('general'), created_at: '2026-07-01T00:00:00Z' },
+        { id: 'late', title: glossaryTitle('general'), created_at: '2026-07-30T00:00:00Z' },
+        { id: 'early', title: glossaryTitle('general'), created_at: '2026-07-01T00:00:00Z' },
       ] }),
       getKnowledge: async (ws, tok, id) => ({ id, content: '- x' }),
     };
-    const res = await adapter._fetchDecisionLog('general');
+    const res = await adapter._fetchGlossary('general');
     assert.equal(res.entryId, 'early');
     assert.ok(logs.some((l) => /2 knowledge entries share the title/.test(l)));
   });
 });
 
 describe('fast-path pinned hash check', () => {
-  it('hands a changed decision log to the running session instead of restarting it', async () => {
+  it('hands a changed glossary to the running session instead of restarting it', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW definition', error: false });
 
-    const livePP = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
+    const livePP = mkPP({ pinnedHash: pinHash('e-1', '- old definition') });
     adapter._persistentProcs.general = livePP;
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
@@ -229,17 +230,17 @@ describe('fast-path pinned hash check', () => {
     assert.equal(sent.pp, livePP);
     // The new version rides in ahead of the message and supersedes the old pin.
     assert.match(sent.content, /Pinned knowledge was updated/);
-    assert.match(sent.content, /- NEW decision/);
+    assert.match(sent.content, /- NEW definition/);
     assert.ok(sent.content.endsWith('next task'));
     // Recorded as pinned, so the next message does not repeat the update.
-    assert.equal(livePP.pinnedHash, pinHash('e-1', '- NEW decision'));
+    assert.equal(livePP.pinnedHash, pinHash('e-1', '- NEW definition'));
     assert.deepEqual(adapter.responses, ['done with new pin']);
   });
 
   it('sends the pinned update only once', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
-    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-1', '- old decision') });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW definition', error: false });
+    adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-1', '- old definition') });
     const contents = [];
     adapter._sendToPersistentProc = async (pp, content) => {
       contents.push(content);
@@ -258,7 +259,7 @@ describe('fast-path pinned hash check', () => {
   it('still respawns with resume when the mode changed', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
     adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-1', '- same'), spawnMode: 'plan' });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
@@ -277,38 +278,12 @@ describe('fast-path pinned hash check', () => {
     assert.equal(builtOpts.skipResume, false);
   });
 
-  it('hands a changed glossary to the running session instead of restarting it', async () => {
-    const adapter = mkAdapter();
-    adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
-    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'g-1', content: '- field means NEW thing', error: false });
-
-    const livePP = mkPP({ pinnedHash: pinHash(null, null, 'g-1', '- field meant old thing') });
-    adapter._persistentProcs.general = livePP;
-    const killed = [];
-    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
-    let sent = '';
-    adapter._sendToPersistentProc = async (pp, content) => {
-      sent = content;
-      pp.lastResponseText = ['glossary re-pinned'];
-      pp.everPostedAnything = true;
-      return { resultEvent: {} };
-    };
-
-    await adapter._handleMessage({ content: 'go', sessionId: 'general' });
-
-    assert.deepEqual(killed, []);
-    assert.match(sent, /- field means NEW thing/);
-    assert.equal(livePP.pinnedHash, pinHash(null, null, 'g-1', '- field means NEW thing'));
-    assert.deepEqual(adapter.responses, ['glossary re-pinned']);
-  });
-
   it('passes a recreated entry (new id, same content) to the running session', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    // Same content, but the log was deleted and recreated under a new id —
-    // the prompt still pins the old id, so the process must be replaced.
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-recreated', content: '- same content', error: false });
+    // Same content, but the entry was deleted and recreated under a new id —
+    // the prompt still pins the old id, so the update must name the new one.
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-recreated', content: '- same content', error: false });
     adapter._persistentProcs.general = mkPP({ pinnedHash: pinHash('e-original', '- same content') });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
@@ -327,9 +302,9 @@ describe('fast-path pinned hash check', () => {
     assert.match(sent, /e-recreated/);
   });
 
-  it('reuses the process when the log is unchanged', async () => {
+  it('reuses the process when the glossary is unchanged', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
     const pp = mkPP({ pinnedHash: pinHash('e-1', '- same') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
@@ -346,9 +321,9 @@ describe('fast-path pinned hash check', () => {
     assert.deepEqual(adapter.responses, ['reused']);
   });
 
-  it('does not respawn on a failed decision fetch (unknown content is not a change)', async () => {
+  it('does not respawn on a failed glossary fetch (unknown content is not a change)', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: null, error: true });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'e-1', content: null, error: true });
     const pp = mkPP({ pinnedHash: pinHash('e-1', '- whatever') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
@@ -370,7 +345,7 @@ describe('context-limit and stale-session visibility', () => {
   it('fast-path prompt-too-long resets the session, announces it, and retries fresh', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, entryId: null, content: '', error: false });
+    adapter._fetchGlossary = async () => ({ available: true, entryId: null, content: '', error: false });
     adapter._buildChannelRecap = async () => 'RECAP';
 
     const pp = mkPP();
@@ -406,7 +381,7 @@ describe('context-limit and stale-session visibility', () => {
   it('stale-session retry posts a visible status', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: false, entryId: null, content: null, error: false });
+    adapter._fetchGlossary = async () => ({ available: false, entryId: null, content: null, error: false });
     adapter._buildChannelRecap = async () => null;
     adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
     adapter._killPersistentProc = () => {};
@@ -435,7 +410,7 @@ describe('fast-path mode staleness check', () => {
     const adapter = mkAdapter();
     adapter._mode = toMode;
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
     adapter._persistentProcs.general = mkPP({ spawnMode: fromMode });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
@@ -467,7 +442,7 @@ describe('fast-path mode staleness check', () => {
 
   it('same mode keeps reusing the process', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
     adapter._persistentProcs.general = mkPP({ spawnMode: 'execute' });
     let spawned = 0;
     adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
@@ -481,10 +456,10 @@ describe('fast-path mode staleness check', () => {
     assert.deepEqual(adapter.responses, ['reused']);
   });
 
-  it('a failed decision fetch does not keep a wrong-mode process alive', async () => {
+  it('a failed glossary fetch does not keep a wrong-mode process alive', async () => {
     const adapter = mkAdapter();
     adapter._mode = 'execute';
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'unknown', entryId: null, content: null, error: true });
+    adapter._fetchGlossary = async () => ({ available: true, state: 'unknown', entryId: null, content: null, error: true });
     adapter._persistentProcs.general = mkPP({ spawnMode: 'plan' });
     const killed = [];
     adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };

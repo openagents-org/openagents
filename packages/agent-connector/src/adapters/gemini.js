@@ -39,7 +39,7 @@ class GeminiAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the prompt (read-only:
+    // Pin the channel's glossary into the prompt (read-only:
     // Gemini has no MCP server and no workspace skill, so it cannot write
     // the knowledge entries — it only needs to SEE them).
     this._usesPinnedContext = true;
@@ -226,7 +226,6 @@ class GeminiAdapter extends BaseAdapter {
       channelName,
       mode: this._mode,
       model: this.modelLabel(),
-      decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
       glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });
     

@@ -50,7 +50,7 @@ class CodexAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the system prompt.
+    // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;

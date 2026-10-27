@@ -120,7 +120,7 @@ class HermesAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the context prefix.
+    // Pin the channel's glossary into the context prefix.
     this._usesPinnedContext = true;
     this.hermesProfile = this._resolveProfile(opts.hermesProfile, this.agentName);
     this.hermesSource = opts.hermesSource || 'tool';
