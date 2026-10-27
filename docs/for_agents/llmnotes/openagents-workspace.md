@@ -174,10 +174,12 @@ release: review its compatibility declaration and backup/restore plan first.
 The coordinator backs up before approved pending migrations and never
 automatically downgrades database schema/data during application rollback.
 
-Preview shares production data and file storage. Its jobs and automatic
-migrations must stay disabled; use the pinned compatible image and follow the
-[preview runbook](../../../workspace/docs/preview-production-data.md). Preview is
-not an isolated place to test destructive data changes or real automated traffic.
+Preview follows `develop` with its own frontend, backend, local PostgreSQL database
+and file-storage volume on droplet 164.92.127.159 (authorized October 26, 2026).
+The droplet checks develop every two minutes, builds both images from one SHA,
+backs up the local DB before migrations, and verifies readiness before completing
+an update. See the [preview runbook](../../../workspace/docs/preview-environment.md).
+Production migration approval requirements still apply to production only.
 
 ## Troubleshooting order
 

@@ -73,8 +73,10 @@ update it to use an authorized identity/credential for the operation.
 
 A fresh local profile does not isolate remote data. API-driven tests create real
 workspace resources and can start billable agent work. Use a dedicated test
-workspace with intentional sharing and known cleanup behavior. Preview shares
-production data; pointing the suite at preview does not make its writes disposable.
+workspace with intentional sharing and known cleanup behavior. Preview has its own
+local database and file storage as of October 26, 2026; test resources there still
+need cleanup, and external agents/providers can still incur costs. Production
+resources are never disposable test data.
 
 ## Running and extending tests
 
