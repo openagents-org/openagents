@@ -623,3 +623,34 @@ class TestStopRestsTheThread:
         out = _run(_handle_message_posted(event, ctx))
 
         assert out.metadata.get("target_agents") == ["agent-master"]
+
+
+@pytest.mark.parametrize('human_request', [True, False])
+@pytest.mark.parametrize('provider,model', [
+    ('openai', 'DeepSeek-V4.1-flash'),
+    ('openai', 'gpt-4o-mini'),
+    ('anthropic', 'claude-haiku-4-5-20251001'),
+])
+def test_routing_budget_and_provider_specific_thinking(
+    db, multi_agent_workspace, monkeypatch, provider, model, human_request,
+):
+    """Both human classification and agent handoffs use the corrected request."""
+    from app.mods import workspace_mod
+    client = MagicMock()
+    client.chat.completions.create.return_value = _mock_openai_response('next:agent-worker')
+    client.messages.create.return_value = _mock_anthropic_response('next:agent-worker')
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (client, provider))
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'test-key')
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: model)
+    event = _make_event('human:user' if human_request else 'openagents:agent-master',
+                        'channel/session-test', 'Did you open the page?')
+    result = _run(_route_with_llm(multi_agent_workspace['channel'], event, db,
+                                 multi_agent_workspace['workspace'], allow_human_stop=human_request))
+    assert result == ['agent-worker']
+    create = client.chat.completions.create if provider == 'openai' else client.messages.create
+    kwargs = create.call_args.kwargs
+    assert kwargs['max_tokens'] == 256
+    if model.startswith('DeepSeek'):
+        assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
+    else:
+        assert 'extra_body' not in kwargs

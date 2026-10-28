@@ -1578,7 +1578,12 @@ async def _route_with_llm(
         if provider == "openai":
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=256,
+                # DeepSeek otherwise spends the output budget on reasoning and
+                # can return no routing decision. Other providers must not receive
+                # this provider-specific option.
+                **({"extra_body": {"thinking": {"type": "disabled"}}}
+                   if model.lower().startswith("deepseek") else {}),
                 **({"temperature": 0} if allow_human_stop else {}),
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -1586,7 +1591,7 @@ async def _route_with_llm(
         else:
             response = client.messages.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=256,
                 **({"temperature": 0} if allow_human_stop else {}),
                 messages=[{"role": "user", "content": prompt}],
             )
