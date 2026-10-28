@@ -77,7 +77,10 @@ class EventRecord(Base):
               postgresql_where=text("type LIKE 'workspace.agent.control%'")),
         Index("idx_events_poll_tool_result", "network_id", timestamp.desc(), id.desc(),
               postgresql_where=text("type LIKE 'workspace.tool_result%'")),
+        # The viewer's privacy OR also references visibility. Include it so
+        # signed-in reads stay index-only despite the partial predicate.
         Index("idx_events_dm_history", "network_id", "source", "target", timestamp.desc(), id.desc(),
+              postgresql_include=["visibility"],
               postgresql_where=text("visibility = 'direct' AND type = 'workspace.message.posted'"),
               sqlite_where=text("visibility = 'direct' AND type = 'workspace.message.posted'")),
     )

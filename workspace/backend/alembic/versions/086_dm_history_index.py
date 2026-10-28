@@ -14,7 +14,7 @@ def upgrade():
         op.execute("SET lock_timeout = '5s'")
         try:
             op.execute("""CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_dm_history
-                ON events (network_id, source, target, timestamp DESC, id DESC)
+                ON events (network_id, source, target, timestamp DESC, id DESC) INCLUDE (visibility)
                 WHERE visibility = 'direct' AND type = 'workspace.message.posted'""")
             valid = op.get_bind().execute(sa.text("""SELECT indisvalid FROM pg_index
                 WHERE indexrelid = to_regclass('idx_events_dm_history')""")).scalar_one()
