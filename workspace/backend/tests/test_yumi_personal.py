@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.models import Channel, ChannelHumanMember, ChannelMember, CloudAgentConfig, ResourceGrant, WorkspaceMember
 from app.services import access_model as am
@@ -23,6 +23,59 @@ def personal(client, db, yumi_enabled):
     db.add(ChannelHumanMember(channel_id=ch.id, user_email='test@example.com'))
     db.commit()
     return data, ch
+
+
+def test_personal_channel_membership_classification(client, db, personal):
+    data, existing = personal
+    other_workspace = _create_workspace(client, 'Other workspace')
+    cases = [
+        (data['workspaceId'], 'owner@example.com', ['yumi'], True),
+        (data['workspaceId'], 'owner@example.com', ['yumi', '__no_response__'], True),
+        (data['workspaceId'], 'owner@example.com', ['yumi', 'agent-alpha'], False),
+        (data['workspaceId'], 'owner@example.com', ['yumi', '__no_response__', 'agent-alpha'], False),
+        (data['workspaceId'], 'owner@example.com', ['__no_response__'], False),
+        (data['workspaceId'], 'owner@example.com', [], False),
+        (data['workspaceId'], None, ['yumi'], False),
+        (data['workspaceId'], '', ['yumi'], False),
+        (other_workspace['workspaceId'], 'owner@example.com', ['yumi'], False),
+        (other_workspace['workspaceId'], 'owner@example.com', ['agent-alpha'], False),
+    ]
+    expected = {}
+    for i, (workspace_id, owner, agents, personal_only) in enumerate(cases):
+        channel = Channel(workspace_id=workspace_id, name=f'membership-{i}', owner_email=owner)
+        db.add(channel)
+        db.flush()
+        db.add_all(ChannelMember(channel_id=channel.id, agent_name=name) for name in agents)
+        expected[channel.id] = personal_only
+    db.commit()
+
+    found = {channel.id for channel in pa.personal_channels(db, data['workspaceId'])}
+    assert existing.id in found
+    assert {cid: cid in found for cid in expected} == expected
+
+
+def test_personal_channel_lookup_uses_membership_index(db, personal):
+    data, _ = personal
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith('SELECT channels.') and 'channel_members' in statement:
+            statements.append((statement, parameters))
+
+    connection = db.connection()
+    event.listen(connection, 'before_cursor_execute', capture)
+    try:
+        pa.personal_channels(db, data['workspaceId'])
+    finally:
+        event.remove(connection, 'before_cursor_execute', capture)
+
+    assert statements, 'Expected the personal-channel membership query'
+    for statement, parameters in statements:
+        plan = connection.exec_driver_sql('EXPLAIN QUERY PLAN ' + statement, parameters).all()
+        membership_steps = [row[3].upper() for row in plan if 'CHANNEL_MEMBERS' in row[3].upper()]
+        assert len(membership_steps) == 2
+        assert all(step.startswith('SEARCH CHANNEL_MEMBERS ') and 'INDEX' in step and 'CHANNEL_ID=?' in step
+                   for step in membership_steps), membership_steps
 
 
 @pytest.mark.parametrize('payload', [

@@ -31,13 +31,23 @@ def personal_channels(db, workspace_id):
     """
     if not is_yumi(db, workspace_id, "yumi"):
         return []
+    # Probe each workspace channel's membership through the (channel_id,
+    # agent_name) primary key. An uncorrelated NOT IN builds its exclusion
+    # set by scanning memberships across every workspace on each read.
+    yumi_member = select(ChannelMember.channel_id).where(
+        ChannelMember.channel_id == Channel.id,
+        ChannelMember.agent_name == "yumi",
+    ).correlate(Channel).exists()
+    other_member = select(ChannelMember.channel_id).where(
+        ChannelMember.channel_id == Channel.id,
+        ChannelMember.agent_name.notin_(["yumi", "__no_response__"]),
+    ).correlate(Channel).exists()
     return list(db.execute(select(Channel).where(
         Channel.workspace_id == str(workspace_id),
         Channel.owner_email.is_not(None),
         Channel.owner_email != "",
-        Channel.id.in_(select(ChannelMember.channel_id).where(ChannelMember.agent_name == "yumi")),
-        ~Channel.id.in_(select(ChannelMember.channel_id).where(
-            ChannelMember.agent_name.notin_(["yumi", "__no_response__"]))),
+        yumi_member,
+        ~other_member,
     )).scalars())
 
 
