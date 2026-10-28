@@ -1,5 +1,9 @@
 """Agent control events must never become human-facing conversations."""
 from uuid import uuid4
+import json
+import re
+import pytest
+from sqlalchemy import event
 from app.models import DirectThreadLink, EventRecord
 from tests.test_people_messaging import people, quiet_side_effects, _as, _tok  # noqa: F401
 
@@ -43,3 +47,34 @@ def test_old_system_thread_links_no_longer_open_as_chats(client, db, workspace, 
     assert response.status_code==404
     response=client.post('/v1/thread-links',headers=_as('adam',workspace),json={'network':workspace['id'],'session_id':session})
     assert response.status_code==404
+
+
+@pytest.mark.parametrize('pair_count', [1, 10, 100])
+def test_conversation_event_queries_are_batched(client, db, workspace, people, monkeypatch, pair_count):
+    monkeypatch.setattr('app.routers.events.unread_cutoff_ms', lambda: 0)
+    me = 'human:adam@acme.test'
+    markers = {}
+    for i in range(pair_count):
+        agent = f'openagents:batch-{i:02}'
+        seed(db, workspace, me, agent, 100)
+        seed(db, workspace, agent, me, 200 + i)
+        markers[f'dm:{me},{agent}'] = 100
+    db.commit()
+    queries = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith('SELECT') and re.search(r'\bFROM events\b', statement):
+            queries.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        response = client.get('/v1/events/conversations', headers=_as('adam', workspace),
+                              params={'network': workspace['id'], 'read_at': json.dumps(markers), 'limit': pair_count})
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    assert response.status_code == 200
+    conversations = response.json()['data']['conversations']
+    assert len(conversations) == pair_count
+    assert all(row['message_count'] == 2 and row['unread_count'] == 1 for row in conversations)
+    assert len(queries) == 3, 'One aggregate, one preview batch and one unread batch'

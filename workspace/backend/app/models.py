@@ -77,6 +77,9 @@ class EventRecord(Base):
               postgresql_where=text("type LIKE 'workspace.agent.control%'")),
         Index("idx_events_poll_tool_result", "network_id", timestamp.desc(), id.desc(),
               postgresql_where=text("type LIKE 'workspace.tool_result%'")),
+        Index("idx_events_dm_history", "network_id", "source", "target", timestamp.desc(), id.desc(),
+              postgresql_where=text("visibility = 'direct' AND type = 'workspace.message.posted'"),
+              sqlite_where=text("visibility = 'direct' AND type = 'workspace.message.posted'")),
     )
 
 
