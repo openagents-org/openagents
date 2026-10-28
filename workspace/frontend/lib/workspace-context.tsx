@@ -778,13 +778,13 @@ export function WorkspaceProvider({
   useEffect(() => {
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
     setApiReady(true);
-    // Tie all subsequent events to this workspace so they line up with the
-    // website + launcher funnel stages for the same workspace ID.
-    if (workspaceId) {
-      group('workspace', workspaceId);
-      capture('workspace_opened', { workspace_id: workspaceId });
-    }
   }, [workspaceId, token, bearerToken]);
+
+  // Group changes follow workspace changes, not credential refreshes. The
+  // successful workspace load below emits the single workspace_opened event.
+  useEffect(() => {
+    if (workspaceId) group('workspace', workspaceId);
+  }, [workspaceId]);
 
   // In the desktop app this page is one tab among several; give the tab the
   // workspace's real name and both of the names it can be routed by.
