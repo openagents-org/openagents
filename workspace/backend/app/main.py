@@ -149,6 +149,7 @@ async def _fire_due_in_thread():
     from app.models import EventRecord, RoutineRecord, TimerRecord, Workspace
     from app.pipeline_factory import pipeline
     from app.routers.routines import _compute_next_fires_at
+    from app.services.routine_backoff import backoff_wait_ms, consecutive_failed_runs
     from openagents.core.onm_events import Event
     from openagents.core.onm_mods import PipelineContext
 
@@ -314,6 +315,20 @@ async def _fire_due_in_thread():
                 run_age_ms = now_ms - int(last_fire.timestamp or 0)
                 if answered is None and run_age_ms < ROUTINE_STUCK_MS:
                     # Previous run still working — skip (schedule already advanced).
+                    continue
+
+                # The agent keeps failing (usage limit, broken CLI): fire less
+                # often until a run succeeds, instead of posting the same
+                # error on every tick. See services/routine_backoff.py.
+                failures, last_fire_ms = consecutive_failed_runs(
+                    db, workspace.id, channel_name, agent_name,
+                )
+                wait_ms = backoff_wait_ms(failures)
+                if wait_ms and last_fire_ms and now_ms - last_fire_ms < wait_ms:
+                    logger.info(
+                        "Routine %s backing off: %d failed runs in a row, next try in %ds",
+                        routine_id, failures, (wait_ms - (now_ms - last_fire_ms)) // 1000,
+                    )
                     continue
 
             ctx = PipelineContext(

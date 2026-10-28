@@ -96,3 +96,25 @@ describe('ClaudeAdapter._buildChildEnv — relay Bearer auth', () => {
     assert.strictEqual(env.ANTHROPIC_AUTH_TOKEN, undefined);
   });
 });
+
+describe('ClaudeAdapter._buildChildEnv — tool search behind a relay', () => {
+  test('turns tool search off for a third-party relay', () => {
+    const env = build({ ANTHROPIC_API_KEY: 'sk-relay', ANTHROPIC_BASE_URL: 'https://relay.example' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'false');
+  });
+
+  test('also for a relay reached with an auth token only', () => {
+    const env = build({ ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_BASE_URL: 'https://relay.example' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'false');
+  });
+
+  test('leaves the official endpoint and the default (no base URL) alone', () => {
+    assert.strictEqual(build({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }).ENABLE_TOOL_SEARCH, undefined);
+    assert.strictEqual(build({ ANTHROPIC_API_KEY: 'sk' }).ENABLE_TOOL_SEARCH, undefined);
+  });
+
+  test('keeps a value the user chose', () => {
+    const env = build({ ANTHROPIC_BASE_URL: 'https://relay.example', ENABLE_TOOL_SEARCH: 'auto' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'auto');
+  });
+});

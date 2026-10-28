@@ -240,9 +240,15 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * they hid the real one. Claude Code warns about its claude.ai connectors
  * whenever a key is set, and about a model it does not know (any relay model:
  * glm, kimi, …) — "…so it assumes a context window of 200000 tokens … Until
- * then auto-compact keeps this session within 200k tokens".
+ * then auto-compact keeps this session within 200k tokens". Codex does the
+ * same for a model missing from its catalog: "warning: Model metadata for
+ * `gpt-5.5` not found. Defaulting to fallback metadata…", and logs every
+ * run's housekeeping as timestamped WARN/INFO records plus "Reading prompt
+ * from stdin...", which filled the smoke test's timeout message. Node's own
+ * process warnings ("(node:1234) Warning: …", "(Use `node --trace-warnings
+ * ...`") come ahead of the real error from npm-shipped CLIs like CodeBuddy.
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
 
 /** CLI output with the known-harmless lines taken out. */
 function stripCliNoise(text) {

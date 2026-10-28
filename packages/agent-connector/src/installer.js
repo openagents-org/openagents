@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, exec, execFile, spawnSync } = require('child_process');
+const { execSync, execFileSync, exec, execFile, spawnSync } = require('child_process');
 const {
   whichBinary,
   getEnhancedEnv,
@@ -19,7 +19,8 @@ const {
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
-const { nodeDistUrls, installRegistry } = require('./mirrors');
+const { nodeDistUrls, installRegistry, userConfiguredRegistry } = require('./mirrors');
+const { resolveInstallableVersion, fetchPackument, unpinnedPackage } = require('./node-engines');
 const { readinessReason, REASON } = require('./adapters/health-status');
 const { resolveCursorNodeEntry } = require('./adapters/cursor-node-entry');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
@@ -1589,6 +1590,12 @@ class Installer {
       // on next install). --registry is added only when we'd be helping — see
       // installRegistry(); a user's own registry choice is never overridden.
       const registry = installRegistry();
+      const direct = this._resolveNodeNpmCli();
+      // `latest` may need a Node newer than the one that will run it.
+      if (direct) {
+        const held = await this._holdBackForNode(pkgArgs, direct.node, registry, onData);
+        pkgArgs.splice(0, pkgArgs.length, ...held);
+      }
       // The verbose log stays: it is the install's progress, and the output the
       // stall watchdog below waits on.
       const npmArgs = [
@@ -1598,7 +1605,6 @@ class Installer {
       ];
       displayCmd = `npm ${npmArgs.join(' ')}`;
 
-      const direct = this._resolveNodeNpmCli();
       if (direct) {
         spawnFile = direct.node;
         spawnArgs = [direct.npmCli, ...npmArgs];
@@ -2672,6 +2678,46 @@ class Installer {
   }
 
   /**
+   * Swap an unpinned package (`pkg`, `pkg@latest`) for the newest release
+   * whose `engines.node` accepts the Node that will run it. openclaw raises
+   * its floor without notice (2026.10.6 wanted Node 24.22.1 while the runtime
+   * was 24.21.0) and its preinstall exits 1 below it, so a workspace's remote
+   * "create agent" — which installs here, not through the launcher's own
+   * holdback — failed on every such machine. Anything uncertain (no Node
+   * version, registry unreachable, unreadable range) leaves the args alone.
+   *
+   * @param {string[]} pkgArgs
+   * @param {string} nodeBin  the node npm runs under
+   * @param {string|null} registry  the `--registry` this install will use
+   * @param {function(string)} [onData]
+   * @returns {Promise<string[]>}
+   */
+  async _holdBackForNode(pkgArgs, nodeBin, registry, onData) {
+    const pkgs = pkgArgs.filter((a) => !a.startsWith('-'));
+    if (pkgs.length !== 1) return pkgArgs;
+    const pkg = unpinnedPackage(pkgs[0]);
+    if (!pkg) return pkgArgs;
+    let nodeVersion;
+    try {
+      nodeVersion = execFileSync(nodeBin, ['-v'], { encoding: 'utf-8', timeout: 5000, windowsHide: true }).trim();
+    } catch { return pkgArgs; }
+    let info;
+    try {
+      info = await fetchPackument(registry || userConfiguredRegistry() || 'https://registry.npmjs.org', pkg);
+    } catch { return pkgArgs; }
+    const latest = info && info['dist-tags'] && info['dist-tags'].latest;
+    const target = resolveInstallableVersion(info, nodeVersion);
+    if (!latest || !target || target === latest) return pkgArgs;
+    const range = info.versions && info.versions[latest] && info.versions[latest].engines
+      && info.versions[latest].engines.node;
+    if (onData) {
+      onData(`${pkg}@${latest} requires Node ${range}, but agents here run on Node ${nodeVersion} — `
+        + `installing ${target}, the newest release that supports it.\n\n`);
+    }
+    return pkgArgs.map((a) => (a === pkgs[0] ? `${pkg}@${target}` : a));
+  }
+
+  /**
    * The Node.js the portable runtime gets — the same pin as the launcher's
    * bootstrap/node-version.ts, which owns upgrading an existing runtime; this
    * copy only ever installs onto a machine with no Node at all. Node 24 needs
@@ -2682,7 +2728,7 @@ class Installer {
       const [major, minor] = String(release).split('.').map(Number);
       if (major < 22 || (major === 22 && minor < 6)) return 'v22.22.3';
     }
-    return 'v24.21.0';
+    return 'v24.22.1';
   }
 
   /**
