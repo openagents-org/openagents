@@ -260,6 +260,27 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(cls.category, 'install_incomplete');
   });
 
+  // Field report 2026-10-29 (Windows): the CLI refused a flag we always pass
+  // and printed its usage, and the channel was told the output "could not be
+  // parsed" instead of to reinstall.
+  it('a refused flag → unsupported_version, not stream_parse_error', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1,
+      stdout: 'opencode run [message..]\n\nrun opencode with a message',
+      stderr: 'ERROR\n  Unrecognized flag: --dangerously-skip-permissions',
+    });
+    assert.equal(cls.category, 'unsupported_version');
+  });
+
+  it('an API error that merely mentions an unknown argument is not a version problem', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1,
+      stdout: '{"type":"error","error":{"message":"Unknown argument reasoning_effort for this model","status":400}}',
+      stderr: '',
+    });
+    assert.notEqual(cls.category, 'unsupported_version');
+  });
+
   it('code=1 + nothing usable → process_crashed (with exit diagnostic)', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: '' });
     assert.equal(cls.category, 'process_crashed');
