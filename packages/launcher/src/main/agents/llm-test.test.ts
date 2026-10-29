@@ -458,6 +458,32 @@ describe("testLLMConnection model handling", () => {
     expect(r.error).toMatch(/doesn't serve 'gpt-4o-mini'/)
     expect(r.error).toMatch(/glm-5/)
   })
+
+  // A reasoning model can spend the test's small token budget thinking, and
+  // OpenAI refuses with this. The key and the model were both accepted.
+  it("passes a model that ran out of tokens while thinking", async () => {
+    script = [
+      {
+        kind: "ok",
+        status: 400,
+        body: JSON.stringify({
+          error: {
+            message:
+              "Could not finish the message because max_tokens or model output limit was reached. Please try again with higher max_tokens.",
+            type: "invalid_request_error",
+          },
+        }),
+      },
+    ]
+    const r = await testLLMConnection({
+      LLM_API_KEY: "sk-gw",
+      LLM_BASE_URL: "https://api-gateway.example.org/v1",
+      LLM_MODEL: "gpt-6-sol",
+    })
+    expect(r.success).toBe(true)
+    expect(r.model).toBe("gpt-6-sol")
+    expect(calls).toHaveLength(1)
+  })
 })
 
 /**
