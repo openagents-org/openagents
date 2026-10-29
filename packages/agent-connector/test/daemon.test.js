@@ -535,6 +535,18 @@ describe('Daemon', () => {
     assert.equal(gap, null);
   });
 
+  it('_heartbeatRuntimes looks each type up once, not on every heartbeat', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const lookups = [];
+    const getEntry = daemon.registry.getEntry.bind(daemon.registry);
+    daemon.registry.getEntry = (type) => { lookups.push(type); return getEntry(type); };
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: false }, { type: 'openclaw', installed: true, ready: false }];
+    for (let i = 0; i < 3; i++) daemon._heartbeatRuntimes();
+    assert.deepEqual(lookups.filter((t) => t === 'codex').length, 1);
+    assert.deepEqual(lookups.filter((t) => t === 'openclaw').length, 1);
+    assert.equal(daemon._heartbeatRuntimes()[0].loginCommand, 'agn login codex');
+  });
+
   const ACCOUNT_MODELS = [
     { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
     { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },

@@ -728,13 +728,22 @@ class Daemon {
     return !SHARED_NATIVE_CONFIG.has(type);
   }
 
-  /** Whether `agn login <type>` has a sign-in to run for this type. */
+  /**
+   * Whether `agn login <type>` has a sign-in to run for this type. Remembered
+   * per type: the heartbeat asks for every runtime every 10s, and each
+   * getEntry() re-reads and parses the bundled registry (~25ms for all types).
+   */
   _agnLoginFor(type) {
+    if (!this._agnLoginTypes) this._agnLoginTypes = new Map();
+    if (this._agnLoginTypes.has(type)) return this._agnLoginTypes.get(type);
+    let has = false;
     try {
-      return !!loginCommandOf(this.registry.getEntry(type));
+      has = !!loginCommandOf(this.registry.getEntry(type));
     } catch {
-      return false;
+      return false; // not remembered: a registry that failed to load can recover
     }
+    this._agnLoginTypes.set(type, has);
+    return has;
   }
 
   /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */
