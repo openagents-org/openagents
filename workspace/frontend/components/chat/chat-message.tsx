@@ -252,7 +252,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
-              {!approval && <MessageAudience message={message} isSender={isCurrentUser} />}
               {/* v1.1 M5 — information vs execution in directed threads */}
               {message.metadata?.informational === true && (
                 <span
@@ -278,7 +277,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                 <Attachments items={attachments} />
               </>}
             </div>
-            {!approval && !message.metadata.recalled && <RoutingChoiceCard message={message} agents={agents} />}
+            {!approval && !message.metadata.recalled && <MessageAudience message={message} isSender={isCurrentUser} agents={agents} />}
             {!approval && !message.metadata.recalled && <MessageReactions messageId={message.messageId}
               onReply={onReply ? () => onReply(message) : undefined}
               onRecall={isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
