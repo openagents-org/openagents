@@ -56,8 +56,13 @@ const CODEX_LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|
 // it skipped. Quoted only when nothing else was said.
 const CODEX_SIDE_NOTE = /^warning:/i;
 // Codex's wording when the model service could not be reached or the stream
-// dropped. Seen in the field from devices that cannot reach OpenAI.
-const CODEX_CONNECTION_FAILURE = /error sending request for url|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion/i;
+// dropped. Seen in the field from devices that cannot reach OpenAI, and
+// reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
+// with only "workspace routing discovery failed" (or "timed out"), and the
+// connection errors are in stderr.
+const CODEX_CONNECTION_FAILURE = /error sending request|Connection failed|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion|workspace routing discovery (?:failed|timed out)|request timed out/i;
+// codex retrying a failed connection by itself: "Reconnecting... 2/5 (why)".
+const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i;
 // The service answered and said no. That is a key, a plan or a quota, and
 // network advice would send the user the wrong way.
 const SERVICE_REFUSAL = /\b40[13]\b|\b429\b|unauthori[sz]ed|forbidden|usage limit/i;
@@ -545,6 +550,7 @@ class CodexAdapter extends BaseAdapter {
       const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
+      let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
@@ -612,6 +618,14 @@ class CodexAdapter extends BaseAdapter {
           const errMsg = event.message || JSON.stringify(event);
           lastErrorMessage = errMsg;
           this._log(`Error event: ${errMsg}`);
+          // codex retries a failing connection by itself and says nothing
+          // else while it does, so the channel just showed "thinking". Say
+          // so once per run; the retries come in bursts of five.
+          const status = reconnectNoted ? '' : CodexAdapter._reconnectStatus(errMsg);
+          if (status) {
+            reconnectNoted = true;
+            try { await this.sendStatus(msgChannel, status); } catch {}
+          }
         }
       };
 
@@ -774,7 +788,19 @@ class CodexAdapter extends BaseAdapter {
       || CodexAdapter._stderrReason(stderr)
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
-    return reason ? CodexAdapter._explain(reason) : '';
+    return reason ? CodexAdapter._explain(reason, stderr) : '';
+  }
+
+  /**
+   * One status line for codex retrying a connection, or '' for any other
+   * error event. A retry it recovers from is not a failure, so this says it
+   * is retrying, not that it failed.
+   */
+  static _reconnectStatus(message) {
+    const m = CODEX_RECONNECTING.exec(String(message || '').trim());
+    if (!m) return '';
+    const why = CodexAdapter._redact(m[1] || '').slice(0, 120).trim();
+    return `Codex is having trouble reaching the model service and is retrying${why ? ` (${why})` : ''}…`;
   }
 
   /**
@@ -843,11 +869,18 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail) {
+  static _explain(detail, stderr = '') {
     // The other half of a connection failure: it is this device's network,
     // not Codex and not the agent's settings. Without it the user saw log
-    // lines about websockets and a model list.
-    if (CODEX_CONNECTION_FAILURE.test(detail) && !SERVICE_REFUSAL.test(detail)) {
+    // lines about websockets and a model list. The reason quoted can be as
+    // bare as "workspace routing discovery failed", so stderr counts as
+    // evidence too, and a refusal anywhere in either rules it out.
+    // Not the lines of codex's own ChatGPT MCP connector: they report its
+    // sign-in to a side service, and an "AuthRequired" there says nothing
+    // about why the run failed.
+    const logged = String(stderr || '').split(/\r?\n/).filter((l) => !/rmcp::/.test(l)).join('\n');
+    const evidence = `${detail}\n${logged}`;
+    if (CODEX_CONNECTION_FAILURE.test(evidence) && !SERVICE_REFUSAL.test(evidence)) {
       return `${detail}\n\nCodex lost its connection to the model service (OpenAI, or the base URL ` +
         "this agent is set to). Check this device's network, proxy or firewall, then try again.";
     }

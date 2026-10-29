@@ -9,8 +9,11 @@
  * fixtures are synthetic — no network, no CLI.
  */
 
-const { describe, it } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const CodexAdapter = require('../src/adapters/codex');
 
@@ -132,7 +135,10 @@ describe('Codex — failure detail selection', () => {
       '2026-10-27T04:08:57.500724Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out',
     ].join('\n');
     const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
-    assert.strictEqual(detail, 'failed to refresh available models: request timed out');
+    const [quoted, advice] = detail.split('\n\n');
+    assert.strictEqual(quoted, 'failed to refresh available models: request timed out');
+    // A request that timed out is a connection problem, so the network advice follows.
+    assert.match(advice, /network, proxy or firewall/);
   });
 
   it('keeps the raw tail when every line is a warning', () => {
@@ -395,5 +401,109 @@ describe('CodexAdapter._failureDetail — backend rejections', () => {
       errorMessage: JSON.stringify({ detail: 'bad key sk-abcdef123456789' }),
     });
     assert.ok(!out.includes('sk-abcdef123456789'));
+  });
+});
+
+/**
+ * Field test 2026-10-29: with the device's way to OpenAI cut, the channel sat
+ * on "thinking" and the hint above never showed. Reproduced against
+ * codex-cli 0.160 behind a dead proxy: it retries in silence (21s when the
+ * connection is refused, over four minutes when packets are dropped), then
+ * fails with only "workspace routing discovery failed" — the connection
+ * errors are in stderr. These fixtures are that run's own output.
+ */
+describe('Codex — a device that cannot reach the model service', () => {
+  const REFUSED_STDERR = [
+    '2026-10-29T13:09:22.594334Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request',
+    '2026-10-29T13:09:25.989624Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed: error sending request for url (https://chatgpt.com/backend-api/ps/mcp)")))',
+  ].join('\n');
+  const DROPPED_STDERR = '2026-10-29T13:09:24.317400Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out';
+
+  it('names the network when the run fails with only "workspace routing discovery failed"', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: 'workspace routing discovery failed', stderr: REFUSED_STDERR, exitCode: 1 });
+    assert.ok(detail.startsWith('workspace routing discovery failed'), detail);
+    assert.match(detail, /lost its connection to the model service/);
+  });
+
+  it('and when it timed out instead', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: 'workspace routing discovery timed out', stderr: DROPPED_STDERR, exitCode: 1 });
+    assert.match(detail, /lost its connection to the model service/);
+  });
+
+  it('does not let a sign-in note from codex\'s own MCP connector rule it out', () => {
+    const stderr = `${REFUSED_STDERR}\n2026-10-29T13:09:30Z ERROR rmcp::transport::worker: worker quit with fatal: AuthRequired 401 Unauthorized`;
+    const detail = CodexAdapter._failureDetail({ errorMessage: 'workspace routing discovery failed', stderr, exitCode: 1 });
+    assert.match(detail, /lost its connection/);
+  });
+
+  it('reads a retry as a status, and anything else as nothing', () => {
+    assert.equal(
+      CodexAdapter._reconnectStatus('Reconnecting... 2/5 (workspace routing discovery failed)'),
+      'Codex is having trouble reaching the model service and is retrying (workspace routing discovery failed)…',
+    );
+    assert.equal(
+      CodexAdapter._reconnectStatus('Reconnecting... 3/5'),
+      'Codex is having trouble reaching the model service and is retrying…',
+    );
+    assert.equal(CodexAdapter._reconnectStatus('workspace routing discovery failed'), '');
+    assert.equal(CodexAdapter._reconnectStatus(''), '');
+    assert.ok(!CodexAdapter._reconnectStatus('Reconnecting... 1/5 (bad key sk-abcdef1234567890xyz)').includes('sk-abcdef1234567890xyz'));
+  });
+
+  describe('end to end, through a CLI that replays that run', () => {
+    const IS_WINDOWS = process.platform === 'win32';
+    let root;
+    let bin;
+    before(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-codex-offline-'));
+      const events = [
+        { type: 'thread.started', thread_id: 't-1' },
+        { type: 'turn.started' },
+        ...[2, 3, 4, 5].map((n) => ({ type: 'error', message: `Reconnecting... ${n}/5 (workspace routing discovery failed)` })),
+        { type: 'item.completed', item: { id: 'item_0', type: 'error', message: 'Falling back from WebSockets to HTTPS transport. workspace routing discovery failed' } },
+        ...[1, 2, 3, 4, 5].map((n) => ({ type: 'error', message: `Reconnecting... ${n}/5 (workspace routing discovery failed)` })),
+        { type: 'error', message: 'workspace routing discovery failed' },
+        { type: 'turn.failed', error: { message: 'workspace routing discovery failed' } },
+      ];
+      const entry = path.join(root, 'fake-codex.js');
+      fs.writeFileSync(entry, [
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        `  process.stderr.write(${JSON.stringify(`Reading prompt from stdin...\n${REFUSED_STDERR}\n`)});`,
+        `  for (const e of ${JSON.stringify(events)}) process.stdout.write(JSON.stringify(e) + '\\n');`,
+        "  process.exitCode = 1;",
+        "});",
+      ].join('\n'));
+      if (IS_WINDOWS) {
+        bin = path.join(root, 'codex.cmd');
+        fs.writeFileSync(bin, '@ECHO off\r\n"%_prog%"  "%dp0%\\fake-codex.js" %*\r\n');
+      } else {
+        fs.chmodSync(entry, 0o755);
+        fs.writeFileSync(path.join(root, 'codex'), `#!/bin/sh\nexec "${process.execPath}" "${entry}" "$@"\n`);
+        fs.chmodSync(path.join(root, 'codex'), 0o755);
+        bin = path.join(root, 'codex');
+      }
+    });
+    after(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+    it('says once that it is retrying, then fails with the network named', async () => {
+      const posted = [];
+      const adapter = Object.assign(Object.create(CodexAdapter.prototype), {
+        agentEnv: { ...process.env }, workspaceModel: null, _directModel: '', _directApiKey: '', _directBaseUrl: '',
+        _codexBin: bin, _channelThreads: {}, _channelProcesses: {}, workingDir: root,
+        _buildSystemContext: () => 'system context', _log: () => {}, _saveSessions: () => {},
+        _stoppedBeforeStart: () => false, _stopRequestedDuringTurn: () => false,
+        sendThinking: async () => {},
+        sendStatus: async (ch, m) => { posted.push({ kind: 'status', m }); },
+        sendResponse: async (ch, m) => { posted.push({ kind: 'response', m }); },
+        sendError: async (ch, m) => { posted.push({ kind: 'error', m }); },
+      });
+      await adapter._handleViaSubprocess('hi', 'general');
+      assert.deepEqual(posted.map((p) => p.kind), ['status', 'error'], JSON.stringify(posted));
+      assert.match(posted[0].m, /retrying \(workspace routing discovery failed\)/);
+      assert.match(posted[1].m, /> workspace routing discovery failed/);
+      assert.match(posted[1].m, /network, proxy or firewall/);
+      assert.ok(!posted[1].m.includes('Reading prompt from stdin'));
+    });
   });
 });
