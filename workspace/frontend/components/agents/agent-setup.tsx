@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -14,6 +14,8 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
+import { desktopHost } from '@/lib/desktop-host';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
 import { SmokeTestPanel } from './smoke-test-panel';
 
@@ -153,6 +155,56 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
     default:
       return { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-zinc-400', text: 'text-muted-foreground' };
   }
+}
+
+/**
+ * What to do about an agent installed with no credentials: an API key always
+ * works; an agent whose CLI signs in to an account (a subscription) can also be
+ * signed in on its device — from the desktop app, or for a device paired from
+ * the command line, with `command` in a terminal there.
+ */
+function NeedsCredentialsHint({ label, device, command }: { label: string; device: string; command: string }) {
+  const t = useT();
+  // Already in the desktop app: no point offering to download it.
+  const downloads = desktopHost() ? [] : desktopDownloads(t);
+  return (
+    <div data-testid="agent-setup-needs-credentials" className="space-y-2">
+      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
+      <div>
+        <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
+        <p>{t('connect.nodeNeedsLoginKeyStep')}</p>
+      </div>
+      {command && (
+        <div>
+          <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
+          <ol className="list-decimal space-y-1.5 pl-4">
+            <li>
+              {t('connect.nodeNeedsLoginDesktop', { device, label })}
+              {downloads.length > 0 && (
+                <span className="mt-1.5 flex flex-wrap gap-1.5">
+                  {downloads.map((d) => (
+                    <a
+                      key={d.os}
+                      href={d.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
+                    >
+                      <Download className="size-3" />{d.os}
+                    </a>
+                  ))}
+                </span>
+              )}
+            </li>
+            <li>
+              {t('connect.nodeNeedsLoginCli')}{' '}
+              <code className="font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5">{command}</code>
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
@@ -919,17 +971,13 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : <>
-                  {t('connect.nodeNeedsLoginHint', { device: node.name || node.hostname || '', label: selectedEntry?.label || selected || '' })}
-                  {/* A device paired with `agn device connect` has no desktop
-                      app, so the sign-in it needs is the CLI's own command. */}
-                  {loginCommand && (
-                    <span className="mt-1.5 block">
-                      {t('connect.nodeNeedsLoginCli')}{' '}
-                      <code className="font-mono bg-amber-500/15 rounded px-1.5 py-0.5">{loginCommand}</code>
-                    </span>
-                  )}
-                </>)}
+              : <NeedsCredentialsHint
+                  label={selectedEntry?.label || selected || ''}
+                  device={node.name || node.hostname || ''}
+                  // A device new enough to have `agn login` says so; an older
+                  // one gets the CLI's own command.
+                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand}
+                />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
