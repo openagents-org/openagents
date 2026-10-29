@@ -11,7 +11,9 @@ depends_on = None
 
 def upgrade():
     with op.get_context().autocommit_block():
-        op.execute("SET lock_timeout = '5s'")
+        # Concurrent builds wait for existing writers and old snapshots too.
+        # Allow ordinary API transactions to finish without an unbounded wait.
+        op.execute("SET lock_timeout = '60s'")
         try:
             op.execute("""CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_dm_history
                 ON events (network_id, source, target, timestamp DESC, id DESC) INCLUDE (visibility)
