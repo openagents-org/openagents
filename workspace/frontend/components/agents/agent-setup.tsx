@@ -919,7 +919,7 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : t('connect.nodeNeedsLoginHint', { device: node.name || node.hostname || '' }))}
+              : t('connect.nodeNeedsLoginHint', { device: node.name || node.hostname || '', label: selectedEntry?.label || selected || '' }))}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
