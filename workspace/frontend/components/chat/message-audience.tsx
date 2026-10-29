@@ -40,7 +40,7 @@ export function CompletionAudience({ message, agents = [] }: { message: Workspac
   const legacyUnavailable = choice?.continuation === true && !choice.task?.trim()
     && choice.reason === 'Could not confidently choose the next agent.';
   if (continuation?.action === 'wait' || continuation?.action === 'stop' || legacyUnavailable) {
-    return <div className="mt-2" title={continuation.reason}><ConversationBadge /></div>;
+    return <div className="mt-2" title={continuation?.reason || choice?.reason}><ConversationBadge /></div>;
   }
   if (continuation?.action === 'next' && typeof continuation.agent === 'string') {
     return <div className="mt-2"><RoutedAgentBadge names={[continuation.agent]} agents={agents} /></div>;
