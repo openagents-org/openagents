@@ -1907,6 +1907,7 @@ export const messages = {
     byokTitle: 'Model & credentials',
     byokProviderNone: 'Log in on the device — or configure later',
     byokDeviceSignIn: 'Use the account signed in on the device ({command})',
+    byokNotSignedInHint: 'This device is not signed in yet. After adding, sign in or add a key before the agent can work.',
     byokDeviceSignInHint: 'This agent runs on {label}\'s own sign-in on the device, never on an API key saved there. Not signed in yet? Run {command} on the device.',
     byokSwitchToSignInHint: 'Saving switches it off its current key and endpoint.',
     byokKeepCurrent: 'Current: API key {detail}',

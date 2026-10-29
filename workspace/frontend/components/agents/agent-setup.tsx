@@ -1154,6 +1154,15 @@ export function AgentSetup({
                 </Select>
               </div>
 
+              {/* No key picked on a device with no sign-in either: the agent can
+                  still be added (signing in afterwards is a real plan), but it
+                  will not answer until one of the two is done. */}
+              {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
+                <p data-testid="agent-setup-not-signed-in" className="text-xs text-amber-700 dark:text-amber-500">
+                  {t('connect.byokNotSignedInHint')}
+                </p>
+              )}
+
               {/* Which credential the agent will run on, in words: the select
                   alone did not say that "sign in on the device" means this
                   CLI's own account and never a key saved on the device. */}

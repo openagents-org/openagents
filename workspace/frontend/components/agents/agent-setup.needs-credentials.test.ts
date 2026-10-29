@@ -124,3 +124,15 @@ it('needs no such line where agn login finds the CLI itself', async () => {
   await open('codex', { loginCommand: 'agn login codex' }, 'win32');
   expect(notFound()).toBeNull();
 });
+
+const notSignedIn = () => host.querySelector('[data-testid="agent-setup-not-signed-in"]');
+
+it('warns under the credential select when nothing signed in and no key is picked', async () => {
+  await open('codex');
+  expect(notSignedIn()!.textContent).toBe(t('connect.byokNotSignedInHint'));
+});
+
+it('does not warn when the device is already signed in', async () => {
+  await open('codex', { ready: true });
+  expect(notSignedIn()).toBeNull();
+});
