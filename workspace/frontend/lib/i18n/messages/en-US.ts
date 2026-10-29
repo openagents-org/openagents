@@ -1968,6 +1968,8 @@ export const messages = {
     nodeNeedsLoginKeyTitle: 'To use an API key:',
     nodeNeedsLoginKeyStep: 'Add an API key below.',
     nodeNeedsLoginSubTitle: 'To use a subscription account:',
+    nodeNeedsLoginCliMissing: 'If the command is not found, run {runtimes} to see where {label} is installed, then run it by that full path, e.g. {example}',
+    nodeNeedsLoginPath: '<path>',
     nodeNeedsLoginOpencodeNote: 'OpenCode signs in with a ChatGPT Plus/Pro or GitHub Copilot account: pick OpenAI or GitHub Copilot as the provider when signing in.',
     nodeNeedsLoginDesktop: 'Sign in to {label} with the OpenAgents desktop app on {device}.',
     nodeReadyHint: 'This agent is installed and logged in on the device.',

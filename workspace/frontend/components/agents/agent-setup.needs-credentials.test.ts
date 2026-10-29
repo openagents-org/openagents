@@ -31,7 +31,7 @@ afterEach(async () => {
 
 const ENTRIES: Record<string, { label: string }> = { codex: codexEntry, openclaw: openclawEntry, opencode: opencodeEntry };
 
-async function open(type: string, runtime: Partial<NodeRuntime> = {}) {
+async function open(type: string, runtime: Partial<NodeRuntime> = {}, os: string | null = null) {
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   const api = {
     getAgentCatalogDetail: vi.fn().mockResolvedValue({ ...ENTRIES[type], models: [] } as unknown as AgentCatalogDetail),
@@ -40,7 +40,7 @@ async function open(type: string, runtime: Partial<NodeRuntime> = {}) {
     enqueueNodeCommand: vi.fn().mockResolvedValue({ commandId: 'cmd1' }),
   } as unknown as AgentSetupApi;
   const node = {
-    nodeId: 'n1', name: 'racknerd-363e14e', agents: [],
+    nodeId: 'n1', name: 'racknerd-363e14e', os, agents: [],
     runtimes: [{ type, installed: true, ready: false, ...runtime }],
   } as unknown as WorkspaceNode;
   await act(async () => root.render(createElement(AgentSetup, {
@@ -104,4 +104,23 @@ it('names the OpenCode sign-in without treating OpenCode as a sign-in agent', as
 it('shows agn login for OpenCode on a device that reports it', async () => {
   await open('opencode', { loginCommand: 'agn login opencode' });
   expect(hint().querySelector('code')!.textContent).toBe('agn login opencode');
+});
+
+const notFound = () => host.querySelector('[data-testid="agent-setup-cli-not-found"]');
+const notFoundCodes = () => [...notFound()!.querySelectorAll('code')].map((c) => c.textContent);
+
+it('tells an older Windows device how to run the CLI when it is not on PATH', async () => {
+  await open('opencode', {}, 'win32');
+  expect(notFound()!.textContent).toContain(opencodeEntry.label);
+  expect(notFoundCodes()).toEqual(['agn runtimes', '& "<path>" auth login']);
+});
+
+it('gives the POSIX form off Windows', async () => {
+  await open('codex', {}, 'linux');
+  expect(notFoundCodes()).toEqual(['agn runtimes', '"<path>" login']);
+});
+
+it('needs no such line where agn login finds the CLI itself', async () => {
+  await open('codex', { loginCommand: 'agn login codex' }, 'win32');
+  expect(notFound()).toBeNull();
 });

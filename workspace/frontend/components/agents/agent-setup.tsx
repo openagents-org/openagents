@@ -170,16 +170,31 @@ const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> =
   opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
 };
 
+const HINT_CODE = 'font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5';
+const CODE_MARK = '\u0000';
+
+/** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
+function withCode(text: string, codes: string[]): React.ReactNode[] {
+  return text.split(CODE_MARK).flatMap((part, i) =>
+    i < codes.length ? [part, <code key={i} className={HINT_CODE}>{codes[i]}</code>] : [part]);
+}
+
 /**
  * What to do about an agent installed with no credentials: an API key always
  * works; an agent whose CLI signs in to an account (a subscription) can also be
  * signed in on its device — from the desktop app, or for a device paired from
  * the command line, with `command` in a terminal there.
  */
-function NeedsCredentialsHint({ label, device, command, note }: { label: string; device: string; command: string; note?: MessageKey }) {
+function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
   const t = useT();
   // Already in the desktop app: no point offering to download it.
   const downloads = desktopHost() ? [] : desktopDownloads(t);
+  // The CLI's own command (a device too old for `agn login`) relies on the
+  // terminal's PATH, which often lacks where the CLI really is — an npm global
+  // folder or OpenAgents' own. `agn runtimes`, which old devices have, prints
+  // that path; PowerShell needs `&` to run a quoted one.
+  const bare = !!command && !command.startsWith('agn ');
+  const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
   return (
     <div data-testid="agent-setup-needs-credentials" className="space-y-2">
       <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
@@ -212,7 +227,12 @@ function NeedsCredentialsHint({ label, device, command, note }: { label: string;
             </li>
             <li>
               {t('connect.nodeNeedsLoginCli')}{' '}
-              <code className="font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5">{command}</code>
+              <code className={HINT_CODE}>{command}</code>
+              {bare && (
+                <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
+                  {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}
+                </span>
+              )}
             </li>
           </ol>
         </div>
@@ -993,6 +1013,7 @@ export function AgentSetup({
                   command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand
                     || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || ''}
                   note={selected ? HINT_ONLY_SIGN_IN[selected]?.note : undefined}
+                  os={node.os}
                 />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
