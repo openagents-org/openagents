@@ -351,7 +351,13 @@ html {
 @keyframes routing-source { 0%,100% { opacity: .35; transform: scale(1); } 15%,28% { opacity: .8; transform: scale(1.13); } 45% { opacity: .35; transform: scale(1); } }
 @keyframes routing-destination { 0%,48%,100% { opacity: .35; transform: scale(1); } 65%,75% { opacity: .8; transform: scale(1.15); } 90% { opacity: .35; transform: scale(1); } }
 @keyframes routing-arrival { 0%,58% { opacity: 0; transform: scale(.5); } 66% { opacity: .35; transform: scale(.7); } 92%,100% { opacity: 0; transform: scale(1.4); } }
+/* Reduced motion keeps the activity signal, using opacity only: no travel,
+   scaling, or expanding ripple. The staggered fade still communicates routing. */
+@keyframes routing-soft-pulse { 0%,65%,100% { opacity: .25; } 25% { opacity: .85; } }
 @media (prefers-reduced-motion: reduce) {
   .routing-flow *, .routing-flow::after { animation: none; }
-  .routing-flow-signal { opacity: 0; }
+  .routing-flow-source { animation: routing-soft-pulse 2.4s ease-in-out infinite; }
+  .routing-flow-signal { left: 14px; animation: routing-soft-pulse 2.4s .65s ease-in-out infinite; }
+  .routing-flow-destination { animation: routing-soft-pulse 2.4s 1.3s ease-in-out infinite; }
+  .routing-flow-signal::before, .routing-flow::after { display: none; }
 }
