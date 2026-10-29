@@ -1050,7 +1050,7 @@ export function AgentSetup({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-36">
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
               </div>
@@ -1395,7 +1395,7 @@ export function AgentSetup({
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
           <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+            <div className="text-sm text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
 
             {/* Agent hero */}
             <div className="flex items-center gap-4">
