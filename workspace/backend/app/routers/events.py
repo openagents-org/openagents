@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, case, cast, func, or_, select, Text
+from sqlalchemy import and_, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -1190,54 +1190,11 @@ def list_conversations(
     except (ValueError, TypeError):
         return json_response(ResponseCode.BAD_REQUEST, "Invalid DM read markers")
 
-    unread_cutoff = unread_cutoff_ms()
-    # Build a subquery to find the latest event per conversation pair.
-    # Normalize pairs so (A→B) and (B→A) are the same conversation.
-    # Use case() instead of func.least/greatest for SQLite compatibility.
-    lesser = case(
-        (EventRecord.source <= EventRecord.target, EventRecord.source),
-        else_=EventRecord.target,
-    )
-    greater = case(
-        (EventRecord.source > EventRecord.target, EventRecord.source),
-        else_=EventRecord.target,
-    )
-
-    # Direct routing is also used for agent control traffic. Only posted
-    # messages form conversations; the internal system actor is never a DM peer.
-    conversation_events = (
-        EventRecord.network_id == workspace.id,
-        EventRecord.visibility == "direct",
-        EventRecord.type == "workspace.message.posted",
-        func.lower(EventRecord.source) != "human:system",
-        func.lower(EventRecord.target) != "human:system",
-        ~EventRecord.target.startswith("channel/"),
-    )
-    base = (
-        select(
-            lesser.label("agent_a"),
-            greater.label("agent_b"),
-            func.max(EventRecord.timestamp).label("last_ts"),
-            func.count().label("msg_count"),
-        )
-        .where(*conversation_events)
-    )
-
-    if agent:
-        base = base.where(
-            or_(EventRecord.source == agent, EventRecord.target == agent)
-        )
-
-    # DM privacy: a person lists only the pairs they are part of, plus
-    # agent↔agent / legacy unattributed pairs. Machines see every pair.
+    from app.services.conversation_queries import conversation_pairs_query, conversation_detail_queries
     from app.services.visibility import resolve_viewer
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
-    if _dm_viewer_scope(viewer):
-        base = base.where(_dm_privacy_clause(_dm_addresses(viewer)))
-
-    base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
-
-    pairs = db.execute(base).all()
+    visibility_filters = [_dm_privacy_clause(_dm_addresses(viewer))] if _dm_viewer_scope(viewer) else []
+    pairs = db.execute(conversation_pairs_query(workspace.id, limit, agent, visibility_filters)).all()
 
     from app.models import DirectThreadLink, DirectThreadPreference
     # Stored per-person markers (shared across devices) merge with the ones
@@ -1252,46 +1209,19 @@ def list_conversations(
                 DirectThreadPreference, DirectThreadPreference.thread_id == DirectThreadLink.id
             ).where(DirectThreadLink.workspace_id == workspace.id, DirectThreadPreference.user_email == viewer.email)
         ).all()}
-    # For each pair, fetch the actual latest event
+    latest_query, unread_query = conversation_detail_queries(
+        workspace.id, pairs, read_markers, (_dm_addresses(viewer) or []) + ["human:user"], unread_cutoff_ms())
+    latest_by_pair = {(r.agent_a, r.agent_b): r for r in db.execute(latest_query)} if latest_query is not None else {}
+    unread_by_pair = {(r.agent_a, r.agent_b): r.unread_count for r in db.execute(unread_query)} if unread_query is not None else {}
     conversations = []
     for row in pairs:
-        latest_event = db.execute(
-            select(EventRecord)
-            .where(
-                *conversation_events,
-                EventRecord.timestamp == row.last_ts,
-                or_(
-                    and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
-                    and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
-                ),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-
+        key = (row.agent_a, row.agent_b)
+        latest_event = latest_by_pair.get(key)
         if latest_event:
             payload = latest_event.payload or {}
             session_id = f"dm:{row.agent_a},{row.agent_b}"
             last_read = read_markers.get(session_id)
-            own_addresses = (_dm_addresses(viewer) or []) + ["human:user"]
-            unread_count = None
-            if last_read is not None:
-                unread_count = db.scalar(select(func.count()).select_from(EventRecord).where(
-                    EventRecord.network_id == workspace.id,
-                    EventRecord.visibility == "direct",
-                    EventRecord.type == "workspace.message.posted",
-                    or_(
-                        EventRecord.payload["message_type"].as_string().is_(None),
-                        EventRecord.payload["message_type"].as_string().notin_(["thinking", "status", "todos"]),
-                    ),
-                    EventRecord.timestamp > last_read,
-                    EventRecord.timestamp >= unread_cutoff,
-                    EventRecord.target.in_(own_addresses),
-                    ~EventRecord.source.in_(own_addresses),
-                    or_(
-                        and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
-                        and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
-                    ),
-                )) or 0
+            unread_count = unread_by_pair.get(key, 0) if last_read is not None else None
             conversations.append({
                 "agents": [row.agent_a, row.agent_b],
                 "pinned": bool(preferences.get(session_id) and preferences[session_id].pinned),
