@@ -159,6 +159,90 @@ describe('Codex — failure detail selection', () => {
   });
 });
 
+/**
+ * Field report 2026-10-29: every failed Codex turn in one team's channels read
+ * "Codex failed to complete this run. > Reading prompt from stdin..." —
+ * codex's startup banner, quoted as the reason. Behind it were two timestamped
+ * log lines and, when the cut allowed, the real error.
+ */
+describe('Codex — what of stderr is quoted', () => {
+  const BANNER = 'Reading prompt from stdin...';
+  const REFRESH = '2026-10-29T00:41:21.779976Z ERROR codex_models_manager::manager: failed to refresh available models: '
+    + 'timeout waiting for child process to exit';
+  const WEBSOCKET = '2026-10-29T03:23:15.645472Z ERROR codex_api::endpoint::responses_websocket: failed to connect to '
+    + 'websocket: IO error: tls handshake eof, url: wss://chatgpt.com/backend-api/codex/responses';
+  const FINAL = 'Error: stream disconnected before completion: error sending request for url '
+    + '(https://chatgpt.com/backend-api/codex/responses)';
+
+  it('a banner alone is not a reason: a clean exit reads as "no reply"', async () => {
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr: `${BANNER}\n`, exitCode: 0 }), '');
+    const sent = [];
+    await CodexAdapter.prototype._sendRunFailure.call(
+      { sendError: async (c, content) => { sent.push(content); } },
+      'chan', { stderr: `${BANNER}\n`, exitCode: 0 },
+    );
+    assert.match(sent[0], /without producing a reply/);
+    assert.ok(!sent[0].includes(BANNER));
+  });
+
+  it('a banner alone with a failed exit names the exit code', () => {
+    assert.strictEqual(
+      CodexAdapter._failureDetail({ stderr: `Reading additional input from stdin...\n`, exitCode: 1 }),
+      'codex exited with code 1',
+    );
+  });
+
+  it('quotes the error line whole, without the banner, timestamps or side notes', () => {
+    const detail = CodexAdapter._failureDetail({ stderr: [BANNER, REFRESH, WEBSOCKET, FINAL].join('\n'), exitCode: 1 });
+    assert.ok(!detail.includes(BANNER), detail);
+    assert.ok(!detail.includes('failed to refresh available models'), 'side note left out when more was said');
+    assert.ok(!/2026-10-29T/.test(detail), 'log timestamps stripped');
+    assert.ok(detail.includes(FINAL), 'the final error survives the cut whole');
+  });
+
+  it('keeps the END of a long stderr', () => {
+    const noise = Array.from({ length: 4 }, (_, i) => `ERROR something_else::module: ${'x'.repeat(200)} ${i}`);
+    const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
+    assert.ok(detail.includes(FINAL), detail);
+    assert.ok(detail.startsWith('…'), 'says it was cut');
+  });
+
+  it('leaves out the unknown-model metadata warning', () => {
+    const detail = CodexAdapter._failureDetail({
+      stderr: [BANNER, 'warning: Model metadata for `gpt-6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.'].join('\n'),
+      exitCode: 1,
+    });
+    assert.strictEqual(detail, 'codex exited with code 1');
+  });
+
+  it('says a lost connection is the network, after the quote and whatever its length', () => {
+    const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
+    const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
+    assert.match(detail, /lost its connection to the model service/);
+    assert.match(detail, /network, proxy or firewall/);
+    assert.ok(detail.indexOf(FINAL) < detail.indexOf('lost its connection'));
+  });
+
+  it('gives no network advice when the service answered with a refusal', () => {
+    const detail = CodexAdapter._failureDetail({
+      stderr: 'ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized',
+      exitCode: 1,
+    });
+    assert.doesNotMatch(detail, /lost its connection/);
+    const quota = CodexAdapter._failureDetail({
+      errorMessage: "stream disconnected before completion: You've hit your usage limit.",
+    });
+    assert.doesNotMatch(quota, /lost its connection/);
+  });
+
+  it('a stream that dropped mid-run gets the same advice', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: 'stream disconnected before completion: stream closed before response.completed',
+    });
+    assert.match(detail, /lost its connection/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // _sendRunFailure
 // ---------------------------------------------------------------------------
