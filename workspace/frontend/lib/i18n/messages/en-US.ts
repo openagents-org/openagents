@@ -1961,6 +1961,7 @@ export const messages = {
     nodePickerLoading: 'Reading folders on the device…',
     nodePickerUnavailable: 'Folder list unavailable — the device may be offline. You can type a path instead.',
     nodeCredsOptional: 'Credentials (optional)',
+    nodeNeedsLoginCli: 'Connected from the command line (server / headless) with no desktop app? Run this in a terminal on the device:',
     nodeNeedsLoginHint: 'This agent is installed but has no login or API key yet. Add an API key below, or, to use a subscription account, sign in to {label} with the OpenAgents desktop app on {device}.',
     nodeReadyHint: 'This agent is installed and logged in on the device.',
     nodeWillInstallHint: 'This runtime isn’t installed yet — it will be installed on the device when you add it.',

@@ -1924,6 +1924,7 @@ export const messages: Messages = {
     nodePickerLoading: '正在读取设备上的文件夹…',
     nodePickerUnavailable: '无法获取文件夹列表 —— 设备可能已离线。你可以改为手动输入路径。',
     nodeCredsOptional: '凭据（可选）',
+    nodeNeedsLoginCli: '通过命令行连接的设备（服务器 / 无界面环境）没有桌面应用，可在该设备的终端运行',
     nodeNeedsLoginHint: '该智能体已安装，但还没有可用的登录或 API 密钥。可在下方填写 API 密钥；若使用订阅账号，请在运行设备「{device}」上用 OpenAgents 桌面应用完成 {label} 登录。',
     nodeReadyHint: '该智能体已在设备上安装并登录。',
     nodeWillInstallHint: '此运行时尚未安装 — 添加时将在设备上为你安装。',

@@ -919,7 +919,17 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : t('connect.nodeNeedsLoginHint', { device: node.name || node.hostname || '', label: selectedEntry?.label || selected || '' }))}
+              : <>
+                  {t('connect.nodeNeedsLoginHint', { device: node.name || node.hostname || '', label: selectedEntry?.label || selected || '' })}
+                  {/* A device paired with `agn device connect` has no desktop
+                      app, so the sign-in it needs is the CLI's own command. */}
+                  {loginCommand && (
+                    <span className="mt-1.5 block">
+                      {t('connect.nodeNeedsLoginCli')}{' '}
+                      <code className="font-mono bg-amber-500/15 rounded px-1.5 py-0.5">{loginCommand}</code>
+                    </span>
+                  )}
+                </>)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
