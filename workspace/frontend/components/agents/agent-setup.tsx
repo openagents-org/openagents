@@ -1050,7 +1050,7 @@ export function AgentSetup({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-36">
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-48">
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
               </div>
