@@ -36,6 +36,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Events"])
 
+POLL_CACHE_TTL_SECONDS = 1.5
+EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS = 10.0
+
+
+def _poll_cache_ttl(event_type, response):
+    # Idle connectors wait two seconds between control polls. Keep empty
+    # answers across that interval; committed events still change the cache
+    # generation immediately. Other responses retain their short freshness bound.
+    data = response.get("data", {}) if isinstance(response, dict) else {}
+    if (event_type == "workspace.agent.control" and isinstance(data, dict) and data.get("events") == []
+            and data.get("has_more") is False):
+        return EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS
+    return POLL_CACHE_TTL_SECONDS
+
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -851,6 +865,18 @@ def poll_events(
     athead_cache_key = None
     head_tracker_key = None
     incoming_after = after or ""
+
+    def refresh_control_composing(response):
+        # Composing changes without an event commit. Don't let an extended
+        # empty-control cache keep a stale typing hint alive (or hide a new one).
+        if (not search and not conversation
+                and _poll_cache_ttl(type, response) == EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS):
+            from app.composing import has_any_composing
+            response["data"].pop("composing", None)
+            if has_any_composing(workspace_id):
+                response["data"]["composing"] = True
+        return response
+
     # `target_agents` is a per-agent filter — every agent sends a distinct
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
@@ -889,7 +915,7 @@ def poll_events(
         cached = cache.get_bytes(cache_key)
         if cached is not None:
             try:
-                return _json.loads(cached)
+                return refresh_control_composing(_json.loads(cached))
             except Exception:
                 pass
 
@@ -905,7 +931,7 @@ def poll_events(
                     cached_empty = cache.get_bytes(athead_cache_key)
                     if cached_empty is not None:
                         try:
-                            return _json.loads(cached_empty)
+                            return refresh_control_composing(_json.loads(cached_empty))
                         except Exception:
                             pass
 
@@ -1126,7 +1152,7 @@ def poll_events(
                             str(newest_id).encode("utf-8"),
                             ttl_seconds=30.0,
                         )
-                    elif not events and incoming_after:
+                    elif not events and incoming_after and before is None:
                         # DB returned empty AND the client had a cursor. This
                         # confirms "after = head" for this filter. Populate
                         # both the head tracker (so other clients can match)
@@ -1139,14 +1165,16 @@ def poll_events(
                         cache.set_bytes(
                             athead_cache_key,
                             serialized,
-                            ttl_seconds=1.5,
+                            ttl_seconds=_poll_cache_ttl(type, response),
                         )
             except Exception:
                 pass
 
         return response
 
-    return cache.json_singleflight(cache_key, 1.5, load_response, cache_if=lambda value: isinstance(value, dict))
+    response = cache.json_singleflight(cache_key, lambda value: _poll_cache_ttl(type, value),
+                                      load_response, cache_if=lambda value: isinstance(value, dict))
+    return refresh_control_composing(response)
 
 
 # ---------------------------------------------------------------------------
