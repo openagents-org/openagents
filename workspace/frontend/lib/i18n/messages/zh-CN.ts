@@ -1895,6 +1895,7 @@ export const messages: Messages = {
     byokModelLabel: '模型',
     byokModelRequired: '请先选择模型——不选模型无法添加智能体。',
     requiredMark: '必选',
+    requiredFieldMark: '必填',
     byokModelsLive: '此 Key 可用 {count} 个模型',
     byokModelsCatalog: '无法从提供商获取模型列表——已显示已知模型',
     byokModelsUnavailable: '该地址未提供模型列表——请直接填写模型名并测试',

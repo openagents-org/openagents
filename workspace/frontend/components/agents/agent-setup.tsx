@@ -1031,7 +1031,11 @@ export function AgentSetup({
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
+            <Label className="text-xs font-medium">
+              {t('connect.nodeAgentNameLabel')}
+              {/* Locked when editing, so only a new agent asks for it. */}
+              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredFieldMark')}</span></>}
+            </Label>
             <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {nameError || nameClash
               ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
