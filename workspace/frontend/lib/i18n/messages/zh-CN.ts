@@ -1931,6 +1931,7 @@ export const messages: Messages = {
     nodeNeedsLoginKeyTitle: '若使用 API 密钥：',
     nodeNeedsLoginKeyStep: '可在下方填写 API 密钥。',
     nodeNeedsLoginSubTitle: '若使用订阅账号：',
+    nodeNeedsLoginOpencodeNote: 'OpenCode 支持用 ChatGPT Plus/Pro 或 GitHub Copilot 账号登录，登录时在提供商里选 OpenAI 或 GitHub Copilot。',
     nodeNeedsLoginDesktop: '请在运行设备「{device}」上用 OpenAgents 桌面应用完成 {label} 登录。',
     nodeReadyHint: '该智能体已在设备上安装并登录。',
     nodeWillInstallHint: '此运行时尚未安装 — 添加时将在设备上为你安装。',

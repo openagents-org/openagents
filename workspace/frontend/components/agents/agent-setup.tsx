@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
 import { uniqueAgentName } from '@/lib/agent-name';
@@ -158,12 +158,23 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
 }
 
 /**
+ * CLIs that sign in to an account although the registry gives them no
+ * `login_command`. Declaring one there would also change how the form and the
+ * device treat their keys and models, so they are named here for the hint only.
+ */
+const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> = {
+  // In `opencode auth login` (1.19.5) OpenAI offers a ChatGPT Plus/Pro sign-in
+  // and GitHub Copilot a GitHub one; every other provider only takes a key.
+  opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
+};
+
+/**
  * What to do about an agent installed with no credentials: an API key always
  * works; an agent whose CLI signs in to an account (a subscription) can also be
  * signed in on its device — from the desktop app, or for a device paired from
  * the command line, with `command` in a terminal there.
  */
-function NeedsCredentialsHint({ label, device, command }: { label: string; device: string; command: string }) {
+function NeedsCredentialsHint({ label, device, command, note }: { label: string; device: string; command: string; note?: MessageKey }) {
   const t = useT();
   // Already in the desktop app: no point offering to download it.
   const downloads = desktopHost() ? [] : desktopDownloads(t);
@@ -177,6 +188,7 @@ function NeedsCredentialsHint({ label, device, command }: { label: string; devic
       {command && (
         <div>
           <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
+          {note && <p className="mb-1">{t(note)}</p>}
           <ol className="list-decimal space-y-1.5 pl-4">
             <li>
               {t('connect.nodeNeedsLoginDesktop', { device, label })}
@@ -976,7 +988,9 @@ export function AgentSetup({
                   device={node.name || node.hostname || ''}
                   // A device new enough to have `agn login` says so; an older
                   // one gets the CLI's own command.
-                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand}
+                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand
+                    || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || ''}
+                  note={selected ? HINT_ONLY_SIGN_IN[selected]?.note : undefined}
                 />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
