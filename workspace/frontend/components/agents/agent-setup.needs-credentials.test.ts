@@ -48,6 +48,7 @@ async function open(type: string, runtime: Partial<NodeRuntime> = {}, os: string
     initialType: type, onBack: () => {}, onChanged: () => {}, onQueued: () => {},
   })));
   for (let i = 0; i < 3; i++) await act(async () => {});
+  return api;
 }
 
 const hint = () => host.querySelector('[data-testid="agent-setup-needs-credentials"]')!;
@@ -127,9 +128,40 @@ it('needs no such line where agn login finds the CLI itself', async () => {
 
 const notSignedIn = () => host.querySelector('[data-testid="agent-setup-not-signed-in"]');
 
-it('warns under the credential select when nothing signed in and no key is picked', async () => {
-  await open('codex');
-  expect(notSignedIn()!.textContent).toBe(t('connect.byokNotSignedInHint'));
+const submit = async () => {
+  await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!.click(); });
+  for (let i = 0; i < 3; i++) await act(async () => {});
+};
+const created = (api: AgentSetupApi) => (api.enqueueNodeCommand as ReturnType<typeof vi.fn>).mock.calls
+  .filter((c) => c[1] === 'create_agent');
+
+it('blocks adding when nothing is signed in and no key is picked', async () => {
+  const api = await open('codex');
+  expect(notSignedIn()!.textContent).toContain(t('connect.byokNotSignedInRequired'));
+  expect(notSignedIn()!.getAttribute('role')).toBeNull();
+  await submit();
+  expect(created(api)).toEqual([]);
+  expect(notSignedIn()!.getAttribute('role')).toBe('alert');
+});
+
+it('offers to re-detect, for someone who has just signed in', async () => {
+  const api = await open('codex');
+  const redetect = [...notSignedIn()!.querySelectorAll('button')].find((b) => b.textContent === t('connect.nodeReDetect'))!;
+  await act(async () => { redetect.click(); });
+  expect((api.enqueueNodeCommand as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[1])).toContain('detect_runtimes');
+});
+
+it('lets an agent through once its device is signed in', async () => {
+  const api = await open('codex', { ready: true });
+  await submit();
+  expect(created(api)).toHaveLength(1);
+});
+
+it('lets an agent that installs on add through, since it cannot be signed in yet', async () => {
+  const api = await open('codex', { installed: false });
+  expect(notSignedIn()).toBeNull();
+  await submit();
+  expect(created(api)).toHaveLength(1);
 });
 
 it('does not warn when the device is already signed in', async () => {

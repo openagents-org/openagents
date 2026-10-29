@@ -1871,6 +1871,7 @@ export const messages: Messages = {
     byokProviderNone: '在设备上登录——或稍后配置',
     byokDeviceSignIn: '使用设备上登录的账号（{command}）',
     byokNotSignedInHint: '当前设备上还没有登录，添加后需要先完成登录或新增 Key 才能使用。',
+    byokNotSignedInRequired: '当前设备上还没有登录。请先在设备上完成登录，或新增 / 选择一个 Key，才能添加该智能体。已登录的话点',
     byokDeviceSignInHint: '这个智能体会用设备上 {label} 自己登录的账号运行，不会用设备上保存的 API Key。还没登录的话，在设备上运行 {command}。',
     byokSwitchToSignInHint: '保存后它不再使用当前的 Key 和端点。',
     byokKeepCurrent: '当前：API Key {detail}',

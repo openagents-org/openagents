@@ -739,6 +739,15 @@ export function AgentSetup({
   const [modelError, setModelError] = useState<string | null>(null);
   const modelFieldRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  // A new agent on a device with no sign-in for its type must be given a key:
+  // added as is, it would sit there unable to answer. An agent not installed
+  // yet is let through, since its CLI cannot be signed in before it exists.
+  const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
+    && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const [credsError, setCredsError] = useState(false);
+  const credsFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!credsMissing) setCredsError(false); }, [credsMissing]);
+
   const failModel = (message: string) => {
     // No model field on screen yet (the key's model list is still loading):
     // the form-wide line is the only place left to say it.
@@ -854,6 +863,14 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
+    if (credsMissing) {
+      setCredsError(true);
+      requestAnimationFrame(() => {
+        credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        credsFieldRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      });
+      return;
+    }
     if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
     if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
@@ -1101,6 +1118,9 @@ export function AgentSetup({
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
                   <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
+                  {byok && !isEdit && selectedStatus === 'needs_login' && (
+                    <span className="font-normal text-destructive">* {t('connect.requiredMark')}</span>
+                  )}
                 </span>
                 {byokTest.state === 'ok' && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -1110,7 +1130,7 @@ export function AgentSetup({
               </div>
 
               {/* Add-new + saved model access */}
-              <div className="flex gap-2">
+              <div ref={credsFieldRef} className="flex gap-2">
                 <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-48">
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
@@ -1154,12 +1174,20 @@ export function AgentSetup({
                 </Select>
               </div>
 
-              {/* No key picked on a device with no sign-in either: the agent can
-                  still be added (signing in afterwards is a real plan), but it
-                  will not answer until one of the two is done. */}
+              {/* No key picked on a device with no sign-in either. Adding is
+                  blocked (credsMissing); editing an existing agent only warns.
+                  Re-detect is the way back for someone who just signed in. */}
               {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
-                <p data-testid="agent-setup-not-signed-in" className="text-xs text-amber-700 dark:text-amber-500">
-                  {t('connect.byokNotSignedInHint')}
+                <p
+                  data-testid="agent-setup-not-signed-in"
+                  role={credsError ? 'alert' : undefined}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-amber-700 dark:text-amber-500')}
+                >
+                  {t(isEdit ? 'connect.byokNotSignedInHint' : 'connect.byokNotSignedInRequired')}{' '}
+                  <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
+                    <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                    {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+                  </button>
                 </p>
               )}
 
