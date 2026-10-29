@@ -161,6 +161,8 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
  * CLIs that sign in to an account although the registry gives them no
  * `login_command`. Declaring one there would also change how the form and the
  * device treat their keys and models, so they are named here for the hint only.
+ * A device with `agn login` reports that command instead (EXTRA_LOGIN_COMMANDS
+ * in the connector's agent-login.js); this is what an older one is shown.
  */
 const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> = {
   // In `opencode auth login` (1.19.5) OpenAI offers a ChatGPT Plus/Pro sign-in

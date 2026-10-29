@@ -12,7 +12,7 @@ const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
-const { agnLoginCommand } = require('./agent-login');
+const { agnLoginCommand, loginCommandOf } = require('./agent-login');
 const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
@@ -456,7 +456,9 @@ class Daemon {
   _heartbeatRuntimes() {
     return (this._runtimes || []).map((rt) => {
       if (!rt) return rt;
-      const out = this._hasCliSignIn(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
+      // Whatever `agn login` can sign in, which is wider than _hasCliSignIn:
+      // OpenCode signs in without the registry marking it a sign-in agent.
+      const out = this._agnLoginFor(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
       if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
       return { ...out, cliModels: (listed && listed.models) || null };
@@ -724,6 +726,15 @@ class Daemon {
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);
+  }
+
+  /** Whether `agn login <type>` has a sign-in to run for this type. */
+  _agnLoginFor(type) {
+    try {
+      return !!loginCommandOf(this.registry.getEntry(type));
+    } catch {
+      return false;
+    }
   }
 
   /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */

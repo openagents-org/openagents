@@ -39,6 +39,13 @@ describe('agent-login', () => {
     assert.equal(loginPlan(entryOf('claude'), { env: {}, platform: 'linux' }).command, 'claude auth login');
   });
 
+  it('signs OpenCode in although the registry declares no login command', () => {
+    assert.equal(entryOf('opencode').check_ready.login_command, undefined);
+    const plan = loginPlan(entryOf('opencode'), { env: {}, platform: 'linux' });
+    assert.equal(plan.command, 'opencode auth login');
+    assert.deepEqual(plan.args, ['auth', 'login']);
+  });
+
   it('has no plan for an agent with no sign-in of its own', () => {
     assert.equal(loginPlan(entryOf('openclaw')), null);
     assert.equal(loginPlan({ name: 'x', check_ready: {} }), null);
@@ -70,19 +77,28 @@ describe('agn login', () => {
     }
   };
 
-  /** A codex that records how it was called, where OpenAgents installs codex. */
-  const fakeCodex = (home) => {
-    const pkg = path.join(home, '.openagents', 'runtimes', 'codex', 'node_modules', '@openai', 'codex');
-    const bin = path.join(home, '.openagents', 'runtimes', 'codex', 'node_modules', '.bin');
+  /** A CLI that records how it was called, where OpenAgents installs it. */
+  const fakeCli = (home, type, pkgName, binary, version) => {
+    const modules = path.join(home, '.openagents', 'runtimes', type, 'node_modules');
+    const pkg = path.join(modules, ...pkgName.split('/'));
+    const bin = path.join(modules, '.bin');
     fs.mkdirSync(pkg, { recursive: true });
     fs.mkdirSync(bin, { recursive: true });
-    fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@openai/codex', version: '0.160.0' }));
+    fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: pkgName, version }));
     const log = path.join(home, 'calls.log');
-    const script = path.join(bin, 'codex');
-    fs.writeFileSync(script, `#!/bin/sh\necho "$*" >> "${log}"\necho "fake codex $*"\nexit 0\n`);
+    const script = path.join(bin, binary);
+    fs.writeFileSync(script, `#!/bin/sh\necho "$*" >> "${log}"\necho "fake ${binary} $*"\nexit 0\n`);
     fs.chmodSync(script, 0o755);
     return log;
   };
+  const fakeCodex = (home) => fakeCli(home, 'codex', '@openai/codex', 'codex', '0.160.0');
+
+  it('signs in the OpenCode OpenAgents installed, off the user PATH', { skip: process.platform === 'win32' }, () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-login-'));
+    const log = fakeCli(home, 'opencode', 'opencode-ai', 'opencode', '1.19.5');
+    const r = runLogin(home, { DISPLAY: ':0' }, 'opencode');
+    assert.equal(fs.readFileSync(log, 'utf-8').trim().split('\n')[0], 'auth login', r.stdout);
+  });
 
   it('signs in the codex OpenAgents installed, on device auth over SSH', { skip: process.platform === 'win32' }, () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-login-'));

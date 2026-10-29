@@ -524,9 +524,12 @@ describe('Daemon', () => {
       { type: 'codex', installed: true, ready: false },
       { type: 'openclaw', installed: true, ready: false },
       null,
+      { type: 'opencode', installed: true, ready: false },
     ];
-    const [codex, openclaw, gap] = daemon._heartbeatRuntimes();
+    const [codex, openclaw, gap, opencode] = daemon._heartbeatRuntimes();
     assert.equal(codex.loginCommand, 'agn login codex');
+    // Signs in (ChatGPT, GitHub Copilot) though the registry gives it no login command.
+    assert.equal(opencode.loginCommand, 'agn login opencode');
     // No sign-in of its own: only a key works, so there is no command to show.
     assert.equal('loginCommand' in openclaw, false);
     assert.equal(gap, null);

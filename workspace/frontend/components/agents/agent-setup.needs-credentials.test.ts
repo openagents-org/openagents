@@ -100,3 +100,8 @@ it('names the OpenCode sign-in without treating OpenCode as a sign-in agent', as
   expect(host.querySelector('[data-testid="agent-setup-signin-hint"]')).toBeNull();
   expect(host.textContent).not.toContain('(opencode auth login)');
 });
+
+it('shows agn login for OpenCode on a device that reports it', async () => {
+  await open('opencode', { loginCommand: 'agn login opencode' });
+  expect(hint().querySelector('code')!.textContent).toBe('agn login opencode');
+});
