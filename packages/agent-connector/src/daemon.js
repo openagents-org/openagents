@@ -12,6 +12,7 @@ const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
+const { agnLoginCommand } = require('./agent-login');
 const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
@@ -446,12 +447,19 @@ class Daemon {
    * its sign-in's models carries that list, for the add form's model picker.
    * Null until the CLI has answered, and from devices too old to ask, where
    * the form keeps the catalog's list.
+   *
+   * A type with a sign-in of its own also carries `loginCommand`, the command
+   * to run on this device (`agn login codex`). Its presence is how the
+   * workspace knows this device has `agn login`; for an older device it shows
+   * the CLI's own login command instead.
    */
   _heartbeatRuntimes() {
     return (this._runtimes || []).map((rt) => {
-      if (!rt || !rt.installed || !supportsCliModels(rt.type)) return rt;
+      if (!rt) return rt;
+      const out = this._hasCliSignIn(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
+      if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
-      return { ...rt, cliModels: (listed && listed.models) || null };
+      return { ...out, cliModels: (listed && listed.models) || null };
     });
   }
 

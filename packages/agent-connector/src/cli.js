@@ -1070,6 +1070,95 @@ async function cmdProbe(connector, flags, positional) {
   }
 }
 
+/**
+ * `agn login <type|agent>` — run the agent CLI's own sign-in on this device.
+ * See agent-login.js for why this is more than the bare login command.
+ */
+async function cmdLogin(connector, flags, positional) {
+  const target = (positional[0] || '').trim();
+  if (!target) {
+    print('Usage: agn login <type|agent>');
+    print("Signs the agent's own CLI in to its account on this device, e.g. agn login codex");
+    process.exitCode = 1;
+    return;
+  }
+  // A type first: the first agent of a type is often named after it.
+  let type = target;
+  let entry = connector.registry.getEntry(target);
+  if (!entry) {
+    const agent = connector.config.getAgent(target);
+    if (agent) {
+      type = agent.type || 'openclaw';
+      entry = connector.registry.getEntry(type);
+    }
+  }
+  if (!entry) {
+    print(`Unknown agent type or agent '${target}'. See: agn search`);
+    process.exitCode = 1;
+    return;
+  }
+  const label = entry.label || type;
+  const { loginPlan } = require('./agent-login');
+  const plan = loginPlan(entry);
+  if (!plan) {
+    print(`${label} has no sign-in of its own. Give it an API key instead, in the workspace or with: agn env ${type} --set <KEY>=<value>`);
+    process.exitCode = 1;
+    return;
+  }
+  const bin = connector.installer.which(type);
+  if (!bin) {
+    print(`${label} is not installed on this device. Install it first: agn install ${type}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // wsl.spawn: a CLI installed inside a WSL distro signs in over there.
+  const { spawn } = require('./wsl');
+  const { getEnhancedEnv } = require('./paths');
+  const { shouldUseShellForBinary } = require('./adapters/health-status');
+  const shell = shouldUseShellForBinary(bin);
+  print(`Signing in ${label}: ${[plan.command.split(/\s+/)[0], ...plan.args].join(' ')}`);
+  if (plan.headless && plan.args.includes('--device-auth')) {
+    print('No browser on this machine: open the link below on any device and enter the code.');
+  }
+  print('');
+  // The CLI owns the terminal until it is done. Ctrl+C reaches it too, and it
+  // decides what that means; this process waits to report the result.
+  const ignoreInterrupt = () => {};
+  process.on('SIGINT', ignoreInterrupt);
+  const code = await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(shell ? `"${bin}"` : bin, plan.args, {
+        stdio: 'inherit',
+        env: getEnhancedEnv(),
+        shell,
+      });
+    } catch (e) {
+      print(`Could not start ${bin}: ${e.message}`);
+      resolve(1);
+      return;
+    }
+    child.on('error', (e) => { print(`Could not start ${bin}: ${e.message}`); resolve(1); });
+    child.on('exit', (c) => resolve(c == null ? 1 : c));
+  });
+  process.removeListener('SIGINT', ignoreInterrupt);
+
+  // The CLI's word is not enough (some exit 0 on a cancelled login): ask the
+  // same readiness check the daemon uses, with keys not counting.
+  let ready = false;
+  try { ready = !!connector.installer.healthCheck(type, { cliLogin: true }).ready; } catch {}
+  // Have a running daemon re-detect and report, so the workspace updates now.
+  try { connector.sendDaemonCommand('detect'); } catch {}
+  print('');
+  if (ready) {
+    print(`✓ ${label} is signed in on this device. The workspace will show it as ready shortly.`);
+  } else {
+    print(`✗ ${label} is still not signed in${code ? ` (the login exited with code ${code})` : ''}.`);
+    process.exitCode = 1;
+  }
+}
+
 async function cmdModels(connector, flags, positional) {
   const target = positional[0];
   if (!target) { print('Usage: agn models <type|agent> [--json] [--sign-in]'); return; }
@@ -1168,6 +1257,7 @@ Commands:
   stop <name>                 Stop a single agent
   install <type>              Install an agent runtime
   uninstall <type>            Uninstall an agent runtime
+  login <type|agent>          Sign the agent's own CLI in to its account (e.g. agn login codex)
   search [query]              Browse agent catalog
   runtimes                    List installed runtimes
   device connect <code>       Pair this device (formerly "node") to a workspace with a pairing code
@@ -1275,6 +1365,7 @@ async function main() {
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),
     models: () => cmdModels(connector, flags, positional),
+    login: () => cmdLogin(connector, flags, positional),
     update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');

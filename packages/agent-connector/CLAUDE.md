@@ -12,6 +12,7 @@ src/
   config.js          YAML config manager for ~/.openagents/daemon.yaml (agents, networks)
   registry.js        Agent catalog: fetches from remote API or bundled registry.json, 24h cache
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
+  agent-login.js     `agn login <agent>`: runs the agent CLI's own sign-in, found where OpenAgents installed it (not on the user's PATH), on device auth when headless (codex)
   postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
@@ -80,6 +81,7 @@ npm run check:registry      # Verify they match registry/ without writing (what 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
 agn install <type>          # Install agent runtime
+agn login <type|agent>      # Sign the agent's own CLI in to its account (codex login, claude auth login, ...)
 agn create <name> --type <type>  # Create agent instance
 agn env <type> --set K=V    # Set environment variables
 agn up / agn down           # Start/stop daemon
