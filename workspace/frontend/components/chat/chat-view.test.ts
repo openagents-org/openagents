@@ -216,3 +216,26 @@ it('replying to an agent preserves the citation and targets that agent even with
   expect(h.sent[0][3]).toEqual(['bot']);
   expect(h.sent[0].at(-1)).toBe('agent-answer');
 });
+
+it('keeps routing attached to the sent message across thread switches until the server decides', async () => {
+  const { workspaceApi } = await import('@/lib/api');
+  let finish!: (value: unknown) => void;
+  const spy = vi.spyOn(workspaceApi, 'sendMessage').mockImplementationOnce(() => new Promise(resolve => { finish = resolve as (value: unknown) => void; }));
+  h.ws.sessions = ['thread-a', 'thread-b'].map(sessionId => ({ sessionId, title: sessionId, status: 'active', participants: ['bot', 'reviewer'], humanCount: 2, responseMode: 'proactive' }));
+  await open('thread-a');
+  let sending!: Promise<void>;
+  await act(async () => { sending = h.send!('Did you open the page?'); });
+  const pending = () => (h.seen.at(-1) as WorkspaceMessage[]).find(message => message.content === 'Did you open the page?');
+  expect(pending()?.metadata._routingPending).toBe(true);
+  expect(shown()).not.toContain('loading');
+  await open('thread-b'); expect(pending()).toBeUndefined();
+  await open('thread-a'); expect(pending()?.metadata._routingPending).toBe(true);
+  await act(async () => {
+    finish({ id: 'decided-message', source: 'human:user-1', target: 'channel/thread-a', type: 'workspace.message.posted', timestamp: Date.now(), visibility: 'channel', payload: { content: 'Did you open the page?' }, metadata: { target_agents: ['bot'], routing_decision: 'assign' } });
+    await sending;
+  });
+  expect(pending()?.metadata._routingPending).toBeUndefined();
+  expect(pending()?.targetAgents).toEqual(['bot']);
+  expect(shown().at(-1)).toBe('loading');
+  spy.mockRestore();
+});
