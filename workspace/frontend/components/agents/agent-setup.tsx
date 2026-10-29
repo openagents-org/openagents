@@ -1088,7 +1088,7 @@ export function AgentSetup({
             <Label className="text-xs font-medium">
               {t('connect.nodeAgentNameLabel')}
               {/* Locked when editing, so only a new agent asks for it. */}
-              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredFieldMark')}</span></>}
+              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
             </Label>
             <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {nameError || nameClash
@@ -1202,7 +1202,7 @@ export function AgentSetup({
               )}
               {keepCurrent && !byokAccessId && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+                  <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
                   <Input
                     aria-label={t('connect.nodeModel')}
                     value={model}
@@ -1350,7 +1350,7 @@ export function AgentSetup({
               driving the list (its live models replace the curated set). */}
           {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+              <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
                 value={model.trim() || AUTO_MODEL}
                 onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}

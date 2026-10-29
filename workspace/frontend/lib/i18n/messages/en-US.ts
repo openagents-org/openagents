@@ -1934,7 +1934,6 @@ export const messages = {
     byokModelLabel: 'Model',
     byokModelRequired: 'Choose a model — the agent can’t be added without one.',
     requiredMark: 'Required',
-    requiredFieldMark: 'Required',
     byokModelsLive: '{count} models available to this key',
     byokModelsCatalog: 'Couldn’t list models from the provider — showing known models instead',
     byokModelsUnavailable: 'This endpoint doesn’t list models — enter a model name and test it',
