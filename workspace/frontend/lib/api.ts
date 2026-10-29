@@ -1,5 +1,5 @@
 import { normalizePolicyRequirements } from './approvals';
-import { getApiBaseUrl } from '@/lib/api-base';
+import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -2606,7 +2606,7 @@ class WorkspaceApi {
   }
   async previewWebProject(id: string): Promise<ProjectPreview> {
     const result = await this.request<ProjectPreview>(`/v1/web-projects/${encodeURIComponent(id)}/preview?network=${encodeURIComponent(this.requireWorkspace())}`, {method:'POST'});
-    return {...result,preview_path:API_URL + result.preview_path};
+    return {...result,preview_path:getProjectPreviewUrl(result.preview_path, API_URL)};
   }
 
   async getThreadArtifact(channel: string): Promise<ThreadArtifactSetting> {
