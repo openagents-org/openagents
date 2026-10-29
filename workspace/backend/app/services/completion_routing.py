@@ -30,6 +30,8 @@ user can select an agent. Choose wait only when a human answer or external input
 is required; do not schedule imaginary work. Choose stop when the request is done.
 Candidates include offline agents: suitability comes first; offline work waits for
 reconnection. Never substitute an unrelated online agent or the channel master.
+A result asking the human to log in, supply credentials, clarify the task, or
+choose what to do next requires wait, even if the broader request is incomplete.
 Write task and reason in the user's language.
 Return ONLY JSON: {"action":"next|ask|wait|stop", "agent":"candidate name or empty",
 "task":"specific remaining task, including relevant findings", "reason":"brief reason"}.
@@ -56,7 +58,7 @@ def message_data(event, limit=12000):
 async def decide(context):
     from app.mods.workspace_mod import _get_llm_client, _get_router_model, _get_router_api_key
     if not config.ROUTER_LLM_ENABLED or not _get_router_api_key():
-        return {'action': 'ask', 'reason': 'Automatic routing is unavailable.'}
+        return {'action': 'wait', 'reason': 'Automatic continuation is unavailable.'}
     prompt = PROMPT + json.dumps(context, ensure_ascii=False)
     try:
         client, provider = _get_llm_client()
@@ -65,6 +67,8 @@ async def decide(context):
                     messages=[{'role': 'user', 'content': prompt}])
         # Explicit request timeout bounds the channel lock while routing.
         if provider == 'openai':
+            if args['model'].lower().startswith('deepseek'):
+                args['extra_body'] = {'thinking': {'type': 'disabled'}}
             response = await asyncio.to_thread(client.chat.completions.create, **args, timeout=15)
             raw = response.choices[0].message.content
         else:
@@ -76,9 +80,11 @@ async def decide(context):
         return {key: bounded(result.get(key), 2000 if key == 'task' else 500)
                 for key in ('action', 'agent', 'task', 'reason')}
     except Exception:
-        # Never log model output or provider errors containing conversation data.
-        logger.warning('Completion routing unavailable or invalid; asking the requester')
-        return {'action': 'ask', 'reason': 'Could not confidently choose the next agent.'}
+        # Failure is not evidence that another agent has work to do. Pause
+        # without dispatching or inventing a recipient choice. Never log model
+        # output or provider errors containing conversation data.
+        logger.warning('Completion routing unavailable or invalid; pausing continuation')
+        return {'action': 'wait', 'reason': 'Automatic continuation is unavailable.'}
 
 
 def latest_human(db, workspace_id, target):

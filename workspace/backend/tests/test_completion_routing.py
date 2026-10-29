@@ -5,6 +5,8 @@ import pytest
 from app.config import config
 from app.models import EventRecord
 from app.services import completion_routing as routing
+
+decide_original = routing.decide
 from app.services.thread_collaboration import apply_instructions, save
 from app.mods.workspace_mod import _handle_message_posted
 from openagents.core.onm_mods import PipelineContext
@@ -183,7 +185,7 @@ def test_disabled_feature_preserves_existing_assignee_guard(db, setup, monkeypat
     model.assert_not_awaited()
 
 
-@pytest.mark.parametrize('raw,action', [('{"action":"next","agent":"worker","task":"Review"}', 'next'), ('not json', 'ask'), ('[]', 'ask'), ('{"action":"dance"}', 'ask')])
+@pytest.mark.parametrize('raw,action', [('{"action":"next","agent":"worker","task":"Review"}', 'next'), ('not json', 'wait'), ('[]', 'wait'), ('{"action":"dance"}', 'wait')])
 def test_model_contract(monkeypatch, raw, action):
     monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
     monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'test')
@@ -266,3 +268,34 @@ def test_service_approval_requirement_cannot_be_bypassed(db, setup):
     member.request_approver_email = ws.creator_email
     assert route(db, setup, completion(ws, ch)) == ['__no_response__']
     model.assert_not_awaited()
+
+
+@pytest.mark.parametrize('model_name,thinking_disabled', [('DeepSeek-V4.1-flash', True), ('gpt-4o-mini', False)])
+def test_completion_model_settings_and_human_wait(monkeypatch, model_name, thinking_disabled):
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'test')
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_model', lambda: model_name)
+    client = MagicMock()
+    client.with_options.return_value = client
+    client.chat.completions.create.return_value.choices[0].message.content = '{"action":"wait","reason":"The human must log in and clarify the task."}'
+    monkeypatch.setattr('app.mods.workspace_mod._get_llm_client', lambda: (client, 'openai'))
+    decision = asyncio.run(routing.decide({'request': 'Test Twitter', 'latest_result': 'Please log in and tell me what to test.'}))
+    assert decision['action'] == 'wait'
+    args = client.chat.completions.create.call_args.kwargs
+    assert (args.get('extra_body') == {'thinking': {'type': 'disabled'}}) is thinking_disabled
+    assert args['timeout'] == 15
+
+
+def test_completion_provider_failure_pauses_without_a_fictional_handoff(db, setup, monkeypatch):
+    ws, ch, root, _ = setup
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'test')
+    client = MagicMock()
+    client.with_options.return_value = client
+    client.messages.create.side_effect = TimeoutError('provider timeout')
+    monkeypatch.setattr('app.mods.workspace_mod._get_llm_client', lambda: (client, 'anthropic'))
+    monkeypatch.setattr(routing, 'decide', decide_original)
+    event = completion(ws, ch, content='The page is open. Please log in and tell me what to test.')
+    assert route(db, setup, event) == ['__no_response__']
+    assert event.metadata['orchestration']['action'] == 'wait'
+    assert 'routing_choice' not in event.metadata

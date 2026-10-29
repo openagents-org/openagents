@@ -40,3 +40,25 @@ it('uses the canonical assigned recipient when the original event has no target 
   })));
   expect(host.textContent).toBe('helper'); expect(host.querySelector('button')).toBeNull();
 });
+
+it.each(['wait', 'stop'])('labels a final agent turn as conversation for %s', async action => {
+  const { CompletionAudience } = await import('./message-audience');
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(React.createElement(CompletionAudience, {
+    message: { ...message, senderType: 'agent', metadata: { orchestration: { action, reason: 'The human must log in.' } } },
+  })));
+  expect(host.textContent).toBe('routing.conversation');
+  expect(host.querySelector('button')).toBeNull();
+});
+
+it('does not offer an agent for a historical completion-router error with no task', async () => {
+  const { CompletionAudience } = await import('./message-audience');
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(React.createElement(CompletionAudience, {
+    message: { ...message, senderType: 'agent', metadata: {
+      orchestration: { action: 'ask', reason: 'Could not confidently choose the next agent.' },
+      routing_choice: { continuation: true, task: '', reason: 'Could not confidently choose the next agent.' },
+    } },
+  })));
+  expect(host.textContent).toBe('routing.conversation'); expect(host.querySelector('button')).toBeNull();
+});

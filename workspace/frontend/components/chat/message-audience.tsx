@@ -30,3 +30,20 @@ export function MessageAudience({ message, isSender, agents = [] }: { message: W
     ? <RoutingChoiceCard message={message} agents={agents} conversation />
     : <div className="mt-2"><ConversationBadge /></div>;
 }
+
+/** Completion routing can pause for a person or finish without an agent handoff. */
+export function CompletionAudience({ message, agents = [] }: { message: WorkspaceMessage; agents?: WorkspaceAgent[] }) {
+  const continuation = message.metadata.orchestration as { action?: string; agent?: string; reason?: string } | undefined;
+  const choice = message.metadata.routing_choice as { continuation?: boolean; task?: string; reason?: string } | undefined;
+  // Older completion failures persisted an empty assignment prompt. They
+  // describe no remaining work and must not invite an arbitrary handoff.
+  const legacyUnavailable = choice?.continuation === true && !choice.task?.trim()
+    && choice.reason === 'Could not confidently choose the next agent.';
+  if (continuation?.action === 'wait' || continuation?.action === 'stop' || legacyUnavailable) {
+    return <div className="mt-2" title={continuation?.reason || choice?.reason}><ConversationBadge /></div>;
+  }
+  if (continuation?.action === 'next' && typeof continuation.agent === 'string') {
+    return <div className="mt-2"><RoutedAgentBadge names={[continuation.agent]} agents={agents} /></div>;
+  }
+  return <RoutingChoiceCard message={message} agents={agents} />;
+}
