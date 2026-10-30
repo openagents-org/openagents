@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -41,6 +41,31 @@ const MAX_INLINE_ATTACHMENT_CHARS = 50000;
 const DIRECT_IDLE_TIMEOUT_MS = 120000;
 const DIRECT_TOTAL_TIMEOUT_MS = 300000;
 const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
+
+// How much of a failure's own words reach the channel.
+const FAILURE_DETAIL_CAP = 500;
+// `codex exec -` prints this first on every run, failed or not. It led every
+// failure message, and when it was all stderr held the user read
+// "Codex failed to complete this run. > Reading prompt from stdin..." and
+// nothing else.
+const CODEX_STDIN_BANNER = /^Reading (?:prompt|additional input) from stdin\.\.\.$/i;
+// codex's own log records: timestamp, level, module, message. The timestamp
+// and module took half the quote.
+const CODEX_LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
+// Things codex says beside a run rather than about it, such as a config key
+// it skipped. Quoted only when nothing else was said.
+const CODEX_SIDE_NOTE = /^warning:/i;
+// Codex's wording when the model service could not be reached or the stream
+// dropped. Seen in the field from devices that cannot reach OpenAI, and
+// reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
+// with only "workspace routing discovery failed" (or "timed out"), and the
+// connection errors are in stderr.
+const CODEX_CONNECTION_FAILURE = /error sending request|Connection failed|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion|workspace routing discovery (?:failed|timed out)|request timed out/i;
+// codex retrying a failed connection by itself: "Reconnecting... 2/5 (why)".
+const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i;
+// The service answered and said no. That is a key, a plan or a quota, and
+// network advice would send the user the wrong way.
+const SERVICE_REFUSAL = /\b40[13]\b|\b429\b|unauthori[sz]ed|forbidden|usage limit/i;
 
 class CodexAdapter extends BaseAdapter {
   /**
@@ -465,8 +490,13 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
-        } else if (result.exitCode !== 0 && threadId && attempt === 0) {
-          // Stale thread — clear and retry fresh
+        } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted) {
+          // Stale thread — clear and retry fresh. Only when the turn never
+          // started: a thread codex cannot resume fails at once with nothing
+          // on stdout ("no rollout found for thread id"). A resumed turn
+          // that then failed (no network, a quota) was taken for a stale
+          // thread too, so the channel's thread was thrown away and the
+          // whole failing run waited out a second time.
           this._log(`Stale thread detected for ${msgChannel}, clearing and retrying`);
           delete this._channelThreads[msgChannel];
           this._saveSessions();
@@ -525,6 +555,8 @@ class CodexAdapter extends BaseAdapter {
       const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
+      let turnStarted = false;
+      let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
@@ -551,6 +583,8 @@ class CodexAdapter extends BaseAdapter {
             this._saveSessions();
             this._log(`Thread started: ${event.thread_id}`);
           }
+        } else if (eventType === 'turn.started') {
+          turnStarted = true;
         } else if (eventType === 'item.completed') {
           const item = event.item || {};
           if (item.type === 'agent_message' && item.text) {
@@ -592,6 +626,14 @@ class CodexAdapter extends BaseAdapter {
           const errMsg = event.message || JSON.stringify(event);
           lastErrorMessage = errMsg;
           this._log(`Error event: ${errMsg}`);
+          // codex retries a failing connection by itself and says nothing
+          // else while it does, so the channel just showed "thinking". Say
+          // so once per run; the retries come in bursts of five.
+          const status = reconnectNoted ? '' : CodexAdapter._reconnectStatus(errMsg);
+          if (status) {
+            reconnectNoted = true;
+            try { await this.sendStatus(msgChannel, status); } catch {}
+          }
         }
       };
 
@@ -629,6 +671,7 @@ class CodexAdapter extends BaseAdapter {
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
           turnFailed,
+          turnStarted,
         });
       });
 
@@ -744,44 +787,65 @@ class CodexAdapter extends BaseAdapter {
 
   /**
    * Pick the most informative failure detail from a run result:
-   * turn.failed / error event message → stderr tail → exit code. Redacted.
+   * turn.failed / error event message → stderr → exit code. Redacted.
+   *
+   * The cap applies to the quoted reason, before the advice is added, so a
+   * long stderr cannot push the advice out of the message.
    */
   static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
     const raw = String(errorMessage || '').trim()
       || CodexAdapter._stderrReason(stderr)
       || (exitCode ? `codex exited with code ${exitCode}` : '');
-    const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
-    return CodexAdapter._redact(detail).slice(0, 500).trim();
+    const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
+    return reason ? CodexAdapter._explain(reason, stderr) : '';
   }
 
   /**
-   * The part of codex's stderr that says why the run died.
+   * One status line for codex retrying a connection, or '' for any other
+   * error event. A retry it recovers from is not a failure, so this says it
+   * is retrying, not that it failed.
+   */
+  static _reconnectStatus(message) {
+    const m = CODEX_RECONNECTING.exec(String(message || '').trim());
+    if (!m) return '';
+    const why = CodexAdapter._redact(m[1] || '').slice(0, 120).trim();
+    return `Codex is having trouble reaching the model service and is retrying${why ? ` (${why})` : ''}…`;
+  }
+
+  /**
+   * The part of codex's stderr that says why the run failed.
    *
    * codex logs through `tracing` on stderr — `2026-10-27T04:08:56.500Z  WARN
    * codex_skills::interface: …` — and echoes "Reading prompt from stdin..."
-   * (or "Reading additional input from stdin...").
-   * A plain tail of the last lines was mostly that noise, so a usage limit or
-   * a model the account cannot use reached the chat buried under plugin-cache
-   * and skill-icon warnings. Lines the CLI printed for a person win; failing
-   * those, the ERROR records with their timestamp and module stripped; only
-   * when neither exists does the raw tail stand.
+   * (or "Reading additional input from stdin...") on every run. A plain tail
+   * of the last lines was mostly that noise. So, in order: lines the CLI
+   * printed for a person; failing those, its ERROR records with timestamp and
+   * module stripped; failing those, its warnings. The banner and known-harmless
+   * lines are never a reason: a clean exit with only the banner reads as "no
+   * reply", not as "> Reading prompt from stdin...".
+   *
+   * The cut is taken from the END: codex's own "Error: …" line comes last, and
+   * keeping the first 500 characters cut it in half behind long log lines.
    */
   static _stderrReason(stderr) {
-    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return '';
-    const TRACE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
-    const plain = [];
+    const said = [];
     const errors = [];
-    for (const line of lines) {
-      const m = line.match(TRACE);
-      if (!m) {
-        if (!/^Reading (prompt|additional input) from stdin/i.test(line)) plain.push(line);
-      } else if (m[1] === 'ERROR' && m[2] && !errors.includes(m[2])) {
-        errors.push(m[2]);
+    const notes = [];
+    for (const raw of String(stderr || '').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || CODEX_STDIN_BANNER.test(line)) continue;
+      const record = CODEX_LOG_RECORD.exec(line);
+      if (record) {
+        const [, level, message] = record;
+        const bucket = level === 'ERROR' ? errors : notes;
+        if (message && !bucket.includes(message)) bucket.push(message);
+      } else if (!BENIGN_CLI_OUTPUT.test(line)) {
+        (CODEX_SIDE_NOTE.test(line) ? notes : said).push(line);
       }
     }
-    const picked = plain.length ? plain : errors;
-    return (picked.length ? picked : lines).slice(-5).join('\n').trim();
+    const picked = said.length ? said : errors.length ? errors : notes;
+    const text = picked.slice(-5).join('\n');
+    return text.length > FAILURE_DETAIL_CAP ? `…${text.slice(-(FAILURE_DETAIL_CAP - 1))}` : text;
   }
 
   /**
@@ -814,7 +878,21 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail) {
+  static _explain(detail, stderr = '') {
+    // The other half of a connection failure: it is this device's network,
+    // not Codex and not the agent's settings. Without it the user saw log
+    // lines about websockets and a model list. The reason quoted can be as
+    // bare as "workspace routing discovery failed", so stderr counts as
+    // evidence too, and a refusal anywhere in either rules it out.
+    // Not the lines of codex's own ChatGPT MCP connector: they report its
+    // sign-in to a side service, and an "AuthRequired" there says nothing
+    // about why the run failed.
+    const logged = String(stderr || '').split(/\r?\n/).filter((l) => !/rmcp::/.test(l)).join('\n');
+    const evidence = `${detail}\n${logged}`;
+    if (CODEX_CONNECTION_FAILURE.test(evidence) && !SERVICE_REFUSAL.test(evidence)) {
+      return `${detail}\n\nCodex lost its connection to the model service (OpenAI, or the base URL ` +
+        "this agent is set to). Check this device's network, proxy or firewall, then try again.";
+    }
     if (!/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
       return detail;
     }

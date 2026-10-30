@@ -66,10 +66,22 @@ async function servedModels(apiBase, headers) {
   }
 }
 
+/**
+ * The test asks for a few tokens to stay cheap. A reasoning model can spend
+ * them all thinking, and OpenAI then refuses with "Could not finish the message
+ * because max_tokens or model output limit was reached". The key and the model
+ * were both accepted, which is everything this test checks, and reporting it as
+ * a failure marked an agent that works as broken.
+ */
+const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
+
 /** Read one completion response into the result shape. */
 function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
   const { status, data } = res;
+  if (status >= 400 && OUTPUT_LIMIT_REACHED.test(data || '')) {
+    return { success: true, model: model || '?', response: '' };
+  }
   try {
     const parsed = JSON.parse(data);
     let text, usedModel;

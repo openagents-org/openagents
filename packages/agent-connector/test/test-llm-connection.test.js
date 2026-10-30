@@ -27,6 +27,16 @@ describe('testLLMConnection', () => {
           res.end(JSON.stringify({ model, content: [{ type: 'text', text: 'Hello there, nice to meet' }] }));
           return;
         }
+        if (model === 'thinking-model') {
+          // What OpenAI answers when a reasoning model spends the whole
+          // token budget thinking.
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: {
+            message: 'Could not finish the message because max_tokens or model output limit was reached. Please try again with higher max_tokens.',
+            type: 'invalid_request_error',
+          } }));
+          return;
+        }
         if (!SERVED.includes(model)) {
           res.statusCode = 400;
           res.end(JSON.stringify({ detail: `Model '${model}' is not available. This gateway only allows: ${SERVED.join(', ')}` }));
@@ -81,5 +91,13 @@ describe('testLLMConnection', () => {
     assert.equal(res.success, false);
     assert.match(res.error, /Model 'retired-model' is not available/);
     assert.deepEqual(sent.slice(before), ['retired-model']);
+  });
+
+  // Field report 2026-10-29: a working agent on a reasoning model failed its
+  // smoke test with this 400. The key and the model were both accepted.
+  it('passes a model that ran out of the small token budget while thinking', async () => {
+    const res = await testLLMConnection(env(), { model: 'thinking-model' });
+    assert.equal(res.success, true);
+    assert.equal(res.model, 'thinking-model');
   });
 });
