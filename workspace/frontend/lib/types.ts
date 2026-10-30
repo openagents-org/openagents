@@ -107,6 +107,10 @@ export interface NodeRuntime {
    * can run. Null or absent: the CLI cannot be asked, has not answered yet,
    * or the launcher is too old to ask. */
   cliModels?: AgentCatalogModel[] | null;
+  /** The command that signs this type's CLI in on the device (`agn login
+   * codex`). Absent from launchers too old to have `agn login`, and for types
+   * with no sign-in of their own. */
+  loginCommand?: string | null;
   probe?: NodeProbe | null;
 }
 
