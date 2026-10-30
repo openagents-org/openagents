@@ -143,7 +143,8 @@ const APPEND_PROMPT_INLINE_MAX = 512;
  * The filename is `system-prompt-<sessionId>.md` when `sessionId` is a UUID,
  * and `system-prompt-default.md` otherwise, so a non-UUID id cannot leave
  * `sessionDir`. The write is atomic (temp sibling, mode 0600, rename) and the
- * file is left in place: Pi reads it when the process starts. A write, chmod,
+ * file stays while the process runs (Pi re-reads it mid-session) and is
+ * removed when that process exits or the session is cleared. A write, chmod,
  * or rename failure throws; the long text is never put back on argv.
  *
  * @param {string} prompt
@@ -151,13 +152,18 @@ const APPEND_PROMPT_INLINE_MAX = 512;
  * @param {string} [sessionId]
  * @returns {string}
  */
+/** Where stagePiAppendSystemPrompt writes the prompt for this session. */
+function stagedPromptPath(sessionDir, sessionId) {
+  const id = isValidSessionId(sessionId) ? sessionId : 'default';
+  return path.join(sessionDir, `system-prompt-${id}.md`);
+}
+
 function stagePiAppendSystemPrompt(prompt, sessionDir, sessionId) {
   if (typeof prompt !== 'string' || prompt.length <= APPEND_PROMPT_INLINE_MAX
     || typeof sessionDir !== 'string' || !sessionDir) {
     return prompt;
   }
-  const id = isValidSessionId(sessionId) ? sessionId : 'default';
-  const dest = path.join(sessionDir, `system-prompt-${id}.md`);
+  const dest = stagedPromptPath(sessionDir, sessionId);
   const tmp = `${dest}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -283,10 +289,34 @@ class PiAdapter extends BaseAdapter {
   }
 
   _clearSession(channel) {
-    if (this._channelSessions[channel]) {
+    const sessionId = this._channelSessions[channel];
+    if (sessionId) {
       delete this._channelSessions[channel];
       this._saveSessions();
+      // The staged prompt holds the workspace token; a cleared session never
+      // reads it again. Left alone while a process for this channel runs.
+      if (!this._persistentProcs[channel]) {
+        this._unlinkStagedPrompt(stagedPromptPath(this._sessionDir, sessionId));
+      }
     }
+  }
+
+  _unlinkStagedPrompt(file) {
+    if (!file) return;
+    try { fs.unlinkSync(file); } catch { /* already gone */ }
+  }
+
+  /**
+   * Remove the prompt file a process was started with, once it exits. Skipped
+   * when a newer process already owns the channel: a respawn rewrites the
+   * same per-session path, and Pi re-reads it during the session.
+   */
+  _releaseStagedPrompt(channel, pp) {
+    if (!pp || !pp.stagedPrompt) return;
+    const current = this._persistentProcs[channel];
+    if (current && current !== pp) return;
+    this._unlinkStagedPrompt(pp.stagedPrompt);
+    pp.stagedPrompt = null;
   }
 
   // ------------------------------------------------------------------
@@ -900,6 +930,7 @@ class PiAdapter extends BaseAdapter {
       }
       pp.exitCode = code;
       this._teardownProcState(pp, why);
+      this._releaseStagedPrompt(channel, pp);
       this._unregisterProc(channel, pp, proc);
     });
 
@@ -1372,7 +1403,11 @@ class PiAdapter extends BaseAdapter {
       env: this._buildEnv(),
       sessionId,
     });
-    if (pp.spawnError) throw new Error(pp.spawnError);
+    pp.stagedPrompt = appendSystemPrompt !== systemPrompt ? appendSystemPrompt : null;
+    if (pp.spawnError) {
+      this._releaseStagedPrompt(channel, pp);
+      throw new Error(pp.spawnError);
+    }
     return pp;
   }
 
