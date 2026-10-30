@@ -841,18 +841,18 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle — its label says what a click does; an icon
-              alone went unnoticed */}
+          {/* All steps toggle */}
           {hasCollapsibleSteps && (
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
               onClick={() => setShowAllSteps((prev) => !prev)}
-              className="gap-1.5 h-7 text-xs font-medium"
+              className="size-7 shrink-0"
               aria-pressed={showAllSteps}
+              aria-label={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              title={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             >
-              <ListTree className="size-3.5" />
-              {showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              <ListTree aria-hidden="true" className="size-3.5" />
             </Button>
           )}
 

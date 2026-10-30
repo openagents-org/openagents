@@ -654,3 +654,67 @@ def test_routing_budget_and_provider_specific_thinking(
         assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
     else:
         assert 'extra_body' not in kwargs
+
+
+class TestRoutingConversationEvidence:
+    def _capture(self, db, fixture, event, **kwargs):
+        client = MagicMock()
+        client.messages.create.return_value = _mock_anthropic_response('stop')
+        with patch('app.mods.workspace_mod._get_router_api_key', return_value='test'), \
+             patch('app.mods.workspace_mod._get_llm_client', return_value=(client, 'anthropic')):
+            _run(_route_with_llm(fixture['channel'], event, db, fixture['workspace'], **kwargs))
+        return client.messages.create.call_args.kwargs['messages'][0]['content']
+
+    def test_history_filters_noise_before_limit_and_excludes_current_future(self, db, multi_agent_workspace):
+        import json
+        ws = multi_agent_workspace['workspace']
+        def add(id, ts, source='human:alice', kind='chat', metadata=None, target='channel/session-test', network=None):
+            db.add(EventRecord(id=id, network_id=network or ws.id, type='workspace.message.posted',
+                source=source, target=target, timestamp=ts,
+                payload={'content':id,'message_type':kind}, metadata_=metadata or {}))
+        for n in range(8):
+            add(f'chat-{n}',100+n,source='openagents:agent-worker' if n%2 else 'human:alice')
+        for n in range(30):add(f'noise-{n}',200+n,source='openagents:agent-worker',kind='thinking')
+        add('recalled',240,metadata={'recalled':True})
+        add('assignment',241,metadata={'routing_assignment':{'agent':'agent-worker'}})
+        add('system',242,source='system:notice')
+        add('other-channel',243,target='channel/other')
+        add('other-workspace',244,network='00000000-0000-0000-0000-000000000001')
+        event=_make_event('human:alice','channel/session-test','Please continue');event.timestamp=300
+        add(event.id,300);add('future',301);db.flush()
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert [m['content'] for m in evidence['turns']]==[f'chat-{n}' for n in range(2,8)]
+        assert evidence['turns'][-1]['sender_type']=='agent'
+        assert evidence['follow_up_evidence']['agents_who_spoke_after_request']==['agent-worker']
+
+    def test_historical_question_and_latest_handoff_survive_long_messages(self, db, multi_agent_workspace):
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='prior',network_id=ws.id,type='workspace.message.posted',
+            source='openagents:agent-worker',target='channel/session-test',timestamp=1,
+            payload={'content':'Background. '*1000+' Please send the requested screenshot.'},metadata_={}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Details. '*1200+' @agent-worker review the result.')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        assert 'Please send the requested screenshot.' in prompt
+        assert '@agent-worker review the result.' in prompt
+        assert '[...middle omitted...]' in prompt
+
+    def test_agent_turn_has_agent_only_rules(self, db, multi_agent_workspace):
+        event=_make_event('openagents:agent-worker','channel/session-test','Done. Would you like me to commit?')
+        prompt=self._capture(db,multi_agent_workspace,event)
+        assert 'LATEST message, written by AGENT agent-worker' in prompt
+        assert 'Default to stop' in prompt
+        assert 'Humans expect a reply' not in prompt
+
+    def test_context_targets_cannot_expand_allowed_candidates(self, db, multi_agent_workspace):
+        import json
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='request',network_id=ws.id,type='workspace.message.posted',
+            source='human:alice',target='channel/session-test',timestamp=1,
+            payload={'content':'Investigate this'},metadata_={'target_agents':['agent-worker','agent-master','unknown']}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Any update?')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True,allowed_agents=['agent-worker'])
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert evidence['follow_up_evidence']['dispatched_to']==['agent-worker']

@@ -934,10 +934,11 @@ class WorkspaceClient {
     return data.data || data;
   }
 
-  async getTodos(workspaceId, channelName, token, { agent, all } = {}) {
+  async getTodos(workspaceId, channelName, token, { agent, all, source } = {}) {
     const params = new URLSearchParams({ network: workspaceId });
     if (channelName) params.set('channel', channelName);
     if (agent) params.set('agent', agent);
+    if (source) params.set('source', source);
     if (all) params.set('all', 'true');
     const data = await this._get(`/v1/todos?${params}`, this._wsHeaders(token));
     return data.data || data;

@@ -1868,7 +1868,7 @@ class BaseAdapter {
   async cleanupTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
       const hasActive = todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -1889,10 +1889,13 @@ class BaseAdapter {
   async getRemainingTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
-      return todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      // Defend against older endpoints returning the entire channel's list.
+      return todos.filter((t) => (!t.created_by || t.created_by === `openagents:${this.agentName}`)
+        && (!t.assignee || t.assignee === this.agentName || t.assignee === `openagents:${this.agentName}`)
+        && (t.status === 'pending' || t.status === 'in_progress'));
     } catch {
       return [];
     }
