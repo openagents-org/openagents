@@ -161,6 +161,7 @@ export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "deepseek",
   "gemini",
   "kimi",
+  "mimo-code",
   "openclaw",
   "opencode",
   "openworker",

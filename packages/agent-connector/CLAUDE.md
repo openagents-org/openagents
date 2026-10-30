@@ -12,6 +12,7 @@ src/
   config.js          YAML config manager for ~/.openagents/daemon.yaml (agents, networks)
   registry.js        Agent catalog: fetches from remote API or bundled registry.json, 24h cache
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
+  agent-login.js     `agn login <agent>`: runs the agent CLI's own sign-in, found where OpenAgents installed it (not on the user's PATH), on device auth when headless (codex)
   postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
@@ -45,6 +46,8 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    mimo-code.js      MiMoCodeAdapter — Xiaomi MiMo Code CLI (`mimo run --format json`, an OpenCode fork; extends OpenCodeAdapter). Provider, key, workspace MCP server and briefing go in per run through MIMOCODE_CONFIG_CONTENT, pinned to one provider; Stop kills the whole process tree
+    mimo-code-runtime.js  Pure helpers for MiMoCodeAdapter (key/base URL/model routing, the per-run config, run argv, process-tree walk, stderr error-line reading) — unit-tested
     qoder.js          QoderAdapter — Qoder CLI (`qodercli -p -o stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config --strict-mcp-config, token or browser sign-in, Stop kills the whole process tree
     qoder-cn.js       QoderCnAdapter — the China edition (`qoderclicn`), same adapter with the CN edition table
     qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
@@ -83,6 +86,7 @@ npm run check:registry      # Verify they match registry/ without writing (what 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
 agn install <type>          # Install agent runtime
+agn login <type|agent>      # Sign the agent's own CLI in to its account (codex login, claude auth login, ...)
 agn create <name> --type <type>  # Create agent instance
 agn env <type> --set K=V    # Set environment variables
 agn up / agn down           # Start/stop daemon

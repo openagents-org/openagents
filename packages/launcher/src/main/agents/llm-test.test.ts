@@ -69,6 +69,7 @@ vi.mock("electron", () => ({
 }))
 
 import { launcherAuthFields } from "./auth-specs"
+import { withDefaultBase } from "./model-catalog"
 import {
   httpRequestJson,
   httpRequestOnce,
@@ -182,6 +183,28 @@ describe("httpRequestOnce timeouts", () => {
  * "No API key to test for this agent", with the key plainly in the form.
  */
 describe("testLLMConnection routing", () => {
+  // The form shows the registry's default base URL but an untouched field
+  // never lands in its values, so the probe got none — and a MiMo key was
+  // sent to api.openai.com and came back 401 "Incorrect API key provided".
+  it("verifies a MiMo Code key with the base URL left blank against MiMo, not OpenAI", async () => {
+    script = [ok(CHAT_OK("mimo-v2.6-pro"))]
+    const r = await testLLMConnection(
+      withDefaultBase("mimo-code", { LLM_API_KEY: "sk-mimo", LLM_MODEL: "mimo-v2.6-pro" }),
+    )
+    expect(r.success).toBe(true)
+    expect(calls[0].url).toBe("https://api.xiaomimimo.com/v1/chat/completions")
+    expect(calls[0].headers.authorization).toBe("Bearer sk-mimo")
+  })
+
+  it("keeps a base URL the user typed, and leaves agents without a default alone", () => {
+    expect(
+      withDefaultBase("mimo-code", { LLM_API_KEY: "k", LLM_BASE_URL: "https://token-plan-cn.xiaomimimo.com/v1" })
+        .LLM_BASE_URL,
+    ).toBe("https://token-plan-cn.xiaomimimo.com/v1")
+    expect(withDefaultBase("opencode", { LLM_API_KEY: "k" })).toEqual({ LLM_API_KEY: "k" })
+    expect(withDefaultBase("kimi", { KIMI_API_KEY: "k" }).KIMI_BASE_URL).toBe("https://api.moonshot.ai/v1")
+  })
+
   it("probes OpenWorker's provider endpoint instead of reporting no key", async () => {
     script = [ok(CHAT_OK("deepseek-chat"))]
     const r = await testLLMConnection({

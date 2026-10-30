@@ -652,7 +652,8 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{
+      /** `agentType` lets a blank base URL mean that agent's default endpoint. */
+      testLLM(env: Record<string, string>, agentType?: string): Promise<{
         success: boolean
         model?: string
         response?: string

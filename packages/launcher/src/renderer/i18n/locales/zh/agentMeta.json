@@ -22,6 +22,7 @@
     "openworker": "本地优先的 AI 同事 —— $t(common.appName) 以无界面方式拉起它的服务，每个频道一个会话。",
     "codebuddy": "腾讯 CodeBuddy Code 命令行工具 —— 与 WorkBuddy 桌面端同源的智能体引擎，以 headless 模式驱动。",
     "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。",
+    "mimo-code": "小米 MiMo Code 终端编程智能体，使用 MiMo API Key 或任意 OpenAI 兼容接口以 headless 模式驱动 —— 每个频道一个会话。",
     "qoder": "Qoder 终端编程智能体，使用 Qoder 账号登录或个人访问令牌（PAT）以 headless 模式驱动 —— 每个频道一个会话。",
     "qoder-cn": "Qoder 终端编程智能体的国内版（qoder.com.cn），使用 Qoder CN 账号登录或个人访问令牌（PAT）以 headless 模式驱动 —— 每个频道一个会话。"
   },
