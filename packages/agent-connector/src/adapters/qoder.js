@@ -51,6 +51,7 @@ const { spawn } = require('../wsl');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
+const { REASON } = require('./health-status');
 const { defaultAgentWorkdir, whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const {
   EDITIONS,
@@ -304,50 +305,28 @@ class QoderAdapter extends BaseAdapter {
   }
 
   /**
-   * Locate the CLI. The official installer (the registry's route) leaves a
-   * native binary at ~/.local/bin/<bin> → ~/<root>/bin/<bin>/<bin>-<ver> on
-   * Unix, and %USERPROFILE%\<root>\bin\<bin>\<bin>.exe on Windows; the older
-   * npm package is still found for anyone who installed that way.
+   * Locate the CLI through the shared lookup. Every place an install can land
+   * — the official installer's ~/.local/bin link (Unix) and ~/<root>/bin/<bin>
+   * dir (Windows, added in paths._addAgentInstallerPaths), the managed
+   * ~/.openagents/runtimes/<type> prefix, and npm's global bins — is in
+   * getKnownBinDirs, so there is no private candidate list here (see CLAUDE.md).
    */
   _findQoderBinary() {
-    const home = os.homedir();
-    const { bin, npmPackage, configDirName } = this.edition;
-    const ext = this._isWindows ? '.cmd' : '';
-    const prefixes = [
-      path.join(home, '.openagents', 'runtimes', this.edition.type, 'node_modules'),
-      path.join(home, '.openagents', 'nodejs', 'node_modules'),
-    ];
+    return whichBinary(this.edition.bin) || null;
+  }
 
-    // Tier 0: an OpenAgents-managed npm prefix (shim, then the entry itself).
-    for (const root of prefixes) {
-      const c = path.join(root, '.bin', `${bin}${ext}`);
-      if (fs.existsSync(c)) return c;
+  /** Daemon gate before join: a missing CLI is reported, not joined. */
+  preflight() {
+    const bin = this._findQoderBinary();
+    if (!bin) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `${this.edition.label} not found — install it with: ${installHint(this.edition)}`,
+      };
     }
-    for (const root of prefixes) {
-      const entry = path.join(root, ...npmPackage, 'bundle', `${bin}.js`);
-      if (fs.existsSync(entry)) return entry;
-    }
-
-    // Tier 1: the official installer's own locations.
-    const native = this._isWindows
-      ? [path.join(home, configDirName, 'bin', bin, `${bin}.exe`)]
-      : [path.join(home, '.local', 'bin', bin), path.join(home, configDirName, 'bin', bin, bin)];
-    for (const c of native) if (fs.existsSync(c)) return c;
-
-    // Tier 2: PATH, via the codepage-safe lookup.
-    const viaWhere = whereBinary(bin);
-    if (viaWhere) return viaWhere;
-
-    // Tier 3: next to the current Node (npm global), and npm's usual homes.
-    const nearNode = path.join(path.dirname(process.execPath), `${bin}${ext}`);
-    if (fs.existsSync(nearNode)) return nearNode;
-    const npmHomes = this._isWindows
-      ? [path.join(process.env.APPDATA || '', 'npm', `${bin}.cmd`)]
-      : [path.join(home, '.npm-global', 'bin', bin), `/opt/homebrew/bin/${bin}`, `/usr/local/bin/${bin}`];
-    for (const c of npmHomes) if (fs.existsSync(c)) return c;
-
-    // Tier 4: deep scan of every known bin dir (nvm/fnm/volta/homebrew/…).
-    return whichBinary(bin) || null;
+    this._log(`${this.edition.label} resolved: ${bin}`);
+    return { ok: true };
   }
 
   /**
@@ -399,12 +378,21 @@ class QoderAdapter extends BaseAdapter {
     }
   }
 
-  /** How to spawn the CLI: { command, args }. */
+  /**
+   * How to spawn the CLI: { command, args }. Throws when a Windows npm shim
+   * cannot be run directly: routing it through `cmd.exe /c` would hand the
+   * multi-KB briefing (user-pinned text included) to cmd's parser, where `"`,
+   * `&` and `|` are live, and overflow its 8191-character line besides.
+   */
   _spawnPlan(binPath, args) {
     const resolved = this._resolveToNodeCmd(binPath);
     if (resolved) return { command: resolved[0], args: [resolved[1], ...args] };
     if (this._isWindows && binPath.toLowerCase().endsWith('.cmd')) {
-      return { command: 'cmd.exe', args: ['/c', binPath, ...args] };
+      const label = this.edition.label;
+      throw new Error(this._findNodeBin()
+        ? `${label}'s npm shim ${binPath} does not name its entry script; reinstall ${label} with the official installer`
+        : `${label} (npm install) needs Node.js >= ${MIN_NODE_MAJOR} to run here and none was found; ` +
+          `install Node.js ${MIN_NODE_MAJOR}+ or reinstall ${label} with the official installer`);
     }
     return { command: binPath, args };
   }
@@ -486,7 +474,7 @@ class QoderAdapter extends BaseAdapter {
       try { fs.chmodSync(file, 0o600); } catch {}
       return file;
     } catch (e) {
-      this._log(`Could not write the MCP config: ${redactSecrets(e && e.message)}`);
+      this._log(`Could not write the MCP config: ${this._redact(e && e.message)}`, 'warn');
       return null;
     }
   }
@@ -566,7 +554,13 @@ class QoderAdapter extends BaseAdapter {
     // Stopped while this turn was being prepared: start nothing.
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
-      const plan = this._spawnPlan(bin, args);
+      let plan;
+      try {
+        plan = this._spawnPlan(bin, args);
+      } catch (e) {
+        resolve({ code: null, signal: null, result: null, sessionId: null, anyOutput: false, userStopped: false, spawnError: e && e.message });
+        return;
+      }
       this._log(`Spawning: ${path.basename(plan.command)} ${redactArgs(plan.args).join(' ')} (cwd=${workingDir})`);
 
       let proc;
@@ -774,7 +768,7 @@ class QoderAdapter extends BaseAdapter {
     const channel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(channel);
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${channel}: ${redactSecrets(truncate(content, 80))}`);
+    this._log(`Processing message from ${sender} in ${channel}: ${this._redact(truncate(content, 80))}`);
 
     // Never silently fall back to the launcher/repo dir.
     const workingDir = this.workingDir || defaultAgentWorkdir(this.agentName);
@@ -791,7 +785,7 @@ class QoderAdapter extends BaseAdapter {
 
     const ver = this._checkVersion(bin);
     if (ver.supported === false) {
-      this._log(`Refusing to start: ${label} ${ver.version} < minimum ${QODER_MIN_VERSION}`);
+      this._log(`Refusing to start: ${label} ${ver.version} < minimum ${QODER_MIN_VERSION}`, 'warn');
       await this.sendError(channel,
         `${label} ${ver.version} is below the minimum supported version ${QODER_MIN_VERSION}. ` +
         `Upgrade with: ${installHint(this.edition)}`);
@@ -838,7 +832,9 @@ class QoderAdapter extends BaseAdapter {
     });
 
     const env = buildQoderChildEnv(getEnhancedEnv(this.agentEnv), { edition: this.edition, pat: auth.pat });
-    const secrets = auth.pat ? [auth.pat] : [];
+    // Every value this agent must never quote back — the workspace token and
+    // the agentEnv credentials (base._knownSecrets) — plus the resolved PAT.
+    const secrets = [...new Set([...this._knownSecrets(), ...(auth.pat ? [auth.pat] : [])])];
 
     // One retry: a saved session the CLI no longer has (pruned, or the turn
     // that created it never reached the model) fails the resume, and the turn
@@ -885,12 +881,12 @@ class QoderAdapter extends BaseAdapter {
         return;
       }
 
-      const verdict = classifyQoderRun(run, this.edition);
+      const verdict = classifyQoderRun(run, this.edition, secrets);
       const fallbackNotice = this._noteModelFallback(auth.model, run);
       const withNotice = (text) => (fallbackNotice ? `${text}\n\n_${fallbackNotice}_` : text);
 
       if (resumeId && attempt === 0 && (verdict.kind === 'stale_session' || (!verdict.ok && !run.anyOutput && verdict.kind !== 'auth'))) {
-        this._log(`Resume of session ${resumeId} failed (${verdict.kind}) — clearing and retrying fresh`);
+        this._log(`Resume of session ${resumeId} failed (${verdict.kind}) — clearing and retrying fresh`, 'warn');
         this._clearSession(channel);
         continue;
       }
@@ -920,7 +916,7 @@ class QoderAdapter extends BaseAdapter {
         return;
       }
 
-      this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${redactSecrets(truncate(run.stderr || '', 300), secrets)}`);
+      this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${redactSecrets(truncate(run.stderr || '', 300), secrets)}`, 'warn');
       try { await this.sendError(channel, withNotice(verdict.userMessage)); } catch {}
       return;
     }

@@ -457,10 +457,11 @@ function messages(edition) {
 /**
  * How a run ended. The result frame outranks the exit code (exit 1 is both
  * "signed out" and a real failure); stderr is read only when no frame came.
+ * `secrets` are the exact values to mask in any CLI text quoted back.
  *
  * @returns {{kind: string, ok: boolean, userMessage: string|null}}
  */
-function classifyQoderRun({ result = null, apiErrors = [], code = null, signal = null, stderr = '' } = {}, edition = EDITIONS.global) {
+function classifyQoderRun({ result = null, apiErrors = [], code = null, signal = null, stderr = '' } = {}, edition = EDITIONS.global, secrets = []) {
   const msg = messages(edition);
 
   if (result && !result.isError) return { kind: 'success', ok: true, userMessage: null };
@@ -487,7 +488,7 @@ function classifyQoderRun({ result = null, apiErrors = [], code = null, signal =
       kind: 'run_error',
       ok: false,
       userMessage: detail
-        ? `${edition.label} could not finish the run: ${truncate(redactSecrets(detail), 400)}`
+        ? `${edition.label} could not finish the run: ${truncate(redactSecrets(detail, secrets), 400)}`
         : `${edition.label} could not finish the run. Check the daemon log for details, then retry.`,
     };
   }
@@ -508,7 +509,7 @@ function classifyQoderRun({ result = null, apiErrors = [], code = null, signal =
     return {
       kind: 'startup_error',
       ok: false,
-      userMessage: `${edition.label} stopped before answering: ${truncate(redactSecrets(line), 400)}`,
+      userMessage: `${edition.label} stopped before answering: ${truncate(redactSecrets(line, secrets), 400)}`,
     };
   }
   return {

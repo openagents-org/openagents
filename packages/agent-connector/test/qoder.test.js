@@ -116,6 +116,21 @@ process.stdin.on('end', () => {
     else result({ subtype: 'error_during_execution', is_error: true, errors: ['request failed for ' + pat] });
     process.exit(scenario === 'echo_token' ? 0 : 1);
   }
+  if (scenario === 'leak_error' || scenario === 'leak_stderr') {
+    // A failure that quotes the workspace token (from the MCP config it was
+    // handed) and a credential from the agent's environment.
+    const mcpAt = at('--mcp-config');
+    const mcp = mcpAt >= 0 ? JSON.parse(fs.readFileSync(args[mcpAt + 1], 'utf8')) : null;
+    const wsToken = mcp ? mcp.mcpServers['openagents-workspace'].env.OA_WORKSPACE_TOKEN : '';
+    const leak = 'upstream refused ' + wsToken + ' with ' + process.env.ACME_SERVICE_KEY;
+    if (scenario === 'leak_error') {
+      init();
+      result({ subtype: 'error_during_execution', is_error: true, errors: [leak] });
+    } else {
+      process.stderr.write('Error: ' + leak + '\\n');
+    }
+    process.exit(1);
+  }
   if (scenario === 'long_tool') {
     // A build: nothing on stdout until the tool's result comes back.
     init();
@@ -182,7 +197,7 @@ function makeAdapter(extra = {}) {
   const a = new Cls({
     workspaceId: 'ws-qoder-test',
     channelName: 'thread',
-    token: 'token',
+    token: extra.token || 'token',
     agentName: 'qoder-bot',
     agentType: extra.cn ? 'qoder-cn' : 'qoder',
     endpoint: 'https://example.invalid',
@@ -433,6 +448,20 @@ describe('QoderAdapter — replies', () => {
     });
   }
 
+  for (const scenario of ['leak_error', 'leak_stderr']) {
+    it(`masks the workspace token and agentEnv secrets in a failure notice (${scenario})`, async () => {
+      const wsToken = 'oa_ws_token_5f6e7d8c9b';
+      const envSecret = 'acme_secret_0a1b2c3d4e';
+      const a = makeAdapter({ scenario, token: wsToken, agentEnv: { ACME_SERVICE_KEY: envSecret } });
+      await send(a);
+      assert.equal(a._captured.error.length, 1);
+      assert.match(a._captured.error[0], /upstream refused \[redacted\] with \[redacted\]/);
+      const everything = JSON.stringify(a._captured);
+      assert.ok(!everything.includes(wsToken), everything);
+      assert.ok(!everything.includes(envSecret), everything);
+    });
+  }
+
   it('says the account is out of credits', async () => {
     const a = makeAdapter({ scenario: 'quota' });
     await send(a);
@@ -510,5 +539,53 @@ describe('QoderAdapter — stop', { skip: process.platform === 'win32' }, () => 
     assert.deepEqual(a._captured.error, []);
     // The stopped thread keeps its session.
     assert.match(a._channelSessions.thread.sessionId, UUID_RE);
+  });
+});
+
+describe('QoderAdapter — preflight and binary lookup', () => {
+  for (const cn of [false, true]) {
+    const edition = cn ? 'qoder-cn' : 'qoder';
+
+    it(`reports runtime_missing when the CLI is not installed (${edition})`, () => {
+      const a = makeAdapter({ cn });
+      a._findQoderBinary = () => null;
+      const r = a.preflight();
+      assert.equal(r.ok, false);
+      assert.equal(r.reason, 'runtime_missing');
+      assert.match(r.message, cn ? /Qoder CLI CN not found/ : /Qoder CLI not found/);
+    });
+
+    it(`finds the CLI through the shared lookup and passes preflight (${edition})`, { skip: process.platform === 'win32' }, () => {
+      const a = makeAdapter({ cn });
+      delete a._findQoderBinary;
+      const dir = fs.mkdtempSync(path.join(tmpRoot, 'bin-'));
+      const bin = path.join(dir, a.edition.bin);
+      fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const savedPath = process.env.PATH;
+      process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+      try {
+        assert.equal(a._findQoderBinary(), bin);
+        assert.deepEqual(a.preflight(), { ok: true });
+      } finally {
+        process.env.PATH = savedPath;
+      }
+    });
+  }
+});
+
+describe('QoderAdapter — Windows npm shim', () => {
+  it('refuses to route the briefing through cmd.exe when the shim cannot run directly', async () => {
+    const a = makeAdapter();
+    a._isWindows = true;
+    a._findNodeBin = () => null;
+    const shim = path.join(tmpRoot, 'qodercli.cmd');
+    fs.writeFileSync(shim, '@echo off\r\n');
+    assert.throws(() => a._spawnPlan(shim, ['-p', '--append-system-prompt', 'a & b "c"']), /needs Node\.js >= 20/);
+
+    a._findQoderBinary = () => shim;
+    a._checkVersion = () => ({ supported: true, version: '1.1.72' });
+    await send(a);
+    assert.equal(runs().length, 0);
+    assert.match(a._captured.error[0], /could not be started \(.*needs Node\.js >= 20/);
   });
 });
