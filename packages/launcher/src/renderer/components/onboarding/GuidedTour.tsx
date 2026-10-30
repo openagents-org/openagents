@@ -13,11 +13,11 @@ import { useTourSpotlight } from "./use-tour-spotlight"
 
 /**
  * Lightweight spotlight "coach mark" tour that orients a new user to the real
- * sidebar in the order they should actually work: browse the marketplace →
- * create/configure an agent → open a workspace. It dims the screen, cuts a
- * hole around the targeted sidebar item, and shows a short instruction bubble
- * beside it — switching tabs as it advances so the matching page is visible
- * behind the spotlight.
+ * tabs in the order they should actually work: install an agent → run it
+ * and send it into a workspace → join further workspaces as needed. It dims
+ * the screen, cuts a hole around the targeted tab, and shows a short
+ * instruction bubble beside it — switching tabs as it advances so the matching
+ * page is visible behind the spotlight.
  *
  * It complements (does not replace) the provisioning wizard (OnboardingFlow):
  * the wizard does the work, this tour teaches where things live. Completion is
@@ -28,7 +28,7 @@ import { useTourSpotlight } from "./use-tour-spotlight"
 interface TourStep {
   /** Sidebar tab to switch to so the relevant page shows behind the spotlight. */
   tab: string
-  /** data-tour anchor on the sidebar item to highlight. */
+  /** data-tour anchor on the tab to highlight. */
   anchor: string
   /** i18n key under `onboarding.tour.steps.<key>`. */
   key: string
@@ -36,14 +36,16 @@ interface TourStep {
 
 // Labels/bodies live in the i18n catalog under `onboarding.tour.steps.<key>`;
 // here we only keep the tab/anchor wiring so the list stays language-agnostic.
+//
+// The wizard this tour follows has already joined the first workspace, so
+// Workspaces comes last: it is where a device joins the next one, not where it
+// starts.
 const STEPS: TourStep[] = [
   { tab: "dashboard", anchor: "dashboard", key: "dashboard" },
-  { tab: "install", anchor: "install", key: "install" },
-  { tab: "agents", anchor: "agents", key: "agents" },
   { tab: "workspaces", anchor: "workspaces", key: "workspaces" },
 ]
 
-/** The rail's own icon for the highlighted item, so the bubble names it twice. */
+/** The tab's own icon for the highlighted item, so the bubble names it twice. */
 function stepIcon(anchor: string): LucideIcon | null {
   return NAV_ITEMS.find((i) => i.id === anchor)?.icon ?? null
 }
@@ -72,7 +74,7 @@ export function GuidedTour(): React.JSX.Element | null {
   }
 
   const current = tourOpen ? STEPS[step] : undefined
-  const { hole, vw, vh } = useTourSpotlight(current?.anchor ?? null)
+  const { hole, vw } = useTourSpotlight(current?.anchor ?? null)
 
   React.useEffect(() => {
     if (tourOpen) capture("guided_tour_started")
@@ -135,19 +137,19 @@ export function GuidedTour(): React.JSX.Element | null {
 
   if (!tourOpen || !current) return null
 
-  // The bubble sits to the right of the rail item, centred on it and clamped
-  // into the viewport. The rail is always the leftmost column, so "right of the
+  // The bubble hangs below the highlighted tab, centred on it and clamped into
+  // the viewport. The tabs run along the top of the window, so "below the
   // hole" never needs a flipped placement.
-  const left = Math.min(hole.left + hole.width + GAP, vw - bubble.w - MARGIN)
-  const top = Math.min(
-    Math.max(hole.top + hole.height / 2 - bubble.h / 2, MARGIN),
-    Math.max(MARGIN, vh - bubble.h - MARGIN),
+  const top = hole.top + hole.height + GAP
+  const left = Math.min(
+    Math.max(hole.left + hole.width / 2 - bubble.w / 2, MARGIN),
+    Math.max(MARGIN, vw - bubble.w - MARGIN),
   )
   // Keep the pointer on the hole even after the bubble has been clamped away
   // from it, staying clear of the rounded corners.
-  const arrowTop = Math.min(
-    Math.max(hole.top + hole.height / 2 - top, GAP),
-    Math.max(GAP, bubble.h - GAP),
+  const arrowLeft = Math.min(
+    Math.max(hole.left + hole.width / 2 - left, GAP),
+    Math.max(GAP, bubble.w - GAP),
   )
   const Icon = stepIcon(current.anchor)
 
@@ -203,7 +205,7 @@ export function GuidedTour(): React.JSX.Element | null {
         icon={stepIcon(current.anchor)}
         index={step}
         total={STEPS.length}
-        arrowTop={arrowTop}
+        arrowLeft={arrowLeft}
         style={{ top, left }}
         onSkip={() => finish(false)}
         onBack={back}

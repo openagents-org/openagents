@@ -34,9 +34,30 @@ class TestTaskCrud:
         assert data["assignee"] is None
         assert data["channel_name"] is None
 
-    def test_create_requires_title(self, client, workspace):
+    def test_create_requires_title_or_description(self, client, workspace):
         resp = _create(client, workspace, title="   ")
         assert resp.status_code != 200 or resp.json().get("code") != 0
+
+    def test_untitled_task_derives_preview_from_description(self, client, workspace):
+        resp = _create(
+            client, workspace, title="",
+            description="Fix the login redirect loop that users hit after resetting their password on mobile",
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["title"] == "Fix the login redirect loop that users hit…"
+        # Short descriptions come through whole, no ellipsis.
+        short = _create(client, workspace, title="", description="Update the README").json()["data"]
+        assert short["title"] == "Update the README"
+
+    def test_patch_cleared_title_rederives(self, client, workspace):
+        task = _create(client, workspace, title="Old title", description="Ship the beta release notes").json()["data"]
+        resp = client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "title": ""},
+            headers=_headers(workspace),
+        )
+        assert resp.json()["data"]["title"] == "Ship the beta release notes"
 
     def test_list_returns_created(self, client, workspace):
         _create(client, workspace, title="A")
@@ -75,6 +96,95 @@ class TestTaskCrud:
         assert channel is not None and channel.status == "deleted"
 
 
+class TestKnowledgeContext:
+    def _seed_entry(self, db, workspace, slug="deploy-notes", title="Deploy notes"):
+        from app.models import KnowledgeEntry
+        entry = KnowledgeEntry(
+            workspace_id=workspace["id"], slug=slug, title=title,
+            created_by="human:user", status="active",
+        )
+        db.add(entry)
+        db.commit()
+        return entry
+
+    def test_create_validates_knowledge_ids(self, client, workspace, db):
+        entry = self._seed_entry(db, workspace)
+        resp = _create(client, workspace, knowledge_ids=[entry.id, "bogus-id"])
+        assert resp.status_code == 200, resp.text
+        # The bogus id is silently dropped; the real one sticks.
+        assert resp.json()["data"]["knowledge_ids"] == [entry.id]
+
+    def test_update_clears_with_empty_list(self, client, workspace, db):
+        entry = self._seed_entry(db, workspace)
+        task = _create(client, workspace, knowledge_ids=[entry.id]).json()["data"]
+        resp = client.patch(
+            f"/v1/tasks/{task['id']}",
+            json={"network": workspace["id"], "knowledge_ids": []},
+            headers=_headers(workspace),
+        )
+        assert resp.json()["data"]["knowledge_ids"] == []
+
+    def test_kickoff_references_knowledge_slugs(self, client, workspace, db):
+        from app.models import EventRecord
+        entry = self._seed_entry(db, workspace, slug="style-guide", title="Style guide")
+        task = _create(client, workspace, assignee="agent-alpha", knowledge_ids=[entry.id]).json()["data"]
+        client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/task:{task['id']}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        kickoff = next(e for e in events if "assigned this Kanban task" in ((e.payload or {}).get("content") or ""))
+        content = kickoff.payload["content"]
+        assert "@knowledge:style-guide" in content
+        assert "Style guide" in content
+
+
+class TestFileAttachments:
+    def _seed_file(self, db, workspace, filename="bug.png"):
+        from app.models import FileRecord
+        f = FileRecord(
+            workspace_id=workspace["id"], filename=filename, content_type="image/png",
+            size=123, storage_key=f"{workspace['id']}/x/{filename}",
+            uploaded_by="human:user", status="active",
+        )
+        db.add(f)
+        db.commit()
+        return f
+
+    def test_create_validates_file_ids(self, client, workspace, db):
+        f = self._seed_file(db, workspace)
+        resp = _create(client, workspace, file_ids=[f.id, "bogus-id"])
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["file_ids"] == [f.id]
+
+    def test_kickoff_carries_attachments(self, client, workspace, db):
+        from app.models import EventRecord
+        f = self._seed_file(db, workspace, filename="screenshot.png")
+        task = _create(client, workspace, assignee="agent-alpha", file_ids=[f.id]).json()["data"]
+        client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},
+            headers=_headers(workspace),
+        )
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/task:{task['id']}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        kickoff = next(e for e in events if "assigned this Kanban task" in ((e.payload or {}).get("content") or ""))
+        atts = kickoff.payload.get("attachments") or []
+        assert [a["file_id"] for a in atts] == [f.id]
+        assert atts[0]["filename"] == "screenshot.png"
+        assert atts[0]["content_type"] == "image/png"
+
+
 class TestAssign:
     def test_assign_creates_thread_and_moves_in_progress(self, client, workspace, db):
         task = _create(client, workspace).json()["data"]
@@ -95,6 +205,29 @@ class TestAssign:
         ).scalar_one_or_none()
         assert channel is not None
         assert channel.master_agent == "agent-alpha"
+
+    def test_preassign_does_not_run(self, client, workspace, db):
+        """Creating a task with an assignee records it but does NOT start work."""
+        resp = _create(client, workspace, assignee="agent-alpha")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["assignee"] == "agent-alpha"
+        assert data["status"] == "backlog"     # not running
+        assert data["channel_name"] is None    # no thread yet
+
+    def test_run_falls_back_to_stored_assignee(self, client, workspace, db):
+        """POST /assign with no agent runs the task's pre-set assignee."""
+        task = _create(client, workspace, assignee="agent-alpha").json()["data"]
+        resp = client.post(
+            f"/v1/tasks/{task['id']}/assign",
+            json={"network": workspace["id"]},   # no agent — use stored assignee
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["assignee"] == "agent-alpha"
+        assert data["status"] == "in_progress"
+        assert data["channel_name"] == f"task:{task['id']}"
 
     def test_assign_rejects_non_member(self, client, workspace):
         task = _create(client, workspace).json()["data"]
@@ -170,3 +303,82 @@ class TestProgressHook:
         db.expire_all()
         row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
         assert row.status == "in_progress"
+
+
+class TestIssueWork:
+    def _issue(self, client, workspace):
+        response = client.post(f"/v1/issues?network={workspace['id']}",
+            json={"title": "Investigate activation", "description": "Find the root cause", "source": "human:owner@example.com"}, headers=_headers(workspace))
+        assert response.status_code == 200, response.text
+        return response.json()['data']
+
+    def test_prepare_work_is_passive_and_scoped(self, client, workspace, db):
+        from app.models import Issue, IssueThread
+        issue = self._issue(client, workspace)
+        response = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha')
+        assert response.status_code == 200, response.text
+        task = response.json()['data']
+        assert task['issue_id'] == issue['id']
+        assert task['status'] == 'backlog'
+        assert task['channel_name'] is None
+        assert db.get(Issue, issue['id']).status == 'open'
+        assert db.execute(select(IssueThread).where(IssueThread.issue_id == issue['id'])).first() is None
+
+    def test_run_links_conversation_without_closing_issue(self, client, workspace, db):
+        from app.models import Issue, IssueThread, EventRecord
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha').json()['data']
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id']}, headers=_headers(workspace))
+        assert response.status_code == 200, response.text
+        channel = db.execute(select(Channel).where(Channel.name == f"task:{task['id']}")).scalar_one()
+        assert db.get(IssueThread, (issue['id'], channel.id)) is not None
+        from app.services.thread_agent_requests import issue_for_work
+        assert issue_for_work(db, channel).id == issue['id']
+        events = db.execute(select(EventRecord).where(EventRecord.target == f'channel/{channel.name}')).scalars().all()
+        assert any('Find the root cause' in (event.payload or {}).get('content', '') for event in events)
+        client.patch(f"/v1/tasks/{task['id']}", json={'network':workspace['id'], 'status':'done'}, headers=_headers(workspace))
+        db.expire_all()
+        assert db.get(Issue, issue['id']).status == 'open'
+        # A rerun keeps one link to the working conversation.
+        client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id']}, headers=_headers(workspace))
+        assert len(db.execute(select(IssueThread).where(IssueThread.issue_id == issue['id'])).all()) == 1
+
+    def test_rejects_issue_from_another_workspace(self, client, workspace, db):
+        from app.models import Issue
+        other = Workspace(name='Other', slug='other-issue-work', password_hash='other-token')
+        db.add(other)
+        db.flush()
+        issue = Issue(workspace_id=other.id, title='Private context', created_by='human:owner')
+        db.add(issue)
+        db.commit()
+        response = _create(client, workspace, issue_id=issue.id)
+        assert response.status_code == 404
+        assert db.execute(select(KanbanTask).where(KanbanTask.issue_id == issue.id)).first() is None
+
+    def test_closed_issue_cannot_start_work(self, client, workspace, db):
+        from app.models import Issue
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha').json()['data']
+        db.get(Issue, issue['id']).status = 'closed'
+        db.commit()
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network': workspace['id']}, headers=_headers(workspace))
+        assert response.status_code != 200
+        db.expire_all()
+        assert db.get(KanbanTask, task['id']).channel_name is None
+
+    def test_issue_work_respects_agent_sharing(self, client, workspace, db, monkeypatch):
+        from app import access
+        from app.models import User, WorkspaceMembership, WorkspaceMember
+        user = User(email='viewer@acme.test', display_name='Viewer')
+        db.add(user)
+        db.flush()
+        db.add(WorkspaceMembership(workspace_id=workspace['id'], user_id=user.id, role='member'))
+        db.add(WorkspaceMember(workspace_id=workspace['id'], agent_name='private-agent', owner_email='owner@acme.test', status='online'))
+        db.commit()
+        monkeypatch.setattr(access, 'verify_identity_claims', lambda token: {'provider':'firebase', 'email':user.email, 'firebase_uid':user.email, 'apple_sub':None, 'display_name':'Viewer'})
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='private-agent').json()['data']
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id'], 'source':'human:owner@acme.test'}, headers={'Authorization':'Bearer viewer'})
+        assert response.status_code == 403, response.text
+        db.expire_all()
+        assert db.get(KanbanTask, task['id']).channel_name is None

@@ -7,7 +7,11 @@ import {
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
+import { cn } from "@renderer/lib/utils"
 import { useThemeStore } from "@renderer/store/theme"
+
+// Sonner sets `background` as a shorthand, so both layers need `!`.
+const OPAQUE_TINT = "bg-(--bg-card)! bg-linear-to-b!"
 
 /**
  * Deviates from the stock shadcn file in two ways, both required here:
@@ -38,14 +42,32 @@ const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
       // icon, which made success/warning/error read identically. Each type gets
       // the tint it already has elsewhere in the app; `!` is needed because
       // Sonner's own `[data-sonner-toast]` rule sets the background.
+      //
+      // The frame reads `--*-border` rather than a 25% cut of the text colour.
+      // Those two are the same colour in the default skin — the tokens were
+      // authored at 0.24–0.30 alpha of exactly these hues — so nothing moves
+      // here; what it buys is a border a skin can restate, which is how the
+      // openagents skin gets an inked frame on a toast without a second
+      // `!important` fighting this one.
+      //
+      // The `--*-bg` tints are 6–12% alpha, so on their own the toast let the
+      // page show through — a button underneath read straight through an
+      // error. They are laid as a flat gradient over the opaque card colour
+      // instead: same tint, solid surface.
       toastOptions={{
         classNames: {
-          success:
-            "bg-(--success-bg)! text-(--success-text)! border-(--success-text)/25!",
-          error:
-            "bg-(--danger-bg)! text-(--danger-text)! border-(--danger-text)/25!",
-          warning:
-            "bg-(--warning-bg)! text-(--warning-text)! border-(--warning-text)/25!",
+          success: cn(
+            OPAQUE_TINT,
+            "from-(--success-bg) to-(--success-bg) text-(--success-text)! border-(--success-border)!",
+          ),
+          error: cn(
+            OPAQUE_TINT,
+            "from-(--danger-bg) to-(--danger-bg) text-(--danger-text)! border-(--danger-border)!",
+          ),
+          warning: cn(
+            OPAQUE_TINT,
+            "from-(--warning-bg) to-(--warning-bg) text-(--warning-text)! border-(--warning-border)!",
+          ),
           info: "bg-(--bg-card)! text-(--text-primary)! border-(--border)!",
           // Sonner colours the title itself, which would keep it neutral on
           // top of a tinted surface — inherit so it follows the type.

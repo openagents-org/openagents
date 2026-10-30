@@ -1,7 +1,11 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+import { Sparkles } from "lucide-react"
 
+import { Button } from "@renderer/components/ui/button"
 import { Switch } from "@renderer/components/ui/switch"
+import { WhatsNewDialog } from "@renderer/components/whats-new/whats-new-dialog"
+import { RELEASES } from "@renderer/lib/changelog"
 import { SettingsCard,
   Row,
   InfoRow,
@@ -30,6 +34,7 @@ export function UpdatesSection({
   installUpdate,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const [notesOpen, setNotesOpen] = React.useState(false)
 
   return (
     <>
@@ -68,7 +73,29 @@ export function UpdatesSection({
           }
           mono
         />
+        {/* The same notes the app shows once after an update, kept reachable
+            afterwards — the dialog is easy to dismiss before reading it. */}
+        <Row
+          label={t("whatsNew.settingsRow")}
+          desc={t("whatsNew.settingsRowDesc")}
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={RELEASES.length === 0}
+            onClick={() => setNotesOpen(true)}
+          >
+            <Sparkles />
+            {t("whatsNew.settingsAction")}
+          </Button>
+        </Row>
       </SettingsCard>
+
+      <WhatsNewDialog
+        open={notesOpen}
+        releases={RELEASES}
+        onClose={() => setNotesOpen(false)}
+      />
     </>
   )
 }

@@ -73,7 +73,7 @@ async def async_launch_network(
             signal.signal(sig, lambda signum, frame: signal_handler())
 
     try:
-        from openagents.core.network import AgentNetwork
+        from openagents.sdk.network import AgentNetwork
 
         # Determine workspace path
         # If not explicitly provided, derive from config file's directory

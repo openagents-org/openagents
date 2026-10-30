@@ -1,18 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useShallow } from "zustand/react/shallow"
 
 import { useAgentsStore } from "@renderer/store/agents"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import type { WorkspaceCardData } from "@renderer/components/workspaces/WorkspaceCard"
+import type { WorkspaceRowData as WorkspaceCardData } from "@renderer/components/workspaces/workspace-row"
 import type { WorkspaceHealthState } from "@renderer/components/workspaces/WorkspaceHealth"
-import type { Agent, ChatSessionMeta, Workspace } from "@renderer/types"
+import type {
+  Agent,
+  ChatSessionMeta,
+  RevokedPairing,
+  Workspace,
+} from "@renderer/types"
 
 /** How often the list re-polls the daemon for workspace/agent state. */
 const POLL_MS = 8000
 
-function deriveHealth(agents: Agent[]): WorkspaceHealthState {
-  if (agents.length === 0) return "disconnected"
+/**
+ * `device` is this machine being paired to the workspace as a node: the
+ * connection is real even with no agent bound here yet (agents get installed
+ * from the workspace side afterwards), so it must not read as "disconnected".
+ */
+function deriveHealth(
+  agents: Agent[],
+  device: boolean,
+  revoked: boolean,
+  /** False while the node status is still loading — see `nodeWorkspaces`. */
+  nodeKnown: boolean,
+): WorkspaceHealthState {
+  // A revoked pairing outranks agent health: the workspace kicked this device,
+  // so whatever the agents report locally, the connection needs re-pairing.
+  if (revoked) return "revoked"
+  if (agents.length === 0) return device ? "device" : "disconnected"
+  // Agents bound here, but this machine is not in the workspace — nothing of
+  // theirs reaches it, whatever they last reported locally. Their stale errors
+  // used to surface here as a workspace in "Error", which named the wrong
+  // problem: the connection is gone, not broken.
+  if (nodeKnown && !device) return "disconnected"
   if (agents.some((a) => a.state === "error" || a.lastError)) return "error"
   if (agents.some((a) => a.state === "starting" || a.state === "reconnecting"))
     return "warning"
@@ -25,6 +48,7 @@ export interface WorkspaceStats {
   healthy: number
   warning: number
   error: number
+  disconnected: number
   total: number
 }
 
@@ -37,6 +61,8 @@ export type WorkspaceSort = (typeof WORKSPACE_SORTS)[number]
 
 interface WorkspacesData {
   workspaces: Workspace[]
+  /** Workspaces that removed this device, and are gone from the list. */
+  notices: RevokedPairing[]
   aliases: Record<string, string>
   setAliases: React.Dispatch<React.SetStateAction<Record<string, string>>>
   filtered: WorkspaceCardData[]
@@ -56,13 +82,25 @@ export function useWorkspacesData(
 ): WorkspacesData {
   const agents = useAgentsStore((s) => s.agents)
   const connections = useConnectionsStore((s) => s.connections)
-  const { favorites, lastUsedAt } = useWorkspacePrefs(
-    useShallow((s) => ({ favorites: s.favorites, lastUsedAt: s.lastUsedAt })),
-  )
+  const lastUsedAt = useWorkspacePrefs((s) => s.lastUsedAt)
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [aliases, setAliases] = useState<Record<string, string>>({})
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
+  /**
+   * Workspaces this device is paired to as a node, by slug AND id (either can
+   * be what a workspace record is keyed by locally). A device can be a node in
+   * several workspaces at once, so this is a set rather than one value.
+   */
+  // null until the node has answered: an empty set means this device is in no
+  // workspace, which is a different thing to not knowing yet.
+  const [nodeWorkspaces, setNodeWorkspaces] = useState<Set<string> | null>(null)
+  /**
+   * Workspaces that removed this device. The local entry goes with the pairing
+   * (main-side), so these are no longer in `workspaces` at all — they are kept
+   * to say so once, rather than letting a workspace vanish without a word.
+   */
+  const [revocations, setRevocations] = useState<RevokedPairing[]>([])
   const [loading, setLoading] = useState(true)
   const mounted = useRef(true)
 
@@ -98,6 +136,19 @@ export function useWorkspacesData(
       setWorkspaces(ws)
       useAgentsStore.getState().setAgents(ag)
       setLoading(false)
+      try {
+        // Verified against the workspace (throttled main-side to once a
+        // minute), so a device the workspace has unpaired stops showing here.
+        const node = await window.api.refreshNodeStatus()
+        if (!mounted.current) return
+        const keys = new Set<string>()
+        for (const w of node.workspaces || []) {
+          if (w.workspaceSlug) keys.add(w.workspaceSlug)
+          if (w.workspaceId) keys.add(w.workspaceId)
+        }
+        setNodeWorkspaces(keys)
+        setRevocations(node.revoked || [])
+      } catch {}
       // Pull session metadata across all workspaces in parallel so we can
       // show "Last message" + previews on each card.
       try {
@@ -175,10 +226,19 @@ export function useWorkspacesData(
       )
       const topSession = wsSessions[0] || null
       const aliasName = aliases[ws.id]
+      // The device relationship is its own fact, kept beside health rather
+      // than folded into it: once an agent binds here, health becomes
+      // "healthy" and the card would otherwise stop saying that this machine
+      // is the node behind it.
+      const device = !!nodeWorkspaces?.has(slug) || !!nodeWorkspaces?.has(ws.id)
+      const revoked = revocations.some(
+        (r) => r.workspaceSlug === slug || r.workspaceId === ws.id,
+      )
       return {
         ws: aliasName ? { ...ws, name: aliasName } : ws,
         agents: linkedAgents,
-        health: deriveHealth(linkedAgents),
+        health: deriveHealth(linkedAgents, device, revoked, !!nodeWorkspaces),
+        device,
         lastActiveAt: topSession?.lastMessageAt || lastUsedAt[ws.id] || null,
         lastMessageAt: topSession?.lastMessageAt || null,
         lastMessagePreview: topSession?.lastMessagePreview || null,
@@ -186,13 +246,27 @@ export function useWorkspacesData(
         connectedPlatforms: platformsByWorkspace.get(ws.id) || [],
       }
     })
-  }, [workspaces, agents, sessions, aliases, lastUsedAt, platformsByWorkspace])
+  }, [
+    workspaces,
+    agents,
+    sessions,
+    aliases,
+    lastUsedAt,
+    platformsByWorkspace,
+    nodeWorkspaces,
+    revocations,
+  ])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const arr = cards.filter((c) => {
       if (filter === "healthy" && c.health !== "healthy") return false
-      if (filter === "problem" && c.health !== "warning" && c.health !== "error")
+      if (
+        filter === "problem" &&
+        c.health !== "warning" &&
+        c.health !== "error" &&
+        c.health !== "revoked"
+      )
         return false
       if (filter === "disconnected" && c.health !== "disconnected") return false
       if (!q) return true
@@ -208,11 +282,6 @@ export function useWorkspacesData(
         b.ws.name || b.ws.slug || b.ws.id,
       )
     arr.sort((a, b) => {
-      // Favourites stay pinned whatever the sort — that is what starring one
-      // is for; the selected order applies within each group.
-      const aFav = favorites.has(a.ws.id) ? 0 : 1
-      const bFav = favorites.has(b.ws.id) ? 0 : 1
-      if (aFav !== bFav) return aFav - bFav
       if (sort === "name") return byName(a, b)
       if (sort === "agents" && a.agents.length !== b.agents.length)
         return b.agents.length - a.agents.length
@@ -224,19 +293,43 @@ export function useWorkspacesData(
       return byName(a, b)
     })
     return arr
-  }, [cards, search, filter, sort, favorites, lastUsedAt])
+  }, [cards, search, filter, sort, lastUsedAt])
 
   const stats = useMemo<WorkspaceStats>(() => {
     let healthy = 0
     let warning = 0
     let error = 0
+    let disconnected = 0
     for (const c of cards) {
       if (c.health === "healthy") healthy++
       else if (c.health === "warning") warning++
-      else if (c.health === "error") error++
+      else if (c.health === "error" || c.health === "revoked") error++
+      else if (c.health === "disconnected") disconnected++
     }
-    return { healthy, warning, error, total: cards.length }
+    return { healthy, warning, error, disconnected, total: cards.length }
   }, [cards])
 
-  return { workspaces, aliases, setAliases, filtered, stats, loading, reload }
+  // Only the ones with nothing left on this machine: a revocation the user has
+  // already answered by re-joining is settled, and says nothing worth saying.
+  const notices = useMemo(
+    () =>
+      revocations.filter(
+        (r) =>
+          !workspaces.some(
+            (w) => w.id === r.workspaceId || (w.slug || w.id) === r.workspaceSlug,
+          ),
+      ),
+    [revocations, workspaces],
+  )
+
+  return {
+    workspaces,
+    aliases,
+    setAliases,
+    filtered,
+    stats,
+    loading,
+    reload,
+    notices,
+  }
 }

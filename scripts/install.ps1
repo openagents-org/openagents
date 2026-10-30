@@ -7,7 +7,7 @@
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "1.0.6"
+$VERSION = "1.0.9"
 $NPM_PACKAGE = "@openagents-org/agent-launcher"
 $MIN_NODE_MAJOR = 18
 $NODE_V22 = "v22.22.3"
@@ -17,11 +17,43 @@ $NODE_V22_MIN = [version]"22.19.0"  # Minimum portable Node for agents like Open
 function Info($msg)  { Write-Host ">>> " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
 function Ok($msg)    { Write-Host " +  " -ForegroundColor Green -NoNewline; Write-Host $msg }
 function Warn($msg)  { Write-Host " !  " -ForegroundColor Yellow -NoNewline; Write-Host $msg }
-function Fail($msg)  { Write-Host " X  " -ForegroundColor Red -NoNewline; Write-Host $msg; exit 1 }
+# Fail must NOT call `exit`: under `irm | iex` the script runs in the console's
+# session scope, so `exit` kills the whole PowerShell window before the user
+# can read the error. `throw` aborts the installer but keeps the window open.
+function Fail($msg)  { Write-Host " X  " -ForegroundColor Red -NoNewline; Write-Host $msg; throw "OpenAgents install failed: $msg" }
 function Step($msg)  { Write-Host ""; Info $msg }
 function Dim($msg)   { Write-Host "  $msg" -ForegroundColor DarkGray }
 
-# --- Header ---
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Download with retry and mirror fallback. nodejs.org / registry.npmjs.org can
+# be slow or unreachable on some networks (e.g. mainland China), which used to
+# abort the install partway; each URL is tried twice before moving to the next.
+function Get-Download {
+    param([string[]]$Urls, [string]$OutFile)
+    foreach ($u in $Urls) {
+        for ($attempt = 1; $attempt -le 2; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $OutFile -UseBasicParsing
+                return $true
+            } catch {
+                Warn "Download failed (attempt $attempt): $u"
+            }
+        }
+    }
+    return $false
+}
+
+# --- Header: the OpenAgents wordmark (figlet "Small Slant", pure ASCII so it
+# renders on any console/codepage). Cyan→blue→magenta sweep with the named
+# colors PowerShell 5 supports; single quotes keep backslashes and the
+# backtick in the art literal.
+Write-Host ""
+Write-Host '   ____                ___                __    ' -ForegroundColor Cyan
+Write-Host '  / __ \___  ___ ___  / _ |___ ____ ___  / /____' -ForegroundColor Cyan
+Write-Host ' / /_/ / _ \/ -_) _ \/ __ / _ `/ -_) _ \/ __(_-<' -ForegroundColor Blue
+Write-Host ' \____/ .__/\__/_//_/_/ |_\_, /\__/_//_/\__/___/' -ForegroundColor Magenta
+Write-Host '     /_/                 /___/                  ' -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  OpenAgents Installer" -ForegroundColor White -NoNewline
 Write-Host "  v$VERSION" -ForegroundColor DarkGray
@@ -65,12 +97,16 @@ if ($node) {
     Warn "Node.js $MIN_NODE_MAJOR+ not found - installing portable Node.js..."
 
     $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-    $url = "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    $nodeUrls = @(
+        "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip",
+        "https://cdn.npmmirror.com/binaries/node/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    )
     $zipPath = Join-Path $env:TEMP "node-$NODE_V22.zip"
 
-    Info "Downloading $url..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+    Info "Downloading Node.js $NODE_V22..."
+    if (-not (Get-Download -Urls $nodeUrls -OutFile $zipPath)) {
+        Fail "Could not download Node.js. Check your network, or install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org and rerun."
+    }
 
     Info "Extracting to $nodejsDir..."
     New-Item -ItemType Directory -Force -Path $nodejsDir | Out-Null
@@ -125,11 +161,15 @@ if (Test-Path $portableNode) {
 
 if ($needPortableUpgrade) {
     $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-    $url = "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    $nodeUrls = @(
+        "https://nodejs.org/dist/$NODE_V22/node-$NODE_V22-win-$arch.zip",
+        "https://cdn.npmmirror.com/binaries/node/$NODE_V22/node-$NODE_V22-win-$arch.zip"
+    )
     $zipPath = Join-Path $env:TEMP "node-$NODE_V22.zip"
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+    if (-not (Get-Download -Urls $nodeUrls -OutFile $zipPath)) {
+        Fail "Could not download Node.js $NODE_V22. Check your network and rerun."
+    }
 
     New-Item -ItemType Directory -Force -Path $nodejsDir | Out-Null
     Expand-Archive -Path $zipPath -DestinationPath $nodejsDir -Force
@@ -200,7 +240,11 @@ if ($existing) {
 $prefixDir = $nodejsDir
 # Install via direct tarball (avoids npm --prefix pruning other packages)
 $coreDir = Join-Path $prefixDir "node_modules\@openagents-org\agent-launcher"
-$latestVer = & npm view "$NPM_PACKAGE" version 2>$null
+$latestVer = cmd /c "npm view $NPM_PACKAGE version 2>nul"
+if (-not $latestVer) {
+    # registry.npmjs.org unreachable - ask the China mirror instead
+    $latestVer = cmd /c "npm view $NPM_PACKAGE version --registry=https://registry.npmmirror.com 2>nul"
+}
 $installedVer = ""
 $corePkg = Join-Path $coreDir "package.json"
 if (Test-Path $corePkg) {
@@ -208,32 +252,69 @@ if (Test-Path $corePkg) {
 }
 
 if ($latestVer -and ($latestVer -ne $installedVer)) {
-    $tarballUrl = "https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz"
+    $tarballUrls = @(
+        "https://registry.npmjs.org/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz",
+        "https://registry.npmmirror.com/$NPM_PACKAGE/-/agent-launcher-$latestVer.tgz"
+    )
     $tgz = Join-Path $env:TEMP "agent-launcher.tgz"
-    Invoke-WebRequest -Uri $tarballUrl -OutFile $tgz -UseBasicParsing
-    New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
-    tar -xzf $tgz -C $coreDir --strip-components=1
-    Remove-Item $tgz -Force -ErrorAction SilentlyContinue
-    # Install blessed (TUI dep) via direct tarball - avoids npm --prefix pruning other packages
-    $blessedDir = Join-Path $prefixDir "node_modules\blessed"
-    $blessedVer = "0.1.81"
-    if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
-        $bv = & npm view blessed version 2>$null
+    if (Get-Download -Urls $tarballUrls -OutFile $tgz) {
+        New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
+        tar -xzf $tgz -C $coreDir --strip-components=1
+        Remove-Item $tgz -Force -ErrorAction SilentlyContinue
+        Ok "$NPM_PACKAGE v$latestVer installed"
+    } elseif ($installedVer) {
+        Warn "Could not download v$latestVer - keeping installed v$installedVer"
+    } else {
+        Fail "Could not download $NPM_PACKAGE. Check your network and rerun."
+    }
+} elseif ($installedVer) {
+    Ok "Already up to date ($installedVer)"
+    if (-not $latestVer) { Warn "Could not reach the npm registries to check for updates" }
+} else {
+    Fail "Could not download $NPM_PACKAGE (is registry.npmjs.org reachable?). Try: npm install -g $NPM_PACKAGE"
+}
+
+# The pieces below are ensured on EVERY run, not only when the core version
+# changed: an interrupted earlier run can leave the core package extracted but
+# the blessed dep / prefix package.json / bin shims missing, and gating them
+# behind the version check made 'openagents' permanently unresolvable.
+$coreVer = $installedVer
+try { $coreVer = (Get-Content $corePkg -Raw | ConvertFrom-Json).version } catch {}
+if (-not $coreVer) { $coreVer = $latestVer }
+
+# Install blessed (TUI dep) via direct tarball - avoids npm --prefix pruning other packages
+$blessedDir = Join-Path $prefixDir "node_modules\blessed"
+$blessedVer = "0.1.81"
+if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
+    # Non-fatal: blessed is only needed by the TUI dashboard.
+    try {
+        $bv = cmd /c "npm view blessed version 2>nul"
         if ($bv) { $blessedVer = $bv }
         $blessedTgz = Join-Path $env:TEMP "blessed.tgz"
-        Invoke-WebRequest -Uri "https://registry.npmjs.org/blessed/-/blessed-$blessedVer.tgz" -OutFile $blessedTgz -UseBasicParsing
-        New-Item -ItemType Directory -Force -Path $blessedDir | Out-Null
-        tar -xzf $blessedTgz -C $blessedDir --strip-components=1
-        Remove-Item $blessedTgz -Force -ErrorAction SilentlyContinue
+        $blessedUrls = @(
+            "https://registry.npmjs.org/blessed/-/blessed-$blessedVer.tgz",
+            "https://registry.npmmirror.com/blessed/-/blessed-$blessedVer.tgz"
+        )
+        if (Get-Download -Urls $blessedUrls -OutFile $blessedTgz) {
+            New-Item -ItemType Directory -Force -Path $blessedDir | Out-Null
+            tar -xzf $blessedTgz -C $blessedDir --strip-components=1
+            Remove-Item $blessedTgz -Force -ErrorAction SilentlyContinue
+        } else {
+            Warn "Could not install blessed (TUI dependency) - rerun the installer later to retry"
+        }
+    } catch {
+        Warn "Could not install blessed (TUI dependency) - rerun the installer later to retry"
     }
+}
 
-    # Create package.json at prefix to prevent npm --prefix from pruning core packages
+# Create package.json at prefix to prevent npm --prefix from pruning core packages
+if ($coreVer) {
     $prefixPkg = Join-Path $prefixDir "package.json"
     if (-not (Test-Path $prefixPkg)) {
         $pkgJson = @{
             private = $true
             dependencies = @{
-                $NPM_PACKAGE = $latestVer
+                $NPM_PACKAGE = $coreVer
                 blessed = $blessedVer
             }
         } | ConvertTo-Json -Compress
@@ -247,7 +328,7 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
             if (-not $pkg.dependencies) {
                 $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([PSCustomObject]@{}) -Force
             }
-            $pkg.dependencies | Add-Member -NotePropertyName $NPM_PACKAGE -NotePropertyValue $latestVer -Force
+            $pkg.dependencies | Add-Member -NotePropertyName $NPM_PACKAGE -NotePropertyValue $coreVer -Force
             $pkg.dependencies | Add-Member -NotePropertyName "blessed" -NotePropertyValue $blessedVer -Force
             $pkg | ConvertTo-Json -Compress | Set-Content -Path $prefixPkg
         } catch {
@@ -255,33 +336,30 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
             $pkgJson = @{
                 private = $true
                 dependencies = @{
-                    $NPM_PACKAGE = $latestVer
+                    $NPM_PACKAGE = $coreVer
                     blessed = $blessedVer
                 }
             } | ConvertTo-Json -Compress
             Set-Content -Path $prefixPkg -Value $pkgJson
         }
     }
+}
 
-    # Create bin shims
-    # Uses %~dp0-relative paths so cmd.exe OEM code page doesn't corrupt
-    # non-ASCII characters in home directory paths (e.g. C:\Users\<non-ascii-name>\...)
-    # Matches the launcher's shim format (2-line, no setlocal).
-    $shimDir = Join-Path $prefixDir "node_modules\.bin"
-    New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
-    foreach ($name in @("agn", "openagents", "agent-connector")) {
-        # We write a distinct "$name.cmd" (not the package's .js bin), so unlike
-        # the POSIX shim we can't clobber the real entrypoint. Remove any
-        # pre-existing file first anyway, so a stale/read-only shim from an older
-        # install can't block the overwrite.
-        $shimPath = Join-Path $shimDir "$name.cmd"
-        Remove-Item -Force -ErrorAction SilentlyContinue -Path $shimPath
-        $shimContent = "@echo off`r`n`"%~dp0..\..\node.exe`" `"%~dp0..\@openagents-org\agent-launcher\bin\agent-connector.js`" %*`r`n"
-        Set-Content -Path $shimPath -Value $shimContent -NoNewline
-    }
-    Ok "$NPM_PACKAGE v$latestVer installed"
-} elseif ($installedVer) {
-    Ok "Already up to date ($installedVer)"
+# Create bin shims
+# Uses %~dp0-relative paths so cmd.exe OEM code page doesn't corrupt
+# non-ASCII characters in home directory paths (e.g. C:\Users\<non-ascii-name>\...)
+# Matches the launcher's shim format (2-line, no setlocal).
+$shimDir = Join-Path $prefixDir "node_modules\.bin"
+New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+foreach ($name in @("agn", "openagents", "agent-connector")) {
+    # We write a distinct "$name.cmd" (not the package's .js bin), so unlike
+    # the POSIX shim we can't clobber the real entrypoint. Remove any
+    # pre-existing file first anyway, so a stale/read-only shim from an older
+    # install can't block the overwrite.
+    $shimPath = Join-Path $shimDir "$name.cmd"
+    Remove-Item -Force -ErrorAction SilentlyContinue -Path $shimPath
+    $shimContent = "@echo off`r`n`"%~dp0..\..\node.exe`" `"%~dp0..\@openagents-org\agent-launcher\bin\agent-connector.js`" %*`r`n"
+    Set-Content -Path $shimPath -Value $shimContent -NoNewline
 }
 
 $env:PATH = "$prefixDir\node_modules\.bin;$prefixDir;$env:PATH"
@@ -408,13 +486,47 @@ if ($needsPath.Count -gt 0) {
     Write-Host ""
 }
 
-Write-Host "  Get started:" -ForegroundColor White
-Write-Host ""
-Write-Host "    agn" -ForegroundColor White -NoNewline
-Write-Host "                       Launch the interactive dashboard"
-Write-Host ""
-
-if ($agentCount -eq 0) {
-    Dim "No AI agents found. The dashboard will help you install one."
+# --- Connect a node (optional, interactive) ---------------------------------
+# Offer to pair this device to a workspace using a code from the web app
+# ("Connect a Node"). `irm | iex` runs in the current session, so Read-Host can
+# prompt interactively. Skip in non-interactive/CI hosts.
+#
+# The common journey: the user came from the workspace's Connect-a-Node page
+# with a code in hand. Pair here, and `node connect` prints the workspace URL
+# to open next — no further CLI commands to run. A device that is already
+# paired sees its workspaces (with links) up front; re-pasting a code for one
+# of them just refreshes the credential and reads "already paired".
+$paired = $false
+if ([Environment]::UserInteractive -and -not $env:OPENAGENTS_SKIP_PAIRING) {
+    if (Test-Path (Join-Path $HOME ".openagents\node.json")) {
+        Write-Host ""
+        try { & agn node status } catch {}
+    }
     Write-Host ""
+    Write-Host "  Connect this device to a workspace" -ForegroundColor White
+    Dim "Get a pairing code from your OpenAgents workspace (Connect a Node)."
+    $pairingCode = Read-Host "    Paste pairing code (or press Enter to skip)"
+    if ($pairingCode) {
+        Write-Host ""
+        try {
+            & agn node connect $pairingCode.Trim()
+            if ($LASTEXITCODE -eq 0) { $paired = $true }
+        } catch {
+            Warn "Could not connect. Retry later with: agn node connect <code>"
+        }
+    }
+    Write-Host ""
+}
+
+if (-not $paired) {
+    Write-Host "  Get started:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    agn" -ForegroundColor White -NoNewline
+    Write-Host "                       Launch the interactive dashboard"
+    Write-Host ""
+
+    if ($agentCount -eq 0) {
+        Dim "No AI agents found. The dashboard will help you install one."
+        Write-Host ""
+    }
 }

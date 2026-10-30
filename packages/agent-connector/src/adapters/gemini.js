@@ -11,12 +11,22 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
+const {
+  isFailedRun,
+  failureDetail,
+  classifyGeminiFailure,
+  retriesWithoutResume,
+} = require('./gemini-stream');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -29,6 +39,10 @@ class GeminiAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's glossary into the prompt (read-only:
+    // Gemini has no MCP server and no workspace skill, so it cannot write
+    // the knowledge entries — it only needs to SEE them).
+    this._usesPinnedContext = true;
     this._channelSessions = {}; // channel → Gemini CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._sessionsFile = path.join(
@@ -60,12 +74,6 @@ class GeminiAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      await this._stopAllProcesses();
-    }
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {
@@ -86,20 +94,6 @@ class GeminiAdapter extends BaseAdapter {
         });
       }
     } catch {}
-  }
-
-  async _stopAllProcesses() {
-    const entries = Object.entries(this._channelProcesses);
-    if (!entries.length) return;
-    this._log(`Stopping ${entries.length} running process(es)...`);
-    for (const [channel, proc] of entries) {
-      await this._stopProcess(proc);
-      delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
-      try {
-        await this.sendStatus(channel, 'Execution stopped by user');
-      } catch {}
-    }
   }
 
   _findNodeBin() {
@@ -179,7 +173,10 @@ class GeminiAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('gemini');
   }
 
   // The Gemini CLI refuses to run non-interactively unless an auth method is
@@ -222,11 +219,14 @@ class GeminiAdapter extends BaseAdapter {
       throw new Error('gemini CLI not found. Install with: npm install -g @google/gemini-cli');
     }
 
+    const pinned = this.pinnedPromptOpts(channelName);
     const systemPrompt = '\n' + buildClaudeSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
+      model: this.modelLabel(),
+      glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });
     
     // For gemini, we combine system prompt with the user message since it doesn't have an append-system-prompt flag
@@ -301,6 +301,9 @@ class GeminiAdapter extends BaseAdapter {
         return;
       }
 
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
+
       try {
         const resolved = this._resolveToNodeCmd(cmd[0]);
         if (resolved) {
@@ -318,12 +321,20 @@ class GeminiAdapter extends BaseAdapter {
         });
         this._channelProcesses[msgChannel] = proc;
 
+        // Read before any event can replace it: whether this run passed -r.
+        const resumed = attempt === 0 && Boolean(this._channelSessions[msgChannel]);
         const lastResponseText = [];
         let hasToolUseSinceLastText = false;
         let postedThinking = false;
         let stderrBuf = '';
         let lineBuffer = '';
         let _pendingLines = Promise.resolve();
+        // Where the CLI says a run failed: the final result event, and any
+        // error-severity events along the way. See gemini-stream.js.
+        let resultStatus = null;
+        let resultError = null;
+        const errorMessages = [];
+        let idleKilled = false;
 
         if (proc.stderr) {
           proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
@@ -350,6 +361,7 @@ class GeminiAdapter extends BaseAdapter {
                 }
                 if (consecutiveTimeouts >= 20) {
                   this._log(`Process idle for ${consecutiveTimeouts * 15}s, killing...`);
+                  idleKilled = true;
                   await this._stopProcess(proc);
                 }
               }
@@ -396,15 +408,24 @@ class GeminiAdapter extends BaseAdapter {
                 else inputPreview = JSON.stringify(inp).slice(0, 150);
               }
               await this.sendStatus(msgChannel, `${toolName} › ${inputPreview}`);
+            } else if (eventType === 'error') {
+              // A warning (loop detected) does not fail the run; an error does.
+              if (event.severity === 'error' && event.message) {
+                errorMessages.push(String(event.message));
+              } else if (event.message) {
+                this._log(`CLI warning: ${this._redact(event.message)}`);
+              }
             } else if (eventType === 'result') {
-               if (event.session_id) {
-                 this._channelSessions[msgChannel] = event.session_id;
-                 this._saveSessions();
-               }
+              if (event.session_id) {
+                this._channelSessions[msgChannel] = event.session_id;
+                this._saveSessions();
+              }
+              resultStatus = event.status || null;
+              if (event.status === 'error') resultError = event.error || null;
             }
           };
 
-          proc.on('exit', async (code) => {
+          proc.on('exit', async (code, signal) => {
             if (timeoutTimer) clearInterval(timeoutTimer);
 
             try { await _pendingLines; } catch {}
@@ -417,30 +438,73 @@ class GeminiAdapter extends BaseAdapter {
             delete this._channelProcesses[msgChannel];
 
             if (code !== 0) {
-              this._log(`CLI exited with code ${code}`);
-              if (stderrBuf.trim()) {
-                this._log(`stderr: ${stderrBuf.trim().slice(0, 500)}`);
-              }
+              this._log(`CLI exited with ${signal ? `signal ${signal}` : `code ${code}`}`);
+              // Redact the whole buffer before cutting it; keep the end, where the failure is.
+              const stderrText = this._redact(stderrBuf).trim();
+              if (stderrText) this._log(`stderr: ${stderrText.slice(-500)}`);
             }
 
-            if (lastResponseText.length > 0) {
-              const fullResponse = lastResponseText.join('').trim(); // Gemini deltas are partial strings, no newline needed between them usually, but wait, delta:true means it appends. If it's multiple blocks, we should join with empty string? Let's check `delta: true`.
-              // Actually if delta: true, they are chunks. We pushed them to array. `lastResponseText.join('')` is correct.
+            // stream-json deltas are fragments of one message: join with no separator.
+            const fullResponse = lastResponseText.join('').trim();
+
+            // Stopped by the user: their exit is neither a failure to report
+            // nor a reason to retry from a fresh session, and `_handleUserStop`
+            // has already told the channel. The base clears the flag when the
+            // channel's next turn starts.
+            if (this._stoppingChannels.has(msgChannel)) {
+              resolve(false);
+              return;
+            }
+
+            if (idleKilled) {
               if (fullResponse) {
                 try { await this.sendResponse(msgChannel, fullResponse); } catch {}
               }
+              const detail = failureDetail({
+                stderr: stderrBuf, error: resultError, errorMessages, secrets: this._knownSecrets(),
+              });
+              try {
+                await this.sendError(
+                  msgChannel,
+                  'Gemini CLI produced no output for 5 minutes and was stopped.' +
+                    (detail ? `\n\nDetails: ${detail}` : ''),
+                );
+              } catch {}
               resolve(false);
-            } else if (code !== 0 && this._channelSessions[msgChannel]) {
-              this._log(`Stale session detected for ${msgChannel}, clearing and retrying without resume`);
-              delete this._channelSessions[msgChannel];
-              this._saveSessions();
-              resolve(true);
-            } else {
-              if (!postedThinking) {
+              return;
+            }
+
+            if (!isFailedRun({ code, resultStatus, errorMessages })) {
+              if (fullResponse) {
+                try { await this.sendResponse(msgChannel, fullResponse); } catch {}
+              } else if (!postedThinking) {
                 try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
               }
               resolve(false);
+              return;
             }
+
+            const failure = classifyGeminiFailure({
+              code, stderr: stderrBuf, error: resultError, errorMessages, secrets: this._knownSecrets(),
+            });
+            this._log(`Run failed (${failure.kind})`, 'error');
+
+            // Only a resume that failed, or a failure nothing explains, is worth
+            // a fresh session. Retrying anything else repeats the same wait for
+            // the same error and throws the channel's history away.
+            if (!fullResponse && resumed && retriesWithoutResume(failure.kind)) {
+              this._log(`Could not resume the session for ${msgChannel}, clearing and retrying without resume`);
+              delete this._channelSessions[msgChannel];
+              this._saveSessions();
+              resolve(true);
+              return;
+            }
+
+            if (fullResponse) {
+              try { await this.sendResponse(msgChannel, fullResponse); } catch {}
+            }
+            try { await this.sendError(msgChannel, failure.message); } catch {}
+            resolve(false);
           });
 
           proc.on('error', (err) => {
@@ -460,7 +524,7 @@ class GeminiAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;

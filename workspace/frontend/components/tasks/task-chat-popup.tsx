@@ -21,6 +21,8 @@ interface TaskChatPopupProps {
   sessionId: string;
   taskTitle: string;
   assignee: string | null;
+  /** Optional status line under the title, e.g. workflow step progress. */
+  subtitle?: string;
 }
 
 /**
@@ -31,7 +33,7 @@ interface TaskChatPopupProps {
  * (hard-coupled to the global `currentSessionId`), we compose the same two
  * children it uses — `ChatMessages` + `ChatInput` — against a `sessionId` prop.
  */
-export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assignee }: TaskChatPopupProps) {
+export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assignee, subtitle }: TaskChatPopupProps) {
   const { agents, currentUser } = useWorkspace();
   const { messages, forceRefresh, generation, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
     sessionId,
@@ -80,22 +82,27 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
             {assignee && <AgentAvatar name={assignee} size={20} />}
             <span className="truncate">{taskTitle}</span>
           </DialogTitle>
+          {subtitle && (
+            <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p>
+          )}
         </DialogHeader>
 
-        <div className="flex flex-col h-[60vh]">
-          <div className="flex-1 min-h-0">
-            <ChatMessages
-              messages={messages}
-              agents={agents}
-              showAllSteps={false}
-              scrollKey={scrollKey + generation}
-              loadOlder={loadOlder}
-              hasOlder={hasOlder}
-              loadingOlder={loadingOlder}
-            />
-          </div>
+        {/* ChatMessages' root is `flex-1 min-h-0`, so it must be a DIRECT child
+            of this flex column to get a bounded height and scroll — wrapping it
+            in a plain div collapses that and the list overflows the dialog. */}
+        <div className="flex flex-col h-[60vh] min-h-0">
+          <ChatMessages
+            messages={messages}
+            agents={agents}
+            showAllSteps={false}
+            scrollKey={scrollKey + generation}
+            loadOlder={loadOlder}
+            hasOlder={hasOlder}
+            loadingOlder={loadingOlder}
+            className="h-full overflow-y-auto px-4 py-3"
+          />
           <div className="border-t border-border p-3">
-            <ChatInput onSend={handleSend} agents={agents} />
+            <ChatInput conversationId={sessionId} onSend={handleSend} agents={agents} />
           </div>
         </div>
       </DialogContent>

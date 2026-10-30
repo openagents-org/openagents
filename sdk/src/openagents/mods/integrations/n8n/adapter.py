@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.models.tool import AgentTool
 from openagents.utils.n8n_client import N8nClient
 

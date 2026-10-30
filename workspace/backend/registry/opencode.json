@@ -1,0 +1,124 @@
+{
+  "name": "opencode",
+  "label": "OpenCode",
+  "description": "Open-source terminal-native AI coding agent",
+  "homepage": "https://opencode.ai",
+  "tags": [
+    "coding",
+    "open-source",
+    "cli",
+    "terminal"
+  ],
+  "featured": true,
+  "order": 5,
+  "builtin": true,
+  "logo": {
+    "key": "opencode"
+  },
+  "support": {},
+  "install": {
+    "binary": "opencode",
+    "requires": [
+      "nodejs"
+    ],
+    "macos": "npm install -g opencode-ai@1.17.11",
+    "linux": "npm install -g opencode-ai@1.17.11",
+    "windows": "npm install -g opencode-ai@1.17.11"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g opencode-ai@1.17.11",
+    "linux": "npm uninstall -g opencode-ai@1.17.11",
+    "windows": "npm uninstall -g opencode-ai@1.17.11"
+  },
+  "adapter": {
+    "module": "openagents.adapters.opencode",
+    "class": "OpenCodeAdapter"
+  },
+  "launch": null,
+  "check_ready": {
+    "env_vars": [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY"
+    ],
+    "saved_env_key": "LLM_API_KEY",
+    "min_version": "1.17.0",
+    "not_ready_message": "Not configured — sign in with `opencode auth login`, pick a free opencode/ model, or add an API key in Configure",
+    "creds_file": "~/.local/share/opencode/auth.json",
+    "creds_no_parse": true,
+    "creds_json_has_entries": true,
+    "keyless_model_prefixes": [
+      "opencode/"
+    ]
+  },
+  "env_config": [
+    {
+      "name": "LLM_API_KEY",
+      "description": "API key",
+      "required": true,
+      "password": true
+    },
+    {
+      "name": "LLM_BASE_URL",
+      "description": "API base URL (OpenAI-compatible endpoint)",
+      "required": false,
+      "default": "https://api.openai.com/v1",
+      "placeholder": "https://api.openai.com/v1"
+    },
+    {
+      "name": "LLM_MODEL",
+      "description": "Model name (required — OpenCode hangs without one)",
+      "required": true,
+      "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
+    }
+  ],
+  "models": [
+    {
+      "id": "opencode/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-fable-5",
+      "label": "Claude Fable 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-opus-5",
+      "label": "Claude Opus 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/claude-sonnet-5",
+      "label": "Claude Sonnet 5 (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/gemini-3.1-pro",
+      "label": "Gemini 3.1 Pro (OpenCode Zen)",
+      "category": "chat"
+    },
+    {
+      "id": "opencode/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro (OpenCode Zen)",
+      "category": "chat"
+    }
+  ],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "OPENAI_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "OPENAI_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "OPENCODE_MODEL"
+      }
+    ]
+  },
+  "vendor": "Open source",
+  "tagline": "Terminal-native, provider-agnostic, fully open."
+}

@@ -1,0 +1,637 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+// The whole point of these cases is what is and isn't on disk, so fs is the
+// thing under control. Only the two reads installVanished/getInstalledVersion
+// make are modelled: existsSync and readFileSync.
+const files = new Map<string, string>()
+const links = new Map<string, string>()
+/** Directories a write into fails, as one owned by root would. */
+const readonlyDirs = new Set<string>()
+vi.mock("fs", () => {
+  const api = {
+    existsSync: (p: string) => files.has(String(p)),
+    readFileSync: (p: string) => {
+      const v = files.get(String(p))
+      if (v === undefined) throw new Error(`ENOENT: ${p}`)
+      return v
+    },
+    mkdirSync: () => undefined,
+    writeFileSync: (p: string, data: string) => {
+      if (readonlyDirs.has(path.dirname(String(p)))) throw new Error(`EACCES: ${p}`)
+      files.set(String(p), String(data))
+    },
+    unlinkSync: (p: string) => {
+      files.delete(String(p))
+    },
+    // installVanished logs its verdict through appendDaemonLog.
+    appendFileSync: () => undefined,
+    // Global installs link their bin at the real file inside the package.
+    realpathSync: (p: string) => links.get(String(p)) || String(p),
+  }
+  return { ...api, default: api }
+})
+
+// The install cases run npm as a fake process that records its argv and exits
+// 0, and read the registry from a fixture instead of the network.
+const spawned: string[][] = []
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("child_process")>()
+  const { EventEmitter } = await import("events")
+  const stream = () =>
+    Object.assign(new EventEmitter(), { setEncoding: () => undefined })
+  const spawn = (_cmd: string, args: string[]) => {
+    spawned.push(args)
+    const proc = Object.assign(new EventEmitter(), {
+      stdout: stream(),
+      stderr: stream(),
+    })
+    setTimeout(() => proc.emit("close", 0), 0)
+    return proc
+  }
+  return { ...actual, default: { ...actual, spawn }, spawn }
+})
+let npmInfo: unknown = null
+vi.mock("./npm-registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./npm-registry")>()),
+  fetchNpmInfo: async () => npmInfo,
+}))
+
+import path from "path"
+
+import { InstallService } from "./install-service"
+import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
+
+const npmInstall = "npm install -g @openai/codex"
+const openclawInstall = "npm install -g openclaw@latest"
+const deepseekInstall = "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+const script = "powershell -c irm cursor.com/install | iex"
+const REGISTRY: Record<string, Record<string, unknown>> = {
+  // npm-backed: has a package dir we can check.
+  codex: {
+    name: "codex",
+    install: {
+      binary: "codex",
+      macos: npmInstall,
+      linux: npmInstall,
+      windows: npmInstall,
+    },
+  },
+  opencode: {
+    name: "opencode",
+    install: {
+      binary: "opencode",
+      windows: "npm install -g opencode-ai@1.17.11",
+      linux: "npm install -g opencode-ai@1.17.11",
+      macos: "npm install -g opencode-ai@1.17.11",
+    },
+  },
+  // npm-backed and floating on `latest` — the shape the Node check guards.
+  openclaw: {
+    name: "openclaw",
+    install: {
+      binary: "openclaw",
+      macos: openclawInstall,
+      linux: openclawInstall,
+      windows: openclawInstall,
+    },
+  },
+  deepseek: {
+    name: "deepseek",
+    install: {
+      binary: "dsh",
+      npm_package: "@deepseek-ai/dsh",
+      supported_version: "0.2.1-rc.2",
+      macos: deepseekInstall,
+      linux: deepseekInstall,
+      windows: deepseekInstall,
+    },
+  },
+  // Script-installed: no package, so the records are all we have.
+  cursor: {
+    name: "cursor",
+    install: {
+      binary: "cursor-agent",
+      macos: script,
+      linux: script,
+      windows: script,
+    },
+  },
+}
+
+const pkgJson = (agent: string, pkg: string): string =>
+  path.join(CONFIG_DIR, "runtimes", agent, "node_modules", pkg, "package.json")
+const legacyPkgJson = (pkg: string): string =>
+  path.join(PORTABLE_NODE_DIR, "node_modules", pkg, "package.json")
+
+function makeService(resolveBinary: (t: string) => string | null) {
+  return new InstallService({
+    connector: () => ({
+      registry: { getEntry: (t: string) => REGISTRY[t] || null },
+    }),
+    clearCatalogCache: () => undefined,
+    getCatalog: async () => [],
+    resolveBinary,
+  })
+}
+
+const none = (): null => null
+
+beforeEach(() => {
+  files.clear()
+  links.clear()
+  readonlyDirs.clear()
+})
+
+/**
+ * The install history and the core's markers are write-once claims that nothing
+ * re-checks. On Windows, 2026-08-17, that showed a user "Codex, installed
+ * v0.133.0, update available" for a CLI that `where codex` could not find —
+ * every sign-in attempt failed and the marketplace hid the one button (Install)
+ * that would have fixed it.
+ */
+describe("installVanished", () => {
+  it("calls out an npm agent whose package is gone", () => {
+    const svc = makeService(none)
+    expect(svc.installVanished("codex")).toBe(true)
+  })
+
+  it("leaves it alone when the package is right there", () => {
+    files.set(
+      pkgJson("codex", "@openai/codex"),
+      JSON.stringify({ version: "0.147.0" }),
+    )
+    expect(makeService(none).installVanished("codex")).toBe(false)
+  })
+
+  it("accepts the legacy shared prefix too", () => {
+    files.set(
+      legacyPkgJson("@openai/codex"),
+      JSON.stringify({ version: "0.133.0" }),
+    )
+    expect(makeService(none).installVanished("codex")).toBe(false)
+  })
+
+  it("accepts a global install the launcher never made", () => {
+    const svc = makeService((t) =>
+      t === "codex" ? "C:\\npm\\codex.cmd" : null,
+    )
+    expect(svc.installVanished("codex")).toBe(false)
+  })
+
+  it("never judges a script-installed CLI — there is no package to look for", () => {
+    // Cursor's installer drops an exe and edits the registry PATH; nothing about
+    // it lives in node_modules, so an empty disk here proves nothing.
+    expect(makeService(none).installVanished("cursor")).toBe(false)
+  })
+
+  it("never judges an agent the registry doesn't know", () => {
+    expect(makeService(none).installVanished("nope")).toBe(false)
+  })
+})
+
+describe("listInstalledAgents", () => {
+  const history = (data: Record<string, unknown>): void => {
+    files.set(INSTALLED_HISTORY_FILE, JSON.stringify(data))
+  }
+
+  it("drops a record whose package no longer exists", () => {
+    history({
+      codex: { name: "codex", version: "0.133.0", installedAt: "2026-08-17" },
+    })
+    expect(makeService(none).listInstalledAgents()).toEqual([])
+  })
+
+  it("keeps it once the package is back, and reports the DISK version", () => {
+    history({
+      codex: { name: "codex", version: "0.133.0", installedAt: "2026-08-17" },
+    })
+    files.set(
+      pkgJson("codex", "@openai/codex"),
+      JSON.stringify({ version: "0.147.0" }),
+    )
+    const [rec] = makeService(none).listInstalledAgents()
+    // The record still says 0.133.0 — an update outside the launcher is exactly
+    // the case where believing the record misreports what is running.
+    expect(rec.version).toBe("0.147.0")
+  })
+
+  it("keeps a script-installed agent on its recorded version", () => {
+    history({
+      cursor: {
+        name: "cursor",
+        version: "2026.8.1",
+        installedAt: "2026-08-17",
+      },
+    })
+    const [rec] = makeService(none).listInstalledAgents()
+    expect([rec.name, rec.version]).toEqual(["cursor", "2026.8.1"])
+  })
+})
+
+/**
+ * A globally-installed CLI used to report no version at all, because only the
+ * launcher's own runtime prefixes were consulted. isUpgradeAvailable(null, x)
+ * is false, so those agents could never be told they were out of date — the
+ * marketplace said "0 updates" while the CLI was old enough for the backend to
+ * refuse it outright (#649: "The 'gpt-5.6-sol' model requires a newer version
+ * of Codex").
+ */
+describe("getInstalledVersion — globally installed CLIs", () => {
+  const globalBin = path.join("global", "bin", "codex")
+  const realBin = path.join("global", "lib", "node_modules", "@openai", "codex", "bin", "codex.js")
+  const globalPkg = path.join("global", "lib", "node_modules", "@openai", "codex", "package.json")
+
+  it("reads the version off the package that owns the binary", () => {
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe("0.150.0")
+  })
+
+  it("reads a Windows npm global install beside its .cmd shim", () => {
+    const bin = path.join("/global", "npm", "opencode.cmd")
+    const manifest = path.join(path.dirname(bin), "node_modules", "opencode-ai", "package.json")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.18.32" }))
+    const svc = makeService((t) => (t === "opencode" ? bin : null))
+    expect(svc.getInstalledVersion("opencode")).toBe("1.18.32")
+  })
+
+  it("refreshes a cached update's current version after an external update", async () => {
+    const bin = path.join("global", "npm", "opencode.cmd")
+    const manifest = path.join(path.dirname(bin), "node_modules", "opencode-ai", "package.json")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.2.26" }))
+    npmInfo = {
+      "dist-tags": { latest: "1.18.32" },
+      versions: { "1.18.32": {} },
+    }
+    const svc = new InstallService({
+      connector: () => ({ registry: { getEntry: (t: string) => REGISTRY[t] || null } }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [{ ...REGISTRY.opencode, installed: true }],
+      resolveBinary: (t) => (t === "opencode" ? bin : null),
+      nodeVersion: async () => null,
+    })
+    expect((await svc.checkAgentUpdates({ force: true }))[0].current).toBe("1.2.26")
+    files.set(manifest, JSON.stringify({ name: "opencode-ai", version: "1.18.32" }))
+    expect((await svc.checkAgentUpdates())[0]).toMatchObject({
+      current: "1.18.32",
+      latest: "1.18.32",
+    })
+  })
+
+  it("prefers a launcher-managed copy over the global one", () => {
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+    files.set(pkgJson("codex", "@openai/codex"), JSON.stringify({ version: "0.160.0" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe("0.160.0")
+  })
+
+  it("refuses a package.json that belongs to something else", () => {
+    // A wrapper script parked inside an unrelated package must not lend it its
+    // version — that would report a confident number that is simply wrong.
+    links.set(globalBin, "/opt/tools/bin/codex")
+    files.set("/opt/tools/package.json", JSON.stringify({ name: "some-toolbox", version: "9.9.9" }))
+    const svc = makeService((t) => (t === "codex" ? globalBin : null))
+    expect(svc.getInstalledVersion("codex")).toBe(null)
+  })
+
+  it("stays null for a script-installed CLI with no npm package", () => {
+    const svc = makeService(() => "/Users/u/.cursor/bin/cursor-agent")
+    expect(svc.getInstalledVersion("cursor")).toBe(null)
+  })
+
+  it("stays null when no binary resolves at all", () => {
+    expect(makeService(none).getInstalledVersion("codex")).toBe(null)
+  })
+})
+
+/**
+ * openclaw 2026.9.3 raised its floor to Node 24.16 with a preinstall script
+ * that exits non-zero below it. The launcher installs and runs agents on its
+ * portable Node 22, so from 2026-09-11 every openclaw update — and every fresh
+ * install — failed, while the badge kept offering the release that couldn't
+ * install.
+ */
+describe("when npm's latest refuses the agents' Node", () => {
+  const NODE_22_OK = ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  const NODE_24_ONLY = ">=24.16.0 <25 || >=26.1.0"
+
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = {
+      "dist-tags": { latest: "2026.9.4" },
+      versions: {
+        "2026.9.2": { engines: { node: NODE_22_OK } },
+        "2026.9.3": { engines: { node: NODE_24_ONLY } },
+        "2026.9.4": { engines: { node: NODE_24_ONLY } },
+      },
+    }
+  })
+
+  function service(node: string | null) {
+    const installStreaming = vi.fn(async () => ({ success: true }))
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, installStreaming },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [{ ...REGISTRY.openclaw, installed: true }],
+      resolveBinary: none,
+      nodeVersion: async () => node,
+    })
+    return { svc, installStreaming }
+  }
+
+  it("offers the newest release that runs, not one that can't install", async () => {
+    const { svc } = service("22.22.3")
+    const [update] = await svc.checkAgentUpdates({ force: true })
+    expect(update.latest).toBe("2026.9.2")
+  })
+
+  it("updates to that release, and says why it isn't the newest", async () => {
+    const log: string[] = []
+    const result = await service("22.22.3").svc.updateAgentTypeStreaming(
+      "openclaw",
+      (d) => log.push(d),
+    )
+    expect(result).toMatchObject({ success: true, version: "2026.9.2" })
+    expect(spawned[0]).toContain("openclaw@2026.9.2")
+    expect(log.join("")).toContain("requires Node >=24.16.0")
+  })
+
+  it("installs it fresh the same way, instead of handing the core `latest`", async () => {
+    const { svc, installStreaming } = service("22.22.3")
+    await svc.installAgentTypeStreaming("openclaw", () => undefined)
+    expect(installStreaming).not.toHaveBeenCalled()
+    expect(spawned[0]).toContain("openclaw@2026.9.2")
+  })
+
+  it.each([
+    ["24.20.0", "openclaw@2026.9.4"],
+    [null, "openclaw@latest"],
+  ])("holds nothing back on Node %s", async (node, spec) => {
+    // New enough, or no Node to ask: npm's `latest` — named by number when it
+    // is known — and a fresh install stays with the core, which owns the full
+    // install pipeline.
+    const { svc, installStreaming } = service(node)
+    const [update] = await svc.checkAgentUpdates({ force: true })
+    expect(update.latest).toBe("2026.9.4")
+    await svc.updateAgentTypeStreaming("openclaw", () => undefined)
+    expect(spawned[0]).toContain(spec)
+    await svc.installAgentTypeStreaming("openclaw", () => undefined)
+    expect(installStreaming).toHaveBeenCalledOnce()
+  })
+
+  it("never lets npm answer from a stale cache", async () => {
+    // A cached packument can predate the release being installed: with
+    // --prefer-offline npm then fails with ETARGET instead of fetching it,
+    // which broke every update.
+    await service("24.20.0").svc.updateAgentTypeStreaming("openclaw", () => undefined)
+    expect(spawned[0]).not.toContain("--prefer-offline")
+  })
+})
+
+describe("agent-specific npm resolver workarounds", () => {
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+  })
+
+  function service() {
+    return new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: none,
+      nodeVersion: async () => "22.22.3",
+    })
+  }
+
+  it("installs DeepSeek Harness with its peers, like any other agent", async () => {
+    // dsh 0.1.x needed --legacy-peer-deps to dodge a resolver stall, which then
+    // left the peers its later sub-packages moved out of dependencies missing.
+    await service().installAgentTypeStreaming("deepseek", () => undefined)
+    expect(spawned[0]).not.toContain("--legacy-peer-deps")
+    expect(spawned[0]).toContain("@deepseek-ai/dsh@0.2.1-rc.2")
+  })
+})
+
+/**
+ * An agent the user installed with `npm i -g` is updated in that npm prefix.
+ * It used to get a second, managed copy under ~/.openagents/ instead, leaving
+ * the user's own install behind and two copies of one CLI on the machine.
+ */
+describe.skipIf(process.platform === "win32")("updating the user's own npm install", () => {
+  const prefix = "/usr/local"
+  const globalBin = path.join(prefix, "bin", "codex")
+  const realBin = path.join(prefix, "lib", "node_modules", "@openai", "codex", "bin", "codex.js")
+  const globalPkg = path.join(prefix, "lib", "node_modules", "@openai", "codex", "package.json")
+
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+    links.set(globalBin, realBin)
+    files.set(globalPkg, JSON.stringify({ name: "@openai/codex", version: "0.150.0" }))
+  })
+
+  function service() {
+    return new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+  }
+
+  it("runs npm against the prefix the copy lives in", async () => {
+    expect(service().updateTarget("codex")).toMatchObject({
+      kind: "original",
+      prefix,
+      elevation: "none",
+    })
+    await service().updateAgentTypeStreaming("codex", () => undefined)
+    expect(spawned[0]).toEqual(
+      expect.arrayContaining(["install", "-g", "--prefix", prefix, "@openai/codex@latest"]),
+    )
+    expect(spawned[0].join(" ")).not.toContain("runtimes")
+  })
+
+  it("keeps updating the managed copy once there is one", async () => {
+    files.set(pkgJson("codex", "@openai/codex"), JSON.stringify({ version: "0.160.0" }))
+    expect(service().updateTarget("codex")).toEqual({ kind: "managed" })
+    await service().updateAgentTypeStreaming("codex", () => undefined)
+    expect(spawned[0]).toContain(path.join(CONFIG_DIR, "runtimes", "codex"))
+  })
+
+  it("asks for admin rights when the prefix is not the user's to write", () => {
+    readonlyDirs.add(path.join(prefix, "lib", "node_modules"))
+    const target = service().updateTarget("codex")
+    expect(target).toMatchObject({
+      kind: "original",
+      elevation: process.platform === "darwin" ? "prompt" : "manual",
+      command: "sudo npm install -g --prefix /usr/local @openai/codex@latest",
+    })
+  })
+
+  it("does not run npm when only the user can grant those rights", async () => {
+    if (process.platform === "darwin") return
+    readonlyDirs.add(path.join(prefix, "lib", "node_modules"))
+    const result = (await service().updateAgentTypeStreaming("codex", () => undefined)) as {
+      success: boolean
+      error: string
+    }
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("sudo npm install -g")
+    expect(spawned).toHaveLength(0)
+  })
+
+  it("warns, without repairing, when the update left a placeholder CLI", async () => {
+    const isPostinstallStubAt = vi.fn(() => true)
+    const finishNpmInstall = vi.fn(async () => null)
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, isPostinstallStubAt, finishNpmInstall },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+    const log: string[] = []
+    const result = await svc.updateAgentTypeStreaming("codex", (d) => log.push(d))
+    expect(result).toMatchObject({ success: true })
+    expect(isPostinstallStubAt).toHaveBeenCalledWith(globalBin)
+    expect(finishNpmInstall).not.toHaveBeenCalled()
+    expect(log.join("")).toContain("is only a placeholder")
+  })
+
+  it("says nothing extra when the updated CLI is real", async () => {
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: { hasNodejs: () => true, isPostinstallStubAt: () => false },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: (t) => (t === "codex" ? globalBin : null),
+      nodeVersion: async () => "22.22.3",
+    })
+    const log: string[] = []
+    await svc.updateAgentTypeStreaming("codex", (d) => log.push(d))
+    expect(log.join("")).not.toContain("placeholder")
+  })
+
+  it("leaves a Homebrew install to Homebrew", () => {
+    const cellar = "/opt/homebrew/Cellar/codex/1.0/libexec"
+    const brewBin = "/opt/homebrew/bin/codex"
+    links.set(brewBin, path.join(cellar, "lib", "node_modules", "@openai", "codex", "bin", "codex.js"))
+    files.set(
+      path.join(cellar, "lib", "node_modules", "@openai", "codex", "package.json"),
+      JSON.stringify({ name: "@openai/codex", version: "0.150.0" }),
+    )
+    const svc = new InstallService({
+      connector: () => ({ registry: { getEntry: (t: string) => REGISTRY[t] || null } }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: () => brewBin,
+    })
+    expect(svc.updateTarget("codex")).toEqual({ kind: "managed" })
+  })
+})
+
+/**
+ * `ignore-scripts=true` in a user's npmrc makes npm skip opencode-ai's
+ * postinstall and still exit 0, with the package's ~500 byte placeholder left
+ * where the CLI should be. OpenCode's registry command is version-pinned, so
+ * its install runs here rather than in the core — and "exit 0" was recorded as
+ * installed: the agent read "installed", its model list would not load, and
+ * every message failed ("No model is configured", then an unexplained exit 1).
+ */
+describe("an npm install that exits 0 without a runnable CLI", () => {
+  beforeEach(() => {
+    spawned.length = 0
+    npmInfo = null
+  })
+
+  function service(installer: Record<string, unknown>) {
+    const markInstalled = vi.fn()
+    const svc = new InstallService({
+      connector: () => ({
+        registry: { getEntry: (t: string) => REGISTRY[t] || null },
+        installer: {
+          hasNodejs: () => true,
+          _markInstalled: markInstalled,
+          ...installer,
+        },
+      }),
+      clearCatalogCache: () => undefined,
+      getCatalog: async () => [],
+      resolveBinary: none,
+      nodeVersion: async () => "22.22.3",
+    })
+    return { svc, markInstalled }
+  }
+
+  it("fails with the core's reason and records nothing", async () => {
+    const reason =
+      "OpenCode was downloaded, but its setup could not be finished"
+    const finishNpmInstall = vi.fn(async () => reason)
+    const { svc, markInstalled } = service({ finishNpmInstall })
+    const log: string[] = []
+    const result = await svc.installAgentTypeStreaming("opencode", (d) =>
+      log.push(d),
+    )
+    expect(spawned[0]).toContain("opencode-ai@latest")
+    expect(finishNpmInstall).toHaveBeenCalledWith("opencode", expect.anything())
+    expect(result).toMatchObject({ success: false, error: reason })
+    expect(markInstalled).not.toHaveBeenCalled()
+    expect(svc.getInstalledHistory().opencode).toBeUndefined()
+    expect(log.join("")).toContain(reason)
+    expect(log.join("")).not.toContain("Installed opencode-ai")
+  })
+
+  it("is recorded once the core has the real binary in place", async () => {
+    const { svc, markInstalled } = service({
+      finishNpmInstall: async () => null,
+    })
+    const result = await svc.installAgentTypeStreaming(
+      "opencode",
+      () => undefined,
+    )
+    expect(result).toMatchObject({ success: true })
+    expect(markInstalled).toHaveBeenCalledWith("opencode")
+    expect(svc.getInstalledHistory().opencode).toBeDefined()
+  })
+
+  it.each([
+    ["a core too old to have the check", {}],
+    [
+      "a check that throws",
+      {
+        finishNpmInstall: async () => {
+          throw new Error("boom")
+        },
+      },
+    ],
+  ])("installs as before on %s", async (_name, installer) => {
+    const { svc, markInstalled } = service(installer)
+    const log: string[] = []
+    const result = await svc.updateAgentTypeStreaming("opencode", (d) =>
+      log.push(d),
+    )
+    expect(result).toMatchObject({ success: true })
+    expect(markInstalled).toHaveBeenCalledWith("opencode")
+    if ("finishNpmInstall" in installer)
+      expect(log.join("")).toContain("Could not check the installed CLI: boom")
+  })
+})

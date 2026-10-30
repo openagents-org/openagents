@@ -1,6 +1,19 @@
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
+import { writeJsonAtomic } from './atomic-json'
+
+/**
+ * Where the settings live.
+ *
+ * Exported because startup code has to answer "has this profile run the
+ * launcher before?", and the only durable evidence is whether this file was
+ * already there — a question that must be asked before anything in the run
+ * creates it, so it cannot be asked of the store itself.
+ */
+export function settingsFilePath(): string {
+  return path.join(app.getPath('userData'), 'settings.json')
+}
 
 export class Store {
   private _data: Record<string, unknown> = {}
@@ -13,7 +26,7 @@ export class Store {
 
   private _ensurePath(): void {
     if (!this._pathResolved) {
-      this._path = path.join(app.getPath('userData'), 'settings.json')
+      this._path = settingsFilePath()
       this._pathResolved = true
       this._load()
     }
@@ -36,9 +49,7 @@ export class Store {
   private _save(): void {
     this._ensurePath()
     try {
-      const dir = path.dirname(this._path!)
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(this._path!, JSON.stringify(this._data, null, 2), 'utf-8')
+      writeJsonAtomic(this._path!, this._data)
     } catch (err) {
       console.error('Failed to save settings:', err)
     }

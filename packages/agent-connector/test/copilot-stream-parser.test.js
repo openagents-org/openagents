@@ -252,3 +252,81 @@ describe('copilot end-to-end stream (no duplicate final text)', () => {
     assert.equal(kinds.filter((k) => k === 'text').length, 1);
   });
 });
+
+describe('copilot real stream (captured from CLI v1.0.83)', () => {
+  /**
+   * Verbatim lines from a live authenticated turn, de-identified only in the
+   * uuids. This is the schema the guessed table missed completely: every real
+   * type is `namespace.verb`, and every payload sits under `data` — so the
+   * answer parsed as nothing and the user got "No response generated" for a
+   * turn the CLI had in fact completed (`outcome":"success"`, exit 0).
+   */
+  const REAL = [
+    '{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"a1"}\n',
+    '{"type":"model.call_start","data":{"turnId":"0","model":"gpt-5.6-luna"},"ephemeral":true,"id":"a2"}\n',
+    '{"type":"assistant.reasoning_delta","data":{"reasoningId":"r1","deltaContent":"Th"},"ephemeral":true,"id":"a3a"}\n',
+    '{"type":"assistant.reasoning_delta","data":{"reasoningId":"r1","deltaContent":"ink"},"ephemeral":true,"id":"a3b"}\n',
+    '{"type":"assistant.reasoning_delta","data":{"reasoningId":"r1","deltaContent":"ing"},"ephemeral":true,"id":"a3c"}\n',
+    '{"type":"assistant.message_start","data":{"messageId":"m1","phase":"final_answer"},"ephemeral":true,"id":"a4"}\n',
+    '{"type":"assistant.message_delta","data":{"messageId":"m1","deltaContent":"Hello"},"ephemeral":true,"id":"a5"}\n',
+    '{"type":"assistant.message_delta","data":{"messageId":"m1","deltaContent":"!"},"ephemeral":true,"id":"a6"}\n',
+    '{"type":"model.call_finished","data":{"turnId":"0","outcome":"success"},"ephemeral":true,"id":"a7"}\n',
+    '{"type":"assistant.reasoning","data":{"reasoningId":"r1","content":"Thinking, whole block"},"id":"a8"}\n',
+    '{"type":"assistant.turn_end","data":{"turnId":"0"},"id":"a9"}\n',
+    '{"type":"result","timestamp":"2026-09-10T15:09:52.383Z","sessionId":"00f9c63e-2446-420d-8986-cf0bdca8d9bd","exitCode":0,"usage":{"premiumRequests":1}}',
+  ];
+
+  it('reads the answer out of assistant.message_delta', () => {
+    const text = run(REAL)
+      .filter((e) => e.kind === 'text_delta')
+      .map((e) => e.text)
+      .join('');
+    assert.equal(text, 'Hello!');
+  });
+
+  it('unwraps `data` rather than reading the envelope', () => {
+    // The whole bug in one assertion: without the unwrap the delta events
+    // classify but carry an empty string, which reaches the user as
+    // "No response generated" instead of the answer.
+    const deltas = run(REAL).filter((e) => e.kind === 'text_delta');
+    assert.equal(deltas.length, 2);
+    assert.ok(deltas.every((d) => d.text.length > 0));
+  });
+
+  it('takes the session id off the terminal result frame', () => {
+    // There is no session event anywhere earlier in a real stream; without
+    // this the next turn can never resume.
+    const done = run(REAL).filter((e) => e.kind === 'done');
+    assert.equal(done.length, 1);
+    assert.equal(done[0].sessionId, '00f9c63e-2446-420d-8986-cf0bdca8d9bd');
+  });
+
+  it('narrates thinking as ONE block, not one message per token', () => {
+    // The regression this guards: Copilot streams reasoning a token at a time
+    // (81 deltas for one short thought on the real run). Mapping the deltas
+    // posted a chat message each — a column of one-word bullets — so only the
+    // whole `assistant.reasoning` block is narrated.
+    const reasoning = run(REAL).filter((e) => e.kind === 'reasoning');
+    assert.equal(reasoning.length, 1);
+    assert.equal(reasoning[0].text, 'Thinking, whole block');
+  });
+
+  it('never turns an answer token into its own event', () => {
+    // Same shape of bug on the answer side: message_delta IS the final answer
+    // arriving piecewise, so it must accumulate silently and never be narrated.
+    const evs = run(REAL);
+    const deltas = evs.filter((e) => e.kind === 'text_delta');
+    assert.equal(deltas.length, 2);
+    // No 'text' event — nothing re-publishes the answer mid-stream.
+    assert.equal(evs.filter((e) => e.kind === 'text').length, 0);
+  });
+
+  it('leaves lifecycle bookkeeping unrendered', () => {
+    // turn_start / message_start / turn_end / call_start carry nothing a user
+    // should see. They must not become text, reasoning, or a premature done.
+    const kinds = run(REAL).map((e) => e.kind);
+    assert.equal(kinds.filter((k) => k === 'done').length, 1);
+    assert.equal(kinds.filter((k) => k === 'text').length, 0);
+    assert.ok(kinds.includes('unknown'));
+  });
+});

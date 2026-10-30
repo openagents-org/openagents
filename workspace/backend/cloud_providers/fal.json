@@ -1,0 +1,23 @@
+{
+  "name": "fal",
+  "label": "fal.ai",
+  "base_url": null,
+  "order": 190,
+  "models": [
+    {
+      "id": "fal-ai/flux-pro/v1.1",
+      "category": "image",
+      "label": "Flux Pro 1.1"
+    },
+    {
+      "id": "fal-ai/flux/schnell",
+      "category": "image",
+      "label": "Flux Schnell"
+    },
+    {
+      "id": "fal-ai/stable-diffusion-v3-medium",
+      "category": "image",
+      "label": "SD3 Medium"
+    }
+  ]
+}

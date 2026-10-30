@@ -12,7 +12,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.network_profile import NetworkProfile
 

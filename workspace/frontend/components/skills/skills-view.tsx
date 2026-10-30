@@ -7,6 +7,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { RegistryLeaderboardEntry, RegistrySkill, WorkspaceCustomSkill, WorkspaceSkillVersion } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -159,6 +160,7 @@ const SKILLS: Skill[] = [
   { id: 'mcp-builder', name: 'MCP Builder', category: 'ai-ml', logo: `${SI}/anthropic.svg`, tags: ['mcp', 'tools', 'protocol'], sourceRepo: 'anthropics/skills', sourcePath: 'skills/mcp-builder', author: 'Anthropic', featured: true },
   { id: 'skill-creator', name: 'Skill Creator', category: 'ai-ml', logo: `${SI}/anthropic.svg`, tags: ['meta', 'evals', 'authoring'], sourceRepo: 'anthropics/skills', sourcePath: 'skills/skill-creator', author: 'Anthropic' },
   { id: 'ai-sdk', name: 'Vercel AI SDK', category: 'ai-ml', logo: `${SI}/vercel.svg`, tags: ['streaming', 'react', 'rag'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/ai-sdk', author: 'Community' },
+  { id: 'hypit', name: 'Hypit', category: 'ai-ml', logo: 'https://avatars.githubusercontent.com/u/274059971', tags: ['video', 'svml', 'authoring'], sourceRepo: 'hypit-ai/hypit', sourcePath: 'skills/hypit', author: 'Hypit' },
   // Frontend
   { id: 'nextjs', name: 'Next.js', category: 'frontend', logo: `${SI}/nextdotjs.svg`, tags: ['react', 'ssr', 'app-router'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/nextjs', author: 'Community', featured: true },
   { id: 'angular', name: 'Angular', category: 'frontend', logo: `${SI}/angular.svg`, tags: ['typescript', 'spa', 'rxjs'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/angular', author: 'Community' },
@@ -748,7 +750,7 @@ function SkillDetail({
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleUninstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-red-500/10 hover:text-red-600 transition-colors"
@@ -763,7 +765,7 @@ function SkillDetail({
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           disabled
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted text-muted-foreground disabled:opacity-70"
@@ -778,7 +780,7 @@ function SkillDetail({
                     return (
                       <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-red-500/30 px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleInstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
@@ -793,7 +795,7 @@ function SkillDetail({
                   return (
                     <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                       <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                      <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
+                      <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                       <button
                         onClick={() => handleInstall(agent.agentName)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"

@@ -1,0 +1,68 @@
+{
+  "version": "1.0.1",
+  "date": "2026-09-15",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "CodeArts Agent from Huawei Cloud",
+        "zh": "新增华为云码道 CodeArts Agent"
+      },
+      "description": {
+        "en": "Install it from Agent Marketplace and add a Huawei Cloud access key (AK/SK).",
+        "zh": "在智能体市场安装，填入华为云访问密钥（AK/SK）即可使用。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Your workspaces open inside the app",
+        "zh": "你所在的工作区直接在应用内打开"
+      },
+      "description": {
+        "en": "From This Computer and Connected Workspaces. Others open in the browser, and the card says why.",
+        "zh": "在「此电脑」和「已连接的工作区」中点击即可；其他工作区在浏览器中打开，卡片上会说明原因。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Smoother model picker",
+        "zh": "模型选择更顺手"
+      },
+      "description": {
+        "en": "The list opens faster and lines up with its field.",
+        "zh": "列表打开更快，下拉框与输入框对齐。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "No more freezes or pauses",
+        "zh": "应用不再卡顿"
+      },
+      "description": {
+        "en": "No more \"Not Responding\" on Windows, and no pause after opening on macOS and Linux.",
+        "zh": "Windows 上不再卡死、无响应，macOS 和 Linux 上打开后不再停顿。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Model lists load correctly",
+        "zh": "模型列表能正常加载"
+      },
+      "description": {
+        "en": "OpenCode picks a model after you sign in; Kimi, DeepSeek, Pi and CodeBuddy list models with an API key.",
+        "zh": "OpenCode 登录后自动选好模型；Kimi、DeepSeek、Pi、CodeBuddy 填 API 密钥后也能加载列表。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "A crashed window reloads instead of staying blank",
+        "zh": "窗口崩溃后自动恢复，不再一直空白"
+      }
+    }
+  ]
+}

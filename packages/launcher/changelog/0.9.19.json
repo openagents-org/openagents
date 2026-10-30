@@ -1,0 +1,17 @@
+{
+  "version": "0.9.19",
+  "date": "2026-08-23",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Update downloads are significantly faster",
+        "zh": "更新下载速度显著提升"
+      },
+      "description": {
+        "en": "Updates are now downloaded incrementally, transferring only the content that differs between versions instead of the complete installer. The improvement takes effect from the next update onward.",
+        "zh": "更新已改为增量下载，仅传输版本之间存在差异的内容，无需重新获取完整安装包。该优化自下一次更新起生效。"
+      }
+    }
+  ]
+}

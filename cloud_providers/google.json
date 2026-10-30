@@ -1,0 +1,41 @@
+{
+  "name": "google",
+  "label": "Google AI",
+  "description": "Gemini, via Google AI Studio",
+  "description_zh": "Gemini（Google AI Studio）",
+  "key_url": "https://aistudio.google.com/apikey",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "order": 40,
+  "models": [
+    {
+      "id": "gemini-3.7-flash",
+      "category": "chat",
+      "label": "Gemini 3.7 Flash"
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "category": "chat",
+      "label": "Gemini 3.6 Flash"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "category": "chat",
+      "label": "Gemini 3.5 Flash"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "category": "chat",
+      "label": "Gemini 3.1 Pro (Preview)"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "category": "chat",
+      "label": "Gemini 2.5 Pro"
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "category": "image",
+      "label": "Gemini Image (Nano Banana 2)"
+    }
+  ]
+}

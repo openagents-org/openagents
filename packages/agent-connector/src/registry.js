@@ -3,7 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_REGISTRY_URL = 'https://endpoint.openagents.org/v1/agent-registry';
+// Served by the workspace backend from the repo's /registry files (one JSON
+// per agent type, models resolved server-side) — the same catalog the
+// workspace UI reads. See workspace/backend/app/services/agent_registry.py.
+const DEFAULT_REGISTRY_URL = 'https://workspace-endpoint.openagents.org/v1/agent-registry';
 const CACHE_FILE = 'agent_catalog.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -93,10 +96,23 @@ class Registry {
       const b = bundled.find(x => x.name === entry.name);
       if (b) {
         if ((!entry.env_config || entry.env_config.length === 0) && b.env_config && b.env_config.length > 0) entry.env_config = b.env_config;
-        if (!entry.resolve_env && b.resolve_env) entry.resolve_env = b.resolve_env;
+        // resolve_env is behavior-critical env mapping tied to the adapter
+        // version shipping WITH this launcher — bundled wins over a (possibly
+        // day-old) cached remote copy, same as install.
+        if (b.resolve_env) entry.resolve_env = b.resolve_env;
         if (b.install) entry.install = { ...b.install };
-        if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
+        // check_ready is the auth/readiness contract of the adapter shipping in
+        // THIS core, so the bundled fields win over a remote copy that may be a
+        // release behind — the same rule as install, and for the same reason.
+        // Kimi is what proved it: the CLI rewrite added `login_command: kimi
+        // login`, but the server was still serving the API-key-only entry, and
+        // "fill it in only when absent" meant the sign-in never appeared.
+        // Spread rather than replace so anything the server adds on its own
+        // (auth_detected_labels and friends) survives.
+        if (b.check_ready)
+          entry.check_ready = { ...(entry.check_ready || {}), ...b.check_ready };
         if (!entry.launch && b.launch) entry.launch = b.launch;
+        if (!entry.probe && b.probe) entry.probe = b.probe;
         // Always take featured/order/support from bundled (source of truth for ordering)
         if (b.featured !== undefined) entry.featured = b.featured;
         if (b.order !== undefined) entry.order = b.order;
@@ -141,8 +157,10 @@ class Registry {
     const b = bundled.find((e) => e.name === agentType);
     if (b) {
       if (b.install) entry.install = { ...b.install };
-      if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
+      if (b.check_ready)
+        entry.check_ready = { ...(entry.check_ready || {}), ...b.check_ready };
       if (!entry.launch && b.launch) entry.launch = b.launch;
+      if (!entry.probe && b.probe) entry.probe = b.probe;
       if ((!entry.env_config || !entry.env_config.length) && b.env_config?.length) entry.env_config = b.env_config;
     }
     return entry;

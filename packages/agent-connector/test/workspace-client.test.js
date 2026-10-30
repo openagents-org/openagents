@@ -80,6 +80,24 @@ describe('WorkspaceClient', () => {
     }
   });
 
+  it('removeMember rejects with the HTTP status, so a 404 reads as already gone', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 404, message: 'Member not found' }));
+    });
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+      await assert.rejects(
+        () => client.removeMember('ws1', 'tok', 'gone-agent'),
+        (e) => e.status === 404 && e.message === 'Member not found',
+      );
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it('sendEvent embeds session_id in event.metadata when provided', () => {
     const client = new WorkspaceClient('http://127.0.0.1:19999');
     // Capture what _post receives by stubbing it
@@ -102,6 +120,23 @@ describe('WorkspaceClient', () => {
         assert.equal(capturedBody.network, 'ws-1');
         assert.equal(capturedBody.session_id, 'sess-abc');
       });
+  });
+
+  it('nodeHeartbeat forwards agents, runtimes and fs', () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    let capturedBody = null;
+    client._post = async (_path, body) => { capturedBody = body; return { data: {} }; };
+    return client.nodeHeartbeat('node-1', 'tok', {
+      hostname: 'sin1',
+      agents: [{ name: 'a', type: 'claude', status: 'running' }],
+      runtimes: [{ type: 'claude', installed: true }],
+      fs: { home: '/home/ubuntu', dirs: ['projects'] },
+    }).then(() => {
+      assert.equal(capturedBody.node_id, 'node-1');
+      assert.deepEqual(capturedBody.fs, { home: '/home/ubuntu', dirs: ['projects'] });
+      assert.equal(capturedBody.agents.length, 1);
+      assert.equal(capturedBody.runtimes.length, 1);
+    });
   });
 
   describe('pollPending server-side targeting', () => {
@@ -137,6 +172,32 @@ describe('WorkspaceClient', () => {
       assert.equal(cursor, 'e9');
     });
   });
+
+  describe('getRecentMessages', () => {
+    // OA-026: agent progress events must not eat the history window.
+    it('excludes agent progress events server-side by default', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 100, { before: 'e5' });
+
+      const params = new URL(capturedPath, 'http://x').searchParams;
+      assert.equal(params.get('exclude_message_types'), 'status,thinking,todos,loading');
+      assert.equal(params.get('before'), 'e5');
+      assert.equal(params.get('limit'), '100');
+    });
+
+    it('sends no exclusion when excludeMessageTypes is empty', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 30, { excludeMessageTypes: '' });
+
+      assert.ok(!capturedPath.includes('exclude_message_types'), capturedPath);
+    });
+  });
 });
 
 // Regression guard for the "online but deaf" wedge: a request whose socket
@@ -155,11 +216,151 @@ describe('WorkspaceClient request deadlines', () => {
     const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
     const start = Date.now();
     try {
-      await assert.rejects(() => client._get('/v1/events', {}, 400));
+      // Says what happened. The deadline used to surface as a bare
+      // "AbortError: The operation was aborted", which reads like a cancel.
+      await assert.rejects(() => client._get('/v1/events', {}, 400), (err) => {
+        assert.equal(err.message, 'Request timed out after 400ms');
+        assert.equal(err.code, 'ETIMEDOUT');
+        return true;
+      });
       const elapsed = Date.now() - start;
       assert.ok(elapsed < 5000, `expected reject within 5s, took ${elapsed}ms`);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+
+  it('_get errors carry the HTTP status, including a proxy\'s HTML error page', async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/json') {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'database unavailable' }));
+      } else {
+        res.writeHead(502, { 'Content-Type': 'text/html' });
+        res.end('<html>Bad Gateway</html>');
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+    try {
+      await assert.rejects(() => client._get('/json'), { message: 'database unavailable', status: 503 });
+      await assert.rejects(() => client._get('/html'), (err) => {
+        assert.equal(err.status, 502);
+        assert.match(err.message, /^Invalid response: <html>/);
+        return true;
+      });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  // The other way a request never settles, and the one that silenced a
+  // daemon's control poller for days: the response STARTS, then the
+  // connection closes before the body is complete (a backend restarting
+  // mid-reply, a proxy losing its upstream). Node raises that on the response
+  // only, so a helper that waits for 'end' hangs — past its own deadline,
+  // because by then the abort signal has nothing left to destroy.
+  const cutOff = {
+    'closes cleanly mid-body': (res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '500' });
+      res.write('{"data":{"events":[');
+      setTimeout(() => res.socket.end(), 20);
+    },
+    'is reset mid-body': (res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"data":{"events":[');
+      setTimeout(() => res.socket.destroy(), 20);
+    },
+  };
+  const requests = {
+    _get: (client) => client._get('/v1/events', {}, 400),
+    _getRaw: (client) => client._getRaw('/v1/files/x', {}, 400),
+    _post: (client) => client._post('/v1/events', { a: 1 }, {}, 400),
+    _put: (client) => client._put('/v1/todos', { a: 1 }, {}, 400),
+    _patch: (client) => client._patch('/v1/members/x', { a: 1 }, {}, 400),
+    _delete: (client) => client._delete('/v1/workspaces/x', {}),
+  };
+  for (const [how, respond] of Object.entries(cutOff)) {
+    for (const [method, send] of Object.entries(requests)) {
+      it(`${method} rejects when the response ${how}`, { timeout: 10000 }, async () => {
+        const server = http.createServer((_req, res) => respond(res));
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+        try {
+          const outcome = await Promise.race([
+            send(client).then(() => 'resolved', () => 'rejected'),
+            new Promise((resolve) => setTimeout(() => resolve('never settled'), 3000)),
+          ]);
+          assert.equal(outcome, 'rejected');
+        } finally {
+          server.closeAllConnections();
+          await new Promise((resolve) => server.close(resolve));
+        }
+      });
+    }
+  }
+});
+
+describe('WorkspaceClient.updateRoutine', () => {
+  const capture = () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    const seen = {};
+    client._patch = async (path, body) => {
+      seen.path = path;
+      seen.body = body;
+      return { data: { id: 'r1' } };
+    };
+    return { client, seen };
+  };
+
+  it('PATCHes the routine and sends only the fields given', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { name: 'Renamed' });
+    assert.equal(seen.path, '/v1/routines/r1');
+    assert.deepEqual(seen.body, { network: 'ws-1', name: 'Renamed' });
+  });
+
+  it('keeps the schedule modes exclusive', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { interval_minutes: 30, hour: 9, minute: 0 });
+    assert.equal(seen.body.interval_minutes, 30);
+    assert.ok(!('hour' in seen.body), 'hour must not ride along in interval mode');
+    assert.ok(!('minute' in seen.body), 'minute must not ride along in interval mode');
+  });
+
+  it('sends a days-only edit without inventing a time', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { days: [0, 4] });
+    assert.deepEqual(seen.body, { network: 'ws-1', days: [0, 4] });
+  });
+
+  it('forwards a pause', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { status: 'paused' });
+    assert.deepEqual(seen.body, { network: 'ws-1', status: 'paused' });
+  });
+});
+
+describe('reliable message delivery', () => {
+  it('preserves HTTP status for HTML 503 responses', async () => {
+    const server = http.createServer((req, res) => { res.writeHead(503, { 'Content-Type': 'text/html' }); res.end('<html>Unavailable</html>'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+      await assert.rejects(client.sendMessage('ws', 'general', 'token', 'answer'), e => e.status === 503);
+    } finally { server.close(); }
+  });
+  it('includes delivery keys for channel messages and DMs', async () => {
+    const client = new WorkspaceClient(); const events = [];
+    client.sendEvent = async (ws, event) => events.push(event);
+    for (const channel of ['general', 'dm:human:person@example.com']) {
+      await client.sendMessage('ws', channel, 'token', 'answer', { idempotencyKey: 'key' });
+    }
+    assert.ok(events.every(e => e.idempotency_key === 'key'));
+  });
+  it('detects old servers without assuming safe retry support', async () => {
+    const client = new WorkspaceClient();
+    client._get = async () => { throw Object.assign(new Error('Not Found'), { status: 404 }); };
+    assert.equal(await client.supportsMessageDelivery(), false);
   });
 });

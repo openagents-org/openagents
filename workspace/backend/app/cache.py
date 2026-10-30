@@ -118,6 +118,60 @@ def json_read_through(
     return value
 
 
+def json_singleflight(key, ttl_seconds, compute, cache_if=None):
+    """Share identical cache fills across workers, with a bounded wait.
+
+    Redis/lock failures fall through to the database. Never swallow compute
+    errors or cache failed computations. ttl_seconds may be a callable that
+    selects a TTL from the computed value. The lock's ownership token prevents
+    an expired leader from releasing a newer leader's lock.
+    """
+    if key is None:
+        return compute()
+    missing = object()
+
+    def read():
+        raw = get_bytes(key)
+        if raw is not None:
+            try:
+                return json.loads(raw)
+            except (TypeError, ValueError):
+                pass
+        return missing
+
+    value = read()
+    if value is not missing:
+        return value
+    client = _lazy_client()
+    lock = None
+    acquired = False
+    if client is not None:
+        try:
+            lock = client.lock(key + ':fill', timeout=5, blocking_timeout=0.1, sleep=0.01)
+            acquired = lock.acquire()
+        except Exception:
+            pass
+    try:
+        # A preceding leader may have filled the cache while we waited.
+        value = read() if client is not None else missing
+        if value is not missing:
+            return value
+        value = compute()
+        if cache_if is None or cache_if(value):
+            try:
+                ttl = ttl_seconds(value) if callable(ttl_seconds) else ttl_seconds
+                set_bytes(key, json.dumps(value, default=str, separators=(',', ':')).encode(), ttl)
+            except (TypeError, ValueError):
+                pass
+        return value
+    finally:
+        if acquired:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Pub/Sub — used by SSE streaming
 # ---------------------------------------------------------------------------

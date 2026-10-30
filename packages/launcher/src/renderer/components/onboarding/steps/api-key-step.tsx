@@ -1,11 +1,15 @@
 import React from "react"
-import { Check, Loader2, X } from "lucide-react"
+import { Check, Info, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
+import { ImportCredentialsPrompt } from "@renderer/components/credential-import/import-credentials-prompt"
+import { ModelField } from "@renderer/components/model-field"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
 import { envFieldHint, envFieldLabel } from "@renderer/lib/agent-meta"
+import { hasModelPicker } from "@renderer/lib/model-fields"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
 
@@ -53,13 +57,28 @@ export function ApiKeyStep({
               </SectionLabel>
 
               <div className="flex flex-col gap-5">
+                <ImportCredentialsPrompt
+                  agentType={entry.name}
+                  fieldNames={entry.envFields.map((f) => f.name)}
+                  onImport={auth.applyValues}
+                />
                 {secrets.map((field) => (
-                  <EnvRow key={field.name} field={field} auth={auth} />
+                  <EnvRow
+                    key={field.name}
+                    agentType={entry.name}
+                    field={field}
+                    auth={auth}
+                  />
                 ))}
                 {options.length > 0 && (
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     {options.map((field) => (
-                      <EnvRow key={field.name} field={field} auth={auth} />
+                      <EnvRow
+                        key={field.name}
+                        agentType={entry.name}
+                        field={field}
+                        auth={auth}
+                      />
                     ))}
                   </div>
                 )}
@@ -85,10 +104,10 @@ export function ApiKeyStep({
                 {mode !== "login" && entry.loginCommand && (
                   <Button
                     variant="ghost"
-                    onClick={() => void auth.openLoginTerminal()}
-                    disabled={auth.checkingLogin}
+                    onClick={() => void auth.startLogin()}
+                    disabled={auth.checkingLogin || auth.login.active}
                   >
-                    {auth.checkingLogin
+                    {auth.checkingLogin || auth.login.active
                       ? t("onboarding.flow.apiKey.waitingForLogin")
                       : auth.loggedIn
                         ? t("onboarding.flow.apiKey.reloginViaCli")
@@ -97,6 +116,18 @@ export function ApiKeyStep({
                 )}
                 <TestStatus auth={auth} />
               </div>
+
+              {/* Only for the key-mode agents whose secondary "log in via CLI"
+                  button sits above. A login-mode agent (Claude) already has
+                  LoginPanel at the top of this step, and LoginPanel renders the
+                  same card — without this gate both drew it and the user saw
+                  the sign-in twice on one page. Same condition as the button. */}
+              {mode !== "login" && auth.login.phase !== "idle" && (
+                <CliLoginPanel
+                  login={auth.login}
+                  onUseTerminal={() => void auth.startLogin({ terminal: true })}
+                />
+              )}
 
               {entry.docsUrl && (
                 <p className="mt-3 mb-0 text-xs">
@@ -114,15 +145,23 @@ export function ApiKeyStep({
 }
 
 function EnvRow({
+  agentType,
   field,
   auth,
 }: {
+  agentType: string
   field: EnvField
   auth: OnboardingAuthApi
 }): React.JSX.Element {
   const { t } = useTranslation()
   const Control = field.password ? PasswordInput : Input
   const id = `onboarding-env-${field.name}`
+  // Model fields get the live picker (the account's / endpoint's own list)
+  // rather than a text box the user has to know the right id for.
+  const model = hasModelPicker(agentType, field.name)
+  // One form here, not tabs: the user is on the key path the moment they type a
+  // key, and on the sign-in path until then. Same rule the save uses.
+  const modelPath = auth.usingApiKeyPath ? "key" : "login"
   // The registry's own `description` is a full sentence written for docs, not
   // a label — it belongs under the input as a hint, with a short translated
   // name up top. See lib/agent-meta.
@@ -135,16 +174,28 @@ function EnvRow({
         token={field.name}
         required={field.required}
       />
-      <Control
-        id={id}
-        value={auth.values[field.name] ?? ""}
-        onChange={(e) => auth.setValue(field.name, e.target.value)}
-        placeholder={
-          field.placeholder ||
-          field.default ||
-          t("onboarding.flow.apiKey.fieldPlaceholder", { name: field.name })
-        }
-      />
+      {model ? (
+        <ModelField
+          id={id}
+          agentType={agentType}
+          value={auth.values[field.name] ?? ""}
+          env={auth.values}
+          path={modelPath}
+          placeholder={field.placeholder}
+          onChange={(next) => auth.setValue(field.name, next)}
+        />
+      ) : (
+        <Control
+          id={id}
+          value={auth.values[field.name] ?? ""}
+          onChange={(e) => auth.setValue(field.name, e.target.value)}
+          placeholder={
+            field.placeholder ||
+            field.default ||
+            t("onboarding.flow.apiKey.fieldPlaceholder", { name: field.name })
+          }
+        />
+      )}
       {hint && (
         <p className="mt-1.5 mb-0 text-2xs leading-relaxed text-(--text-tertiary)">
           {hint}
@@ -187,7 +238,9 @@ function TestStatus({ auth }: { auth: OnboardingAuthApi }): React.JSX.Element {
           )}
         </>
       ) : (
-        <span className="truncate">{t("onboarding.flow.apiKey.notTested")}</span>
+        <span className="truncate">
+          {t("onboarding.flow.apiKey.notTested")}
+        </span>
       )}
     </div>
   )

@@ -1,0 +1,17 @@
+{
+  "version": "0.9.24",
+  "date": "2026-08-27",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Command Code is now a supported agent",
+        "zh": "新增支持 Command Code"
+      },
+      "description": {
+        "en": "Install Command Code from the agent list and connect it to a workspace like any other agent. Sign in with your Command Code account, or bring your own provider key. The model list comes from the CLI itself, so it covers both your plan's models and any provider you have added.",
+        "zh": "现在可以在 Agent 列表中直接安装 Command Code，并像其他 Agent 一样接入工作区。既可以使用 Command Code 账号登录，也可以填入自有的模型服务密钥。模型列表直接来自 CLI，因此账号套餐内的模型和你自行添加的服务商模型都会出现在选项中。"
+      }
+    }
+  ]
+}

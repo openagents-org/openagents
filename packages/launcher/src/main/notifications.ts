@@ -36,6 +36,9 @@ export interface NotifRecord extends NotifInput {
 
 let _mainWindow: BrowserWindow | null = null
 const _records: NotifRecord[] = []
+// Keep native toast objects alive until the OS closes them. Otherwise the JS
+// wrapper may be collected before a delayed click reaches its handler.
+const _activeToasts = new Set<Notification>()
 const MAX = 200
 
 export function setNotificationsWindow(win: BrowserWindow | null): void {
@@ -240,8 +243,12 @@ export function pushNotification(input: NotifInput): NotifRecord {
                 ? 'low'
                 : 'normal',
         })
+        _activeToasts.add(n)
+        n.on('close', () => _activeToasts.delete(n))
         n.on('click', () => {
+          _activeToasts.delete(n)
           if (_mainWindow && !_mainWindow.isDestroyed()) {
+            if (!_mainWindow.isVisible()) _mainWindow.show()
             if (_mainWindow.isMinimized()) _mainWindow.restore()
             _mainWindow.focus()
             try {

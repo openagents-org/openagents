@@ -1,35 +1,51 @@
 # -*- coding: utf-8 -*-
 """
-Push-notification fan-out for mobile clients (currently iOS only).
+Push-notification fan-out for mobile clients (iOS + Android).
 
 Wired into `routers/events.py` via FastAPI BackgroundTasks:
 on every `POST /v1/events`, after the response is sent, this module decides
 whether the event warrants a push, looks up registered device tokens for the
-workspace, and dispatches via APNs directly (no Firebase intermediary).
+workspace, and dispatches through Firebase Cloud Messaging. Both platforms
+go through FCM — `device_type` is carried in logs for triage only, never
+used to pick a transport.
 
 Filtering rules (see `_should_push`):
-  - workspace.message.posted, type=chat, source=openagents:* → always push
+  - workspace.message.posted, content contains @<agent-name> or a human
+    collaborator's name → push (mention)
+  - a message carrying the structured `status_kind` marker → push
+    (task_completed / error), regardless of message_type
+  - workspace.message.posted, agent type=chat → push as task_completed
+    (including replies from older connectors without status_kind)
+  - workspace.message.posted, human type=chat → push as chat
   - workspace.message.posted, type=status, content matches a TERMINAL
-    pattern (done / completed / failed / error / stopped / stopping failed
-    / session restarted / restart failed) → push
-  - workspace.message.posted, content contains @<agent-name> where the
-    agent is a member of this workspace → push (mention)
+    pattern (stopped / stopping failed / session restarted / restart
+    failed) → push
   - everything else → skip
 
-Failure handling: tokens that APNs marks `Unregistered` / `BadDeviceToken`
-/ `DeviceTokenNotForTopic` are pruned from `device_tokens`. Send failures
-are logged but never raised back to the request that triggered them.
+Per-device filtering: each registration may carry the notification
+preferences the user set on their phone (`device_tokens.prefs`). The reason
+above maps to one switch; a device whose switch is off is dropped from the
+recipient list. A NULL/absent `prefs` means "everything on".
+
+There is a second entry point, `fanout_for_notification`, for the workspace
+inbox (`services/notify.py`). It skips the classifier entirely — an inbox
+record exists precisely because a producer decided a person must be told —
+and keeps only the per-device preference gate.
+
+Failure handling: tokens FCM rejects as Unregistered / SenderIdMismatch /
+InvalidArgument are pruned from `device_tokens`. Send failures are logged
+but never raised back to the request that triggered them.
 """
 
-import asyncio
 import logging
 import re
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.database import SessionLocal
 from app.models import ChannelHumanMember, DeviceToken, WorkspaceCollaborator, WorkspaceMember
-from app.services.apns_client import APNsAlert, send_push
+from app.services.fcm_client import PushAlert, send_push
+from app.services.message_identity import human_sender_email
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +88,59 @@ def _is_intermediate_step(content: str) -> bool:
 
 
 _MENTION_RE = re.compile(r"@([\w][\w\-_]{0,63})")
+
+# The structured "this turn is over" marker — the real signal the comment on
+# _TERMINAL_STATUS_PATTERNS says to prefer over matching English words in
+# free-form text. Producers set `status_kind` in either the event payload or
+# the event metadata: metadata is what agent-connector's
+# sendMessage(..., {metadata}) writes, payload is the natural place for
+# anything POSTing /v1/events by hand, so both are read. Agent chat without
+# this field uses the visible-reply fallback in `_should_push` below.
+_COMPLETED_STATUS_KINDS = frozenset({"completed", "complete", "succeeded", "success", "finished"})
+_FAILED_STATUS_KINDS = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
+
+
+def _structured_status_kind(event: dict) -> str:
+    """Read the explicit lifecycle marker, '' when the producer sent none."""
+    for container in (event.get("payload"), event.get("metadata")):
+        if isinstance(container, dict):
+            kind = container.get("status_kind")
+            if kind:
+                return str(kind).strip().lower()
+    return ""
+
+
+# Which notification-preference switch (the mobile app's Notifications
+# screen, `notification_prefs.dart`) gates each push reason. A reason absent
+# from this table is never suppressed. `approvals` is produced by the inbox
+# path (`services/notify.py`) for the two states that genuinely wait on a
+# person: a card moved to Need Input, and a workflow parked on a human step.
+_REASON_PREF_KEY = {
+    "mention": "mentions",
+    "chat": "allMessages",
+    "status": "taskCompletions",
+    "task_completed": "taskCompletions",
+    "error": "agentErrors",
+    "approval": "approvals",
+}
+
+
+def _prefs_allow(prefs, reason: str) -> bool:
+    """Whether a device with these prefs wants a push for `reason`.
+
+    Missing prefs, a missing key, or a non-dict value all mean "yes": the
+    column is nullable for back-compat with clients registered before it
+    existed, and a half-populated map should not silence a device.
+    """
+    if not isinstance(prefs, dict):
+        return True
+    key = _REASON_PREF_KEY.get(reason)
+    if key is None:
+        return True
+    value = prefs.get(key)
+    if value is None:
+        return True
+    return bool(value)
 
 
 def _content_of(event: dict) -> str:
@@ -148,11 +217,25 @@ def _should_push(
                 if m in workspace_human_keys:
                     return True, "mention", workspace_human_keys[m]
 
+    # Explicit lifecycle markers beat every heuristic below. This is the
+    # structured "agent finished the task" signal the substring list above
+    # was deliberately stripped of: an adapter's final answer carries
+    # status_kind=completed, so it pushes under `taskCompletions` even for
+    # a user who has the `allMessages` firehose switched off.
+    status_kind = _structured_status_kind(event)
+    if status_kind in _COMPLETED_STATUS_KINDS:
+        return True, "task_completed", None
+    if status_kind in _FAILED_STATUS_KINDS or msg_type == "error":
+        return True, "error", None
+
     if msg_type == "chat":
-        # Both agent and human chat reach the fan-out. The Slack-style
-        # channel-membership filter in `_fanout_impl` excludes the
-        # sender's own devices, so humans don't get pushed for their own
-        # messages while other channel members do.
+        # Older connectors posted the final answer as plain chat, without a
+        # status_kind marker. Treat an agent's visible reply as a completion
+        # so the default mobile prefs (allMessages off, taskCompletions on)
+        # still notify its channel members. Human chat retains the ordinary
+        # allMessages gate. Intermediate agent output was filtered above.
+        if source_kind == "agent":
+            return True, "task_completed", None
         return True, "chat", None
 
     if msg_type in ("status", "thinking"):
@@ -170,16 +253,18 @@ def _should_push(
     return False, "", None
 
 
-def _build_alert(event: dict, reason: str) -> APNsAlert:
-    """Build the user-visible title + body for the APNs alert."""
+def _build_alert(event: dict, reason: str) -> PushAlert:
+    """Build the user-visible title + body of the notification."""
     source = str(event.get("source") or "")
     sender_name = source.split(":", 1)[1] if ":" in source else source
 
     if reason == "mention":
         title = f"{sender_name} mentioned you"
-    elif reason == "status":
-        title = f"{sender_name}"
-    else:  # chat
+    elif reason == "task_completed":
+        title = f"{sender_name} finished"
+    elif reason == "error":
+        title = f"{sender_name} hit an error"
+    else:  # chat / status
         title = sender_name
 
     body = _content_of(event).strip()
@@ -190,14 +275,16 @@ def _build_alert(event: dict, reason: str) -> APNsAlert:
 
     target = str(event.get("target") or "")
     channel = target[len("channel/"):] if target.startswith("channel/") else ""
-    return APNsAlert(title=title, body=body, thread_id=channel or None)
+    return PushAlert(title=title, body=body, thread_id=channel or None)
 
 
 def _build_data_payload(event: dict, reason: str) -> dict[str, str]:
-    """Build the custom userInfo keys delivered alongside the alert.
-    APNs puts these as siblings of the `aps` key, where iOS surfaces them
-    in `UNNotification.request.content.userInfo`. All values stringified
-    to match the previous FCM contract.
+    """Build the FCM `data` map delivered alongside the notification.
+
+    Surfaces as `RemoteMessage.data` on Android and as siblings of `aps` in
+    `UNNotification.request.content.userInfo` on iOS. FCM rejects non-string
+    values for the whole request, so everything is stringified here (and
+    again defensively in fcm_client).
     """
     target = str(event.get("target") or "")
     channel = target[len("channel/"):] if target.startswith("channel/") else ""
@@ -232,10 +319,18 @@ def _workspace_human_keys(db, workspace_id: str) -> dict[str, str]:
     at an email and that's all we need to scope device tokens.
     """
     keys: dict[str, str] = {}
-    rows = db.execute(
+    # v1.1 members (membership rows → users) first, then legacy collaborator
+    # rows, so a collaborator's roster display name wins on collisions.
+    from app.models import User, WorkspaceMembership
+    rows = list(db.execute(
+        select(User.email, User.display_name)
+        .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+        .where(WorkspaceMembership.workspace_id == workspace_id)
+    ).all())
+    rows += list(db.execute(
         select(WorkspaceCollaborator.email, WorkspaceCollaborator.display_name)
         .where(WorkspaceCollaborator.workspace_id == workspace_id)
-    ).all()
+    ).all())
     import re as _re
     for email, display_name in rows:
         if not email:
@@ -300,14 +395,18 @@ def _sender_email_for(event: dict) -> str | None:
     """The signed-in sender's email if they identified themselves on the
     chat post — used to skip pushing back to their own devices.
     """
-    payload = event.get("payload") or {}
-    email = str(payload.get("sender_email") or "").strip().lower()
-    return email or None
+    if _source_kind(event) != "human":
+        return None
+    return human_sender_email(event.get("payload"), event.get("metadata"))
 
 
 def _fanout_impl(workspace_id: str, event: dict) -> None:
     db = SessionLocal()
     try:
+        from app.services.issue_notifications import notify_issue_completion
+        if notify_issue_completion(db, workspace_id, event):
+            db.commit()
+            return  # Addressed inbox notification also sends the phone push.
         agent_names = _workspace_agent_names(db, workspace_id)
         human_keys = _workspace_human_keys(db, workspace_id)
         should, reason, mention_target_email = _should_push(
@@ -320,10 +419,16 @@ def _fanout_impl(workspace_id: str, event: dict) -> None:
         token_query = select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
 
         if mention_target_email:
-            # Mention path — scope to the mentioned human, regardless of
-            # whether they're in this channel. One-off notification.
-            token_query = token_query.where(DeviceToken.user_email == mention_target_email)
-            scope_label = mention_target_email
+            # Mention resolved only to people: `services/people_notify` files an
+            # addressed inbox notification for each mentioned person who can
+            # see the thread and pushes through `fanout_for_notification`.
+            # Pushing here as well would double-buzz them (and would skip the
+            # private-thread access check), so the event path stays quiet.
+            logger.info(
+                "push: skipped event-path mention push workspace=%s — "
+                "handled by people_notify", workspace_id,
+            )
+            return
         else:
             # Chat / status path — scope to humans who have joined *this*
             # channel via implicit Slack-style membership. Skip the
@@ -342,34 +447,144 @@ def _fanout_impl(workspace_id: str, event: dict) -> None:
             token_query = token_query.where(DeviceToken.user_email.in_(channel_humans))
             scope_label = f"#{channel_name}[{len(channel_humans)}]"
 
+        # Mention events use a different recipient path from ordinary chat,
+        # but a human should never receive a push for their own post there
+        # either (notably when they address an agent with @agent-name).
+        if sender_email:
+            token_query = token_query.where(DeviceToken.user_email != sender_email)
+
         tokens: list[DeviceToken] = db.execute(token_query).scalars().all()
         if not tokens:
+            return
+
+        # Per-device preference gate. Done here rather than in SQL because
+        # "key absent → allowed" is awkward to express as a JSONB predicate
+        # and the token list per workspace is small.
+        wanted = [t for t in tokens if _prefs_allow(t.prefs, reason)]
+        muted = len(tokens) - len(wanted)
+        if not wanted:
+            logger.info(
+                "push: skipped reason=%s workspace=%s — all %d device(s) muted it",
+                reason, workspace_id, len(tokens),
+            )
             return
 
         alert = _build_alert(event, reason)
         data = _build_data_payload(event, reason)
 
-        # aioapns is async; this hook runs from FastAPI BackgroundTasks which
-        # is sync, so we drive the coroutine on a private event loop.
-        token_strings = [t.fcm_token for t in tokens]
-        _, dead = asyncio.run(send_push(token_strings, alert, data))
+        # firebase-admin's messaging API is synchronous. That is fine — and
+        # deliberate: this function is a plain `def` handed to FastAPI
+        # BackgroundTasks, which Starlette runs in a threadpool, so the
+        # blocking HTTP call never touches the event loop. Do not "fix"
+        # this by wrapping it in asyncio.run().
+        token_strings = [t.fcm_token for t in wanted]
+        _, dead = send_push(token_strings, alert, data)
 
         if dead:
-            _prune_dead_tokens(db, tokens, dead)
+            _prune_dead_tokens(db, wanted, dead)
         logger.info(
-            "push: sent reason=%s workspace=%s scope=%s tokens=%d dead=%d",
-            reason, workspace_id, scope_label, len(token_strings), len(dead),
+            "push: sent reason=%s workspace=%s scope=%s tokens=%d muted=%d dead=%d types=%s",
+            reason, workspace_id, scope_label, len(token_strings), muted, len(dead),
+            ",".join(sorted({str(t.device_type or "?") for t in wanted})),
+        )
+    finally:
+        db.close()
+
+
+def fanout_for_notification(notification: dict) -> None:
+    """Push an inbox notification (`services/notify.notify`) to the workspace.
+
+    The other entry point, `fanout_for_event`, has to work out whether an event
+    is worth a push at all and who it concerns. Neither question arises here:
+    the record exists because a producer decided a person needs to know. An
+    addressed notification (`recipient_email` set) goes only to that person's
+    devices; a workspace-wide one (legacy, no addressee) goes to every device
+    registered to the workspace. The sender's own devices are skipped when the
+    sender is a known person.
+
+    What does still apply is the per-device preference gate — a device whose
+    switch for this reason is off is dropped, exactly as in the event path.
+
+    `data.notification_id` is the part that makes a tap useful: it lets the app
+    open this notification's detail screen, falling back to the thread when the
+    build predates that screen. Callers get the same `channel` key either way,
+    so an older client keeps routing to the thread as it always did.
+    """
+    workspace_id = str(notification.get("workspace_id") or "")
+    if not workspace_id:
+        return
+    reason = str(notification.get("reason") or "task_completed")
+
+    recipient = str(notification.get("recipient_email") or "").strip().lower()
+    sender = str(notification.get("sender_email") or "").strip().lower()
+
+    db = SessionLocal()
+    try:
+        token_query = select(DeviceToken).where(DeviceToken.workspace_id == workspace_id)
+        if recipient:
+            # Addressed notification (DM, mention, owner question …): only the
+            # recipient's devices. Workspace-wide (legacy) rows keep the
+            # every-device behaviour below.
+            token_query = token_query.where(DeviceToken.user_email == recipient)
+        if sender:
+            # NULL-safe: devices registered without an email still receive
+            # workspace-wide notifications.
+            token_query = token_query.where(
+                or_(DeviceToken.user_email.is_(None), DeviceToken.user_email != sender)
+            )
+        tokens: list[DeviceToken] = db.execute(token_query).scalars().all()
+        if not tokens:
+            return
+
+        wanted = [t for t in tokens if _prefs_allow(t.prefs, reason)]
+        muted = len(tokens) - len(wanted)
+        if not wanted:
+            logger.info(
+                "push: skipped notification reason=%s workspace=%s — all %d "
+                "device(s) muted it",
+                reason, workspace_id, len(tokens),
+            )
+            return
+
+        channel = str(notification.get("channel_name") or "")
+        body = str(notification.get("message") or "").strip()
+        if len(body) > 240:
+            body = body[:237] + "…"
+        alert = PushAlert(
+            title=str(notification.get("title") or "").strip() or "Notification",
+            body=body or "(no content)",
+            thread_id=channel or None,
+        )
+        data = {
+            "reason": reason,
+            "channel": channel,
+            "notification_id": str(notification.get("id") or ""),
+            "event_id": "",
+            "event_type": "workspace.notification",
+            "source": str(notification.get("source") or ""),
+        }
+
+        token_strings = [t.fcm_token for t in wanted]
+        _, dead = send_push(token_strings, alert, data)
+        if dead:
+            _prune_dead_tokens(db, wanted, dead)
+        logger.info(
+            "push: sent notification=%s reason=%s workspace=%s tokens=%d "
+            "muted=%d dead=%d",
+            notification.get("id"), reason, workspace_id, len(token_strings),
+            muted, len(dead),
         )
     finally:
         db.close()
 
 
 def _prune_dead_tokens(db, tokens: list[DeviceToken], dead_token_strings: list[str]) -> None:
-    """Delete DeviceToken rows whose APNs token was rejected as dead.
+    """Delete DeviceToken rows whose FCM token was rejected as dead.
 
-    `dead_token_strings` is the subset returned by `apns_client.send_push`
-    that APNs flagged as `Unregistered` / `BadDeviceToken` / etc. — those
-    devices have uninstalled, opted out, or never had this app registered.
+    `dead_token_strings` is the subset returned by `fcm_client.send_push`
+    that FCM flagged as Unregistered / SenderIdMismatch / InvalidArgument —
+    those devices have uninstalled, rotated their token, or belong to a
+    different Firebase project.
     """
     dead_set = set(dead_token_strings)
     invalid_ids = [t.id for t in tokens if t.fcm_token in dead_set]

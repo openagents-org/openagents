@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useT } from '@/lib/i18n';
 
 interface ConfirmOptions {
   title: string;
@@ -74,6 +75,7 @@ export function usePrompt() {
 }
 
 export function DialogsProvider({ children }: { children: React.ReactNode }) {
+  const t = useT();
   const [pending, setPending] = React.useState<Pending | null>(null);
   const [value, setValue] = React.useState('');
   const resolverRef = React.useRef<((result: boolean | string | null) => void) | null>(null);
@@ -183,7 +185,11 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 className="min-w-24"
                 onClick={() => settle(cancelResult)}
               >
-                {pending.cancelText ?? 'Cancel'}
+                {/* Callers name their confirm action but almost never pass
+                    cancelText, so this fallback IS the cancel button in
+                    nearly every dialog — a literal here left each one
+                    half-translated. */}
+                {pending.cancelText ?? t('common.cancel')}
               </Button>
               <Button
                 variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'primary'}
@@ -191,7 +197,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 disabled={!canSubmit}
                 onClick={submit}
               >
-                {pending.confirmText ?? (pending.kind === 'prompt' ? 'OK' : 'Confirm')}
+                {pending.confirmText ?? (pending.kind === 'prompt' ? t('common.ok') : t('common.confirm'))}
               </Button>
             </DialogFooter>
           </DialogContent>

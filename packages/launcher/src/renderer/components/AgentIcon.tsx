@@ -4,11 +4,16 @@ import { cn } from "../lib/utils"
 const BUNDLED_SLUGS = new Set([
   "aider",
   "amp",
+  "antigravity",
   "claude",
   "cline",
+  "codearts",
+  "codebuddy",
   "codex",
+  "commandcode",
   "copilot",
   "cursor",
+  "deepseek",
   "default",
   "gemini",
   "goose",
@@ -18,6 +23,8 @@ const BUNDLED_SLUGS = new Set([
   "openai",
   "openclaw",
   "opencode",
+  "openworker",
+  "pi",
   "yaml-agent",
 ])
 

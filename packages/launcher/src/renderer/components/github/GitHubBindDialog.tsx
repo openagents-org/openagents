@@ -181,7 +181,7 @@ export function GitHubBindDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             {t("common.cancel")}
           </Button>
           <Button onClick={submit} disabled={busy}>

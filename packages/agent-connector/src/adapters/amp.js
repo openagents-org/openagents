@@ -25,14 +25,34 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, getEnhancedEnv } = require('../paths');
 const { REASON, classifySpawnError, redactDiagnostic, shouldUseShellForBinary } = require('./health-status');
 
 const IS_WINDOWS = process.platform === 'win32';
+// What a failed `amp -x` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const AMP_GUIDANCE = {
+  auth:
+    'Amp could not authenticate. Set AMP_API_KEY for this agent, or run `amp ' +
+    'login` on the device. A self-hosted deployment also needs AMP_URL.',
+  quota:
+    'Amp is rate-limited, or the account is out of credit. Wait and try again, ' +
+    'or check the balance on the Amp account.',
+  network:
+    "Amp could not reach its server from this device. Check the device's " +
+    'network, or its proxy, and AMP_URL if a self-hosted deployment is set.',
+  timeout: 'Amp timed out before producing a response.',
+};
+
 // Terminate the subprocess if it produces no output for this long (a wedged
 // turn) — guards the daemon against a hung Amp process without arbitrary sleeps.
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -48,6 +68,8 @@ class AmpAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's glossary into the system prompt.
+    this._usesPinnedContext = true;
 
     // channel -> Amp thread id (for `amp threads continue <id>`)
     this._channelThreads = {};
@@ -121,7 +143,7 @@ class AmpAdapter extends BaseAdapter {
     // the Amp installer's ~/.amp/bin. This is what makes detection work inside
     // a GUI- or daemon-spawned process that did NOT inherit the user's
     // interactive shell PATH (the common "installed but not found" case).
-    const resolved = whichBinary('amp');
+    const resolved = whichBinary('amp', { allowWsl: false });
     if (resolved) return resolved;
 
     // Tier 2: explicit known install dirs as a last resort. The official
@@ -143,7 +165,10 @@ class AmpAdapter extends BaseAdapter {
       if (c && fs.existsSync(c)) return c;
     }
 
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('amp');
   }
 
   /**
@@ -179,8 +204,10 @@ class AmpAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       browserEnabled,
+      ...this.pinnedPromptOpts(channelName),
     });
   }
 
@@ -193,22 +220,8 @@ class AmpAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop)
+  // Process teardown (BaseAdapter._stopChannelWork calls _stopProcess)
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    // Shared actions (status, routines, skill.install/uninstall).
-    await super._onControlAction(action, payload);
-  }
 
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
@@ -270,6 +283,10 @@ class AmpAdapter extends BaseAdapter {
         this._log(message);
         this._reportStatus(reason, message);
         await this.sendError(msgChannel, message);
+      } else if (isClassifiedError(e)) {
+        // Already the sentence the user should read, secrets stripped, and
+        // logged where it was thrown.
+        await this.sendError(msgChannel, e.message);
       } else {
         this._log(`Error handling message: ${redactDiagnostic(e.message)}`);
         await this.sendError(
@@ -327,7 +344,7 @@ class AmpAdapter extends BaseAdapter {
         prompt = `${context}\n\n---\n\n${content}`;
       }
 
-      const { text, stale } = await this._spawnAmp(cmd, prompt, msgChannel);
+      const { text, stale, exitCode, stderr } = await this._spawnAmp(cmd, prompt, msgChannel);
 
       if (this._stoppingChannels.has(msgChannel)) return '';
       if (text) return text;
@@ -337,12 +354,25 @@ class AmpAdapter extends BaseAdapter {
         this._saveSessions();
         continue;
       }
+      // Nothing to post and the CLI failed: say why instead of "No response
+      // generated". A clean exit with no text is a different case — it falls
+      // through to the caller's generic wording.
+      if (exitCode !== 0) {
+        const failure = classifyRunFailure({
+          code: exitCode, stderr, cli: 'Amp', guidance: AMP_GUIDANCE, skip: ['session'],
+          secrets: this._knownSecrets(),
+        });
+        this._log(`Amp run failed (${failure.kind}, exit ${exitCode})`, 'error');
+        throw classifiedError(failure.message);
+      }
       return '';
     }
     return '';
   }
 
   async _spawnAmp(cmd, prompt, msgChannel) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return { text: '', stale: false };
     return new Promise((resolve, reject) => {
       // Pass the agent env with an enhanced PATH (nvm/fnm/volta/homebrew,
       // ~/.local/bin, ~/.amp/bin) so the amp subprocess and any tools it shells
@@ -462,7 +492,7 @@ class AmpAdapter extends BaseAdapter {
 
         const text = lastTurnText.filter(Boolean).join('\n').trim() || resultText.trim();
         const stale = code !== 0 && !text;
-        resolve({ text, exitCode: code, stale });
+        resolve({ text, exitCode: code, stale, stderr: stderrBuf });
       });
 
       proc.on('error', (err) => {

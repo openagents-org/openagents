@@ -15,16 +15,32 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 const http = require('http');
 const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
 const MAX_HISTORY_ENTRIES = 50;
+// Direct API mode has no tools, so an attached file reaches the model only as
+// text inside the message. This caps how much goes in: a spec fits, and a log
+// dump doesn't push the rest of the conversation out of the context window.
+const MAX_INLINE_ATTACHMENT_CHARS = 50000;
+// A completions request needs its own deadlines. Node's `timeout` option only
+// emits an event, it never aborts, so a relay that accepted the request and
+// then went quiet left the run hanging forever with nothing in the log.
+// Overridable per instance (_directIdleTimeoutMs / _directTotalTimeoutMs).
+const DIRECT_IDLE_TIMEOUT_MS = 120000;
+const DIRECT_TOTAL_TIMEOUT_MS = 300000;
+const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
 
 class CodexAdapter extends BaseAdapter {
   /**
@@ -34,6 +50,8 @@ class CodexAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's glossary into the system prompt.
+    this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;
     this._directApiKey = env.OPENAI_API_KEY || '';
@@ -61,10 +79,27 @@ class CodexAdapter extends BaseAdapter {
     const isOpenAiNative = !this._directBaseUrl ||
       this._directBaseUrl.includes('api.openai.com');
 
-    if (this._codexBin && (isOpenAiNative || !this._directApiKey)) {
-      // CLI mode: either OpenAI native API or subscription auth (no API key)
+    // A third-party endpoint that speaks the Responses API can drive the
+    // real CLI (tools, sandbox, resume) instead of the tool-less direct
+    // mode. Opt in with CODEX_WIRE_API=responses; the provider is passed to
+    // codex as `-c` overrides, so nothing is written to ~/.codex/config.toml.
+    this._customProvider = null;
+    if (this._codexBin && !isOpenAiNative && this._directApiKey &&
+        String(env.CODEX_WIRE_API || '').toLowerCase() === 'responses') {
+      this._customProvider = {
+        baseUrl: this._directBaseUrl,
+        reasoningEffort: String(env.CODEX_REASONING_EFFORT || '').toLowerCase() || null,
+      };
+    }
+
+    if (this._codexBin && (isOpenAiNative || !this._directApiKey || this._customProvider)) {
+      // CLI mode: OpenAI native API, subscription auth (no API key), or a
+      // Responses-compatible custom provider.
       this._useCliMode = true;
-      this._log(`CLI mode: ${this._codexBin}${!this._directApiKey ? ' (subscription auth)' : ''}`);
+      const how = this._customProvider
+        ? ` (custom Responses provider ${this._customProvider.baseUrl})`
+        : (!this._directApiKey ? ' (subscription auth)' : '');
+      this._log(`CLI mode: ${this._codexBin}${how}`);
     } else if (this._directApiKey && this._directBaseUrl) {
       this._directMode = true;
       if (this._codexBin) {
@@ -162,7 +197,75 @@ class CodexAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('codex');
+  }
+
+  /**
+   * How to spawn `bin`: `{ file, args, shell }`, with `args` going before the
+   * codex arguments. On Windows an npm `.cmd` shim is resolved to
+   * `[node, <entry>.js]` (or the native `.exe` it forwards to) and spawned
+   * without a shell. Handing the shim to cmd.exe instead joined everything
+   * into one unquoted command line, so a profile folder with a space in it
+   * (`C:\Users\Windows 用户\…`) was cut at the space and the run died with
+   * "'C:\Users\Windows' 不是内部或外部命令".
+   */
+  _resolveExec(bin, isWindows = IS_WINDOWS) {
+    const lower = String(bin).toLowerCase();
+    if (/\.[cm]?js$/.test(lower)) return { file: this._findNodeBin(), args: [bin], shell: false };
+    if (!isWindows || !/\.(cmd|bat)$/.test(lower)) return { file: bin, args: [], shell: false };
+    try {
+      const content = fs.readFileSync(bin, 'utf-8');
+      // Both npm shim styles: `"%dp0%\x.js"` and the older `"%~dp0\x.js"`.
+      const js = content.match(/%~?dp0%?\\([^\s"*?]+\.[cm]?js)/i);
+      if (js) {
+        return { file: this._findNodeBin(), args: [path.resolve(path.dirname(bin), js[1])], shell: false };
+      }
+      const exe = content.match(/%~?dp0%?\\([^\s"*?]+\.exe)/i);
+      if (exe) return { file: path.resolve(path.dirname(bin), exe[1]), args: [], shell: false };
+    } catch {}
+    // A shim we can't read through still has to run under cmd.exe. Build that
+    // command line here (see _spawnArgv): `shell: true` would join the
+    // arguments unquoted, cutting a working dir or relay flag at a space.
+    return { file: process.env.ComSpec || 'cmd.exe', args: [], shell: false, cmdShim: bin };
+  }
+
+  /**
+   * argv + spawn options for `exec` running `rest`. A `cmdShim` goes through
+   * `cmd /d /s /c "<line>"` with every part quoted (`/s` strips only the
+   * outer pair), passed verbatim so Node adds no quoting of its own.
+   */
+  _spawnArgv(exec, rest) {
+    if (!exec.cmdShim) return { argv: [...exec.args, ...rest], windowsVerbatimArguments: false };
+    const quote = (a) => `"${String(a).replace(/"/g, '""')}"`;
+    const line = [exec.cmdShim, ...rest].map(quote).join(' ');
+    return { argv: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true };
+  }
+
+  _findNodeBin() {
+    const home = os.homedir();
+    const candidates = IS_WINDOWS
+      ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
+      : [path.join(home, '.openagents', 'nodejs', 'bin', 'node'),
+         path.join(home, '.openagents', 'nodejs', 'node')];
+    for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
+    return process.execPath || 'node';
+  }
+
+  static _dirExists(p) {
+    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * Decode CLI output. Codex writes UTF-8, but text that came from Windows
+   * itself (cmd.exe, a system error) is in the console code page, which on a
+   * Chinese system is GBK and showed up in chat as rows of "�". Fall back to
+   * GB18030 only when UTF-8 fails and GB18030 reads the bytes cleanly.
+   */
+  static _decodeOutput(buf, isWindows = IS_WINDOWS) {
+    return decodeConsoleOutput(buf, isWindows);
   }
 
   _buildSystemContext(channelName) {
@@ -173,7 +276,9 @@ class CodexAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
+      ...this.pinnedPromptOpts(channelName),
     });
     const skillsSection = this._buildInstalledSkillsSection();
     return skillsSection ? `${base}\n\n${skillsSection}` : base;
@@ -235,38 +340,29 @@ class CodexAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    // Shared actions (status, routines, skill.install, skill.uninstall).
-    await super._onControlAction(action, payload);
-  }
-
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------
 
   async _handleMessage(msg) {
     const content = (msg.content || '').trim();
-    if (!content) return;
+    const attachments = msg.attachments || [];
+    // A file sent with no text is still a message. The web UI fills content
+    // with the filename, but a task or API caller may leave it empty.
+    if (!content && attachments.length === 0) return;
 
     const msgChannel = msg.sessionId || this.channelName;
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+    const summary = content || attachments.map((a) => a.filename).join(', ');
+    this._log(`Processing message from ${sender} in ${msgChannel}: ${summary.slice(0, 80)}...`);
 
-    await this._autoTitleChannel(msgChannel, content);
+    await this._autoTitleChannel(msgChannel, summary);
     await this.sendStatus(msgChannel, 'thinking...');
 
     if (this._useCliMode) {
-      await this._handleViaSubprocess(content, msgChannel);
+      await this._handleViaSubprocess(content, msgChannel, attachments);
     } else if (this._directMode) {
-      await this._handleViaDirectApi(content, msgChannel);
+      await this._handleViaDirectApi(content, msgChannel, attachments);
     } else {
       await this.sendError(msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex\n\nOr configure OPENAI_API_KEY + OPENAI_BASE_URL for direct API mode.');
     }
@@ -276,32 +372,63 @@ class CodexAdapter extends BaseAdapter {
   // CLI subprocess mode (primary)
   // ------------------------------------------------------------------
 
-  async _handleViaSubprocess(content, msgChannel) {
+  /** The workspace picker can change the model while this adapter is running. */
+  _effectiveModel() {
+    const workspaceModel = String(this.workspaceModel || '').trim();
+    return workspaceModel || String(this._directModel || '').trim();
+  }
+
+  async _handleViaSubprocess(content, msgChannel, attachments = []) {
+    // A missing cwd fails the spawn itself, and Node blames the shell for it
+    // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
+    // user can fix. A configured folder that was never made (or was cleaned
+    // up) is simply created; only one that cannot be is named instead.
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      try { fs.mkdirSync(this.workingDir, { recursive: true }); } catch {}
+    }
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      await this.sendError(msgChannel, `Working directory does not exist: ${this.workingDir}`);
+      return;
+    }
+
     const env = { ...(this.agentEnv || process.env) };
+    const effectiveModel = this._effectiveModel();
 
     // Set model via env if configured
-    if (this._directModel) env.CODEX_MODEL = this._directModel;
+    if (effectiveModel) env.CODEX_MODEL = effectiveModel;
     if (this._directApiKey) env.OPENAI_API_KEY = this._directApiKey;
     if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
 
     const context = this._buildSystemContext(msgChannel);
-    const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}`;
+    const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
 
     // Run up to 2 attempts: first with resume, then fresh if stale
+    let relocated = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
-
-      // Resume existing thread for this channel
-      const threadId = this._channelThreads[msgChannel];
-      if (threadId && attempt === 0) {
-        cmd.push('resume', threadId);
-      }
 
       cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
 
       // Model override
-      if (this._directModel) {
-        cmd.push('-m', this._directModel);
+      if (effectiveModel) {
+        cmd.push('-m', effectiveModel);
+      }
+
+      // Custom Responses-API provider (see constructor). TOML values for
+      // `-c` must be quoted; the key itself travels in env (env_key), never
+      // on the command line.
+      if (this._customProvider) {
+        const q = (v) => JSON.stringify(String(v));
+        cmd.push(
+          '-c', 'model_provider=openagents',
+          '-c', `model_providers.openagents.name=${q('openagents')}`,
+          '-c', `model_providers.openagents.base_url=${q(this._customProvider.baseUrl)}`,
+          '-c', `model_providers.openagents.env_key=${q('OPENAI_API_KEY')}`,
+          '-c', `model_providers.openagents.wire_api=${q('responses')}`,
+        );
+        if (this._customProvider.reasoningEffort) {
+          cmd.push('-c', `model_reasoning_effort=${q(this._customProvider.reasoningEffort)}`);
+        }
       }
 
       // Working directory
@@ -309,13 +436,34 @@ class CodexAdapter extends BaseAdapter {
         cmd.push('-C', this.workingDir);
       }
 
-      this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
+      // Resume goes LAST, after the exec options. `codex exec resume` takes
+      // -m, --json, --skip-git-repo-check and the bypass flags, but not -C,
+      // so the old order died with "unexpected argument '-C'" on every
+      // follow-up. That read as a stale thread, the id was dropped and the
+      // turn reran fresh, which is why a CLI-mode agent never remembered
+      // anything past its first message. Verified against codex-cli 0.154.0.
+      const threadId = this._channelThreads[msgChannel];
+      if (threadId && attempt === 0) {
+        cmd.push('resume', threadId);
+      }
+
+      this._log(`Spawning: codex ${cmd.slice(1).join(' ')}`);
 
       try {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
+        if (result.stopped) return;
 
         if (result.responseText) {
-          await this.sendResponse(msgChannel, result.responseText);
+          await this.sendResponse(msgChannel, result.responseText, {
+            statusKind: CodexAdapter._endedEarly(result) ? 'error' : 'completed',
+          });
+          // A run that said something and then died (turn.failed, non-zero
+          // exit) used to post only that opening line as the finished reply,
+          // so it read as "Codex says one sentence and stops" with the real
+          // error left in daemon.log. Say it stopped, and why.
+          if (CodexAdapter._endedEarly(result)) {
+            await this._sendRunFailure(msgChannel, result, { partial: true });
+          }
           return;
         } else if (result.exitCode !== 0 && threadId && attempt === 0) {
           // Stale thread — clear and retry fresh
@@ -331,6 +479,22 @@ class CodexAdapter extends BaseAdapter {
           return;
         }
       } catch (e) {
+        // The binary was looked up once, when the adapter started. A reinstall
+        // or update since then can move or remove it, and every turn failed
+        // with "spawn …/.bin/codex ENOENT" until the agent was restarted.
+        // Look again and rerun this attempt once.
+        if (e && e.code === 'ENOENT' && !relocated) {
+          relocated = true;
+          const found = this._findCodexBinary();
+          if (found) {
+            this._log(`Codex binary moved: ${this._codexBin} → ${found}`);
+            this._codexBin = found;
+            attempt--;
+            continue;
+          }
+          await this.sendError(msgChannel, "⚠️ **Codex couldn't run** — the Codex CLI is no longer installed on this device. Reinstall it from OpenAgents Launcher (Agents → Codex), then try again.");
+          return;
+        }
         this._log(`Error in subprocess: ${e.message}`);
         await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
         return;
@@ -339,26 +503,32 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _spawnCodex(cmd, env, msgChannel, prompt) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return { stopped: true, responseText: '', exitCode: null };
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd[0], cmd.slice(1), {
+      const exec = this._resolveExec(cmd[0]);
+      const { argv, windowsVerbatimArguments } = this._spawnArgv(exec, cmd.slice(1));
+      const proc = spawn(exec.file, argv, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env,
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
-        shell: IS_WINDOWS,
+        shell: exec.shell,
+        windowsVerbatimArguments,
       });
       this._channelProcesses[msgChannel] = proc;
 
       const responseTexts = [];
       let hasToolUseSinceLastText = false;
       let lineBuffer = '';
-      let stderrBuf = '';
+      const stderrChunks = [];
       let lastErrorMessage = '';
+      let turnFailed = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
-        proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+        proc.stderr.on('data', (chunk) => { stderrChunks.push(chunk); });
       }
 
       if (proc.stdin) {
@@ -404,7 +574,11 @@ class CodexAdapter extends BaseAdapter {
             this._log(`Command: ${cmdText} → exit ${exitCode}`);
           } else if (item.type === 'file_change') {
             hasToolUseSinceLastText = true;
-            const filename = item.filename || '';
+            // codex reports the edited files in `changes`; `filename` is the
+            // legacy shape and was always empty on current CLIs.
+            const filename = Array.isArray(item.changes) && item.changes.length
+              ? item.changes.map((c) => c && c.path).filter(Boolean).join(', ')
+              : (item.filename || '');
             try { await this.sendStatus(msgChannel, `**Editing:** \`${filename}\``); } catch {}
             this._log(`File change: ${filename}`);
           }
@@ -412,6 +586,7 @@ class CodexAdapter extends BaseAdapter {
           const error = event.error || {};
           const errMsg = error.message || JSON.stringify(error);
           lastErrorMessage = errMsg;
+          turnFailed = true;
           this._log(`Turn failed: ${errMsg}`);
         } else if (eventType === 'error') {
           const errMsg = event.message || JSON.stringify(event);
@@ -440,6 +615,7 @@ class CodexAdapter extends BaseAdapter {
 
         delete this._channelProcesses[msgChannel];
 
+        const stderrBuf = CodexAdapter._decodeOutput(Buffer.concat(stderrChunks));
         if (code !== 0) {
           this._log(`Codex CLI exited with code ${code}`);
           if (stderrBuf.trim()) {
@@ -452,6 +628,7 @@ class CodexAdapter extends BaseAdapter {
           exitCode: code,
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
+          turnFailed,
         });
       });
 
@@ -463,6 +640,76 @@ class CodexAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Attachments
+  // ------------------------------------------------------------------
+
+  /**
+   * How the CLI fetches each attached file. Without this it saw only the
+   * filename and went looking for it on local disk.
+   *
+   * The curl form, not the MCP one: Codex runs with no MCP config, so
+   * `workspace_read_file` names a tool it doesn't have. The token goes in
+   * literally, as it already does in the system prompt, because `$TOKEN` is
+   * unset in Codex's shell and every download would 401. The URL is rebuilt
+   * from this agent's endpoint: the one the browser attached points at the
+   * browser's API origin and carries the viewer's token.
+   */
+  _attachmentInstructions(attachments) {
+    const forAgent = (attachments || []).map((att) => ({ ...att, url: undefined }));
+    return formatAttachmentsForPrompt(forAgent, 'skills', IS_WINDOWS, {
+      tokenExpr: this.token, endpoint: this.endpoint,
+    }) || '';
+  }
+
+  /**
+   * Direct API mode has no tools, so a file reaches the model only if its text
+   * is in the message. Text files are inlined up to MAX_INLINE_ATTACHMENT_CHARS.
+   * Anything else is named, so the model says it can't open the file rather
+   * than answering as if it had read it.
+   */
+  async _inlineAttachments(attachments) {
+    if (!attachments || attachments.length === 0) return '';
+    const parts = [];
+    let budget = MAX_INLINE_ATTACHMENT_CHARS;
+    for (const att of attachments) {
+      const name = att.filename || att.fileId || 'file';
+      if (!CodexAdapter._looksLikeText(att)) {
+        parts.push(`[Attached file: ${name} (${att.contentType || 'unknown type'}) — its contents can't be read in this mode]`);
+        continue;
+      }
+      if (budget <= 0) {
+        parts.push(`[Attached file: ${name} — left out, the attachments already reached the size limit]`);
+        continue;
+      }
+      let buf;
+      try {
+        buf = await this.client.readFile(this.workspaceId, this.token, att.fileId);
+      } catch (e) {
+        parts.push(`[Attached file: ${name} — download failed: ${CodexAdapter._redact(e.message).slice(0, 200)}]`);
+        continue;
+      }
+      if (buf.includes(0)) {
+        parts.push(`[Attached file: ${name} — binary content, can't be read in this mode]`);
+        continue;
+      }
+      const text = buf.toString('utf-8');
+      const body = text.slice(0, budget);
+      budget -= body.length;
+      const note = body.length < text.length ? ` — only the first ${body.length} characters` : '';
+      parts.push(`[Attached file: ${name}${note}]\n${body}\n[End of ${name}]`);
+    }
+    return `\n\n${parts.join('\n\n')}`;
+  }
+
+  /** Whether an attachment is worth decoding as text. Browsers upload .md as octet-stream. */
+  static _looksLikeText({ contentType, filename } = {}) {
+    const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+    if (type.startsWith('text/')) return true;
+    if (/^application\/(json|xml|yaml|x-yaml|toml|javascript|x-sh|sql)$/.test(type)) return true;
+    return TEXT_FILE_RE.test(String(filename || ''));
+  }
+
+  // ------------------------------------------------------------------
   // Failure reporting
   // ------------------------------------------------------------------
 
@@ -470,8 +717,15 @@ class CodexAdapter extends BaseAdapter {
    * Post a user-visible failure carrying the actual reason a run produced no
    * reply, instead of a generic "No response generated".
    */
-  async _sendRunFailure(msgChannel, result) {
+  async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
     const detail = CodexAdapter._failureDetail(result);
+    if (partial) {
+      const body = detail
+        ? `It stopped before finishing this task.\n\n> ${detail}`
+        : 'It stopped before finishing this task. Please try again.';
+      await this.sendError(msgChannel, `⚠️ **Codex stopped partway** — ${body}`);
+      return;
+    }
     const body = detail
       ? `Codex failed to complete this run.\n\n> ${detail}`
       : 'Codex finished without producing a reply. Please try again.';
@@ -479,53 +733,120 @@ class CodexAdapter extends BaseAdapter {
   }
 
   /**
+   * True when a run that produced some text did not actually finish. Only a
+   * turn.failed or a non-zero exit counts: codex also emits `error` events
+   * for retries it recovers from ("Reconnecting... 2/5"), and a run that
+   * reconnected and then completed is fine.
+   */
+  static _endedEarly({ exitCode, turnFailed } = {}) {
+    return Boolean(turnFailed) || (exitCode !== 0 && exitCode !== undefined);
+  }
+
+  /**
    * Pick the most informative failure detail from a run result:
    * turn.failed / error event message → stderr tail → exit code. Redacted.
    */
   static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
-    const stderrTail = String(stderr || '').trim().split('\n').slice(-5).join('\n').trim();
     const raw = String(errorMessage || '').trim()
-      || stderrTail
+      || CodexAdapter._stderrReason(stderr)
       || (exitCode ? `codex exited with code ${exitCode}` : '');
-    return CodexAdapter._redact(raw).slice(0, 500).trim();
+    const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
+    return CodexAdapter._redact(detail).slice(0, 500).trim();
+  }
+
+  /**
+   * The part of codex's stderr that says why the run died.
+   *
+   * codex logs through `tracing` on stderr — `2026-10-27T04:08:56.500Z  WARN
+   * codex_skills::interface: …` — and echoes "Reading prompt from stdin..."
+   * (or "Reading additional input from stdin...").
+   * A plain tail of the last lines was mostly that noise, so a usage limit or
+   * a model the account cannot use reached the chat buried under plugin-cache
+   * and skill-icon warnings. Lines the CLI printed for a person win; failing
+   * those, the ERROR records with their timestamp and module stripped; only
+   * when neither exists does the raw tail stand.
+   */
+  static _stderrReason(stderr) {
+    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    const TRACE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
+    const plain = [];
+    const errors = [];
+    for (const line of lines) {
+      const m = line.match(TRACE);
+      if (!m) {
+        if (!/^Reading (prompt|additional input) from stdin/i.test(line)) plain.push(line);
+      } else if (m[1] === 'ERROR' && m[2] && !errors.includes(m[2])) {
+        errors.push(m[2]);
+      }
+    }
+    const picked = plain.length ? plain : errors;
+    return (picked.length ? picked : lines).slice(-5).join('\n').trim();
+  }
+
+  /**
+   * Unwrap the API's JSON error envelope so the user reads the sentence, not
+   * the transport. The backend rejects a run with a body like
+   * `{"detail":"The 'gpt-5.6-sol' model requires a newer version of Codex."}`
+   * and it was surfaced verbatim, braces and all (#649).
+   */
+  static _unwrap(raw) {
+    const text = String(raw || '').trim();
+    if (!text.startsWith('{') && !text.startsWith('[')) return text;
+    try {
+      const parsed = JSON.parse(text);
+      for (const key of ['detail', 'message', 'error']) {
+        const v = parsed && parsed[key];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+        // OpenAI also nests as { error: { message } }.
+        if (v && typeof v.message === 'string' && v.message.trim()) return v.message.trim();
+      }
+    } catch {}
+    return text;
+  }
+
+  /**
+   * Add the missing half of a backend rejection: what to actually do about it.
+   *
+   * "Please upgrade to the latest app or CLI" is true but unactionable inside a
+   * workspace chat — the user is not at a terminal and does not necessarily
+   * know the CLI is theirs to update. Name where the update button lives. The
+   * match is on the backend's own wording, so an unrelated failure is passed
+   * through untouched.
+   */
+  static _explain(detail) {
+    if (!/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
+      return detail;
+    }
+    return `${detail}\n\nUpdate the Codex CLI from OpenAgents Launcher ` +
+      '(Agents → Codex → Update), or run `npm install -g @openai/codex@latest`, ' +
+      'then try again. Picking an older model also works around it for now.';
   }
 
   /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */
   static _redact(s) {
-    let out = String(s == null ? '' : s);
-    out = out
-      .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
-      .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
-      .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
-      .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
-      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
-      .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
-        (m, k, sep) => `${k}${sep}[REDACTED]`)
-      .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
-      .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
-    return out;
+    return redactSecrets(s);
   }
 
   // ------------------------------------------------------------------
   // Direct HTTP mode (fallback when CLI not available)
   // ------------------------------------------------------------------
 
-  async _handleViaDirectApi(content, msgChannel) {
+  async _handleViaDirectApi(content, msgChannel, attachments = []) {
     try {
-      const responseText = await this._callCompletionApi(content, msgChannel);
-      if (responseText) {
-        this._conversationHistory.push({ role: 'user', content });
-        this._conversationHistory.push({ role: 'assistant', content: responseText });
-        if (this._conversationHistory.length > MAX_HISTORY_ENTRIES * 2) {
-          this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY_ENTRIES * 2);
-        }
-        await this.sendResponse(msgChannel, responseText);
-      } else {
-        await this._sendRunFailure(msgChannel, {});
+      const userMessage = (content + await this._inlineAttachments(attachments)).trim();
+      // Resolves with text or rejects with the reason there is none.
+      const responseText = await this._callCompletionApi(userMessage, msgChannel);
+      // The file text stays in history so a follow-up question about it still has it.
+      this._conversationHistory.push({ role: 'user', content: userMessage });
+      this._conversationHistory.push({ role: 'assistant', content: responseText });
+      if (this._conversationHistory.length > MAX_HISTORY_ENTRIES * 2) {
+        this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY_ENTRIES * 2);
       }
+      await this.sendResponse(msgChannel, responseText);
     } catch (e) {
       this._log(`Error in direct API: ${e.message}`);
-      await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
+      await this._sendRunFailure(msgChannel, { errorMessage: e.message });
     }
   }
 
@@ -537,7 +858,7 @@ class CodexAdapter extends BaseAdapter {
 
     const url = `${this._directBaseUrl}/chat/completions`;
     const payload = JSON.stringify({
-      model: this._directModel || 'gpt-4o',
+      model: this._effectiveModel() || 'gpt-4o',
       messages,
       stream: true,
     });
@@ -545,6 +866,28 @@ class CodexAdapter extends BaseAdapter {
     return new Promise((resolve, reject) => {
       const parsed = new URL(url);
       const mod = parsed.protocol === 'https:' ? https : http;
+      const idleMs = this._directIdleTimeoutMs || DIRECT_IDLE_TIMEOUT_MS;
+      const totalMs = this._directTotalTimeoutMs || DIRECT_TOTAL_TIMEOUT_MS;
+      const started = Date.now();
+      // What arrived before things stopped, so a stalled relay can be told
+      // apart from one that answered in a shape we don't read.
+      const progress = { status: 0, bytes: 0, events: 0 };
+      const seconds = () => Math.round((Date.now() - started) / 1000);
+      const note = () => `HTTP ${progress.status || 'no response'}, ${progress.bytes} bytes, `
+        + `${progress.events} events, ${seconds()}s`;
+
+      let settled = false;
+      let deadline = null;
+      const finish = (err, text) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        if (!err) { resolve(text); return; }
+        this._log(`Direct API failed after ${seconds()}s, ${err.message}`);
+        reject(err);
+      };
+
+      this._log(`Direct API request started, model ${this._directModel || 'gpt-4o'} to ${parsed.host}${parsed.pathname}`);
       const req = mod.request(parsed, {
         method: 'POST',
         headers: {
@@ -552,61 +895,123 @@ class CodexAdapter extends BaseAdapter {
           'Authorization': `Bearer ${this._directApiKey}`,
           'Content-Length': Buffer.byteLength(payload),
         },
-        timeout: 300000,
+        timeout: idleMs,
       }, (res) => {
+        progress.status = res.statusCode;
+        this._log(`Direct API response ${res.statusCode} after ${seconds()}s`);
+        // Decode across chunk boundaries: a CJK character split between two
+        // chunks came out as replacement characters when each was decoded alone.
+        res.setEncoding('utf8');
         if (res.statusCode !== 200) {
           let body = '';
           res.on('data', (d) => { body += d; });
-          res.on('end', () => reject(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
+          res.on('end', () => finish(new Error(`LLM API returned ${res.statusCode}: ${body.slice(0, 300)}`)));
           return;
         }
 
-        let fullText = '';
-        let toolCallText = '';
+        const reply = { text: '', reasoning: '', toolArgs: '', error: '', finishReason: '' };
+        let streamed = false;
+        let body = ''; // the raw response, kept until it turns out to be an SSE stream
         let buffer = '';
+        const takeLine = (line) => {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) return;
+          streamed = true;
+          progress.events += 1;
+          const data = trimmed.slice(5).trim();
+          if (!data || data === '[DONE]') return;
+          try { CodexAdapter._collectCompletion(reply, JSON.parse(data), 'delta'); } catch {}
+        };
         res.on('data', (chunk) => {
-          buffer += chunk.toString('utf-8');
+          progress.bytes += chunk.length;
+          if (!streamed) body += chunk;
+          buffer += chunk;
           const lines = buffer.split('\n');
           buffer = lines.pop();
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              const choices = parsed.choices || [];
-              if (choices.length > 0) {
-                const delta = choices[0].delta || {};
-                if (delta.content) fullText += delta.content;
-                if (delta.tool_calls) {
-                  for (const tc of delta.tool_calls) {
-                    if (tc.function && tc.function.arguments) {
-                      toolCallText += tc.function.arguments;
-                    }
-                  }
-                }
-              }
-            } catch {}
-          }
+          for (const line of lines) takeLine(line);
         });
         res.on('end', () => {
-          if (!fullText && toolCallText) {
-            try {
-              const args = JSON.parse(toolCallText);
-              fullText = args.command || args.input || args.content || args.text || toolCallText;
-            } catch {
-              fullText = toolCallText;
-            }
+          takeLine(buffer); // a stream whose last event has no trailing newline
+          if (!streamed) {
+            // Some relays ignore stream:true and answer with one JSON body.
+            try { CodexAdapter._collectCompletion(reply, JSON.parse(body), 'message'); } catch {}
           }
-          resolve(fullText.trim());
+          const text = CodexAdapter._completionText(reply);
+          if (text) finish(null, text);
+          else finish(new Error(CodexAdapter._emptyCompletionReason(reply, { streamed, body })));
         });
+        res.on('aborted', () => finish(new Error(
+          `The LLM API closed the connection mid-response (${note()})`)));
+        res.on('error', (err) => finish(new Error(
+          `The LLM API connection failed, ${err.message} (${note()})`)));
       });
 
-      req.on('error', reject);
+      // Settle first, then destroy: the abort that follows would otherwise
+      // report itself as a dropped connection and hide the real reason.
+      req.on('timeout', () => {
+        finish(new Error(
+          `The LLM API stopped responding, no data for ${Math.round(idleMs / 1000)}s (${note()})`));
+        req.destroy();
+      });
+      deadline = setTimeout(() => {
+        finish(new Error(
+          `The LLM API request went past ${Math.round(totalMs / 1000)}s with no usable reply (${note()})`));
+        req.destroy();
+      }, totalMs);
+      if (deadline.unref) deadline.unref();
+
+      req.on('error', (err) => finish(err));
       req.write(payload);
       req.end();
     });
+  }
+
+  /** Fold one streamed chunk (`delta`) or one whole response (`message`) into `reply`. */
+  static _collectCompletion(reply, parsed, key) {
+    if (!parsed || typeof parsed !== 'object') return;
+    if (parsed.error) reply.error = CodexAdapter._unwrap(JSON.stringify(parsed));
+    const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : null;
+    if (!choice) return;
+    const part = choice[key] || {};
+    if (typeof part.content === 'string') reply.text += part.content;
+    const reasoning = part.reasoning_content || part.reasoning;
+    if (typeof reasoning === 'string') reply.reasoning += reasoning;
+    for (const tc of part.tool_calls || []) {
+      if (tc.function && tc.function.arguments) reply.toolArgs += tc.function.arguments;
+    }
+    if (choice.finish_reason) reply.finishReason = choice.finish_reason;
+  }
+
+  /** The reply text, falling back to a tool call's arguments when the model answered with one. */
+  static _completionText({ text, toolArgs }) {
+    if (text.trim()) return text.trim();
+    if (!toolArgs) return '';
+    try {
+      const args = JSON.parse(toolArgs);
+      return String(args.command || args.input || args.content || args.text || toolArgs).trim();
+    } catch {
+      return toolArgs.trim();
+    }
+  }
+
+  /**
+   * Why a 200 from the completions endpoint carried no reply. Each of these
+   * used to resolve to '' and reach the user as "finished without producing a
+   * reply", which is what a relay's in-band error looked like.
+   */
+  static _emptyCompletionReason({ error, reasoning, finishReason }, { streamed, body } = {}) {
+    if (error) return error;
+    if (reasoning) {
+      return finishReason === 'length'
+        ? 'The model ran out of output tokens while still reasoning, before it wrote an answer.'
+        : 'The model returned reasoning but no answer.';
+    }
+    if (finishReason) return `The model returned no text (finish_reason: ${finishReason}).`;
+    if (streamed) return 'The LLM API stream ended without any reply text.';
+    const snippet = String(body || '').trim().slice(0, 200);
+    return snippet
+      ? `The LLM API response had no reply in it: ${snippet}`
+      : 'The LLM API returned an empty response.';
   }
 }
 

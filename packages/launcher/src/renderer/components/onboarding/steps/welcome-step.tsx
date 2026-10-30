@@ -1,18 +1,10 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { PLATFORMS } from "@renderer/components/connections/platforms"
 import { cn } from "@renderer/lib/utils"
 
 import { SectionLabel } from "../onboarding-chrome"
 import { useRuntimeScan } from "../use-runtime-scan"
-
-const CAPABILITY_IDS = [
-  "agents",
-  "credentials",
-  "workspaces",
-  "connections",
-] as const
 
 interface ScanRow {
   id: string
@@ -20,21 +12,15 @@ interface ScanRow {
   detected: boolean
 }
 
-export function WelcomeStep({
-  agentCount,
-}: {
-  /** Runnable agents found on this machine; null while the core loads. */
-  agentCount: number | null
-}): React.JSX.Element {
+/**
+ * The opening screen of the single pairing-first flow: what happens next
+ * (pair this device, drive it from the workspace) plus the local runtime
+ * scan. The old two-path mode choice is gone — a local agent is an optional
+ * continuation after pairing, not a separate route.
+ */
+export function WelcomeStep(): React.JSX.Element {
   const { t } = useTranslation()
   const { runtime, system, loading } = useRuntimeScan(true)
-
-  const chips: Record<(typeof CAPABILITY_IDS)[number], string> = {
-    agents: agentCount == null ? "—" : String(agentCount),
-    credentials: "AES-256",
-    workspaces: t("onboarding.flow.welcome.capabilities.workspaces.chip"),
-    connections: `${PLATFORMS.length}`,
-  }
 
   const pending = t("onboarding.flow.welcome.scan.pending")
   const rows: ScanRow[] = [
@@ -63,31 +49,7 @@ export function WelcomeStep({
 
   return (
     <>
-      <SectionLabel>{t("onboarding.flow.sections.capabilities")}</SectionLabel>
-      <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
-        {CAPABILITY_IDS.map((id) => (
-          <li
-            key={id}
-            className="rounded-lg border border-(--border) bg-(--bg-card) p-4"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-base font-semibold">
-                {t(`onboarding.flow.welcome.capabilities.${id}.title`)}
-              </span>
-              <span className="shrink-0 font-mono text-2xs font-medium text-(--accent)">
-                {chips[id]}
-              </span>
-            </div>
-            <p className="m-0 mt-2 text-xs leading-relaxed text-(--text-secondary)">
-              {t(`onboarding.flow.welcome.capabilities.${id}.desc`)}
-            </p>
-          </li>
-        ))}
-      </ul>
-
-      <SectionLabel className="mt-9">
-        {t("onboarding.flow.sections.runtimeScan")}
-      </SectionLabel>
+      <SectionLabel>{t("onboarding.flow.sections.runtimeScan")}</SectionLabel>
       <ul
         className={cn(
           "m-0 list-none overflow-hidden rounded-lg border border-(--border) bg-(--bg-card) p-0 transition-opacity",
@@ -116,7 +78,7 @@ export function WelcomeStep({
       </ul>
 
       <p className="mt-5 mb-0 text-xs text-(--text-tertiary)">
-        {t("onboarding.flow.welcome.footnote")}
+        {t("onboarding.flow.welcome.footnote.node")}
       </p>
     </>
   )

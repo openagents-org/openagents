@@ -16,6 +16,9 @@ const DURATION_MS: Record<ToastType, number> = {
 
 function fireToast(message: string, type: ToastType): void {
   toast[type](message, { duration: DURATION_MS[type] })
+  // While the Workspace is on screen its native view covers this toast. Main
+  // repeats it inside the view, and ignores it when no view is showing.
+  window.api?.showWorkspaceNotice?.({ message, type })?.catch(() => {})
 }
 
 export function showGlobalToast(message: string, type: ToastType = 'info'): void {

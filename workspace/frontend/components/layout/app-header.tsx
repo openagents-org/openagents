@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { MessageSquare, PanelLeft } from "lucide-react"
+import { Hash, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -10,9 +10,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useWorkspace } from "@/lib/workspace-context"
+import { addressName, dmCounterpart, dmPair, myAddress } from "@/lib/dm"
+import { useHumanNames } from "@/hooks/use-team-roster"
+import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { DmAvatars } from "@/components/chat/dm-avatars"
+import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
 import { useLayout, type ViewMode } from "./layout-context"
 
 const ACTIONS_SLOT_ID = "app-header-actions"
@@ -26,16 +31,35 @@ function HeaderSlot({
   id: string
   children: React.ReactNode
 }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  // Portal into a node of our own rather than the slot itself, so the view's
+  // header content can be detached as a whole. Views are kept mounted behind
+  // <Activity mode="hidden"> (see Wrapper), which only hides the view's own
+  // DOM — anything portalled into the shared header would stay on screen, and
+  // be dead to clicks. Hiding tears down layout effects in the same commit, so
+  // detaching here takes the content out of the header immediately.
+  const nodeRef = useRef<HTMLElement | null>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (!nodeRef.current) {
+      nodeRef.current = document.createElement("div")
+      nodeRef.current.className = "contents"
+    }
+    setContainer(nodeRef.current)
+    return () => nodeRef.current?.remove()
+  }, [])
 
   // The header renders before any detail view, so the slot exists by the time
   // this effect runs; re-checking on every render keeps it correct across
   // view switches that remount the header.
-  useEffect(() => {
-    setSlot(document.getElementById(id))
+  useLayoutEffect(() => {
+    const slot = document.getElementById(id)
+    if (container && slot && container.parentElement !== slot) {
+      slot.appendChild(container)
+    }
   })
 
-  return slot ? createPortal(children, slot) : null
+  return container ? createPortal(children, container) : null
 }
 
 /**
@@ -104,16 +128,20 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   files: "views.files",
   knowledge: "views.knowledge",
   browser: "views.browser",
-  tasks: "views.tasks",
+  issues: "views.issues",
+  tasks: "views.issues",
+  workflows: "views.workflows",
   routines: "views.routines",
   inbox: "views.inbox",
   connect: "views.connect",
   skills: "views.skills",
+  agents: "collab.directoryTitle", // v1.1 M2: agent directory
 }
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 function ThreadTitle() {
-  const { sessions, currentSessionId, renameSession } = useWorkspace()
+  const { sessions, currentSessionId, renameSession, currentUser } = useWorkspace()
+  const humanNames = useHumanNames()
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -123,17 +151,28 @@ function ThreadTitle() {
   const session = sessions.find((s) => s.sessionId === currentSessionId)
 
   if (isDM) {
+    // Title the DM by the counterpart alone. A pair that includes the human
+    // viewer is a writable conversation (no read-only badge); agent↔agent
+    // pairs stay a read-only observation view with both names.
+    const pair = dmPair(currentSessionId)
+    const counterpart = dmCounterpart(pair, myAddress(currentUser))
+    const hasHuman = !!counterpart
+    const nameLabel = (addr: string) => {
+      const n = addressName(addr)
+      return addr.startsWith("human:") ? (humanNames[n.toLowerCase()] ?? n) : n
+    }
+    const title = counterpart
+      ? nameLabel(counterpart)
+      : pair.map(nameLabel).join(" ↔ ")
     return (
       <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
-        <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
-        {currentSessionId!
-          .slice(3)
-          .split(",")
-          .map((a) => a.replace(/^openagents:/, ""))
-          .join(" ↔ ")}
-        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {t("header.readOnly")}
-        </span>
+        <DmAvatars addresses={counterpart ? [counterpart] : pair} />
+        {title}
+        {!hasHuman && (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {t("header.readOnly")}
+          </span>
+        )}
       </h3>
     )
   }
@@ -170,13 +209,17 @@ function ThreadTitle() {
   }
 
   return (
-    <h3
-      onClick={startEditing}
-      title={t("header.clickToRename")}
-      className="w-0 flex-1 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
-    >
-      {session?.title || t("header.untitledThread")}
-    </h3>
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      {session?.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("threads.channel")} />}
+      <h3
+        onClick={startEditing}
+        title={t("header.clickToRename")}
+        className="min-w-0 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
+      >
+        {session?.title || t("header.untitledThread")}
+      </h3>
+      {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
+    </div>
   )
 }
 
@@ -193,11 +236,24 @@ export function AppHeader() {
     currentFilePath,
     browserTabs,
     selectedBrowserTabId,
+    agents,
+    sessions,
   } = useWorkspace()
+
+  // A fresh workspace (no real agent, no threads) is in guided onboarding — the
+  // threads view renders the onboarding flow, so title it "Onboarding".
+  const isOnboarding =
+    !agents.some((a) => isRecentAgent(a) && !a.builtin) && sessions.length === 0
 
   // Title: the selected item for list-backed views, the view name otherwise.
   let title: React.ReactNode
-  if (viewMode === "threads" || viewMode === "routines") {
+  if (viewMode === "threads" && isOnboarding) {
+    title = (
+      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
+        {t("views.onboarding")}
+      </h3>
+    )
+  } else if (viewMode === "threads" || viewMode === "routines") {
     title = <ThreadTitle />
   } else if (viewMode === "files") {
     const name =

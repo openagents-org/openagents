@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const ClineAdapter = require('../src/adapters/cline');
 const { ADAPTER_MAP, createAdapter } = require('../src/adapters');
@@ -440,6 +441,281 @@ describe('Installer — package-bin fallback (generic; fixes Cline detection)', 
       assert.equal(inst.getInstallInfo(agentType).installed, true);
     } finally {
       fs.rmSync(prefix, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps launcher and daemon resolution aligned when HOME differs from the OS profile', () => {
+    if (!IS_WINDOWS) return;
+
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'cline-home-split-'));
+    const runtimeHome = path.join(sandbox, 'runtime-home');
+    const osProfile = path.join(sandbox, 'windows-profile');
+    const pkgDir = path.join(
+      runtimeHome,
+      '.openagents',
+      'runtimes',
+      'cline',
+      'node_modules',
+      'cline',
+    );
+    const binFile = path.join(pkgDir, 'bin', 'cline');
+    fs.mkdirSync(path.dirname(binFile), { recursive: true });
+    fs.mkdirSync(osProfile, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'cline', bin: './bin/cline' }),
+    );
+    fs.writeFileSync(binFile, '#!/usr/bin/env node\n');
+
+    const adapterModule = path.resolve(__dirname, '../src/adapters/cline.js');
+    const installerModule = path.resolve(__dirname, '../src/installer.js');
+    const configDir = path.join(sandbox, 'config');
+    const probe = `
+      const ClineAdapter = require(${JSON.stringify(adapterModule)});
+      const { Installer } = require(${JSON.stringify(installerModule)});
+      const registry = {
+        getResolveRules: () => [],
+        getEntry: () => ({
+          name: 'cline',
+          install: {
+            binary: 'cline',
+            npm_package: 'cline',
+            windows: 'npm install -g cline',
+          },
+        }),
+      };
+      const installer = new Installer(registry, ${JSON.stringify(configDir)});
+      const adapter = Object.create(ClineAdapter.prototype);
+      process.stdout.write(JSON.stringify({
+        launcher: installer.which('cline'),
+        daemon: adapter._findClineBinary(),
+      }));
+    `;
+
+    try {
+      const actual = JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: runtimeHome,
+          USERPROFILE: osProfile,
+          APPDATA: path.join(osProfile, 'AppData', 'Roaming'),
+          LOCALAPPDATA: path.join(osProfile, 'AppData', 'Local'),
+          PATH: '',
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
+        },
+      }));
+      assert.deepEqual(actual, { launcher: binFile, daemon: binFile });
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps legacy managed agents under the OS profile discoverable', () => {
+    if (!IS_WINDOWS) return;
+
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-agent-home-split-'));
+    const runtimeHome = path.join(sandbox, 'runtime-home');
+    const osProfile = path.join(sandbox, 'windows-profile');
+    const pkgDir = path.join(
+      osProfile,
+      '.openagents',
+      'nodejs',
+      'node_modules',
+      'legacy-agent',
+    );
+    const binFile = path.join(pkgDir, 'bin', 'legacy-agent');
+    fs.mkdirSync(path.dirname(binFile), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'legacy-agent', bin: './bin/legacy-agent' }),
+    );
+    fs.writeFileSync(binFile, '#!/usr/bin/env node\n');
+
+    const installerModule = path.resolve(__dirname, '../src/installer.js');
+    const configDir = path.join(sandbox, 'config');
+    const probe = `
+      const { Installer } = require(${JSON.stringify(installerModule)});
+      const registry = {
+        getResolveRules: () => [],
+        getEntry: () => ({
+          name: 'legacy-agent',
+          install: {
+            binary: 'legacy-agent',
+            npm_package: 'legacy-agent',
+            windows: 'npm install -g legacy-agent',
+          },
+        }),
+      };
+      const installer = new Installer(registry, ${JSON.stringify(configDir)});
+      process.stdout.write(JSON.stringify({
+        resolved: installer.which('legacy-agent'),
+        installInfo: installer.getInstallInfo('legacy-agent'),
+      }));
+    `;
+
+    try {
+      const actual = JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: runtimeHome,
+          USERPROFILE: osProfile,
+          APPDATA: path.join(osProfile, 'AppData', 'Roaming'),
+          LOCALAPPDATA: path.join(osProfile, 'AppData', 'Local'),
+          PATH: '',
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
+        },
+      }));
+      assert.equal(actual.resolved, binFile);
+      assert.deepEqual(actual.installInfo, {
+        installed: true,
+        managed: true,
+        location: 'legacy',
+      });
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a split-HOME legacy package shadow a working global CLI', () => {
+    if (!IS_WINDOWS) return;
+
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-agent-precedence-'));
+    const runtimeHome = path.join(sandbox, 'runtime-home');
+    const osProfile = path.join(sandbox, 'windows-profile');
+    const globalBinDir = path.join(sandbox, 'global-bin');
+    const pkgDir = path.join(
+      runtimeHome,
+      '.openagents',
+      'nodejs',
+      'node_modules',
+      'shadow-agent',
+    );
+    const managedBin = path.join(pkgDir, 'bin', 'shadow-agent');
+    const globalBin = path.join(globalBinDir, 'shadow-agent.cmd');
+    fs.mkdirSync(path.dirname(managedBin), { recursive: true });
+    fs.mkdirSync(osProfile, { recursive: true });
+    fs.mkdirSync(globalBinDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'shadow-agent', bin: './bin/shadow-agent' }),
+    );
+    fs.writeFileSync(managedBin, '#!/usr/bin/env node\n');
+    fs.writeFileSync(globalBin, '@echo off\r\n');
+
+    const installerModule = path.resolve(__dirname, '../src/installer.js');
+    const configDir = path.join(sandbox, 'config');
+    const probe = `
+      const { Installer } = require(${JSON.stringify(installerModule)});
+      const registry = {
+        getResolveRules: () => [],
+        getEntry: () => ({
+          name: 'shadow-agent',
+          install: {
+            binary: 'shadow-agent',
+            npm_package: 'shadow-agent',
+            windows: 'npm install -g shadow-agent',
+          },
+        }),
+      };
+      const installer = new Installer(registry, ${JSON.stringify(configDir)});
+      process.stdout.write(JSON.stringify({
+        resolved: installer.which('shadow-agent'),
+        installInfo: installer.getInstallInfo('shadow-agent'),
+      }));
+    `;
+
+    try {
+      const actual = JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: runtimeHome,
+          USERPROFILE: osProfile,
+          APPDATA: path.join(osProfile, 'AppData', 'Roaming'),
+          LOCALAPPDATA: path.join(osProfile, 'AppData', 'Local'),
+          PATH: [globalBinDir, path.join(process.env.SystemRoot, 'System32')].join(path.delimiter),
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
+        },
+      }));
+      assert.equal(actual.resolved, globalBin);
+      assert.deepEqual(actual.installInfo, {
+        installed: true,
+        managed: false,
+        location: 'global',
+      });
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Version probes never hand an extensionless package bin to cmd.exe', () => {
+  // The reported failure: connecting Cline logged
+  //   '"\\…\\.openagents\\runtimes\\cline\\node_modules\\cline\\bin\\cline"' is not recognized
+  //   as an internal or external command, operable program or batch file
+  // npm writes no .cmd shim for Cline, so both version probes resolved the
+  // package's own extensionless Node script and ran it through a shell.
+  const { Installer } = require('../src/installer');
+
+  /** A package bin exactly as npm leaves it: no extension, node shebang. */
+  const writePackageBin = (dir, name) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = path.join(dir, name);
+    fs.writeFileSync(bin, '#!/usr/bin/env node\nconsole.log(\"3.0.27\");\n');
+    return bin;
+  };
+
+  it('Installer probes it through node instead of the shell', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-pkg-bin-'));
+    try {
+      const bin = writePackageBin(path.join(sandbox, 'bin'), 'cline');
+      const inst = new Installer({ getResolveRules: () => [], getEntry: () => null }, sandbox);
+      assert.equal(
+        inst._versionProbeCommand(bin),
+        `"${inst._nodeBinary()}" "${bin}" --version`,
+      );
+      // A native binary still goes bare — no node prefix where none is needed.
+      const native = path.join(sandbox, 'bin', 'native.exe');
+      fs.writeFileSync(native, 'MZ');
+      assert.equal(inst._versionProbeCommand(native), `"${native}" --version`);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('the Cline adapter reads a version from it without a shell error', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-cline-bin-'));
+    try {
+      const bin = writePackageBin(path.join(sandbox, 'bin'), 'cline');
+      const adapter = Object.create(ClineAdapter.prototype);
+      assert.equal(adapter._readClineVersionRaw(bin), '3.0.27');
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies node shebangs the way the launcher does', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-shebang-'));
+    const adapter = Object.create(ClineAdapter.prototype);
+    const write = (name, head) => {
+      const f = path.join(sandbox, name);
+      fs.writeFileSync(f, head);
+      return f;
+    };
+    try {
+      const nodeScripts = ['#!/usr/bin/env node\n', '#!/usr/bin/env -S node --x\n', '#!/usr/local/bin/node\n'];
+      for (const head of nodeScripts) {
+        assert.equal(adapter._isNodeShebangScript(write('yes', head)), true, head);
+      }
+      const others = ['#!/bin/sh -c node\n', '#!/usr/bin/env nodemon\n', 'not a shebang\n'];
+      for (const head of others) {
+        assert.equal(adapter._isNodeShebangScript(write('no', head)), false, head);
+      }
+      assert.equal(adapter._isNodeShebangScript(path.join(sandbox, 'missing')), false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
     }
   });
 });

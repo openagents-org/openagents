@@ -287,7 +287,7 @@ def parse_address(raw: str) -> Address:
 ```python
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from openagents.core.events import Event
+from openagents.sdk.events import Event
 import fnmatch
 import logging
 

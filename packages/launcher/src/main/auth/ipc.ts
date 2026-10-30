@@ -1,0 +1,338 @@
+import { ipcMain, type BrowserWindow } from "electron"
+
+import {
+  isThemeMode,
+  toLauncherLanguage,
+  toWorkspaceLocale,
+  type ThemeMode,
+} from "../../shared/appearance-bridge"
+
+import { openExternalSafely } from "../web-security"
+import { WorkspaceHost, type ViewBounds } from "../workspace-host"
+import { popupWorkspaceTabContextMenu, popupWorkspaceTabMenu } from "../workspace-tab-menu"
+import { AccountManager, type AccountWorkspace } from "./account"
+import { webBase } from "./endpoints"
+import type { AccountInfo } from "./session-store"
+import type { NodeStatus } from "../agent-manager"
+import { pushNotification } from "../notifications"
+
+/**
+ * The account's IPC surface, kept out of index.ts.
+ *
+ * Every channel here is workspace-scoped: nothing under My Agents calls into
+ * it, so a machine that never signs in never reaches this file.
+ */
+
+export interface AccountIpcDeps {
+  /**
+   * The look and feel the launcher is currently in, and a way to change it.
+   * The hosted workspace shares both — see shared/appearance-bridge.
+   */
+  appearance: () => { theme: ThemeMode; language: string }
+  setAppearance: (next: { theme?: ThemeMode; language?: string }) => void
+  /** The configured workspace endpoint (store `workspaceEndpoint`), normalized. */
+  endpoint: () => string | undefined
+  /** The window to notify when the account changes; null before it exists. */
+  getWindow: () => BrowserWindow | null
+  /**
+   * Redeem a pairing code (agentManager.connectNode). Injected because the
+   * account has no business knowing about the agent core, and because the core
+   * may still be loading when the renderer asks.
+   */
+  connectNode: (code: string) => Promise<NodeStatus & { warning: string | null }>
+  nodeStatus: () => Promise<NodeStatus>
+  /** Start the daemon unless one is running (agentManager._ensureDaemon); false when it cannot. */
+  ensureDaemon: () => Promise<boolean>
+  /**
+   * Have this device heartbeat now, so a command a workspace page just queued
+   * for it is picked up at once instead of on the next 10s tick.
+   */
+  nudgeNode: () => void
+}
+
+const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
+
+export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
+  let workspaceHost: WorkspaceHost | null = null
+  let viewRequest = 0
+  const seenReplies = new Set<string>()
+  const account = new AccountManager({
+    endpoint: deps.endpoint,
+    openExternal: (url) => void openExternalSafely(url),
+    onChange: (info: AccountInfo | null) => {
+      if (!info) {
+        seenReplies.clear()
+        // Every way an account ends — signed out here or from the page,
+        // expired, refused on renewal — ends the same way: the live page goes
+        // and its storage is wiped, so a stale page cannot be reused and the
+        // next account inherits nothing of this one's.
+        viewRequest++
+        void workspaceHost?.signOut()
+      } else {
+        // A renewal: the loaded page keeps running on the new token.
+        const session = account.embeddedSession()
+        if (session) workspaceHost?.sendSession(session)
+      }
+      deps.getWindow()?.webContents.send("account:changed", info)
+    },
+  })
+
+  const host = new WorkspaceHost({
+    getWindow: deps.getWindow,
+    endpoint: deps.endpoint,
+    session: () => account.embeddedSession(),
+    // Google and GitHub cannot finish in the app, so their sign-in runs in the
+    // browser and comes back over loopback — the same flow the launcher used
+    // before any of this was embedded.
+    onExternalLogin: () => {
+      // The page in the view does not change, so without this the window looks
+      // as if the click did nothing while the browser opens behind it.
+      deps.getWindow()?.webContents.send("account:sign-in-external")
+      void account.signIn().catch((err) => {
+        deps.getWindow()?.webContents.send("account:sign-in-failed", {
+          message: (err as Error).message,
+        })
+      })
+    },
+    // Main owns the tabs, so a renderer that reloads asks for them again
+    // rather than losing track of pages that are still open.
+    onTabsChanged: (snapshot) => deps.getWindow()?.webContents.send("workspace-tabs:changed", snapshot),
+  })
+
+  workspaceHost = host
+
+  // The renderer is the only thing that talks to the widget; main just
+  // forwards a ticket/randstr pair and only when it is well-formed.
+  const captchaArg = (v: unknown): { ticket: string; randstr: string } | undefined => {
+    const o = v as { ticket?: unknown; randstr?: unknown } | null
+    return o && typeof o.ticket === "string" && typeof o.randstr === "string" && o.ticket && o.randstr
+      ? { ticket: o.ticket, randstr: o.randstr }
+      : undefined
+  }
+
+  ipcMain.handle("account:get", () => account.getAccount())
+  ipcMain.handle("account:captcha-config", () => account.captchaConfig())
+  ipcMain.handle("account:sign-in", () => account.signIn())
+  ipcMain.handle(
+    "account:sign-in-password",
+    (_e, email: string, password: string, captcha?: unknown) =>
+      account.signInWithPassword(String(email || ""), String(password || ""), captchaArg(captcha)),
+  )
+  ipcMain.handle("account:cancel-sign-in", () => account.cancelSignIn())
+  ipcMain.handle(
+    "account:sign-up-password",
+    (_e, email: string, password: string, displayName?: string, captcha?: unknown) =>
+      account.signUpWithPassword(String(email || ""), String(password || ""), String(displayName || ""), captchaArg(captcha)),
+  )
+  // The page shows the confirmation; its Sign out comes back as
+  // workspace-view:sign-out. See WorkspaceHost.requestSignOut.
+  ipcMain.handle("account:request-sign-out", () => host.requestSignOut())
+  ipcMain.handle("account:sign-out", async () => {
+    // onChange tears the page down; resolve once its storage is gone too.
+    account.signOut()
+    await host.whenCleared()
+  })
+  ipcMain.handle("account:workspaces", () => account.listWorkspaces())
+
+  // ── The embedded workspace view ──────────────────────────────────────────
+  // The renderer owns the layout and tells main which rectangle of it the
+  // workspace fills; main owns the page. See workspace-host.ts.
+
+  ipcMain.handle(
+    "workspace-view:show",
+    async (
+      _e,
+      target: string | null,
+      bounds: ViewBounds,
+      token?: string | null,
+      sessionId?: string | null,
+      title?: string | null,
+    ) => {
+      const request = ++viewRequest
+      // Renew before the page reads the session: the preload plants whatever
+      // is current, synchronously, and a token that lapses an hour into the
+      // session would otherwise land the user on the web app's sign-in gate.
+      if (account.getAccount()) await account.bearer().catch(() => null)
+      // A view created while the last sign-out is still wiping storage would
+      // lose the session it was just given.
+      await host.whenCleared()
+      // Switching to local tools or signing out during refresh cancels this
+      // request, so a delayed result cannot put a native view over that page.
+      if (request !== viewRequest) return
+      host.show(target === null ? null : String(target || ""), bounds, token ?? null,
+        typeof sessionId === "string" && sessionId.length <= 200 ? sessionId : null,
+        typeof title === "string" && title ? title.slice(0, 200) : null)
+    },
+  )
+  ipcMain.handle("workspace-view:set-bounds", (_e, bounds: ViewBounds) =>
+    host.setBounds(bounds),
+  )
+  ipcMain.handle("workspace-view:hide", () => {
+    viewRequest++
+    host.hide()
+  })
+  ipcMain.handle("workspace-view:reload", () => host.reload())
+  ipcMain.handle("workspace-view:home", () => host.openHome())
+  // The tab strip. Tab ids are opaque and only ever name a tab main created.
+  const tabId = (id: unknown): string | null => (typeof id === "string" && id.length <= 64 ? id : null)
+  ipcMain.handle("workspace-tabs:get", () => host.snapshot())
+  ipcMain.handle("workspace-tabs:activate", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.activate(tab)
+  })
+  ipcMain.handle("workspace-tabs:move", (_e, id: unknown, index: unknown) => {
+    const tab = tabId(id)
+    if (tab && typeof index === "number") host.move(tab, index)
+  })
+  ipcMain.handle("workspace-tabs:close", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.close(tab)
+  })
+  ipcMain.handle("workspace-tabs:menu", (_e, position: unknown) => {
+    const window = deps.getWindow()
+    const { x, y } = (position ?? {}) as { x?: unknown; y?: unknown }
+    if (!window || typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return
+    popupWorkspaceTabMenu(window, host.snapshot(), { x, y }, (id) => host.activate(id))
+  })
+  ipcMain.handle("workspace-tabs:context-menu", (_e, id: unknown) => {
+    const window = deps.getWindow()
+    const tab = tabId(id)
+    if (!window || !tab) return
+    popupWorkspaceTabContextMenu(window, host.snapshot(), tab, {
+      reload: (target) => host.reloadTab(target),
+      close: (target) => host.close(target),
+      closeMany: (targets, keep) => host.closeMany(targets, keep),
+    })
+  })
+  ipcMain.handle("workspace-tabs:retry", (_e, id: unknown) => {
+    const tab = tabId(id)
+    if (tab) host.retry(tab)
+  })
+  // The launcher's toasts are drawn under the view; repeat them inside it.
+  ipcMain.handle("workspace-view:notice", (_e, notice: unknown) => {
+    const { message, type } = (notice ?? {}) as { message?: unknown; type?: unknown }
+    if (typeof message !== "string" || !message || typeof type !== "string" || !NOTICE_TYPES.has(type)) return
+    host.sendNotice({ message: message.slice(0, 1000), type })
+  })
+  // The page asks for a sign-in only when its session no longer works, so the
+  // account behind it is ended first and the native sign-in takes over.
+  ipcMain.on("workspace-view:sign-in", (event) => {
+    if (!host.isWorkspaceSender(event.sender)) return
+    account.signOut()
+    deps.getWindow()?.webContents.send("workspace:sign-in")
+  })
+  ipcMain.on("workspace-view:sign-out", (event) => {
+    if (host.isWorkspaceSender(event.sender)) account.signOut()
+  })
+  // A page routing somewhere that belongs to another tab. See openRoute.
+  ipcMain.on("workspace-view:open-route", (event, route: unknown) => {
+    if (host.isWorkspaceSender(event.sender)) host.openRoute(event.sender, route)
+  })
+  ipcMain.on("workspace-view:report-workspace", (event, info: unknown) => {
+    if (host.isWorkspaceSender(event.sender)) host.reportWorkspace(event.sender, info)
+  })
+  ipcMain.on("workspace-view:nudge-computer", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.nudgeNode()
+  })
+  ipcMain.on("workspace-view:open-computer", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
+  })
+  ipcMain.on("workspace-view:agent-reply", (event, value: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || !account.getAccount() || !value || typeof value !== "object") return
+    const input = value as Record<string, unknown>
+    const fields = [input.workspaceId, input.sessionId, input.eventId, input.sender, input.content]
+    if (fields.some((field) => typeof field !== "string" || !field.trim())) return
+    const workspaceId = input.workspaceId as string
+    const sessionId = input.sessionId as string
+    const eventId = input.eventId as string
+    if (workspaceId.length > 200 || sessionId.length > 200 || eventId.length > 200) return
+    const key = `${workspaceId}:${eventId}`
+    if (seenReplies.has(key)) return
+    seenReplies.add(key)
+    if (seenReplies.size > 1000) seenReplies.delete(seenReplies.values().next().value!)
+    pushNotification({
+      kind: "agent_finished",
+      title: (input.sender as string).slice(0, 100),
+      body: (input.content as string).slice(0, 240),
+      source: `workspace:${workspaceId}`,
+      payload: { workspaceId, sessionId },
+    })
+  })
+  const validateComputerRequest = (event: { sender: Electron.WebContents }, workspaceId: unknown): string => {
+    if (!host.isWorkspaceSender(event.sender) || typeof workspaceId !== "string" || !workspaceId || workspaceId.length > 200) {
+      throw new Error("Invalid workspace connection request")
+    }
+    return workspaceId
+  }
+  // Return only this workspace's device id and basic display information.
+  // Credentials and the computer's other workspace registrations stay in main.
+  const computerInfo = (status: NodeStatus, workspaceId: string, warning = false) => ({
+    hostname: status.hostname,
+    deviceType: status.deviceType,
+    nodeId: status.workspaces.find((entry) => entry.workspaceId === workspaceId)?.nodeId ?? null,
+    warning,
+  })
+  ipcMain.handle("workspace-view:computer-status", async (event, workspaceId: unknown) => {
+    const id = validateComputerRequest(event, workspaceId)
+    return computerInfo(await deps.nodeStatus(), id)
+  })
+  const connections = new Map<string, Promise<ReturnType<typeof computerInfo>>>()
+  ipcMain.handle("workspace-view:connect-computer", async (event, workspaceId: unknown) => {
+    const id = validateComputerRequest(event, workspaceId)
+    const pending = connections.get(id)
+    if (pending) return pending
+    const connecting = (async () => {
+      const status = await deps.nodeStatus()
+      const current = computerInfo(status, id)
+      // Already connected: what a retry needs is a daemon to heartbeat for it.
+      // Returning straight away left a computer whose daemon had not come up
+      // on the first try offline however many times Connect was pressed.
+      if (current.nodeId) return computerInfo(status, id, !(await deps.ensureDaemon()))
+      const code = await account.createPairingCode(id)
+      const result = await deps.connectNode(code)
+      return computerInfo(result, id, !!result.warning)
+    })()
+    connections.set(id, connecting)
+    try { return await connecting }
+    finally { connections.delete(id) }
+  })
+  // Synchronous by necessity — see the preload.
+  ipcMain.on("workspace-view:config", (event) => {
+    const { theme, language } = deps.appearance()
+    event.returnValue = {
+      session: host.currentSession(),
+      apiUrl: deps.endpoint(),
+      webUrl: webBase(deps.endpoint()),
+      theme,
+      locale: toWorkspaceLocale(language),
+      scope: host.scopeFor(event.sender),
+    }
+  })
+
+  // Changed inside the workspace — the launcher follows, so a choice made on
+  // either side holds for the whole window. Only from the page this host owns,
+  // like every other request the page makes.
+  ipcMain.on("workspace-view:theme-changed", (event, theme: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || !isThemeMode(theme)) return
+    deps.setAppearance({ theme })
+  })
+  ipcMain.on("workspace-view:locale-changed", (event, locale: unknown) => {
+    if (!host.isWorkspaceSender(event.sender) || typeof locale !== "string" || !locale) return
+    deps.setAppearance({ language: toLauncherLanguage(locale) })
+  })
+
+  // Changed in the launcher — the workspace follows.
+  ipcMain.handle(
+    "workspace-view:appearance",
+    (_e, next: { theme: ThemeMode; language: string }) => {
+      host.sendAppearance({
+        theme: next.theme,
+        locale: toWorkspaceLocale(next.language),
+      })
+    },
+  )
+
+  return account
+}
+
+export type { AccountWorkspace }

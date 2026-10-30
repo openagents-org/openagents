@@ -1,0 +1,50 @@
+{
+  "version": "0.9.22",
+  "date": "2026-08-25",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Setup's pairing step now stands on its own",
+        "zh": "设置向导的配对步骤现在自成一体"
+      },
+      "description": {
+        "en": "Everyone who reaches this step is here for the first time, usually without an account and always without a workspace — yet it opened with a field for a code they had no way to obtain. What to do on the web now comes first: sign up at workspace.openagents.org, create a workspace, copy its pairing code. Skipping is gone, because skipping led to an empty launcher with no workspace to install an agent from. Once the device is in, the panel offers the two routes that actually exist — finish the setup here, or open the workspace and do it remotely — instead of mixing one call to action with a list of identifiers and two more buttons in the footer.",
+        "zh": "走到这一步的都是初次使用的用户，通常尚未注册账号，也必然还没有工作区，而页面开门见山就是一个无从取得的配对码输入框。现在网页端要做的事写在前面：在 workspace.openagents.org 注册登录、创建一个工作区、复制它的配对码。「跳过」已经移除，因为跳过之后得到的是一个没有工作区、无处安装智能体的空启动器。设备连接成功后，面板只给出真正存在的两条路径——在启动器里完成设置，或打开工作区远程完成——不再把一个主操作、一组标识信息和页脚的两个按钮混在一起。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "A workspace that removes this device is removed from this device",
+        "zh": "工作区移除本设备后，本机也不再保留该工作区"
+      },
+      "description": {
+        "en": "Only the pairing was dropped: the workspace stayed in the list with its agents still filed under it, and neither could reach it any more — a card with nothing to open, agents that could not run, and a status the launcher had to guess at, which it read as an error. The pairing, the local entry and the agent bindings now go together, and a notice at the top of Workspaces says which workspace removed the device and how many agents were unbound; their instances and data stay, and joining that workspace again files them back under it. The reason is written to disk, so it survives a restart. \"Add to workspace\" is drawn from the pairings too, and re-checks them as it opens: it used to list workspaces this device had been removed from, and binding an agent to one produced a join that could not authenticate.",
+        "zh": "此前仅删除配对：工作区仍留在列表中，智能体也仍归属于它，而两者都已无法连接——卡片打不开、智能体跑不起来，状态只能靠猜，于是被显示成异常。现在配对、本机的工作区记录与智能体绑定一并移除，工作区页顶部会说明是哪个工作区移除了本设备、有多少智能体被解除绑定；实例与数据均保留，重新加入同一工作区时会自动归位。移除原因也会写入磁盘，因而可跨重启保留。「加入工作区」同样以配对为准，并在打开时重新核对：此前它会列出早已把本设备移除的工作区，而绑定到那样的工作区，得到的是一个无法通过鉴权的连接。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "An agent with no workspace reads as one, everywhere",
+        "zh": "未连接工作区的智能体，各处都如实显示"
+      },
+      "description": {
+        "en": "An agent with a workspace runs a loop that polls it and calls the CLI per message. An agent without one is registered with the daemon and nothing drives it — no message source, no process — yet the state written for it is \"running\", and every list passed that straight through. They now report it as not connected, from one shared definition: the same agent used to read \"Running\" on the dashboard and \"No workspace\" on the agents list, because each page decided for itself. None of them offers to start or stop such an agent any more, the command palette included, and the running counts leave it out for the same reason — there is no process to act on. What is offered instead is the one thing that changes something: joining a workspace. A workspace whose credential has gone still reports an error, with the reason behind it — that one is worth reading.",
+        "zh": "连接了工作区的智能体会运行一个轮询循环：拉取工作区消息，并逐条调用 CLI。未连接工作区的智能体只是在守护进程中登记，没有任何东西驱动它——没有消息来源，也没有进程——但为它写入的状态却是「运行中」，各处列表都原样照搬。现在它们一律如实显示为「未连接工作区」，且取自同一份定义：此前同一个智能体在仪表盘显示「运行中」、在智能体列表显示「无工作区」，因为两个页面各判各的。列表与命令面板也不再对这类智能体提供启动或停止，「运行中」的计数同样不再将其计入——没有任何进程可供操作。给出的是唯一有意义的那个操作：加入工作区。工作区凭据失效的情况仍显示为异常，并保留可查看的原因——那条信息值得一读。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "An agent's page no longer offers \"Reinstall\" while an update is waiting",
+        "zh": "智能体详情页不再对待更新的智能体显示「重新安装」"
+      },
+      "description": {
+        "en": "Which buttons belong on that page depends on comparing the installed version with the latest one, and both arrive a moment after the page opens — so it rendered the default set first and swapped it afterwards, showing \"Reinstall\" and \"Installed\" to someone who had come specifically because an update was waiting. The actions and the status now wait for the answer, and when the marketplace list has already fetched it, they have it immediately.",
+        "zh": "该页面显示哪些按钮，取决于已安装版本与最新版本的比较结果，而两者都在页面打开后才返回——此前页面先渲染默认按钮再行替换，于是专程因为有更新而进来的用户，看到的却是「重新安装」与「已安装」。现在操作按钮与状态标记会等待该结果；若应用市场列表已经取得过，则直接沿用，无需等待。"
+      }
+    }
+  ]
+}

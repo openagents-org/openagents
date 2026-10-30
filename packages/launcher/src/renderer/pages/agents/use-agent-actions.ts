@@ -1,9 +1,10 @@
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
+import { useAccountStore } from "@renderer/store/account"
 import { useAgentsStore } from "@renderer/store/agents"
 import { capture } from "@renderer/lib/analytics"
-import { workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import { inAppBlocker, opensInApp, workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
 import type { Agent } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
@@ -11,7 +12,11 @@ type ShowToast = (msg: string, type?: ToastType) => void
 
 export interface AgentActions {
   toggleAgent: (agent: Agent) => Promise<void>
-  removeAgent: (name: string) => Promise<void>
+  removeAgent: (
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ) => Promise<void>
+  renameAgent: (name: string, displayName: string) => Promise<void>
   disconnectAgent: (name: string) => Promise<void>
   openWorkspace: (agent: Agent) => Promise<void>
   openAgentChat: (agent: Agent) => Promise<void>
@@ -54,10 +59,10 @@ export function useAgentActions(
           t("agents.list.toast.stoppingAgent", { name: agent.name }),
           "info",
         )
-        // Fast initial polls — the daemon now processes stop commands within
-        // ~200ms, so checking quickly catches the state flip without making
-        // the user stare at a "Stopping…" toast for 3+ seconds.
-        const stopWaits = [400, 800, 1500, 2500, 3000, 3000]
+        // Fast initial polls — the daemon picks commands up within ~200ms and
+        // writes the stopped state straight away, so a tight first second
+        // catches the flip; the tail covers an adapter slow to let go.
+        const stopWaits = [250, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000]
         for (const w of stopWaits) {
           await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
@@ -80,8 +85,12 @@ export function useAgentActions(
           t("agents.list.toast.startingAgent", { name: agent.name }),
           "info",
         )
+        // Same shape as stop: most agents report running within a second or
+        // two, and the old 500/1000/1500 steps alone added up to 3s of waiting
+        // on top of that.
         const startWaits = [
-          500, 1000, 1500, 2500, 3000, 3000, 3000, 3000, 3000, 3000,
+          300, 300, 400, 500, 500, 750, 1000, 1000, 1500, 2000, 3000, 3000,
+          3000, 3000, 3000,
         ]
         for (const w of startWaits) {
           await new Promise((r) => setTimeout(r, w))
@@ -108,11 +117,47 @@ export function useAgentActions(
     }
   }
 
-  const removeAgent = async (name: string): Promise<void> => {
+  const removeAgent = async (
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ): Promise<void> => {
     onRemoved?.()
     try {
-      await window.api.removeAgent(name)
-      showToast(t("agents.list.toast.removed", { name }), "success")
+      await window.api.removeAgent(name, opts)
+      showToast(
+        t(
+          opts?.fromWorkspace
+            ? "agents.list.toast.removedEverywhere"
+            : "agents.list.toast.removed",
+          { name },
+        ),
+        "success",
+      )
+      refresh()
+    } catch (err: unknown) {
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
+      // The workspace half runs first and the agent is still here when it
+      // fails, so the list has to come back rather than stay as the dialog
+      // left it.
+      refresh()
+    }
+  }
+
+  /**
+   * Rename = set a display label. The agent's `name` is its identity and never
+   * changes, so nothing that addresses it (sessions, working dir, workspace
+   * membership) is disturbed.
+   */
+  const renameAgent = async (
+    name: string,
+    displayName: string,
+  ): Promise<void> => {
+    try {
+      await window.api.renameAgent(name, displayName)
+      showToast(t("agents.list.toast.renamed"), "success")
       refresh()
     } catch (err: unknown) {
       showToast(
@@ -178,14 +223,39 @@ export function useAgentActions(
           return
         }
       }
-      const workspaces = await window.api.listWorkspaces()
+      const signedIn = !!useAccountStore.getState().account
+      const [workspaces, endpoint, memberOf] = await Promise.all([
+        window.api.listWorkspaces(),
+        window.api.getSetting("workspaceEndpoint").catch(() => undefined),
+        // Only a workspace the account already belongs to opens in the app —
+        // see opensInApp. A failed lookup opens the browser instead.
+        signedIn ? window.api.listAccountWorkspaces().catch(() => null) : Promise.resolve(null),
+      ])
       const ws = workspaces.find(
         (w) => w.slug === agent.network || w.id === agent.network,
       )
       const slug = (ws && ws.slug) || agent.network
-      let url = `${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`
-      if (ws && ws.token) url += `?token=${encodeURIComponent(ws.token)}`
-      window.api.openExternal(url)
+      // Signed in, and the workspace is on the deployment the app's own
+      // Workspace talks to: open it there, as Connected Workspaces does,
+      // instead of sending the user out to a browser tab.
+      const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
+      if (ws && opensInApp(ws, configured, signedIn, memberOf)) {
+        useAccountStore.getState().openWorkspace({ slug, name: ws.name, token: ws.token ?? null })
+        return
+      }
+      // Signed in, yet sent to the browser: say why, or it looks like the
+      // in-app open simply broke for this one workspace.
+      if (ws && inAppBlocker(ws, configured, signedIn, memberOf) === "notMember") {
+        showToast(
+          t("agents.list.toast.openedInBrowserNotMember", {
+            workspace: agent.networkName || ws.name || slug,
+          }),
+          "info",
+        )
+      }
+      // Deliberately no ?token= here: the address bar leaks into history and
+      // screen shares, and the browser session handles access on its own.
+      window.api.openExternal(`${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`)
     } catch (err: unknown) {
       showToast(
         t("agents.list.toast.error", { message: (err as Error).message }),
@@ -208,5 +278,12 @@ export function useAgentActions(
     }
   }
 
-  return { toggleAgent, removeAgent, disconnectAgent, openWorkspace, openAgentChat }
+  return {
+    toggleAgent,
+    removeAgent,
+    renameAgent,
+    disconnectAgent,
+    openWorkspace,
+    openAgentChat,
+  }
 }

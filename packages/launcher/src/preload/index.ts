@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld('api', {
   getSupportedAgentTypes: () => ipcRenderer.invoke('agents:supported-types'),
   getAgentCoreInfo: () => ipcRenderer.invoke('agents:core-info'),
   addAgent: (config: unknown) => ipcRenderer.invoke('agents:add', config),
-  removeAgent: (name: string) => ipcRenderer.invoke('agents:remove', name),
+  removeAgent: (name: string, opts?: { fromWorkspace?: boolean }) =>
+    ipcRenderer.invoke('agents:remove', name, opts),
+  renameAgent: (name: string, displayName: string) =>
+    ipcRenderer.invoke('agents:rename', name, displayName),
   updateAgent: (name: string, config: unknown) => ipcRenderer.invoke('agents:update', name, config),
   setAgentWorkingDir: (name: string, dir: string) => ipcRenderer.invoke('agents:set-workdir', name, dir),
 
@@ -40,11 +43,10 @@ contextBridge.exposeInMainWorld('api', {
   checkAgentType: (type: string) => ipcRenderer.invoke('agents:check-type', type),
   getCatalog: (force?: boolean) => ipcRenderer.invoke('agents:catalog', !!force),
   getInstalledAgents: () => ipcRenderer.invoke('agents:installed-list'),
+  getAgentUpdateTarget: (type: string) => ipcRenderer.invoke('agents:update-target', type),
   checkAgentUpdates: (force?: boolean) =>
     ipcRenderer.invoke('agents:check-updates', !!force),
   rollbackAgentType: (type: string) => ipcRenderer.invoke('agents:rollback', type),
-  installAgentTypeAtVersionStreaming: (type: string, target: string) =>
-    ipcRenderer.invoke('agents:install-at-version-streaming', type, target),
   getAgentChangelog: (type: string) => ipcRenderer.invoke('agents:changelog', type),
 
   getEnvFields: (type: string) => ipcRenderer.invoke('agents:env-fields', type),
@@ -54,19 +56,34 @@ contextBridge.exposeInMainWorld('api', {
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
   testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
+  listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login', opts?: { refresh?: boolean }) =>
+    ipcRenderer.invoke('agents:list-models', agentType, env, path, opts),
+  scanCredentialImports: (agentType: string) =>
+    ipcRenderer.invoke('agents:import-credentials-scan', agentType),
+  parseCredentialImport: (agentType: string, text: string) =>
+    ipcRenderer.invoke('agents:import-credentials-parse', agentType, text),
+  resolveCredentialImport: (agentType: string, id: string) =>
+    ipcRenderer.invoke('agents:import-credentials-resolve', agentType, id),
   signalReload: () => ipcRenderer.invoke('agents:signal-reload'),
 
   connectWorkspace: (agentName: string, slug: string) => ipcRenderer.invoke('workspace:connect', agentName, slug),
   disconnectWorkspace: (agentName: string) => ipcRenderer.invoke('workspace:disconnect', agentName),
-  removeWorkspace: (slug: string) => ipcRenderer.invoke('workspace:remove', slug),
+  removeWorkspace: (slug: string, opts?: { deleteRemote?: boolean }) =>
+    ipcRenderer.invoke('workspace:remove', slug, opts),
   listWorkspaces: () => ipcRenderer.invoke('workspace:list'),
-  createWorkspace: (name: string) => ipcRenderer.invoke('workspace:create', name),
+  renameWorkspace: (workspaceId: string, name: string) =>
+    ipcRenderer.invoke('workspace:rename', workspaceId, name),
   getOnboardingAgents: () => ipcRenderer.invoke('onboarding:agents'),
   consumeOnboardingReset: () => ipcRenderer.invoke('onboarding:consume-reset'),
-  provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; workspaceName?: string | null }) =>
+  provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; env?: Record<string, string> }) =>
     ipcRenderer.invoke('onboarding:provision', opts),
-  registerWorkspaceFromToken: (input: { url?: string; token?: string; slug?: string }) =>
-    ipcRenderer.invoke('workspace:register-from-token', input),
+
+  getNodeStatus: () => ipcRenderer.invoke('node:status'),
+  refreshNodeStatus: (force?: boolean) => ipcRenderer.invoke('node:refresh', !!force),
+  connectNode: (code: string, opts?: { name?: string; deviceType?: string }) =>
+    ipcRenderer.invoke('node:connect', code, opts),
+  dismissNodeRevocation: (workspaceId: string) =>
+    ipcRenderer.invoke('node:dismiss-revocation', workspaceId),
 
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
@@ -74,11 +91,17 @@ contextBridge.exposeInMainWorld('api', {
   // match the app. Fire-and-forget from the theme store.
   setThemeSource: (mode: 'light' | 'dark' | 'system') =>
     ipcRenderer.invoke('theme:set-source', mode),
+  // Windows/Linux only: repaints the window-controls overlay while a dialog
+  // scrims the page, so the buttons dim with it.
+  setChromeDimmed: (dim: boolean) => ipcRenderer.invoke('window:chrome-dim', dim),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearAppCache: () => ipcRenderer.invoke('app:clear-cache'),
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  hasRunBefore: () => ipcRenderer.invoke('app:has-run-before'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   testWorkspaceEndpoint: (url: string) => ipcRenderer.invoke('workspace:test-endpoint', url),
   listPaths: () => ipcRenderer.invoke('paths:list'),
@@ -92,7 +115,20 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('agents:login-clear-key', type, agentName),
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  installXcodeCommandLineTools: () => ipcRenderer.invoke('system:install-xcode-clt'),
   openTerminal: (cmd: string) => ipcRenderer.invoke('shell:open-terminal', cmd),
+
+  // ── In-app CLI sign-in ──
+  startCliLogin: (type: string, opts?: { terminal?: boolean }) =>
+    ipcRenderer.invoke('cli-login:start', type, opts),
+  submitCliLoginCode: (type: string, code: string) =>
+    ipcRenderer.invoke('cli-login:submit-code', type, code),
+  cancelCliLogin: (type: string) => ipcRenderer.invoke('cli-login:cancel', type),
+  onCliLoginEvent: (cb: (ev: unknown) => void) => {
+    const handler = (_e: unknown, ev: unknown): void => cb(ev)
+    ipcRenderer.on('cli-login:event', handler)
+    return () => ipcRenderer.removeListener('cli-login:event', handler)
+  },
   openAgentTerminal: (agentName: string) => ipcRenderer.invoke('shell:open-agent-terminal', agentName),
   updateCore: () => ipcRenderer.invoke('core:update'),
 
@@ -235,4 +271,92 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('credentials:test', input),
   applyCredentialToAgents: (input: { credentialId: string; envKey: string; agentTypes: string[] }) =>
     ipcRenderer.invoke('credentials:apply-to-agents', input),
+
+  // ── Account (the workspace half of the app) ──
+  // Signing in gates workspaces only; everything under My Agents works without
+  // ever touching these.
+  getAccount: () => ipcRenderer.invoke('account:get'),
+  signIn: () => ipcRenderer.invoke('account:sign-in'),
+  getCaptchaConfig: () => ipcRenderer.invoke('account:captcha-config'),
+  signInWithPassword: (email: string, password: string, captcha?: { ticket: string; randstr: string }) =>
+    ipcRenderer.invoke('account:sign-in-password', email, password, captcha),
+  signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: { ticket: string; randstr: string }) =>
+    ipcRenderer.invoke('account:sign-up-password', email, password, displayName, captcha),
+  cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
+  requestSignOut: () => ipcRenderer.invoke('account:request-sign-out'),
+  signOut: () => ipcRenderer.invoke('account:sign-out'),
+  listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
+  authorizeDevice: (workspaceId: string) =>
+    ipcRenderer.invoke('account:authorize-device', workspaceId),
+  onSignInExternal: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('account:sign-in-external', handler)
+    return () => ipcRenderer.removeListener('account:sign-in-external', handler)
+  },
+  onSignInFailed: (cb: (info: { message: string }) => void) => {
+    const handler = (_e: unknown, info: { message: string }): void => cb(info)
+    ipcRenderer.on('account:sign-in-failed', handler)
+    return () => ipcRenderer.removeListener('account:sign-in-failed', handler)
+  },
+  onAccountChanged: (cb: (account: unknown | null) => void) => {
+    const handler = (_e: unknown, account: unknown | null): void => cb(account)
+    ipcRenderer.on('account:changed', handler)
+    return () => ipcRenderer.removeListener('account:changed', handler)
+  },
+
+  // ── The embedded workspace view ──
+  // Main owns the page; the renderer only says where in its layout it goes.
+  showWorkspaceView: (
+    target: string | null,
+    bounds: { x: number; y: number; width: number; height: number },
+    token?: string | null,
+    sessionId?: string | null,
+    title?: string | null,
+  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token, sessionId, title),
+  setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke('workspace-view:set-bounds', bounds),
+  hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),
+  /** Repeat a launcher toast inside the Workspace, which covers the launcher's own. */
+  showWorkspaceNotice: (notice: { message: string; type: string }) =>
+    ipcRenderer.invoke('workspace-view:notice', notice),
+  /** Push the launcher's theme/language to the hosted workspace. */
+  syncAppearance: (next: { theme: string; language: string }) =>
+    ipcRenderer.invoke('workspace-view:appearance', next),
+  /** The hosted workspace changed one of them. Returns an unsubscribe fn. */
+  onAppearanceChanged: (
+    cb: (next: { theme?: string; language?: string }) => void,
+  ) => {
+    const handler = (_e: unknown, next: { theme?: string; language?: string }): void =>
+      cb(next)
+    ipcRenderer.on('appearance:changed', handler)
+    return () => ipcRenderer.removeListener('appearance:changed', handler)
+  },
+  reloadWorkspaceView: () => ipcRenderer.invoke('workspace-view:reload'),
+  openWorkspaceHome: () => ipcRenderer.invoke('workspace-view:home'),
+  // ── Workspace tabs ── main owns them; the renderer draws the strip.
+  getWorkspaceTabs: () => ipcRenderer.invoke('workspace-tabs:get'),
+  activateWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:activate', id),
+  closeWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:close', id),
+  moveWorkspaceTab: (id: string, index: number) => ipcRenderer.invoke('workspace-tabs:move', id, index),
+  retryWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:retry', id),
+  /** A tab's native right-click menu, opened at the cursor. */
+  showWorkspaceTabContextMenu: (id: string) => ipcRenderer.invoke('workspace-tabs:context-menu', id),
+  /** The native menu of every open tab, opened at a point in window coordinates. */
+  showWorkspaceTabMenu: (position: { x: number; y: number }) =>
+    ipcRenderer.invoke('workspace-tabs:menu', position),
+  onWorkspaceTabsChanged: (cb: (snapshot: unknown) => void) => {
+    const handler = (_e: unknown, snapshot: unknown): void => cb(snapshot)
+    ipcRenderer.on('workspace-tabs:changed', handler)
+    return () => ipcRenderer.removeListener('workspace-tabs:changed', handler)
+  },
+  onWorkspaceAction: (cb: (action: 'computer' | 'sign-in') => void) => {
+    const computer = (): void => cb('computer')
+    const signIn = (): void => cb('sign-in')
+    ipcRenderer.on('workspace:open-computer', computer)
+    ipcRenderer.on('workspace:sign-in', signIn)
+    return () => {
+      ipcRenderer.removeListener('workspace:open-computer', computer)
+      ipcRenderer.removeListener('workspace:sign-in', signIn)
+    }
+  },
 })

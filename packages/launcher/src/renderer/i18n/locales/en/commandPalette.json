@@ -11,14 +11,13 @@
     "recent": "Recent"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Connect Agents",
     "chat": "Chat",
-    "agents": "Agents",
-    "workspaces": "Workspaces",
+    "workspaces": "Joined Workspaces",
     "connections": "Connections",
     "credentials": "Credentials",
     "github": "GitHub",
-    "install": "Install",
+    "install": "Agent Marketplace",
     "logs": "Logs",
     "settings": "Settings"
   },
@@ -29,8 +28,8 @@
     "startAgent": "Start agent: {{name}}",
     "startAll": "Start all agents",
     "stopAll": "Stop all agents",
+    "addWorkspace": "$t(common.actions.addWorkspace)",
     "installAgent": "Install new agent",
-    "newWorkspace": "New workspace",
     "theme": "Theme: {{mode}}"
   },
   "themes": {

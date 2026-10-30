@@ -15,25 +15,64 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Path, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import KnowledgeEntry, Workspace
+from app.models import KnowledgeEntry, KnowledgeFolder, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event,
     _resolve_workspace,
     _verify_workspace_access,
 )
+from app.services.access_model import (
+    agent_name_from_source,
+    allowed,
+    can_manage,
+    can_read_knowledge,
+    filter_knowledge,
+    normalize_visibility,
+    resource_for_knowledge,
+    resource_meta,
+)
+from app.services.visibility import resolve_viewer
 from app.storage import get_file_store
 from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Knowledge"])
+
+
+# ---------------------------------------------------------------------------
+# Permission model (v1.1): owner + visibility on every entry.
+# ---------------------------------------------------------------------------
+
+def _viewer_for(db, workspace, token, authorization, source=None):
+    return resolve_viewer(db, workspace, token, authorization, agent_name=agent_name_from_source(source))
+
+
+def _owner_for(viewer, source: Optional[str]) -> Optional[str]:
+    if viewer.kind == "human" and viewer.email:
+        return f"human:{viewer.email}"
+    if viewer.kind == "agent":
+        return f"openagents:{viewer.agent_name}"
+    src = (source or "").strip()
+    return src or None
+
+
+def _visibility_for(viewer, requested: Optional[str]) -> str:
+    v = normalize_visibility(requested)
+    if v in ("private", "public"):
+        return v
+    return "public" if viewer.machine else "private"
+
+
+def _meta(db, workspace_id, viewer, entry: KnowledgeEntry) -> dict:
+    return resource_meta(db, str(workspace_id), viewer, resource_for_knowledge(entry))
 
 MAX_CONTENT_SIZE = 1 * 1024 * 1024  # 1 MB
 
@@ -45,22 +84,81 @@ MAX_CONTENT_SIZE = 1 * 1024 * 1024  # 1 MB
 class CreateKnowledgeRequest(BaseModel):
     network: str
     title: str
+    folder_path: str = ""
     content: str
     description: Optional[str] = None
     source: Optional[str] = "human:user"
+    visibility: Optional[str] = None     # private | public | None = default
 
 
 class UpdateKnowledgeRequest(BaseModel):
     network: str
+    folder_path: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
     description: Optional[str] = None
     source: Optional[str] = "human:user"
+    visibility: Optional[str] = None     # private | public (owner / admin)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _folder_path(value: str) -> str:
+    path = value.strip().strip("/")
+    if len(path) > 500 or (path and any(not p.strip() or p in (".", "..") or p != p.strip() for p in path.split("/"))) or "\\" in path or any(ord(c) < 32 for c in path):
+        raise HTTPException(400, "Choose a folder path without empty names, '.' or '..'.")
+    return path
+
+
+def _require_folder(db, workspace_id, value):
+    path = _folder_path(value)
+    if path and not db.get(KnowledgeFolder, (workspace_id, path)):
+        raise HTTPException(404, "Knowledge folder not found")
+    return path
+
+
+class CreateKnowledgeFolderRequest(BaseModel):
+    network: str
+    path: str
+
+
+@router.get("/knowledge-folders")
+def list_knowledge_folders(network: str = Query(...), db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace = _resolve_workspace(db, network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    folders = db.execute(select(KnowledgeFolder.path).where(KnowledgeFolder.workspace_id == str(workspace.id)).order_by(KnowledgeFolder.path)).scalars().all()
+    return success_response({"folders": list(folders)})
+
+
+@router.post("/knowledge-folders")
+def create_knowledge_folder(body: CreateKnowledgeFolderRequest, db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    from app.access import verify_workspace_access
+    if not verify_workspace_access(workspace, x_workspace_token, authorization, db, min_role="member"):
+        raise HTTPException(403, "Only workspace members can create folders")
+    path = _folder_path(body.path)
+    if not path:
+        raise HTTPException(400, "Enter a folder name")
+    workspace_id = str(workspace.id)
+    _require_folder(db, workspace_id, path.rpartition("/")[0])
+    # Serialize folder creation so concurrent requests for the same path are idempotent.
+    db.execute(select(Workspace).where(Workspace.id == workspace_id).with_for_update()).scalar_one()
+    if not db.get(KnowledgeFolder, (workspace_id, path)):
+        db.add(KnowledgeFolder(workspace_id=workspace_id, path=path))
+        db.commit()
+    return success_response({"path": path})
+
 
 def _slugify(title: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", title.lower())
@@ -85,10 +183,13 @@ def _unique_slug(db: Session, workspace_id: str, base_slug: str, exclude_id: str
         slug = f"{base_slug}-{suffix}"
 
 
-def _serialize(entry: KnowledgeEntry) -> dict:
+def _serialize(entry: KnowledgeEntry, meta: Optional[dict] = None) -> dict:
     return {
+        **(meta or {}),
         "id": entry.id,
         "slug": entry.slug,
+        "folder_path": entry.folder_path or "",
+        "path": "/" + "/".join(filter(None, [entry.folder_path, entry.slug])),
         "title": entry.title,
         "description": entry.description,
         "content_size": entry.content_size,
@@ -123,6 +224,7 @@ async def create_knowledge(
         return json_response(ResponseCode.BAD_REQUEST, f"Content too large (max {MAX_CONTENT_SIZE // 1024}KB)")
 
     ws_id = str(workspace.id)
+    folder_path = _require_folder(db, ws_id, body.folder_path)
     base_slug = _slugify(body.title)
     slug = _unique_slug(db, ws_id, base_slug)
 
@@ -133,15 +235,19 @@ async def create_knowledge(
     storage_filename = f"{slug}.md"
     storage_key = store.save(ws_id, entry_id, storage_filename, content_bytes)
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
     entry = KnowledgeEntry(
         id=entry_id,
         workspace_id=ws_id,
         slug=slug,
+        folder_path=folder_path,
         title=body.title,
         description=body.description,
         storage_key=storage_key,
         content_size=len(content_bytes),
         created_by=body.source or "human:user",
+        owner=_owner_for(_viewer, body.source),
+        visibility=_visibility_for(_viewer, body.visibility),
     )
     db.add(entry)
     db.commit()
@@ -154,17 +260,18 @@ async def create_knowledge(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token)
 
-    result = _serialize(entry)
+    result = _serialize(entry, _meta(db, ws_id, _viewer, entry))
     result["content"] = body.content
     return success_response(result)
 
 
 # ---------------------------------------------------------------------------
 # GET /v1/knowledge
+# Read handlers use synchronous DB/storage I/O and run in the threadpool.
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge")
-async def list_knowledge(
+def list_knowledge(
     network: str = Query(...),
     status: Optional[str] = Query("active"),
     limit: int = Query(100, ge=1, le=500),
@@ -184,18 +291,23 @@ async def list_knowledge(
     if status:
         query = query.where(KnowledgeEntry.status == status)
     query = query.order_by(KnowledgeEntry.updated_at.desc())
-    query = query.offset(offset).limit(limit)
-    rows = db.execute(query).scalars().all()
 
-    total = db.execute(
-        select(func.count(KnowledgeEntry.id)).where(
-            KnowledgeEntry.workspace_id == ws_id,
-            KnowledgeEntry.status == (status or "active"),
-        )
-    ).scalar() or 0
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if _viewer.machine:
+        rows = db.execute(query.offset(offset).limit(limit)).scalars().all()
+        total = db.execute(
+            select(func.count(KnowledgeEntry.id)).where(
+                KnowledgeEntry.workspace_id == ws_id,
+                KnowledgeEntry.status == (status or "active"),
+            )
+        ).scalar() or 0
+    else:
+        visible = filter_knowledge(db, ws_id, _viewer, db.execute(query).scalars().all())
+        total = len(visible)
+        rows = visible[offset:offset + limit]
 
     return success_response({
-        "entries": [_serialize(e) for e in rows],
+        "entries": [_serialize(e, _meta(db, ws_id, _viewer, e)) for e in rows],
         "total": total,
     })
 
@@ -205,14 +317,14 @@ async def list_knowledge(
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge/{entry_id}")
-async def get_knowledge(
+def get_knowledge(
     entry_id: str = Path(...),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
     entry = db.execute(
-        select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
+        select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id, KnowledgeEntry.status == "active")
     ).scalar_one_or_none()
     if not entry:
         return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
@@ -225,6 +337,10 @@ async def get_knowledge(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not can_read_knowledge(db, str(workspace.id), _viewer, entry):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this knowledge entry")
+
     content = ""
     if entry.storage_key:
         store = get_file_store()
@@ -233,7 +349,7 @@ async def get_knowledge(
         except FileNotFoundError:
             content = ""
 
-    result = _serialize(entry)
+    result = _serialize(entry, _meta(db, workspace.id, _viewer, entry))
     result["content"] = content
     return success_response(result)
 
@@ -243,7 +359,7 @@ async def get_knowledge(
 # ---------------------------------------------------------------------------
 
 @router.get("/knowledge/by-slug/{slug}")
-async def get_knowledge_by_slug(
+def get_knowledge_by_slug(
     slug: str = Path(...),
     network: str = Query(...),
     db: Session = Depends(get_db),
@@ -267,6 +383,10 @@ async def get_knowledge_by_slug(
     if not entry:
         return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
 
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not can_read_knowledge(db, ws_id, _viewer, entry):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this knowledge entry")
+
     content = ""
     if entry.storage_key:
         store = get_file_store()
@@ -275,7 +395,7 @@ async def get_knowledge_by_slug(
         except FileNotFoundError:
             content = ""
 
-    result = _serialize(entry)
+    result = _serialize(entry, _meta(db, ws_id, _viewer, entry))
     result["content"] = content
     return success_response(result)
 
@@ -308,7 +428,25 @@ async def update_knowledge(
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
     ws_id = str(workspace.id)
+    if str(entry.workspace_id) != ws_id:
+        return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
     now = datetime.now(timezone.utc)
+
+    # Permission model: editing takes the `act` right (owner, admin, machine,
+    # a grant with act, or public); changing visibility takes a manager.
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    if not allowed(db, _viewer, resource_for_knowledge(entry), "act", ws_id):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this knowledge entry")
+    if body.visibility is not None:
+        vis = normalize_visibility(body.visibility)
+        if vis not in ("private", "public"):
+            return json_response(ResponseCode.BAD_REQUEST, "visibility must be 'private' or 'public'")
+        if not can_manage(db, _viewer, resource_for_knowledge(entry), ws_id):
+            return json_response(ResponseCode.FORBIDDEN, "Only the entry's owner or an admin can change who sees it")
+        entry.visibility = vis
+
+    if body.folder_path is not None:
+        entry.folder_path = _require_folder(db, ws_id, body.folder_path)
 
     if body.title is not None and body.title != entry.title:
         base_slug = _slugify(body.title)
@@ -346,7 +484,7 @@ async def update_knowledge(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token)
 
-    result = _serialize(entry)
+    result = _serialize(entry, _meta(db, ws_id, _viewer, entry))
     if body.content is not None:
         result["content"] = body.content
     return success_response(result)
@@ -378,6 +516,13 @@ async def delete_knowledge(
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    if str(entry.workspace_id) != str(workspace.id):
+        return json_response(ResponseCode.NOT_FOUND, "Knowledge entry not found")
+
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization)
+    if not allowed(db, _viewer, resource_for_knowledge(entry), "act", str(workspace.id)):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this knowledge entry")
 
     entry.status = "deleted"
     entry.updated_at = datetime.now(timezone.utc)

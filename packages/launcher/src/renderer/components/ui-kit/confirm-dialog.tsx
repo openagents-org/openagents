@@ -67,9 +67,9 @@ export function ConfirmDialog({
               Destructive prompts with no glyph of their own get a warning mark
               — it reads as "this one is different" before the copy is. */}
           {icon ? (
-            <AlertDialogMedia>{icon}</AlertDialogMedia>
+            <AlertDialogMedia className="mb-0 size-12">{icon}</AlertDialogMedia>
           ) : destructive ? (
-            <AlertDialogMedia className="size-11 bg-destructive/10 text-destructive">
+            <AlertDialogMedia className="mb-0 size-11 bg-destructive/10 text-destructive">
               <TriangleAlert className="size-5" />
             </AlertDialogMedia>
           ) : null}
@@ -78,7 +78,12 @@ export function ConfirmDialog({
             <AlertDialogDescription>{description}</AlertDialogDescription>
           )}
         </AlertDialogHeader>
-        {children && <div className="shrink-0">{children}</div>}
+        {/* A column, not a bare wrapper: prompts that stack two blocks here —
+            an opt-in checkbox and the warning that opt-in unlocks — had no gap
+            between them at all and rendered as one welded box. */}
+        {children && (
+          <div className="flex shrink-0 flex-col gap-3">{children}</div>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>
             {cancelLabel ?? t("ui.confirmDialog.cancel")}

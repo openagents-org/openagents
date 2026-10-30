@@ -12,7 +12,7 @@ from openagents.models.a2a import (
     create_text_message,
     create_task,
 )
-from openagents.core.a2a_task_store import TaskStore, InMemoryTaskStore
+from openagents.sdk.a2a_task_store import TaskStore, InMemoryTaskStore
 
 
 class TestInMemoryTaskStore:

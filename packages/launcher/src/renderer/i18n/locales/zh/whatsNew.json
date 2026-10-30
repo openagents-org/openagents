@@ -1,0 +1,15 @@
+{
+  "title": "v{{version}} 更新内容",
+  "titleEmpty": "更新公告",
+  "subtitle": "本版本的更新内容",
+  "empty": "该版本暂无更新公告。",
+  "done": "知道了",
+  "types": {
+    "feature": "新增",
+    "improvement": "优化",
+    "fix": "修复"
+  },
+  "settingsRow": "更新公告",
+  "settingsRowDesc": "查看本版本以及历史版本的更新内容",
+  "settingsAction": "查看"
+}

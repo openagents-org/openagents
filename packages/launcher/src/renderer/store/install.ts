@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import { isUpgradeAvailable } from '../../shared/version-compare'
-import type { AgentUpdateInfo, InstallPhase, InstalledAgentRecord } from '../types'
+import type {
+  AgentUpdateInfo,
+  InstallPhase,
+  InstalledAgentRecord,
+  PrereqRemedy,
+} from '../types'
 
 export interface InstallJob {
   agent: string
@@ -9,6 +14,10 @@ export interface InstallJob {
   detail: string
   log: string
   error?: string
+  /** Dependencies the machine is missing — the install never started. */
+  missing?: PrereqRemedy[]
+  /** Where the streamed output was written on disk. */
+  logFile?: string
   startedAt: number
 }
 

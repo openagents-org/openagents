@@ -1,0 +1,18 @@
+{
+  "name": "elevenlabs",
+  "label": "ElevenLabs",
+  "base_url": null,
+  "order": 200,
+  "models": [
+    {
+      "id": "eleven_multilingual_v2",
+      "category": "audio",
+      "label": "Multilingual V2"
+    },
+    {
+      "id": "eleven_turbo_v2_5",
+      "category": "audio",
+      "label": "Turbo V2.5"
+    }
+  ]
+}

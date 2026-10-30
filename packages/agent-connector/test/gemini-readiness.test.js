@@ -3,10 +3,14 @@
 /**
  * Gemini credential/readiness detection (the "logged in via OAuth but UI shows
  * Not logged in" fix). Verifies the installer detects ALL of Gemini CLI's auth
- * paths — OAuth credential file, GEMINI_API_KEY / GOOGLE_API_KEY, and a
- * GOOGLE_APPLICATION_CREDENTIALS service-account file — without parsing or
- * logging the token, and maps an unreadable credential to a distinct 'unknown'
+ * paths — the recorded Google account, GEMINI_API_KEY / GOOGLE_API_KEY, and a
+ * GOOGLE_APPLICATION_CREDENTIALS service-account file — without reading out or
+ * logging any credential, and maps an unreadable one to a distinct 'unknown'
  * state rather than "no credentials". No real Gemini CLI or model call.
+ *
+ * The account file replaced the OAuth token file: current CLI builds move the
+ * token into the OS keychain and delete ~/.gemini/oauth_creds.json, so watching
+ * for that file reported "signed out" forever.
  */
 
 const { describe, it, beforeEach, afterEach } = require('node:test');
@@ -28,6 +32,7 @@ function geminiEntry(credsPath, overrides = {}) {
     install: { binary: 'gemini', macos: 'npm install -g @google/gemini-cli', linux: 'npm install -g @google/gemini-cli' },
     check_ready: {
       creds_file: credsPath,
+      creds_key: 'active',
       creds_no_parse: true,
       creds_path_env: ['GOOGLE_APPLICATION_CREDENTIALS'],
       env_vars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
@@ -67,17 +72,17 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('Gemini readiness — OAuth credential file (6.1)', () => {
-  it('OAuth creds file present & readable → Ready', () => {
-    const p = path.join(tmpDir, 'oauth_creds.json');
-    fs.writeFileSync(p, '{"access_token":"REDACTED"}');
+describe('Gemini readiness — the recorded Google account (6.1)', () => {
+  it('signed-in account recorded & readable → Ready', () => {
+    const p = path.join(tmpDir, 'google_accounts.json');
+    fs.writeFileSync(p, '{"active":"ada@example.com","old":[]}');
     const r = evaluate(geminiEntry(p));
     assert.equal(r.ready, true);
     assert.equal(r.auth_status, 'ready');
     assert.equal(r.auth_mode, 'cli_login');
   });
 
-  it('OAuth creds file absent → not ready, no_credentials, "Needs sign-in" (not "Not logged in")', () => {
+  it('account file absent → not ready, no_credentials, "Needs sign-in" (not "Not logged in")', () => {
     const r = evaluate(geminiEntry(path.join(tmpDir, 'does-not-exist.json')));
     assert.equal(r.ready, false);
     assert.equal(r.auth_status, 'no_credentials');
@@ -85,15 +90,15 @@ describe('Gemini readiness — OAuth credential file (6.1)', () => {
     assert.doesNotMatch(r.message, /^Not logged in/);
   });
 
-  it('OAuth creds file exists but unreadable → unknown (NOT "Not logged in"), never Ready', () => {
+  it('account file exists but unreadable → unknown (NOT "Not logged in"), never Ready', () => {
     if (process.platform === 'win32') {
       return; // chmod(0o000) is a no-op on Windows; an unreadable file can't be simulated
     }
     if (typeof process.getuid === 'function' && process.getuid() === 0) {
       return; // root bypasses file permissions; the unreadable path can't be simulated
     }
-    const p = path.join(tmpDir, 'oauth_creds.json');
-    fs.writeFileSync(p, '{"access_token":"REDACTED"}');
+    const p = path.join(tmpDir, 'google_accounts.json');
+    fs.writeFileSync(p, '{"active":"ada@example.com","old":[]}');
     fs.chmodSync(p, 0o000);
     try {
       const r = evaluate(geminiEntry(p));
@@ -105,18 +110,30 @@ describe('Gemini readiness — OAuth credential file (6.1)', () => {
     }
   });
 
-  it('empty OAuth creds file is treated as absent (not Ready)', () => {
-    const p = path.join(tmpDir, 'oauth_creds.json');
+  it('empty account file is treated as absent (not Ready)', () => {
+    const p = path.join(tmpDir, 'google_accounts.json');
     fs.writeFileSync(p, '');
     const r = evaluate(geminiEntry(p));
     assert.equal(r.ready, false);
   });
 
-  it('credential check never reads file contents (no JSON parse) — invalid JSON still Ready', () => {
-    const p = path.join(tmpDir, 'oauth_creds.json');
-    fs.writeFileSync(p, 'not-json-at-all'); // content-free check ⇒ still present
+  it('signed OUT (active: null) is not Ready — the file exists from install onward', () => {
+    // The regression this guards: the file's existence used to be the whole
+    // check, so an account that had signed out — or never signed in — read as
+    // signed in.
+    const p = path.join(tmpDir, 'google_accounts.json');
+    fs.writeFileSync(p, '{"active":null,"old":["ada@example.com"]}');
     const r = evaluate(geminiEntry(p));
-    assert.equal(r.ready, true);
+    assert.equal(r.ready, false);
+    assert.equal(r.auth_status, 'no_credentials');
+  });
+
+  it('an unparseable account file is unknown, not signed out', () => {
+    const p = path.join(tmpDir, 'google_accounts.json');
+    fs.writeFileSync(p, 'not-json-at-all');
+    const r = evaluate(geminiEntry(p));
+    assert.equal(r.ready, false);
+    assert.equal(r.auth_status, 'unknown');
   });
 });
 
@@ -154,9 +171,9 @@ describe('Gemini readiness — API key & service account (6.2)', () => {
     assert.equal(r.auth_status, 'no_credentials');
   });
 
-  it('OAuth file AND API key both present → Ready', () => {
-    const p = path.join(tmpDir, 'oauth_creds.json');
-    fs.writeFileSync(p, '{"access_token":"REDACTED"}');
+  it('signed-in account AND API key both present → Ready', () => {
+    const p = path.join(tmpDir, 'google_accounts.json');
+    fs.writeFileSync(p, '{"active":"ada@example.com","old":[]}');
     process.env.GEMINI_API_KEY = 'AIza-REDACTED';
     assert.equal(evaluate(geminiEntry(p)).ready, true);
   });
@@ -196,8 +213,12 @@ describe('Gemini readiness — registry config (status mapping)', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'registry.json'), 'utf-8'));
   const entry = (registry.agents || registry).find((a) => a.name === 'gemini');
 
-  it('registry declares OAuth file + env + service-account detection', () => {
-    assert.equal(entry.check_ready.creds_file, '~/.gemini/oauth_creds.json');
+  it('registry declares OAuth account + env + service-account detection', () => {
+    // Not oauth_creds.json: current CLI builds keep the token in the OS
+    // keychain and delete that file, so it never appears however many times
+    // the user signs in. google_accounts.json is written on every sign-in.
+    assert.equal(entry.check_ready.creds_file, '~/.gemini/google_accounts.json');
+    assert.equal(entry.check_ready.creds_key, 'active');
     assert.equal(entry.check_ready.creds_no_parse, true);
     assert.deepEqual(entry.check_ready.creds_path_env, ['GOOGLE_APPLICATION_CREDENTIALS']);
     assert.ok(entry.check_ready.env_vars.includes('GEMINI_API_KEY'));

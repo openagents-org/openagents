@@ -4,6 +4,7 @@ import { ClipboardCopy, FolderOpen, RefreshCw } from "lucide-react"
 
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
+import { formatBytes } from "@renderer/lib/format"
 import { SettingsCard, Row, InfoRow } from "../components/settings-card"
 import type { RuntimeInfo, SystemInfo } from "@renderer/types"
 import type { SettingsPaths } from "../use-settings-state"
@@ -225,19 +226,6 @@ function StatusChip({ ok }: { ok: boolean }): React.JSX.Element {
       {ok ? t("settings.runtime.ok") : t("common.notInstalled")}
     </Badge>
   )
-}
-
-const UNITS = ["B", "KB", "MB", "GB", "TB"]
-
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return "—"
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${UNITS[unit]}`
 }
 
 function formatUptime(seconds: number): string {

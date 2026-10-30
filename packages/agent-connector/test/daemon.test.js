@@ -5,20 +5,73 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Daemon } = require('../src/daemon');
+const { Daemon, filesystemRoots } = require('../src/daemon');
 const { Config } = require('../src/config');
 const { EnvManager } = require('../src/env');
 const { Registry } = require('../src/registry');
 
 let tmpDir;
+let scrubbedEnv;
+
+// The roster and agent env read the daemon's own process.env, so a model or
+// key set in the shell running the tests would leak into what they assert.
+const AMBIENT_CREDENTIAL = /^(MODEL|.*_(MODEL|API_KEY|BASE_URL|AUTH_TOKEN))$/;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-daemon-'));
+  scrubbedEnv = {};
+  for (const k of Object.keys(process.env)) {
+    if (AMBIENT_CREDENTIAL.test(k)) { scrubbedEnv[k] = process.env[k]; delete process.env[k]; }
+  }
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  Object.assign(process.env, scrubbedEnv);
 });
+
+/** Run body with process.env overridden (undefined deletes a var), then restore it. */
+function withProcessEnv(vars, body) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return body();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/** withProcessEnv for an async body: the override holds until it settles. */
+async function withProcessEnvAsync(vars, body) {
+  const saved = {};
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await body();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+// A key or endpoint exported on this machine would put every agent "on a key".
+const NO_CREDENTIALS = {
+  LLM_API_KEY: undefined, LLM_BASE_URL: undefined,
+  OPENAI_API_KEY: undefined, OPENAI_BASE_URL: undefined,
+  ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined, ANTHROPIC_BASE_URL: undefined,
+};
 
 describe('Daemon', () => {
   it('creates with correct initial state', () => {
@@ -77,6 +130,292 @@ describe('Daemon', () => {
     assert.equal(result.OPENCODE_MODEL, 'custom-model');
   });
 
+  it('_buildAgentEnv hands a signed-in codex agent no key from any source', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-from-system';
+    try {
+      const signedIn = daemon._buildAgentEnv({
+        name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' },
+      });
+      assert.equal(signedIn.OPENAI_API_KEY, undefined);
+      assert.equal(signedIn.OPENAI_BASE_URL, undefined);
+      assert.equal(signedIn.CODEX_MODEL, 'gpt-5.5');
+
+      const keyed = daemon._buildAgentEnv({ name: 'codex-key', type: 'codex' });
+      assert.equal(keyed.OPENAI_API_KEY, 'sk-saved');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+
+  it('_buildAgentEnv gives a signed-in agent its own model, never the one saved with the type key', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved', LLM_MODEL: 'openai-gpt-oss-20b', CODEX_MODEL: 'openai-gpt-oss-20b' });
+
+    const noModel = daemon._buildAgentEnv({ name: 'a', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(noModel.CODEX_MODEL, undefined);
+    assert.equal(noModel.LLM_MODEL, undefined);
+
+    const own = daemon._buildAgentEnv({ name: 'b', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' } });
+    assert.equal(own.CODEX_MODEL, 'gpt-5.5');
+
+    const keyed = daemon._buildAgentEnv({ name: 'c', type: 'codex' });
+    assert.equal(keyed.CODEX_MODEL, 'openai-gpt-oss-20b');
+  });
+
+  it('_buildRoster shows a signed-in agent with neither the type key nor its model', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { LLM_API_KEY: 'sk-saved-123456', LLM_MODEL: 'openai-gpt-oss-20b' });
+    config.addAgent({ name: 'signed', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.addAgent({ name: 'keyed', type: 'codex' });
+    daemon._agentOnNodeWorkspace = () => true;
+    const rows = Object.fromEntries(daemon._buildRoster({}).map((r) => [r.name, r]));
+    assert.equal(rows.signed.model, null);
+    assert.equal(rows.signed.apiKeyMasked, null);
+    assert.equal(rows.keyed.model, 'openai-gpt-oss-20b');
+    assert.ok(rows.keyed.apiKeyMasked);
+  });
+
+  for (const type of ['gemini', 'antigravity']) {
+    it(`_buildAgentEnv hands a signed-in ${type} agent none of the keys or endpoints it reads`, () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      env.save(type, { GEMINI_API_KEY: 'g-saved', GOOGLE_API_KEY: 'g-saved', GOOGLE_GEMINI_BASE_URL: 'https://relay.example' });
+      const previous = process.env.WORKSPACE_API_BASE_URL;
+      process.env.WORKSPACE_API_BASE_URL = 'https://workspace.example';
+      try {
+        const built = daemon._buildAgentEnv({ name: type, type, env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+        assert.equal(built.GEMINI_API_KEY, undefined);
+        // Antigravity reads GEMINI_API_KEY alone; GOOGLE_API_KEY is Gemini's.
+        if (type === 'gemini') assert.equal(built.GOOGLE_API_KEY, undefined);
+        assert.equal(built.GOOGLE_GEMINI_BASE_URL, undefined);
+        // Not the model's endpoint: stays.
+        assert.equal(built.WORKSPACE_API_BASE_URL, 'https://workspace.example');
+        const keyed = daemon._buildAgentEnv({ name: `${type}-key`, type });
+        assert.equal(keyed.GOOGLE_GEMINI_BASE_URL, 'https://relay.example');
+      } finally {
+        if (previous === undefined) delete process.env.WORKSPACE_API_BASE_URL;
+        else process.env.WORKSPACE_API_BASE_URL = previous;
+      }
+    });
+  }
+
+  it('_buildAgentEnv ignores a sign-in marker the type env hands every agent', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAGENTS_AUTH_MODE: 'cli_login' });
+    const keyed = daemon._buildAgentEnv({ name: 'codex', type: 'codex', env: { OPENAI_API_KEY: 'sk-own' } });
+    assert.equal(keyed.OPENAI_API_KEY, 'sk-own');
+  });
+
+  it('a signed-in agent has no configured endpoint to list models from', () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    env.save('codex', { OPENAI_API_KEY: 'sk-saved', LLM_BASE_URL: 'https://relay.example/v1' });
+    const endpoint = daemon._agentEndpoint({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    assert.equal(endpoint.baseUrl, null);
+    assert.equal(daemon._agentEndpoint({ name: 'codex-key', type: 'codex' }).baseUrl, 'https://relay.example/v1');
+  });
+
+  it('lists a DeepSeek Harness agent\'s models where its endpoint keeps them', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const official = daemon._agentEndpoint({ name: 'ds', type: 'deepseek', env: { DEEPSEEK_API_KEY: 'sk-ds' } });
+    assert.deepEqual(official, { baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai', apiKey: 'sk-ds' });
+    const anthropic = daemon._agentEndpoint({
+      name: 'ds2', type: 'deepseek', env: { DEEPSEEK_API_KEY: 'sk-ds', DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic' },
+    });
+    assert.equal(anthropic.baseUrl, 'https://api.deepseek.com/v1');
+    const gateway = daemon._agentEndpoint({
+      name: 'ds3', type: 'deepseek', env: { LLM_API_KEY: 'sk-oa', LLM_BASE_URL: 'https://api-gateway.openagents.org/v1' },
+    });
+    assert.deepEqual(gateway, { baseUrl: 'https://api-gateway.openagents.org/v1', protocol: 'openai', apiKey: 'sk-oa' });
+  });
+
+  it('a key sent by the workspace switches a signed-in agent back to that key', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { apiKey: 'sk-new' });
+    assert.deepEqual(config.getAgent('codex').env, { LLM_API_KEY: 'sk-new' });
+  });
+
+  it('a blank key is no key: the agent stays signed in', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { apiKey: '   ', model: 'gpt-5.5' });
+    const env = config.getAgent('codex').env;
+    assert.equal(env.OPENAGENTS_AUTH_MODE, 'cli_login');
+    assert.equal(env.LLM_API_KEY, undefined);
+  });
+
+  // ── Which credential an agent runs on (sign-in vs key) ──
+
+  /** Run create_agent for real, with only agn create/connect stood in for. */
+  async function createFromWorkspace(config, daemon, args) {
+    const calls = [];
+    daemon._runAgn = async (a) => {
+      calls.push(a);
+      if (a[0] === 'create') config.addAgent({ name: a[1], type: a[3] });
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    let result = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c1', action: 'create_agent', args: { workingDir: path.join(tmpDir, 'wd'), ...args } },
+    );
+    assert.equal(result && result.ok, true, result && result.message);
+    return calls;
+  }
+
+  it('create_agent marks an agent added on the device sign-in, so no saved key reaches it', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    // Left there by an earlier version, which wrote workspace keys to codex.env.
+    env.save('codex', { LLM_API_KEY: 'sk-relay-123456', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'relay-model' });
+    await createFromWorkspace(config, daemon, { name: 'codex-oauth', type: 'codex', authMode: 'cli_login' });
+    assert.deepEqual(config.getAgent('codex-oauth').env, { OPENAGENTS_AUTH_MODE: 'cli_login' });
+    const built = withProcessEnv(NO_CREDENTIALS, () => daemon._buildAgentEnv(config.getAgent('codex-oauth')));
+    assert.equal(built.OPENAI_API_KEY, undefined);
+    assert.equal(built.OPENAI_BASE_URL, undefined);
+    assert.equal(built.CODEX_MODEL, undefined);
+  });
+
+  it('create_agent keeps a codex key on its agent: other codex agents stay on the sign-in', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    config.addAgent({ name: 'codex-before', type: 'codex' }); // keyless, unmarked
+    const calls = await createFromWorkspace(config, daemon, {
+      name: 'codex-key', type: 'codex', apiKey: 'sk-relay-123456', baseUrl: 'https://relay.example/v1', model: 'relay-model',
+    });
+    assert.equal(calls.some((c) => c[0] === 'env'), false);
+    assert.deepEqual(env.load('codex'), {});
+    withProcessEnv(NO_CREDENTIALS, () => {
+      const keyed = daemon._buildAgentEnv(config.getAgent('codex-key'));
+      assert.equal(keyed.OPENAI_API_KEY, 'sk-relay-123456');
+      assert.equal(keyed.CODEX_MODEL, 'relay-model');
+      const before = daemon._buildAgentEnv(config.getAgent('codex-before'));
+      assert.equal(before.OPENAI_API_KEY, undefined);
+      assert.equal(before.CODEX_MODEL, undefined);
+    });
+  });
+
+  for (const [type, launcherEnv, own] of [
+    ['deepseek', { DEEPSEEK_API_KEY: 'sk-A-own-1', DEEPSEEK_MODEL: 'deepseek-chat' }, ['DEEPSEEK_API_KEY', 'DEEPSEEK_MODEL', 'DEEPSEEK_BASE_URL']],
+    ['opencode', { LLM_API_KEY: 'sk-A-own-1', LLM_BASE_URL: 'https://relay-a.example/v1', LLM_MODEL: 'model-A' }, ['OPENAI_API_KEY', 'OPENCODE_MODEL', 'OPENAI_BASE_URL']],
+    ['openworker', { OPENWORKER_API_KEY: 'sk-A-own-1', OPENWORKER_MODEL: 'model-A' }, ['OPENWORKER_API_KEY', 'OPENWORKER_MODEL', 'OPENWORKER_BASE_URL']],
+  ]) {
+    it(`create_agent (${type}) keeps a key, endpoint and model on its agent: one set up before keeps its own`, async () => {
+      const config = new Config(tmpDir);
+      const env = new EnvManager(tmpDir);
+      const daemon = new Daemon(config, env, new Registry(tmpDir));
+      // Agent A was configured in the launcher, which saves to the type env.
+      env.save(type, launcherEnv);
+      config.addAgent({ name: 'a', type });
+      const pick = (built) => Object.fromEntries(own.map((k) => [k, built[k]]));
+      const before = withProcessEnv(NO_CREDENTIALS, () => pick(daemon._buildAgentEnv(config.getAgent('a'))));
+      const calls = await createFromWorkspace(config, daemon, {
+        name: 'b', type, apiKey: 'sk-B-relay-1', baseUrl: 'https://relay-b.example/v1', model: 'model-B',
+      });
+      assert.equal(calls.some((c) => c[0] === 'env'), false);
+      assert.deepEqual(env.load(type), launcherEnv);
+      withProcessEnv(NO_CREDENTIALS, () => {
+        assert.deepEqual(pick(daemon._buildAgentEnv(config.getAgent('a'))), before);
+        const b = daemon._buildAgentEnv(config.getAgent('b'));
+        assert.equal(b[own[0]], 'sk-B-relay-1');
+        assert.equal(b[own[1]], 'model-B');
+        assert.equal(b[own[2]], 'https://relay-b.example/v1');
+      });
+    });
+  }
+
+  it('create_agent keeps CodeArts AK/SK on its agent: a second one does not replace the first one\'s', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    await createFromWorkspace(config, daemon, { name: 'ca1', type: 'codearts', config: { CODEARTS_CLI_AK: 'ak-1', CODEARTS_CLI_SK: 'sk-1' } });
+    await createFromWorkspace(config, daemon, { name: 'ca2', type: 'codearts', config: { CODEARTS_CLI_AK: 'ak-2', CODEARTS_CLI_SK: 'sk-2' } });
+    assert.deepEqual(env.load('codearts'), {});
+    withProcessEnv(NO_CREDENTIALS, () => {
+      assert.equal(daemon._buildAgentEnv(config.getAgent('ca1')).CODEARTS_CLI_AK, 'ak-1');
+      assert.equal(daemon._buildAgentEnv(config.getAgent('ca2')).CODEARTS_CLI_AK, 'ak-2');
+    });
+  });
+
+  it('create_agent still saves a Hermes key for the type: its endpoint is one device-wide config', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = await createFromWorkspace(config, daemon, { name: 'hermes', type: 'hermes', apiKey: 'sk-h-123456' });
+    assert.deepEqual(calls[1], ['env', 'hermes', '--set', 'LLM_API_KEY=sk-h-123456']);
+  });
+
+  it('a sign-in sent by the workspace takes an agent off its key, endpoint and the key\'s model', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: {
+      OPENAI_API_KEY: 'sk-relay-123456', OPENAI_BASE_URL: 'https://relay.example/v1', CODEX_MODEL: 'relay-model', CODEX_WIRE_API: 'responses',
+    } });
+    withProcessEnv(NO_CREDENTIALS, () => daemon._saveNodeAgentEnv('codex', 'codex', { authMode: 'cli_login' }));
+    assert.deepEqual(config.getAgent('codex').env, { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_WIRE_API: 'responses' });
+  });
+
+  it('a sign-in sent again leaves a signed-in agent its own model', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'codex', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' } });
+    daemon._saveNodeAgentEnv('codex', 'codex', { authMode: 'cli_login' });
+    assert.deepEqual(config.getAgent('codex').env, { OPENAGENTS_AUTH_MODE: 'cli_login', CODEX_MODEL: 'gpt-5.5' });
+  });
+
+  it('a sign-in is ignored for a type without one, and a key sent with it wins', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name: 'oc', type: 'opencode', env: { LLM_API_KEY: 'sk-oc-123456' } });
+    daemon._saveNodeAgentEnv('oc', 'opencode', { authMode: 'cli_login' });
+    assert.deepEqual(config.getAgent('oc').env, { LLM_API_KEY: 'sk-oc-123456' });
+    config.addAgent({ name: 'codex', type: 'codex' });
+    daemon._saveNodeAgentEnv('codex', 'codex', { authMode: 'cli_login', apiKey: 'sk-new-123456' });
+    assert.deepEqual(config.getAgent('codex').env, { LLM_API_KEY: 'sk-new-123456' });
+  });
+
+  it('_buildRoster reports a launcher-made key agent\'s model, key and auth the way it runs', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    // The launcher saves the type's own variables, never LLM_*.
+    config.addAgent({ name: 'launcher-key', type: 'codex', env: {
+      OPENAI_API_KEY: 'sk-launcher-123456', OPENAI_BASE_URL: 'https://api-gateway.example/v1', CODEX_MODEL: 'openai-gpt-oss-20b',
+    } });
+    config.addAgent({ name: 'signed', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.addAgent({ name: 'keyless', type: 'codex' });
+    config.addAgent({ name: 'oc', type: 'opencode' });
+    daemon._agentOnNodeWorkspace = () => true;
+    const rows = withProcessEnv(NO_CREDENTIALS, () => Object.fromEntries(daemon._buildRoster({}).map((r) => [r.name, r])));
+    assert.equal(rows['launcher-key'].model, 'openai-gpt-oss-20b');
+    assert.equal(rows['launcher-key'].authMode, 'api_key');
+    assert.ok(rows['launcher-key'].apiKeyMasked);
+    assert.ok(!rows['launcher-key'].apiKeyMasked.includes('launcher'));
+    assert.equal(rows.signed.authMode, 'cli_login');
+    assert.equal(rows.keyless.authMode, 'cli_login');
+    assert.equal(rows.oc.authMode, null);
+  });
+
   it('_getLaunchCommand returns command from registry', () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);
@@ -99,6 +438,1106 @@ describe('Daemon', () => {
 
     const cmd = daemon._getLaunchCommand({ name: 'my-bot', type: 'claude' });
     assert.ok(cmd.some((arg) => arg.includes('my-bot')));
+  });
+
+  it('_buildRoster lists configured agents with live state', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    config.addAgent({ name: 'helper', type: 'codex' });
+    config.setAgentNetwork('helper', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._probes = {}; // isolate from any probes.json on the dev machine
+    // 'coder' is running; 'helper' has no process entry → reported stopped.
+    daemon._processes = { coder: { state: 'running', type: 'claude', restarts: 0 } };
+    // A provider key or base URL exported on this machine would otherwise show up.
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(
+      roster.sort((a, b) => a.name.localeCompare(b.name)),
+      [
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: null, cliModels: null, probe: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: 'chat', cliModels: null, probe: null },
+      ],
+    );
+  });
+
+  it('_buildRoster reports a configured API key masked, never in full', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('deepseek', { LLM_API_KEY: 'sk-1234567890abcdef' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].apiKeyMasked, 'sk-1...cdef');
+    assert.ok(!JSON.stringify(roster).includes('sk-1234567890abcdef'));
+  });
+
+  it('_buildRoster fully masks short keys — first4+last4 of a 12-char key would expose most of it', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('deepseek', { LLM_API_KEY: 'shortkey12' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].apiKeyMasked, '****');
+    assert.ok(!JSON.stringify(roster).includes('shortkey12'));
+  });
+
+  it('_buildRoster reports the endpoint as a hostname, never the full base URL', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({
+      name: 'coder',
+      type: 'codex',
+      env: { LLM_BASE_URL: 'https://user:hunter2@relay.example.com/v1/tok-abc' },
+    });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'relay.example.com');
+    assert.ok(!JSON.stringify(roster).includes('hunter2'));
+    assert.ok(!JSON.stringify(roster).includes('tok-abc'));
+  });
+
+  it('_buildRoster finds a base URL saved under the provider variable', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('claude', { ANTHROPIC_BASE_URL: 'https://API.Relay.cn/anthropic' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'api.relay.cn');
+  });
+
+  it('_buildRoster reads a base URL written without a scheme', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'deepseek', env: { LLM_BASE_URL: 'localhost:4000' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].baseUrlHost, 'localhost');
+  });
+
+  it('_buildRoster sees the provider base URL the CLI inherits from the daemon', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = withProcessEnv(
+      { OPENAI_BASE_URL: 'https://gw.example.org/v1' },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
+    assert.equal(roster[0].baseUrlHost, 'gw.example.org');
+  });
+
+  const ACCOUNT_MODELS = [
+    { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+  ];
+  const listedNow = () => ({ models: ACCOUNT_MODELS, askedAt: Date.now() });
+  /** Seed the daemon's cache for the sign-in `name` is on; returns that entry. */
+  const seedCliModels = (daemon, name, entry = listedNow()) => {
+    daemon._cliModels[daemon._cliModelsKey(daemon.config.getAgent(name))] = entry;
+    return entry;
+  };
+  const cliModelsOf = (daemon, name) => daemon._cliModels[daemon._cliModelsKey(daemon.config.getAgent(name))];
+
+  it('_buildRoster carries the models a signed-in agent CLI listed', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  it('_buildRoster keeps that list from an agent on a key or a relay', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } });
+    config.addAgent({ name: 'relayed', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com' } });
+    config.addAgent({ name: 'inherits', type: 'codex' });
+    for (const name of ['keyed', 'relayed', 'inherits']) config.setAgentNetwork(name, 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    for (const name of ['keyed', 'relayed', 'inherits']) seedCliModels(daemon, name);
+    // 'inherits' has nothing saved, and still runs on the key the daemon exports.
+    const roster = withProcessEnv(
+      { ...NO_CREDENTIALS, OPENAI_API_KEY: 'sk-from-the-shell-123456' },
+      () => daemon._buildRoster({ workspace_slug: 'ws1' }),
+    );
+    assert.deepEqual(roster.map((a) => a.cliModels), [null, null, null]);
+  });
+
+  it('_buildRoster lists for an agent marked signed in despite a key saved for its type', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const env = new EnvManager(tmpDir);
+    env.save('codex', { LLM_API_KEY: 'sk-type-level-123456' });
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  /** A daemon whose `agn models` child is played by `reply`; records who was asked. */
+  function daemonListingModels(agents, reply) {
+    const config = new Config(tmpDir);
+    for (const a of agents) {
+      config.addAgent({ name: a.name, type: a.type, env: a.env });
+      if (a.network !== false) config.setAgentNetwork(a.name, 'ws1');
+    }
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const asked = [];
+    daemon._runAgn = async (args) => {
+      asked.push(args);
+      return reply(args);
+    };
+    return { daemon, config, asked };
+  }
+
+  const agnListed = () => ({
+    code: 0, stdout: JSON.stringify({ type: 'codex', ok: true, models: ACCOUNT_MODELS }), stderr: '',
+  });
+  const agnFailed = () => ({
+    code: 1, stdout: JSON.stringify({ type: 'codex', ok: false, models: [], error: 'The CLI listed no models.' }), stderr: '',
+  });
+
+  it('_refreshCliModels asks the CLI of each signed-in agent, and only those', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'claude-signed', type: 'claude' },
+      { name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } },
+      { name: 'relayed', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com' } },
+      { name: 'other', type: 'gemini' },
+      { name: 'local', type: 'codex', network: false },
+    ], agnListed);
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, [['models', 'signed', '--json'], ['models', 'claude-signed', '--json']]);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A list that was just read is not asked for again.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 2);
+  });
+
+  it('_refreshCliModels asks again once a list has aged out', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    seedCliModels(daemon, 'signed', { models: [{ id: 'old', label: 'old' }], askedAt: Date.now() - 2 * 3600 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+  });
+
+  it('_refreshCliModels keeps the last list when the CLI will not answer, and does not ask again at once', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnFailed);
+    seedCliModels(daemon, 'signed', { models: ACCOUNT_MODELS, askedAt: Date.now() - 2 * 3600 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A CLI too old to answer is not started again on every pass.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_refreshCliModels remembers that a CLI never answered', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnFailed);
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.equal(asked.length, 1);
+    assert.equal(roster[0].cliModels, null);
+  });
+
+  it('_refreshCliModels retries a CLI that never answered after ten minutes, not an hour', async () => {
+    const { daemon, asked } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    seedCliModels(daemon, 'signed', { models: null, askedAt: Date.now() - 5 * 60 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 0);
+
+    seedCliModels(daemon, 'signed', { models: null, askedAt: Date.now() - 10 * 60 * 1000 });
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+
+    // A list that was read keeps the hour.
+    cliModelsOf(daemon, 'signed').askedAt = Date.now() - 30 * 60 * 1000;
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_askCliModels heartbeats when the list changed, and not when it did not', async () => {
+    const { daemon } = daemonListingModels([{ name: 'signed', type: 'codex' }], agnListed);
+    let beats = 0;
+    daemon._nodeHeartbeat = async () => { beats += 1; };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+    withProcessEnv(NO_CREDENTIALS, () => daemon._askCliModels('signed'));
+    await settle();
+    assert.equal(beats, 1);
+    withProcessEnv(NO_CREDENTIALS, () => daemon._askCliModels('signed'));
+    await settle();
+    assert.equal(beats, 1);
+  });
+
+  it('_askCliModels asks right away for a signed-in agent, and for no other', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } },
+    ], agnListed);
+    // Fresh or not: a reconfigure may have changed the account.
+    seedCliModels(daemon, 'signed', { models: [{ id: 'old', label: 'old' }], askedAt: Date.now() });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      daemon._askCliModels('signed');
+      daemon._askCliModels('keyed');
+      daemon._askCliModels('nobody');
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(asked, [['models', 'signed', '--json']]);
+    assert.deepEqual(cliModelsOf(daemon, 'signed').models, ACCOUNT_MODELS);
+  });
+
+  it('_refreshCliModels asks once for agents that share a sign-in', async () => {
+    const { daemon, asked } = daemonListingModels([
+      { name: 'one', type: 'claude' },
+      { name: 'two', type: 'claude', env: { LLM_MODEL: 'sonnet' } },
+      { name: 'three', type: 'claude', env: { ANTHROPIC_MODEL: 'haiku' } },
+      // Its own token: possibly another account, so its CLI is asked too.
+      { name: 'apart', type: 'claude', env: { CLAUDE_CODE_OAUTH_TOKEN: 'tok-of-its-own-123456' } },
+    ], agnListed);
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.deepEqual(asked, [['models', 'one', '--json'], ['models', 'apart', '--json']]);
+    assert.deepEqual(roster.map((a) => a.cliModels), [ACCOUNT_MODELS, ACCOUNT_MODELS, ACCOUNT_MODELS, ACCOUNT_MODELS]);
+    // The token keys the cache hashed, never as itself.
+    assert.ok(!Object.keys(daemon._cliModels).join().includes('tok-of-its-own'));
+  });
+
+  it('_refreshCliModels forgets an agent that is gone or moved to a key', async () => {
+    const { daemon, config, asked } = daemonListingModels([
+      { name: 'signed', type: 'codex' },
+      { name: 'leaving', type: 'codex' },
+    ], agnListed);
+    const kept = seedCliModels(daemon, 'signed');
+    daemon._cliModels['a-sign-in-nobody-is-on'] = listedNow();
+    config.updateAgent('leaving', { env: { LLM_API_KEY: 'sk-own-key-123456' } });
+    seedCliModels(daemon, 'leaving');
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(Object.values(daemon._cliModels), [kept]);
+    assert.equal(asked.length, 0);
+  });
+
+  // The add form has no agent to read a list from yet: each installed type's
+  // device sign-in is asked too, and rides the runtime entry for the type.
+  const SIGN_IN_ASK = (type) => ['models', type, '--json', '--sign-in'];
+  const signInModelsOf = (daemon, type) => daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent(type))];
+
+  it('_refreshCliModels asks the device sign-in of each installed type whose CLI can list', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: true },
+      { type: 'claude', installed: false, ready: false },
+      { type: 'gemini', installed: true, ready: true },
+    ];
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, [SIGN_IN_ASK('codex')]);
+    assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+
+    // Fresh, so not asked again on the next pass.
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.equal(asked.length, 1);
+  });
+
+  it('_refreshCliModels asks no device sign-in on a device paired to no workspace', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => false;
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(asked, []);
+  });
+
+  it('_refreshCliModels asks once for a type and the agents on its device sign-in', async () => {
+    const { daemon, asked } = daemonListingModels([
+      // Added from the workspace form on "sign in on the device".
+      { name: 'marked', type: 'codex', env: { OPENAGENTS_AUTH_MODE: 'cli_login', LLM_MODEL: 'gpt-6-astra' } },
+      // An older one with nothing of its own, on the sign-in all the same.
+      { name: 'unmarked', type: 'codex', env: { CODEX_MODEL: 'gpt-6-sol' } },
+    ], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+    const roster = await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      await daemon._refreshCliModels();
+      return daemon._buildRoster({ workspace_slug: 'ws1' });
+    });
+    assert.deepEqual(asked, [['models', 'marked', '--json']]);
+    assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+    assert.deepEqual(roster.map((a) => a.cliModels), [ACCOUNT_MODELS, ACCOUNT_MODELS]);
+  });
+
+  it('_refreshCliModels forgets a type whose CLI is no longer installed', async () => {
+    const { daemon, asked } = daemonListingModels([], agnListed);
+    daemon._isPaired = () => true;
+    daemon._runtimes = [{ type: 'codex', installed: false, ready: false }];
+    daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+    await withProcessEnvAsync(NO_CREDENTIALS, () => daemon._refreshCliModels());
+    assert.deepEqual(daemon._cliModels, {});
+    assert.equal(asked.length, 0);
+  });
+
+  it('_heartbeatRuntimes puts each type sign-in list on its runtime entry', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: true },
+      { type: 'claude', installed: true, ready: false },
+      { type: 'gemini', installed: true, ready: true },
+      { type: 'cursor', installed: false, ready: false },
+    ];
+    daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+    assert.deepEqual(daemon._heartbeatRuntimes(), [
+      { type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS },
+      // Not answered yet: the form keeps the catalog list.
+      { type: 'claude', installed: true, ready: false, cliModels: null },
+      { type: 'gemini', installed: true, ready: true },
+      { type: 'cursor', installed: false, ready: false },
+    ]);
+    // The detection snapshot itself is left as it was.
+    assert.equal(daemon._runtimes[0].cliModels, undefined);
+  });
+
+  it('_nodeHeartbeat sends the runtimes with their sign-in lists', async () => {
+    await withPairings([P1], async () => {
+      const daemon = heartbeatDaemon();
+      daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
+      daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+      let sent = null;
+      daemon._nodeClients.set('n1', { nodeHeartbeat: async (id, token, body) => { sent = body; return {}; } });
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS }]);
+    });
+  });
+
+  it('_refreshRuntimes asks a type sign-in again once its CLI was upgraded or signed in', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [{ name: 'codex' }, { name: 'claude' }] };
+    daemon._isPaired = () => true;
+    let detected = [
+      { type: 'codex', installed: true, ready: true, version: '0.154.0', authStatus: 'ready', auth: { mode: 'subscription' } },
+      { type: 'claude', installed: true, ready: true, version: '2.1.289', authStatus: 'ready', auth: { mode: 'subscription' } },
+    ];
+    const asked = [];
+    daemon._runAgn = async (args) => {
+      if (args[0] === 'runtimes') return { code: 0, stdout: JSON.stringify(detected), stderr: '' };
+      asked.push(args);
+      return agnListed();
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+    await withProcessEnvAsync(NO_CREDENTIALS, async () => {
+      // First detection: both are new.
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.deepEqual(asked, [SIGN_IN_ASK('codex'), SIGN_IN_ASK('claude')]);
+
+      // Nothing changed: the hour holds.
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.equal(asked.length, 2);
+
+      // Codex upgraded: asked again now, and its old list kept until then.
+      detected = [{ ...detected[0], version: '0.160.0' }, detected[1]];
+      daemon._runAgn = async (args) => {
+        if (args[0] === 'runtimes') return { code: 0, stdout: JSON.stringify(detected), stderr: '' };
+        asked.push(args);
+        assert.deepEqual(signInModelsOf(daemon, 'codex').models, ACCOUNT_MODELS);
+        return agnListed();
+      };
+      await daemon._refreshRuntimes();
+      await settle();
+      assert.deepEqual(asked.slice(2), [SIGN_IN_ASK('codex')]);
+    });
+  });
+
+  // Stub node-config with a fixed pairing list, so the heartbeat tests don't
+  // touch the developer's real ~/.openagents/node.json.
+  function withPairings(pairings, body) {
+    const ncPath = require.resolve('../src/node-config');
+    const realNc = require.cache[ncPath];
+    const cleared = [];
+    require.cache[ncPath] = {
+      id: ncPath,
+      filename: ncPath,
+      loaded: true,
+      exports: {
+        listPairings: () => pairings,
+        deviceInfo: () => ({ hostname: 'h', os: 'linux', deviceType: 'server', launcherVersion: '0' }),
+        clearPairing: (wsId) => { cleared.push(wsId); return {}; },
+      },
+    };
+    return Promise.resolve(body(cleared)).finally(() => {
+      if (realNc) require.cache[ncPath] = realNc; else delete require.cache[ncPath];
+    });
+  }
+
+  const P1 = { node_id: 'n1', token: 't1', endpoint: 'https://ws1', workspace_id: 'w1', workspace_slug: 'ws1' };
+  const P2 = { node_id: 'n2', token: 't2', endpoint: 'https://ws2', workspace_id: 'w2', workspace_slug: 'ws2' };
+
+  function heartbeatDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._buildFs = () => ({});
+    daemon._runtimes = [];
+    return daemon;
+  }
+
+  // The heartbeat is the only component that continuously learns the node was
+  // removed (a 404 every 10s). It must clear node.json so the launcher stops
+  // reporting a membership that's gone — but only on that definitive signal,
+  // never on a transient blip that would unpair a device whose wifi flickered.
+  it('_nodeHeartbeat clears the pairing when the workspace 404s the node', async () => {
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      daemon._nodeClients.set('n1', {
+        nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
+      });
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(cleared, ['w1'], 'a 404 should clear that pairing');
+      assert.equal(daemon._nodeClients.has('n1'), false, 'the stale client should be dropped');
+    });
+  });
+
+  it('_nodeHeartbeat keeps the pairing on a transient (non-404) failure', async () => {
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      const client = {
+        nodeHeartbeat: async () => { const e = new Error('temporary'); e.status = 503; throw e; },
+      };
+      daemon._nodeClients.set('n1', client);
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(cleared, [], 'a transient failure must not clear the pairing');
+      assert.equal(daemon._nodeClients.get('n1'), client, 'the client is retained for retry');
+    });
+  });
+
+  // Seen in the field: while the backend was unreachable, the hosting platform
+  // answered every request with its own 404, and every pairing was cleared.
+  it('_nodeHeartbeat keeps the pairing on a 404 the backend did not write', async () => {
+    await withPairings([P1], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      daemon._nodeClients.set('n1', {
+        nodeHeartbeat: async () => { const e = new Error('Application not found'); e.status = 404; throw e; },
+      });
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(cleared, [], 'a platform 404 must not clear the pairing');
+    });
+  });
+
+  // A device belongs to a node row in EVERY workspace it paired with, so all of
+  // them must be reported to — one pairing does not displace another.
+  it('_nodeHeartbeat reports to every paired workspace', async () => {
+    await withPairings([P1, P2], async () => {
+      const daemon = heartbeatDaemon();
+      const seen = [];
+      for (const [ws, node] of [['w1', 'n1'], ['w2', 'n2']]) {
+        daemon._nodeClients.set(ws === 'w1' ? 'n1' : 'n2', {
+          nodeHeartbeat: async (nodeId, token) => { seen.push([nodeId, token]); return {}; },
+        });
+        void node;
+      }
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(seen.sort(), [['n1', 't1'], ['n2', 't2']]);
+    });
+  });
+
+  // One workspace being unreachable must not stop the others from reporting.
+  it('_nodeHeartbeat keeps reporting to the other workspaces when one fails', async () => {
+    await withPairings([P1, P2], async (cleared) => {
+      const daemon = heartbeatDaemon();
+      let reachedW2 = false;
+      daemon._nodeClients.set('n1', {
+        nodeHeartbeat: async () => { const e = new Error('Node not found'); e.status = 404; throw e; },
+      });
+      daemon._nodeClients.set('n2', {
+        nodeHeartbeat: async () => { reachedW2 = true; return {}; },
+      });
+      await daemon._nodeHeartbeat();
+      assert.equal(reachedW2, true, 'the healthy pairing still heartbeats');
+      assert.deepEqual(cleared, ['w1'], 'only the 404ing pairing is cleared');
+    });
+  });
+
+  // Each workspace only ever sees the agents bound to it (see _buildRoster).
+  it('_nodeHeartbeat sends each workspace its own roster', async () => {
+    await withPairings([P1, P2], async () => {
+      const daemon = heartbeatDaemon();
+      daemon._buildRoster = (n) => [{ name: `agent-for-${n.workspace_slug}` }];
+      const rosters = {};
+      for (const ws of ['w1', 'w2']) {
+        daemon._nodeClients.set(ws === 'w1' ? 'n1' : 'n2', {
+          nodeHeartbeat: async (_id, _tok, info) => { rosters[ws] = info.agents; return {}; },
+        });
+      }
+      await daemon._nodeHeartbeat();
+      assert.deepEqual(rosters.w1, [{ name: 'agent-for-ws1' }]);
+      assert.deepEqual(rosters.w2, [{ name: 'agent-for-ws2' }]);
+    });
+  });
+
+  it('_runNodeCommand create_agent runs create+connect and reports ok', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') config.addAgent({ name: args[1], type: 'claude', env: { OPENAI_MODEL: 'gpt-old' } });
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = { id, res }; } });
+    const wd = path.join(tmpDir, 'wd');
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c1', action: 'create_agent', args: { name: 'coder', type: 'claude', apiKey: 'sk-x', baseUrl: 'https://relay.example/v1', model: 'relay-model', workingDir: wd } },
+    );
+
+    assert.deepEqual(calls[0], ['create', 'coder', '--type', 'claude', '--install', '--path', wd]);
+    // Claude signs in on its own, so the key stays on this agent: written to
+    // claude.env it became the key of every signed-in claude agent too.
+    assert.equal(calls.some((c) => c[0] === 'env'), false);
+    // Bind by SLUG: the daemon knows which workspace the command came from,
+    // so there is no token to pass and no /v1/token/resolve to fail.
+    assert.deepEqual(calls[1], ['connect', 'coder', '--workspace', 'ws-slug', '--connection', 'n1']);
+    assert.deepEqual(config.getAgent('coder').env, {
+      LLM_API_KEY: 'sk-x',
+      LLM_BASE_URL: 'https://relay.example/v1',
+      LLM_MODEL: 'relay-model',
+      ANTHROPIC_MODEL: 'relay-model',
+    });
+    assert.equal(reported.id, 'c1');
+    assert.equal(reported.res.ok, true);
+  });
+
+  it('_runNodeCommand create_agent removes the agent it made when a later step fails', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') config.addAgent({ name: args[1], type: 'claude' });
+      if (args[0] === 'remove') config.removeAgent(args[1]);
+      if (args[0] === 'connect') return { code: 1, stdout: '', stderr: 'connect boom' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c5', action: 'create_agent', args: { name: 'coder', type: 'claude', workingDir: path.join(tmpDir, 'wd') } },
+    );
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /connect boom/);
+    assert.deepEqual(calls[calls.length - 1], ['remove', 'coder']);
+    // A retry under the same name is no longer refused as "already exists".
+    assert.equal(config.getAgent('coder'), null);
+  });
+
+  it('_runNodeCommand create_agent leaves an existing agent alone when the name is taken', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'deepseek', type: 'deepseek' });
+    config.setAgentNetwork('deepseek', 'other-ws');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => {
+      calls.push(args);
+      if (args[0] === 'create') return { code: 1, stdout: "Error: Agent 'deepseek' already exists\n", stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c6', action: 'create_agent', args: { name: 'deepseek', type: 'deepseek', workingDir: path.join(tmpDir, 'wd') } },
+    );
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /Agent 'deepseek' already exists/);
+    assert.equal(calls.some((c) => c[0] === 'remove'), false);
+    assert.equal(config.getAgent('deepseek').network, 'other-ws');
+  });
+
+  it('_runNodeCommand create_agent defaults to a managed working dir', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    daemon._nodeClients.set('n1', { nodeCommandResult: async () => {} });
+    // Sandbox HOME so the managed folder is created under tmp, not the real home.
+    const origHome = process.env.HOME;
+    process.env.HOME = tmpDir;
+    try {
+      await daemon._runNodeCommand(
+        { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
+        { commandId: 'c3', action: 'create_agent', args: { name: 'coder', type: 'claude' } },
+      );
+    } finally {
+      if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    }
+    // No workingDir given → --path to a managed folder under the launcher home.
+    assert.equal(calls[0][5], '--path');
+    assert.match(calls[0][6], /[\\/]\.openagents[\\/]agents[\\/]coder$/);
+  });
+
+  it('_refreshRuntimes parses child JSON into the roster', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [] };
+    const runtimes = [{ type: 'claude', installed: true, ready: true, version: '1.0.0' }];
+    daemon._runAgn = async (args) => {
+      assert.deepEqual(args, ['runtimes', '--json']);
+      return { code: 0, stdout: JSON.stringify(runtimes), stderr: '' };
+    };
+    await daemon._refreshRuntimes();
+    assert.deepEqual(daemon._runtimes, runtimes);
+  });
+
+  it('_refreshRuntimes splits the catalog and keeps a slow group\'s last result', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const types = ['a', 'b', 'c', 'd', 'e', 'f'];
+    daemon.registry = { getCatalogSync: () => types.map((name) => ({ name })) };
+    daemon._runtimes = [{ type: 'b', installed: true, ready: false }];
+    const seen = [];
+    daemon._runAgn = async (args, opts) => {
+      assert.equal(args[2], '--types');
+      assert.ok(opts.timeoutMs > 0);
+      const group = args[3].split(',');
+      seen.push(...group);
+      // The group holding 'b' hangs and is cut off.
+      if (group.includes('b')) return { code: 1, stdout: '', stderr: 'timed out', timedOut: true };
+      return { code: 0, stdout: JSON.stringify(group.map((type) => ({ type, installed: false, ready: false }))), stderr: '' };
+    };
+    await daemon._refreshRuntimes();
+    assert.deepEqual(seen.sort(), types);
+    // Catalog order; 'b' from before, 'f' (same group, no earlier result) absent.
+    assert.deepEqual(daemon._runtimes.map((rt) => rt.type), ['a', 'b', 'c', 'd', 'e']);
+    assert.equal(daemon._runtimes[1].installed, true);
+  });
+
+  it('_refreshRuntimes joins a detection already running', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon.registry = { getCatalogSync: () => [{ name: 'a' }] };
+    let runs = 0;
+    daemon._runAgn = async () => {
+      runs++;
+      await new Promise((r) => setTimeout(r, 10));
+      return { code: 0, stdout: JSON.stringify([{ type: 'a' }]), stderr: '' };
+    };
+    await Promise.all([daemon._refreshRuntimes(), daemon._refreshRuntimes()]);
+    assert.equal(runs, 1);
+  });
+  it('_runNodeCommand detect_runtimes refreshes and reports ok', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    let refreshed = false;
+    daemon._refreshRuntimes = async () => { refreshed = true; daemon._runtimes = [{ type: 'claude' }]; };
+    daemon._nodeHeartbeat = async () => {};
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'c4', action: 'detect_runtimes', args: {} },
+    );
+    assert.equal(refreshed, true);
+    assert.equal(reported.ok, true);
+  });
+
+  it('_buildRoster includes model and workingDir', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude', path: '/home/ubuntu/proj', env: { LLM_MODEL: 'sonnet' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._processes = { coder: { state: 'running', type: 'claude' } };
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.equal(roster[0].model, 'sonnet');
+    assert.equal(roster[0].workingDir, '/home/ubuntu/proj');
+  });
+
+  it('saves Codex capability mode per agent and reports it without changing siblings', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coding', type: 'codex' });
+    config.addAgent({ name: 'chat', type: 'codex', env: { CODEX_WIRE_API: 'chat' } });
+    config.setAgentNetwork('coding', 'ws1');
+    config.setAgentNetwork('chat', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'responses' });
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
+    assert.equal(config.getAgent('chat').env.CODEX_WIRE_API, 'chat');
+    assert.deepEqual(daemon._buildRoster({ workspace_slug: 'ws1' }).map((a) => a.codexWireApi), ['responses', 'chat']);
+    assert.throws(() => daemon._saveNodeAgentEnv('coding', 'codex', { codexWireApi: 'invalid' }), /Choose Responses/);
+    assert.equal(config.getAgent('coding').env.CODEX_WIRE_API, 'responses');
+  });
+
+  it('_buildRoster hides agents connected to a different workspace', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'mine', type: 'claude' });
+    config.setAgentNetwork('mine', 'ws1');
+    config.addAgent({ name: 'foreign', type: 'claude' });
+    config.setAgentNetwork('foreign', 'ws2');
+    config.addAgent({ name: 'local-only', type: 'claude' }); // no network
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const roster = daemon._buildRoster({ workspace_slug: 'ws1' });
+    assert.deepEqual(roster.map((a) => a.name), ['mine']);
+  });
+
+  it('_runNodeCommand configure_agent updates model then restarts', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'gemini', env: { OPENAI_MODEL: 'gpt-old', LLM_BASE_URL: 'https://old.example/v1' } });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const calls = [];
+    daemon._runAgn = async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; };
+    // The restart happens in-process (NOT via `agn stop`/`agn start` —
+    // a CLI round trip through daemon.cmd only to be read back here).
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    // Stub the post-reconfigure background probe — the real one would write
+    // ~/.openagents/probes.json and leak state into other tests.
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); return null; };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c9', action: 'configure_agent', args: { name: 'coder', type: 'gemini', model: 'gemini-2.5-flash', apiKey: 'sk-new', baseUrl: 'https://relay.example/v1' } },
+    );
+    // Sets the generic LLM_MODEL plus gemini's native GEMINI_MODEL on this
+    // agent alone (gemini has a sign-in of its own, which other gemini agents
+    // run on), then restarts.
+    assert.equal(calls.some((c) => c[0] === 'env'), false);
+    assert.deepEqual(config.getAgent('coder').env, {
+      LLM_BASE_URL: 'https://relay.example/v1',
+      LLM_API_KEY: 'sk-new',
+      LLM_MODEL: 'gemini-2.5-flash',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    });
+    assert.deepEqual(restarted, ['coder']);
+    assert.equal(reported.ok, true);
+  });
+
+  /** Run configure_agent for real, with agn remove/create/connect/env stood in for. */
+  async function configureFromWorkspace(config, daemon, args, env) {
+    const calls = [];
+    daemon._runAgn = async (a) => {
+      calls.push(a);
+      if (a[0] === 'env' && env) {
+        const [key, ...value] = a[3].split('=');
+        env.save(a[1], { ...env.load(a[1]), [key]: value.join('=') });
+      }
+      if (a[0] === 'remove') config.removeAgent(a[1]);
+      if (a[0] === 'create') config.addAgent({ name: a[1], type: a[3], path: a[a.indexOf('--path') + 1] });
+      if (a[0] === 'connect') config.setAgentNetwork(a[1], 'ws1');
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    daemon.restartAgent = async () => {};
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    let result = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c10', action: 'configure_agent', args },
+    );
+    assert.equal(result && result.ok, true, result && result.message);
+    return calls;
+  }
+
+  it('configure_agent moving an agent to another folder keeps its own key, endpoint and model', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const own = { LLM_API_KEY: 'sk-relay-123456', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'relay-model', CODEX_WIRE_API: 'chat' };
+    config.addAgent({ name: 'codex-key', type: 'codex', path: path.join(tmpDir, 'old'), env: own });
+    config.setAgentNetwork('codex-key', 'ws1');
+    // Only the folder changed: the form sends no key, and no model it did not change.
+    const calls = await configureFromWorkspace(config, daemon, {
+      name: 'codex-key', type: 'codex', workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old'),
+    });
+    assert.deepEqual(calls.map((c) => c[0]), ['remove', 'create', 'connect']);
+    assert.equal(config.getAgent('codex-key').path, path.join(tmpDir, 'new'));
+    assert.deepEqual(config.getAgent('codex-key').env, own);
+  });
+
+  // CodeArts keeps its AK/SK on the agent; Hermes saves its key for the type,
+  // where a copy on the agent itself (one the launcher saved) would outrank it.
+  for (const [type, ownEnv, sent, keyVar, modelVar] of [
+    ['codearts', { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk', CODEARTS_MODEL: 'own-model' }, { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' }, 'CODEARTS_CLI_AK', 'CODEARTS_MODEL'],
+    ['hermes', { LLM_API_KEY: 'sk-old-123456', LLM_MODEL: 'own-model' }, { LLM_API_KEY: 'sk-new-123456' }, 'LLM_API_KEY', 'LLM_MODEL'],
+  ]) {
+    for (const moved of [true, false]) {
+      it(`configure_agent (${type}) ${moved ? 'moving an agent' : 'in place'} runs it on the credentials just sent, not an older copy of its own`, async () => {
+        const config = new Config(tmpDir);
+        const env = new EnvManager(tmpDir);
+        const daemon = new Daemon(config, env, new Registry(tmpDir));
+        config.addAgent({ name: 'x', type, path: path.join(tmpDir, 'old'), env: ownEnv });
+        config.setAgentNetwork('x', 'ws1');
+        await configureFromWorkspace(config, daemon, {
+          name: 'x', type, config: sent,
+          ...(moved ? { workingDir: path.join(tmpDir, 'new'), currentWorkingDir: path.join(tmpDir, 'old') } : {}),
+        }, env);
+        withProcessEnv(NO_CREDENTIALS, () => {
+          const built = daemon._buildAgentEnv(config.getAgent('x'));
+          assert.equal(built[keyVar], sent[keyVar]);
+          assert.equal(built[modelVar], 'own-model');
+        });
+      });
+    }
+  }
+
+  it('configure_agent keeps the agent\'s own credentials when saving the new ones fails', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    // Hermes saves its fields for the type (one device-wide config file).
+    const own = { LLM_API_KEY: 'sk-old-123456', LLM_BASE_URL: 'https://old.example/v1' };
+    config.addAgent({ name: 'h', type: 'hermes', env: own });
+    config.setAgentNetwork('h', 'ws1');
+    daemon._runAgn = async (a) => (a[0] === 'env'
+      ? { code: 1, stdout: '', stderr: 'disk full' }
+      : { code: 0, stdout: '', stderr: '' });
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    let result = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => { result = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c11', action: 'configure_agent', args: { name: 'h', type: 'hermes', config: { LLM_API_KEY: 'sk-new-123456', LLM_BASE_URL: 'https://new.example/v1' } } },
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.message, /disk full/);
+    assert.deepEqual(config.getAgent('h').env, own);
+    assert.deepEqual(restarted, []);
+  });
+
+  it('configure_agent clearing the model drops one left in the type env too', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    // Left there by an earlier version, which wrote workspace models to codex.env.
+    env.save('codex', { LLM_MODEL: 'old-type-model' });
+    config.addAgent({ name: 'codex-key', type: 'codex', env: { LLM_API_KEY: 'sk-relay-123456', LLM_MODEL: 'relay-model' } });
+    config.setAgentNetwork('codex-key', 'ws1');
+    await configureFromWorkspace(config, daemon, { name: 'codex-key', type: 'codex', model: '' });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      const built = daemon._buildAgentEnv(config.getAgent('codex-key'));
+      assert.equal(built.OPENAI_API_KEY, 'sk-relay-123456');
+      assert.equal(built.CODEX_MODEL, undefined);
+      assert.equal(built.LLM_MODEL, undefined);
+    });
+    // Picking a model again lifts that.
+    await configureFromWorkspace(config, daemon, { name: 'codex-key', type: 'codex', model: 'relay-model-2' });
+    withProcessEnv(NO_CREDENTIALS, () => {
+      assert.equal(daemon._buildAgentEnv(config.getAgent('codex-key')).CODEX_MODEL, 'relay-model-2');
+    });
+  });
+
+  it('_buildFs returns home, its subfolders, and filesystem roots', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const fsInfo = daemon._buildFs();
+    assert.ok(typeof fsInfo.home === 'string' && fsInfo.home.length > 0);
+    assert.ok(Array.isArray(fsInfo.dirs));
+    assert.ok(Array.isArray(fsInfo.roots) && fsInfo.roots.length > 0);
+  });
+
+  it('filesystemRoots exposes every mounted Windows drive', () => {
+    const mounted = new Set(['C:\\', 'D:\\', 'Z:\\']);
+    assert.deepEqual(filesystemRoots('win32', (root) => mounted.has(root)), ['C:\\', 'D:\\', 'Z:\\']);
+    assert.deepEqual(filesystemRoots('linux'), ['/']);
+  });
+
+  it('_listDir lists subfolders of a directory', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    fs.mkdirSync(path.join(tmpDir, 'alpha'));
+    fs.mkdirSync(path.join(tmpDir, 'beta'));
+    fs.mkdirSync(path.join(tmpDir, '.hidden'));
+    fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'x');
+    const res = daemon._listDir(tmpDir);
+    assert.deepEqual(res.dirs, ['alpha', 'beta']);
+    assert.equal(res.path, tmpDir);
+    assert.ok(res.parent);
+  });
+
+  it('_runNodeCommand list_dir returns folder data', async () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    fs.mkdirSync(path.join(tmpDir, 'proj'));
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws' },
+      { commandId: 'cd', action: 'list_dir', args: { path: tmpDir } },
+    );
+    assert.equal(reported.ok, true);
+    assert.deepEqual(reported.data.dirs, ['proj']);
+  });
+
+  /** Run a list_models command for `agent` with fetch stubbed; returns the report and requests. */
+  async function listModelsFor(agent, respond) {
+    const config = new Config(tmpDir);
+    config.addAgent(agent);
+    if (agent.name !== 'stranger') config.setAgentNetwork(agent.name, 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    const requests = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      requests.push({ url, headers: init.headers });
+      return respond(url);
+    };
+    try {
+      await daemon._runNodeCommand(
+        { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+        { commandId: 'cm', action: 'list_models', args: { name: agent.name } },
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    return { reported, requests };
+  }
+
+  const jsonResponse = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+
+  it('_runNodeCommand list_models lists what the agent relay serves, with its own key', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat' }, { id: 'gpt-4o-mini' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/v1/models');
+    assert.equal(requests[0].headers.Authorization, 'Bearer sk-relay-123456');
+    assert.equal(reported.ok, true);
+    assert.deepEqual(reported.data.models.map((m) => m.id), ['deepseek-chat', 'gpt-4o-mini']);
+    // The key is used for the request and never reported back.
+    assert.ok(!JSON.stringify(reported).includes('sk-relay-123456'));
+  });
+
+  it('_runNodeCommand list_models speaks the Anthropic API for a Claude relay', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'coder', type: 'claude', env: { ANTHROPIC_BASE_URL: 'https://relay.example.com/anthropic', ANTHROPIC_AUTH_TOKEN: 'tok-abc-123456' } },
+      () => jsonResponse(200, { data: [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }] }),
+    );
+    assert.equal(requests[0].url, 'https://relay.example.com/anthropic/v1/models?limit=100');
+    assert.equal(requests[0].headers.Authorization, 'Bearer tok-abc-123456');
+    assert.deepEqual(reported.data.models, [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }]);
+  });
+
+  it('_runNodeCommand list_models reports the endpoint error', async () => {
+    const { reported } = await listModelsFor(
+      { name: 'coder', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(401, { error: { message: 'invalid token' } }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(reported.message, 'HTTP 401: invalid token');
+  });
+
+  it('_runNodeCommand list_models refuses an agent of another workspace', async () => {
+    const { reported, requests } = await listModelsFor(
+      { name: 'stranger', type: 'codex', env: { LLM_BASE_URL: 'https://relay.example.com/v1', LLM_API_KEY: 'sk-relay-123456' } },
+      () => jsonResponse(200, { data: [] }),
+    );
+    assert.equal(reported.ok, false);
+    assert.equal(requests.length, 0);
+  });
+
+  it('_runNodeCommand reports error when a step fails', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._runAgn = async () => ({ code: 1, stdout: '', stderr: 'boom' });
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c2', action: 'remove_agent', args: { name: 'coder' } },
+    );
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /boom/);
+  });
+
+  // A Stop clicked in the workspace used to go through `agn stop` → daemon.cmd
+  // → the next 10s heartbeat, so the card sat at "running" for up to ~30s.
+  it('_runNodeCommand stop_agent stops in-process and reports the new state at once', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._processes.coder = { state: 'running' };
+    let ranAgn = false;
+    daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
+    let releaseStop;
+    const stopped = [];
+    daemon.stopAgent = (name) => {
+      stopped.push(name);
+      daemon._processes[name].state = 'stopped';
+      return new Promise((r) => { releaseStop = r; });
+    };
+    const beats = [];
+    daemon._nodeHeartbeat = async () => { beats.push(daemon._processes.coder.state); };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+
+    const run = daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'c3', action: 'stop_agent', args: { name: 'coder' } },
+    );
+    // The workspace hears 'stopped' before the agent has finished exiting.
+    assert.deepEqual(beats, ['stopped']);
+    assert.equal(reported, null);
+    releaseStop();
+    await run;
+    assert.equal(ranAgn, false, 'no `agn stop` round trip');
+    assert.deepEqual(stopped, ['coder']);
+    assert.equal(reported.ok, true);
+    assert.equal(beats.length, 2);
+  });
+
+  it('_runNodeCommand start_agent leaves a running agent alone and starts a stopped one', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude' });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const restarted = [];
+    daemon.restartAgent = async (name) => { restarted.push(name); };
+    daemon._nodeHeartbeat = async () => {};
+    const reports = [];
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reports.push(res); } });
+    const node = { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' };
+
+    daemon._processes.coder = { state: 'running' };
+    await daemon._runNodeCommand(node, { commandId: 'c4', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, []);
+
+    daemon._processes.coder = { state: 'stopped' };
+    await daemon._runNodeCommand(node, { commandId: 'c5', action: 'start_agent', args: { name: 'coder' } });
+    assert.deepEqual(restarted, ['coder']);
+    assert.deepEqual(reports.map((r) => r.ok), [true, true]);
+  });
+
+  it('_runNodeCommand refuses to act on an agent from another workspace', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'foreign', type: 'claude' });
+    config.setAgentNetwork('foreign', 'ws2'); // belongs to another workspace
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let ranAgn = false;
+    daemon._runAgn = async () => { ranAgn = true; return { code: 0, stdout: '', stderr: '' }; };
+    let reported = null;
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (id, tok, res) => { reported = res; } });
+    await daemon._runNodeCommand(
+      { node_id: 'n1', workspace_id: 'w1', token: 'tok', endpoint: 'https://ws', workspace_slug: 'ws1' },
+      { commandId: 'cx', action: 'stop_agent', args: { name: 'foreign' } },
+    );
+    // The command must NOT run and must report a clear refusal.
+    assert.equal(ranAgn, false);
+    assert.equal(reported.ok, false);
+    assert.match(reported.message, /not managed by this workspace/);
   });
 
   it('_getLaunchCommand returns null for unknown type', () => {
@@ -166,6 +1605,21 @@ describe('Daemon', () => {
     assert.equal(restarted, 'r-agent');
   });
 
+  it('detect command re-detects runtimes and reports them (OA-038)', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    const calls = [];
+    daemon._refreshRuntimes = async () => { calls.push('detect'); };
+    daemon._nodeHeartbeat = async () => { calls.push('heartbeat'); };
+
+    fs.writeFileSync(config.cmdFile, 'detect\n', 'utf-8');
+    daemon._processCommands();
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepEqual(calls, ['detect', 'heartbeat']);
+  });
+
   it('start command is idempotent — skips restart when already running', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 's-agent', type: 'openclaw', role: 'worker' });
@@ -199,6 +1653,19 @@ describe('Daemon', () => {
     daemon._processCommands();
 
     assert.equal(restarted, 's-agent', 'start: must launch an agent that is not running');
+  });
+
+  it('heartbeat command sends a node heartbeat straight away', () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+
+    let beats = 0;
+    daemon._nodeHeartbeat = async () => { beats += 1; };
+
+    fs.writeFileSync(config.cmdFile, 'heartbeat\n', 'utf-8');
+    daemon._processCommands();
+
+    assert.equal(beats, 1);
   });
 
   it('readDaemonPid returns null when no pid file', () => {

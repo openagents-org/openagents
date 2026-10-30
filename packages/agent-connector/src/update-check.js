@@ -13,7 +13,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
+const { npmUrls } = require('./mirrors');
+const { whereBinary } = require('./paths');
 
 const PKG_NAME = '@openagents-org/agent-launcher';
 const CACHE_FILE = path.join(os.homedir(), '.openagents', '.update-check.json');
@@ -51,10 +53,10 @@ function saveCache(latest) {
   } catch {}
 }
 
-function fetchLatest(timeoutMs = 2500) {
+function fetchLatestFrom(url, timeoutMs) {
   return new Promise((resolve) => {
     const req = https.request(
-      `https://registry.npmjs.org/${PKG_NAME}/latest`,
+      url,
       { method: 'GET', timeout: timeoutMs, headers: { Accept: 'application/json' } },
       (res) => {
         let body = '';
@@ -71,6 +73,21 @@ function fetchLatest(timeoutMs = 2500) {
     req.on('timeout', () => { req.destroy(); resolve(null); });
     req.end();
   });
+}
+
+/**
+ * Ask each registry in turn (mirror first in China) with a per-origin budget,
+ * so the check either answers quickly or gives up quietly — it must never be
+ * what makes the CLI feel slow to start.
+ */
+async function fetchLatest(timeoutMs = 2500) {
+  const urls = npmUrls(`${PKG_NAME}/latest`);
+  const perOrigin = Math.max(1200, Math.floor(timeoutMs / urls.length));
+  for (const url of urls) {
+    const version = await fetchLatestFrom(url, perOrigin);
+    if (version) return version;
+  }
+  return null;
 }
 
 /**
@@ -171,10 +188,9 @@ function findNpmBin(opts = {}) {
   }
   // PATH fallback (injectable so tests can exercise the hard fallback
   // deterministically regardless of the host OS).
-  const lookup = opts.lookup || (() =>
-    execSync(platform === 'win32' ? 'where npm' : 'which npm', {
-      encoding: 'utf-8', timeout: 3000,
-    }).trim().split(/\r?\n/)[0]);
+  // Walked in-process rather than via `where`, whose OEM-codepage output
+  // mangled non-ASCII profile paths.
+  const lookup = opts.lookup || (() => whereBinary('npm'));
   try {
     return lookup() || (platform === 'win32' ? 'npm.cmd' : 'npm');
   } catch { return platform === 'win32' ? 'npm.cmd' : 'npm'; }

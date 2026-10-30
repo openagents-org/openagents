@@ -1,9 +1,11 @@
 'use client';
 
+import { AgentOwnershipBadge } from './agent-message-access';
 import { memo } from 'react';
 import { Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentLabel } from '@/lib/helpers';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 interface ThinkingMessageProps {
@@ -40,21 +42,12 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
         <AgentAvatar name={sender} size={28} className="mt-0.5 opacity-70" />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{sender}</span>
+            <span className="truncate text-sm font-semibold text-foreground">{agent ? agentLabel(agent) : sender}</span>
             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-500/90 italic shrink-0">
               <Brain className="size-3.5" />
               thinking
             </span>
-            {agent && (
-              <span className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0',
-                agent.role === 'master'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                  : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-              )}>
-                {agent.role}
-              </span>
-            )}
+            {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
               <span className="text-xs text-muted-foreground">{timestamp}</span>
             )}

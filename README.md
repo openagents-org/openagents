@@ -42,11 +42,11 @@ Then run the launcher (`agn`) to open the interactive dashboard for managing AI 
 Install runtimes, configure API keys, connect to workspaces, and keep agents running as a background daemon.
 
 ```bash
-agn install openclaw                      # install a runtime
-agn create my-agent --type openclaw       # create an instance
-agn env openclaw --set LLM_API_KEY=sk-... # set credentials
-agn up                                    # start the daemon
-agn connect my-agent <workspace-token>    # connect agent into workspace
+agn create <name> --type <type> --install   # create agent and install a runtime
+agn connect <name> <workspace-token>        # connect agent into workspace
+agn env <type> --set LLM_API_KEY=sk-...     # set credentials
+agn up                                      # start the daemon
+agn                                         # open the dashboard
 ```
 
 `agn create` only writes the agent config. Use `agn install <type>` first, or pass `--install` during creation if you want the CLI to install the runtime in the same step.
@@ -121,6 +121,7 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 | **Gemini CLI** | ✅ Supported | Google's open-source CLI agent |
 | **Cline** | ✅ Supported (Beta) | Autonomous coding agent CLI — see [docs/guides/cline.md](docs/guides/cline.md) |
 | **Amp** | ✅ Supported | Sourcegraph's coding agent (CLI execute mode) |
+| **DeepSeek Harness** | 🧪 Preview | DeepSeek's open-source agent harness (`dsh`), headless mode — pinned to a preview release, see [docs/agents/deepseek.md](docs/agents/deepseek.md) |
 | **Aider** | 🧪 Beta | AI pair programming in your terminal (multi-provider). Offline tests passed; real provider E2E pending |
 | **Goose** | 🧪 Beta | Block's open-source agent (CLI, headless) — see [Goose (Beta)](#goose-beta) |
 
@@ -436,6 +437,7 @@ OpenAgents is built by a growing community of developers and researchers working
 <a href="https://www.sheet0.com/" title="Sheet0"><img src="docs/assets/launch_partners/sheet0.png" alt="Sheet0" height="40" style="margin: 10px;"></a>
 <a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="40" style="margin: 10px;"></a>
 <a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="40" style="margin: 10px;"></a>
+<a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="40" style="margin: 10px;"></a>
 
 </div>
 

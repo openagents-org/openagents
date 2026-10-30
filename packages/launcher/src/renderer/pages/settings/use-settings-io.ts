@@ -2,6 +2,8 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { ToastType } from "@renderer/hooks/useToast"
+import { formatBytes } from "@renderer/lib/format"
+import { resetLocalPreferences } from "@renderer/lib/local-data"
 
 interface SettingsIO {
   exportSettings: () => Promise<void>
@@ -11,9 +13,19 @@ interface SettingsIO {
   closeReset: () => void
   resetting: boolean
   performReset: () => Promise<void>
+  clearingCache: boolean
+  clearCache: () => Promise<void>
+  localResetOpen: boolean
+  openLocalReset: () => void
+  closeLocalReset: () => void
+  performLocalReset: () => void
 }
 
-/** Export / import / reset of the whole settings file. */
+/**
+ * Everything under Settings → Data: export / import / reset of the settings
+ * file, plus the two controls for the launcher's own local state (Chromium's
+ * cache and the renderer's localStorage).
+ */
 export function useSettingsIO(
   reload: () => Promise<void>,
   showToast: (msg: string, type?: ToastType) => void,
@@ -21,6 +33,8 @@ export function useSettingsIO(
   const { t } = useTranslation()
   const [resetOpen, setResetOpen] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [clearingCache, setClearingCache] = useState(false)
+  const [localResetOpen, setLocalResetOpen] = useState(false)
 
   const exportSettings = async (): Promise<void> => {
     try {
@@ -77,6 +91,39 @@ export function useSettingsIO(
     }
   }
 
+  const clearCache = async (): Promise<void> => {
+    setClearingCache(true)
+    try {
+      const res = await window.api.clearAppCache()
+      if (res.ok) {
+        // An already-empty cache reports nothing to free; "0 B freed" is noise.
+        showToast(
+          res.freed
+            ? t("settings.toasts.cacheCleared", {
+                size: formatBytes(res.freed),
+              })
+            : t("settings.toasts.cacheAlreadyEmpty"),
+          "success",
+        )
+      } else {
+        showToast(
+          t("settings.toasts.cacheClearFailed", { error: res.error || "" }),
+          "error",
+        )
+      }
+    } finally {
+      setClearingCache(false)
+    }
+  }
+
+  // Synchronous: this is localStorage plus a repaint, and the window is already
+  // wearing the result by the time the dialog closes.
+  const performLocalReset = (): void => {
+    resetLocalPreferences()
+    setLocalResetOpen(false)
+    showToast(t("settings.toasts.localDataReset"), "success")
+  }
+
   return {
     exportSettings,
     importSettings,
@@ -85,5 +132,11 @@ export function useSettingsIO(
     closeReset: () => setResetOpen(false),
     resetting,
     performReset,
+    clearingCache,
+    clearCache,
+    localResetOpen,
+    openLocalReset: () => setLocalResetOpen(true),
+    closeLocalReset: () => setLocalResetOpen(false),
+    performLocalReset,
   }
 }

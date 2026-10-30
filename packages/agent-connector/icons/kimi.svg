@@ -1,11 +1,6 @@
-<svg viewBox="0 0 24 24" width="1em" height="1em" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="kimi-g" x1="4" y1="4" x2="20" y2="20" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#141821"/>
-      <stop offset="0.52" stop-color="#2f6df6"/>
-      <stop offset="1" stop-color="#49d2ff"/>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#kimi-g)"/>
-  <path d="M7 6.5h2.6v4.1l4.2-4.1H17l-4.7 4.7 5 6.3h-3.2l-3.6-4.7-.9.9v3.8H7z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 112 112" role="img" style="flex:none;line-height:1">
+<title>Kimi Code CLI</title>
+<rect width="112" height="112" rx="28" fill="#000"/>
+<path d="M30 34 38 34 38 56 39 57 63 34 75 34 53 57 65 66 77 73 77 81 73 81 67 78 46 63 38 71 38 81 30 81Z" fill="#fff"/>
+<circle cx="86" cy="28" r="5.5" fill="#1783FF"/>
 </svg>

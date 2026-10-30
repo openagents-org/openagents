@@ -1,12 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs"
 import { tmpdir } from "os"
 import path from "path"
+import { createHash } from "crypto"
 
 import {
+  adoptDifferentialBaseFile,
   asciiCacheRootCandidates,
   clearInstallAttempt,
+  hasVerifiedStagedUpdate,
   compareVersions,
+  purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
   readInstallAttempt,
   readUpdaterCacheDirName,
@@ -23,6 +34,24 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe("hasVerifiedStagedUpdate", () => {
+  it("recovers only a cached package matching the offered release", async () => {
+    const pending = path.join(dir, "openagents", "pending")
+    mkdirSync(pending, { recursive: true })
+    const bytes = Buffer.from("verified update")
+    const sha512 = createHash("sha512").update(bytes).digest("base64")
+    writeFileSync(path.join(pending, "update.exe"), bytes)
+    writeFileSync(
+      path.join(pending, "update-info.json"),
+      JSON.stringify({ fileName: "update.exe", sha512 }),
+    )
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(true)
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", ["other"])).toBe(false)
+    writeFileSync(path.join(pending, "update.exe"), "corrupt")
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(false)
+  })
 })
 
 describe("compareVersions", () => {
@@ -127,6 +156,78 @@ describe("purgePendingUpdateCache", () => {
   })
 })
 
+describe("adoptDifferentialBaseFile", () => {
+  const NAME = "openagents-launcher-updater"
+  // The move only ever happens on Windows; pass the platform explicitly so the
+  // logic is covered on the macOS/Linux runners too.
+  const adopt = (from: string, to: string) =>
+    adoptDifferentialBaseFile(from, to, NAME, () => {}, "win32")
+
+  it("moves the installer the NSIS setup left on the old path", () => {
+    const oldRoot = path.join(dir, "old")
+    const newRoot = path.join(dir, "new")
+    mkdirSync(path.join(oldRoot, NAME), { recursive: true })
+    writeFileSync(path.join(oldRoot, NAME, "installer.exe"), "v1 setup")
+
+    expect(adopt(oldRoot, newRoot)).toBe(true)
+    expect(existsSync(path.join(oldRoot, NAME, "installer.exe"))).toBe(false)
+    expect(readFileSync(path.join(newRoot, NAME, "installer.exe"), "utf-8")).toBe(
+      "v1 setup",
+    )
+  })
+
+  it("overwrites the previous base file so it tracks the installed version", () => {
+    const oldRoot = path.join(dir, "old")
+    const newRoot = path.join(dir, "new")
+    mkdirSync(path.join(oldRoot, NAME), { recursive: true })
+    mkdirSync(path.join(newRoot, NAME), { recursive: true })
+    writeFileSync(path.join(oldRoot, NAME, "installer.exe"), "v2 setup")
+    writeFileSync(path.join(newRoot, NAME, "installer.exe"), "v1 setup")
+
+    expect(adopt(oldRoot, newRoot)).toBe(true)
+    expect(readFileSync(path.join(newRoot, NAME, "installer.exe"), "utf-8")).toBe(
+      "v2 setup",
+    )
+  })
+
+  it("reads a non-ASCII source path — the only case it ever runs in", () => {
+    // The whole reason the cache gets redirected is a Chinese Windows username,
+    // so the path this reads from always has non-ASCII segments. Node's fs takes
+    // those fine; it is handing them to the Windows shell that breaks.
+    const oldRoot = path.join(dir, "用户", "张三", "AppData", "Local")
+    const newRoot = path.join(dir, "ProgramData", "OpenAgents", "updater-cache")
+    mkdirSync(path.join(oldRoot, NAME), { recursive: true })
+    writeFileSync(path.join(oldRoot, NAME, "installer.exe"), "v1 setup")
+
+    expect(adopt(oldRoot, newRoot)).toBe(true)
+    expect(readFileSync(path.join(newRoot, NAME, "installer.exe"), "utf-8")).toBe(
+      "v1 setup",
+    )
+  })
+
+  it("reports false when there is nothing to adopt", () => {
+    expect(adopt(path.join(dir, "old"), path.join(dir, "new"))).toBe(false)
+  })
+
+  it("does nothing when the cache was not redirected", () => {
+    mkdirSync(path.join(dir, NAME), { recursive: true })
+    writeFileSync(path.join(dir, NAME, "installer.exe"), "v1 setup")
+    expect(adopt(dir, dir)).toBe(false)
+    expect(existsSync(path.join(dir, NAME, "installer.exe"))).toBe(true)
+  })
+
+  it("is a no-op off Windows", () => {
+    const oldRoot = path.join(dir, "old")
+    mkdirSync(path.join(oldRoot, NAME), { recursive: true })
+    writeFileSync(path.join(oldRoot, NAME, "installer.exe"), "v1 setup")
+    const noop = () => {}
+    expect(
+      adoptDifferentialBaseFile(oldRoot, path.join(dir, "new"), NAME, noop, "darwin"),
+    ).toBe(false)
+    expect(existsSync(path.join(oldRoot, NAME, "installer.exe"))).toBe(true)
+  })
+})
+
 describe("install attempt bookkeeping", () => {
   it("counts consecutive attempts at the same version", () => {
     recordInstallAttempt(dir, "0.8.20")
@@ -188,5 +289,21 @@ describe("install attempt bookkeeping", () => {
 
     clearInstallAttempt(dir)
     expect(readInstallAttempt(dir)).toBeNull()
+  })
+})
+
+describe("purgeLegacyUpdaterCache", () => {
+  it("removes the pre-rename cache directory from every root it finds it in", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "oa-legacy-cache-"))
+    const legacy = path.join(dir, "openagents-launcher-updater")
+    mkdirSync(path.join(legacy, "pending"), { recursive: true })
+    writeFileSync(path.join(legacy, "pending", "app.exe"), "x")
+
+    expect(purgeLegacyUpdaterCache([dir, null], "openagents-launcher-updater")).toBe(
+      true,
+    )
+    expect(existsSync(legacy)).toBe(false)
+    // Second run has nothing left to do.
+    expect(purgeLegacyUpdaterCache([dir], "openagents-launcher-updater")).toBe(false)
   })
 })

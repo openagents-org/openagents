@@ -33,9 +33,16 @@ class ProviderInfo:
     label: str
     base_url: Optional[str]   # None = OpenAI default
     models: list[ModelInfo] = field(default_factory=list)
+    # Optional picker copy: a one-line summary (en / zh) and where to get a key.
+    description: Optional[str] = None
+    description_zh: Optional[str] = None
+    key_url: Optional[str] = None
 
 
-PROVIDERS: dict[str, ProviderInfo] = {
+# Built-in fallback catalog. The canonical, contributor-editable source is the
+# repo-root /cloud_providers/*.json files (one provider per file) loaded by
+# _load_providers_from_files() below — edit those, not this dict.
+_BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
     # ── First-party: OpenAgents built-in assistant (Yumi) ─────────────
     # Server-held credentials (see config.YUMI_*). Users never enter a key for
     # this provider; the invocation path injects it. Points at the OpenAgents
@@ -45,7 +52,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="OpenAgents",
         base_url="https://api-gateway.openagents.org/v1",
         models=[
-            ModelInfo("deepseek-v4-pro", "chat", "Yumi (DeepSeek V4 Pro)"),
+            ModelInfo("deepseek-v4.1-flash", "chat", "Yumi (DeepSeek V4.1 Flash)"),
         ],
     ),
     # ── Tier 1: Major providers ───────────────────────────────────────
@@ -54,13 +61,10 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="OpenAI",
         base_url=None,
         models=[
-            ModelInfo("gpt-5.5-pro", "chat", "GPT-5.5 Pro"),
-            ModelInfo("gpt-5.5", "chat", "GPT-5.5"),
-            ModelInfo("gpt-5.4", "chat", "GPT-5.4"),
-            ModelInfo("gpt-5.4-mini", "chat", "GPT-5.4 Mini"),
-            ModelInfo("gpt-5.4-image-2", "image", "GPT-5.4 Image"),
-            ModelInfo("o3", "chat", "o3"),
-            ModelInfo("o4-mini", "chat", "o4 Mini"),
+            ModelInfo("gpt-5.6-sol", "chat", "GPT-5.6 Sol"),
+            ModelInfo("gpt-5.6-terra", "chat", "GPT-5.6 Terra"),
+            ModelInfo("gpt-5.6-luna", "chat", "GPT-5.6 Luna"),
+            ModelInfo("gpt-image-2", "image", "GPT Image 2"),
         ],
     ),
     "anthropic": ProviderInfo(
@@ -68,8 +72,10 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="Anthropic",
         base_url=None,  # uses custom adapter
         models=[
-            ModelInfo("claude-opus-4-7", "chat", "Claude Opus 4.7"),
-            ModelInfo("claude-sonnet-4-6", "chat", "Claude Sonnet 4.6"),
+            ModelInfo("claude-fable-5", "chat", "Claude Fable 5"),
+            ModelInfo("claude-opus-5", "chat", "Claude Opus 5"),
+            ModelInfo("claude-opus-4-8", "chat", "Claude Opus 4.8"),
+            ModelInfo("claude-sonnet-5", "chat", "Claude Sonnet 5"),
             ModelInfo("claude-haiku-4-5", "chat", "Claude Haiku 4.5"),
         ],
     ),
@@ -78,10 +84,12 @@ PROVIDERS: dict[str, ProviderInfo] = {
         label="Google AI",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         models=[
+            ModelInfo("gemini-3.7-flash", "chat", "Gemini 3.7 Flash"),
+            ModelInfo("gemini-3.6-flash", "chat", "Gemini 3.6 Flash"),
             ModelInfo("gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
+            ModelInfo("gemini-3.1-pro-preview", "chat", "Gemini 3.1 Pro (Preview)"),
             ModelInfo("gemini-2.5-pro", "chat", "Gemini 2.5 Pro"),
-            ModelInfo("gemini-2.5-flash", "chat", "Gemini 2.5 Flash"),
-            ModelInfo("gemini-2.5-flash-image", "image", "Gemini Image"),
+            ModelInfo("gemini-3.1-flash-image", "image", "Gemini Image (Nano Banana 2)"),
         ],
     ),
     "xai": ProviderInfo(
@@ -170,7 +178,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
         base_url="https://openrouter.ai/api/v1",
         models=[
             ModelInfo("openai/gpt-5.5-pro", "chat", "GPT-5.5 Pro"),
-            ModelInfo("anthropic/claude-opus-4-7", "chat", "Claude Opus 4.7"),
+            ModelInfo("anthropic/claude-opus-5", "chat", "Claude Opus 5"),
             ModelInfo("google/gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
             ModelInfo("x-ai/grok-4.3", "chat", "Grok 4.3"),
         ],
@@ -183,7 +191,7 @@ PROVIDERS: dict[str, ProviderInfo] = {
             ModelInfo("orcarouter/auto", "chat", "Auto (smart routing)"),
             ModelInfo("openai/gpt-5.5", "chat", "GPT-5.5"),
             ModelInfo("google/gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
-            ModelInfo("anthropic/claude-opus-4.8", "chat", "Claude Opus 4.8"),
+            ModelInfo("anthropic/claude-opus-5", "chat", "Claude Opus 5"),
             ModelInfo("grok/grok-4.3", "chat", "Grok 4.3"),
             ModelInfo("deepseek/deepseek-v4-pro", "chat", "DeepSeek V4 Pro"),
             ModelInfo("minimax/minimax-m2.7", "chat", "MiniMax M2.7"),
@@ -269,12 +277,77 @@ PROVIDERS: dict[str, ProviderInfo] = {
 }
 
 
+def _load_providers_from_files() -> dict[str, ProviderInfo]:
+    """Load the provider catalog from /cloud_providers/*.json.
+
+    One JSON file per provider ({name, label, base_url, order, models, and
+    optional description / description_zh / key_url for the picker}) so
+    contributors add or update providers without touching Python. Mirrors the
+    agent registry's layout: an env override, then a walk up from this file for
+    a ``cloud_providers/`` dir (matches both the in-image copy and the repo
+    root). Returns {} when no files exist, in which case the built-in dict
+    above is used unchanged.
+    """
+    import json
+    import os
+    from pathlib import Path
+
+    d = None
+    env = os.environ.get("CLOUD_PROVIDERS_DIR")
+    if env and Path(env).is_dir():
+        d = Path(env)
+    else:
+        here = Path(__file__).resolve()
+        for parent in here.parents:
+            c = parent / "cloud_providers"
+            if c.is_dir() and any(c.glob("*.json")):
+                d = c
+                break
+    if d is None:
+        return {}
+
+    entries: list[tuple[float, ProviderInfo]] = []
+    for f in sorted(d.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        name = data.get("name") or f.stem
+        entries.append((
+            data.get("order", 999),
+            ProviderInfo(
+                name=name,
+                label=data.get("label") or name,
+                base_url=data.get("base_url"),
+                models=[
+                    ModelInfo(m["id"], m.get("category", "chat"), m.get("label", m["id"]))
+                    for m in data.get("models", []) if isinstance(m, dict) and m.get("id")
+                ],
+                description=data.get("description"),
+                description_zh=data.get("description_zh"),
+                key_url=data.get("key_url"),
+            ),
+        ))
+    entries.sort(key=lambda x: x[0])
+    return {p.name: p for _, p in entries}
+
+
+PROVIDERS: dict[str, ProviderInfo] = _load_providers_from_files() or _BUILTIN_PROVIDERS
+
+
 def get_provider(name: str) -> Optional[ProviderInfo]:
     return PROVIDERS.get(name)
 
 
+# "custom-anthropic" = Anthropic wire format at a user-supplied base URL
+# (relays, proxies, Anthropic-compatible gateways). Not in the PROVIDERS
+# catalog on purpose: it's a Model-access credential kind, not a cloud-agent
+# provider card. Dispatch treats it exactly like "anthropic".
+ANTHROPIC_COMPAT = "custom-anthropic"
+
+
 def validate_provider_model(provider: str, model: str) -> Optional[ModelInfo]:
-    if provider == "custom":
+    if provider in ("custom", ANTHROPIC_COMPAT):
         return ModelInfo(model, "chat", model)
     prov = PROVIDERS.get(provider)
     if not prov:
@@ -293,6 +366,10 @@ def providers_catalog() -> list[dict]:
         {
             "name": p.name,
             "label": p.label,
+            "base_url": p.base_url,
+            "description": p.description,
+            "description_zh": p.description_zh,
+            "key_url": p.key_url,
             "models": [
                 {"id": m.id, "category": m.category, "label": m.label}
                 for m in p.models
@@ -300,6 +377,46 @@ def providers_catalog() -> list[dict]:
         }
         for p in PROVIDERS.values()
     ]
+
+
+async def list_models_live(provider: str, api_key: str, base_url: Optional[str] = None) -> list[dict]:
+    """Ask the provider's API which models this key can actually use.
+
+    Anthropic has a native /v1/models; everything else speaks the
+    OpenAI-compatible ``GET {base}/models``. Raises on HTTP errors so a 401
+    (bad key) surfaces to the caller, which may fall back to the static
+    catalog for non-auth failures.
+    """
+    import httpx
+
+    if provider == "tokenpay":
+        from app.services.tokenpay import list_models
+        return await list_models(api_key)
+
+    if provider in ("anthropic", ANTHROPIC_COMPAT):
+        models_url = _anthropic_endpoint(base_url).replace("/messages", "/models?limit=100")
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.get(models_url, headers=_anthropic_headers(api_key, base_url))
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            return [
+                {"id": m["id"], "label": m.get("display_name") or m["id"], "category": "chat"}
+                for m in data if m.get("id")
+            ]
+
+    prov = PROVIDERS.get(provider)
+    base = (base_url or (prov.base_url if prov else None) or "https://api.openai.com/v1").rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.get(f"{base}/models", headers={"Authorization": f"Bearer {api_key}"})
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        out = []
+        for m in data:
+            mid = m.get("id") if isinstance(m, dict) else None
+            if mid:
+                out.append({"id": mid, "label": mid, "category": "chat"})
+        out.sort(key=lambda x: x["id"])
+        return out[:300]
 
 
 # ---------------------------------------------------------------------------
@@ -345,8 +462,8 @@ async def chat_completion(
     base_url: Optional[str] = None,
 ) -> str:
     """Call a chat completion API and return the text response."""
-    if provider == "anthropic":
-        return await _anthropic_chat(api_key, model, messages, system_prompt, max_tokens)
+    if provider in ("anthropic", ANTHROPIC_COMPAT):
+        return await _anthropic_chat(api_key, model, messages, system_prompt, max_tokens, base_url=base_url)
     if provider == "perplexity":
         return await _perplexity_chat(api_key, model, messages, system_prompt, max_tokens)
     if provider == "manus":
@@ -434,27 +551,55 @@ async def chat_completion_tools(
         await client.close()
 
 
-async def _anthropic_chat(
-    api_key: str, model: str, messages: list[dict],
-    system_prompt: Optional[str] = None, max_tokens: Optional[int] = None,
-) -> str:
-    """Call Anthropic's /v1/messages API."""
-    import httpx
+def _anthropic_endpoint(base_url: Optional[str]) -> str:
+    """Messages endpoint for the native API or an Anthropic-compatible relay.
+
+    Relays are configured with their base (e.g. https://relay.example/v1);
+    tolerate a base given with or without the trailing /v1.
+    """
+    base = (base_url or "https://api.anthropic.com/v1").rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
+    return f"{base}/messages"
+
+
+def _anthropic_headers(api_key: str, base_url: Optional[str]) -> dict:
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+    if base_url:
+        # Anthropic-compatible relays commonly authenticate with a Bearer
+        # token instead of x-api-key — send both so either style works.
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+async def _anthropic_chat(
+    api_key: str, model: str, messages: list[dict],
+    system_prompt: Optional[str] = None, max_tokens: Optional[int] = None,
+    base_url: Optional[str] = None,
+) -> str:
+    """Call the Anthropic /v1/messages API (native, or a compatible relay)."""
+    import httpx
+
+    # A rolling history window can start with an assistant message, which
+    # the Anthropic API rejects (the first message must have role "user").
+    api_messages = list(messages)
+    while api_messages and api_messages[0].get("role") != "user":
+        api_messages.pop(0)
+
     body: dict = {
         "model": model,
-        "messages": messages,
+        "messages": api_messages,
         "max_tokens": max_tokens or 4096,
     }
     if system_prompt:
         body["system"] = system_prompt
 
     async with httpx.AsyncClient(timeout=120) as http:
-        r = await http.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+        r = await http.post(_anthropic_endpoint(base_url), headers=_anthropic_headers(api_key, base_url), json=body)
         r.raise_for_status()
         data = r.json()
         content_blocks = data.get("content", [])

@@ -35,6 +35,7 @@ export function IconToggle<T extends string>({
 }: IconToggleProps<T>): React.JSX.Element {
   return (
     <div
+      data-slot="icon-toggle"
       role="radiogroup"
       className={cn(
         "flex shrink-0 items-center gap-0.5 rounded-md border p-0.5",
@@ -46,6 +47,8 @@ export function IconToggle<T extends string>({
         return (
           <button
             key={option.value}
+            data-slot="icon-toggle-item"
+            data-active={active}
             type="button"
             role="radio"
             aria-checked={active}

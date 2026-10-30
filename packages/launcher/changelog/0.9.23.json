@@ -1,0 +1,17 @@
+{
+  "version": "0.9.23",
+  "date": "2026-08-27",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Every supported agent is now tested end to end, every day",
+        "zh": "每个受支持的 Agent 每天都会跑一遍端到端测试"
+      },
+      "description": {
+        "en": "A new automated suite pairs a workspace, installs each agent from nothing, configures and connects it, then asks it a question and checks the answer — on macOS, Windows and Linux. A setup path that breaks upstream is now caught the same day rather than by the next person who tries it.",
+        "zh": "新增的自动化测试会完整走一遍流程：配对工作区、从零安装每个 Agent、完成配置与连接，再发一条消息核对回复，macOS、Windows、Linux 三端每天各跑一次。上游变动导致的安装或连接问题当天即可发现，不必等用户先踩到。"
+      }
+    }
+  ]
+}

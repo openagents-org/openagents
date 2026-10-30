@@ -1,18 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import {
+  useCliLogin,
+  type CliLoginApi,
+} from "@renderer/components/agent-auth/use-cli-login"
 import type { ToastType } from "@renderer/hooks/useToast"
 import { capture } from "@renderer/lib/analytics"
+import { hasModelPicker } from "@renderer/lib/model-fields"
+import { AUTH_MODE_KEY, CLI_LOGIN } from "@renderer/lib/agent-auth"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
 
 export interface TestResult {
   ok: boolean
   detail?: string
+  /**
+   * Passed because there was nothing to check — a hosted-platform agent whose
+   * credential its vendor verifies. Neutral, not a green verdict.
+   */
+  unsupported?: boolean
 }
 
 export interface OnboardingAuthApi {
   values: Record<string, string>
   setValue: (name: string, value: string) => void
+  /** Several fields at once — an imported credential. */
+  applyValues: (values: Record<string, string>) => void
   loggedIn: boolean
   checkingLogin: boolean
   /** CLI presence for login-mode agents: true / false / null-unknown. */
@@ -25,8 +38,17 @@ export interface OnboardingAuthApi {
   /** Required key fields are still empty on the key path — blocks Continue. */
   blocked: boolean
   test: () => Promise<void>
-  openLoginTerminal: () => Promise<void>
+  /** Start the in-app CLI sign-in; `terminal` forces the terminal fallback. */
+  startLogin: (opts?: { terminal?: boolean }) => Promise<void>
+  /** Live state of that sign-in, for the card to render. */
+  login: CliLoginApi
   saveAndContinue: () => Promise<void>
+  /**
+   * The agent's own env when the user continued on the sign-in path of an
+   * agent that also takes a key: the sign-in marker and the model picked for
+   * it. Null on the key path, and before this step is saved in this session.
+   */
+  signedInEnv: Record<string, string> | null
 }
 
 function hasMissingRequired(
@@ -34,6 +56,11 @@ function hasMissingRequired(
   values: Record<string, string>,
 ): boolean {
   return fields.some((f) => f.required && !(values[f.name] || "").trim())
+}
+
+/** What the sign-in path asks for: the model, never a credential. */
+function loginFields(entry: OnboardingAgent): EnvField[] {
+  return entry.envFields.filter((f) => hasModelPicker(entry.name, f.name))
 }
 
 /**
@@ -54,12 +81,22 @@ export function useOnboardingAuth({
 }): OnboardingAuthApi {
   const { t } = useTranslation()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [signedInEnv, setSignedInEnv] = useState<Record<string, string> | null>(null)
   const [loggedIn, setLoggedIn] = useState(false)
   const [checkingLogin, setCheckingLogin] = useState(false)
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const login = useCliLogin({
+    agentType: entry?.name ?? null,
+    onSuccess: () => {
+      setLoggedIn(true)
+      setCheckingLogin(false)
+      showToast(t("onboarding.flow.toast.signedIn"), "success")
+    },
+  })
 
   // Whether the user is taking the API-key path (vs the CLI login). In "env"
   // mode the key is the only path, so always. In "login" mode (dual-auth agents
@@ -88,8 +125,11 @@ export function useOnboardingAuth({
       seed[f.name] = f.password ? "" : f.default || ""
     }
     setValues(seed)
+    setSignedInEnv(null)
     setLoggedIn(false)
     setCliInstalled(null)
+    // Switching agents must not leave the previous one's login card on screen.
+    login.reset()
     if (entry.authMode !== "login") return
     setCheckingLogin(true)
     // refreshLogin forces a fresh CLI `status` probe so an EXISTING sign-in is
@@ -113,10 +153,15 @@ export function useOnboardingAuth({
     return () => {
       cancelled = true
     }
-  }, [active, entry])
+  }, [active, entry, login.reset])
 
   const setValue = useCallback((name: string, value: string): void => {
     setValues((prev) => ({ ...prev, [name]: value }))
+    setTestResult(null)
+  }, [])
+
+  const applyValues = useCallback((next: Record<string, string>): void => {
+    setValues((prev) => ({ ...prev, ...next }))
     setTestResult(null)
   }, [])
 
@@ -139,7 +184,20 @@ export function useOnboardingAuth({
                 ? t("onboarding.flow.test.modelResponded", { model: r.model })
                 : t("onboarding.flow.test.connectionLooksGood"),
             }
-          : { ok: false, detail: r.error || t("onboarding.flow.test.testFailed") },
+          : r.unsupported
+            ? {
+                // Nothing to probe. Not green (nothing was verified) and not
+                // red (nothing went wrong) — see agent-credentials.
+                ok: true,
+                unsupported: true,
+                detail: r.reason
+                  ? t(`agents.credentials.unprobeable.${r.reason}`)
+                  : t("onboarding.flow.test.testFailed"),
+              }
+            : {
+                ok: false,
+                detail: r.error || t("onboarding.flow.test.testFailed"),
+              },
       )
     } catch (e) {
       setTestResult({ ok: false, detail: (e as Error).message })
@@ -148,33 +206,18 @@ export function useOnboardingAuth({
     }
   }, [entry, values, showToast, t])
 
-  const openLoginTerminal = useCallback(async (): Promise<void> => {
-    if (!entry?.loginCommand) return
-    try {
-      await window.api.openTerminal(entry.loginCommand)
-      showToast(t("onboarding.flow.toast.loginTerminalOpened"), "success")
-      setCheckingLogin(true)
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 2000))
-        try {
-          // refreshLogin forces a fresh CLI `status` probe; healthCheck only
-          // reads the cached value. Use the explicit `logged_in` flag (dual-auth
-          // agents) and fall back to `ready` for pure login agents.
-          const h = await window.api.refreshLogin(entry.name)
-          if (typeof h?.installed === "boolean") setCliInstalled(h.installed)
-          if (h?.logged_in === true || (h?.logged_in == null && h?.ready)) {
-            setLoggedIn(true)
-            setCheckingLogin(false)
-            return
-          }
-        } catch {}
-      }
-      setCheckingLogin(false)
-    } catch (e) {
-      setCheckingLogin(false)
-      showToast((e as Error).message, "error")
-    }
-  }, [entry, showToast, t])
+  // The sign-in itself runs INSIDE the launcher (main/cli-login.ts): the
+  // authorize URL and the code prompt surface in the card below rather than in
+  // a terminal window the user has to go find. The main process keeps probing
+  // for five minutes and pushes the result here, so a slow sign-in still lands
+  // — the old flow polled for 24s from this hook and then silently gave up.
+  const startLogin = useCallback(
+    async (opts?: { terminal?: boolean }): Promise<void> => {
+      if (!entry?.loginCommand) return
+      await login.start(opts)
+    },
+    [entry, login],
+  )
 
   const saveAndContinue = useCallback(async (): Promise<void> => {
     if (!entry) return
@@ -183,8 +226,37 @@ export function useOnboardingAuth({
     // optional — a user signing in via the CLI must not be blocked by the
     // required key fields (which carry pre-seeded base-URL/model defaults).
     if (!usingApiKeyPath) {
+      // An agent that also takes a key keeps the model on the agent itself,
+      // marked signed in: the type's model belongs with the type's key, and a
+      // signed-in agent runs on neither.
       // login / none modes (no key entered): never block. If the agent isn't
       // actually authed yet, it'll surface when the agent is started later.
+      // The model is NOT a credential though — someone signing in through the
+      // CLI can still pick one, and dropping it here is how a codex agent ended
+      // up on the CLI's own (retired) default with no way to change it. Save
+      // just that field; saveAgentEnv merges, so nothing else is touched.
+      // …unless the agent cannot run without one (OpenCode).
+      if (hasMissingRequired(loginFields(entry), values)) {
+        showToast(t("onboarding.flow.toast.fillRequiredFields"), "warning")
+        return
+      }
+      const models: Record<string, string> = {}
+      for (const f of loginFields(entry)) {
+        const v = (values[f.name] || "").trim()
+        if (v) models[f.name] = v
+      }
+      if (entry.authMode === "login" && entry.envFields.length > 0) {
+        setSignedInEnv({ ...models, [AUTH_MODE_KEY]: CLI_LOGIN })
+        onSaved()
+        return
+      }
+      if (Object.keys(models).length) {
+        try {
+          await window.api.saveAgentEnv(entry.name, models)
+        } catch (e) {
+          showToast((e as Error).message, "error")
+        }
+      }
       onSaved()
       return
     }
@@ -192,6 +264,7 @@ export function useOnboardingAuth({
       showToast(t("onboarding.flow.toast.fillRequiredFields"), "warning")
       return
     }
+    setSignedInEnv(null)
     setSaving(true)
     try {
       await window.api.saveAgentEnv(entry.name, values)
@@ -206,6 +279,7 @@ export function useOnboardingAuth({
   return {
     values,
     setValue,
+    applyValues,
     loggedIn,
     checkingLogin,
     cliInstalled,
@@ -213,10 +287,18 @@ export function useOnboardingAuth({
     testResult,
     saving,
     usingApiKeyPath,
+    // The key path needs every required field; the sign-in path only what it
+    // shows, which is the model.
     blocked:
-      usingApiKeyPath && !!entry && hasMissingRequired(entry.envFields, values),
+      !!entry &&
+      hasMissingRequired(
+        usingApiKeyPath ? entry.envFields : loginFields(entry),
+        values,
+      ),
     test,
-    openLoginTerminal,
+    startLogin,
+    login,
     saveAndContinue,
+    signedInEnv,
   }
 }

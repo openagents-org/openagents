@@ -1,10 +1,15 @@
 'use client';
+import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
+import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
+import { MoreAgents } from './more-agents';
+import { AgentSectionLabel } from './agent-section-label';
+import { DmUnreadBadge } from './dm-unread-badge';
 
 import * as React from 'react';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, PlusSquare, Sparkles, Users,
+  BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
+  Inbox, KanbanSquare, MessageSquare, Settings, PlusSquare, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -21,9 +26,15 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { cn } from '@/lib/utils';
-import { isRecentAgent } from '@/lib/helpers';
+import { AgentRosterHints, isDeviceOffline } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { cn, hasTruncatedLabel } from '@/lib/utils';
+import { agentLabel } from '@/lib/helpers';
+import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
+import { displayNameFromEmail } from '@/lib/collab';
+import { useHumanNames } from '@/hooks/use-team-roster';
+import { agentPresence } from '@/lib/approvals';
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import {
   useLayout,
@@ -33,14 +44,17 @@ import {
 } from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
+import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
+import { SidebarMembers } from './sidebar-members';
+import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 
 interface RailItem {
   mode: ViewMode;
   label: string;
   icon: React.ReactNode;
   /** Show an attention dot — unread threads, unread notifications */
-  unread?: boolean;
+  count?: number;
 }
 
 const RAIL_SNAP_POINT = (RAIL_WIDTH_COLLAPSED + RAIL_WIDTH_EXPANDED) / 2;
@@ -187,58 +201,62 @@ function RailResizeHandle() {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
+    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
-    workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
-    onlineUsers, currentUser,
+    workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
+    onlineUsers, currentUser, tasks, setCurrentSessionId, unreadDmCounts, dmConversations,
   } = useWorkspace();
   const t = useT();
   const [agentsOpen, setAgentsOpen] = React.useState(true);
+  // The agent row under the pointer whose name is cut off, if any: with
+  // labels showing, only such a row repeats its name in a tooltip.
+  const [truncatedAgent, setTruncatedAgent] = React.useState<string | null>(null);
 
-  const recentAgents = agents.filter(isRecentAgent);
+  const recentAgents = sidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
   const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
-  const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
+  const onlineAgents = recentAgents.filter((a) => a.status === 'online');
+  const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
+  const visibleAgents = groups.flatMap(group => group.shown);
+  const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
+  const humanNames = useHumanNames();
+  // Shared agents carry their owner's name, so they never pass for the viewer's own.
+  const ownerName = (email: string | null | undefined) => email ? humanNames[email.toLowerCase()] || displayNameFromEmail(email) : '';
 
-  // Only threads the list actually shows may light the rail. Counting archived
-  // and routine sessions too — as `unreadSessionIds` does on its own — leaves
-  // the dot stuck on with nothing unread anywhere the user can see.
-  const hasUnreadThreads = sessions.some(
-    (s) =>
-      s.status === 'active' &&
-      !s.sessionId.startsWith('routine:') &&
-      unreadSessionIds.has(s.sessionId),
-  );
+  // Unread threads, @mentions and DMs — only what the Threads view lists.
+
 
   const items: RailItem[] = [
     {
       mode: 'threads',
       label: t('views.threads'),
       icon: <MessageSquare />,
-      unread: hasUnreadThreads,
+      count: unreadThreadsTotal,
     },
-    ...(hasAgents
-      ? ([
-          { mode: 'files', label: t('views.files'), icon: <FileText /> },
-          { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
-          { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
-          { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
-          { mode: 'tasks', label: t('views.tasks'), icon: <KanbanSquare /> },
-          {
-            mode: 'inbox',
-            label: t('views.inbox'),
-            icon: <Inbox />,
-            unread: unreadNotificationCount > 0,
-          },
-          { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
-        ] as RailItem[])
-      : []),
+    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
+    { mode: 'files', label: t('views.files'), icon: <FileText /> },
+    { mode: 'browser', label: t('views.browser'), icon: <Globe /> },
+    { mode: 'routines', label: t('views.routines'), icon: <CalendarClock /> },
+    { mode: 'knowledge', label: t('views.knowledge'), icon: <BookOpen /> },
+
+    {
+      mode: 'inbox',
+      label: t('views.inbox'),
+      icon: <Inbox />,
+      count: unreadNotificationCount,
+    },
+    { mode: 'skills', label: t('views.skills'), icon: <Sparkles /> },
+    { mode: 'workflows', label: t('views.workflows'), icon: <Waypoints /> },
+    // v1.1 M2: team specialists directory
+    { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
   ];
 
   const isConnectActive = viewMode === 'connect';
-  const connectLabel = hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const setupStep = useFirstDeviceGuide();
+  const showFirstDeviceHint = !!setupStep && !isConnectActive;
+  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -268,19 +286,19 @@ export function NavRail() {
           )}
         >
           <span
-            className="flex size-8 shrink-0 items-center justify-center"
+            className="flex size-8 shrink-0 items-center justify-center overflow-hidden"
             title={workspaceLabel}
           >
             <Image
               src="/logo-black.png"
-              alt="OpenAgents"
+              alt=""
               width={32}
               height={32}
               className="size-full object-contain dark:hidden"
             />
             <Image
               src="/logo-white.png"
-              alt="OpenAgents"
+              alt=""
               width={32}
               height={32}
               className="hidden size-full object-contain dark:block"
@@ -288,7 +306,20 @@ export function NavRail() {
           </span>
 
           {showLabels && (
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+            <span
+              className="min-w-0 flex-1 truncate text-sm font-semibold"
+              aria-label={workspaceLabel}
+              onMouseEnter={(event) => {
+                const label = event.currentTarget;
+                // Keep short names quiet. The native tooltip is added only
+                // when the ellipsis is actually hiding part of the name.
+                if (label.scrollWidth > label.clientWidth) {
+                  label.title = workspaceLabel;
+                } else {
+                  label.removeAttribute('title');
+                }
+              }}
+            >
               {workspaceLabel}
             </span>
           )}
@@ -310,21 +341,16 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={viewMode === item.mode}
-                    onClick={() => openView(item.mode)}
+                    isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
+                    onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
-                    {item.unread && (
-                      <span
-                        className={cn(
-                          'absolute size-1.5 rounded-full',
-                          showLabels ? 'top-1/2 right-2 -translate-y-1/2' : 'top-0.5 right-0.5',
-                          item.mode === 'inbox' ? 'bg-destructive' : 'bg-primary',
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
+                    {/* Collapsed, the badge sits inside the button's corner: the button
+                        (and the scrolling rail) clip overflow, so a negative
+                        offset cut it in half. */}
+                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -349,8 +375,9 @@ export function NavRail() {
                     onClick={() => setAgentsOpen((prev) => !prev)}
                     aria-expanded={agentsOpen}
                     aria-controls="rail-agent-list"
+                    title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                   >
-                    {t('nav.agentsWithCount', { online: onlineAgentCount, total: recentAgents.length })}
+                    {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
                     <ChevronDown
                       className={cn(
                         'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -368,99 +395,73 @@ export function NavRail() {
                 className={cn(showLabels && !agentsOpen && 'hidden')}
               >
                 <SidebarMenu className="gap-0.5">
-                  {recentAgents.map((agent) => (
-                    <SidebarMenuItem key={agent.agentName}>
+                  {visibleAgents.map((agent, index) => (
+                    <React.Fragment key={agent.agentName}>
+                      {(index === 0 || index === firstSharedIndex) && <AgentSectionLabel owned={index !== firstSharedIndex} online={groups[index === firstSharedIndex ? 1 : 0].all.length} total={groups[index === firstSharedIndex ? 1 : 0].total} first={index === 0} showLabels={showLabels} />}
+                    <SidebarMenuItem key={agent.agentName} className="group/agent">
                       <SidebarMenuButton
-                        className={cn(!showLabels && 'justify-center!')}
-                        aria-label={agent.agentName}
-                        tooltip={{ children: agent.agentName, hidden: showLabels }}
-                        onClick={() => setSelectedAgentName(agent.agentName)}
+                        className={cn(!showLabels && 'justify-center!', showLabels && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8')}
+                        aria-label={agentLabel(agent)}
+                        // Collapsed, the tooltip is the only name there is. With
+                        // labels, it shows only for a name cut off by the ellipsis,
+                        // or to say what the device-offline marker means (it is the
+                        // row's one hover hint; the marker no longer has its own).
+                        tooltip={{
+                          children: isDeviceOffline(agent) ? `${agentLabel(agent)} · ${t('collab.deviceOffline')}` : agentLabel(agent),
+                          hidden: showLabels && truncatedAgent !== agent.agentName && !isDeviceOffline(agent),
+                        }}
+                        onPointerEnter={(e) => setTruncatedAgent(hasTruncatedLabel(e.currentTarget) ? agent.agentName : null)}
+                        onClick={() => {
+                          setSelectedAgentName(null);
+                          setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
+                          openView('threads');
+                          setThreadFilter('dms');
+                          openMobileDetail();
+                        }}
                       >
                         <AgentAvatar
                           name={agent.agentName}
                           size={20}
-                          status={agent.status}
+                          status={agentPresence(agent.status, pendingApprovalsByAgent, agent.agentName)}
                           showStatus
                           className="[&_svg]:size-full!"
                         />
-                        {showLabels && <span className="truncate">{agent.agentName}</span>}
+                        {showLabels && <span className="truncate" data-truncatable>{agentLabel(agent)}</span>}
+                        {showLabels && !isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
+                        {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
+                        {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
+                        <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />
                       </SidebarMenuButton>
+                      {/* Labelled rail only: collapsed, it landed on the avatar
+                          and stacked its own hint on the row's. */}
+                      {showLabels && <button type="button" className="absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-sidebar text-muted-foreground opacity-0 hover:bg-sidebar-accent hover:text-foreground group-hover/agent:opacity-100 group-focus-within/agent:opacity-100 [@media(hover:none)]:opacity-100" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}><Settings className="size-3.5" /></button>}
                     </SidebarMenuItem>
+                    {groups.map(group => group.shown.at(-1)?.agentName === agent.agentName && group.all.length > group.shown.length ? <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={group.moreOnline} owned={group.owned} showLabels={showLabels} /> : null)}
+                    </React.Fragment>
                   ))}
+                  {groups.filter(group => !group.shown.length && group.all.length).map(group => <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={0} owned={group.owned} showLabels={showLabels} />)}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           </>
         )}
 
-        {/* Humans currently in the workspace. Collapsed there is no room for a
-            name, so each becomes an initial chip carrying the name in its
-            tooltip — the same trade the agent avatars make. */}
-        {onlineUsers.length > 0 && (
-          <>
-            <div className="px-3">
-              <Separator />
-            </div>
-            <SidebarGroup className="px-1.5">
-              {showLabels && (
-                <SidebarGroupLabel className="px-2">
-                  <Users className="me-1 size-3" />
-                  {t('nav.onlineWithCount', { count: onlineUsers.length })}
-                </SidebarGroupLabel>
-              )}
-              <SidebarGroupContent>
-                <SidebarMenu className="gap-0.5">
-                  {onlineUsers.map((user) => {
-                    const label =
-                      user.id === currentUser.id ? t('nav.you', { name: user.name }) : user.name;
-
-                    return (
-                      <SidebarMenuItem key={user.id}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div
-                              className={cn(
-                                'flex h-8 items-center gap-2 rounded-md text-sm',
-                                showLabels ? 'px-2' : 'justify-center',
-                              )}
-                            >
-                              {showLabels ? (
-                                <>
-                                  <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-                                  <span className="min-w-0 truncate text-foreground">
-                                    {label}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="relative flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase text-muted-foreground">
-                                  {user.name.trim().charAt(0) || '?'}
-                                  <span className="absolute -end-0.5 -bottom-0.5 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />
-                                </span>
-                              )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" hidden={showLabels}>
-                            {label}
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
+        <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        {/* Credits-campaign progress (expanded rail only; self-hides when the
+            campaign is off or complete). */}
+        {showLabels && <CampaignSidebarCard />}
+        {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(
                 !showLabels && 'justify-center!',
-                !hasAgents &&
+                showFirstDeviceHint && SETUP_STEP_BUTTON,
+                !hasAgents && !showFirstDeviceHint &&
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
               )}
@@ -482,11 +483,12 @@ export function NavRail() {
         <div
           className={cn(
             'flex gap-0.5',
-            showLabels ? 'flex-row items-center px-1' : 'flex-col items-center',
+            showLabels ? 'flex-row items-center justify-evenly px-1' : 'flex-col items-center',
           )}
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
+          <InviteMemberButton />
           <UserMenu side="right" align="end" />
         </div>
 

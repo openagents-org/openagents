@@ -2,16 +2,16 @@
 """
 Shared-browser maintenance sweep — the backstop against BF session leaks.
 
-Browser Fabric caps ephemeral sessions per API key (free tier: 3), so any
-session the backend loses track of permanently eats a slot the user cannot
-see or close from the UI. Each pass runs four steps:
+Browser Fabric caps concurrently awake tabs per API key (free plan: 5), so
+any session the backend loses track of eats a slot the user cannot see or
+close from the UI until BF's own idle sleep reclaims it. Each pass runs four steps:
 
 0. Stale-claim recovery — rows stuck in close_status='closing' (a worker
    crashed mid-close) flip back to 'close_failed' so they can be retried.
 
-1. Idle reaper — active ephemeral (non-persistent) tabs with no activity
-   for BROWSER_TAB_IDLE_MINUTES are closed. Agent-opened tabs whose agent
-   crashed mid-task are the main source of these.
+1. Idle reaper — local unsaved tabs with no activity are closed. Cloud
+   sessions are never closed for idleness here: BrowserFabric owns their
+   sleep/wake lifecycle, including legacy rows without an attached context.
 
 2. Orphan release retry — tabs whose BF close failed (close_status=
    'close_failed', session_closed=FALSE) are retried with the key resolved
@@ -44,7 +44,8 @@ from app.models import BrowserTab, BrowserUsage, Workspace
 
 logger = logging.getLogger(__name__)
 
-BROWSER_TAB_IDLE_MINUTES = int(os.environ.get("BROWSER_TAB_IDLE_MINUTES", "30"))
+# Local tab cleanup only. Cloud idle sleep is managed by BrowserFabric.
+BROWSER_TAB_IDLE_MINUTES = int(os.environ.get("BROWSER_TAB_IDLE_MINUTES", "15"))
 BROWSER_CLOSE_RETRY_WINDOW_HOURS = int(os.environ.get("BROWSER_CLOSE_RETRY_WINDOW_HOURS", "6"))
 BROWSER_CLOSING_STALE_MINUTES = int(os.environ.get("BROWSER_CLOSING_STALE_MINUTES", "10"))
 MAX_SWEEP_ACTIONS = int(os.environ.get("BROWSER_SWEEP_MAX_ACTIONS", "10"))
@@ -168,6 +169,7 @@ async def sweep_browser_tabs() -> dict:
             select(BrowserTab)
             .where(BrowserTab.status == "active")
             .where(BrowserTab.context_id.is_(None))
+            .where(BrowserTab.session_id.is_(None))
             .where(BrowserTab.last_active_at < idle_cutoff)
             .order_by(BrowserTab.last_active_at.asc())
             .limit(MAX_SWEEP_ACTIONS)

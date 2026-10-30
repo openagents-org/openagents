@@ -1,9 +1,11 @@
 {
   "appName": "OpenAgents",
+  "brandName": "OpenAgents",
   "loading": "Loading…",
   "import": "Import",
   "export": "Export",
   "reset": "Reset",
+  "clear": "Clear",
   "reveal": "Reveal",
   "cancel": "Cancel",
   "download": "Download",
@@ -11,5 +13,17 @@
   "none": "(none)",
   "notInstalled": "Not installed",
   "checking": "Checking...",
-  "comingSoon": "Coming soon"
+  "comingSoon": "Coming soon",
+  "workspaceMenu": {
+    "connectAgent": "Connect Agent",
+    "nodes": "Nodes",
+    "connectedNodes": "Connected nodes"
+  },
+  "clearSearch": "Clear search",
+  "showAll": "Show all",
+  "actions": {
+    "addWorkspace": "Join workspace",
+    "newAgent": "New agent",
+    "addCredential": "Add credential"
+  }
 }

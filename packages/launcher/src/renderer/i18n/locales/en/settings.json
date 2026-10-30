@@ -1,8 +1,5 @@
 {
-  "title": "Settings overview",
-  "subtitle": "Manage OpenAgents Launcher preferences, connections and system configuration",
-  "searchPlaceholder": "Search settings",
-  "noSectionMatch": "No matching settings",
+  "title": "Settings",
   "sections": {
     "general": "General",
     "appearance": "Appearance",
@@ -13,42 +10,16 @@
     "language": "Language",
     "updates": "Updates",
     "runtime": "Runtime",
+    "logs": "Logs",
     "about": "About"
   },
-  "overview": {
-    "hint": "Pick a module to see its details",
-    "back": "Back to overview",
-    "resetDefaults": "Restore defaults"
-  },
   "detail": {
-    "autoSaved": "Every change saves itself",
-    "related": "Related settings"
+    "autoSaved": "Every change saves itself"
   },
   "groups": {
     "preferences": "App preferences",
-    "assistants": "Agents & notifications",
     "connectivity": "Connectivity & data",
     "system": "System"
-  },
-  "summary": {
-    "startupPage": "Opens {{page}} at launch",
-    "trayOn": "Runs in tray",
-    "trayOff": "Quits on close",
-    "accent": "{{color}} accent",
-    "scale": "{{size}} text size",
-    "agentsConfigured": "{{count}} configured",
-    "autoStartOn": "Auto-start on",
-    "autoStartOff": "Auto-start off",
-    "notificationsOn": "Desktop notifications on",
-    "notificationsOff": "Desktop notifications off",
-    "quietHours": "Quiet {{start}}–{{end}}",
-    "quietHoursOff": "No quiet hours",
-    "workspaceCustom": "Self-hosted workspace",
-    "workspaceHosted": "Hosted workspace",
-    "proxyOn": "Proxy configured",
-    "autoUpdateOn": "Auto-update on",
-    "autoUpdateOff": "Auto-update off",
-    "core": "Core {{version}}"
   },
   "pages": {
     "general": {
@@ -62,12 +33,6 @@
       "desc": "Customise how the interface looks",
       "keywords": "theme dark light colour accent font scale zoom",
       "short": "Theme, accent and text size"
-    },
-    "agents": {
-      "title": "Agents",
-      "desc": "Defaults and run policy shared by every agent",
-      "keywords": "agent autostart credentials keys",
-      "short": "Agent defaults and credentials"
     },
     "notifications": {
       "title": "Notifications",
@@ -107,7 +72,7 @@
     },
     "about": {
       "title": "About",
-      "desc": "About the OpenAgents launcher and where to get help",
+      "desc": "About $t(common.appName) and where to get help",
       "keywords": "about version docs github license",
       "short": "Version and resources"
     }
@@ -122,7 +87,11 @@
     "updateCheckFailed": "Update check failed: {{error}}",
     "downloadFailed": "Download failed: {{error}}",
     "installFailed": "Install failed: {{error}}",
-    "unknown": "unknown"
+    "unknown": "unknown",
+    "cacheCleared": "Cache cleared ({{size}} freed)",
+    "cacheClearFailed": "Could not clear the cache: {{error}}",
+    "localDataReset": "Appearance and interface state reset",
+    "cacheAlreadyEmpty": "Cache cleared"
   },
   "resetDialog": {
     "title": "Reset all settings?",
@@ -144,27 +113,27 @@
   },
   "general": {
     "startupGroup": "Startup & behaviour",
-    "startOnBoot": "Launch OpenAgents Launcher at login",
+    "startOnBoot": "Launch $t(common.appName) at login",
     "startOnBootDesc": "Start automatically when you sign in",
-    "startupPage": "Open on launch",
-    "startupPageDesc": "Page to land on when the launcher opens",
+    "startupPage": "This Computer startup page",
+    "startupPageDesc": "Page to show when you enter This Computer after launching the app",
     "startupPageLast": "Last used page",
     "minimizeToTray": "Minimise to system tray",
     "minimizeToTrayDesc": "Keep running in the tray after the window is closed",
     "gpuAcceleration": "GPU acceleration",
     "gpuAccelerationDesc": "Turn off and restart if the UI flickers or renders incorrectly",
     "restartGroup": "Restart required",
-    "restartGroupDesc": "GPU acceleration changes take effect once OpenAgents restarts.",
+    "restartGroupDesc": "GPU acceleration changes take effect once $t(common.appName) restarts.",
     "restartNow": "Restart now",
     "restartDialog": {
-      "title": "Restart OpenAgents Launcher?",
+      "title": "Restart $t(common.appName)?",
       "description": "The app closes and opens again. Running agents are stopped, and only come back on their own if auto-start is on.",
       "confirm": "Restart"
     }
   },
   "appearance": {
     "themeGroup": "Theme & colour",
-    "themeDesc": "Choose how OpenAgents Launcher looks",
+    "themeDesc": "Choose how $t(common.appName) looks",
     "modes": {
       "light": "Light",
       "dark": "Dark",
@@ -190,24 +159,28 @@
       "lg": "Large"
     },
     "theme": "Theme",
+    "skin": "Interface style",
+    "skinDesc": "Combines with either light or dark, applied instantly",
     "behaviorGroup": "Interface behaviour",
     "animations": "Show animations",
     "animationsDesc": "Turning them off lowers resource use",
     "highContrast": "High contrast",
-    "highContrastDesc": "Makes text and controls easier to read"
+    "highContrastDesc": "Makes text and controls easier to read",
+    "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
+    "skins": {
+      "default": {
+        "name": "Classic",
+        "desc": "$t(common.appName)’s native look — soft borders and shadows"
+      },
+      "openagents": {
+        "name": "$t(common.brandName)",
+        "desc": "Matches openagents.org — bold frames, hard shadows and Inter"
+      }
+    }
   },
   "agents": {
-    "startupGroup": "Startup",
     "autoStart": "Start agents on launch",
-    "autoStartDesc": "Start every configured agent once the launcher opens",
-    "overviewGroup": "Agent overview",
-    "configured": "Configured agents",
-    "running": "Running",
-    "types": "Agent types in use",
-    "agentCount": "{{count}}",
-    "typeCount": "{{count}}",
-    "browseMarketplace": "Marketplace",
-    "openAgents": "Open Agents"
+    "autoStartDesc": "Start every configured agent once $t(common.appName) opens"
   },
   "notifications": {
     "deliveryGroup": "Desktop & sound",
@@ -234,18 +207,18 @@
     "regionGlobal": "Official origin",
     "workspaceGroup": "Workspace endpoint",
     "workspaceUrl": "Workspace backend URL",
-    "workspaceUrlDesc": "Optional self-hosted workspace server. Leave empty to use hosted OpenAgents Launcher workspaces.",
+    "workspaceUrlDesc": "Optional self-hosted workspace server. Leave empty to use $t(common.brandName)-hosted workspaces.",
     "workspaceUrlPlaceholder": "https://workspace.openagents.org or http://localhost:8000",
     "proxyGroup": "Proxy",
     "httpProxy": "HTTP proxy",
-    "httpProxyDesc": "Used for outbound HTTP by agents and the launcher",
+    "httpProxyDesc": "Used for outbound HTTP by agents and $t(common.appName)",
     "httpsProxy": "HTTPS proxy",
     "httpsProxyDesc": "Outbound HTTPS proxy",
     "proxyPlaceholder": "http://user:pass@host:port",
     "noProxy": "Bypass proxy",
     "noProxyDesc": "Comma-separated hosts that skip the proxy",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "Proxy settings are stored in the launcher config and reach running agents after a restart.",
+    "note": "Proxy settings are stored in the $t(common.appName) config and reach running agents after a restart.",
     "testConnection": "Test connection",
     "testOk": "Reachable",
     "testError": {
@@ -270,12 +243,18 @@
     "importSettingsDesc": "Restore from a JSON file; matching keys are overwritten",
     "dangerGroup": "Danger zone",
     "resetSettings": "Reset all settings",
-    "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone"
+    "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone",
+    "localGroup": "$t(common.appName)'s own data",
+    "localGroupDesc": "Cached files and interface state this app keeps on your computer. Agents, workspaces and settings are not affected.",
+    "clearCache": "Clear cache",
+    "clearCacheDesc": "Empty the cached web pages, icons and images. Safe — they are re-fetched as needed",
+    "resetLocal": "Reset appearance & interface state",
+    "resetLocalDesc": "Theme, accent, skin, text size, sidebar and dismissed notices go back to defaults"
   },
   "language": {
     "languageGroup": "Language",
     "displayLanguage": "Display language",
-    "displayLanguageDesc": "Language used across the OpenAgents Launcher interface, applied instantly",
+    "displayLanguageDesc": "Language used across the $t(common.appName) interface, applied instantly",
     "formatGroup": "Region & formats",
     "systemLocale": "System locale",
     "timezone": "Time zone",
@@ -285,17 +264,22 @@
   "updates": {
     "settingsGroup": "Update settings",
     "autoUpdate": "Download updates automatically",
-    "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off you are still told about new versions, but download them yourself",
+    "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off, each new version asks you first before anything is downloaded. Either way, an update only installs once you confirm it",
+    "offerTitle": "Version {{version}} is available",
+    "offerSubtitle": "A new version is ready to download.",
+    "offerWhatsNew": "What's new in this version",
+    "offerNoNotes": "Release notes for this version aren't available.",
+    "offerLater": "Later",
     "versionGroup": "Version",
     "installedVersion": "Installed version",
     "latestVersion": "Latest version",
     "releaseNotes": "View release notes",
     "checkHint": "Checking never installs anything without asking you first.",
+    "bannerWhatsNew": "What's new",
     "bannerReady": "Version {{version}} is downloaded and ready to install",
     "bannerAvailable": "Version {{version}} is available",
     "bannerDownloading": "Downloading {{version}} · {{percent}}%",
     "bannerUpdateNow": "Update now",
-    "bannerViewProgress": "View progress",
     "bannerInstallFailed": "Version {{version}} couldn't install automatically",
     "installFailedDesc": "v{{version}} was downloaded but the installer didn't replace the app — still on v{{current}}. Install it manually from the download page.",
     "installerDidNotStart": "the installer wouldn't start on this machine",
@@ -334,12 +318,12 @@
     "healthGroup": "Resource usage",
     "systemMemory": "System memory",
     "memoryUsage": "{{used}} used of {{total}}",
-    "appMemory": "Launcher memory",
-    "appCpu": "Launcher CPU",
+    "appMemory": "$t(common.appName) memory",
+    "appCpu": "$t(common.appName) CPU",
     "uptime": "Uptime",
     "diagnosticsGroup": "Diagnostics",
     "openLogs": "Open log folder",
-    "openLogsDesc": "Reveal the launcher log directory in your file manager",
+    "openLogsDesc": "Reveal the $t(common.appName) log directory in your file manager",
     "copyDiagnostics": "Copy diagnostics",
     "copyDiagnosticsDesc": "Copy a version and environment summary to attach to a bug report",
     "copy": "Copy",
@@ -348,9 +332,9 @@
     "refreshNote": "Refreshed every 4 seconds"
   },
   "about": {
-    "productName": "OpenAgents Launcher",
-    "tagline": "The OpenAgents desktop client · install, configure and run agents locally",
-    "copyright": "© {{year}} OpenAgents",
+    "productName": "$t(common.appName)",
+    "tagline": "The $t(common.brandName) desktop client · install, configure and run agents locally",
+    "copyright": "© {{year}} $t(common.brandName)",
     "versionGroup": "Version & build",
     "buildType": "Build",
     "buildPackaged": "Release",
@@ -366,5 +350,23 @@
     "licenseFileDesc": "Read the full license on GitHub",
     "open": "Open",
     "view": "View"
+  },
+  "localResetDialog": {
+    "title": "Reset appearance and interface state?",
+    "description": "The window repaints immediately. Nothing installed or configured is touched.",
+    "affectedTitle": "Back to defaults",
+    "affected": {
+      "appearance": "Theme, accent colour, skin, text size",
+      "layout": "Sidebar state and the tab the app opens on",
+      "history": "Command palette history and dismissed update notices",
+      "marketplace": "Agent Marketplace view, sort and filters"
+    },
+    "keptTitle": "Left alone",
+    "kept": {
+      "settings": "Everything in the other settings modules",
+      "language": "Interface language",
+      "workspaces": "Agents, workspaces and starred items"
+    },
+    "confirm": "Reset"
   }
 }

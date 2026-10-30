@@ -1,0 +1,17 @@
+{
+  "version": "1.0.7",
+  "date": "2026-09-21",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "The app is now simply called OpenAgents",
+        "zh": "应用正式更名为 OpenAgents"
+      },
+      "description": {
+        "en": "The desktop app, its installers and its downloads are now named OpenAgents rather than OpenAgents Launcher. Your settings, paired workspaces, credentials and agents carry over automatically. On macOS an in-place update keeps the existing application name; downloading the app again gives you the renamed bundle.",
+        "zh": "桌面应用、安装包与下载文件均已由 OpenAgents Launcher 更名为 OpenAgents。您的设置、已配对的工作区、凭据与智能体都会自动沿用，无需重新配置。macOS 上通过应用内更新升级的版本仍保留原有的应用名称，重新下载安装包即可获得更名后的版本。"
+      }
+    }
+  ]
+}

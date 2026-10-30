@@ -1,0 +1,1059 @@
+/**
+ * Installing, updating, rolling back and versioning agent runtimes.
+ *
+ * The recurring trap this file exists to hold in one place: the registry's
+ * `install` command is an INSTALL command. Re-running it as an update is a
+ * no-op for a bare `npm install -g <pkg>` and a downgrade for a pinned
+ * `<pkg>@0.83.0`, which is why "Update to v0.84.1" used to reinstall 0.83.0 and
+ * the badge never cleared. Anything npm-backed updates via `@latest` instead —
+ * see updateAgentTypeStreaming — held back to the newest release the agents'
+ * Node can run when npm's `latest` refuses it (see _heldBackVersion).
+ */
+import path from "path"
+import fs from "fs"
+import { spawn } from "child_process"
+import { readPathEnv, withPathEnv } from "../env"
+import {
+  NO_NPM_PACKAGE,
+  parseNpmInstallCommand,
+  pinnedVersion,
+  resolveNpmPackage,
+} from "../../shared/npm-install-spec"
+import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
+import { appendDaemonLog } from "./daemon-process"
+import {
+  elevatedShellCommand,
+  findOriginalInstall,
+  originalUpdateArgs,
+  originalUpdateCommand,
+  runWithAdminPrompt,
+  type Elevation,
+  type OriginalInstall,
+} from "./original-install"
+import {
+  agentNodeVersion,
+  platformKey,
+  resolveNpmInvocation,
+} from "./runtime"
+import {
+  fetchNpmInfo,
+  nodeEngineRange,
+  resolveInstallableVersion,
+  resolveLatestVersion,
+  sortedPublishedVersions,
+} from "./npm-registry"
+
+export interface InstalledAgentRecord {
+  name: string
+  version: string | null
+  installedAt: string
+  previousVersion?: string | null
+  history?: Array<{ version: string; installedAt: string }>
+}
+
+export interface AgentUpdateInfo {
+  name: string
+  current: string | null
+  latest: string | null
+}
+
+/** Where an update of an agent goes: see InstallService.updateTarget. */
+export type UpdateTarget =
+  | { kind: "managed" }
+  | {
+      kind: "original"
+      /** The npm prefix the user's own copy lives in. */
+      prefix: string
+      elevation: Elevation
+      /** What runs, as the user would type it. */
+      command: string
+    }
+
+export interface InstallServiceDeps {
+  /** The loaded connector; install calls assume the core is present. */
+  connector: () => Record<string, unknown> | null
+  /** Drop the catalog + updates caches after anything that changes install state. */
+  clearCatalogCache: () => void
+  /** The marketplace catalog, used to find everything currently installed. */
+  getCatalog: () => Promise<unknown[]>
+  /** Absolute path to an agent's CLI, or null — the global-install escape hatch. */
+  resolveBinary: (type: string) => string | null
+  /** The Node agents install and run on (agentNodeVersion); a seam for tests. */
+  nodeVersion?: () => Promise<string | null>
+}
+
+export class InstallService {
+  private _updatesCache: {
+    value: AgentUpdateInfo[]
+    at: number
+    inFlight: Promise<AgentUpdateInfo[]> | null
+  } = { value: [], at: 0, inFlight: null }
+
+  constructor(private deps: InstallServiceDeps) {}
+
+  private get _connector(): Record<string, unknown> {
+    return this.deps.connector() as Record<string, unknown>
+  }
+
+  private _nodeVersion(): Promise<string | null> {
+    return (this.deps.nodeVersion || agentNodeVersion)().catch(() => null)
+  }
+
+  clearUpdatesCache(): void {
+    this._updatesCache = { value: [], at: 0, inFlight: null }
+  }
+
+  async checkAgentType(agentType: string): Promise<unknown> {
+    const isInstalled = this._connector.isInstalled as (type: string) => boolean
+    const installed = isInstalled.call(this._connector, agentType)
+    const installer = this._connector.installer as Record<string, unknown>
+    const which = installer.which as (type: string) => string | null
+    const binary = installed ? which.call(installer, agentType) : null
+    return { installed, binary: binary || null }
+  }
+
+  async installAgentType(agentType: string): Promise<unknown> {
+    const install = this._connector.install as (
+      type: string,
+    ) => Promise<unknown>
+    const result = await install.call(this._connector, agentType)
+    this.recordInstall(agentType)
+    this.deps.clearCatalogCache()
+    return result
+  }
+
+  async installAgentTypeStreaming(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<unknown> {
+    // An entry that declares `install.supported_version` is pinned ON PURPOSE:
+    // its adapter is written against exactly one upstream release and refuses
+    // to start on any other. Overriding that pin with `latest` below would hand
+    // the user a runtime their agent cannot run, on a FRESH install, with no
+    // hint about how to get back. This case is checked first for that reason.
+    const entry = this.getRegistryEntry(agentType)
+    const supported = this.supportedVersion(entry)
+    if (supported) return this.installAtVersionTag(agentType, supported, onData)
+
+    // A registry command that freezes a version (`pi-coding-agent@0.83.0`) is a
+    // baseline someone vetted once, in a file that is maintained by hand — it
+    // is stale the moment upstream publishes. Installing it would hand a new
+    // user an old build while the page next to the button already advertises
+    // the newest one, so the pin is overridden here too, not just on update.
+    // Dist-tags (`@latest`, `@beta`) float on their own and are left alone.
+    const cmd = this._installCommand(agentType)
+    if (pinnedVersion(cmd))
+      return this.installAtVersionTag(agentType, "latest", onData)
+
+    // A floating npm command (`openclaw@latest`, or bare) is the core's to run,
+    // unless npm's `latest` refuses the Node agents run on — then the newest
+    // release that does is installed here instead (see _heldBackVersion). Same
+    // order the core keeps: prerequisites before anything downloads, and Node
+    // before the version check, which needs a Node to ask.
+    const npmPkg = this.resolveNpmPackage(entry)
+    const { pkg, spec } = parseNpmInstallCommand(cmd)
+    if (npmPkg && pkg && (!spec || spec === "latest")) {
+      const core = this._connector.installer as {
+        _assertPrereqs?: (t: string, e: unknown, d: (s: string) => void) => void
+      }
+      core?._assertPrereqs?.(agentType, entry, onData)
+      await this._ensureNode(onData)
+      const heldBack = await this._heldBackVersion(npmPkg, onData)
+      if (heldBack) return this.installAtVersionTag(agentType, heldBack, onData)
+    }
+
+    const installer = this._connector.installer as Record<string, unknown>
+    const installStreaming = installer.installStreaming as (
+      type: string,
+      onData: (data: string) => void,
+    ) => Promise<unknown>
+    const result = await installStreaming.call(installer, agentType, onData)
+    this.recordInstall(agentType)
+    this.deps.clearCatalogCache()
+    return result
+  }
+
+  /** This platform's install command from the registry, if the entry has one. */
+  private _installCommand(agentType: string): string | undefined {
+    const entry = this.getRegistryEntry(agentType)
+    const install = entry?.install as Record<string, unknown> | undefined
+    if (!install) return undefined
+    return (install[platformKey()] || install.command || install.npm) as
+      string | undefined
+  }
+
+  async uninstallAgentType(agentType: string): Promise<unknown> {
+    const uninstall = this._connector.uninstall as (
+      type: string,
+    ) => Promise<unknown>
+    const result = await uninstall.call(this._connector, agentType)
+    this.recordUninstall(agentType)
+    this.deps.clearCatalogCache()
+    return result
+  }
+
+  async uninstallAgentTypeStreaming(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<unknown> {
+    const installer = this._connector.installer as Record<string, unknown>
+    const uninstallStreaming = installer.uninstallStreaming as (
+      type: string,
+      onData: (data: string) => void,
+    ) => Promise<unknown>
+    const result = await uninstallStreaming.call(installer, agentType, onData)
+    this.recordUninstall(agentType)
+    this.deps.clearCatalogCache()
+    return result
+  }
+
+  /** Read installed package version by inspecting runtime prefix package.json. */
+  getInstalledVersion(agentType: string): string | null {
+    try {
+      const entry = this.getRegistryEntry(agentType)
+      const npmPkg = this.resolveNpmPackage(entry)
+      if (!npmPkg) return null
+      const candidates = [
+        path.join(
+          CONFIG_DIR,
+          "runtimes",
+          agentType,
+          "node_modules",
+          npmPkg,
+          "package.json",
+        ),
+        path.join(PORTABLE_NODE_DIR, "node_modules", npmPkg, "package.json"),
+      ]
+      for (const c of candidates) {
+        try {
+          if (fs.existsSync(c)) {
+            const pkg = JSON.parse(fs.readFileSync(c, "utf-8"))
+            if (pkg?.version) return pkg.version
+          }
+        } catch {}
+      }
+      // Nothing in OUR prefixes means the CLI is installed globally — by npm
+      // with a different prefix, by pnpm/bun/yarn, or before the launcher
+      // existed. Reading the version off the binary we would actually spawn is
+      // the only honest answer for those, and without it `current` stayed null
+      // forever: isUpgradeAvailable(null, latest) is false, so a global install
+      // could never be told it was out of date. That is how a Codex old enough
+      // to be refused by the backend ("The 'gpt-5.6-sol' model requires a newer
+      // version of Codex") sat next to a marketplace reading "0 updates".
+      return this.globalInstalledVersion(agentType, npmPkg)
+    } catch {}
+    return null
+  }
+
+  /**
+   * The version of a globally-installed npm CLI, read from the package.json
+   * that owns its binary.
+   *
+   * `npm i -g @openai/codex` links <prefix>/bin/codex at
+   * <prefix>/lib/node_modules/@openai/codex/bin/codex.js; pnpm, bun and yarn
+   * use their own layouts but all of them leave the executable INSIDE its
+   * package. So: resolve the link, walk up, and accept the first package.json
+   * that actually claims to be this package — a name check, because a wrapper
+   * script could otherwise hand us the version of something unrelated. Pure
+   * filesystem work: no `--version` subprocess on a path the UI waits for.
+   */
+  private globalInstalledVersion(
+    agentType: string,
+    npmPkg: string,
+  ): string | null {
+    try {
+      const bin = this.deps.resolveBinary(agentType)
+      if (!bin) return null
+      let dir: string
+      try {
+        dir = path.dirname(fs.realpathSync(bin))
+      } catch {
+        dir = path.dirname(bin)
+      }
+      // npm's Windows global bin is a .cmd/.ps1 shim beside node_modules,
+      // not a symlink into the package. realpathSync therefore stays at the
+      // prefix root and walking upwards never reaches the package manifest.
+      if (/\.(cmd|ps1)$/i.test(bin)) {
+        const manifest = path.join(dir, "node_modules", npmPkg, "package.json")
+        try {
+          const pkg = JSON.parse(fs.readFileSync(manifest, "utf-8"))
+          if (pkg?.name === npmPkg && pkg?.version) return pkg.version
+        } catch {}
+      }
+      // Depth-limited: a package root is a handful of levels above its bin at
+      // most, and this must never walk out to an unrelated ancestor manifest.
+      for (let i = 0; i < 6; i++) {
+        const manifest = path.join(dir, "package.json")
+        try {
+          if (fs.existsSync(manifest)) {
+            const pkg = JSON.parse(fs.readFileSync(manifest, "utf-8"))
+            if (pkg?.name === npmPkg && pkg?.version) return pkg.version
+          }
+        } catch {}
+        const parent = path.dirname(dir)
+        if (parent === dir) break
+        dir = parent
+      }
+    } catch {}
+    return null
+  }
+
+  getRegistryEntry(agentType: string): Record<string, unknown> | null {
+    try {
+      const registry = this.deps.connector()?.registry as
+        Record<string, unknown> | undefined
+      if (!registry) return null
+      const getEntry = registry.getEntry as ((t: string) => unknown) | undefined
+      const entry = getEntry
+        ? (getEntry.call(registry, agentType) as Record<string, unknown> | null)
+        : null
+      return entry || null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Null for every agent the registry installs by script — see
+   * `resolveNpmPackage`, which owns the rule and explains why `install.binary`
+   * must never stand in for a package name. Callers already handle null by
+   * reporting no version information, which is the truth for those agents.
+   */
+  /**
+   * The exact version a registry entry pins itself to, or null.
+   *
+   * An entry declares `install.supported_version` when its adapter is written
+   * against ONE upstream release — the case today is deepseek, whose harness
+   * upstream ships as a developer preview that may break compatibility between
+   * previews. For those the newest published version is the wrong update
+   * target: installing it produces a runtime the adapter refuses to start.
+   */
+  supportedVersion(entry: Record<string, unknown> | null): string | null {
+    const install = entry?.install as Record<string, unknown> | undefined
+    const v = install?.supported_version
+    return typeof v === "string" && v ? v : null
+  }
+
+  resolveNpmPackage(entry: Record<string, unknown> | null): string | null {
+    if (!entry) return null
+    return resolveNpmPackage(
+      entry.install as Record<string, unknown> | undefined,
+      platformKey(),
+    )
+  }
+
+  /**
+   * Bring an installed agent up to the newest published version.
+   *
+   * This must NOT reuse `installAgentTypeStreaming` for ANY npm agent — the
+   * registry's command is an install command, and running it as an update is a
+   * no-op in both of its shapes:
+   *
+   *   - Bare `npm install -g <pkg>` (claude, codex, gemini). npm reads that as
+   *     "make sure this is installed": once package.json holds a satisfied
+   *     range — `--save` writes `^0.46.0` on first install — it prints "up to
+   *     date" and changes nothing.
+   *   - Pinned `npm install -g <pkg>@0.83.0` (pi, opencode). It reinstalls the
+   *     version the user already has. The pin is a fresh-install baseline in a
+   *     hand-maintained registry, so it goes stale as soon as upstream
+   *     publishes; treating it as the update target left the launcher offering
+   *     "Update to v0.84.1" and installing 0.83.0 every time, with the badge
+   *     never clearing.
+   *
+   * The version the UI advertises comes from npm's `latest` dist-tag
+   * (`_loadAgentUpdates`), so `latest` is the only target that keeps the button
+   * honest — both sides holding it back alike when the agents' Node cannot run
+   * it (see _heldBackVersion) — EXCEPT for an entry declaring
+   * `install.supported_version`, where
+   * the pin is the target for both the button and the badge (see
+   * `supportedVersion`). Non-npm installers (curl / pip / echo) keep the original pipeline:
+   * they have no version to pin and their scripts already fetch the newest
+   * build. Channel installs (beta / nightly) go through `installAtVersionTag`
+   * with their own tag and never reach here.
+   */
+  async updateAgentTypeStreaming(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<unknown> {
+    const entry = this.getRegistryEntry(agentType)
+    const npmPkg = this.resolveNpmPackage(entry)
+    if (npmPkg) {
+      // A pinned-preview agent updates TO ITS PIN, not to `latest`. Chasing
+      // latest here would install a preview the adapter then refuses to run,
+      // leaving the agent broken with no obvious way back.
+      const pinned = this.supportedVersion(entry)
+      // The user's own install is updated where it is, not shadowed by a
+      // second copy under ~/.openagents/.
+      const original = this.originalInstall(agentType)
+      if (original)
+        return this._updateOriginalInstall(
+          agentType,
+          npmPkg,
+          original,
+          pinned || "latest",
+          onData,
+        )
+      return this.installAtVersionTag(agentType, pinned || "latest", onData)
+    }
+    return this.installAgentTypeStreaming(agentType, onData)
+  }
+
+  // ── Install history ────────────────────────────────────────────
+
+  getInstalledHistory(): Record<string, InstalledAgentRecord> {
+    try {
+      if (fs.existsSync(INSTALLED_HISTORY_FILE)) {
+        const data = JSON.parse(
+          fs.readFileSync(INSTALLED_HISTORY_FILE, "utf-8"),
+        )
+        if (data && typeof data === "object") return data
+      }
+    } catch {}
+    return {}
+  }
+
+  private _writeInstalledHistory(
+    data: Record<string, InstalledAgentRecord>,
+  ): void {
+    try {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true })
+      fs.writeFileSync(
+        INSTALLED_HISTORY_FILE,
+        JSON.stringify(data, null, 2),
+        "utf-8",
+      )
+    } catch {}
+  }
+
+  recordInstall(agentType: string): void {
+    try {
+      const data = this.getInstalledHistory()
+      const version = this.getInstalledVersion(agentType)
+      const prev = data[agentType]
+      const history = prev?.history ? [...prev.history] : []
+      const versionChanged = !!(
+        prev?.version &&
+        version &&
+        prev.version !== version
+      )
+      if (versionChanged) {
+        history.unshift({
+          version: prev.version!,
+          installedAt: prev.installedAt,
+        })
+      }
+      // Only carry a previousVersion when the install actually changed the
+      // version. A reinstall / repair that lands on the same version must NOT
+      // record `previousVersion = currentVersion` — that self-referential
+      // pointer lights up `canRollback` and points `rollbackAgentType` at the
+      // same version we're already on. End result before this fix: a
+      // permanent "Roll back" button that no-op reinstalls the current
+      // version forever.
+      const nextPreviousVersion = versionChanged
+        ? prev!.version
+        : prev?.previousVersion && prev.previousVersion !== version
+          ? prev.previousVersion
+          : null
+      data[agentType] = {
+        name: agentType,
+        version,
+        installedAt: new Date().toISOString(),
+        previousVersion: nextPreviousVersion,
+        history: history.slice(0, 10),
+      }
+      this._writeInstalledHistory(data)
+    } catch {}
+  }
+
+  recordUninstall(agentType: string): void {
+    try {
+      const data = this.getInstalledHistory()
+      if (data[agentType]) {
+        delete data[agentType]
+        this._writeInstalledHistory(data)
+      }
+    } catch {}
+  }
+
+  /**
+   * An install this launcher recorded that is no longer on disk.
+   *
+   * The install history and the core's install markers are both WRITE-ONCE
+   * claims: "we installed this, at this version". Neither is re-checked against
+   * the filesystem, so an agent whose package went away — a failed update that
+   * wiped the old copy, an uninstall outside the app, antivirus, a wiped
+   * ~/.openagents — keeps reporting installed forever, at the version it was
+   * when it last worked. What the user then sees is an agent that is "installed
+   * v0.133.0" with an Update button, whose sign-in always fails, and no hint
+   * anywhere that the CLI simply isn't there. (Codex on Windows, 2026-08-17: the
+   * marketplace showed 0.133.0 while `where codex` found nothing at all.)
+   *
+   * Only npm-backed agents are judged — a script-installed CLI (Cursor, Hermes,
+   * Amp) has no package dir to check, and an API-only agent has no CLI at all,
+   * so for those the records stand. A globally-installed copy still counts, so
+   * the binary lookup gets the last word before we call an install gone.
+   */
+  installVanished(agentType: string): boolean {
+    try {
+      const npmPkg = this.resolveNpmPackage(this.getRegistryEntry(agentType))
+      if (!npmPkg) return false
+      if (this.getInstalledVersion(agentType)) return false
+      if (this.deps.resolveBinary(agentType)) return false
+      // Logged once per agent per session: this is the state where the UI used
+      // to say "installed v0.133.0" about a package that wasn't on the machine,
+      // and it is worth knowing whether an install went missing or never landed.
+      if (!this._vanishedLogged.has(agentType)) {
+        this._vanishedLogged.add(agentType)
+        appendDaemonLog(
+          `${agentType}: recorded as installed, but ${npmPkg} is not in either ` +
+            `runtime prefix and no binary resolves — treating it as not installed.`,
+        )
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+  private _vanishedLogged = new Set<string>()
+
+  listInstalledAgents(): InstalledAgentRecord[] {
+    const data = this.getInstalledHistory()
+    const out: InstalledAgentRecord[] = []
+    for (const name of Object.keys(data)) {
+      const r = data[name]
+      if (this.installVanished(name)) continue
+      // Disk first: the record is what we installed, the package.json is what is
+      // actually there now, and they part ways the moment anything updates the
+      // CLI from outside the launcher.
+      const version = this.getInstalledVersion(name) || r.version
+      // Auto-heal self-referential previousVersion / history entries written
+      // by the pre-fix recordInstall code. Without this scrub, machines
+      // upgraded from the buggy version keep seeing the Roll back button
+      // even though the only "previous" pointer points at themselves.
+      const cleanHistory = (r.history || []).filter(
+        (h) => h.version && h.version !== version,
+      )
+      const cleanPrev =
+        r.previousVersion && r.previousVersion !== version
+          ? r.previousVersion
+          : null
+      out.push({
+        ...r,
+        version,
+        history: cleanHistory,
+        previousVersion: cleanPrev,
+      })
+    }
+    return out
+  }
+
+  // ── Version-targeted installs ──────────────────────────────────
+
+  /**
+   * Install an npm-backed agent at an arbitrary version specifier (semver
+   * version, dist-tag, or anything `npm install pkg@<spec>` accepts).
+   * Powers both rollback (previous version) and update-channel installs
+   * (stage.md §2.5 — Beta / Nightly).
+   */
+  async installAtVersionTag(
+    agentType: string,
+    target: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; version: string | null; error?: string }> {
+    const entry = this.getRegistryEntry(agentType)
+    const npmPkg = this.resolveNpmPackage(entry)
+    if (!npmPkg)
+      return {
+        success: false,
+        version: null,
+        error: "Cannot determine npm package",
+      }
+
+    // An entry pinned with `supported_version` accepts exactly one release —
+    // its adapter refuses to start on any other. This is the execution
+    // boundary every other path funnels through (update, channel switch,
+    // rollback), so refusing here is what stops the Launcher from installing a
+    // runtime it will then be unable to run. Showing the pin in the UI is not
+    // enough on its own: rollback and the Beta/Nightly channels reach this
+    // method with a target of their own.
+    const supported = this.supportedVersion(entry)
+    if (supported && target !== supported) {
+      return {
+        success: false,
+        version: null,
+        error:
+          `${agentType} is pinned to ${supported} and cannot be installed at ` +
+          `"${target}". Upstream ships it as a developer preview whose ` +
+          `configuration can change between releases, so the adapter accepts ` +
+          `only that version.`,
+      }
+    }
+
+    await this._ensureNode(onData)
+
+    // `latest` means the newest release this machine can run, which is not
+    // always npm's `latest` — see _installableRelease.
+    const spec =
+      target === "latest"
+        ? (await this._installableRelease(npmPkg, onData))?.version || target
+        : target
+
+    const prefixDir = path.join(CONFIG_DIR, "runtimes", agentType)
+    fs.mkdirSync(prefixDir, { recursive: true })
+    const args = [
+      "install",
+      "--save",
+      "--prefix",
+      prefixDir,
+      // The audit and funding lookups are extra registry round trips that add
+      // nothing to a runtime install, and on a slow registry they dominate it.
+      "--no-audit",
+      "--no-fund",
+      `${npmPkg}@${spec}`,
+    ]
+
+    const run = await this._runNpm(args, prefixDir, onData)
+    if (!run.success) return { success: false, version: null, error: run.error }
+    // npm exits 0 with `ignore-scripts=true` in the user's npmrc, leaving the
+    // package's placeholder where its CLI should be. See finishNpmInstall.
+    const problem = await this._finishNpmInstall(agentType, onData)
+    if (problem) {
+      if (onData) onData(`\n${problem}\n`)
+      return { success: false, version: null, error: problem }
+    }
+    this._markInstalledInCore(agentType)
+    return this._finishInstall(agentType, npmPkg, spec, onData)
+  }
+
+  /** Bookkeeping after npm put a new version on disk, wherever it went. */
+  private _finishInstall(
+    agentType: string,
+    npmPkg: string,
+    spec: string,
+    onData: (data: string) => void,
+  ): { success: true; version: string } {
+    this.recordInstall(agentType)
+    this.deps.clearCatalogCache()
+    // Read what actually landed — for dist-tags the resolved version can
+    // differ from the input string ("beta" → "2.1.144-beta.3").
+    const resolved = this.getInstalledVersion(agentType) || spec
+    if (onData) onData(`\nInstalled ${npmPkg}@${resolved}.\n`)
+    return { success: true, version: resolved }
+  }
+
+  /** Run npm with the launcher's Node, streaming its output. */
+  private _runNpm(
+    args: string[],
+    cwd: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; error?: string }> {
+    // Invoke bundled `node npm-cli.js` directly (no shell) so non-ASCII home
+    // paths survive on Windows; see resolveNpmInvocation().
+    const inv = resolveNpmInvocation()
+    if (onData) onData(`$ npm ${args.join(" ")}\n\n`)
+
+    return new Promise((resolve) => {
+      const proc = spawn(inv.cmd, [...inv.preArgs, ...args], {
+        shell: inv.useShell,
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: withPathEnv(PORTABLE_NODE_DIR + path.delimiter + readPathEnv()),
+        windowsHide: true,
+      })
+      proc.stdout?.setEncoding("utf-8")
+      proc.stderr?.setEncoding("utf-8")
+      proc.stdout?.on("data", (d) => onData && onData(d))
+      proc.stderr?.on("data", (d) => onData && onData(d))
+      proc.on("error", (err) => resolve({ success: false, error: err.message }))
+      proc.on("close", (code) =>
+        resolve(
+          code === 0
+            ? { success: true }
+            : { success: false, error: `Install failed with code ${code}` },
+        ),
+      )
+    })
+  }
+
+  // ── Updating the user's own install ────────────────────────────
+
+  /**
+   * The user's own npm install of an agent, when that is the copy in use —
+   * one we did not place and have no managed copy of. Null for everything
+   * else, which updates into ~/.openagents/ as before.
+   */
+  originalInstall(agentType: string): OriginalInstall | null {
+    const npmPkg = this.resolveNpmPackage(this.getRegistryEntry(agentType))
+    if (!npmPkg || this._hasManagedCopy(agentType, npmPkg)) return null
+    return findOriginalInstall(this.deps.resolveBinary(agentType), npmPkg)
+  }
+
+  /** Where an update of this agent will go, for the UI to say before it runs. */
+  updateTarget(agentType: string): UpdateTarget {
+    const entry = this.getRegistryEntry(agentType)
+    const npmPkg = this.resolveNpmPackage(entry)
+    const install = npmPkg ? this.originalInstall(agentType) : null
+    if (!npmPkg || !install) return { kind: "managed" }
+    const spec = this.supportedVersion(entry) || "latest"
+    return {
+      kind: "original",
+      prefix: install.prefix,
+      elevation: install.elevation,
+      command: originalUpdateCommand(install, npmPkg, spec),
+    }
+  }
+
+  private _hasManagedCopy(agentType: string, npmPkg: string): boolean {
+    return [
+      path.join(CONFIG_DIR, "runtimes", agentType, "node_modules", npmPkg),
+      path.join(PORTABLE_NODE_DIR, "node_modules", npmPkg),
+    ].some((dir) => fs.existsSync(path.join(dir, "package.json")))
+  }
+
+  /** Update the user's own npm install in its own prefix. See original-install. */
+  private async _updateOriginalInstall(
+    agentType: string,
+    npmPkg: string,
+    install: OriginalInstall,
+    target: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; version: string | null; error?: string }> {
+    if (install.elevation === "manual") {
+      const command = originalUpdateCommand(install, npmPkg, target)
+      const error =
+        `${install.prefix} needs administrator rights to change. ` +
+        `Run this in a terminal opened as administrator:\n  ${command}`
+      onData(`${error}\n`)
+      return { success: false, version: null, error }
+    }
+
+    await this._ensureNode(onData)
+    const spec =
+      target === "latest"
+        ? (await this._heldBackVersion(npmPkg, onData)) || target
+        : target
+    const args = originalUpdateArgs(install.prefix, npmPkg, spec)
+
+    let run: { success: boolean; error?: string }
+    if (install.elevation === "prompt") {
+      const inv = resolveNpmInvocation()
+      onData(`$ sudo npm ${args.join(" ")}\n\n`)
+      const shell = elevatedShellCommand(
+        inv.cmd,
+        inv.preArgs,
+        args,
+        PORTABLE_NODE_DIR + path.delimiter + readPathEnv(),
+      )
+      const elevated = await runWithAdminPrompt(shell, onData)
+      run = elevated.cancelled
+        ? { success: false, error: "Administrator authorization was cancelled." }
+        : elevated
+    } else {
+      run = await this._runNpm(args, install.prefix, onData)
+    }
+    if (!run.success) return { success: false, version: null, error: run.error }
+    this._warnIfPlaceholder(agentType, npmPkg, onData)
+    return this._finishInstall(agentType, npmPkg, spec, onData)
+  }
+
+  /**
+   * npm exits 0 with `ignore-scripts=true` and leaves a package's placeholder
+   * as its CLI (see _finishNpmInstall). On the user's own global install that
+   * is only reported: running scripts in a prefix we do not manage is theirs
+   * to decide. Silent on a core too old to have the check.
+   */
+  private _warnIfPlaceholder(
+    agentType: string,
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): void {
+    const installer = this._connector.installer as {
+      isPostinstallStubAt?: (bin: string) => boolean
+    }
+    try {
+      if (typeof installer?.isPostinstallStubAt !== "function") return
+      const bin = this.deps.resolveBinary(agentType)
+      if (!bin || !installer.isPostinstallStubAt(bin)) return
+      onData(
+        `\nWarning: npm skipped ${npmPkg}'s install script (ignore-scripts), so ${bin} ` +
+          "is only a placeholder and will not run. Reinstall it with " +
+          `\`npm install -g ${npmPkg} --ignore-scripts=false\`, or allow install scripts for npm.\n`,
+      )
+    } catch (e) {
+      onData(`\nCould not check ${npmPkg}'s CLI after the update: ${(e as Error)?.message || e}\n`)
+    }
+  }
+
+  /**
+   * The core's check that an npm install which exited 0 left a real CLI, not
+   * the placeholder of a package whose postinstall was skipped — it runs the
+   * skipped script for that one package, and answers with what to tell the
+   * user when that fails. Null when all is well, and on a core too old to have
+   * the check.
+   */
+  private async _finishNpmInstall(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<string | null> {
+    const installer = this._connector.installer as {
+      finishNpmInstall?: (
+        type: string,
+        onData?: (d: string) => void,
+      ) => Promise<string | null>
+    }
+    try {
+      return typeof installer?.finishNpmInstall === "function"
+        ? await installer.finishNpmInstall(agentType, onData)
+        : null
+    } catch (e) {
+      if (onData)
+        onData(`\nCould not check the installed CLI: ${(e as Error)?.message || e}\n`)
+      return null
+    }
+  }
+
+  /**
+   * Bootstrap Node the way the core installer does before its own npm call.
+   * installAtVersionTag used to run only for updates and channel switches,
+   * where a runtime is already on disk; first installs land there too now, and
+   * on a machine with no Node its npm spawn would simply fail. A failure here
+   * is reported and swallowed — npm's own error says the rest.
+   */
+  private async _ensureNode(onData: (data: string) => void): Promise<void> {
+    const installer = this._connector.installer as {
+      hasNodejs?: () => boolean
+      installNodejs?: (onData?: (d: string) => void) => Promise<unknown>
+    }
+    try {
+      if (
+        typeof installer?.hasNodejs === "function" &&
+        !installer.hasNodejs() &&
+        typeof installer.installNodejs === "function"
+      ) {
+        await installer.installNodejs(onData)
+      }
+    } catch (e) {
+      if (onData) onData(`\nCould not prepare Node.js: ${String(e)}\n`)
+    }
+  }
+
+  /**
+   * The release to install instead of `latest` when `latest` refuses the Node
+   * agents run on here; null when `latest` is fine, or when there is no
+   * telling (no Node to ask, npm unreachable).
+   *
+   * Every npm agent is installed and run on the launcher's portable Node, and
+   * upstreams raise their floor without notice: openclaw 2026.9.3 moved to
+   * Node >=24.16 with a preinstall script that exits non-zero below it, so on
+   * the bundled Node 22 every update and every fresh install of it failed.
+   * The badge reads the same answer (_loadAgentUpdates), so what the button
+   * offers is what this installs.
+   */
+  private async _heldBackVersion(
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): Promise<string | null> {
+    const release = await this._installableRelease(npmPkg, onData)
+    return release?.heldBack ? release.version : null
+  }
+
+  /**
+   * The newest release agents here can run, and whether that is older than
+   * npm's `latest`; null when there is no telling (no Node to ask, npm
+   * unreachable).
+   */
+  private async _installableRelease(
+    npmPkg: string,
+    onData: (data: string) => void,
+  ): Promise<{ version: string; heldBack: boolean } | null> {
+    const node = await this._nodeVersion()
+    if (!node) return null
+    const info = await fetchNpmInfo(npmPkg, { abbreviated: true }).catch(() => null)
+    const latest = resolveLatestVersion(info)
+    const target = resolveInstallableVersion(info, node)
+    if (!latest || !target) return null
+    if (target !== latest && onData)
+      onData(
+        `${npmPkg}@${latest} requires Node ${nodeEngineRange(info, latest)}, ` +
+          `but agents here run on Node ${node} — installing ${target}, the ` +
+          `newest release that supports it.\n\n`,
+      )
+    return { version: target, heldBack: target !== latest }
+  }
+
+  /**
+   * Record the install in the CORE, which is also what drops its 30s
+   * binary-lookup and version caches.
+   *
+   * The core installer does this at the end of its own install; this method
+   * spawns npm directly and never reaches that code. Without it, a "dsh is not
+   * on PATH" answer cached before the install survives for up to 30 seconds
+   * afterwards — long enough for the agent's preflight to report
+   * runtime_missing on a runtime that is sitting on disk, and for an upgrade to
+   * keep reporting the old version.
+   *
+   * `_markInstalled` is reached through the installer instance the same way
+   * `installStreaming` and `hasNodejs` already are here. It is idempotent, and
+   * writing the core's own markers is correct: a real install did happen. The
+   * optional chaining keeps this a no-op against an older core that does not
+   * have the method.
+   */
+  private _markInstalledInCore(agentType: string): void {
+    try {
+      const installer = this._connector.installer as {
+        _markInstalled?: (type: string) => void
+      }
+      installer?._markInstalled?.(agentType)
+    } catch {
+      /* best effort — a stale cache is a delay, not a failure */
+    }
+  }
+
+  async rollbackAgentType(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<{ success: boolean; version: string | null; error?: string }> {
+    const data = this.getInstalledHistory()
+    const record = data[agentType]
+    const current = record?.version || this.getInstalledVersion(agentType)
+    // Resolve the first history / previousVersion entry that is *different*
+    // from the version currently on disk. Without this filter a stale
+    // previousVersion pointer (pre-fix history records carrying
+    // previousVersion === currentVersion) makes rollback re-install the
+    // same version and the UI keep offering Roll back forever.
+    const candidates = [
+      ...(record?.history || []).map((h) => h.version),
+      record?.previousVersion || null,
+    ].filter((v): v is string => !!v && v !== current)
+    const target = candidates[0]
+    if (!target)
+      return {
+        success: false,
+        version: null,
+        error: "No previous version to roll back to",
+      }
+
+    // Delegate to the shared install-at-version pipeline so rollback and
+    // channel switching share the same npm spawn + history recording path.
+    return this.installAtVersionTag(agentType, target, onData)
+  }
+
+  // ── Update checks ──────────────────────────────────────────────
+
+  async checkAgentUpdates(
+    options: { force?: boolean } = {},
+  ): Promise<AgentUpdateInfo[]> {
+    const now = Date.now()
+    const ttl = 60 * 60 * 1000
+    // Cache hit ONLY when the renderer didn't ask for a forced refresh,
+    // the cache holds something useful, and the entry is still inside the
+    // TTL. The previous implementation had this inverted: `!options.force`
+    // returned the cache unconditionally, even after `clearCatalogCache()`
+    // had reset it to `[]` — so the detail page silently lost the
+    // "Update to v…" button immediately after a rollback / install /
+    // uninstall, until the hourly background refresh re-populated the
+    // cache.
+    const cacheFresh =
+      this._updatesCache.value.length > 0 && now - this._updatesCache.at < ttl
+    if (!options.force && cacheFresh) {
+      // Registry lookups can stay cached, but a user may update a CLI outside
+      // the launcher at any time. Never cache the installed side of the pair.
+      return this._updatesCache.value.map((item) => ({
+        ...item,
+        current: this.resolveNpmPackage(this.getRegistryEntry(item.name))
+          ? this.getInstalledVersion(item.name)
+          : item.current,
+      }))
+    }
+
+    if (this._updatesCache.inFlight) return this._updatesCache.inFlight
+    this._updatesCache.inFlight = this._loadAgentUpdates()
+      .then((updates) => {
+        this._updatesCache = { value: updates, at: Date.now(), inFlight: null }
+        return updates
+      })
+      .catch((err) => {
+        this._updatesCache.inFlight = null
+        throw err
+      })
+    return this._updatesCache.inFlight
+  }
+
+  private async _loadAgentUpdates(): Promise<AgentUpdateInfo[]> {
+    // Use the full catalog (every entry with installed=true), not just the
+    // history file — agents installed globally / pre-launcher won't be in
+    // the history but are still installed and worth checking for updates.
+    const catalog = (await this.deps.getCatalog()) as Array<
+      Record<string, unknown>
+    >
+    const installedEntries = catalog.filter((e) => e.installed === true)
+    const historyByName = new Map(
+      this.listInstalledAgents().map((r) => [r.name, r.version]),
+    )
+    // Asked once for the whole list: every agent runs on the same Node.
+    const node = await this._nodeVersion()
+
+    return Promise.all(
+      installedEntries.map(async (entry) => {
+        const name = entry.name as string
+        const npmPkg = this.resolveNpmPackage(entry)
+        const current =
+          historyByName.get(name) || this.getInstalledVersion(name)
+        if (!npmPkg) return { name, current, latest: null }
+        // For a pinned-preview agent the pin IS the target, so the badge clears
+        // once the user is on it instead of advertising an update that the
+        // adapter would reject.
+        const pinned = this.supportedVersion(entry)
+        if (pinned) return { name, current, latest: pinned }
+        const info = await fetchNpmInfo(npmPkg, { abbreviated: true }).catch(() => null)
+        // The newest release this Node can run, which is what an update
+        // installs (see _heldBackVersion) — never a badge no update can clear.
+        return { name, current, latest: resolveInstallableVersion(info, node) }
+      }),
+    )
+  }
+
+  async getAgentChangelog(agentType: string): Promise<{
+    versions: Array<{ version: string; date?: string }>
+    homepage?: string
+    latest?: string | null
+    error?: string
+  }> {
+    const entry = this.getRegistryEntry(agentType)
+    const homepage = (entry?.homepage as string | undefined) || undefined
+    const npmPkg = this.resolveNpmPackage(entry)
+    // A code, not prose: the renderer turns this one into a translated
+    // explanation, while a genuine fetch failure below is passed through as the
+    // message it came with.
+    if (!npmPkg)
+      return { versions: [], homepage, latest: null, error: NO_NPM_PACKAGE }
+    try {
+      const [info, node] = await Promise.all([
+        fetchNpmInfo(npmPkg),
+        this._nodeVersion(),
+      ])
+      const time = info.time || {}
+      // Show pre-releases in the changelog list (useful for visibility), but
+      // return `latest` as the stable release an update would install — held
+      // back to what this Node can run, like the badge — so the detail page's
+      // "Update to vX" matches what actually lands.
+      const versions = sortedPublishedVersions(info, {
+        includePreRelease: true,
+      })
+        .slice(0, 12)
+        .map((v) => ({ version: v, date: time[v] }))
+      return {
+        versions,
+        homepage,
+        latest: resolveInstallableVersion(info, node),
+      }
+    } catch (e: unknown) {
+      return {
+        versions: [],
+        homepage,
+        latest: null,
+        error: (e as Error).message,
+      }
+    }
+  }
+}

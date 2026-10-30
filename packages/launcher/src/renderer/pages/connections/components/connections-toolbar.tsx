@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { FilterChips, SearchInput } from "@renderer/components/ui-kit"
+import { FilterChips, PageToolbar, SearchInput } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 
 import type { ConnectionFilter } from "../empty-state"
@@ -49,7 +49,7 @@ export function ConnectionsToolbar({
   const directionKey = ascending ? "connections.sort.asc" : "connections.sort.desc"
 
   return (
-    <div className="mb-4 flex items-center gap-2">
+    <PageToolbar>
       <SearchInput
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
@@ -95,6 +95,6 @@ export function ConnectionsToolbar({
         <RefreshCw className={cn(refreshing && "animate-spin")} />
         {t("connections.refresh")}
       </Button>
-    </div>
+    </PageToolbar>
   )
 }

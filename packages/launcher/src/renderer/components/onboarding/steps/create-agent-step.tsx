@@ -49,6 +49,18 @@ export function CreateAgentStep({
         }
       : { text: t("onboarding.flow.launch.noCredentials"), ok: true }
 
+  // Where the agent will land: the workspace this device is paired with, or
+  // local-only until connected from the Agents page.
+  const wsLine: PreviewLine = provision.pairedWorkspace
+    ? {
+        text: t("onboarding.flow.launch.willConnect", {
+          name:
+            provision.pairedWorkspace.name || provision.pairedWorkspace.slug,
+        }),
+        ok: true,
+      }
+    : { text: t("onboarding.flow.launch.localOnly"), ok: false }
+
   const lines: PreviewLine[] = [
     authLine,
     model
@@ -57,6 +69,7 @@ export function CreateAgentStep({
           text: `instance ${agentName.trim() || t("onboarding.flow.launch.unnamed")}`,
           ok: !!agentName.trim(),
         },
+    wsLine,
   ]
 
   return (
@@ -106,15 +119,8 @@ export function CreateAgentStep({
         {t("onboarding.flow.sections.launchPreview")}
       </SectionLabel>
       <div className="rounded-lg border border-(--border) bg-(--bg-card) p-4 font-mono text-xs">
-        <div className="flex gap-2">
-          <span className="text-(--accent)">$</span>
-          <span className="break-all">
-            openagents run {entry?.name || "agent"} --cwd{" "}
-            {agentFolder.trim() || "~"}
-          </span>
-        </div>
-        {lines.map((line) => (
-          <div key={line.text} className="mt-2 flex gap-2">
+        {lines.map((line, i) => (
+          <div key={line.text} className={i > 0 ? "mt-2 flex gap-2" : "flex gap-2"}>
             {line.ok ? (
               <Check className="mt-0.5 size-3 shrink-0 text-(--success)" />
             ) : (

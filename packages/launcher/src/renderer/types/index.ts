@@ -1,3 +1,7 @@
+import type { Release } from "../../shared/changelog"
+import type { ImportCandidate } from '../../shared/credential-import'
+import type { WorkspaceTabsSnapshot } from '../../shared/workspace-view'
+
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
 export interface HealthCheck {
@@ -23,8 +27,35 @@ export interface HealthCheck {
   execution_mode?: string
 }
 
+/**
+ * Progress of an in-app CLI sign-in (main/cli-login.ts). "browser" carries the
+ * authorize URL, "code" means the CLI is blocked waiting for the code the
+ * browser showed, and "terminal" means it couldn't be hosted in-app and a real
+ * terminal window was opened instead.
+ */
+export interface CliLoginEvent {
+  agentType: string
+  phase:
+    | "starting"
+    | "browser"
+    | "code"
+    | "verifying"
+    | "success"
+    | "failed"
+    | "cancelled"
+    | "terminal"
+  url?: string
+  message?: string
+}
+
 export interface Agent {
+  /** Identity. Keys config, working dir, sessions and workspace membership. */
   name: string
+  /**
+   * Label to show instead of `name`, when the user has set one. Never use it
+   * to address an agent — every API still takes `name`.
+   */
+  displayName?: string | null
   type: string
   state: AgentState
   health: HealthCheck | null
@@ -34,11 +65,51 @@ export interface Agent {
   runtimeMismatch?: boolean
   restarts?: number
   env?: Record<string, string>
+  /**
+   * The model this agent runs on, resolved in the main process from the type
+   * env merged with the instance env above (see `deriveModelFromEnv`). The
+   * instance env alone is not the answer: most agents are configured at the
+   * type level and carry none.
+   */
+  model?: string | null
   path?: string
   // True when the agent type has an interactive CLI that can be opened in a
   // terminal. API-only types (e.g. kimi) are false — the "Chat" action hides.
   hasCli?: boolean
 }
+
+/** One model an agent can be pointed at (main: agents/model-catalog). */
+export interface ModelChoice {
+  id: string
+  label?: string
+  note?: string
+  deprecated?: boolean
+}
+
+/** Where the model list came from — the UI says so rather than implying truth. */
+export interface ModelListResult {
+  models: ModelChoice[]
+  source: "cli" | "api" | "builtin" | "none"
+  error?: string
+  /** Translatable reason for an empty list; `error` is the raw fallback. */
+  code?:
+    | "need_key"
+    | "need_login"
+    | "no_list"
+    | "cli_missing"
+    | "cli_timeout"
+    | "cli_failed"
+    | "cli_empty"
+  /** The id to preselect while the field is empty. */
+  recommended?: string
+}
+
+/**
+ * Which auth path a model picker is attached to. The list follows the path: the
+ * API-key form lists what that endpoint serves even when the same agent is
+ * signed in through its CLI on this machine.
+ */
+export type ModelListPath = "key" | "login"
 
 export interface EnvField {
   name: string
@@ -47,6 +118,8 @@ export interface EnvField {
   password?: boolean
   placeholder?: string
   default?: string
+  /** Optional fixed choices. Fields without options remain free-form inputs. */
+  options?: string[]
 }
 
 /**
@@ -66,6 +139,50 @@ export interface OnboardingAgent {
   envFields: EnvField[]
   docsUrl: string | null
   notReadyMessage: string | null
+}
+
+/** One workspace this device is registered with as a node. */
+export interface NodeConnection {
+  nodeId: string
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+}
+
+/**
+ * This device's registrations ("connect a node"): paired with a code from the
+ * workspace's Connect Agent → Nodes view, after which the workspace can install
+ * and run agents here remotely.
+ *
+ * A device can be a node in several workspaces at once, so `workspaces` is the
+ * real answer; the singular fields describe the most recent pairing.
+ */
+export interface NodeStatus {
+  connected: boolean
+  nodeId: string | null
+  workspaceId: string | null
+  workspaceSlug: string | null
+  workspaceName: string | null
+  endpoint: string | null
+  hostname: string
+  deviceType: string
+  /** Every workspace this device is paired to, most recent first. */
+  workspaces: NodeConnection[]
+  /**
+   * Workspaces that removed this device. The local entry and its agent
+   * bindings go with the pairing, so these name workspaces that are no longer
+   * in the list — kept so the launcher can say what happened to them.
+   */
+  revoked: RevokedPairing[]
+}
+
+export interface RevokedPairing {
+  workspaceId: string
+  workspaceSlug: string | null
+  workspaceName: string | null
+  /** Agents unbound with it; re-joining files them back under the workspace. */
+  agents?: string[]
 }
 
 export interface CatalogEntry {
@@ -143,7 +260,45 @@ export interface AgentUpdateInfo {
   changelog?: Array<{ version: string; date?: string }>
 }
 
+/**
+ * Where "Update" puts the new version. `original`: the user's own npm install,
+ * updated in its own prefix — `elevation` says whether that needs the macOS
+ * admin prompt or a command the user runs themselves. `managed`: a copy under
+ * ~/.openagents/.
+ */
+export type AgentUpdateTarget =
+  | { kind: "managed" }
+  | {
+      kind: "original"
+      prefix: string
+      elevation: "none" | "prompt" | "manual"
+      command: string
+    }
+
 export type InstallPhase = 'idle' | 'preparing' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
+
+/**
+ * One dependency an agent's installer needs but the machine does not have,
+ * as reported by the core's install preflight. `action` names a fix the
+ * launcher can perform itself (currently only 'install-xcode-clt').
+ */
+export interface PrereqRemedy {
+  name: string
+  action: string | null
+  summary: string
+  command: string
+  alternative: string | null
+  /**
+   * Key for the localized wording of `summary`; `summary` itself is the
+   * English fallback the core also writes to the CLI and the install log.
+   */
+  summaryKey?: string
+  /**
+   * Which tool `alternative` uses ("homebrew", "winget", "pipx"), so the row
+   * can be labelled for the platform the user is actually on.
+   */
+  alternativeKind?: string | null
+}
 
 export interface InstallProgressEvent {
   agent: string
@@ -152,6 +307,10 @@ export interface InstallProgressEvent {
   detail?: string
   log?: string
   error?: string
+  /** Set when the install was refused because a dependency is missing. */
+  missing?: PrereqRemedy[]
+  /** This run's log file under ~/.openagents/installs/. */
+  logFile?: string
 }
 
 export interface Workspace {
@@ -296,6 +455,19 @@ export interface UpdaterState {
    * so the UI can offer a manual download instead of another no-op restart.
    */
   installFailedVersion: string | null
+  /**
+   * What the offered version changes, fetched from the update feed by main.
+   * Null while it loads, and for releases that published no notes — the UI
+   * falls back to announcing the version alone.
+   */
+  pendingRelease: Release | null
+  pendingReleaseLoading?: boolean
+  /**
+   * The "Download updates automatically" setting. It decides which surface
+   * announces an update: on → the banner reports the download already running;
+   * off → the prompt asks before anything is fetched.
+   */
+  autoDownload: boolean
 }
 
 // ── Chat ──
@@ -389,6 +561,47 @@ export interface PythonStatus {
   runtime: string
 }
 
+/** A completed Tencent Captcha run (ticket + randstr) for the email forms. */
+export interface CaptchaPass {
+  ticket: string
+  randstr: string
+}
+
+/** Whether the account service requires the captcha, from GET /v1/auth/captcha-config. */
+export interface CaptchaConfig {
+  enabled: boolean
+  appId: string | null
+  scriptUrl: string
+  surfaces: { register?: boolean; login?: boolean }
+}
+
+/** The signed-in user, as main reports them. Never carries the token itself. */
+export interface AccountInfo {
+  email: string
+  displayName: string | null
+  /** Unix seconds. */
+  expiresAt: number
+}
+
+/** One membership from GET /v1/account/workspaces — the account scope. */
+export interface AccountWorkspace {
+  workspaceId: string
+  name: string
+  slug: string
+  /** Shared access token; null for a viewer or a workspace without one. */
+  token: string | null
+  role: "owner" | "admin" | "member" | "viewer"
+  lastActivityAt: string | null
+}
+
+/** Where in the renderer's layout the embedded workspace page is drawn. */
+export interface ViewBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -402,8 +615,12 @@ declare global {
       listAgents(): Promise<Agent[]>
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
-      addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
-      removeAgent(name: string): Promise<unknown>
+      addAgent(config: { name: string; type: string; path?: string; env?: Record<string, string> }): Promise<unknown>
+      removeAgent(
+        name: string,
+        opts?: { fromWorkspace?: boolean },
+      ): Promise<unknown>
+      renameAgent(name: string, displayName: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
       setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>
       startAgent(name: string): Promise<unknown>
@@ -412,7 +629,7 @@ declare global {
       stopAll(): Promise<unknown>
       agentStatus(): Promise<Record<string, { state: AgentState; last_error?: string; restarts?: number }>>
       agentLogs(name: string, lines: number): Promise<{ lines: string[] }>
-      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number }>
+      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number; reset?: boolean }>
       clearLogsInRange(start: string, end: string): Promise<{ removed: number; remaining: number }>
       installAgentType(type: string): Promise<unknown>
       installAgentTypeStreaming(type: string): Promise<unknown>
@@ -425,12 +642,9 @@ declare global {
       checkAgentType(type: string): Promise<{ installed: boolean; binary: string | null }>
       getCatalog(force?: boolean): Promise<CatalogEntry[]>
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
+      getAgentUpdateTarget(type: string): Promise<AgentUpdateTarget>
       checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
-      installAgentTypeAtVersionStreaming(
-        type: string,
-        target: string,
-      ): Promise<{ success: boolean; version?: string | null; error?: string }>
       getAgentChangelog(type: string): Promise<{ versions: Array<{ version: string; date?: string }>; homepage?: string; latest?: string | null; error?: string }>
       getEnvFields(type: string): Promise<EnvField[]>
       getAgentEnv(type: string): Promise<Record<string, string>>
@@ -438,41 +652,83 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      testLLM(env: Record<string, string>): Promise<{
+        success: boolean
+        model?: string
+        response?: string
+        error?: string
+        /** Nothing to test — a hosted platform, not a failed credential. */
+        unsupported?: boolean
+        /** Keys `agents.credentials.unprobeable.<reason>` for the copy. */
+        reason?: string
+      }>
+      listModels(
+        agentType: string,
+        env: Record<string, string>,
+        path?: ModelListPath,
+        /** `refresh` asks the CLI again instead of reusing a recent answer. */
+        opts?: { refresh?: boolean },
+      ): Promise<ModelListResult>
+      /** Keys on this machine this agent's form can take, masked. */
+      scanCredentialImports(agentType: string): Promise<ImportCandidate[]>
+      parseCredentialImport(
+        agentType: string,
+        text: string,
+      ): Promise<ImportCandidate[]>
+      /** One candidate as form values — the only call that returns a key. */
+      resolveCredentialImport(
+        agentType: string,
+        id: string,
+      ): Promise<Record<string, string> | null>
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>
-      removeWorkspace(slug: string): Promise<unknown>
+      /**
+       * Always unpairs this device from the workspace on the server and drops
+       * the local record; `deleteRemote` also deletes the workspace itself,
+       * for every member.
+       */
+      removeWorkspace(
+        slug: string,
+        opts?: { deleteRemote?: boolean },
+      ): Promise<{
+        success: boolean
+        unpaired: boolean
+        deleted: boolean
+        warning: string | null
+      }>
       listWorkspaces(): Promise<Workspace[]>
-      createWorkspace(name: string): Promise<{ token?: string; slug?: string }>
+      /** Renames it on the server, for every member — not a local alias. */
+      renameWorkspace(
+        workspaceId: string,
+        name: string,
+      ): Promise<{ id: string; slug: string; name: string }>
       getOnboardingAgents(): Promise<OnboardingAgent[]>
       consumeOnboardingReset(): Promise<boolean>
       provisionFirstAgent(opts: {
         agentType: string
         agentName: string
         path?: string | null
-        workspaceName?: string | null
-      }): Promise<{
-        agentName: string
-        workspaceSlug: string | null
-        workspaceName: string | null
-        warning: string | null
-      }>
-      registerWorkspaceFromToken(input: {
-        url?: string
-        token?: string
-        slug?: string
-      }): Promise<{
-        id?: string
-        slug?: string
-        name?: string
-        endpoint?: string
-        token?: string
-      }>
+        env?: Record<string, string>
+      }): Promise<{ agentName: string; warning: string | null }>
+      getNodeStatus(): Promise<NodeStatus>
+      /** Same, but verified against the workspace first (throttled). */
+      refreshNodeStatus(force?: boolean): Promise<NodeStatus>
+      connectNode(
+        code: string,
+        opts?: { name?: string; deviceType?: string },
+      ): Promise<NodeStatus & { warning: string | null }>
+      /** Forget the notice that a workspace removed this device. */
+      dismissNodeRevocation(workspaceId: string): Promise<NodeStatus | null>
       getSetting(key: string): Promise<unknown>
       setSetting(key: string, value: unknown): Promise<unknown>
       /** Themes the OS-drawn window frame to match the app's theme. */
       setThemeSource(mode: "light" | "dark" | "system"): Promise<unknown>
+      /**
+       * Dims the Windows/Linux window-controls overlay while a dialog scrims
+       * the page. No-op on macOS, whose traffic lights AppKit tints itself.
+       */
+      setChromeDimmed(dim: boolean): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{
@@ -483,6 +739,16 @@ declare global {
       }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
+      /** Empties Chromium's HTTP/image cache. `freed` is bytes reclaimed. */
+      clearAppCache(): Promise<{ ok: boolean; freed?: number; error?: string }>
+      /** The running app's version, e.g. "0.9.9" — cheap, unlike systemInfo. */
+      appVersion(): Promise<string>
+      /**
+       * Whether this profile ran the launcher before this launch, judged from
+       * the settings file as it was at boot. Answers "upgrade or fresh
+       * install?" for anything with no record of its own to go on.
+       */
+      hasRunBefore(): Promise<boolean>
       /** Quits and starts the app again — for launch-time settings like GPU. */
       relaunchApp(): Promise<boolean>
       /** Reachability probe for a workspace URL. `error` is a code, not prose. */
@@ -507,7 +773,18 @@ declare global {
       refreshLogin(type: string): Promise<HealthCheck>
       clearLoginKey(type: string, agentName?: string): Promise<{ success: boolean }>
       openExternal(url: string): Promise<void>
+      installXcodeCommandLineTools(): Promise<{ ok: boolean; error?: string }>
       openTerminal(cmd: string): Promise<void>
+
+      // ── In-app CLI sign-in ──
+      /** Runs `<cli> login` inside the launcher; falls back to a terminal. */
+      startCliLogin(
+        type: string,
+        opts?: { terminal?: boolean },
+      ): Promise<{ mode: "in-app" | "terminal" }>
+      submitCliLoginCode(type: string, code: string): Promise<void>
+      cancelCliLogin(type: string): Promise<void>
+      onCliLoginEvent(cb: (ev: CliLoginEvent) => void): () => void
       openAgentTerminal(agentName: string): Promise<void>
       updateCore(): Promise<{ success: boolean; version?: string; error?: string }>
       onCoreUpdate(cb: (info: { current: string; latest: string }) => void): void
@@ -637,6 +914,63 @@ declare global {
         issueNumber: number
         body: string
       }): Promise<{ ok: boolean; result?: unknown; error?: string }>
+
+      // ── Account ──
+      getAccount(): Promise<AccountInfo | null>
+      /** Opens the browser and resolves when the sign-in comes back. */
+      signIn(): Promise<AccountInfo>
+      /** Whether the email forms must run the Tencent captcha first. */
+      getCaptchaConfig(): Promise<CaptchaConfig>
+      /** In-app sign-in; only for accounts that have a password. */
+      signInWithPassword(email: string, password: string, captcha?: CaptchaPass): Promise<AccountInfo>
+      /** Create an email account and open its Workspace session. */
+      signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
+      cancelSignIn(): Promise<void>
+      /**
+       * Has All Workspaces confirm the sign-out in its own dialog. False when
+       * that page is not on screen and ready to ask.
+       */
+      requestSignOut(): Promise<boolean>
+      signOut(): Promise<void>
+      listAccountWorkspaces(): Promise<AccountWorkspace[]>
+      /** A sign-in that had to move to the browser (Google, GitHub). */
+      onSignInExternal(cb: () => void): () => void
+      onSignInFailed(cb: (info: { message: string }) => void): () => void
+      onAccountChanged(cb: (account: AccountInfo | null) => void): () => void
+
+      // ── Embedded workspace view ──
+      showWorkspaceView(
+        target: string | null,
+        bounds: ViewBounds,
+        token?: string | null,
+        sessionId?: string | null,
+        /** What to call a new tab until its page names the workspace. */
+        title?: string | null,
+      ): Promise<void>
+      setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
+      /** Push the launcher's theme/language to the hosted workspace. */
+      syncAppearance(next: { theme: string; language: string }): Promise<void>
+      /** The hosted workspace changed one of them. */
+      onAppearanceChanged(
+        cb: (next: { theme?: string; language?: string }) => void,
+      ): () => void
+      hideWorkspaceView(): Promise<void>
+      /** Repeat a launcher toast inside the Workspace; ignored when it is not on screen. */
+      showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
+      reloadWorkspaceView(): Promise<void>
+      openWorkspaceHome(): Promise<void>
+      getWorkspaceTabs(): Promise<WorkspaceTabsSnapshot>
+      activateWorkspaceTab(id: string): Promise<void>
+      /** Closes the page only; the workspace and this device's connection stay. */
+      closeWorkspaceTab(id: string): Promise<void>
+      retryWorkspaceTab(id: string): Promise<void>
+      /** Reorders the strip: the tab ends up at `index` among the open tabs. */
+      moveWorkspaceTab(id: string, index: number): Promise<void>
+      showWorkspaceTabMenu(position: { x: number; y: number }): Promise<void>
+      /** Reload, close, close others, close to the right, close all. */
+      showWorkspaceTabContextMenu(id: string): Promise<void>
+      onWorkspaceTabsChanged(cb: (snapshot: WorkspaceTabsSnapshot) => void): () => void
+      onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }
 }

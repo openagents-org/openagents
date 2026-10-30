@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { Agent } from "@renderer/types"
 import { deriveModel } from "@renderer/lib/agent-model"
+import { stateKeyOf, type StateKey } from "@renderer/lib/agent-state"
 import { useAgentActivity } from "./use-agent-activity"
 
 export const AGENT_FILTERS = ["all", "running", "error", "disconnected"] as const
@@ -15,9 +16,8 @@ export type AgentView = (typeof AGENT_VIEWS)[number]
 
 export const PAGE_SIZES = [10, 20, 50] as const
 
-const RUNNING_STATES = ["online", "running", "idle"]
-
-export type AgentStatus = "running" | "error" | "stopped" | "disconnected"
+/** The list shows the same five process states the dashboard does. */
+export type AgentStatus = StateKey
 
 export interface AgentRow {
   agent: Agent
@@ -28,20 +28,11 @@ export interface AgentRow {
   /** How the agent authenticates, once a health check has reported it. */
   auth: "api_key" | "cli_login" | null
   workspace: string | null
+  /** What the process is doing. Membership is `connected`, not a status. */
   status: AgentStatus
+  /** Whether the agent belongs to a workspace at all. */
+  connected: boolean
   lastActiveAt: string | null
-}
-
-/**
- * Status precedence. An agent with no workspace is "not connected" whatever
- * its process state — connecting it is the next thing to do either way, and
- * that is what the row's action offers.
- */
-function deriveStatus(agent: Agent): AgentStatus {
-  if (!agent.network) return "disconnected"
-  if (agent.state === "error" || agent.lastError) return "error"
-  if (RUNNING_STATES.includes(agent.state)) return "running"
-  return "stopped"
 }
 
 export interface AgentsView {
@@ -105,7 +96,8 @@ export function useAgentsView(
             ? "cli_login"
             : null,
         workspace: agent.networkName || agent.network || null,
-        status: deriveStatus(agent),
+        status: stateKeyOf(agent),
+        connected: !!agent.network,
         lastActiveAt: lastActive[agent.name] || null,
       })),
     [agents, labels, lastActive],
@@ -119,9 +111,9 @@ export function useAgentsView(
       disconnected: 0,
     }
     for (const r of allRows) {
-      if (r.status === "running") c.running += 1
+      if (r.status === "running" || r.status === "idle") c.running += 1
       else if (r.status === "error") c.error += 1
-      else if (r.status === "disconnected") c.disconnected += 1
+      if (!r.connected) c.disconnected += 1
     }
     return c
   }, [allRows])
@@ -129,7 +121,18 @@ export function useAgentsView(
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
     const out = allRows.filter((r) => {
-      if (filter !== "all" && r.status !== filter) return false
+      // "disconnected" asks about membership, the others about the process —
+      // an agent with no workspace can still be running, and both tabs are
+      // entitled to it.
+      if (filter !== "all") {
+        const inTab =
+          filter === "disconnected"
+            ? !r.connected
+            : filter === "running"
+              ? r.status === "running" || r.status === "idle"
+              : r.status === filter
+        if (!inTab) return false
+      }
       if (!q) return true
       return (
         r.agent.name.toLowerCase().includes(q) ||
@@ -141,9 +144,11 @@ export function useAgentsView(
     })
     const STATUS_ORDER: AgentStatus[] = [
       "error",
+      "starting",
       "running",
-      "stopped",
-      "disconnected",
+      "idle",
+      "offline",
+      "notConnected",
     ]
     out.sort((a, b) => {
       if (sort === "name") return a.agent.name.localeCompare(b.agent.name)

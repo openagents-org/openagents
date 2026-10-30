@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { useAgentsStore } from "@renderer/store/agents"
 import { useInstallStore, type InstallJob } from "@renderer/store/install"
-import {
-  useAgentChannel,
-  channelToDistTag,
-  type UpdateChannel,
-} from "@renderer/hooks/useAgentChannel"
 import { installErrorMessage, throwIfInstallFailed } from "@renderer/utils/installErrors"
 import type {
-  Agent,
   AgentUpdateInfo,
   CatalogEntry,
-  EnvField,
   HealthCheck,
   InstalledAgentRecord,
 } from "@renderer/types"
@@ -36,15 +28,14 @@ interface Options {
 }
 
 interface AgentDetailView {
-  envFields: EnvField[]
-  envValues: Record<string, string>
-  setEnvValues: (next: Record<string, string>) => void
+  /**
+   * True until this agent's own state has been read. The rail and the status
+   * badge answer "is there an update" from it, and neither may guess: the
+   * facts arrive together, a few hundred ms in.
+   */
+  loading: boolean
   installed: InstalledAgentRecord | null
   changelog: Changelog
-  /** True once at least one agent of this type exists — hides the wizard. */
-  hasInstance: boolean
-  channel: UpdateChannel
-  setChannel: (next: UpdateChannel) => void
   job: InstallJob | undefined
   currentVersion: string | null
   latestVersion: string | null
@@ -67,8 +58,6 @@ export function useAgentDetail({
   showToast,
 }: Options): AgentDetailView {
   const { t } = useTranslation()
-  const [envFields, setEnvFields] = useState<EnvField[]>([])
-  const [envValues, setEnvValues] = useState<Record<string, string>>({})
   const [installed, setInstalled] = useState<InstalledAgentRecord | null>(null)
   const [update, setUpdate] = useState<AgentUpdateInfo | null>(null)
   const [health, setHealth] = useState<HealthCheck | null>(null)
@@ -77,28 +66,34 @@ export function useAgentDetail({
     latest: null,
     loading: true,
   })
+  /**
+   * Which agent the state above actually describes. Not a boolean: the fetch
+   * re-runs on the same agent (after an install finishes) and must not blank
+   * the rail each time, while switching agents must not show the previous
+   * one's answers for a frame.
+   */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
-  const setStoreAgents = useAgentsStore((s) => s.setAgents)
-  // Read from the shared agents store so other tabs' polling and the wizard's
-  // own post-create refresh both flip this reactively — a snapshot taken on
-  // mount went stale the moment the wizard created an instance.
-  const hasInstance = useAgentsStore((s) =>
-    s.agents.some((a) => a.type === entry.name),
-  )
-  const { channel, setChannel } = useAgentChannel(entry.name)
   const job = useInstallStore((s) => s.jobs[entry.name])
   const jobPhase = job?.phase
+  // Seeded from what the marketplace list already fetched, so arriving from it
+  // — the way most people get here — renders the right buttons at once, not a
+  // spinner over facts we hold. Only PRESENCE counts: an agent missing
+  // from `updates` may be one the background probe has not reached yet, which
+  // is not the same as an agent that is up to date.
+  const storeInstalled = useInstallStore(
+    (s) => s.installed.find((i) => i.name === entry.name) || null,
+  )
+  const storeUpdate = useInstallStore(
+    (s) => s.updates.find((u) => u.name === entry.name) || null,
+  )
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [fields, savedEnv, list, updates, change, healthInfo, agents] =
+        const [list, updates, change, healthInfo] =
           await Promise.all([
-            window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
-            window.api
-              .getAgentEnv(entry.name)
-              .catch(() => ({}) as Record<string, string>),
             window.api.getInstalledAgents().catch(() => []),
             window.api.checkAgentUpdates().catch(() => []),
             window.api.getAgentChangelog(entry.name).catch(() => ({
@@ -110,18 +105,11 @@ export function useAgentDetail({
             entry.installed
               ? window.api.healthCheck(entry.name).catch(() => null)
               : Promise.resolve(null),
-            window.api.listAgents().catch(() => [] as Agent[]),
           ])
         if (cancelled) return
-        setEnvFields(fields || [])
-        setEnvValues({ ...(savedEnv || {}) })
         setInstalled(list.find((i) => i.name === entry.name) || null)
         setUpdate(updates.find((u) => u.name === entry.name) || null)
         setHealth(healthInfo)
-        // Bootstrap the agents store from this fetch so a first visit to the
-        // marketplace (before Agents/Dashboard populated it) still resolves
-        // `hasInstance` correctly.
-        setStoreAgents(agents)
         setChangelog({
           versions: change.versions || [],
           homepage: change.homepage,
@@ -129,29 +117,28 @@ export function useAgentDetail({
           error: change.error,
           loading: false,
         })
+        setLoadedFor(entry.name)
       } catch {
-        if (!cancelled) setChangelog((s) => ({ ...s, loading: false }))
+        if (cancelled) return
+        setChangelog((s) => ({ ...s, loading: false }))
+        // Failed is still answered: what we know is what we have, and holding
+        // skeletons forever would be worse than showing it.
+        setLoadedFor(entry.name)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [entry.name, entry.installed, jobPhase, setStoreAgents])
+  }, [entry.name, entry.installed, jobPhase])
 
   const startInstall = useCallback(
     async (verb: "install" | "update") => {
       useInstallStore.getState().startJob({ agent: entry.name, verb })
       try {
-        // A non-stable channel routes through the version-tag IPC so npm pulls
-        // that dist-tag; stable uses the regular pipeline, which pins @latest
-        // itself for npm-packaged agents.
-        const tag = channelToDistTag(channel)
         // The install IPC resolves with { success:false, error } rather than
         // rejecting, so an unchecked await would fall through to the success
         // path — marking the agent installed even when the CLI never landed.
-        const result = tag
-          ? await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
-          : await window.api.installAgentTypeStreaming(entry.name)
+        const result = await window.api.installAgentTypeStreaming(entry.name)
         throwIfInstallFailed(result)
         showToast(
           t("agents.detail.toast.installSuccess", {
@@ -160,7 +147,6 @@ export function useAgentDetail({
               verb === "update"
                 ? t("agents.detail.toast.updated")
                 : t("agents.detail.toast.installed"),
-            tag: tag ? ` (${tag})` : "",
           }),
           "success",
         )
@@ -175,7 +161,7 @@ export function useAgentDetail({
         )
       }
     },
-    [entry, channel, onAfterInstall, showToast, t],
+    [entry, onAfterInstall, showToast, t],
   )
 
   const startUninstall = useCallback(
@@ -187,7 +173,10 @@ export function useAgentDetail({
           try {
             await window.api.deleteAgentEnv(entry.name)
           } catch {
-            /* non-fatal — the uninstall itself already succeeded */
+            // The uninstall itself succeeded, so this is not fatal — but it is
+            // a credential the user asked us to delete and we did not. Saying
+            // nothing would leave them believing it is gone.
+            showToast(t("agents.detail.toast.configNotRemoved"), "warning")
           }
         }
         // The uninstall only ever removes what the launcher put under
@@ -248,22 +237,24 @@ export function useAgentDetail({
     }
   }, [job?.log, showToast, t])
 
+  const record = installed || storeInstalled
+  const latestVersion =
+    update?.latest || storeUpdate?.latest || changelog.latest || null
+
   return {
-    envFields,
-    envValues,
-    setEnvValues,
-    installed,
+    // An agent that is not installed has one button, and the catalog already
+    // said so. The wait only applies to the installed case, where which button
+    // belongs here depends on a version comparison we cannot make yet.
+    loading: !!entry.installed && loadedFor !== entry.name && !latestVersion,
+    installed: record,
     changelog,
-    hasInstance,
-    channel,
-    setChannel,
     job,
-    currentVersion: installed?.version || health?.version || null,
+    currentVersion: update?.current || storeUpdate?.current || health?.version || record?.version || null,
     // Where the CLI resolved to. Only interesting for an install outside
     // ~/.openagents/, where it is the difference between "the button is broken"
     // and "there is a second copy over here".
     binaryPath: health?.binary || null,
-    latestVersion: update?.latest || changelog.latest || null,
+    latestVersion,
     startInstall,
     startUninstall,
     startRollback,

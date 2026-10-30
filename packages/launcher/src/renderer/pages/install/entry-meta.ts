@@ -68,3 +68,24 @@ export function platformsOf(entry: CatalogEntry): string[] {
 export function isJobBusy(job: InstallJob | undefined): boolean {
   return !!job && job.phase !== "done" && job.phase !== "error"
 }
+
+/**
+ * Whether a catalog row answers a marketplace search.
+ *
+ * `tags` are in the haystack on purpose, and they are the only reason some
+ * agents are findable at all: CodeBuddy Code is the engine behind Tencent's
+ * WorkBuddy desktop app, and a user who knows it by that name types
+ * "workbuddy" — a word that appears nowhere in its name. Same shape for any
+ * agent whose product name and CLI name differ.
+ *
+ * Kept here, and tested against the registry the launcher actually ships,
+ * so a tag dropped from an entry fails a test rather than quietly making an
+ * agent unsearchable.
+ */
+export function matchesSearch(entry: CatalogEntry, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const haystack =
+    `${entry.name} ${entry.label || ""} ${entry.description || ""} ${(entry.tags || []).join(" ")}`.toLowerCase()
+  return haystack.includes(q)
+}

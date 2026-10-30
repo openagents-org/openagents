@@ -1,29 +1,58 @@
-export type Step = 0 | 1 | 2 | 3 | 4
-
-/** Human-readable step names so the funnel reads clearly in PostHog. */
-export const STEP_NAMES: Record<Step, string> = {
-  0: "welcome",
-  1: "select_agent",
-  2: "configure",
-  3: "create_agent",
-  4: "connect_workspace",
-}
+export type StepId =
+  | "welcome"
+  | "pairNode"
+  | "agent"
+  | "configure"
+  | "createAgent"
 
 /**
- * Rail order. The index IS the `Step`, and each id keys both the step title
- * (`onboarding.flow.progress.<id>`) and its one-line rail description
- * (`onboarding.flow.rail.steps.<id>`).
+ * One flow, pairing first: welcome → pair → (optionally) pick, configure and
+ * create a local agent bound to the paired workspace. Everything after the
+ * pairing step is an optional continuation — pairing alone is a complete
+ * onboarding, because the workspace installs agents on this device remotely.
+ * Each id keys the step title (`onboarding.flow.progress.<id>`) and its
+ * one-line rail description (`onboarding.flow.rail.steps.<id>`).
  */
-export const STEP_IDS = [
+export const ONBOARDING_STEPS: readonly StepId[] = [
   "welcome",
+  "pairNode",
   "agent",
   "configure",
   "createAgent",
-  "connectWorkspace",
-] as const
+]
+
+/**
+ * Where the optional continuation starts. Everything from here on only happens
+ * if the user asks for it from the paired panel, so the rail and the dots stop
+ * short of it until they do: a tracker that promises three more steps to
+ * someone who is about to press "Finish setup" is counting work that will never
+ * happen, and makes a finished setup look abandoned.
+ */
+export const OPTIONAL_STEPS_FROM = 2
+
+/**
+ * The steps to show while the user sits at `index`. The optional continuation
+ * appears only once they are actually in it — before that the tracker shows the
+ * path they have committed to, which pairing alone completes.
+ */
+export function visibleSteps(index: number): readonly StepId[] {
+  return index >= OPTIONAL_STEPS_FROM
+    ? ONBOARDING_STEPS
+    : ONBOARDING_STEPS.slice(0, OPTIONAL_STEPS_FROM)
+}
+
+/** Human-readable step names so the funnel reads clearly in PostHog. */
+export const STEP_NAMES: Record<StepId, string> = {
+  welcome: "welcome",
+  pairNode: "pair_node",
+  agent: "select_agent",
+  configure: "configure",
+  createAgent: "create_agent",
+}
 
 export const ONBOARDING_KEY = "onboarding_completed"
 export const STEP_KEY = "onboarding_step"
+export const MODE_KEY = "onboarding_mode"
 export const SELECTED_AGENT_KEY = "last_selected_agent"
 /** The spotlight tour, which runs AFTER the wizard, has its own mark. */
 export const TOUR_KEY = "guided_tour_completed"
@@ -60,6 +89,7 @@ export function resetOnboardingProgress(): void {
   try {
     localStorage.removeItem(ONBOARDING_KEY)
     localStorage.removeItem(STEP_KEY)
+    localStorage.removeItem(MODE_KEY)
     localStorage.removeItem(SELECTED_AGENT_KEY)
   } catch {}
 }

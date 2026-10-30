@@ -18,7 +18,7 @@ from pathlib import Path
 from dataclasses import dataclass, field, asdict
 
 from openagents.config.globals import BROADCAST_AGENT_ID
-from openagents.core.base_mod import BaseMod, mod_event_handler
+from openagents.sdk.base_mod import BaseMod, mod_event_handler
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 

@@ -12,8 +12,8 @@ import { ListPanel } from './list-panel';
  * label that fades in. Sits on the seam between the sidebar and the detail
  * pane and collapses the list panel.
  *
- * Threads doesn't get one — the message list is always wanted there — so this
- * only renders for the other list views (files, browser, routines, knowledge).
+ * Every list view gets one, threads included: with a preview open, the list
+ * is what stands between the user and a wide working area.
  */
 function SidebarRailToggle() {
   const { state, toggleSidebar } = useSidebar();
@@ -48,7 +48,7 @@ function SidebarRailToggle() {
       </span>
 
       <span className="pointer-events-none absolute left-full -ml-2 -translate-x-0.5 rounded-md border border-border bg-foreground px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-background opacity-0 shadow-xs shadow-black/5 transition-all duration-200 ease-out group-hover/rail:translate-x-0 group-hover/rail:opacity-100">
-        {isExpanded ? 'Collapse' : 'Expand'}
+        {isExpanded ? t('nav.hideList') : t('nav.showList')}
       </span>
     </button>
   );
@@ -65,12 +65,9 @@ function SidebarRailToggle() {
  * labels on exactly the views that drop the list. Instead the shell owns its
  * width (see {@link Wrapper}): closing the list shrinks it to the rail, and the
  * list — still mounted — is squeezed to zero width behind `overflow-hidden`.
- *
- * Threads is the one view whose list has no collapse handle — the message list
- * is always wanted there, and the rail's own toggle covers that case.
  */
 export function AppSidebar() {
-  const { hasListPanel, viewMode, isMobile, isSidebarOpen, railDragWidth } = useLayout();
+  const { hasListPanel, isMobile, isSidebarOpen, railDragWidth } = useLayout();
 
   return (
     <>
@@ -88,14 +85,14 @@ export function AppSidebar() {
             a collapse/expand round trip. */}
         <div className="flex min-h-full w-full">
           <NavRail />
-          {hasListPanel && <ListPanel />}
+          <ListPanel />
         </div>
       </Sidebar>
 
       {/* Only while the list is open. Collapsed, this handle would land on the
           exact seam the rail's own toggle owns — and the app header already
           grows a "Show list" button for that case. */}
-      {!isMobile && hasListPanel && viewMode !== 'threads' && isSidebarOpen && (
+      {!isMobile && hasListPanel && isSidebarOpen && (
         <SidebarRailToggle />
       )}
     </>

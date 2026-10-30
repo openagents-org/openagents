@@ -1,11 +1,16 @@
 /**
- * Pure helpers for the Claude adapter's decision log ("constraint pinning").
+ * Pure helpers for knowledge pinning ("constraint pinning").
  *
- * The decision log is a per-channel knowledge entry that records every
- * decision the user has confirmed. The adapter re-reads it on every message
- * and injects it into the CLI system prompt — the only position that survives
- * both the CLI's auto-compaction and a session reset. Everything here is
- * side-effect free so it can be unit tested without an adapter instance.
+ * The glossary — a per-channel (or workspace-wide) entry defining shared
+ * terms and fields — is pinned into agent prompts, so agents collaborating
+ * on the same spec cannot drift into different readings of the same name.
+ * (Agents used to keep a per-channel "Decisions for channel …" log too; that
+ * was removed because it created a knowledge page for nearly every thread.)
+ *
+ * Adapters re-read the pinned entries on every message and inject them into
+ * the prompt — the only position that survives both auto-compaction and a
+ * session reset. Everything here is side-effect free so it can be unit
+ * tested without an adapter instance.
  */
 
 'use strict';
@@ -19,13 +24,19 @@ const RECAP_LINE_MAX_CHARS = 2000;
 const PINNED_DECISIONS_MAX_CHARS = 4000;
 
 /**
- * Canonical knowledge-entry title for a channel's decision log. The slug the
+ * Canonical knowledge-entry title for a channel's glossary. The slug the
  * backend derives from it is NOT stable (collisions get a numeric suffix), so
  * lookups must match on this exact title, never on the slug.
  */
-function decisionLogTitle(channelName) {
-  return `Decisions for channel ${channelName}`;
+function glossaryTitle(channelName) {
+  return `Glossary for channel ${channelName}`;
 }
+
+/**
+ * Workspace-wide glossary fallback: used when a channel has no glossary of
+ * its own, so one shared entry can serve every channel.
+ */
+const WORKSPACE_GLOSSARY_TITLE = 'Workspace glossary';
 
 /**
  * Stable hash of the decision log content. null/undefined and '' hash
@@ -49,13 +60,26 @@ function decisionFingerprint(entryId, content) {
 }
 
 /**
- * Pick the channel's decision entry from a knowledge listing: exact-title
- * matches only, earliest created_at wins (concurrent creates produce
- * duplicates — the earliest is the one other turns have been updating).
+ * Fingerprint of EVERYTHING pinned into a spawned process's prompt — an
+ * ordered list of { entryId, content } pairs (decision log first, then the
+ * glossary). Any id or content change in any pinned entry changes the
+ * fingerprint, which is what triggers a respawn-with-resume to re-pin.
+ */
+function pinnedFingerprint(parts) {
+  const h = crypto.createHash('sha256');
+  for (const p of parts || []) {
+    h.update(decisionFingerprint(p && p.entryId, p && p.content), 'utf-8');
+  }
+  return h.digest('hex');
+}
+
+/**
+ * Pick the entry with an exact title match from a knowledge listing;
+ * earliest created_at wins (concurrent creates produce duplicates — the
+ * earliest is the one other turns have been updating).
  * Returns { entry, duplicates } where duplicates counts the extra matches.
  */
-function pickDecisionEntry(entries, channelName) {
-  const title = decisionLogTitle(channelName);
+function pickEntryByTitle(entries, title) {
   const matches = (entries || []).filter((e) => e && e.title === title);
   if (matches.length === 0) return { entry: null, duplicates: 0 };
   const sorted = matches.slice().sort((a, b) => {
@@ -170,10 +194,12 @@ function sampleRecap(headMsgs, tailMsgs, currentMessage, { headKeep = 5, tailKee
 module.exports = {
   PINNED_DECISIONS_MAX_CHARS,
   RECAP_LINE_MAX_CHARS,
-  decisionLogTitle,
+  WORKSPACE_GLOSSARY_TITLE,
+  glossaryTitle,
   hashDecisions,
   decisionFingerprint,
-  pickDecisionEntry,
+  pinnedFingerprint,
+  pickEntryByTitle,
   renderPinnedDecisions,
   isRecapEligible,
   formatRecapLine,

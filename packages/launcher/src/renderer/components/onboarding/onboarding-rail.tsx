@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import { BrandMark } from "@renderer/components/ui-kit"
 import { cn } from "@renderer/lib/utils"
 
-import { STEP_IDS, type Step } from "./onboarding-shared"
+import type { StepId } from "./onboarding-shared"
 
 /**
  * The wizard's left rail: brand and the vertical step tracker.
@@ -14,27 +14,36 @@ import { STEP_IDS, type Step } from "./onboarding-shared"
  * Unlike the app rail — which now follows the theme — this one frames a
  * full-screen, one-time flow with no app around it to disagree with.
  */
-export function OnboardingRail({ step }: { step: Step }): React.JSX.Element {
+export function OnboardingRail({
+  steps,
+  step,
+}: {
+  /** The active path's steps — the two modes walk different ones. */
+  steps: readonly StepId[]
+  step: number
+}): React.JSX.Element {
   const { t } = useTranslation()
   return (
     <aside className="panel-dark hidden w-72 shrink-0 flex-col border-r border-panel-border bg-panel px-7 py-7 lg:flex xl:w-80">
-      {/* macOS puts its traffic lights over this corner. A spacer on top of the
-          rail's own padding, not instead of it: the inset is zero in full screen
-          and on the platforms whose buttons are over the content area, and the
-          brand still wants its 28px in every one of those cases. */}
-      <div aria-hidden className="h-(--rail-top-inset) shrink-0" />
+      {/* macOS puts its traffic lights over this corner. The window's own
+          clearance, not the rail's: onboarding covers the whole window — mode
+          bar included — so nothing above it is reserving that room. A spacer on
+          top of the rail's own padding, not instead of it: it collapses in full
+          screen and on the platforms whose buttons are elsewhere, and the brand
+          still wants its 28px in every one of those cases. */}
+      <div aria-hidden className="h-(--traffic-lights-h) shrink-0" />
       <div className="flex items-center gap-2.5">
         <BrandMark variant="white" className="size-8 rounded-lg" />
         <span className="text-lg font-bold tracking-tight text-panel-accent-foreground">
-          OpenAgents Launcher
+          {t("common.appName")}
         </span>
       </div>
 
       <ol className="m-0 mt-10 list-none p-0">
-        {STEP_IDS.map((id, i) => {
+        {steps.map((id, i) => {
           const done = i < step
           const current = i === step
-          const last = i === STEP_IDS.length - 1
+          const last = i === steps.length - 1
           return (
             <li key={id} className="flex gap-3.5">
               <div className="flex flex-col items-center">

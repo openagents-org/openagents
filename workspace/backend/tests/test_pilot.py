@@ -1,0 +1,237 @@
+# -*- coding: utf-8 -*-
+"""Pilot User Program admin endpoints — eligibility + one-off grant."""
+
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from app.config import config
+from app.models import CampaignAccount, CampaignGrant, EventRecord
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # sibling test module, tests/ is not a package
+from test_campaign import campaign_on, gateway, _mk_member, _mk_user, _mk_workspace  # noqa: E402,F401 — fixtures
+
+SECRET = "pilot-test-secret"
+H = {"X-Admin-Secret": SECRET}
+
+
+@pytest.fixture
+def pilot_on(monkeypatch, campaign_on):  # noqa: F811
+    monkeypatch.setattr(config, "PILOT_ADMIN_SECRET", SECRET)
+    monkeypatch.setattr(config, "PILOT_GRANT_USD", 300.0)
+    monkeypatch.setattr(config, "PILOT_MIN_ACTIVE_DAYS", 0)
+    monkeypatch.setattr(config, "PILOT_WINDOW_DAYS", 30)
+
+
+def _ms(days_ago: int, hour: int = 12) -> int:
+    d = datetime.now(timezone.utc).replace(hour=hour, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+    return int(d.timestamp() * 1000)
+
+
+def _msg(db, ws, source, ts_ms):
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(ws.id), type="workspace.message.posted",
+                       source=source, target="channel/x", payload={}, timestamp=ts_ms))
+    db.commit()
+
+
+def _conversation_days(db, ws, agent_name, days_ago_list):
+    for d in days_ago_list:
+        _msg(db, ws, "human:alice", _ms(d, 10))
+        _msg(db, ws, f"openagents:{agent_name}", _ms(d, 11))
+
+
+def test_secret_required(client, db, pilot_on):
+    assert client.get("/v1/admin/pilot/eligibility?email=a@b.co").status_code == 401
+    assert client.get("/v1/admin/pilot/eligibility?email=a@b.co", headers={"X-Admin-Secret": "nope"}).status_code == 401
+    assert client.post("/v1/admin/pilot/grant", json={"email": "a@b.co"}).status_code == 401
+
+
+def test_disabled_when_secret_unset(client, db, campaign_on, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(config, "PILOT_ADMIN_SECRET", "")
+    assert client.get("/v1/admin/pilot/eligibility?email=a@b.co", headers=H).status_code == 404
+
+
+def test_unknown_email(client, db, pilot_on):
+    r = client.get("/v1/admin/pilot/eligibility?email=nobody@example.com", headers=H)
+    assert r.status_code == 200 and r.json()["data"]["found"] is False
+
+
+def test_eligible_then_grant_once(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "pilot@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _mk_member(db, ws, "yumi", "cloud:openagents")
+    _conversation_days(db, ws, "claude-1", [0])                 # ONE conversation is enough
+    _msg(db, ws, "human:alice", _ms(9)); _msg(db, ws, "openagents:yumi", _ms(9))  # cloud reply: human-only day
+
+    r = client.get("/v1/admin/pilot/eligibility?email=Pilot@Example.com", headers=H)  # case-insensitive
+    d = r.json()["data"]
+    assert d["found"] and d["agents"]["qualifyingTypes"] == ["claude"]
+    assert d["conversation"]["hasConversation"] is True
+    assert d["activity"]["activeDayCount"] == 1
+    assert [x["date"] for x in d["activity"]["humanOnlyDays"]] == [datetime.now(timezone.utc).date().__sub__(timedelta(days=9)).isoformat()]
+    assert d["pilot"]["eligible"] is True and d["pilot"]["alreadyGranted"] is False
+
+    r = client.post("/v1/admin/pilot/grant", json={"email": "pilot@example.com", "actor": "marketing"}, headers=H)
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert body["status"] == "granted" and body["amountUsd"] == 300.0
+    rows = db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").all()
+    assert len(rows) == 1 and rows[0].amount_usd == 300.0
+    # new_limit_usd is only ever filled from the gateway's /admin/credits response,
+    # so its presence proves the credits call happened (fixture-shape agnostic).
+    assert rows[0].new_limit_usd is not None
+
+    # second click: clear already-granted state, no second ledger row
+    r = client.post("/v1/admin/pilot/grant", json={"email": "pilot@example.com"}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "already_granted"
+    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 1
+    assert r.json()["data"]["eligibility"]["pilot"]["alreadyGranted"] is True
+
+
+def test_not_eligible_without_a_reply_unless_forced(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "two@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "codex-1", "codex")
+    _msg(db, ws, "human:alice", _ms(0))                          # spoke, but the agent never answered
+    d = client.get("/v1/admin/pilot/eligibility?email=two@example.com", headers=H).json()["data"]
+    assert d["agents"]["connected"] is True and d["conversation"]["hasConversation"] is False and d["pilot"]["eligible"] is False
+    r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com"}, headers=H)
+    assert r.status_code == 400 and "No valid reply" in r.json()["message"]
+    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
+    r = client.post("/v1/admin/pilot/grant", json={"email": "two@example.com", "force": True}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+
+
+def test_no_agent_is_not_eligible(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "cloudonly@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "yumi", "cloud:openagents")
+    for d in (0, 1, 2):
+        _msg(db, ws, "human:alice", _ms(d)); _msg(db, ws, "openagents:yumi", _ms(d))
+    d = client.get("/v1/admin/pilot/eligibility?email=cloudonly@example.com", headers=H).json()["data"]
+    assert d["agents"]["connected"] is False and d["activity"]["activeDayCount"] == 0
+    assert d["pilot"]["eligible"] is False and len(d["pilot"]["reasons"]) == 2
+
+
+def test_grant_ignores_the_100_dollar_cap(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "capped@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0, 1, 2])
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-x"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=100.0))  # ladder already maxed
+    db.commit()
+    r = client.post("/v1/admin/pilot/grant", json={"email": "capped@example.com"}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+
+
+def test_grant_rate_limit(client, db, pilot_on, gateway, monkeypatch):  # noqa: F811
+    from app.routers import pilot as pilot_router
+    monkeypatch.setattr(config, "PILOT_MAX_GRANTS_PER_HOUR", 1)
+    pilot_router._recent_grants.clear()
+    for i, email in enumerate(("r1@example.com", "r2@example.com")):
+        user = _mk_user(db, email)
+        ws = _mk_workspace(db, user)
+        _mk_member(db, ws, f"claude-{i}", "claude")
+        _conversation_days(db, ws, f"claude-{i}", [0, 1, 2])
+    assert client.post("/v1/admin/pilot/grant", json={"email": "r1@example.com"}, headers=H).status_code == 200
+    r = client.post("/v1/admin/pilot/grant", json={"email": "r2@example.com"}, headers=H)
+    assert r.status_code == 429
+    assert db.query(CampaignGrant).filter_by(milestone="pilot").count() == 1
+    pilot_router._recent_grants.clear()
+
+
+def test_conversation_across_utc_midnight_counts(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "midnight@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _msg(db, ws, "human:alice", _ms(1, 23))                       # yesterday 23:00 UTC
+    _msg(db, ws, "openagents:claude-1", _ms(0, 0))                # today 00:00 UTC
+    d = client.get("/v1/admin/pilot/eligibility?email=midnight@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is True
+    assert d["activity"]["activeDayCount"] == 0                    # no single UTC day has both …
+    assert d["pilot"]["eligible"] is True                          # … but the conversation rule is satisfied
+
+
+def test_optional_day_threshold_still_works(client, db, pilot_on, gateway, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(config, "PILOT_MIN_ACTIVE_DAYS", 3)
+    user = _mk_user(db, "threeday@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    d = client.get("/v1/admin/pilot/eligibility?email=threeday@example.com", headers=H).json()["data"]
+    assert d["pilot"]["eligible"] is False and any("3 required" in r for r in d["pilot"]["reasons"])
+
+
+def test_status_or_error_only_replies_do_not_count(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "statusonly@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _msg(db, ws, "human:alice", _ms(0, 9))
+    for mt in ("status", "thinking", "todos"):
+        db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(ws.id), type="workspace.message.posted",
+                           source="openagents:claude-1", target="channel/x", payload={"message_type": mt, "content": "error: boom"}, timestamp=_ms(0, 10)))
+    db.commit()
+    d = client.get("/v1/admin/pilot/eligibility?email=statusonly@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is False and d["pilot"]["eligible"] is False
+    # a real chat bubble flips it
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(ws.id), type="workspace.message.posted",
+                       source="openagents:claude-1", target="channel/x", payload={"message_type": "chat", "content": "done"}, timestamp=_ms(0, 11)))
+    db.commit()
+    d = client.get("/v1/admin/pilot/eligibility?email=statusonly@example.com", headers=H).json()["data"]
+    assert d["conversation"]["hasConversation"] is True and d["pilot"]["eligible"] is True
+
+
+def test_ladder_keeps_paying_after_the_pilot_grant(client, db, pilot_on, gateway):  # noqa: F811
+    """Regression: the pilot $300 used to count toward the $100 ladder cap,
+    so no daily/ladder grant ever applied again after a pilot grant."""
+    from app.services import campaign
+    user = _mk_user(db, "stack@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-x"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.add(CampaignGrant(user_id=user.id, milestone="first_agent", amount_usd=20.0))
+    db.commit()
+    r = client.post("/v1/admin/pilot/grant", json={"email": "stack@example.com"}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+    assert campaign.total_granted(db, user.id) == 325.0
+    # The next server-observed milestone still lands.
+    assert campaign.grant(db, user.id, "first_conversation", 10.0) is True
+    assert campaign.ladder_total(db, user.id) == 35.0
+    assert campaign.total_granted(db, user.id) == 335.0
+
+
+def test_pilot_grant_counts_as_manual_verification(client, db, pilot_on, gateway):  # noqa: F811
+    """Decision 2026-09-20: the team checks pilot users by hand, so a pilot
+    grant must go through for an unverified address AND mark it verified, so
+    the ladder keeps paying afterwards."""
+    from app.services import campaign
+    user = _mk_user(db, "unverified@example.com", verified=False)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=7, api_key="sk-x"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    e = client.get("/v1/admin/pilot/eligibility?email=unverified@example.com", headers=H).json()["data"]
+    assert e["pilot"]["eligible"] is True and e["user"]["emailVerified"] is False
+    r = client.post("/v1/admin/pilot/grant", json={"email": "unverified@example.com"}, headers=H)
+    assert r.status_code == 200 and r.json()["data"]["status"] == "granted"
+    db.refresh(user)
+    assert user.email_verified_at is not None
+    assert campaign.total_granted(db, user.id) == 305.0
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is True   # ladder flows after the pilot
+
+
+def test_pilot_grant_still_refused_for_blocked_domain(client, db, pilot_on, gateway):  # noqa: F811
+    user = _mk_user(db, "bot@mailinator.com", verified=False)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+    r = client.post("/v1/admin/pilot/grant", json={"email": "bot@mailinator.com"}, headers=H)
+    assert r.status_code == 400 and "blocked" in r.json()["message"]
+    assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0

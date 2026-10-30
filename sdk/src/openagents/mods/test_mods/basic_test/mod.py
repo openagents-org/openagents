@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 
-from openagents.core.base_mod import BaseMod
+from openagents.sdk.base_mod import BaseMod
 from openagents.models.messages import Event, EventNames
 from openagents.models.event_response import EventResponse
 

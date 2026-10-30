@@ -1,0 +1,21 @@
+{
+  "name": "deepseek",
+  "label": "DeepSeek",
+  "description": "DeepSeek V4 models",
+  "description_zh": "DeepSeek V4 系列模型",
+  "key_url": "https://platform.deepseek.com/api_keys",
+  "base_url": "https://api.deepseek.com",
+  "order": 60,
+  "models": [
+    {
+      "id": "deepseek-v4-pro",
+      "category": "chat",
+      "label": "DeepSeek V4 Pro"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "category": "chat",
+      "label": "DeepSeek V4 Flash"
+    }
+  ]
+}

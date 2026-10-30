@@ -326,6 +326,130 @@ class TestPollEvents:
         assert resp.status_code == 404
 
 
+class TestPollExcludeMessageTypes:
+    """GET /v1/events?exclude_message_types= — filter out intermediate agent
+    output (thinking/status/todos) so the limit window only counts real
+    messages."""
+
+    def _post_message(self, client, workspace, content, message_type=None):
+        channel_name = workspace["channel"]["name"]
+        payload = {"content": content}
+        if message_type is not None:
+            payload["message_type"] = message_type
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{channel_name}",
+            "payload": payload,
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        return resp.json()["data"]["id"]
+
+    def test_excludes_listed_message_types(self, client, workspace):
+        """thinking/status/todos are filtered out; chat and untyped kept."""
+        self._post_message(client, workspace, "real question", "chat")
+        self._post_message(client, workspace, "step 1", "thinking")
+        self._post_message(client, workspace, "running tool", "status")
+        self._post_message(client, workspace, "todo list", "todos")
+        self._post_message(client, workspace, "no explicit type")  # message_type absent
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "exclude_message_types": "thinking,status,todos",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        events = resp.json()["data"]["events"]
+        contents = [e["payload"].get("content") for e in events]
+        assert "real question" in contents
+        assert "no explicit type" in contents
+        assert "step 1" not in contents
+        assert "running tool" not in contents
+        assert "todo list" not in contents
+
+    def test_limit_window_counts_only_kept_messages(self, client, workspace):
+        """A burst of status events must not push the user's message out of
+        the first history page (the reported refresh-loses-question bug)."""
+        self._post_message(client, workspace, "user question", "chat")
+        for i in range(10):
+            self._post_message(client, workspace, f"status {i}", "status")
+
+        # Without exclusion, limit=5 newest-first returns only status events.
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "sort": "desc",
+            "limit": 5,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "user question" not in contents
+
+        # With exclusion, the user's message is inside the window.
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "sort": "desc",
+            "limit": 5,
+            "exclude_message_types": "thinking,status,todos",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "user question" in contents
+
+    def test_blank_exclude_param_is_noop(self, client, workspace):
+        """Empty/whitespace-only exclude list applies no filter."""
+        self._post_message(client, workspace, "hello", "status")
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message",
+            "exclude_message_types": " , ",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        contents = [e["payload"].get("content") for e in resp.json()["data"]["events"]]
+        assert "hello" in contents
+
+
+class TestPollCacheKeyConsistency:
+    """The head/at-head keys poll_events constructs must stay invalidatable
+    by _poll_cache_keys_for — regression tests for the exclude_message_types
+    param silently changing every filter hash."""
+
+    def test_adapter_poll_hash_is_in_invalidation_set(self):
+        """Filters without exclude_message_types must hash exactly like the
+        enumerated invalidation patterns, or agents keep getting stale
+        cached-empty responses after new events are posted."""
+        from app.routers.events import _poll_cache_keys_for, _poll_filter_hash
+
+        ws = "ws-cache-test"
+        invalidated = {k for pair in _poll_cache_keys_for(ws, "workspace.message.posted") for k in pair}
+
+        # The main adapter poll pattern (workspace-client.js pollPending).
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "asc", 500)
+        assert "v1events:head:" + fh in invalidated
+        assert "v1events:athead:" + fh in invalidated
+
+        # getHeadEventId pattern.
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "desc", 1)
+        assert "v1events:head:" + fh in invalidated
+
+        # Untyped all-events pattern.
+        fh = _poll_filter_hash(ws, "", "", "", "", "asc", 50)
+        assert "v1events:head:" + fh in invalidated
+
+    def test_exclude_param_changes_hash(self):
+        """Polls that do use exclude_message_types must get their own key —
+        sharing the plain filter's key would poison its cached results."""
+        from app.routers.events import _poll_filter_hash
+
+        ws = "ws-cache-test"
+        plain = _poll_filter_hash(ws, "", "general", "workspace.message", "", "desc", 50)
+        excluded = _poll_filter_hash(
+            ws, "", "general", "workspace.message", "", "desc", 50,
+            exclude_message_types="thinking,status,todos",
+        )
+        assert plain != excluded
+
+
 class TestPollTargetAgents:
     """GET /v1/events?target_agents= — server-side per-agent filtering.
 
@@ -450,3 +574,138 @@ class TestPollResolveCache:
         # token-hash must not let a bad token through (it falls through to DB auth)
         r3 = client.get("/v1/events", params=params, headers={"X-Workspace-Token": "wrong-token"})
         assert r3.status_code == 401
+
+    def test_warm_legacy_machine_poll_never_checks_out_database(self, client, workspace, monkeypatch):
+        self._use_memory_cache(monkeypatch)
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token': workspace['token']}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        from sqlalchemy.orm import Session
+        def unexpected_query(*args, **kwargs):
+            raise AssertionError('A cached legacy machine poll must not query the database')
+        with monkeypatch.context() as patch:
+            patch.setattr(Session, 'execute', unexpected_query)
+            assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+
+    @pytest.mark.parametrize('extra_headers', [
+        {'Authorization':'Bearer expired-person-token'}, {'X-Agent-Name':'identified-agent'},
+    ])
+    def test_warm_poll_never_skips_identity_resolution(self, client, workspace, monkeypatch, extra_headers):
+        self._use_memory_cache(monkeypatch)
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token':workspace['token']}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        from app.services import visibility
+        original = visibility.resolve_viewer
+        calls = []
+        def resolve(*args, **kwargs):
+            calls.append(True)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(visibility, 'resolve_viewer', resolve)
+        client.get('/v1/events', params=params, headers={**headers, **extra_headers})
+        assert calls
+
+    def test_identified_poll_reuses_freshly_loaded_workspace(self, client, workspace, db, monkeypatch):
+        from sqlalchemy import event
+        self._use_memory_cache(monkeypatch)
+        queries = []
+        def capture(conn, cursor, statement, *args):
+            if 'FROM workspaces' in statement:
+                queries.append(statement)
+        event.listen(db.bind, 'before_cursor_execute', capture)
+        try:
+            r = client.get('/v1/events', params={'network':workspace['id']}, headers={
+                'X-Workspace-Token':workspace['token'], 'X-Agent-Name':'identified-agent'})
+        finally:
+            event.remove(db.bind, 'before_cursor_execute', capture)
+        assert r.status_code == 200
+        assert len(queries) == 1
+
+    def test_warm_device_poll_checks_credential_with_one_query(self, client, workspace, db, monkeypatch):
+        from sqlalchemy import event
+        from app.models import Node
+        self._use_memory_cache(monkeypatch)
+        node = Node(workspace_id=workspace['id'], node_key='poll-device', token='device-poll-secret')
+        db.add(node)
+        db.commit()
+        params = {'network': workspace['id'], 'type': 'workspace.message.posted'}
+        headers = {'X-Workspace-Token': 'device-poll-secret'}
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        queries = []
+        def capture(conn, cursor, statement, *args):
+            queries.append(statement)
+        event.listen(db.bind, 'before_cursor_execute', capture)
+        try:
+            assert client.get('/v1/events', params=params, headers=headers).status_code == 200
+        finally:
+            event.remove(db.bind, 'before_cursor_execute', capture)
+        assert len(queries) == 1
+        assert 'nodes' in queries[0] and 'workspaces' in queries[0]
+        # Cached event data must not preserve access after credential rotation.
+        node.token = 'rotated-device-secret'
+        db.commit()
+        assert client.get('/v1/events', params=params, headers=headers).status_code == 401
+
+    def test_device_poll_cannot_open_deleted_or_other_workspace(self, client, workspace, db, monkeypatch):
+        from app.models import Node, Workspace
+        self._use_memory_cache(monkeypatch)
+        other = Workspace(name='Another workspace', slug='other-device-workspace', password_hash='other-secret')
+        db.add(other)
+        db.flush()
+        db.add(Node(workspace_id=other.id, node_key='other-device', token='other-device-token'))
+        db.commit()
+        headers = {'X-Workspace-Token': 'other-device-token'}
+        assert client.get('/v1/events', params={'network':workspace['id']}, headers=headers).status_code == 401
+        # Warm the event cache before deleting the workspace.
+        assert client.get('/v1/events', params={'network':other.id}, headers=headers).status_code == 200
+        other.status = 'deleted'
+        db.commit()
+        assert client.get('/v1/events', params={'network':other.id}, headers=headers).status_code == 401
+
+
+class TestPollCacheFreshness:
+    """A new event must never be hidden by a cached poll answer for a scoped
+    filter. Per-thread clients poll with `channel=` and re-poll on each SSE
+    signal; a stale cached empty page would hide the reply until the next
+    event arrives."""
+
+    def _use_memory_cache(self, monkeypatch):
+        from app import cache as _cache
+        store = {}
+        monkeypatch.setattr(_cache, "get_bytes", lambda k: store.get(k))
+        monkeypatch.setattr(_cache, "set_bytes", lambda k, v, ttl_seconds=0.0: store.__setitem__(k, v))
+        monkeypatch.setattr(_cache, "delete_key", lambda k: store.pop(k, None))
+        return store
+
+    def _post(self, client, workspace, content, type="workspace.message.posted"):
+        resp = client.post("/v1/events", json={
+            "type": type,
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{workspace['channel']['name']}",
+            "payload": {"content": content},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("scope", ["channel", "target"])
+    def test_scoped_poll_sees_event_posted_within_ttl(self, client, workspace, monkeypatch, scope):
+        store = self._use_memory_cache(monkeypatch)
+        channel_name = workspace["channel"]["name"]
+        headers = {"X-Workspace-Token": workspace["token"]}
+        params = {"network": workspace["id"], "type": "workspace.message", "sort": "asc", "limit": 50}
+        params.update({"channel": channel_name} if scope == "channel" else {"target": f"channel/{channel_name}"})
+
+        self._post(client, workspace, "hello")
+        first = client.get("/v1/events", params=params, headers=headers).json()["data"]
+        cursor = first["newest_id"]
+        assert cursor
+
+        # Caught up: the empty answer is cached (exact key and at-head marker).
+        caught_up = client.get("/v1/events", params={**params, "after": cursor}, headers=headers).json()["data"]
+        assert caught_up["events"] == []
+        assert any(k.startswith("v1events:athead:") for k in store)
+
+        # The reply lands inside the cache TTL; the same poll must return it.
+        self._post(client, workspace, "reply")
+        after = client.get("/v1/events", params={**params, "after": cursor}, headers=headers).json()["data"]
+        assert [e["payload"]["content"] for e in after["events"]] == ["reply"]

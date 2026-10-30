@@ -14,8 +14,8 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from openagents.core.client import AgentClient
-from openagents.core.network import create_network
+from openagents.sdk.client import AgentClient
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event
 from openagents.models.transport import TLSConfig, SSLConfig
@@ -155,7 +155,7 @@ class TestGRPCWithTLS:
 
     async def test_grpc_server_with_tls(self, test_certificates):
         """Test that gRPC server can start with TLS enabled."""
-        from openagents.core.transports.grpc import GRPCTransport
+        from openagents.sdk.transports.grpc import GRPCTransport
         
         grpc_port, _ = get_port_pair()
         
@@ -182,8 +182,8 @@ class TestGRPCWithTLS:
 
     async def test_grpc_client_with_tls(self, test_certificates):
         """Test that gRPC client can connect with TLS."""
-        from openagents.core.transports.grpc import GRPCTransport
-        from openagents.core.connectors.grpc_connector import GRPCNetworkConnector
+        from openagents.sdk.transports.grpc import GRPCTransport
+        from openagents.sdk.connectors.grpc_connector import GRPCNetworkConnector
         
         grpc_port, _ = get_port_pair()
         
@@ -227,7 +227,7 @@ class TestGRPCWithTLS:
 
     async def test_backward_compatibility_without_tls(self):
         """Test that non-TLS gRPC still works (backward compatibility)."""
-        from openagents.core.transports.grpc import GRPCTransport
+        from openagents.sdk.transports.grpc import GRPCTransport
         
         grpc_port, _ = get_port_pair()
         
@@ -249,7 +249,7 @@ class TestGRPCWithTLS:
 
     async def test_ssl_verify_false_warning(self, test_certificates):
         """Test that ssl_verify=False logs a warning."""
-        from openagents.core.connectors.grpc_connector import GRPCNetworkConnector
+        from openagents.sdk.connectors.grpc_connector import GRPCNetworkConnector
         import logging
         
         grpc_port, _ = get_port_pair()

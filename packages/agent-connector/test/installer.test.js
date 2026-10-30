@@ -312,6 +312,38 @@ describe('Installer', () => {
     );
   });
 
+  // The version spec must come off whatever shape it takes. Two blind global
+  // replaces used to do this, and the one meant for literal versions matched
+  // only digits and dots — so a PRERELEASE pin was cut in half
+  // (@deepseek-ai/dsh@0.1.0-rc.6 -> @deepseek-ai/dsh-rc.6). npm exits 0 when
+  // told to remove a package that is not installed, so the uninstall reported
+  // success while removing nothing and the agent stayed "installed" forever.
+  it('_deriveUninstallCommand strips every version spec shape', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const prefix = path.join(os.homedir(), '.openagents', 'nodejs');
+    const pkgOf = (cmd) => inst._deriveUninstallCommand(cmd).split(/\s+/).pop();
+
+    // Every npm-installed agent in the shipped registry.
+    assert.equal(pkgOf('npm install -g @deepseek-ai/dsh@0.1.0-rc.6'), '@deepseek-ai/dsh');
+    assert.equal(pkgOf('npm install -g @earendil-works/pi-coding-agent@0.83.0'), '@earendil-works/pi-coding-agent');
+    assert.equal(pkgOf('npm install -g opencode-ai@1.17.11'), 'opencode-ai');
+    assert.equal(pkgOf('npm install -g openclaw@latest'), 'openclaw');
+    assert.equal(pkgOf('npm install -g @google/gemini-cli'), '@google/gemini-cli');
+    assert.equal(pkgOf('npm install -g cline'), 'cline');
+    assert.equal(pkgOf('npm install -g @anthropic-ai/claude-code'), '@anthropic-ai/claude-code');
+
+    // Other prerelease shapes, so the next pinned agent is not a fresh bug.
+    assert.equal(pkgOf('npm install -g pkg@2.0.0-beta.1'), 'pkg');
+    assert.equal(pkgOf('npm install -g @scope/pkg@1.0.0-alpha'), '@scope/pkg');
+    assert.equal(pkgOf('npm install -g pkg@next'), 'pkg');
+
+    // The prefix rewrite is unchanged.
+    assert.match(
+      inst._deriveUninstallCommand('npm install -g @deepseek-ai/dsh@0.1.0-rc.6'),
+      new RegExp(`^npm uninstall --prefix "${prefix.replace(/[\\]/g, '\\\\')}" `),
+    );
+  });
+
   it('_deriveUninstallCommand handles pip', () => {
     const inst = new Installer(mockRegistry, tmpDir);
     assert.equal(
@@ -357,7 +389,13 @@ describe('Installer', () => {
       managed: true,
       location: 'api_only',
     });
-    assert.equal(inst.which('kimi'), null);
+    // Deliberately NOT `assert.equal(inst.which('kimi'), null)`. Whether a
+    // binary named `kimi` resolves is a fact about the machine running the
+    // test — Moonshot ships one, and binary discovery now reads the user's
+    // login-shell PATH, so any developer who has it installed would fail here.
+    // The property that matters is that the api-only verdict does not depend
+    // on that either way: it is the marker, and only the marker, that decides.
+    assert.equal(inst.getInstallInfo('kimi').location, 'api_only');
   });
 
   it('api-only uninstall removes managed markers without a derived command', async () => {
@@ -416,6 +454,8 @@ describe('Installer', () => {
       const wrapped = inst._wrapForWindowsShell("irm 'https://cursor.com/install?win32=true' | iex");
       assert.match(wrapped, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "/);
       assert.ok(wrapped.includes("cursor.com/install"));
+      // Output is read as UTF-8, so the console must not stay on the OEM codepage
+      assert.ok(wrapped.includes('[Console]::OutputEncoding=[Text.Encoding]::UTF8;'));
 
       // Already wrapped: don't double-wrap
       const already = 'powershell -c "irm https://foo | iex"';
@@ -602,5 +642,19 @@ describe('Installer min-version gate (generic, no per-agent special-casing)', ()
     clearVersionCache();
     const v3 = inst._detectVersion('node', `"${process.execPath}" --version`);
     assert.equal(v3, v1, 're-detection after cache clear yields the same version');
+  });
+});
+
+describe('Installer.portableNodeVersion', () => {
+  it('pins Node 24 everywhere Node 24 runs', () => {
+    assert.equal(Installer.portableNodeVersion('win32', '10.0.19045'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('linux', '5.15.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', '22.6.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', 'unknown'), 'v24.22.1');
+  });
+
+  it('keeps macOS before 13.5 on Node 22', () => {
+    assert.equal(Installer.portableNodeVersion('darwin', '21.6.0'), 'v22.22.3');
+    assert.equal(Installer.portableNodeVersion('darwin', '22.5.0'), 'v22.22.3');
   });
 });

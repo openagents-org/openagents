@@ -22,6 +22,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,6 +32,7 @@ from app.firebase_auth import verify_identity_token
 from app.models import (
     ChannelHumanMember,
     DeviceToken,
+    User,
     Workspace,
     WorkspaceCollaborator,
     WorkspaceMembership,
@@ -74,6 +76,11 @@ def list_account_workspaces(
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
 
+    # One list request per user at a time past this point. The client retries a
+    # request that is slow to answer, and two first-run requests side by side
+    # could each see no membership and each provision a workspace.
+    db.execute(select(User.id).where(User.id == user.id).with_for_update()).first()
+
     # Migration bridge: pull legacy email-keyed access into memberships.
     reconcile_memberships(db, user)
 
@@ -103,12 +110,9 @@ def list_account_workspaces(
             "workspaceId": str(ws.id),
             "name": ws.name,
             "slug": ws.slug,
-            # Shared workspace access token (password_hash stores the raw token,
-            # compared by equality in app.access.verify_workspace_access). May be
-            # null for an open workspace with no token set. Withheld from viewers
-            # so they open the workspace bearer-only (read access) and can't use
-            # the token to bypass the read-only role.
-            "token": None if role == "viewer" else ws.password_hash,
+            # Machine credentials bypass human role checks when used alone.
+            # Members and viewers must use their own identity, never this token.
+            "token": ws.password_hash if role in ("owner", "admin") else None,
             "role": role,
             "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
         }
@@ -116,6 +120,87 @@ def list_account_workspaces(
     ]
 
     return success_response(results)
+
+
+# ---------------------------------------------------------------------------
+# Profile — the signed-in user's cross-workspace identity card
+# ---------------------------------------------------------------------------
+
+# Generous cap for a data:image/... avatar: a 256px JPEG is ~10-40KB; base64
+# adds ~33%. Anything bigger means the client skipped its downscaling step.
+MAX_AVATAR_URL_LENGTH = 200_000
+
+
+class ProfileUpdateRequest(BaseModel):
+    # Accept both the wire name ("welcomeSeen") and the field name.
+    model_config = ConfigDict(populate_by_name=True)
+
+    display_name: Optional[str] = Field(default=None, max_length=120)
+    # "" clears the avatar; None leaves it untouched.
+    avatar_url: Optional[str] = None
+    # First-run welcome dismissed on this account; None leaves it untouched.
+    welcome_seen: Optional[bool] = Field(default=None, alias="welcomeSeen")
+
+
+def _profile_row(user) -> dict:
+    return {
+        "email": user.email,
+        "displayName": user.display_name,
+        "avatarUrl": user.avatar_url,
+        "welcomeSeen": bool(user.welcome_seen),
+    }
+
+
+@router.get("/account/profile")
+def get_profile(
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """The signed-in user's profile (name + avatar), shared across workspaces."""
+    user = resolve_current_user(db, authorization)
+    if not user:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    db.commit()  # persist the lazily created/refreshed User row
+    return success_response(_profile_row(user))
+
+
+@router.patch("/account/profile")
+def update_profile(
+    body: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Update display name and/or avatar. Omitted fields are left untouched;
+    an empty-string avatar_url clears the picture."""
+    user = resolve_current_user(db, authorization)
+    if not user:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+
+    if body.display_name is not None:
+        name = body.display_name.strip()
+        if not name:
+            return json_response(ResponseCode.BAD_REQUEST, "Display name cannot be empty")
+        user.display_name = name
+
+    if body.avatar_url is not None:
+        avatar = body.avatar_url.strip()
+        if not avatar:
+            user.avatar_url = None
+        else:
+            if not (avatar.startswith("https://") or avatar.startswith("data:image/")):
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    "Avatar must be an https:// URL or a data:image/... URL",
+                )
+            if len(avatar) > MAX_AVATAR_URL_LENGTH:
+                return json_response(ResponseCode.BAD_REQUEST, "Avatar image is too large")
+            user.avatar_url = avatar
+
+    if body.welcome_seen is not None:
+        user.welcome_seen = body.welcome_seen
+
+    db.commit()
+    return success_response(_profile_row(user))
 
 
 @router.delete("/account")

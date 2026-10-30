@@ -11,18 +11,26 @@ DELETE /v1/cloud-agents/{name}       Remove cloud agent
 
 import logging
 import re
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import naming
 from app.database import get_db
-from app.models import CloudAgentConfig, WorkspaceMember
+from app.models import CloudAgentConfig, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
+from app.config import config
 from app.services.cloud_providers import providers_catalog, validate_provider_model
+from app.services.yumi import (
+    YUMI_CATEGORY,
+    YUMI_KEY_PLACEHOLDER,
+    YUMI_PROVIDER,
+    resolve_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +46,22 @@ def _mask_api_key(key: str) -> str:
 
 
 def _format_cloud_agent(cfg: CloudAgentConfig) -> dict:
+    # The built-in assistant (Yumi) is server-managed: its model and
+    # credentials are resolved from server config at call time, so report the
+    # model actually in use (not the provision-time row) and flag it managed
+    # so clients render it read-only. Its stored key is only a placeholder.
+    managed = cfg.provider == YUMI_PROVIDER
     return {
         "agentName": cfg.agent_name,
         "provider": cfg.provider,
-        "model": cfg.model,
+        "model": resolve_model(cfg) if managed else cfg.model,
         "category": cfg.category,
-        "apiKeyMasked": _mask_api_key(cfg.api_key),
-        "baseUrl": cfg.base_url,
+        "apiKeyMasked": "" if managed else _mask_api_key(cfg.api_key),
+        "baseUrl": None if managed else cfg.base_url,
         "systemPrompt": cfg.system_prompt,
         "maxTokens": cfg.max_tokens,
         "status": cfg.status,
+        "managed": managed,
         "createdAt": cfg.created_at.isoformat() if cfg.created_at else None,
     }
 
@@ -60,6 +74,67 @@ def _format_cloud_agent(cfg: CloudAgentConfig) -> dict:
 async def list_providers():
     """List available cloud agent providers and their models."""
     return success_response({"providers": providers_catalog()})
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/model-probe — interactive credential/model check for agent forms
+# ---------------------------------------------------------------------------
+
+class ModelProbeRequest(BaseModel):
+    """Probe a credential (and optionally a model) before saving it.
+
+    ``provider`` is a PROVIDERS name, ``custom`` (OpenAI-compatible URL) or
+    ``custom-anthropic`` (Anthropic-compatible URL); both custom kinds
+    require ``base_url``.
+    """
+    network: str
+    provider: str                    # a PROVIDERS name, "custom", or "custom-anthropic"
+    api_key: str
+    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI- or Anthropic-compatible)
+    model: Optional[str] = None      # when set, run a live completion check
+    protocol: Optional[Literal["openai", "anthropic"]] = None
+
+
+def _authorize_model_probe(
+    body: ModelProbeRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+        return None
+    finally:
+        db.close()
+
+
+@router.post("/model-probe")
+async def model_probe(body: ModelProbeRequest, error=Depends(_authorize_model_probe)):
+    """Validate against the provider after releasing the authorization session."""
+    from app.services.cloud_providers import ANTHROPIC_COMPAT, PROVIDERS
+    from app.services.model_probe import probe
+
+    if error is not None:
+        return error
+
+    provider = body.provider.strip()
+    # Same credential kinds Model access accepts: "custom" (OpenAI-compatible
+    # URL) and "custom-anthropic" (Anthropic-compatible URL) live outside the
+    # catalog, so the Verify button must not reject them.
+    custom_kinds = ("custom", ANTHROPIC_COMPAT)
+    if provider not in custom_kinds and provider not in PROVIDERS:
+        return json_response(ResponseCode.BAD_REQUEST, f"Unknown provider '{provider}'")
+    if provider in custom_kinds and not (body.base_url or "").strip():
+        return json_response(ResponseCode.BAD_REQUEST, "base_url is required for a custom provider")
+    if not body.api_key.strip():
+        return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
+
+    return success_response(await probe(provider, body.api_key, body.base_url, body.model, body.protocol))
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +153,7 @@ class AddCloudAgentRequest(BaseModel):
 
 
 @router.post("/cloud-agents")
-async def add_cloud_agent(
+def add_cloud_agent(
     body: AddCloudAgentRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -98,27 +173,32 @@ async def add_cloud_agent(
             "Agent name must be 3-64 chars, alphanumeric/hyphen/underscore",
         )
 
-    model_info = validate_provider_model(body.provider, body.model)
-    if not model_info:
-        return json_response(
-            ResponseCode.BAD_REQUEST,
-            f"Unknown provider/model: {body.provider}/{body.model}",
-        )
-
-    # The built-in "openagents" provider (Yumi) is server-managed: it runs the
-    # assistant tool loop and its key is injected at call time, so the user
-    # doesn't (and can't) supply one. This is the re-add path after a user
-    # removed the built-in agent.
-    from app.services.yumi import YUMI_CATEGORY, YUMI_KEY_PLACEHOLDER
-    is_builtin = body.provider == "openagents"
+    # The built-in "openagents" provider (Yumi) is server-managed end to end:
+    # it runs the assistant tool loop, its key is injected at call time, and
+    # its MODEL is fixed by server config — whatever the client sends is
+    # ignored, so the built-in can't be pointed at a different model. This is
+    # the re-add path after a user removed the built-in agent.
+    is_builtin = body.provider == YUMI_PROVIDER
     if is_builtin:
+        effective_model = config.YUMI_MODEL
         category = YUMI_CATEGORY
         effective_key = YUMI_KEY_PLACEHOLDER
         member_description = "OpenAgents built-in assistant — helps you get started"
     else:
+        model_info = validate_provider_model(body.provider, body.model)
+        if not model_info:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"Unknown provider/model: {body.provider}/{body.model}",
+            )
+        effective_model = body.model
         category = model_info.category
         effective_key = body.api_key
         member_description = f"Cloud agent: {model_info.label} ({body.provider})"
+
+    # Namespace lock BEFORE the membership read: a concurrent create/rename
+    # could otherwise invalidate what we read before we write.
+    naming.lock_member_namespace(db, workspace.id)
 
     existing = db.execute(
         select(WorkspaceMember).where(
@@ -130,6 +210,19 @@ async def add_cloud_agent(
         return json_response(
             ResponseCode.BAD_REQUEST,
             f"Agent '{body.agent_name}' already exists in this workspace",
+        )
+
+    # Names and display-name aliases share one namespace (both are routable in
+    # the picker and the LLM router) — reject a new agent whose name matches
+    # another member's display_name.
+    alias_clash = naming.find_alias_clash(
+        db, workspace.id, body.agent_name, exclude_agent=body.agent_name,
+    )
+    if alias_clash:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Agent name '{body.agent_name}' conflicts with the display name "
+            f"of member '{alias_clash}'",
         )
 
     if body.provider == "custom" and not body.base_url:
@@ -154,7 +247,7 @@ async def add_cloud_agent(
         ).scalar_one_or_none()
         if cfg is not None:
             cfg.provider = body.provider
-            cfg.model = body.model
+            cfg.model = effective_model
             cfg.category = category
             cfg.api_key = effective_key
             cfg.base_url = None if is_builtin else body.base_url
@@ -164,7 +257,7 @@ async def add_cloud_agent(
         db.commit()
         logger.info(
             "cloud_agents: reactivated %s (%s/%s) in workspace %s",
-            body.agent_name, body.provider, body.model, workspace.id,
+            body.agent_name, body.provider, effective_model, workspace.id,
         )
         return success_response(_format_cloud_agent(cfg))
 
@@ -172,7 +265,7 @@ async def add_cloud_agent(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
         provider=body.provider,
-        model=body.model,
+        model=effective_model,
         category=category,
         api_key=effective_key,
         base_url=None if is_builtin else body.base_url,
@@ -181,9 +274,12 @@ async def add_cloud_agent(
     )
     db.add(cfg)
 
+    from app.access import resolve_current_user
+    creator = resolve_current_user(db, authorization)
     member = WorkspaceMember(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
+        owner_email=creator.email if creator else workspace.creator_email,
         role="member",
         agent_type=f"cloud:{body.provider}",
         status="online",
@@ -195,7 +291,7 @@ async def add_cloud_agent(
 
     logger.info(
         "cloud_agents: added %s (%s/%s) to workspace %s",
-        body.agent_name, body.provider, body.model, workspace.id,
+        body.agent_name, body.provider, effective_model, workspace.id,
     )
 
     return success_response(_format_cloud_agent(cfg))
@@ -206,7 +302,7 @@ async def add_cloud_agent(
 # ---------------------------------------------------------------------------
 
 @router.get("/cloud-agents")
-async def list_cloud_agents(
+def list_cloud_agents(
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -231,6 +327,30 @@ async def list_cloud_agents(
     })
 
 
+def _owner_error(db: Session, workspace, cfg: CloudAgentConfig, token, authorization):
+    """Only the agent's owner may reconfigure or remove a cloud agent.
+
+    The same rule the workspace member routes apply to every other agent (see
+    ``_connection_management_error``): being allowed to use an agent someone
+    shared does not make its model, key or prompt yours to change. Yumi is
+    exempt: its configuration is fixed server-side and only its on/off status
+    can change.
+    """
+    if cfg.provider == YUMI_PROVIDER:
+        return None
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == cfg.agent_name,
+        )
+    ).scalar_one_or_none()
+    if not member:
+        return None
+    # Imported here: the workspaces router pulls in a large dependency graph.
+    from app.routers.workspaces import _connection_management_error
+    return _connection_management_error(db, workspace, member, token, authorization)
+
+
 # ---------------------------------------------------------------------------
 # PATCH /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
@@ -246,7 +366,7 @@ class UpdateCloudAgentRequest(BaseModel):
 
 
 @router.patch("/cloud-agents/{agent_name}")
-async def update_cloud_agent(
+def update_cloud_agent(
     agent_name: str,
     body: UpdateCloudAgentRequest,
     db: Session = Depends(get_db),
@@ -270,6 +390,24 @@ async def update_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
+
+    # The built-in assistant is server-managed: model, credentials, endpoint
+    # and prompt are fixed by server config and can't be tweaked per
+    # workspace. Only enable/disable is allowed.
+    if cfg.provider == YUMI_PROVIDER and any(
+        v is not None for v in (
+            body.model, body.api_key, body.base_url,
+            body.system_prompt, body.max_tokens,
+        )
+    ):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Yumi is managed by OpenAgents — its model, credentials and prompt "
+            "can't be changed. You can only enable or disable it.",
+        )
 
     if body.model is not None:
         model_info = validate_provider_model(cfg.provider, body.model)
@@ -311,11 +449,57 @@ async def update_cloud_agent(
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/cloud-agents/{agent_name}/models
+# ---------------------------------------------------------------------------
+
+class CloudAgentModelsRequest(BaseModel):
+    network: str
+
+
+def _load_cloud_model_credentials(
+    agent_name: str,
+    body: CloudAgentModelsRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+        cfg = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == str(workspace.id),
+                CloudAgentConfig.agent_name == agent_name,
+            )
+        ).scalar_one_or_none()
+        if not cfg:
+            return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+        return cfg.provider, cfg.api_key, cfg.base_url
+    finally:
+        db.close()
+
+
+@router.post("/cloud-agents/{agent_name}/models")
+async def list_cloud_agent_models(credentials=Depends(_load_cloud_model_credentials)):
+    from starlette.responses import Response
+    from app.services.model_probe import probe
+
+    if isinstance(credentials, Response):
+        return credentials
+    provider, api_key, base_url = credentials
+    return success_response(await probe(provider, api_key, base_url, None))
+
+
+# ---------------------------------------------------------------------------
 # DELETE /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
 
 @router.delete("/cloud-agents/{agent_name}")
-async def remove_cloud_agent(
+def remove_cloud_agent(
     agent_name: str,
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),
@@ -339,6 +523,9 @@ async def remove_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     db.delete(cfg)
 
@@ -362,7 +549,9 @@ async def remove_cloud_agent(
 # Google OAuth — "Sign in with Google" for Gemini
 # ---------------------------------------------------------------------------
 
+import html as _html
 import secrets
+import time as _time
 from urllib.parse import urlencode
 
 from fastapi.responses import RedirectResponse
@@ -371,34 +560,61 @@ _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/generative-language.retriever https://www.googleapis.com/auth/cloud-platform"
 
+# NOTE: process-local — good enough for single-worker deployments, but a
+# multi-worker/multi-replica setup needs a shared TTL store or signed states
+# (start and callback can land on different processes). Known limitation,
+# tracked as a follow-up; predates this feature.
 _oauth_states: dict[str, dict] = {}
+_OAUTH_STATE_TTL_SECONDS = 600
 
 
-@router.get("/cloud-agents/google/auth")
-async def google_oauth_start(
-    network: str = Query(...),
-    agent_name: str = Query("gemini"),
-    model: str = Query("gemini-3.5-flash"),
-    x_workspace_token: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
-):
-    """Initiate Google OAuth flow — redirects user to Google consent screen."""
+def _issue_google_auth_url(db, network, agent_name, model, caller_token, authorization):
+    """Validate the caller and mint a one-time Google consent URL.
+
+    Returns (error_response, None) or (None, url). Shared by the JSON POST
+    (browser flow: fetch with headers, then navigate) and the header-
+    authenticated GET redirect.
+    """
     from app.config import config as app_config
 
     if not app_config.GOOGLE_OAUTH_CLIENT_ID:
-        return json_response(ResponseCode.BAD_REQUEST, "Google OAuth not configured on this server")
+        return json_response(ResponseCode.BAD_REQUEST, "Google OAuth not configured on this server"), None
 
     workspace = _resolve_workspace(db, network)
     if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        return json_response(ResponseCode.NOT_FOUND, "Network not found"), None
+
+    # The callback mints a workspace member, so starting the flow requires
+    # workspace credentials — a state must never be issued to an anonymous
+    # caller (it used to fall back to the workspace's own token).
+    if not _verify_workspace_access(workspace, caller_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials"), None
+
+    # Same rules as POST /cloud-agents — validate BEFORE the state is
+    # written, since the callback trusts everything stored in it.
+    if not _AGENT_NAME_RE.match(agent_name):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Agent name must be 3-64 chars, alphanumeric/hyphen/underscore",
+        ), None
+    # No model whitelist here on purpose: validate_provider_model accepts any
+    # model id for known providers (the registry is curated suggestions, not a
+    # hard restriction) — POST /cloud-agents behaves the same way.
+
+    # Opportunistic prune so abandoned flows don't accumulate forever.
+    now = _time.time()
+    for key in [k for k, v in _oauth_states.items()
+                if now - v.get("created_at", 0) > _OAUTH_STATE_TTL_SECONDS]:
+        _oauth_states.pop(key, None)
 
     state = secrets.token_urlsafe(32)
+    # No credentials in the state: the callback re-derives everything it
+    # needs, and possession of the unguessable state IS the authorization.
     _oauth_states[state] = {
         "workspace_id": str(workspace.id),
-        "token": x_workspace_token or workspace.password_hash,
         "agent_name": agent_name,
         "model": model,
+        "created_at": now,
     }
 
     params = {
@@ -410,7 +626,59 @@ async def google_oauth_start(
         "prompt": "consent",
         "state": state,
     }
-    return RedirectResponse(f"{_GOOGLE_AUTH_URL}?{urlencode(params)}")
+    return None, f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+
+class GoogleAuthUrlRequest(BaseModel):
+    network: str
+    agent_name: str = "gemini"
+    model: str = "gemini-3.5-flash"
+
+
+@router.post("/cloud-agents/google/auth-url")
+async def google_oauth_auth_url(
+    body: GoogleAuthUrlRequest,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Mint a one-time Google consent URL for an authenticated caller.
+
+    Browsers can't attach headers to an href navigation, and putting the
+    workspace token in a query string leaks it to access logs and browser
+    history — so the frontend fetches this endpoint with headers and then
+    navigates to the returned URL.
+    """
+    error, url = _issue_google_auth_url(
+        db, body.network, body.agent_name, body.model,
+        x_workspace_token, authorization,
+    )
+    if error:
+        return error
+    return success_response({"url": url})
+
+
+@router.get("/cloud-agents/google/auth")
+async def google_oauth_start(
+    network: str = Query(...),
+    agent_name: str = Query("gemini"),
+    model: str = Query("gemini-3.5-flash"),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Initiate Google OAuth flow — redirects to the Google consent screen.
+
+    Header-authenticated only (API clients). Browser flows use
+    POST /cloud-agents/google/auth-url; a query-string token is deliberately
+    NOT accepted — it would end up in server logs and browser history.
+    """
+    error, url = _issue_google_auth_url(
+        db, network, agent_name, model, x_workspace_token, authorization,
+    )
+    if error:
+        return error
+    return RedirectResponse(url)
 
 
 @router.get("/cloud-agents/google/callback")
@@ -425,12 +693,23 @@ async def google_oauth_callback(
     from app.config import config as app_config
 
     if error:
-        return _oauth_error_page(f"Google authorization denied: {error}")
+        # `error` is attacker-reachable (this endpoint is public) — never
+        # echo it. Map the documented OAuth codes to fixed copy, log the raw
+        # value for diagnostics.
+        logger.info("cloud_agents: Google OAuth returned error=%r", error)
+        message = (
+            "Google authorization was denied — no access was granted."
+            if error == "access_denied"
+            else "Google authorization failed — please try again."
+        )
+        return _oauth_error_page(message)
 
     if not state or state not in _oauth_states:
         return _oauth_error_page("Invalid OAuth state — please try again")
 
     session = _oauth_states.pop(state)
+    if _time.time() - session.get("created_at", 0) > _OAUTH_STATE_TTL_SECONDS:
+        return _oauth_error_page("This sign-in link expired — please start again")
 
     try:
         async with httpx.AsyncClient(timeout=30) as http:
@@ -460,7 +739,48 @@ async def google_oauth_callback(
     if not workspace:
         return _oauth_error_page("Workspace not found")
 
-    from app.models import Workspace
+    # Namespace lock BEFORE the reads, then every guard BEFORE any session
+    # mutation — bailing out after a db.add() would leave a pending orphan.
+    naming.lock_member_namespace(db, workspace_id)
+
+    # Ownership is checked on the MEMBER, unconditionally — a stale config
+    # row must not bypass it, and a removed member of another type must not
+    # be resurrected as a Google agent. Only a member that already is a
+    # Google cloud agent may be repaired/reconnected.
+    existing_member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+    if existing_member and (existing_member.agent_type or "") != "cloud:google":
+        logger.warning(
+            "cloud_agents: OAuth callback refused agent %s in %s — a %s "
+            "member (status=%s) already owns the name",
+            agent_name, workspace_id,
+            existing_member.agent_type, existing_member.status,
+        )
+        return _oauth_error_page(
+            f"An agent named '{agent_name}' already exists in this "
+            "workspace. Pick a different name and connect again."
+        )
+
+    if existing_member is None:
+        # Same namespace guard as every other member-creating entry point.
+        alias_clash = naming.find_alias_clash(
+            db, workspace_id, agent_name, exclude_agent=agent_name,
+        )
+        if alias_clash:
+            logger.warning(
+                "cloud_agents: OAuth callback refused agent %s in %s — "
+                "clashes with display name of %s",
+                agent_name, workspace_id, alias_clash,
+            )
+            return _oauth_error_page(
+                f"The agent name '{agent_name}' conflicts with the display "
+                f"name of member '{alias_clash}'. Remove or rename that "
+                "member, then connect again."
+            )
 
     existing_cfg = db.execute(
         select(CloudAgentConfig).where(
@@ -474,7 +794,7 @@ async def google_oauth_callback(
         existing_cfg.base_url = f"oauth_refresh:{refresh_token}" if refresh_token else None
         existing_cfg.model = model
     else:
-        cfg = CloudAgentConfig(
+        db.add(CloudAgentConfig(
             workspace_id=workspace_id,
             agent_name=agent_name,
             provider="google",
@@ -482,24 +802,21 @@ async def google_oauth_callback(
             category="chat",
             api_key=access_token,
             base_url=f"oauth_refresh:{refresh_token}" if refresh_token else None,
-        )
-        db.add(cfg)
+        ))
 
-        existing_member = db.execute(
-            select(WorkspaceMember).where(
-                WorkspaceMember.workspace_id == workspace_id,
-                WorkspaceMember.agent_name == agent_name,
-            )
-        ).scalar_one_or_none()
-        if not existing_member:
-            db.add(WorkspaceMember(
-                workspace_id=workspace_id,
-                agent_name=agent_name,
-                role="member",
-                agent_type="cloud:google",
-                status="online",
-                description=f"Cloud agent: {model} (Google AI via OAuth)",
-            ))
+    if existing_member is None:
+        db.add(WorkspaceMember(
+            workspace_id=workspace_id,
+            agent_name=agent_name,
+            role="member",
+            agent_type="cloud:google",
+            status="online",
+            description=f"Cloud agent: {model} (Google AI via OAuth)",
+        ))
+    elif existing_member.status == "removed":
+        # Explicit reconnection of a previously-removed Google cloud agent —
+        # mirrors the POST /cloud-agents reactivation path.
+        existing_member.status = "online"
 
     db.commit()
     logger.info("cloud_agents: Google OAuth completed for %s in workspace %s", agent_name, workspace_id)
@@ -509,6 +826,9 @@ async def google_oauth_callback(
 
 def _oauth_success_page(agent_name: str):
     from fastapi.responses import HTMLResponse
+    # Escape defensively even though agent_name is validated at start time —
+    # these pages must never interpolate raw request-derived text.
+    agent_name = _html.escape(agent_name)
     return HTMLResponse(f"""<!DOCTYPE html><html><head><title>Connected!</title>
 <style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb}}
 .card{{text-align:center;padding:2rem;border-radius:12px;border:1px solid #e5e7eb;background:#fff;max-width:400px}}
@@ -522,6 +842,9 @@ h2{{margin:0 0 .5rem;font-size:1.25rem}}p{{color:#6b7280;font-size:.875rem;margi
 
 def _oauth_error_page(message: str):
     from fastapi.responses import HTMLResponse
+    # Every message is escaped centrally: some callers interpolate
+    # request-derived values (agent names, member names) into the copy.
+    message = _html.escape(message)
     return HTMLResponse(f"""<!DOCTYPE html><html><head><title>Error</title>
 <style>body{{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb}}
 .card{{text-align:center;padding:2rem;border-radius:12px;border:1px solid #fecaca;background:#fff;max-width:400px}}

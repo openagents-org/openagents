@@ -8,13 +8,20 @@
     "copilot": "GitHub's official Copilot coding agent for the terminal (the new copilot CLI, not the retired gh copilot extension).",
     "cursor": "Cursor's agent-mode CLI, sharing context with the editor.",
     "gemini": "Google's open-source AI agent for the command line.",
+    "antigravity": "Google's agent-first CLI (agy) — the successor to Gemini CLI.",
     "goose": "An open-source AI developer agent by Block (CLI — beta).",
     "nanoclaw": "Containerized agent runtime — each Agent Group runs in its own Docker container (Claude Agent SDK), bridged to the workspace over a native channel.",
     "openclaw": "Open-source coding agent with multi-model support.",
     "opencode": "Open-source terminal-native AI coding agent.",
-    "kimi": "Powered by Moonshot AI over an OpenAI-compatible API, strong on long context.",
+    "kimi": "Moonshot AI's Kimi Code CLI — a terminal coding agent strong on long-horizon tasks.",
     "hermes": "Nous Hermes — self-improving AI with tools, profiles, memory and messaging.",
-    "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace."
+    "mini-swe-agent": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
+    "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
+    "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
+    "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
+    "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
+    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -24,11 +31,11 @@
     "token": "Token"
   },
   "genericHints": {
-    "apiKey": "API key for the selected provider. Leave blank to reuse a key already in your environment.",
+    "apiKey": "API key for the selected provider.",
     "baseUrl": "Endpoint URL. Leave blank for the hosted service; set it for a relay, proxy or self-hosted gateway.",
     "model": "Model name. Change it when using a relay or proxy — their channels rarely match the default.",
     "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
-    "token": "Access token. Leave blank to reuse a token already in your environment."
+    "token": "Access token."
   },
   "env": {
     "AIDER_MODEL": {
@@ -59,6 +66,10 @@
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
     },
+    "CLAUDE_CODE_OAUTH_TOKEN": {
+      "label": "Subscription token",
+      "hint": "Long-lived token from `claude setup-token`, run on a machine that's already signed in. Paste it here to reuse a Pro/Max subscription on this machine — no API credit and no browser sign-in needed. Leave empty if you sign in above."
+    },
     "CLINE_API_KEY": {
       "label": "API key",
       "hint": "API key for the selected provider — or leave blank and run `cline auth` to sign in."
@@ -74,6 +85,22 @@
     "CODEX_MODEL": {
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "COMMAND_CODE_API_KEY": {
+      "label": "API key",
+      "hint": "Command Code API key, for headless or CI use. Leave blank if you signed in with `command-code login`."
+    },
+    "COMMANDCODE_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default. Models from a provider you added yourself are prefixed with it, e.g. openrouter/deepseek-v4-flash."
+    },
+    "COMMANDCODE_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of low, medium or high. Leave blank for the model default."
+    },
+    "COMMANDCODE_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the default of 100 — a run that reaches the limit still returns the answer it has."
     },
     "COPILOT_GITHUB_TOKEN": {
       "label": "GitHub token",
@@ -96,8 +123,8 @@
       "hint": "Custom endpoint for native deepseek/… models. Leave blank to use DeepSeek's default."
     },
     "DEEPSEEK_API_KEY": {
-      "label": "DeepSeek key",
-      "hint": "DeepSeek API key — used for deepseek/… models. Connects directly to api.deepseek.com; no base URL needed."
+      "label": "DeepSeek API key",
+      "hint": "API key for DeepSeek. Get one at https://platform.deepseek.com."
     },
     "GEMINI_API_KEY": {
       "label": "API key",
@@ -106,6 +133,10 @@
     "GEMINI_MODEL": {
       "label": "Model",
       "hint": "Model name. Change it when using a relay or proxy — their channels rarely match the default."
+    },
+    "ANTIGRAVITY_MODEL": {
+      "label": "Model",
+      "hint": "Model slug — leave empty for agy's default; list valid slugs with `agy models`."
     },
     "GOOGLE_GEMINI_BASE_URL": {
       "label": "Base URL",
@@ -133,7 +164,7 @@
     },
     "KIMI_API_KEY": {
       "label": "API key",
-      "hint": "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY)."
+      "hint": "Moonshot / Kimi API key (also accepts MOONSHOT_API_KEY). Leave blank to use `kimi login`."
     },
     "KIMI_BASE_URL": {
       "label": "Base URL",
@@ -145,7 +176,7 @@
     },
     "LLM_API_KEY": {
       "label": "API key",
-      "hint": "API key for the selected provider. Leave blank to reuse a key already in your environment."
+      "hint": "API key for the selected provider."
     },
     "LLM_BASE_URL": {
       "label": "Base URL",
@@ -182,6 +213,114 @@
     "OPENAI_BASE_URL": {
       "label": "Base URL",
       "hint": "OpenAI-compatible base URL. The default works for the OpenAI API; change it for a proxy or relay."
+    },
+    "PI_MODEL": {
+      "label": "Model",
+      "hint": "Exact model id exposed by the provider or relay, such as claude-sonnet-4-6, gpt-5-codex, or deepseek-v4-flash."
+    },
+    "PI_PROVIDER": {
+      "label": "Provider",
+      "hint": "Choose anthropic for native/relay Claude, openai for native/relay OpenAI, deepseek for DeepSeek, or openai-codex for a ChatGPT subscription login."
+    },
+    "PI_API_FORMAT": {
+      "label": "API protocol",
+      "hint": "Keep auto for native providers. For a relay choose anthropic-messages, openai-completions, or openai-responses as documented by the relay."
+    },
+    "PI_BASE_URL": {
+      "label": "Relay base URL",
+      "hint": "Leave blank for native APIs; set this for a relay, proxy, or self-hosted endpoint. $t(common.appName) configures Pi without models.json."
+    },
+    "PI_API_KEY": {
+      "label": "API key",
+      "hint": "API key for the selected provider or relay. Leave blank to reuse an existing Pi /login session."
+    },
+    "PI_THINKING": {
+      "label": "Reasoning effort",
+      "hint": "One of off, minimal, low, medium, high, xhigh, max. Leave blank for the model default."
+    },
+    "PI_TRUST_PROJECT": {
+      "label": "Trust project files",
+      "hint": "Off by default. When set to 1, Pi loads .pi/settings.json, extensions and skills from the working directory — that is executable code from the repository, so only enable it for projects you trust."
+    },
+    "DEEPSEEK_BASE_URL": {
+      "label": "DeepSeek base URL",
+      "hint": "Optional gateway or proxy. Leave blank for the public DeepSeek API."
+    },
+    "DEEPSEEK_MODEL": {
+      "label": "DeepSeek model",
+      "hint": "Pick from the models your API key can use, or type a model id. Leave blank to use the DeepSeek Harness default."
+    },
+    "DSH_PERMISSION_MODE": {
+      "label": "Filesystem permission",
+      "hint": "workspace-write confines changes to the project directory. Plan mode always forces read-only."
+    },
+    "OPENWORKER_PROVIDER": {
+      "label": "Provider",
+      "hint": "Which provider your key belongs to — OpenWorker brings its own model rather than a bundled one. Pick ollama for a local server, or openai-codex to reuse a ChatGPT subscription (that one also needs a state directory)."
+    },
+    "OPENWORKER_API_KEY": {
+      "label": "API key",
+      "hint": "Key for the provider above. It is handed to the OpenWorker server in its environment and never written to disk."
+    },
+    "OPENWORKER_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Endpoint override for a relay, a self-hosted gateway, Azure OpenAI, or your Ollama server. Leave blank for the provider's official endpoint."
+    },
+    "OPENWORKER_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for OpenWorker's default. The provider prefix is added for you, so a plain id is enough."
+    },
+    "OPENWORKER_MODE": {
+      "label": "Permission mode",
+      "hint": "How much the agent may do without asking. Keep bypass-approvals: nobody is at the keyboard to approve tool calls, and the other modes stall on the first prompt. Its hard limits (settings files, writes outside the workspace, .git/hooks) still apply."
+    },
+    "OPENWORKER_ALLOW_TOOL_INSTALL": {
+      "label": "Allow tool installs",
+      "hint": "Let the agent install tools from OpenWorker's pinned catalog on its own. Off by default — it will say so and work around the gap instead."
+    },
+    "OPENWORKER_STATE_DIR": {
+      "label": "State directory",
+      "hint": "Advanced. Where conversations and credentials are kept. Blank means a private directory per agent. Point it at the OpenWorker desktop app's directory to reuse its sign-ins — only while that app is closed."
+    },
+    "CODEBUDDY_REGION": {
+      "label": "Site",
+      "hint": "Which site your account is on: international (codebuddy.ai / workbuddy.ai) or China (codebuddy.cn / workbuddy.cn). An account exists on one of them only, and the wrong choice shows up as a sign-in failure."
+    },
+    "CODEBUDDY_API_KEY": {
+      "label": "API key",
+      "hint": "CodeBuddy API key, for running without an interactive sign-in. Leave blank if you signed in by running `codebuddy` and using /login on this machine."
+    },
+    "CODEBUDDY_AUTH_TOKEN": {
+      "label": "Auth token",
+      "hint": "Platform token, the alternative to an API key — an enterprise PAT, for example. Paste the token itself; a leading `Bearer ` is removed for you."
+    },
+    "CODEBUDDY_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on. Leave blank for the account default. The aliases default-model, fast-model and deep-model keep working when the model behind them is replaced."
+    },
+    "CODEBUDDY_EFFORT": {
+      "label": "Reasoning effort",
+      "hint": "One of minimal, low, medium, high, xhigh or max. Leave blank for the model default."
+    },
+    "CODEBUDDY_MAX_TURNS": {
+      "label": "Max turns",
+      "hint": "How many tool-use turns one message may take. Leave blank for the CLI default — a run that reaches the limit still returns the answer it has."
+    },
+    "CODEBUDDY_BASE_URL": {
+      "label": "Base URL",
+      "hint": "Advanced. Endpoint override for an enterprise or self-hosted CodeBuddy; blank uses the endpoint the site above selects. This is not a model gateway or relay URL — CodeBuddy speaks Tencent’s own protocol, and an OpenAI-compatible endpoint will not work here."
+    },
+    "CODEARTS_CLI_AK": {
+      "label": "Access key ID (AK)",
+      "hint": "Huawei Cloud access key ID. CodeArts Agent accepts no other credential when it runs headless — create one at codearts.huaweicloud.com/portal/settings/cli-auth."
+    },
+    "CODEARTS_CLI_SK": {
+      "label": "Secret access key (SK)",
+      "hint": "The secret access key paired with the access key ID above."
+    },
+    "CODEARTS_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on, as provider/model. Pick one from the list, or leave blank to use the first model your access key can run."
     }
   }
 }

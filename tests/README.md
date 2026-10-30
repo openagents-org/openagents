@@ -126,6 +126,20 @@ The test suite is organized into several categories:
 - Network launcher functionality
 - Async network initialization
 
+### Suites pytest does not run
+
+Two directories here are Node scripts rather than pytest modules — they drive
+real installs against a real workspace, so they are run on demand, not in the
+unit suite:
+
+- **`end_to_end/`** — the desktop launcher, end to end: pair a workspace,
+  install each supported agent from nothing, configure and connect it, then
+  message it and check the answer. One entry point for macOS, Linux and
+  Windows (`node tests/end_to_end/run.js`), intended to run daily. See
+  [`end_to_end/README.md`](end_to_end/README.md).
+- **`e2e/`** — the same journey through the `agn` CLI instead of the launcher
+  (`node tests/e2e/agent-smoke.js`). See [`e2e/README.md`](e2e/README.md).
+
 ## Test Configuration
 
 Tests are configured via `pyproject.toml` with the following settings:

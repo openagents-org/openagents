@@ -4,7 +4,7 @@ Tests for dynamic mod loading and unloading.
 
 import pytest
 import asyncio
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.models.network_config import NetworkConfig
 from openagents.models.event import Event
 

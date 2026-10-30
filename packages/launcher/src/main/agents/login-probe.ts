@@ -1,0 +1,363 @@
+/**
+ * "Is this agent signed in?" for CLIs that own their own login.
+ *
+ * The answer comes from spawning the CLI's `status` (or, for Gemini, looking
+ * for the creds file its OAuth flow writes), which can take seconds — Hermes
+ * is ~2.5s. So every read is served from a cache and the spawn happens in the
+ * background: the Agents list refreshes every ~1.5s and must never block on a
+ * child process.
+ */
+import path from "path"
+import fs from "fs"
+import os from "os"
+import { spawn } from "child_process"
+import {
+  DUAL_LOGIN_AGENTS,
+  HOSTED_LOGIN_AGENTS,
+  type HostedLoginSpec,
+} from "./auth-specs"
+import { windowsExecutable } from "../win-exec"
+
+/**
+ * The working directory for short-lived CLI probes — `~/.openagents/probe`,
+ * created on demand, or the home directory if it cannot be. See spawnAgentCli.
+ */
+function probeDir(): string {
+  const dir = path.join(os.homedir(), ".openagents", "probe")
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  } catch {
+    return os.homedir()
+  }
+}
+
+/**
+ * Read a sign-in verdict out of a `status` command's output and exit code:
+ * true (signed in) / false (signed out) / null (couldn't tell).
+ *
+ * A spec may declare either direction, or BOTH. Both is what a CLI that exits
+ * NON-ZERO when signed out forces on us: `codex login status` prints
+ * "Not logged in" and exits 1, so the "clean run that matched nothing"
+ * shortcut below never fires and, with only a signed-in pattern to go on, the
+ * verdict was null forever. null is deliberately optimistic downstream —
+ * `health.ts` only reports "Not signed in" for an explicit `false` — so a codex
+ * that was merely signed out kept reading as usable, and every message to it
+ * failed. Naming the signed-out wording as well removes the guesswork.
+ *
+ * The exit code is still what separates "matched nothing because signed out"
+ * from "matched nothing because the CLI fell over": only a clean exit is
+ * allowed to stand in for the absent pattern.
+ */
+/**
+ * Sign-in read off disk, for a CLI whose auth is an interactive TUI flow with
+ * no status command to spawn (Gemini — spawning bare `gemini` for a probe would
+ * launch its TUI and hang; CodeBuddy, whose sign-in is a `/login` slash command
+ * inside its session). Each entry is tried in order and the first hit wins.
+ *
+ * Absent evidence is a real "signed out", not an unknown: only a file we can
+ * see but cannot read leaves the verdict null, because that is the one case
+ * where the user may well be signed in and we simply cannot tell.
+ *
+ * A found session still has to be USABLE by this agent: `spec.credsGuard` gets
+ * the parsed file and the agent's saved env, for a CLI that keeps one session
+ * across several services. Nothing here is logged — the same files hold tokens.
+ */
+/**
+ * Strip `//` line comments, leaving string literals alone.
+ *
+ * Only ever reached after a strict parse has already failed, so a plain JSON
+ * file never goes through it. The string tracking is the whole point: the very
+ * file this exists for records `"host": "https://github.com"`, and a regex that
+ * did not know it was inside a string would cut that value in half and turn a
+ * signed-in user into a parse error.
+ */
+function stripLineComments(text: string): string {
+  let out = ""
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      // Advance to just before the newline; the loop's own i++ then lands on
+      // it, so the line break survives into `out`.
+      while (i + 1 < text.length && text[i + 1] !== "\n") i++
+      continue
+    }
+    out += ch
+  }
+  return out
+}
+
+/**
+ * `JSON.parse`, tolerating a `//`-commented config. Copilot's config.json opens
+ * with a two-line header explaining that user settings belong elsewhere, and a
+ * strict parse throws on it — which used to land in the catch below and report
+ * "cannot tell" for a user who was plainly signed in.
+ */
+function parseJsonc(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return JSON.parse(stripLineComments(text))
+  }
+}
+
+/**
+ * Whether a creds field counts as carrying no value.
+ *
+ * `active: null` is how Gemini records a signed-OUT account, so the file's
+ * existence proves nothing. Empty containers are the same statement in a
+ * different shape — Copilot's `loggedInUsers` is an ARRAY, and `![]` is false,
+ * so a signed-out user with an empty list would otherwise read as signed in.
+ */
+function isEmptyField(field: unknown): boolean {
+  if (field == null) return true
+  if (typeof field === "string") return !field.trim()
+  if (Array.isArray(field)) return field.length === 0
+  if (typeof field === "object") return Object.keys(field).length === 0
+  return !field
+}
+
+export function credsVerdict(
+  spec: HostedLoginSpec,
+  homeDir: string = os.homedir(),
+  env: Record<string, string> = {},
+): boolean | null {
+  let value: boolean | null = false
+  for (const c of spec.credsFiles || []) {
+    const file = path.join(homeDir, c.path)
+    try {
+      if (!fs.existsSync(file)) continue
+      // Existence is the whole check unless something has to be read out of
+      // the file: a named field, or a guard over the document itself.
+      if (!c.key && !spec.credsGuard) return true
+      const parsed: unknown = parseJsonc(fs.readFileSync(file, "utf-8"))
+      const field = c.key
+        ? (parsed as Record<string, unknown> | null)?.[c.key]
+        : parsed
+      if (isEmptyField(field)) continue
+      // A session that exists but belongs to another service (CodeBuddy's
+      // international sign-in under a China-pinned agent) authenticates nothing
+      // here, and saying so is the difference between "Login required" and a
+      // green Ready in front of an agent whose every message fails on auth.
+      return spec.credsGuard ? spec.credsGuard(parsed, env) : true
+    } catch {
+      value = null
+    }
+  }
+  return value
+}
+
+export function loginVerdict(
+  spec: Pick<HostedLoginSpec, "loggedInPattern" | "loggedOutPattern">,
+  out: string,
+  code: number | null,
+): boolean | null {
+  if (spec.loggedInPattern?.test(out)) return true
+  if (spec.loggedOutPattern?.test(out)) return false
+  const definitive = !!out.trim() && code === 0
+  if (!definitive) return null
+  // A clean run that matched nothing means the opposite of whichever direction
+  // the spec is written in.
+  if (spec.loggedInPattern) return false
+  if (spec.loggedOutPattern) return true
+  return null
+}
+
+export interface LoginProbeDeps {
+  /** Absolute path to the agent's CLI, via the core's installer.which. */
+  resolveBinary: (type: string) => string | null
+  /** Saved type-level env, so a configured AMP_URL/AMP_API_KEY is honored. */
+  getSavedTypeEnv: (type: string) => Record<string, string>
+  /** The loaded core, for its getEnhancedEnv PATH builder. */
+  getCore: () => Record<string, unknown> | null
+  /** Fired once a probe settles, so callers can refresh what they cached. */
+  onSettled: (type: string, value: boolean | null) => void
+}
+
+export class LoginProbe {
+  // value: true = signed in, false = signed out, null = unknown (probe failed /
+  // timed out → treated optimistically). Probing spawns the CLI's `status`, so
+  // we cache for 30s and only re-probe off the hot getAgents path.
+  private _auth = new Map<string, { value: boolean | null; at: number }>()
+  // In-flight `status` probes, so concurrent callers share one CLI spawn.
+  private _inFlight = new Map<string, Promise<boolean | null>>()
+
+  constructor(private deps: LoginProbeDeps) {}
+
+  /**
+   * The CLI sign-in spec for an agent type, covering both pure hosted-login
+   * agents (Cursor, Hermes) and dual-auth agents (Claude — API key OR CLI
+   * login). Used by the shared `status`-probe machinery so a single code path
+   * detects sign-in for either kind.
+   */
+  specFor(type: string): HostedLoginSpec | undefined {
+    return HOSTED_LOGIN_AGENTS[type] || DUAL_LOGIN_AGENTS[type]
+  }
+
+  /**
+   * Cached sign-in state: true (signed in) / false (signed out) / null
+   * (unknown — never probed, or the probe couldn't decide). NON-BLOCKING:
+   * returns the cache immediately and kicks off a background probe when the
+   * cache is stale (>30s). The Configure dialog uses the awaitable refresh()
+   * instead when it needs a guaranteed-fresh read.
+   */
+  isAuthed(type: string): boolean | null {
+    const spec = this.specFor(type)
+    if (!spec) return null
+    const cached = this._auth.get(type)
+    const fresh = !!cached && Date.now() - cached.at < 30_000
+    if (!fresh) void this.refresh(type)
+    return cached ? cached.value : null
+  }
+
+  /**
+   * Spawn the hosted-login CLI's `status` asynchronously and cache the parsed
+   * sign-in state. Deduped per type (concurrent callers share one probe) and
+   * throttled (no re-spawn within 2s unless `force`d) so polling can't pile up
+   * CLI processes.
+   */
+  refresh(type: string, force = false): Promise<boolean | null> {
+    const spec = this.specFor(type)
+    if (!spec) return Promise.resolve(null)
+    const inflight = this._inFlight.get(type)
+    if (inflight) return inflight
+    const cached = this._auth.get(type)
+    if (!force && cached && Date.now() - cached.at < 2_000) {
+      return Promise.resolve(cached.value)
+    }
+    const p = this._run(type, spec)
+    this._inFlight.set(type, p)
+    void p.finally(() => this._inFlight.delete(type))
+    return p
+  }
+
+  /**
+   * Child env for a launcher-side CLI probe, built the SAME way the daemon's
+   * adapter builds it: the core's getEnhancedEnv adds nvm/fnm/volta/homebrew,
+   * ~/.local/bin and ~/.amp/bin to PATH and (on Windows) forces UTF-8 output +
+   * ComSpec. This is what makes `amp`/`amp.cmd` resolvable from a GUI-spawned
+   * process whose PATH never inherited the installer's edits — so the Agents
+   * list and the daemon agree on whether amp is runnable. Never a bare
+   * process.env. `extra` (e.g. AMP_API_KEY/AMP_URL) is merged in, never logged.
+   */
+  childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+    const base: NodeJS.ProcessEnv = { ...process.env, ...(extra || {}) }
+    try {
+      // Reuse the SAME core the launcher loaded (loadCore prefers the local
+      // workspace copy) so the enhanced PATH matches the daemon's exactly.
+      const paths = this.deps.getCore()?.paths as
+        | { getEnhancedEnv?: (e?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv }
+        | undefined
+      if (typeof paths?.getEnhancedEnv === "function")
+        return paths.getEnhancedEnv(base)
+    } catch {
+      /* fall back to the un-enhanced base below */
+    }
+    return base
+  }
+
+  /**
+   * Spawn an agent CLI for a short-lived probe (status / usage).
+   *
+   * The launch shape comes from `windowsExecutable` — the same helper the in-app
+   * login uses — because a path from `installer.which()` is usually NOT
+   * spawnable on Windows. This probe used to test only for a `.cmd`/`.bat`
+   * suffix, which the two commonest shapes don't have: the extensionless
+   * Git-Bash script `where` lists first, and the package's own `bin\<x>.js` that
+   * the core falls back to when no shim is on PATH. Both made CreateProcess
+   * throw, `child.on("error")` settled the probe at null, and the UI read that
+   * as signed-out — so a Codex user who had just completed the browser sign-in
+   * was told "couldn't confirm your login", forever. Enhanced PATH + windowsHide
+   * round it out.
+   */
+  spawnAgentCli(
+    bin: string,
+    args: string[],
+    extra?: Record<string, string>,
+  ): ReturnType<typeof spawn> {
+    const { command, shell } = windowsExecutable(bin)
+    return spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: this.childEnv(extra),
+      windowsHide: true,
+      shell,
+      // Never the app's own working directory. A probe belongs to no project,
+      // and some CLIs set one up wherever they start: `codearts models` left a
+      // `.codeartsdoer/` folder inside packages/launcher in a dev checkout, and
+      // in an installed app it would land in the install directory.
+      cwd: probeDir(),
+    })
+  }
+
+  private _run(type: string, spec: HostedLoginSpec): Promise<boolean | null> {
+    return new Promise((resolve) => {
+      const bin = this.deps.resolveBinary(type)
+
+      const settle = (value: boolean | null): void => {
+        this._auth.set(type, { value, at: Date.now() })
+        // Cache is fresh now, so a re-derive by the callback won't re-probe.
+        this.deps.onSettled(type, value)
+        resolve(value)
+      }
+
+      // Sign-in read off disk, for a CLI with no status command (Gemini,
+      // CodeBuddy). The saved env comes along because a session can be valid
+      // for one of an agent's configured services and not another.
+      if (spec.credsFiles?.length) {
+        settle(
+          credsVerdict(spec, os.homedir(), this.deps.getSavedTypeEnv(type)),
+        )
+        return
+      }
+
+      if (!bin) {
+        settle(null)
+        return
+      }
+      try {
+        // Same env + Windows .cmd handling as the daemon adapter, plus the
+        // saved type env so a configured AMP_URL / AMP_API_KEY is honored by the
+        // `amp usage` sign-in probe (key present is itself a valid auth path).
+        const child = this.spawnAgentCli(
+          bin,
+          spec.statusArgs,
+          this.deps.getSavedTypeEnv(type),
+        )
+        let out = ""
+        let settled = false
+        const finish = (value: boolean | null): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          settle(value)
+        }
+        const timer = setTimeout(() => {
+          try {
+            child.kill()
+          } catch {}
+          finish(null)
+        }, 8000)
+        child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
+        child.stderr?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
+        child.on("error", () => finish(null))
+        child.on("close", (code) => finish(loginVerdict(spec, out, code)))
+      } catch {
+        settle(null)
+      }
+    })
+  }
+}

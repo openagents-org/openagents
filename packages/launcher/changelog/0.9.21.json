@@ -1,0 +1,61 @@
+{
+  "version": "0.9.21",
+  "date": "2026-08-25",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "The setup wizard stops offering itself once an agent exists",
+        "zh": "已创建智能体后不再重复提示设置向导"
+      },
+      "description": {
+        "en": "The Marketplace decided this from an agent list that could come back empty while the core was still loading — read as \"this machine has no agents\", with nothing polling to correct it, so the button stayed for an agent that had been set up minutes earlier. A detail page now keeps the list it already has when the request fails, brings the core up instead of answering empty, and refreshes the moment the wizard creates an agent.",
+        "zh": "应用商店此前依据的智能体列表，在内核尚未加载完成时可能返回空，被当作「本机没有任何智能体」，且没有任何轮询加以纠正，于是刚配置好的智能体仍会看到该按钮。现在详情页在列表请求失败时保留已有数据，内核未就绪时先行加载而非直接返回空，并在向导创建智能体后立即刷新。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Model lists and connection tests survive a slow first request",
+        "zh": "模型列表与连接测试不再因首次请求缓慢而失败"
+      },
+      "description": {
+        "en": "Both gave up after 15 seconds and never tried again, so a relay that was merely cold came back as a broken key — and went through when the user pressed the same button a second time. A connection test, which is a real request to the model, now waits up to 45 seconds; a model listing waits 20. Either retries once when nothing answered at all. What the endpoint itself rejects, such as an invalid key, is still reported straight away.",
+        "zh": "两者此前均在 15 秒后放弃且不重试，因此中转站只是响应较慢，也会被报成密钥无效——而用户再点一次往往就能成功。现在连接测试（一次真实的模型请求）最长等待 45 秒，模型列表等待 20 秒；对端完全没有响应时各自自动重试一次。对端明确拒绝的情况（例如密钥错误）仍会立即如实反馈。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The account sign-in tab no longer shows the API form's model",
+        "zh": "账号登录选项卡不再显示 API 配置中的模型"
+      },
+      "description": {
+        "en": "Uninstalling without deleting data keeps the saved key and model, as intended. That model then also appeared under Account sign-in, naming something the signed-in account may never have served. The sign-in tab now starts empty whenever an API key is on file — and the model chosen there is saved, where previously it was discarded.",
+        "zh": "卸载时未勾选删除数据，已保存的密钥与模型会保留，这是预期行为；但该模型此前也会出现在「账号登录」下，而登录账号可能从未提供过这个模型。现在只要本机存有 API 密钥，登录选项卡的模型即留空；在该处选择的模型也会被正确保存——此前会被丢弃。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Agents install and update from one channel",
+        "zh": "智能体安装与更新统一走稳定通道"
+      },
+      "description": {
+        "en": "The per-agent Stable / Beta / Nightly selector is gone. It never affected what the page reported as the newest version — that always came from the stable release — so switching it produced no visible change, and the pre-release names it assumed only exist for two of the agents on offer: elsewhere the same button either failed outright or fetched a build older than the one already installed. Installs and updates now come from each agent's current release.",
+        "zh": "已移除每个智能体的「稳定版 / 测试版 / 每夜版」选择器。该选项从未影响页面显示的最新版本（始终取自稳定发布），因此切换后界面毫无变化；而它假定的预发布通道名称在所提供的智能体中仅有两个真实存在，其余情况下点击安装要么直接失败，要么装到比当前更旧的版本。现在安装与更新一律取各智能体的当前发布版本。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A paired device is a finished setup",
+        "zh": "配对完成即是设置完成"
+      },
+      "description": {
+        "en": "The panel's button is now the large primary action and names its destination — back to the browser to add an agent — while the footer keeps its own route into the local agent steps. Both end with an agent in the paired workspace; what separates them is where you do the work, and the step's copy now says so instead of claiming everything happens in the workspace from then on. The step tracker also stops promising the three optional steps to someone who is about to press \"Finish setup\": pairing completes setup, so the rail and the dots show that path until the user asks for the local continuation.",
+        "zh": "面板内的按钮改为大号主操作并写明去向——回到浏览器添加智能体；页脚保留通向本地智能体步骤的入口。两条路最终都会在已配对的工作区里得到一个智能体，区别只在于你在哪里操作，该步骤的文案现已如实说明，不再声称「后续都在工作区里操作」。左侧步骤条与底部进度点也不再向即将点击「完成设置」的用户预告那三个可选步骤：配对本身就是完整的设置，只有当用户选择在启动器里继续添加智能体时，后续步骤才会出现。"
+      }
+    }
+  ]
+}

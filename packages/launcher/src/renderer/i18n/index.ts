@@ -2,6 +2,8 @@ import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import LanguageDetector from "i18next-browser-languagedetector"
 
+import { useThemeStore } from "../store/theme"
+
 // Each per-feature JSON file under locales/<lng>/ becomes one top-level key in
 // that language's `translation` namespace, named after the file (e.g.
 // locales/en/agents.json → t("agents.*")). Dropping a new <feature>.json into
@@ -77,12 +79,43 @@ function syncLanguageToMain(lng: string): void {
   } catch {}
 }
 
+// And into the workspace the launcher hosts: it is the same window, and a rail
+// in Chinese beside a workspace in English reads as two different programs.
+// The theme rides along because both travel the same channel — see
+// shared/appearance-bridge.
+function syncLanguageToWorkspace(lng: string): void {
+  try {
+    void window.api?.syncAppearance?.({
+      // The store's mode, never a fallback of its own: the workspace takes both
+      // values from this message, so a guessed theme here (it used to be
+      // `system` on a fresh install, where the default is `light`) replaces the
+      // one the window is actually wearing.
+      theme: useThemeStore.getState().mode,
+      language: lng,
+    })
+  } catch {}
+}
+
 applyDocumentLang(i18n.resolvedLanguage ?? i18n.language)
 syncLanguageToMain(i18n.resolvedLanguage ?? i18n.language)
 i18n.on("languageChanged", (lng: string) => {
   applyDocumentLang(lng)
   syncLanguageToMain(lng)
+  syncLanguageToWorkspace(lng)
 })
+
+// The hosted workspace has its own language menu; follow it, so a choice made
+// on either side holds for the whole window. i18next ignores a change to the
+// language it is already on, which is what keeps this from ping-ponging.
+try {
+  window.api?.onAppearanceChanged?.(({ language }) => {
+    if (language && language !== i18n.resolvedLanguage) {
+      void i18n.changeLanguage(language)
+    }
+  })
+} catch {
+  /* No bridge in tests; nothing is hosted there either. */
+}
 
 export function changeLanguage(lng: LanguageCode): Promise<unknown> {
   return i18n.changeLanguage(lng)

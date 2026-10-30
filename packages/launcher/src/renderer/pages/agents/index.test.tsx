@@ -4,10 +4,11 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import Agents from "./index"
 import { useAgentsStore } from "../../store/agents"
+import { useUiStore } from "../../store/ui"
 import type { Agent } from "../../types"
 
 // Analytics fires network calls (posthog) — stub it out for the jsdom run.
-vi.mock("../../lib/analytics", () => ({ capture: vi.fn() }))
+vi.mock("../../lib/analytics", () => ({ capture: vi.fn(), group: vi.fn() }))
 
 type Api = Record<string, ReturnType<typeof vi.fn>>
 
@@ -24,7 +25,10 @@ function installApi(overrides: Partial<Api> = {}): Api {
     getCatalog: vi
       .fn()
       .mockResolvedValue([{ name: "claude", label: "Claude", installed: true }]),
-    getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude"]),
+    getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude", "gemini", "cursor", "kimi"]),
+    // The recommended cards read the catalog through the install records.
+    getInstalledAgents: vi.fn().mockResolvedValue([]),
+    checkAgentUpdates: vi.fn().mockResolvedValue([]),
     // ConfigureDialog: no env fields + no login command => "no config" view.
     getEnvFields: vi.fn().mockResolvedValue([]),
     getAgentEnv: vi.fn().mockResolvedValue({}),
@@ -35,10 +39,28 @@ function installApi(overrides: Partial<Api> = {}): Api {
     listWorkspaces: vi.fn().mockResolvedValue([]),
     connectWorkspace: vi.fn().mockResolvedValue(undefined),
     disconnectWorkspace: vi.fn().mockResolvedValue(undefined),
-    createWorkspace: vi.fn().mockResolvedValue({ token: "tok-123", slug: "new-ws" }),
-    registerWorkspaceFromToken: vi
-      .fn()
-      .mockResolvedValue({ slug: "joined-ws", id: "id-1" }),
+    getNodeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      workspaceSlug: null,
+      workspaceName: null,
+      workspaces: [],
+      revoked: [],
+    }),
+    // The connect dialog re-checks the pairings against the workspaces
+    // themselves before it offers any: being removed happens on their side.
+    refreshNodeStatus: vi.fn().mockResolvedValue({
+      connected: false,
+      workspaceSlug: null,
+      workspaceName: null,
+      workspaces: [],
+      revoked: [],
+    }),
+    connectNode: vi.fn().mockResolvedValue({
+      connected: true,
+      workspaceSlug: "paired-ws",
+      workspaceName: "Paired WS",
+      warning: null,
+    }),
     signalReload: vi.fn().mockResolvedValue(undefined),
     openExternal: vi.fn(),
     // NewAgentDialog prefills the working folder from the OS home dir and lets
@@ -46,6 +68,11 @@ function installApi(overrides: Partial<Api> = {}): Api {
     listPaths: vi.fn().mockResolvedValue({ home: "/home/test" }),
     selectDirectory: vi.fn().mockResolvedValue(null),
     openAgentTerminal: vi.fn().mockResolvedValue(undefined),
+    // The Configure dialog subscribes to the in-app CLI sign-in stream.
+    onCliLoginEvent: vi.fn(() => () => {}),
+    startCliLogin: vi.fn().mockResolvedValue({ mode: "in-app" }),
+    submitCliLoginCode: vi.fn().mockResolvedValue(undefined),
+    cancelCliLogin: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
   ;(window as unknown as { api: Api }).api = api
@@ -71,19 +98,30 @@ beforeEach(() => {
   showToast.mockClear()
 })
 
-// Drives NewAgentDialog -> ConfigureDialog with a deterministic agent name and
-// returns once the "no configuration required" Close button is visible.
-async function createAndReachConfigure(
+// A recommended card opens the shared editor on its type, which configures
+// and creates in one flow.
+async function createAndReachConfigure(user: ReturnType<typeof userEvent.setup>, name = "my-new-agent"): Promise<void> {
+  await user.click(await screen.findByTestId("recommended-add-claude"))
+  const nameInput = await screen.findByRole("textbox", { name: /agent name/i })
+  await user.clear(nameInput); await user.type(nameInput, name)
+  const add = screen.getByRole("button", { name: /^add an agent$/i })
+  await waitFor(() => expect(add).toBeEnabled())
+  await user.click(add)
+  await screen.findByRole("dialog")
+}
+
+/**
+ * Open one row's Configure dialog.
+ *
+ * Configure lives in the row's overflow menu at every window size. It used to
+ * be an inline button above 1536px and a menu item below, so the same action
+ * had no fixed home and the row's width changed with the window.
+ */
+async function openConfigureMenu(
   user: ReturnType<typeof userEvent.setup>,
-  name = "my-new-agent",
 ): Promise<void> {
-  await user.click(screen.getByRole("button", { name: /new agent/i }))
-  const nameInput = await screen.findByLabelText(/agent name/i)
-  await user.clear(nameInput)
-  await user.type(nameInput, name)
-  await user.click(screen.getByRole("button", { name: /^create$/i }))
-  // ConfigureDialog: "no configuration required" view with a Close button.
-  await screen.findByText(/no configuration required/i)
+  await user.click(screen.getByRole("button", { name: /more actions/i }))
+  await user.click(await screen.findByRole("menuitem", { name: /configure/i }))
 }
 
 describe("Agents page — new agent connect flow", () => {
@@ -93,12 +131,11 @@ describe("Agents page — new agent connect flow", () => {
     render(<Agents showToast={showToast} />)
 
     await createAndReachConfigure(user, "my-new-agent")
-    await user.click(screen.getByRole("button", { name: /^close$/i }))
 
     // The connect dialog for this specific agent should now be visible.
     await waitFor(() =>
       expect(
-        screen.getByText(/connect 'my-new-agent' to workspace/i),
+        screen.getByText(/add 'my-new-agent' to a workspace/i),
       ).toBeInTheDocument(),
     )
   })
@@ -109,14 +146,13 @@ describe("Agents page — new agent connect flow", () => {
     render(<Agents showToast={showToast} />)
 
     await createAndReachConfigure(user)
-    await user.click(screen.getByRole("button", { name: /^close$/i }))
-    await screen.findByText(/to workspace/i)
+    await screen.findByRole("dialog")
 
     // Cancel out of the connect dialog — no connection attempted.
     await user.click(screen.getByRole("button", { name: /^cancel$/i }))
 
     await waitFor(() =>
-      expect(screen.queryByText(/to workspace/i)).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     )
     expect(
       (window as unknown as { api: Api }).api.connectWorkspace,
@@ -124,8 +160,8 @@ describe("Agents page — new agent connect flow", () => {
   })
 })
 
-describe("Agents page — Connect vs Open Workspace gating", () => {
-  it("unconnected agents show Connect, not Open Workspace", async () => {
+describe("Agents page — Join workspace vs Open Workspace gating", () => {
+  it("an agent with no workspace shows Join workspace, not Open Workspace", async () => {
     installApi({
       listAgents: vi
         .fn()
@@ -134,13 +170,13 @@ describe("Agents page — Connect vs Open Workspace gating", () => {
     render(<Agents showToast={showToast} />)
 
     await screen.findByText("lonely")
-    expect(screen.getByRole("button", { name: /^connect$/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^join workspace$/i })).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /open workspace/i }),
     ).not.toBeInTheDocument()
   })
 
-  it("connected agents show Open Workspace, not Connect", async () => {
+  it("an agent in a workspace shows Open Workspace, not Join workspace", async () => {
     installApi({
       listAgents: vi
         .fn()
@@ -153,19 +189,29 @@ describe("Agents page — Connect vs Open Workspace gating", () => {
       screen.getByRole("button", { name: /open workspace/i }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: /^connect$/i }),
+      screen.queryByRole("button", { name: /^join workspace$/i }),
     ).not.toBeInTheDocument()
   })
 })
 
-describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
+describe("ConnectWorkspaceDialog — picking a workspace", () => {
   async function openConnectDialog(api: Api): Promise<ReturnType<typeof userEvent.setup>> {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("lonely")
-    await user.click(screen.getByRole("button", { name: /^connect$/i }))
-    await screen.findByText(/connect 'lonely' to workspace/i)
+    await user.click(screen.getByRole("button", { name: /^join workspace$/i }))
+    await screen.findByText(/add 'lonely' to a workspace/i)
     return user
+  }
+
+  const PAIRED_TEAM_A = {
+    connected: true,
+    workspaceSlug: "team-a",
+    workspaceName: "Team A",
+    workspaces: [
+      { nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" },
+    ],
+    revoked: [],
   }
 
   it("connects to an existing workspace from the list", async () => {
@@ -176,62 +222,153 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
       listWorkspaces: vi.fn().mockResolvedValue([
         { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
       ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
     })
     const user = await openConnectDialog(api)
 
-    await user.click(await screen.findByRole("button", { name: /team a/i }))
+    // Picking selects; Connect joins.
+    await user.click(await screen.findByRole("radio", { name: /team a/i }))
+    await user.click(screen.getByRole("button", { name: /^connect$/i }))
 
     await waitFor(() =>
       expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "team-a"),
     )
   })
 
-  it("creates a new workspace and connects with its token", async () => {
+  // No second dialog: the code goes in right here, and once it is redeemed
+  // this agent joins the workspace it named in the same step.
+  it("pairs in place and joins the agent when this device is in no workspace", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
         .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      connectNode: vi.fn().mockResolvedValue({
+        connected: true,
+        workspaceSlug: "fresh-ws",
+        workspaceName: "Fresh WS",
+        warning: null,
+      }),
     })
     const user = await openConnectDialog(api)
 
-    await user.click(screen.getByRole("button", { name: /create new workspace/i }))
-    const nameInput = await screen.findByLabelText(/workspace name/i)
-    await user.type(nameInput, "fresh-ws")
-    // Scope to the dialog's create button (avoid the topbar "New Agent" etc.).
-    await user.click(screen.getByRole("button", { name: /^create$/i }))
+    await screen.findByText(/isn't in any workspace yet/i)
+    // Getting a code is a separate action: it opens the web app.
+    await user.click(screen.getByRole("button", { name: /get a pairing code/i }))
+    expect(api.openExternal).toHaveBeenCalledWith("https://workspace.openagents.org")
 
+    await user.type(screen.getByRole("textbox", { name: /^pairing code$/i }), "abcd2345")
+    await user.click(screen.getByTestId("ws-pair-submit"))
+
+    await waitFor(() => expect(api.connectNode).toHaveBeenCalledWith("ABCD2345"))
     await waitFor(() =>
-      expect(api.createWorkspace).toHaveBeenCalledWith("fresh-ws"),
-    )
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "tok-123"),
+      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", "fresh-ws"),
     )
   })
 
-  // The dialog hands whatever was pasted straight to the main process, which
-  // owns the URL-vs-token decision (see main/workspace-link.ts). Splitting that
-  // across both sides is what let a hosted URL through as a "token".
-  it.each([
-    ["a hosted workspace URL", "https://workspace.openagents.org/team?token=abc"],
-    ["a self-hosted workspace URL", "http://localhost:8000/team?token=abc"],
-    ["a bare token", "plain-token-xyz"],
-  ])("joins with %s", async (_label, pasted) => {
+  it("joins another workspace by code in place, and Cancel closes it", async () => {
     const api = installApi({
       listAgents: vi
         .fn()
         .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
     })
     const user = await openConnectDialog(api)
 
-    await user.click(screen.getByRole("button", { name: /join with url or token/i }))
-    const tokenInput = await screen.findByLabelText(/paste workspace url or token/i)
-    await user.type(tokenInput, pasted)
-    await user.click(screen.getByRole("button", { name: /^join$/i }))
+    // Another workspace is a pairing code away, right here; nothing navigates
+    // the page out from under the open dialog.
+    expect(await screen.findByRole("button", { name: /join with a pairing code/i })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /add more workspaces/i })).toBeNull()
 
-    await waitFor(() =>
-      expect(api.connectWorkspace).toHaveBeenCalledWith("lonely", pasted),
-    )
-    expect(api.registerWorkspaceFromToken).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }))
+    await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
+    expect(useUiStore.getState().currentTab).not.toBe("workspaces")
+  })
+
+  /**
+   * The workspace's own record and this device's pairing are two separate
+   * files kept in step by hand, so a workspace that removed this device goes
+   * on sitting in the local list. Binding an agent to that one produces a join
+   * that cannot authenticate — every call carries a credential the workspace
+   * has stopped honouring — so the pairing decides what is offered.
+   */
+  it("does not offer a workspace this device is no longer paired with", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      // Still in the core's local list...
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      // ...but the workspace removed this device, so there is no pairing.
+      getNodeStatus: vi.fn().mockResolvedValue({
+        connected: false,
+        workspaceSlug: null,
+        workspaceName: null,
+        workspaces: [],
+        revoked: [
+          { workspaceId: "id-1", workspaceSlug: "team-a", workspaceName: "Team A" },
+        ],
+      }),
+    })
+    await openConnectDialog(api)
+
+    await screen.findByText(/isn't in any workspace yet/i)
+    expect(screen.queryByRole("button", { name: /team a/i })).not.toBeInTheDocument()
+    expect(api.connectWorkspace).not.toHaveBeenCalled()
+  })
+
+  // Being removed happens on the workspace's side and nothing tells this
+  // machine, so opening the dialog is itself a reason to go and ask.
+  it("re-checks the pairings against the workspaces when it opens", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      // The check comes back saying the pairing is gone.
+      refreshNodeStatus: vi.fn().mockResolvedValue({
+        connected: false,
+        workspaceSlug: null,
+        workspaceName: null,
+        workspaces: [],
+        revoked: [],
+      }),
+    })
+    await openConnectDialog(api)
+
+    await waitFor(() => expect(api.refreshNodeStatus).toHaveBeenCalledWith(true))
+    await screen.findByText(/isn't in any workspace yet/i)
+  })
+
+  // Neither manual tokens nor a pairing form live here: this dialog picks from
+  // the workspaces this device has already joined, and does nothing else.
+  it("keeps the pairing code folded away behind its toggle", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+      refreshNodeStatus: vi.fn().mockResolvedValue(PAIRED_TEAM_A),
+    })
+    const user = await openConnectDialog(api)
+
+    await screen.findByRole("radio", { name: /team a/i })
+    expect(screen.queryByRole("textbox", { name: /^pairing code$/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /join with a pairing code/i }))
+    expect(screen.getByRole("textbox", { name: /^pairing code$/i })).toBeInTheDocument()
+    expect(api.connectNode).not.toHaveBeenCalled()
   })
 
 })
@@ -280,8 +417,8 @@ describe("Configure dialog — Gemini auth states", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("gem-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
-    await screen.findByText(/configure gem-1/i)
+    await openConfigureMenu(user)
+    await screen.findByRole("heading", { name: /configure gem-1/i })
     return api
   }
 
@@ -315,9 +452,9 @@ describe("Configure dialog — Gemini auth states", () => {
     })
     const user = userEvent.setup()
     // Save with every key field left blank — optional fields must not gate it.
-    await user.click(screen.getByRole("button", { name: /^save$/i }))
+    await user.click(screen.getByRole("button", { name: /^save changes$/i }))
     await waitFor(() =>
-      expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("gem-1", expect.anything()),
+      expect(screen.queryByRole("heading", { name: /configure gem-1/i })).not.toBeInTheDocument(),
     )
     // No "<field> is required" validation warning was raised.
     expect(showToast).not.toHaveBeenCalledWith(
@@ -382,7 +519,7 @@ describe("Configure dialog — other agents unaffected", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("plain-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     expect(await screen.findByText(/no configuration required/i)).toBeInTheDocument()
     expect(api.refreshLogin).toBeUndefined()
   })
@@ -404,10 +541,86 @@ describe("Configure dialog — other agents unaffected", () => {
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
     await screen.findByText("kimi-1")
-    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await openConfigureMenu(user)
     expect(await screen.findByText(/Kimi API key/i)).toBeInTheDocument()
     expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/sign-in detected/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/API key detected/i)).not.toBeInTheDocument()
+  })
+})
+
+// Cursor signs in through its own service, and the launcher used to answer
+// getEnvFields with [] for it — so its declared CURSOR_API_KEY, which the
+// registry marks optional and which readiness has always honored, had no input
+// anywhere in the app. A user whose `cursor-agent login` wouldn't complete had
+// no second option. Both paths are offered now, sign-in first.
+describe("Configure dialog — hosted-login agent with an optional key", () => {
+  const cursorFields = [
+    { name: "CURSOR_API_KEY", description: "Cursor API key for CLI authentication", required: false, password: true },
+    { name: "CURSOR_MODEL", description: "Model to use", required: false },
+  ]
+  const cursorCatalog = [
+    {
+      name: "cursor",
+      label: "Cursor CLI",
+      installed: true,
+      check_ready: { login_command: "cursor-agent login" },
+    },
+  ]
+
+  async function openCursorConfigure(
+    health: Record<string, unknown>,
+  ): Promise<Api> {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "cur-1", type: "cursor" })]),
+      getCatalog: vi.fn().mockResolvedValue(cursorCatalog),
+      getEnvFields: vi.fn().mockResolvedValue(cursorFields),
+      refreshLogin: vi.fn().mockResolvedValue(health),
+      clearLoginKey: vi.fn().mockResolvedValue(undefined),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await screen.findByText("cur-1")
+    await openConfigureMenu(user)
+    await screen.findByRole("heading", { name: /configure cur-1/i })
+    return api
+  }
+
+  it("offers the CLI sign-in AND the key, sign-in leading", async () => {
+    await openCursorConfigure({ ready: false, logged_in: false })
+    // Both paths reachable — this is the whole point of the change.
+    expect(await screen.findByRole("tab", { name: /account sign-in/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /api key/i })).toBeInTheDocument()
+    // Sign-in is the default tab: it asks the user for nothing.
+    expect(screen.getByRole("tab", { name: /account sign-in/i })).toHaveAttribute(
+      "data-state",
+      "active",
+    )
+    // Never the old "nothing to configure here" dead end.
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+  })
+
+  it("the key is optional — no required marker, and Save is not gated", async () => {
+    const api = await openCursorConfigure({ ready: false, logged_in: false })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("tab", { name: /api key/i }))
+    const keyLabel = await screen.findByText("CURSOR_API_KEY")
+    expect(keyLabel.querySelector(".required")).toBeNull()
+    // Someone signing in via the browser leaves this blank and must still save.
+    await user.click(screen.getByRole("button", { name: /^save changes$/i }))
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /configure cur-1/i })).not.toBeInTheDocument(),
+    )
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.stringMatching(/is required/i),
+      "warning",
+    )
+  })
+
+  it("signed in via the browser → still shows the key as an alternative", async () => {
+    await openCursorConfigure({ ready: true, logged_in: true, auth_mode: "cli_login" })
+    expect(await screen.findByRole("tab", { name: /api key/i })).toBeInTheDocument()
   })
 })

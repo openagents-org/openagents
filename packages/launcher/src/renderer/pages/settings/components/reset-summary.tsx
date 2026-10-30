@@ -3,17 +3,28 @@ import { useTranslation } from "react-i18next"
 import { RotateCcw, ShieldCheck } from "lucide-react"
 
 /**
- * What "reset all settings" actually touches, shown inside the confirmation.
+ * What a reset actually touches, shown inside the confirmation.
  *
  * The prompt used to be one sentence — "back to defaults, cannot be undone" —
  * which is exactly the information a user already has and none of what they
  * are actually asking: does this wipe my agents? So both halves are spelled
  * out, and the answer to the scary half is the reassuring one.
+ *
+ * Two resets use this now (all settings, and the launcher's local state), so
+ * the strings come from a caller-supplied `settings.*Dialog` prefix.
  */
-const AFFECTED = ["startup", "agents", "network", "updates"] as const
-const KEPT = ["agents", "workspaces", "prefs"] as const
+export interface ResetSummaryProps {
+  /** i18n prefix holding `affectedTitle`, `affected.*`, `keptTitle`, `kept.*`. */
+  prefix: string
+  affected: readonly string[]
+  kept: readonly string[]
+}
 
-export function ResetSummary(): React.JSX.Element {
+export function ResetSummary({
+  prefix,
+  affected,
+  kept,
+}: ResetSummaryProps): React.JSX.Element {
   const { t } = useTranslation()
 
   return (
@@ -21,14 +32,14 @@ export function ResetSummary(): React.JSX.Element {
       <Column
         tone="text-destructive"
         icon={<RotateCcw className="size-3" />}
-        title={t("settings.resetDialog.affectedTitle")}
-        items={AFFECTED.map((id) => t(`settings.resetDialog.affected.${id}`))}
+        title={t(`${prefix}.affectedTitle`)}
+        items={affected.map((id) => t(`${prefix}.affected.${id}`))}
       />
       <Column
         tone="text-(--success-text)"
         icon={<ShieldCheck className="size-3" />}
-        title={t("settings.resetDialog.keptTitle")}
-        items={KEPT.map((id) => t(`settings.resetDialog.kept.${id}`))}
+        title={t(`${prefix}.keptTitle`)}
+        items={kept.map((id) => t(`${prefix}.kept.${id}`))}
       />
     </div>
   )

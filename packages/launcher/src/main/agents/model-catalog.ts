@@ -1,0 +1,1141 @@
+/**
+ * Where an agent's MODEL field gets its choices.
+ *
+ * Every agent the launcher ships used to carry ONE hardcoded model id as the
+ * default of its `*_MODEL` env field. That id ages out: `gpt-5-codex` is no
+ * longer in OpenAI's Codex line-up at all, so a codex agent signed in with a
+ * ChatGPT account — the path where the launcher shows no model input — ran
+ * every message against a model its account cannot serve, and the run failed
+ * with nothing in the UI to change. Relays are the same story from the other
+ * side: their channel names never match whatever we baked in.
+ *
+ * So the list is READ, not declared. In order of trustworthiness:
+ *
+ *   • the CLI's own cache — codex writes the exact model line-up its account
+ *     may use to `~/.codex/models_cache.json` (slug, display name, deprecation
+ *     notice) after `codex login`. This is the ONLY honest source for a
+ *     subscription sign-in: no API key exists to ask a server with.
+ *   • the provider, over HTTP — with a key + base URL in hand we ask the
+ *     endpoint the agent will actually talk to (`/v1/models` and friends), so
+ *     a relay answers for its own channels rather than us guessing.
+ *   • a small built-in list — last resort, and flagged as such to the UI so it
+ *     can say the list may be stale instead of presenting it as truth.
+ *
+ * Nothing here is authoritative over what the user types: the model field stays
+ * free-form everywhere (a private deployment name is still a valid answer), and
+ * an empty value keeps meaning "whatever the CLI/provider defaults to".
+ */
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+
+import { dshModelsBase } from "./deepseek-harness-base"
+import { isOfficialAnthropicBase } from "./env-normalize"
+import { httpRequestJson } from "./llm-test"
+import { opencodeRecommendedModel } from "./opencode-signin"
+import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
+
+export type ModelChoice = {
+  /** The exact value written to the env var. */
+  id: string
+  /** Human name from the provider, when it gives one. */
+  label?: string
+  /** One line of provider-supplied context (deprecation, description). */
+  note?: string
+  /** The provider says this one is going away — the UI sinks/marks it. */
+  deprecated?: boolean
+  /** Release date from the CLI's metadata (YYYY-MM-DD). Only used to rank. */
+  released?: string
+}
+
+export type ModelListResult = {
+  models: ModelChoice[]
+  /** Where the list came from, so the UI can be honest about it. */
+  source: "cli" | "api" | "builtin" | "none"
+  /** Why the list is empty / fell back. Never carries the key. */
+  error?: string
+  /**
+   * Machine-readable reason, when there is one worth phrasing in the user's
+   * language. `need_key` — the API-key path has no key yet; `need_login` — the
+   * CLI path has a list to read but nobody is signed in; `no_list` — this agent
+   * publishes no list on the CLI path at all, so the id has to be typed.
+   *
+   * The `cli_*` codes are the CLI failing, not the user: `cli_missing` — no
+   * binary to run; `cli_timeout` — it never answered; `cli_failed` — it exited
+   * with an error (its last line is in `error`); `cli_empty` — it answered
+   * with no list. A signed-in OpenCode whose `opencode models` timed out used
+   * to be told to sign in, which it already had.
+   */
+  code?:
+    | "need_key"
+    | "need_login"
+    | "no_list"
+    | "cli_missing"
+    | "cli_timeout"
+    | "cli_failed"
+    | "cli_empty"
+  /**
+   * The id to preselect when the field is still empty, for an agent that can
+   * name one (see ModelSource.recommend). Never overrides a typed value.
+   */
+  recommended?: string
+}
+
+/**
+ * Which auth path the user is configuring. The list has to follow it: someone
+ * filling in the API-key form wants the models THAT endpoint serves, even on a
+ * machine where the same agent happens to be signed in through its CLI — the
+ * account's line-up is the wrong answer there, and a convincing one.
+ */
+export type ModelListPath = "key" | "login"
+
+type Provider = "openai" | "anthropic" | "gemini" | "none"
+
+type ModelSource = {
+  /** The env var this agent's model lives in. */
+  envVar: string
+  provider: Provider
+  /** Candidate key vars, in precedence order. */
+  keyVars: string[]
+  /** Candidate base-URL vars, in precedence order. */
+  baseVars: string[]
+  /**
+   * Endpoint used when none of `baseVars` is filled in. For an agent that picks
+   * its vendor from a provider field rather than a URL (OpenWorker), the vendor
+   * IS the endpoint — without this the list would be fetched from OpenAI for a
+   * DeepSeek key and come back 401.
+   */
+  defaultBase?: string
+  /** Maps the configured base to the one that serves the model list. */
+  modelsBase?: (base: string) => string
+  /**
+   * This endpoint serves `/v1/models` without credentials (a local Ollama or
+   * vLLM). Probe it even with an empty key instead of asking for one that does
+   * not exist.
+   */
+  keyless?: boolean
+  /** Reads a list the agent's own CLI maintains (no API key involved). */
+  cliCache?: (env: Record<string, string>) => ModelListResult | null
+  /**
+   * Asks the agent's CLI for its list (needs `deps.runCli`). `credVars` are the
+   * form values handed to the child process, so a CLI that can authenticate
+   * either way answers for the credentials being configured rather than for
+   * whatever session the machine happens to hold.
+   */
+  cliCommand?: {
+    args: string[]
+    parse: (out: string) => ModelChoice[]
+    credVars?: string[]
+    /** Plainer arguments to retry with when `args` exits with an error — a
+        flag an older CLI doesn't know yet shouldn't cost the whole list. */
+    fallbackArgs?: string[]
+  }
+  /**
+   * The CLI lists models to anyone, signed in or not (OpenCode serves Zen's
+   * free models to everybody). A failed run is then never "sign in first".
+   */
+  listsSignedOut?: boolean
+  /** Names the model to preselect from a list this source produced. */
+  recommend?: (models: ModelChoice[]) => string | undefined
+  /** Used only when nothing can be probed. */
+  builtin?: ModelChoice[]
+}
+
+/**
+ * Anthropic's current line-up, for a Claude agent signed in with a Pro/Max
+ * subscription — there is no key to list models with, and Claude Code has no
+ * on-disk cache like codex's. Deliberately ids only (no dated snapshots): the
+ * UI labels this source "built-in", and a key/relay replaces it with the live
+ * list the moment one is entered.
+ */
+const ANTHROPIC_BUILTIN: ModelChoice[] = [
+  { id: "claude-opus-5", label: "Claude Opus 5" },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+]
+
+/**
+ * CodeBuddy's own aliases, which the CLI documents as the stable way to name a
+ * model: they keep working when the model behind them is replaced.
+ *
+ * There is no list to fetch — the account decides what it may run and the CLI
+ * publishes nothing — so these three ARE the answer, and a better one than the
+ * free-text box this replaces. That box is where a tester typed a model-gateway
+ * id (`deepseek-v4-flash`) that CodeBuddy was never going to serve.
+ */
+const CODEBUDDY_BUILTIN: ModelChoice[] = [
+  { id: "default-model", note: "The account's default" },
+  { id: "fast-model", note: "Lower latency" },
+  { id: "deep-model", note: "Deeper reasoning" },
+]
+
+/** `~/.codex` unless the CLI was pointed elsewhere. */
+function codexHome(env: Record<string, string>): string {
+  return (env.CODEX_HOME || "").trim() || path.join(os.homedir(), ".codex")
+}
+
+/**
+ * The line-up codex itself last fetched for the signed-in account.
+ *
+ * Codex refreshes this file on its own (it carries the fetch time, an ETag and
+ * the client version) and it is written for BOTH auth paths, so it answers the
+ * question the launcher could not answer before: which models may this ChatGPT
+ * account actually run? `visibility: "hide"` entries are internal (e.g. the
+ * auto-review model) and are dropped; `upgrade` marks a model the backend is
+ * retiring, which we keep but flag — it is still selectable today, and the note
+ * tells the user what replaces it.
+ */
+function codexCliModels(env: Record<string, string>): ModelListResult | null {
+  const file = path.join(codexHome(env), "models_cache.json")
+  let raw: string
+  try {
+    raw = fs.readFileSync(file, "utf-8")
+  } catch {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(raw) as {
+      models?: Array<Record<string, unknown>>
+    }
+    const list = Array.isArray(parsed.models) ? parsed.models : []
+    const models = list
+      .filter((m) => (m.visibility as string) !== "hide")
+      .filter((m) => typeof m.slug === "string" && (m.slug as string).trim())
+      .sort(
+        (a, b) =>
+          (typeof a.priority === "number" ? a.priority : 999) -
+          (typeof b.priority === "number" ? b.priority : 999),
+      )
+      .map((m) => {
+        const upgrade = m.upgrade as { model?: string } | null | undefined
+        return {
+          id: (m.slug as string).trim(),
+          label: (m.display_name as string) || undefined,
+          note: upgrade?.model
+            ? `Being retired — use ${upgrade.model}`
+            : (m.description as string) || undefined,
+          deprecated: !!upgrade?.model,
+        }
+      })
+    if (!models.length) return null
+    return { models, source: "cli" }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `cursor-agent --list-models`, which prints one `slug - Display Name` per line
+ * under an "Available models" header and marks the CLI's current pick with a
+ * trailing "(current)". Cursor authenticates entirely through its own service,
+ * so there is no endpoint the launcher may ask — but the CLI will answer for
+ * the signed-in account, which is the same deal codex's cache gives us.
+ */
+function parseCursorModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^\s*(\S+)\s+-\s+(.+?)\s*$/.exec(line)
+    if (!m) continue
+    const id = m[1]
+    if (seen.has(id)) continue
+    seen.add(id)
+    models.push({ id, label: m[2].replace(/\s*\(current\)\s*$/i, "") })
+  }
+  return models
+}
+
+/**
+ * CLIs colorize their lists (headings, badges, markers). Built from a char code
+ * so no invisible control character lands in this source file (and no eslint
+ * no-control-regex suppression is needed).
+ */
+const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, "")
+
+/**
+ * `command-code --list-models`, which is the only honest source for this agent:
+ * the list spans the account's plan models AND whatever BYOK providers the user
+ * declared in ~/.commandcode/providers.json, so no single endpoint could answer
+ * for it.
+ *
+ * The output groups models under a provider heading:
+ *
+ *   Available models  ·  42 models
+ *
+ *   Command Code
+ *
+ *   claude-sonnet-4-6      Balanced frontier model (default)
+ *   kimi-k2.5              FREE Open-weights
+ *
+ *   OpenRouter
+ *
+ *   moonshotai/kimi-k2.5   Via OpenRouter
+ *
+ *   Pass the full id, or just the short name after the last "/":
+ *   cmd --model moonshotai/kimi-k2.5
+ *
+ * Model ids and group headings are both flush-left, so telling them apart is
+ * the whole job. A heading is a display name ("OpenRouter"); an id is either
+ * provider-qualified (`moonshotai/kimi-k2.5`) or lower-case
+ * (`claude-sonnet-4-6`). Anything with a capital and no slash is a heading.
+ */
+export function parseCommandCodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of out.split(/\r?\n/)) {
+    const line = stripAnsi(raw).replace(/\s+$/, "")
+    if (!line.trim()) continue
+    // Header, the usage footer, its example invocations, and the docs link.
+    if (/^Available models\b/i.test(line)) continue
+    if (/^Pass the full id\b/i.test(line)) continue
+    if (/^Docs:/i.test(line)) continue
+    if (/^(cmd|cmdc|command-code|commandcode)\b/.test(line)) continue
+
+    const m = /^(\S+)(?:\s{2,}(.*))?$/.exec(line)
+    if (!m) continue
+    const id = m[1]
+    // A provider-qualified id is unambiguous; an unqualified one must be
+    // lower-case to be a model rather than a group heading.
+    if (!id.includes("/") && id !== id.toLowerCase()) continue
+    if (!/^[A-Za-z0-9][\w.\-]*(?:\/[\w.\-]+)*$/.test(id)) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    const note = (m[2] || "")
+      .replace(/\s*\(default\)\s*$/i, "")
+      .replace(/^FREE\s+/i, "")
+      .trim()
+    models.push(note ? { id, note } : { id })
+  }
+  return models
+}
+
+/**
+ * `opencode models`: one `provider/model` per line, for every provider OpenCode
+ * can reach right now — its own sign-ins, keys in its environment, and the free
+ * OpenCode Zen models that need neither. The ids come already qualified, which
+ * is the form the adapter hands straight to `--model`.
+ *
+ * With `--verbose` each id is followed by its models.dev entry, pretty-printed
+ * with the closing brace at column 0. That entry is where the display name, the
+ * deprecation status and the release date (used to pick a default) come from.
+ * Plain output parses the same way, just without them.
+ */
+export function parseOpencodeModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  const lines = stripAnsi(out).split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim()
+    if (!/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id)) continue
+    let meta: Record<string, unknown> | null = null
+    if (lines[i + 1]?.trim() === "{") {
+      let end = i + 1
+      while (end < lines.length && lines[end].trimEnd() !== "}") end++
+      if (end < lines.length) {
+        try {
+          meta = JSON.parse(lines.slice(i + 1, end + 1).join("\n"))
+        } catch {
+          meta = null
+        }
+        i = end
+      }
+    }
+    if (seen.has(id)) continue
+    seen.add(id)
+    const model: ModelChoice = { id }
+    if (meta) {
+      if (typeof meta.name === "string" && meta.name.trim())
+        model.label = meta.name.trim()
+      if (meta.status === "deprecated") model.deprecated = true
+      if (typeof meta.release_date === "string")
+        model.released = meta.release_date
+    }
+    models.push(model)
+  }
+  return models
+}
+
+/**
+ * `codearts models` (CodeArts Agent, OpenCode-based) prints a table rather
+ * than OpenCode's one id per line:
+ *
+ *   model_id                              model_name
+ *   ------------------------------------------------
+ *   huaweicloud-maas/GLM-5.2              GLM-5.2
+ */
+export function parseCodeartsModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  const seen = new Set<string>()
+  for (const raw of stripAnsi(out).split(/\r?\n/)) {
+    const [id, ...rest] = raw.trim().split(/\s{2,}/)
+    if (!id || !/^[A-Za-z0-9][\w.-]*\/\S+$/.test(id) || seen.has(id)) continue
+    seen.add(id)
+    const label = rest.join(" ").trim()
+    models.push(label && label !== id.split("/").pop() ? { id, label } : { id })
+  }
+  return models
+}
+
+/**
+ * The last line a CLI printed that says anything — its error, usually — cut to
+ * something a one-line message and a log entry can carry.
+ */
+export function lastOutputLine(text: string): string | undefined {
+  const line = stripAnsi(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop()
+  return line ? line.slice(0, 200) : undefined
+}
+
+const MODEL_SOURCES: Record<string, ModelSource> = {
+  codex: {
+    envVar: "CODEX_MODEL",
+    provider: "openai",
+    keyVars: ["OPENAI_API_KEY"],
+    baseVars: ["OPENAI_BASE_URL"],
+    cliCache: codexCliModels,
+  },
+  cursor: {
+    envVar: "CURSOR_MODEL",
+    // Cursor's key is for Cursor's own service, not an OpenAI-compatible
+    // endpoint — there is nothing to GET /models from, so the CLI is the source
+    // on both paths. The key is still declared: it is what tells the key path
+    // apart from the sign-in path, and what the CLI is handed below.
+    provider: "none",
+    keyVars: ["CURSOR_API_KEY"],
+    baseVars: ["CURSOR_API_ENDPOINT"],
+    cliCommand: {
+      args: ["--list-models"],
+      parse: parseCursorModels,
+      // `cursor-agent` reads CURSOR_API_KEY / CURSOR_API_ENDPOINT from the env
+      // (its --api-key flag would put the secret in the process list). Passing
+      // the form's values makes the key tab list that key's models instead of
+      // the local login's.
+      credVars: ["CURSOR_API_KEY", "CURSOR_API_ENDPOINT"],
+    },
+  },
+  commandcode: {
+    envVar: "COMMANDCODE_MODEL",
+    // Like Cursor, there is no endpoint to ask: the list spans Command Code's
+    // own plan models AND the user's BYOK providers (declared in
+    // ~/.commandcode/providers.json and routed straight from their machine),
+    // so only the CLI can enumerate what this account may actually run.
+    provider: "none",
+    keyVars: ["COMMAND_CODE_API_KEY"],
+    baseVars: [],
+    cliCommand: {
+      args: ["--list-models"],
+      parse: parseCommandCodeModels,
+      credVars: ["COMMAND_CODE_API_KEY"],
+    },
+  },
+  codebuddy: {
+    envVar: "CODEBUDDY_MODEL",
+    // The key is for CodeBuddy's own service, not an OpenAI-compatible
+    // endpoint — there is nothing to GET /models from, and its BASE_URL points
+    // at another CodeBuddy deployment rather than a model API.
+    provider: "none",
+    keyVars: ["CODEBUDDY_API_KEY", "CODEBUDDY_AUTH_TOKEN"],
+    baseVars: [],
+    builtin: CODEBUDDY_BUILTIN,
+  },
+  claude: {
+    envVar: "ANTHROPIC_MODEL",
+    provider: "anthropic",
+    keyVars: ["ANTHROPIC_API_KEY"],
+    baseVars: ["ANTHROPIC_BASE_URL"],
+    builtin: ANTHROPIC_BUILTIN,
+  },
+  gemini: {
+    envVar: "GEMINI_MODEL",
+    provider: "gemini",
+    keyVars: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    baseVars: ["GOOGLE_GEMINI_BASE_URL"],
+  },
+  // agy reads only GEMINI_API_KEY (never GOOGLE_API_KEY), so the key list is
+  // deliberately narrower than gemini's above.
+  antigravity: {
+    envVar: "ANTIGRAVITY_MODEL",
+    provider: "gemini",
+    keyVars: ["GEMINI_API_KEY"],
+    baseVars: ["GOOGLE_GEMINI_BASE_URL"],
+  },
+  // Kimi and DeepSeek name their own vendor's endpoint as the default. Without
+  // `defaultBase` a blank base URL listed from api.openai.com with the
+  // vendor's key, and the picker showed OpenAI's 401.
+  kimi: {
+    envVar: "KIMI_MODEL",
+    provider: "openai",
+    keyVars: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+    baseVars: ["KIMI_BASE_URL"],
+    defaultBase: "https://api.moonshot.ai/v1",
+  },
+  deepseek: {
+    envVar: "DEEPSEEK_MODEL",
+    provider: "openai",
+    keyVars: ["DEEPSEEK_API_KEY"],
+    baseVars: ["DEEPSEEK_BASE_URL"],
+    defaultBase: "https://api.deepseek.com/v1",
+    modelsBase: dshModelsBase,
+  },
+  openclaw: {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+  },
+  opencode: {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    // The sign-in path has no endpoint of ours to ask. OpenCode itself is the
+    // only thing that knows what its sign-ins and Zen can run. `--verbose`
+    // adds names and release dates; the plain form is the retry.
+    cliCommand: {
+      args: ["models", "--verbose"],
+      fallbackArgs: ["models"],
+      parse: parseOpencodeModels,
+    },
+    listsSignedOut: true,
+    // Its run needs `--model`, so the sign-in path needs a model too — name one.
+    recommend: (models) => opencodeRecommendedModel(models),
+  },
+  codearts: {
+    envVar: "CODEARTS_MODEL",
+    // Huawei Cloud decides per account which models an access key may run, and
+    // only the CLI can ask: the model from Huawei's own guide was not in a real
+    // account's list. The form's AK/SK go to the child so the list is theirs.
+    provider: "none",
+    keyVars: ["CODEARTS_CLI_AK"],
+    baseVars: [],
+    cliCommand: {
+      args: ["models"],
+      parse: parseCodeartsModels,
+      credVars: ["CODEARTS_CLI_AK", "CODEARTS_CLI_SK"],
+    },
+    // Left blank, the adapter runs the first model this list names.
+    recommend: (models) => models[0]?.id,
+  },
+}
+
+/**
+ * Pi carries the provider in its own field, so its model source is resolved per
+ * value rather than per agent. `openai-codex` means "reuse the Codex
+ * subscription login" — same cache file, no key.
+ */
+function piSource(env: Record<string, string>): ModelSource {
+  const provider = (env.PI_PROVIDER || "").trim().toLowerCase()
+  const base: ModelSource = {
+    envVar: "PI_MODEL",
+    provider: "openai",
+    keyVars: ["PI_API_KEY"],
+    baseVars: ["PI_BASE_URL"],
+  }
+  switch (provider) {
+    case "anthropic":
+      return {
+        ...base,
+        provider: "anthropic",
+        keyVars: ["PI_API_KEY", "ANTHROPIC_API_KEY"],
+        builtin: ANTHROPIC_BUILTIN,
+      }
+    case "google":
+      return {
+        ...base,
+        provider: "gemini",
+        keyVars: ["PI_API_KEY", "GEMINI_API_KEY"],
+      }
+    // Same endpoints Pi's own provider shim and the connection test use; a
+    // blank PI_BASE_URL used to list from OpenAI with a DeepSeek key.
+    case "deepseek":
+      return {
+        ...base,
+        keyVars: ["PI_API_KEY", "DEEPSEEK_API_KEY"],
+        defaultBase: "https://api.deepseek.com/v1",
+      }
+    case "openrouter":
+      return {
+        ...base,
+        keyVars: ["PI_API_KEY", "OPENROUTER_API_KEY"],
+        defaultBase: "https://openrouter.ai/api/v1",
+      }
+    case "openai-codex":
+      return {
+        ...base,
+        keyVars: ["PI_API_KEY", "OPENAI_API_KEY"],
+        cliCache: codexCliModels,
+      }
+    default:
+      return { ...base, keyVars: ["PI_API_KEY", "OPENAI_API_KEY"] }
+  }
+}
+
+/**
+ * OpenWorker is bring-your-own-model across twenty providers, so — like Pi — its
+ * source is resolved per VALUE rather than per agent. Its per-provider default
+ * endpoints live in `provider-bases`, shared with the connection test so both
+ * ask the same endpoint about the same key.
+ */
+function openworkerSource(env: Record<string, string>): ModelSource {
+  const provider = (env.OPENWORKER_PROVIDER || "").trim().toLowerCase()
+  const base: ModelSource = {
+    envVar: "OPENWORKER_MODEL",
+    provider: "openai",
+    keyVars: ["OPENWORKER_API_KEY", "OPENAI_API_KEY"],
+    baseVars: ["OPENWORKER_BASE_URL"],
+  }
+  switch (provider) {
+    case "anthropic":
+      return {
+        ...base,
+        provider: "anthropic",
+        keyVars: ["OPENWORKER_API_KEY", "ANTHROPIC_API_KEY"],
+        builtin: ANTHROPIC_BUILTIN,
+      }
+    case "gemini":
+      return {
+        ...base,
+        provider: "gemini",
+        keyVars: ["OPENWORKER_API_KEY", "GEMINI_API_KEY"],
+      }
+    case "ollama":
+      // A local server: no key exists to ask for, and it answers /v1/models.
+      return { ...base, keyVars: [], keyless: true, defaultBase: "http://localhost:11434/v1" }
+    case "openai-codex":
+      // A ChatGPT subscription OpenWorker holds OAuth tokens for in ITS store.
+      // There is no key to query with and no cache of ours to read, so the id
+      // has to be typed.
+      return { ...base, provider: "none", keyVars: [] }
+    default:
+      return provider && OPENWORKER_COMPAT_BASES[provider]
+        ? { ...base, defaultBase: OPENWORKER_COMPAT_BASES[provider] }
+        : base
+  }
+}
+
+/**
+ * Every agent this module can resolve a model list for, including the two
+ * whose source is computed per value. Exported so the renderer's picker set
+ * can be asserted equal to it — they were separate hand-written sets, and the
+ * renderer's had fallen behind by two agents.
+ */
+export const MODEL_SOURCE_AGENTS: ReadonlySet<string> = new Set([
+  ...Object.keys(MODEL_SOURCES),
+  "pi",
+  "openworker",
+])
+
+function resolveSource(
+  agentType: string,
+  env: Record<string, string>,
+): ModelSource | null {
+  if (agentType === "pi") return piSource(env)
+  if (agentType === "openworker") return openworkerSource(env)
+  return MODEL_SOURCES[agentType] || null
+}
+
+/** The model env var an agent's list applies to, or null if it has none. */
+export function modelEnvVar(
+  agentType: string,
+  env: Record<string, string> = {},
+): string | null {
+  return resolveSource(agentType, env)?.envVar || null
+}
+
+function pick(env: Record<string, string>, names: string[]): string {
+  for (const n of names) {
+    const v = (env[n] || "").trim()
+    if (v) return v
+  }
+  return ""
+}
+
+const trimSlash = (u: string): string => u.replace(/\/+$/, "")
+
+/**
+ * The one line worth showing from an error body.
+ *
+ * Relays answer with a nested JSON envelope — `{"error":{"code":"","message":
+ * "无效的令牌 (request id: …)","type":"new_api_error"}}` — and pasting that in
+ * raw is how a 401 became an unbroken 120-character string that overflowed the
+ * model picker. Anything that isn't JSON is passed through, still trimmed.
+ */
+function briefHttpError(text: string): string {
+  try {
+    const j = JSON.parse(text) as {
+      error?: { message?: string } | string
+      message?: string
+    }
+    const msg = typeof j.error === "string" ? j.error : j.error?.message
+    const line = (msg || j.message || "").trim()
+    if (line) return line.slice(0, 160)
+  } catch {
+    // not JSON — fall through to the raw body
+  }
+  return text.trim().slice(0, 160)
+}
+
+/** `parseOpenAiModels` for bodies that may not be JSON at all. */
+function safeParseOpenAiModels(text: string): ModelChoice[] {
+  try {
+    return parseOpenAiModels(text)
+  } catch {
+    return []
+  }
+}
+
+/** `data: [{ id }]`, an array, or a relay's `{ models: [...] }` shape. */
+function parseOpenAiModels(text: string): ModelChoice[] {
+  const parsed: unknown = JSON.parse(text)
+  const list = Array.isArray(parsed)
+    ? parsed
+    : ((parsed as { data?: unknown[] })?.data ??
+      (parsed as { models?: unknown[] })?.models ??
+      [])
+  if (!Array.isArray(list)) return []
+  const seen = new Set<string>()
+  const out: ModelChoice[] = []
+  for (const entry of list) {
+    const id =
+      typeof entry === "string"
+        ? entry
+        : String((entry as { id?: unknown })?.id ?? "")
+    const trimmed = id.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push({ id: trimmed })
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+async function listOpenAiModels(
+  key: string,
+  baseInput: string,
+): Promise<ModelListResult> {
+  let base = trimSlash(baseInput || "https://api.openai.com/v1")
+  if (!/\/v\d+$/.test(base)) base += "/v1"
+  const { status, text } = await httpRequestJson(
+    `${base}/models`,
+    "GET",
+    { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    null,
+  )
+  if (status >= 400)
+    return {
+      models: [],
+      source: "none",
+      error: `HTTP ${status}: ${briefHttpError(text)}`,
+    }
+  const models = parseOpenAiModels(text)
+  return models.length
+    ? { models, source: "api" }
+    : { models: [], source: "none", error: "The endpoint listed no models." }
+}
+
+async function listAnthropicModels(
+  key: string,
+  baseInput: string,
+): Promise<ModelListResult> {
+  const base = trimSlash(baseInput || "https://api.anthropic.com").replace(
+    /\/v1$/,
+    "",
+  )
+  // Same header choice as the connection test: official takes `x-api-key`, a
+  // relay only ever honors `Authorization: Bearer` (see llm-test).
+  const auth: Record<string, string> = isOfficialAnthropicBase(base)
+    ? { "x-api-key": key }
+    : { Authorization: `Bearer ${key}` }
+  const { status, text } = await httpRequestJson(
+    `${base}/v1/models?limit=100`,
+    "GET",
+    { ...auth, "anthropic-version": "2023-06-01" },
+    null,
+  )
+  if (status >= 400)
+    return {
+      models: [],
+      source: "none",
+      error: `HTTP ${status}: ${briefHttpError(text)}`,
+    }
+  try {
+    const parsed = JSON.parse(text) as {
+      data?: Array<{ id?: string; display_name?: string }>
+    }
+    const models = (parsed.data || [])
+      .filter((m) => typeof m.id === "string" && m.id.trim())
+      .map((m) => ({ id: (m.id as string).trim(), label: m.display_name }))
+    if (models.length) return { models, source: "api" }
+  } catch {
+    // fall through — a relay that answers /v1/models with HTML is not a list
+  }
+  return { models: [], source: "none", error: "The endpoint listed no models." }
+}
+
+/** Google's own endpoint, as opposed to a relay or self-hosted gateway. */
+function isOfficialGeminiBase(base: string): boolean {
+  try {
+    return /(^|\.)googleapis\.com$/i.test(new URL(base).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** Google's `{ models: [{ name: "models/…" }] }`, or [] for anything else. */
+function parseGeminiModels(text: string): ModelChoice[] {
+  try {
+    const parsed = JSON.parse(text) as {
+      models?: Array<{
+        name?: string
+        displayName?: string
+        supportedGenerationMethods?: string[]
+      }>
+    }
+    return (parsed.models || [])
+      .filter(
+        (m) =>
+          !m.supportedGenerationMethods ||
+          m.supportedGenerationMethods.includes("generateContent"),
+      )
+      .map((m) => ({
+        // The API returns `models/gemini-…`; the CLI's -m wants the bare id.
+        id: String(m.name || "").replace(/^models\//, ""),
+        label: m.displayName,
+      }))
+      .filter((m) => m.id)
+  } catch {
+    return []
+  }
+}
+
+async function listGeminiModels(
+  key: string,
+  baseInput: string,
+): Promise<ModelListResult> {
+  const base = trimSlash(
+    baseInput || "https://generativelanguage.googleapis.com",
+  )
+  // Relays are usually entered WITH the version segment already in the base
+  // URL, so only add one when it isn't there (mirrors llm-test's Gemini path).
+  const url = /\/v\d+(beta)?$/.test(base)
+    ? `${base}/models`
+    : `${base}/v1beta/models`
+  const native = await httpRequestJson(
+    `${url}?key=${encodeURIComponent(key)}&pageSize=200`,
+    "GET",
+    { "x-goog-api-key": key },
+    null,
+  )
+  if (native.status < 400) {
+    const models = parseGeminiModels(native.text)
+    if (models.length) return { models, source: "api" }
+    // A gateway may answer this path in the OpenAI dialect regardless of how
+    // it was asked, so read the body both ways before calling it empty.
+    const compat = safeParseOpenAiModels(native.text)
+    if (compat.length) return { models: compat, source: "api" }
+  }
+  // A relay's `/v1` is an OpenAI-compatible surface. It proxies
+  // `:generateContent` off the `?key=` query — which is why Test connection
+  // passes — but guards `/v1/models` with `Authorization: Bearer` and answers
+  // the Google-style call with 401 "invalid token". So ask again the way that
+  // surface expects. Never against Google itself: it reads a Bearer as an
+  // OAuth token and rejects a plain API key with the same 401.
+  if (!isOfficialGeminiBase(base)) {
+    const bearer = await httpRequestJson(
+      `${url}?pageSize=200`,
+      "GET",
+      { Authorization: `Bearer ${key}` },
+      null,
+    )
+    if (bearer.status < 400) {
+      const models = safeParseOpenAiModels(bearer.text)
+      if (models.length) return { models, source: "api" }
+      const google = parseGeminiModels(bearer.text)
+      if (google.length) return { models: google, source: "api" }
+    }
+    if (native.status >= 400)
+      return {
+        models: [],
+        source: "none",
+        // Report whichever attempt got furthest — a 401 on both is the
+        // relay's verdict on the key, and that is what the user has to act on.
+        error: `HTTP ${bearer.status}: ${briefHttpError(bearer.text)}`,
+      }
+  }
+  if (native.status >= 400)
+    return {
+      models: [],
+      source: "none",
+      error: `HTTP ${native.status}: ${briefHttpError(native.text)}`,
+    }
+  return { models: [], source: "none", error: "The endpoint listed no models." }
+}
+
+/**
+ * How long a CLI gets to print its model list. It used to be 15s, and a CLI's
+ * first launch can run past that (OpenCode sets up its database and model
+ * cache on the first command) — which then read as "sign in first". The
+ * picker shows a spinner meanwhile, and closing it does not wait.
+ */
+export const MODEL_LIST_TIMEOUT_MS = 45_000
+
+/**
+ * How long a clean CLI list is reused before the CLI is asked again. Refresh
+ * in the picker, or a change of sign-in, skips it.
+ */
+export const CLI_MODEL_CACHE_MS = 5 * 60_000
+
+/** Why a CLI run produced no list. */
+export type CliRunFailure = {
+  /** `missing` — no binary; `timeout` — no answer in time; `exit` — it failed. */
+  failed: "missing" | "timeout" | "exit"
+  /** One line on what went wrong, for the picker and the log. */
+  detail?: string
+  /** What it printed to stdout anyway — may still hold a list. */
+  out?: string
+}
+
+function isCliFailure(value: unknown): value is CliRunFailure {
+  return !!value && typeof value === "object" && "failed" in value
+}
+
+export type ModelCatalogDeps = {
+  /**
+   * Runs the agent's own CLI and returns its output, or why it produced none
+   * (null when the caller can't say). Injected (rather than spawned here) so
+   * the launcher's one Windows-safe spawn path is reused — see LoginProbe.
+   */
+  runCli?: (
+    agentType: string,
+    args: string[],
+    env?: Record<string, string>,
+  ) => Promise<string | CliRunFailure | null>
+  /** Whether the agent's CLI sign-in is active; null when unknown. */
+  isSignedIn?: (agentType: string) => Promise<boolean | null>
+}
+
+function withRecommendation(
+  source: ModelSource,
+  result: ModelListResult,
+): ModelListResult {
+  const recommended = source.recommend?.(result.models)
+  return recommended ? { ...result, recommended } : result
+}
+
+/**
+ * The CLI's answer, from whichever of the two CLI sources this agent has, or
+ * why there is none. `creds` are handed to the child when the caller is
+ * configuring the API-key path — see cliCommand.credVars.
+ */
+async function fromCli(
+  agentType: string,
+  source: ModelSource,
+  env: Record<string, string>,
+  deps: ModelCatalogDeps,
+  creds?: Record<string, string>,
+): Promise<ModelListResult | CliRunFailure | null> {
+  const cached = source.cliCache?.(env) || null
+  if (cached) return withRecommendation(source, cached)
+  if (!source.cliCommand || !deps.runCli) return null
+  const { args, fallbackArgs, parse } = source.cliCommand
+  const listed = (run: string | CliRunFailure | null): ModelChoice[] => {
+    const out = typeof run === "string" ? run : run?.out
+    return out ? parse(out) : []
+  }
+  let run = await deps.runCli(agentType, args, creds)
+  if (fallbackArgs && isCliFailure(run) && run.failed === "exit" && !listed(run).length)
+    run = await deps.runCli(agentType, fallbackArgs, creds)
+  const models = listed(run)
+  if (models.length) return withRecommendation(source, { models, source: "cli" })
+  if (isCliFailure(run)) return run
+  // A clean run that listed nothing, from a CLI that lists models to anyone.
+  if (typeof run === "string" && source.listsSignedOut)
+    return { failed: "exit", detail: "The CLI listed no models." }
+  return null
+}
+
+/** The form values a CLI needs to answer for the key being configured. */
+function credEnv(
+  source: ModelSource,
+  env: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of source.cliCommand?.credVars || []) {
+    const v = (env[name] || "").trim()
+    if (v) out[name] = v
+  }
+  return out
+}
+
+/**
+ * The models an agent can be pointed at right now, given the credentials
+ * currently in the form (which may not be saved yet — that is the point: the
+ * list has to follow the base URL the user is typing).
+ *
+ * `path` says which half of a dual-auth agent the user is filling in, and it
+ * decides the source outright rather than being a hint:
+ *
+ *   • "key"   — the endpoint in the form, and only that. A machine that also
+ *     has the CLI signed in must NOT answer here: someone pointing codex at a
+ *     relay was shown their ChatGPT account's line-up, which looks authoritative
+ *     and is wrong for that endpoint. With no key yet we say so (`need_key`)
+ *     instead of substituting a list from somewhere else. For a CLI that owns
+ *     its own service (cursor) the CLI is still the only place a list exists —
+ *     so it is run WITH the form's key, answering for that key.
+ *   • "login" — the CLI's own list (cache or command), for the session the
+ *     agent will actually run under. Any key in the form is ignored.
+ *
+ * Left unset (a form with no tabs) it keeps the old order: a key means the
+ * endpoint, otherwise the CLI, otherwise the built-in list.
+ */
+export async function listAgentModels(
+  agentType: string,
+  env: Record<string, string> = {},
+  deps: ModelCatalogDeps = {},
+  path?: ModelListPath,
+): Promise<ModelListResult> {
+  const source = resolveSource(agentType, env)
+  if (!source)
+    return {
+      models: [],
+      source: "none",
+      error: "This agent has no model setting.",
+    }
+
+  const key = pick(env, source.keyVars)
+  const configuredBase = pick(env, source.baseVars) || source.defaultBase || ""
+  const base = source.modelsBase ? source.modelsBase(configuredBase) : configuredBase
+  // A CLI-only agent (cursor) has no endpoint to query, so the CLI serves both
+  // paths — with the form's key on the key path.
+  const httpOnlyPath = path === "key" && source.provider !== "none"
+
+  if (path === "key" && !key && !source.keyless)
+    return {
+      models: [],
+      source: "none",
+      code: "need_key",
+      error: "Enter an API key to load this endpoint's models.",
+    }
+
+  if (
+    (key || httpOnlyPath || source.keyless) &&
+    source.provider !== "none" &&
+    path !== "login"
+  ) {
+    try {
+      const viaApi =
+        source.provider === "anthropic"
+          ? await listAnthropicModels(key, base)
+          : source.provider === "gemini"
+            ? await listGeminiModels(key, base)
+            : await listOpenAiModels(key, base)
+      if (viaApi.models.length) return viaApi
+      // On the key path the endpoint is the only honest source — report why it
+      // came back empty rather than quietly showing another account's models.
+      if (httpOnlyPath) return viaApi
+      const fallback = await fromCli(agentType, source, env, deps)
+      if (fallback && !isCliFailure(fallback)) return fallback
+      if (source.builtin?.length)
+        return {
+          models: source.builtin,
+          source: "builtin",
+          error: viaApi.error,
+        }
+      return viaApi
+    } catch (e) {
+      const failed = (e as Error)?.message || "Request failed"
+      if (httpOnlyPath) return { models: [], source: "none", error: failed }
+      const fallback = await fromCli(agentType, source, env, deps)
+      if (fallback && !isCliFailure(fallback)) return fallback
+      if (source.builtin?.length)
+        return { models: source.builtin, source: "builtin", error: failed }
+      return { models: [], source: "none", error: failed }
+    }
+  }
+
+  const cli = await fromCli(
+    agentType,
+    source,
+    env,
+    deps,
+    path === "login" ? undefined : credEnv(source, env),
+  )
+  if (cli && !isCliFailure(cli)) return cli
+  const failure = isCliFailure(cli) ? cli : null
+
+  // A fixed set of names (CodeBuddy's aliases) holds on either path. The key
+  // path used to skip it and show an empty picker for an agent that has one.
+  if (source.builtin?.length)
+    return { models: source.builtin, source: "builtin" }
+
+  // Nothing answered. Say which kind of "nothing" it was, so the picker can ask
+  // for the one thing that would fix it.
+  const hasCliSource = !!(source.cliCache || source.cliCommand)
+  if (failure?.failed === "missing")
+    return {
+      models: [],
+      source: "none",
+      code: "cli_missing",
+      error: "The agent's CLI was not found.",
+    }
+  if (failure?.failed === "timeout")
+    return {
+      models: [],
+      source: "none",
+      code: "cli_timeout",
+      error: failure.detail || "The CLI did not answer in time.",
+    }
+  if (path === "key")
+    return failure
+      ? {
+          models: [],
+          source: "none",
+          code: "cli_failed",
+          error: failure.detail || "The CLI failed.",
+        }
+      : {
+          models: [],
+          source: "none",
+          error: hasCliSource
+            ? "Couldn't read a model list for this key."
+            : "This endpoint returned no model list.",
+        }
+  // One without a CLI list (Gemini) never had a list to offer — don't send the
+  // user off to sign in again.
+  if (!hasCliSource)
+    return {
+      models: [],
+      source: "none",
+      code: "no_list",
+      error: "This sign-in doesn't publish a model list — type the model id.",
+    }
+  // "Sign in first" only where signing in is what's missing: never for a CLI
+  // that lists models signed out, and never for one that says it is signed in.
+  const signedIn = source.listsSignedOut
+    ? null
+    : ((await deps.isSignedIn?.(agentType)) ?? null)
+  if (source.listsSignedOut || signedIn === true)
+    return failure
+      ? {
+          models: [],
+          source: "none",
+          code: "cli_failed",
+          error: failure.detail || "The CLI failed.",
+        }
+      : {
+          models: [],
+          source: "none",
+          code: "cli_empty",
+          error: "The CLI returned no model list.",
+        }
+  return {
+    models: [],
+    source: "none",
+    code: "need_login",
+    error: "Sign in to load the model list.",
+  }
+}

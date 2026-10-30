@@ -16,16 +16,16 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.config import config
 from app.database import get_db
-from app.models import Channel, Workspace, WorkspaceMember
+from app.models import Channel, CloudAgentConfig, Workspace, WorkspaceMember
 from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from openagents.core.onm_events import Event
@@ -62,6 +62,11 @@ class HeartbeatRequest(BaseModel):
     agent_name: str
     network: str
     session_id: Optional[str] = None  # issued by /v1/join; mismatch → session_revoked
+    # v1.1 M3 — live presence detail from the connector. All optional so an
+    # older connector's heartbeat leaves the stored values untouched.
+    presence_state: Optional[str] = None       # "idle" | "working"
+    busy_channels: Optional[List[str]] = None  # channels with a run in progress
+    queue_depth: Optional[int] = None          # queued messages across channels
 
 class ComposingRequest(BaseModel):
     network: str
@@ -115,6 +120,34 @@ def _verify_workspace_access(workspace, token: Optional[str], authorization: Opt
     return verify_workspace_access(workspace, token, authorization)
 
 
+def _check_lifecycle_auth(
+    workspace,
+    endpoint: str,
+    agent_name: str,
+    token: Optional[str],
+    authorization: Optional[str],
+):
+    """Credential check for /v1/leave and /v1/heartbeat.
+
+    Both endpoints historically self-supplied the workspace token to the
+    pipeline, so any caller who knew the slug could drive them. Our clients
+    have always sent X-Workspace-Token; this starts holding them to it.
+    Returns an error response to hand back, or None to proceed. Unless
+    ENFORCE_AGENT_LIFECYCLE_AUTH is on, invalid callers are only logged so
+    unknown legacy clients get one release of warning before rejection.
+    """
+    if _verify_workspace_access(workspace, token, authorization):
+        return None
+    if config.ENFORCE_AGENT_LIFECYCLE_AUTH:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    logger.warning(
+        "%s without valid credentials (workspace=%s agent=%s token_present=%s) — "
+        "will be rejected once ENFORCE_AGENT_LIFECYCLE_AUTH is enabled",
+        endpoint, workspace.id, agent_name, bool(token),
+    )
+    return None
+
+
 async def _emit_event(event: Event, workspace, db: Session, token: str = None):
     """Push an event through the mod pipeline. Returns None on rejection."""
     context = PipelineContext(
@@ -130,6 +163,49 @@ async def _emit_event(event: Event, workspace, db: Session, token: str = None):
         return None
     db.commit()
     return result
+
+
+def runtime_status_by_node(db: Session, workspace, now: Optional[datetime] = None) -> dict:
+    """{node_id: {"status": online|offline, "name": ...}} for the workspace's
+    devices — the "runtime offline" signal. Shared by /v1/discover and the
+    agent directory (routers/sharing.py) so both derive it the same way."""
+    from app.models import Node
+    now = now or datetime.now(timezone.utc)
+    node_rows = db.execute(select(Node).where(Node.workspace_id == workspace.id)).scalars().all()
+    runtime_by_id = {}
+    for n in node_rows:
+        hb = n.last_heartbeat
+        if hb is not None and hb.tzinfo is None:
+            hb = hb.replace(tzinfo=timezone.utc)
+        alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
+        runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
+    return runtime_by_id
+
+
+def effective_agent_status(member: WorkspaceMember, now: Optional[datetime] = None) -> str:
+    """online/offline for an agent row: a stale heartbeat means offline even
+    when the row still says online (cloud agents have no heartbeat)."""
+    now = now or datetime.now(timezone.utc)
+    status = member.status
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    if not is_cloud and member.last_heartbeat:
+        heartbeat = member.last_heartbeat
+        if heartbeat.tzinfo is None:
+            heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+        if (now - heartbeat) > AGENT_TIMEOUT:
+            status = "offline"
+    return status
+
+
+def agent_runtime_fields(member: WorkspaceMember, runtime_by_id: dict, viewer=None) -> dict:
+    """runtime_status / runtime_name for an agent given runtime_status_by_node().
+    Cloud agents are always "online"; agents with no node report None."""
+    is_cloud = (member.agent_type or "").startswith("cloud:")
+    rt = runtime_by_id.get(str(member.node_id)) or {}
+    return {
+        "runtime_status": rt.get("status") if (member.node_id and not is_cloud) else ("online" if is_cloud else None),
+        "runtime_name": rt.get("name") if member.node_id and (viewer is None or viewer.machine or viewer.email == member.owner_email) else None,
+    }
 
 
 def _emit_event_blocking(event: Event, workspace, db: Session, token: str = None):
@@ -160,13 +236,11 @@ def join_network(
     if body.network:
         workspace = _resolve_workspace(db, body.network)
     else:
-        # Token-only join: resolve workspace from token
-        workspace = db.execute(
-            select(Workspace).where(
-                Workspace.password_hash == body.token,
-                Workspace.status != "deleted",
-            )
-        ).scalar_one_or_none()
+        # Token-only join: resolve workspace from the token (workspace token
+        # or per-node token — same lookup the access check uses).
+        from app.access import resolve_machine_token
+
+        workspace, _n = resolve_machine_token(db, body.token)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
@@ -177,6 +251,19 @@ def join_network(
         payload["server_host"] = body.server_host
     if body.working_dir:
         payload["working_dir"] = body.working_dir
+    # A join authenticated with a node token is attributable to a device —
+    # stamp it so "which machine runs this agent" is a column, not a guess.
+    if body.token:
+        from app.models import Node
+
+        node = db.execute(
+            select(Node).where(
+                Node.token == body.token,
+                Node.workspace_id == workspace.id,
+            )
+        ).scalar_one_or_none()
+        if node is not None:
+            payload["node_id"] = str(node.id)
 
     event = Event(
         type="network.agent.join",
@@ -187,7 +274,28 @@ def join_network(
 
     result = _emit_event_blocking(event, workspace, db, token=body.token)
     if result is None:
+        # The join handler runs AFTER AuthMod, so validation problems are only
+        # reported to authenticated callers — it stamps the reason on the
+        # event before rejecting (see workspace_mod._handle_agent_join).
+        if event.metadata.get("reject_reason") in ("display_name_conflict", "invalid_agent_name"):
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                event.metadata.get("reject_detail") or "Invalid agent name",
+            )
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid network token")
+
+    # Credits campaign: server-observed "agent connected" milestone. Runs in a
+    # thread with its own session; no-op unless the campaign is enabled.
+    try:
+        import threading
+        from app.services import campaign as campaign_service
+        threading.Thread(
+            target=campaign_service.on_agent_joined,
+            args=(str(workspace.id), body.agent_type),
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
 
     return success_response({
         "network_id": str(workspace.id),
@@ -206,11 +314,19 @@ def join_network(
 def leave_network(
     body: LeaveRequest,
     db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Agent announces departure from a network."""
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    denied = _check_lifecycle_auth(
+        workspace, "/v1/leave", body.agent_name, x_workspace_token, authorization
+    )
+    if denied is not None:
+        return denied
 
     event = Event(
         type="network.agent.leave",
@@ -275,11 +391,19 @@ def remove_agent(
 def heartbeat(
     body: HeartbeatRequest,
     db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Agent presence heartbeat."""
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    denied = _check_lifecycle_auth(
+        workspace, "/v1/heartbeat", body.agent_name, x_workspace_token, authorization
+    )
+    if denied is not None:
+        return denied
 
     event = Event(
         type="network.ping",
@@ -288,6 +412,11 @@ def heartbeat(
         payload={
             "agent_name": body.agent_name,
             "session_id": body.session_id,
+            # Presence detail (v1.1 M3); keys are present only when sent so
+            # _handle_ping can tell "idle" from "connector too old to say".
+            **({"presence_state": body.presence_state} if body.presence_state is not None else {}),
+            **({"busy_channels": body.busy_channels} if body.busy_channels is not None else {}),
+            **({"queue_depth": body.queue_depth} if body.queue_depth is not None else {}),
         },
     )
 
@@ -339,13 +468,14 @@ def resolve_token(
     body: TokenResolveRequest,
     db: Session = Depends(get_db),
 ):
-    """Resolve a workspace token to workspace info."""
-    workspace = db.execute(
-        select(Workspace).where(
-            Workspace.password_hash == body.token,
-            Workspace.status != "deleted",
-        )
-    ).scalar_one_or_none()
+    """Resolve a machine token (workspace or per-node) to workspace info.
+
+    Shares its lookup with verify_workspace_access — the invariant is that any
+    token the access check accepts as a machine credential resolves here.
+    """
+    from app.access import resolve_machine_token
+
+    workspace, _node = resolve_machine_token(db, body.token)
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Invalid or expired token")
 
@@ -364,6 +494,7 @@ def resolve_token(
 @router.get("/discover")
 def discover(
     network: str = Query(..., description="Network (workspace) ID"),
+    read_at: Optional[str] = Query(None, max_length=32768),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -376,7 +507,18 @@ def discover(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    from app.services.thread_activity import read_markers, thread_activity
+    try:
+        markers = read_markers(read_at)
+    except (ValueError, TypeError):
+        return json_response(ResponseCode.BAD_REQUEST, "Invalid read_at")
+
     now = datetime.now(timezone.utc)
+
+    # v1.1 visibility: a signed-in person does not see private threads they
+    # are not in, nor personal agents they were not granted. Machines see all.
+    from app.services.visibility import hidden_agent_names, hidden_channel_names, resolve_viewer
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
 
     # Hide removed agents — removal is a soft-delete (status='removed') so a
     # re-add can reactivate them. Offline members are intentionally kept: the
@@ -389,30 +531,69 @@ def discover(
         )
     ).scalars().all()
 
+    # Cloud agents keep their runtime model in cloud_agent_configs; surface it
+    # when the member row has no explicit override so clients see one field.
+    cloud_models = {
+        c.agent_name: c.model
+        for c in db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == workspace.id,
+            )
+        ).scalars().all()
+    }
+
+    hidden_agents = hidden_agent_names(db, str(workspace.id), viewer, members)
+    # Runtime (device) liveness for the "runtime offline" signal.
+    runtime_by_id = runtime_status_by_node(db, workspace, now)
+    from app.services.access_model import agent_usable_by, legacy_agent_visibility, normalize_visibility, can_start_agent_thread
+    usable = agent_usable_by(db, str(workspace.id), [m.agent_name for m in members])
+    from app.services.thread_agent_requests import shared_agent_names
+    thread_shared = shared_agent_names(db, workspace.id)
+
     agents = []
     for m in members:
-        status = m.status
+        if m.agent_name in hidden_agents:
+            continue
+        status = effective_agent_status(m, now)
         is_cloud = (m.agent_type or "").startswith("cloud:")
-        if not is_cloud and m.last_heartbeat:
-            heartbeat = m.last_heartbeat
-            if heartbeat.tzinfo is None:
-                heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-            if (now - heartbeat) > AGENT_TIMEOUT:
-                status = "offline"
         agents.append({
             "address": f"openagents:{m.agent_name}",
+            "display_name": m.display_name,
             "role": m.role,
             "status": status,
             "agent_type": m.agent_type,
             "builtin": (m.agent_type or "") == "cloud:openagents",
-            "server_host": m.server_host,
-            "working_dir": m.working_dir,
+            "server_host": m.server_host if viewer.machine or viewer.email == m.owner_email else None,
+            # The device this agent runs on, stamped at join time. Null for
+            # cloud agents and manual-token joins. Clients use it to group
+            # agents by node without reverse-matching names from /v1/nodes.
+            "node_id": m.node_id if viewer.machine or viewer.email == m.owner_email else None,
+            "working_dir": m.working_dir if viewer.machine or viewer.email == m.owner_email else None,
             "description": m.description,
             "enabled_skills": m.enabled_skills,
+            "model": m.model or (cloud_models.get(m.agent_name) if is_cloud else None),
             "last_heartbeat_at": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "joined_at": m.joined_at.isoformat() if m.joined_at else None,
+            # ── v1.1 ──
+            "owner_email": m.owner_email,
+            # Deprecated personal/team flag: mirrors the `everyone` grant.
+            "visibility": legacy_agent_visibility(usable.get(m.agent_name, {})),
+            "usable_by": usable.get(m.agent_name),
+            "is_shared": m.agent_name in thread_shared or any(usable.get(m.agent_name, {}).values()),
+            "can_start_thread": can_start_agent_thread(db, str(workspace.id), viewer, m),
+            "purpose": m.purpose,
+            "example_requests": m.example_requests or [],
+            "required_inputs": m.required_inputs,
+            "cost_owner": m.cost_owner,
+            "presence_state": m.presence_state,
+            "busy_channels": m.busy_channels or [],
+            "queue_depth": m.queue_depth or 0,
+            # "online" / "offline" for the device this agent runs on; None when
+            # the agent has no node (cloud agents, manual-token joins).
+            **agent_runtime_fields(m, runtime_by_id, viewer),
         })
 
+    hidden_channels = hidden_channel_names(db, str(workspace.id), viewer)
     channels_rows = db.execute(
         select(Channel).where(
             Channel.workspace_id == workspace.id,
@@ -420,21 +601,52 @@ def discover(
         )
     ).scalars().all()
 
+    visible_channels = [c for c in channels_rows if c.name not in hidden_channels]
+    # The person's stored markers (shared by their devices) win over an older
+    # local marker the client sent; without a sent marker the stored one applies.
+    from app.services.read_state import merged_for_viewer
+    markers = merged_for_viewer(db, workspace.id, viewer, markers, keep=lambda key: not key.startswith('dm:'))
+    activity = thread_activity(db, str(workspace.id), visible_channels, markers, viewer.email)
+    from app.models import ThreadPin, ChannelHumanMember
+    human_counts = dict(db.execute(select(ChannelHumanMember.channel_id, func.count()).where(
+        ChannelHumanMember.channel_id.in_([c.id for c in visible_channels])
+    ).group_by(ChannelHumanMember.channel_id)).all())
+    pinned_channels = set(db.execute(select(ThreadPin.channel_id).join(Channel).where(
+        Channel.workspace_id == workspace.id, ThreadPin.user_email == viewer.email,
+    )).scalars()) if viewer.kind == "human" and viewer.email else set()
+    from app.services.personal_assistant import personal_channels, is_yumi
+    personal_names = {c.name for c in personal_channels(db, workspace.id)}
+    builtin_yumi = is_yumi(db, workspace.id, "yumi")
     channels = []
     for c in channels_rows:
+        if c.name in hidden_channels:
+            continue
         target_key = f"channel/{c.name}"
         created_at_ts = int(c.created_at.timestamp() * 1000) if c.created_at else None
         channels.append({
             "address": target_key,
+            **activity.get(c.name, {}),
             "title": c.title,
-            "master": c.master_agent,
-            "orchestration_mode": c.orchestration_mode or "dynamic",
+            "icon": c.icon,
+            "human_count": human_counts.get(c.id, 0),
+            "master": None if builtin_yumi and c.master_agent == "yumi" and c.name not in personal_names else c.master_agent,
+            "orchestration_mode": "workflow" if c.orchestration_mode == "workflow" else "dynamic",
+            "response_mode": c.response_mode or "proactive",
             "orchestration_instruction": c.orchestration_instruction,
-            "participants": [p.agent_name for p in (c.participants or [])],
+            "workflow_id": c.workflow_id,
+            "participants": [p.agent_name for p in (c.participants or []) if not (builtin_yumi and p.agent_name == "yumi" and c.name not in personal_names)],
             "created_at": created_at_ts,
             "last_event_at": c.last_event_at,
             "status": c.status or "active",
             "starred": bool(c.starred) if c.starred is not None else False,
+            "pinned": c.id in pinned_channels,
+            "is_channel": bool(c.is_channel),
+            "visibility": "private" if c.name in personal_names else normalize_visibility(c.visibility, "public") or "public",
+            "owner_email": c.owner_email,
+            "participants_can_invite": bool(c.participants_can_invite),
+            "members_can_add_agents": bool(c.members_can_add_agents),
+            "director_email": c.director_email,
+            "created_by": c.created_by,
         })
 
     return success_response({
@@ -490,162 +702,55 @@ def network_profile(
 
 
 # ── Agent catalog (supported client types) ──────────────────────────────
-
-# Static catalog mirroring the SDK plugin_registry.  Kept in sync manually;
-# the source of truth is sdk/src/openagents/client/plugin_registry.py.
-
-_AGENT_CATALOG = [
-    # ── Featured agents (shown first, in order) ─────────────────────────
-    {
-        "name": "claude",
-        "label": "Claude Code",
-        "description": "Anthropic's Claude Code CLI",
-        "install_command": "curl -fsSL https://claude.ai/install.sh | bash",
-        "homepage": "https://claude.ai",
-        "tags": ["coding", "anthropic", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 1,
-    },
-    {
-        "name": "openclaw",
-        "label": "OpenClaw",
-        "description": "Open-source agent client powered by Anthropic",
-        "install_command": "npm install -g openclaw@latest",
-        "homepage": "https://github.com/qwibitai/openclaw",
-        "tags": ["coding", "open-source", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 2,
-    },
-    {
-        "name": "codex",
-        "label": "OpenAI Codex CLI",
-        "description": "OpenAI's Codex CLI agent for the terminal",
-        "install_command": "npm install -g @openai/codex",
-        "homepage": "https://github.com/openai/codex",
-        "tags": ["coding", "openai", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 3,
-    },
-    {
-        "name": "cursor",
-        "label": "Cursor",
-        "description": "Cursor's AI coding agent for the terminal",
-        "install_command": "curl -fsSL https://cursor.com/install | bash",
-        "install_command_win": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm 'https://cursor.com/install?win32=true' | iex\"",
-        "homepage": "https://cursor.com",
-        "tags": ["coding", "cli", "cursor"],
-        "builtin": True,
-        "featured": True,
-        "order": 4,
-    },
-    {
-        "name": "opencode",
-        "label": "OpenCode",
-        "description": "Open-source terminal-native AI coding agent",
-        "install_command": "npm install -g opencode-ai@1.17.11",
-        "homepage": "https://opencode.ai",
-        "tags": ["coding", "open-source", "cli", "terminal"],
-        "builtin": False,
-        "featured": True,
-        "order": 5,
-    },
-    {
-        "name": "hermes",
-        "label": "Hermes Agent",
-        "description": "Nous Research's self-improving AI agent with tools, profiles, memory, and messaging",
-        "install_command": "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
-        "homepage": "https://github.com/NousResearch/hermes-agent",
-        "tags": ["coding", "open-source", "nous-research", "self-improving"],
-        "builtin": True,
-        "featured": True,
-        "order": 6,
-    },
-    {
-        "name": "kimi",
-        "label": "Kimi",
-        "description": "Kimi agent powered by Moonshot AI, OpenAI-compatible API",
-        "install_command": "npm install -g @anthropic-ai/kimi",
-        "homepage": "https://platform.moonshot.ai",
-        "tags": ["coding", "moonshot", "cli"],
-        "builtin": True,
-        "featured": True,
-        "order": 7,
-    },
-    {
-        "name": "gemini",
-        "label": "Gemini CLI",
-        "description": "Google's open-source AI agent for the command line",
-        "install_command": "npm install -g @google/gemini-cli",
-        "homepage": "https://github.com/google-gemini/gemini-cli",
-        "tags": ["coding", "google", "open-source", "cli"],
-        "builtin": False,
-        "featured": True,
-        "order": 8,
-    },
-    # ── Other agents ─────────────────────────────────────────────────────
-    {
-        "name": "amp",
-        "label": "Amp (Sourcegraph)",
-        "description": "Sourcegraph's AI coding agent for CLI and VS Code",
-        "install_command": "curl -fsSL https://ampcode.com/install.sh | bash",
-        "homepage": "https://ampcode.com",
-        "tags": ["coding", "sourcegraph", "cli", "vscode"],
-        "builtin": False,
-    },
-    {
-        "name": "aider",
-        "label": "Aider",
-        "description": "AI pair programming in your terminal",
-        "install_command": "pip install aider-chat",
-        "homepage": "https://aider.chat",
-        "tags": ["coding", "pair-programming", "open-source"],
-        "builtin": False,
-    },
-    {
-        "name": "goose",
-        "label": "Goose",
-        "description": "An open-source AI developer agent by Block",
-        "install_command": "pip install goose-ai",
-        "homepage": "https://github.com/block/goose",
-        "tags": ["coding", "developer", "open-source"],
-        "builtin": False,
-    },
-    {
-        "name": "cline",
-        "label": "Cline",
-        "description": "Autonomous coding agent CLI by Cline Bot",
-        "install_command": "npm install -g cline",
-        "homepage": "https://github.com/cline/cline",
-        "tags": ["coding", "cli", "autonomous"],
-        "builtin": True,
-        "featured": True,
-        "order": 9,
-    },
-    {
-        "name": "copilot",
-        "label": "GitHub Copilot CLI",
-        "description": "GitHub's official Copilot coding agent for the terminal (the `copilot` CLI, not the retired `gh copilot` extension)",
-        "install_command": "npm install -g @github/copilot",
-        "homepage": "https://github.com/github/copilot-cli",
-        "tags": ["coding", "github", "cli"],
-        "builtin": False,
-    },
-    {
-        "name": "nanoclaw",
-        "label": "NanoClaw",
-        "description": "Containerized agent runtime — each Agent Group runs in its own Docker container, bridged via a native OpenAgents channel (Beta)",
-        "install_command": "git clone https://github.com/nanocoai/nanoclaw && cd nanoclaw && pnpm install && ./nanoclaw.sh setup",
-        "homepage": "https://github.com/nanocoai/nanoclaw",
-        "tags": ["coding", "container", "docker", "runtime", "open-source"],
-        "builtin": True,
-    },
-]
+# Single source of truth: per-agent JSON files under /registry, served by
+# app.services.agent_registry. (The old hand-maintained _AGENT_CATALOG list
+# is gone — edit the registry files instead.)
 
 
 @router.get("/agent-catalog")
 def agent_catalog():
-    """Return the catalog of supported agent client types."""
-    return success_response(_AGENT_CATALOG)
+    """List supported agent client types (summaries, featured first)."""
+    from app.services import agent_registry
+    return success_response(agent_registry.list_agents())
+
+
+@router.get("/agent-catalog/{agent_type}")
+def agent_catalog_detail(agent_type: str):
+    """Full detail for one agent type — logo, per-OS install/uninstall,
+    readiness, and the (resolved) list of supported models."""
+    from app.services import agent_registry
+    entry = agent_registry.get_agent(agent_type)
+    if entry is None:
+        return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
+    return success_response(entry)
+
+
+@router.get("/agent-catalog/{agent_type}/logo")
+def agent_catalog_logo(agent_type: str):
+    """The agent type's logo as an SVG — served from /registry/icons so the
+    catalog is self-contained (no dependency on the frontend's static assets).
+    Falls back to a generic icon for types without their own artwork."""
+    from fastapi.responses import FileResponse
+
+    from app.services import agent_registry
+    path = agent_registry.logo_path(agent_type)
+    if path is None:
+        return json_response(ResponseCode.NOT_FOUND, "Unknown agent type")
+    return FileResponse(
+        path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/agent-registry")
+def agent_registry_full():
+    """Full agent registry for the launcher (agn / desktop app).
+
+    Returns every registry entry with all runtime fields (install, adapter,
+    launch, check_ready, env_config, resolve_env) and models resolved — the
+    same shape as the launcher's bundled registry.json, so the launcher can
+    fetch this instead of the legacy endpoint.openagents.org registry.
+    """
+    from app.services import agent_registry
+    return success_response(agent_registry.full_registry())

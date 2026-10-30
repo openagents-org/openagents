@@ -1,0 +1,83 @@
+{
+  "version": "0.9.18",
+  "date": "2026-08-20",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "A saved Claude API key is no longer hidden behind the wrong tab",
+        "zh": "配好的 Claude API 密钥不再藏在另一个标签页后面"
+      },
+      "description": {
+        "en": "Claude can be set up either by signing in through its CLI or by entering an API key, and the two sit on separate tabs. Configure always opened on the sign-in tab — so after saving an API key, reopening it showed \"not signed in\" and no sign of the key, which read as the key having failed to save. It had saved; it was on the other tab. Configure now opens on whichever tab you actually set the agent up with.",
+        "zh": "Claude 可以用命令行登录，也可以填 API 密钥，两者分处两个标签页。而「配置」每次都打开在登录那一页——于是保存完 API 密钥再打开，看到的是「未登录」，密钥则不见踪影，看起来就像密钥没保存成功。它保存成功了，只是在另一页。现在「配置」会直接打开在你实际配置所用的那一页。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "The marketplace counters are now filters",
+        "zh": "应用市场右上角的统计现在可以点了"
+      },
+      "description": {
+        "en": "\"1 update available\" told you something was out of date but not what, so finding it meant scrolling the whole catalog reading badges. Each counter in the header is now clickable: it narrows the list to exactly what it counts, and clicking it again clears the filter. When precisely one agent has an update, clicking goes straight to that agent — a filtered list of one helps nobody.",
+        "zh": "「1 个待更新」告诉你有东西该更新了，却没说是哪个，于是只能把整个列表从上往下拉、一个个看标签。现在页头的每个统计都可以点：点一下就把列表缩到它统计的那些，再点一下取消。如果恰好只有一个智能体待更新，点击会直接进入那个智能体——只有一行的筛选结果对谁都没用。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Installing an agent that needs Git now tells you so, instead of stalling",
+        "zh": "需要 Git 的智能体，现在会先告诉你，而不是装到一半卡住"
+      },
+      "description": {
+        "en": "Some agents — Hermes among them — are installed by a script from their authors, and that script needs Git. On a Mac without developer tools, pressing Install used to bring up a system dialog asking to install the command line developer tools, with nothing to say where it had come from, and then the progress bar sat on \"Downloading\" for up to fifteen minutes before failing. The launcher now checks for Git before starting an install that needs it: if it is missing you are told up front, with the command to run and, on macOS, a button that opens Apple's installer for you and a Retry to press once it finishes. Nothing downloads until the requirement is met. On Windows the installer fetches its own copy of Git and needs no help, so nothing is blocked there — but if that download fails, or Windows security policy stops Git Bash from running, the reason is now spelled out instead of being reported as a generic connection problem.",
+        "zh": "有些智能体——Hermes 就是其一——是由其作者提供的脚本安装的，而那个脚本需要 Git。在没装过开发者工具的 Mac 上，点「安装」会弹出一个要求安装命令行开发者工具的系统对话框，完全不说它是从哪冒出来的，接着进度条会停在「下载中」最长十五分钟，然后失败。现在启动器会在开始这类安装前先检查 Git：缺了就直接告诉你，给出要执行的命令；在 macOS 上还提供一个替你打开 Apple 安装程序的按钮，装完点「重试」即可。在真正满足条件之前，不会下载任何东西。在 Windows 上，安装脚本会自己下载一份 Git，不需要帮忙，所以那里不会拦截——但如果那次下载失败，或者 Windows 安全策略挡住了 Git Bash，现在会直接说清楚原因，而不是报成一个笼统的连接问题。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Install logs are kept on disk, and a failed install stays on screen",
+        "zh": "安装日志会保存到本地，安装失败的记录也不会消失"
+      },
+      "description": {
+        "en": "The output of an install used to exist only while its page was open — leave the page and the log, along with the Copy log button, was gone, so the only way to find out why something failed was to install it again. Every install now writes a log file under .openagents/installs, reachable from the progress block via Show in Finder, and a failed install keeps its progress block when you come back to the page.",
+        "zh": "以前安装过程的输出只在它所在的页面打开时存在——一离开页面，日志连同「复制日志」按钮就一起没了，想知道为什么失败就只能再装一遍。现在每次安装都会在 .openagents/installs 下写一份日志文件，可以从进度区域的「在访达中显示」直接找到；安装失败的进度区域在你回到页面时也会保留。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The install progress bar no longer blames the wrong step",
+        "zh": "安装进度不再把失败算在错误的步骤上"
+      },
+      "description": {
+        "en": "The progress bar worked out which step an install was on by reading its output, and it counted any line containing the letters \"mb\" as a download — which ordinary words like \"number\" and \"symbol\" satisfy. So an install could sit on \"Downloading\" while doing something else entirely, and a failure elsewhere would be reported as a failed download. It now looks for an actual size.",
+        "zh": "进度条是靠读取输出来判断安装进行到哪一步的，而它把任何含有「mb」这两个字母的行都算作下载——「number」「symbol」这类普通单词都满足。于是安装明明在做别的事，进度却停在「下载中」，别处的失败也会被报成下载失败。现在它只认真正的大小数字。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "An install that hangs is now stopped instead of waiting forever",
+        "zh": "卡住的安装会被主动结束，不再无限等下去"
+      },
+      "description": {
+        "en": "Installers written by other people can decide to wait — for a dialog, for a prompt nobody is answering, for a download that never returns — and the launcher had no limit of its own, so a progress bar could sit still indefinitely with no way to tell whether anything was still happening. An install that produces no output for ten minutes is now stopped, along with everything it started, and says so.",
+        "zh": "别人写的安装脚本可能会自己等下去——等一个对话框、等一个没人回答的提问、等一个永远不返回的下载——而启动器这边没有任何时限，于是进度条可以一动不动地停在那儿，也没法判断到底还有没有在跑。现在，十分钟没有任何输出的安装会被结束（连同它启动的所有子进程），并明确告诉你原因。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "You are now told when an installer replaces your default Node",
+        "zh": "安装脚本换掉你的默认 Node 时会告诉你"
+      },
+      "description": {
+        "en": "Hermes's installer, when it judges the system Node too old, installs its own and repoints node, npm and npx in ~/.local/bin at it. On most machines that directory comes first on PATH, so the default Node changes for every shell and every unrelated project, silently. The install now checks afterwards and, if it shadowed a Node you already had, says exactly what changed and the one command that undoes it.",
+        "zh": "Hermes 的安装脚本在判定系统 Node 版本过旧时，会装一份自己的，并把 ~/.local/bin 里的 node、npm、npx 指向它。在大多数机器上这个目录排在 PATH 最前面，于是默认的 Node 就悄悄换了——对所有终端、所有毫不相干的项目都生效。现在安装完成后会做一次检查，如果它确实盖掉了你原有的 Node，就会明确说明改动了什么，以及一条撤销它的命令。"
+      }
+    }
+  ]
+}

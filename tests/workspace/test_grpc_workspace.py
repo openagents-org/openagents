@@ -17,10 +17,10 @@ import asyncio
 import random
 from pathlib import Path
 
-from openagents.core.client import AgentClient
-from openagents.core.network import create_network
+from openagents.sdk.client import AgentClient
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
-from openagents.core.workspace import Workspace
+from openagents.sdk.workspace import Workspace
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 

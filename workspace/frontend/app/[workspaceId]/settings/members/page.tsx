@@ -1,0 +1,332 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { Link2, Loader2, Mail, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useConfirm } from '@/components/ui/dialogs-provider';
+import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { roleLabel } from '@/lib/roles';
+import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { AgentRoster } from '@/components/settings/agent-roster'; // v1.1 M1
+import { GroupsPanel } from '@/components/settings/groups-panel'; // v1.1 permission model
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { workspaceApi } from '@/lib/api';
+import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
+import { useT } from '@/lib/i18n';
+
+const ROLES: WorkspaceRole[] = ['owner', 'admin', 'member', 'viewer'];
+// Owner is granted via a role change by an existing owner, never on invite.
+const INVITE_ROLES: WorkspaceRole[] = ['admin', 'member', 'viewer'];
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default function MembersSettingsPage() {
+  const { me } = useAdminSettings();
+  const t = useT();
+  const confirm = useConfirm();
+  const editable = canAdminister(me);
+
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<WorkspaceRole>('member');
+  const [busy, setBusy] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Invites are admin-only; a plain member still sees the member list.
+      const [team, invs] = await Promise.all([
+        workspaceApi.getTeam().catch(() => [] as TeamMember[]),
+        workspaceApi.listInvites().catch(() => [] as TeamInvite[]),
+      ]);
+      setMembers(team);
+      setInvites(invs);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const pendingInvites = invites.filter((i) => i.status === 'pending');
+
+  const sendInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) return;
+    setBusy(true);
+    try {
+      const invite = await workspaceApi.createInvite(inviteRole, email);
+      setInviteEmail('');
+      await load();
+      if (invite.emailSent) {
+        toast.success(t('admin.inviteEmailSent', { email }));
+      } else {
+        // No email provider configured — hand the link to the inviter instead.
+        const copied = await copyText(invite.url);
+        toast.success(
+          copied ? t('admin.inviteCreatedCopied', { email }) : t('admin.inviteCreated', { email }),
+        );
+      }
+    } catch {
+      toast.error(t('admin.inviteFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Open shareable link: role-limited, expiring, revocable — never the
+  // workspace machine token.
+  const createLink = async () => {
+    setLinkBusy(true);
+    try {
+      const invite = await workspaceApi.createInvite(inviteRole);
+      await load();
+      const copied = await copyText(invite.url);
+      toast.success(copied ? t('admin.linkCopied') : t('admin.linkCreated'));
+    } catch {
+      toast.error(t('admin.inviteFailed'));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const copyInviteLink = async (invite: TeamInvite) => {
+    const copied = await copyText(invite.url);
+    if (copied) toast.success(t('admin.linkCopied'));
+  };
+
+  const revoke = async (invite: TeamInvite) => {
+    try {
+      await workspaceApi.revokeInvite(invite.inviteId);
+      await load();
+      toast.success(t('admin.inviteRevoked'));
+    } catch {
+      toast.error(t('admin.inviteRevokeFailed'));
+    }
+  };
+
+  const changeRole = async (email: string, role: WorkspaceRole) => {
+    try {
+      await workspaceApi.updateTeamMember(email, role);
+      await load();
+      toast.success(t('admin.roleChanged'));
+    } catch {
+      toast.error(t('admin.roleChangeFailed'));
+      await load();
+    }
+  };
+
+  const remove = async (email: string) => {
+    const ok = await confirm({
+      title: t('admin.removeTitle'),
+      description: t('admin.removeDescription', { email }),
+      confirmText: t('admin.removeMember'),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await workspaceApi.removeTeamMember(email);
+      await load();
+      toast.success(t('admin.removed', { email }));
+    } catch {
+      toast.error(t('admin.removeFailed'));
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <SectionHeader title={t('admin.membersTitle')} description={t('admin.membersDescription')} />
+      {!editable && <ReadOnlyBanner />}
+
+      {/* v1.1 permission model: the roster and the security groups share the page */}
+      <Tabs defaultValue="people" className="w-full flex-col gap-6">
+      <TabsList variant="line">
+        <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
+        <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="people" className="min-w-0 w-full space-y-8">
+
+      {editable && (
+        <div className="space-y-3 rounded-lg border p-4">
+          <Label>{t('admin.inviteTitle')}</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="email"
+              placeholder={t('admin.invitePlaceholder')}
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') sendInvite(); }}
+              className="flex-1"
+            />
+            <Select
+              value={inviteRole}
+              onValueChange={(v) => setInviteRole(v as WorkspaceRole)}
+            >
+              <SelectTrigger className="h-9 w-32 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {INVITE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {roleLabel(t, r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={sendInvite} disabled={busy || !inviteEmail.trim()}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+              <span className="hidden sm:inline">{t('admin.inviteSend')}</span>
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('admin.inviteHint')}</p>
+          <Button variant="outline" size="sm" onClick={createLink} disabled={linkBusy}>
+            {linkBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+            {t('admin.createInviteLink')}
+          </Button>
+          <p className="text-xs text-muted-foreground">{t('admin.inviteLinkHint')}</p>
+        </div>
+      )}
+
+      {editable && pendingInvites.length > 0 && (
+        <div className="space-y-2">
+          <Label variant="secondary">{t('admin.pendingInvites')}</Label>
+          <div className="divide-y rounded-lg border">
+            {pendingInvites.map((inv) => (
+              <div key={inv.inviteId} className="flex items-center gap-3 px-4 py-2.5">
+                {inv.email ? (
+                  <Mail className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Link2 className="size-4 shrink-0 text-muted-foreground" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">
+                    {inv.email ?? t('admin.openInviteLink')}
+                    <span className="ms-1.5 text-xs text-muted-foreground">· {inv.role}</span>
+                  </p>
+                  {inv.expiresAt && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('admin.inviteExpires', { time: new Date(inv.expiresAt).toLocaleDateString() })}
+                    </p>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => copyInviteLink(inv)}>
+                  {t('admin.copyLink')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => revoke(inv)}
+                  title={t('admin.inviteRevoke')}
+                >
+                  <X className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* v1.1 M1: unified roster — people first, agents below */}
+      <Label variant="secondary">{t('collab.peopleSection')}</Label>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : members.length === 0 ? (
+        <p className="py-4 text-sm text-muted-foreground">{t('admin.noMembers')}</p>
+      ) : (
+        <div className="divide-y rounded-lg border">
+          {members.map((m) => {
+            const isSelf = !!me.email && m.email === me.email;
+            return (
+              <div key={m.email} className="flex items-center gap-3 px-4 py-3">
+                {m.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.avatarUrl} alt="" className="size-8 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    {(m.displayName || m.email)[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {m.displayName || m.email}
+                    {isSelf && (
+                      <span className="ms-1.5 text-xs font-normal text-muted-foreground">
+                        ({t('admin.you')})
+                      </span>
+                    )}
+                  </p>
+                  {m.displayName && (
+                    <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  )}
+                </div>
+                {editable ? (
+                  <>
+                    <Select
+                      value={m.role}
+                      onValueChange={(v) => changeRole(m.email, v as WorkspaceRole)}
+                    >
+                      <SelectTrigger className="w-28 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {roleLabel(t, r)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => remove(m.email)}
+                      title={t('admin.removeMember')}
+                    >
+                      <Trash2 className="size-4 text-muted-foreground" />
+                    </Button>
+                  </>
+                ) : (
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    {roleLabel(t, m.role)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* v1.1 M1: agents — owner + Personal/Team editable by owner/admins */}
+      {!loading && <AgentRoster me={me} members={members} />}
+      </TabsContent>
+
+      <TabsContent value="groups">
+        {!loading && <GroupsPanel editable={editable} members={members} />}
+      </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

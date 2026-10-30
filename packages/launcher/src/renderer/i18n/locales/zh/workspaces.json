@@ -1,46 +1,61 @@
 {
-  "title": "工作区",
-  "subtitle": "每个工作区都集成了其智能体、活动和连接",
-  "join": "加入工作区",
-  "create": "创建工作区",
+  "title": "本机加入的工作区",
+  "subtitle": "这台设备已加入的工作区，及其各自的智能体与活动",
+  "join": "$t(common.actions.addWorkspace)",
   "stats": {
     "healthy": "正常",
     "warning": "警告",
     "error": "错误",
-    "total": "总工作区"
+    "total": "已加入"
   },
   "searchPlaceholder": "搜索工作区或智能体…",
   "refresh": "刷新",
   "activeWorkspaces": "活跃工作区",
   "loading": "正在加载工作区…",
-  "emptyNone": "暂无工作区。",
-  "emptyNoMatch": "没有匹配「{{query}}」的工作区。",
-  "connectFirst": "连接你的第一个工作区",
+  "emptyNone": "工作区是你和智能体协作的地方。用工作区里的配对码即可加入；工作区本身请在网页端登录后创建。",
+  "emptyNoMatch": "没有名称匹配「{{query}}」的工作区。",
   "copied": "已复制",
   "toast": {
     "urlCopied": "已复制链接",
     "copyFailed": "复制失败",
-    "removed": "移除工作区“{{name}}”成功",
+    "removed": "已取消配对并移除「{{name}}」",
+    "removedWarning": "已在本机移除「{{name}}」，但未能连接工作区：{{message}}",
+    "deleted": "已删除工作区「{{name}}」",
     "renamed": "已重命名工作区",
-    "error": "错误：{{message}}"
+    "renamedWorkspace": "已重命名为「{{name}}」，工作区所有成员可见",
+    "error": "错误：{{message}}",
+    "cleared": "已清除「{{name}}」的本机记录"
   },
   "remove": {
-    "title": "移除工作区“{{name}}”？",
-    "description": "已连接的智能体将被断开，工作区将在服务器上被软删除。此操作无法撤销。",
-    "confirm": "移除"
+    "title": "移除工作区「{{name}}」？",
+    "description": "本设备将取消与该工作区的配对，并删除本机的记录。工作区本身、频道以及其他成员和设备都不受影响，之后随时可以用新的配对码重新加入。",
+    "descriptionRemote": "对所有成员删除 —— 频道、历史消息、已连接的设备一并消失。应用内无法撤销。",
+    "effects": {
+      "pairing": "服务器上本设备的配对记录会被删除，其凭据立即失效。",
+      "agents": "该工作区内的智能体会退出工作区，并在本机解除绑定。",
+      "local": "工作区将从此电脑上移除，直到你重新加入它。"
+    },
+    "alsoDelete": "同时删除服务器上的工作区 —— 影响所有成员",
+    "alsoDeleteWarning": "所有人立刻失去访问权限，只有管理员手工改回数据记录才能恢复。",
+    "confirm": "取消配对",
+    "confirmRemote": "删除工作区",
+    "revoked": {
+      "title": "清除「{{name}}」的本机记录？",
+      "description": "这台设备已在工作区端被移除，配对与凭据早已失效。这里只是清掉本机残留的记录，工作区本身、其他成员和设备都不受影响。",
+      "effects": {
+        "credential": "本机保存的配对凭据会被删除 —— 它已经无法再使用。",
+        "agents": "该工作区下的智能体会在本机解除绑定，实例和数据都保留。",
+        "local": "这张卡片会从列表消失，之后随时可以用新的配对码重新加入。"
+      },
+      "confirm": "清除记录"
+    }
   },
   "card": {
-    "unfavorite": "取消收藏",
-    "favorite": "收藏",
     "copyUrl": "复制链接",
     "openInBrowser": "在浏览器中打开",
     "rename": "重命名",
     "remove": "移除",
-    "agents": "智能体",
     "lastActive": "最近活跃",
-    "platforms": "平台",
-    "platformsLinked": "已关联 {{count}} 个",
-    "platformsNone": "无",
     "viewLogs": "查看日志",
     "logs": "日志",
     "pending": "…",
@@ -51,20 +66,25 @@
       "starting": "启动中",
       "offline": "已停止"
     },
-    "noAgents": "该工作区尚未连接任何智能体",
     "openWorkspace": "打开工作区",
+    "browserOnly": {
+      "notMember": "当前账号不是这个工作区的成员，只能在浏览器中打开。",
+      "signedOut": "登录后，你所在的工作区可以直接在应用内打开。",
+      "otherDeployment": "这个工作区不在当前连接的服务器上，只能在浏览器中打开。"
+    },
     "more": "更多操作",
-    "trend": "活动趋势（{{days}} 天）",
-    "trendMessages": "{{count}} 条消息",
-    "trendTruncated": "仅统计最近读取的消息，更早的日期可能偏低",
-    "noAgentsTitle": "暂无智能体",
-    "trendEmpty": "暂无消息活动"
+    "qrcode": "点击查看二维码",
+    "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
+    "repair": "重新加入",
+    "openInApp": "在应用内打开"
   },
   "health": {
     "healthy": "正常",
     "warning": "警告",
+    "device": "本机已接入",
     "disconnected": "已断开",
-    "error": "错误"
+    "error": "错误",
+    "revoked": "设备已被移除"
   },
   "recentActivity": {
     "noActivity": "暂无近期活动",
@@ -77,56 +97,46 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前"
+    "daysAgo": "{{count}} 天前",
+    "unknown": "—"
   },
   "quickConnect": {
-    "title": "快速连接",
-    "tabPaste": "粘贴链接 / 令牌",
-    "tabCreate": "新建",
-    "tabBrowser": "浏览器授权",
-    "pasteLabel": "工作区链接或邀请令牌",
-    "pastePlaceholder": "https://workspace.openagents.org/my-team?token=…",
-    "pasteHint": "托管链接使用远程令牌解析。自定义链接会使用链接来源、首段路径和 token 查询参数。",
-    "createLabel": "工作区名称",
-    "createPlaceholder": "我的团队",
-    "ready": "工作区已就绪",
-    "readySlug": "slug：{{slug}}",
-    "readyToken": "令牌：{{token}}",
-    "browserHeading": "通过浏览器登录",
-    "browserBody": "打开 <0>workspace.openagents.org</0>，以便你登录或接受邀请。",
-    "step1": "在浏览器中打开工作区站点。",
-    "step2": "登录或接受邀请。",
-    "step3": "复制工作区链接，并粘贴到“粘贴链接 / 令牌”标签页。",
-    "openSite": "打开工作区站点",
-    "close": "关闭",
+    "title": "输入配对码，加入工作区",
+    "pairLabel": "配对码",
+    "pairPlaceholder": "XXXX-XXXX",
+    "pairBtn": "加入",
+    "pairError": "配对码是 8 位，形如 XXXX-XXXX。",
+    "cancel": "取消",
     "connecting": "正在连接…",
-    "connect": "连接",
-    "creating": "正在创建…",
-    "createBtn": "创建",
     "toast": {
-      "pasteFirst": "请粘贴工作区链接或令牌",
-      "registered": "已注册 {{label}}。打开“智能体”标签页以连接智能体。",
-      "enterName": "请输入工作区名称",
-      "created": "已创建工作区",
-      "browserOpened": "已在浏览器中打开工作区站点。完成后请将链接粘贴回此处。"
+      "paired": "这台设备已加入 {{label}}"
     },
     "fallbackLabel": "工作区",
     "error": {
       "tls": "工作区服务暂时无法访问（TLS 证书不匹配）。请稍后重试或联系支持。",
       "dns": "无法连接到工作区服务。请检查你的网络连接后重试。",
-      "timeout": "工作区服务未能及时响应。请稍后重试。",
-      "linkMissingToken": "这个工作区链接里没有令牌。请在工作区右上角点击头像 → 复制工作区令牌，然后粘贴令牌。",
-      "invalidToken": "令牌无效或已过期。请在工作区右上角点击头像 → 复制工作区令牌，重新获取后再试。"
+      "timeout": "工作区服务未能及时响应。请稍后重试。"
+    },
+    "howTo": {
+      "title": "如何获取配对码？",
+      "step1": "1.前往 <1>workspace.openagents.org</1> 注册登录",
+      "step2": "2.点击新建工作区，进入后复制配对码"
     }
   },
   "rename": {
     "title": "重命名工作区",
     "label": "显示名称",
+    "labelRemote": "工作区名称",
     "placeholder": "我的团队",
-    "hint": "仅用于显示。slug（{{slug}}）和服务器端名称不会改变。",
+    "hint": "仅本机显示。slug（{{slug}}）和工作区自身的名称不变。",
+    "hintRemote": "工作区自身的名称。slug（{{slug}}）和已有链接不变。",
+    "applyRemote": "同时改服务器上的名称 —— 所有成员可见",
+    "remoteWarningTitle": "所有成员都会看到这个名称",
+    "remoteWarningBody": "只有显示名称改变；成员、链接、智能体和历史记录都不受影响。",
     "cancel": "取消",
     "saving": "正在保存…",
-    "save": "保存"
+    "save": "保存",
+    "saveRemote": "重命名工作区"
   },
   "filters": {
     "all": "全部",
@@ -139,5 +149,39 @@
     "name": "名称",
     "agents": "智能体数量"
   },
-  "emptyNoFilterMatch": "没有符合当前筛选条件的工作区。"
+  "emptyNoFilterMatch": "你的工作区当前都不处于这个状态。",
+  "qrcode": {
+    "dialogTitle": "工作区二维码",
+    "dialogDescription": "扫码即可在其他设备上打开 {{name}}。",
+    "clickToCopy": "点击二维码复制链接",
+    "copied": "已复制工作区链接",
+    "copyFailed": "复制链接失败",
+    "unavailable": "该工作区没有可分享的链接。请在另一台设备的浏览器中打开工作区并登录。"
+  },
+  "emptyNoneTitle": "还没有工作区",
+  "emptyNoMatchTitle": "没有匹配的工作区",
+  "emptyNoFilterMatchTitle": "该筛选下没有工作区",
+  "revokedNotice": {
+    "title": "工作区「{{name}}」已把这台设备移除",
+    "body": "该工作区已从本机移除。重新加入需要一个新的配对码。",
+    "bodyAgents": "该工作区已从本机移除，原先归属它的 {{count}} 个智能体已解除绑定（实例与数据保留）。重新加入同一个工作区会自动把它们绑回去。",
+    "rejoin": "重新加入",
+    "dismiss": "知道了"
+  },
+  "device": {
+    "loading": "正在读取设备状态…",
+    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
+    "connectedCount_other": "已连接 {{count}} 个工作区",
+    "localOnly": "还没有连接工作区。"
+  },
+  "table": {
+    "columns": {
+      "workspace": "工作区",
+      "status": "状态",
+      "agents": "智能体数量",
+      "lastActive": "最近活跃",
+      "actions": "操作"
+    },
+    "agentCount": "{{count}} 个"
+  }
 }

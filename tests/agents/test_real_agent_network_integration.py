@@ -13,9 +13,9 @@ import random
 import time
 from typing import Optional
 
-from openagents.core.network import AgentNetwork
-from openagents.core.client import AgentClient
-from openagents.core.workspace import Workspace
+from openagents.sdk.network import AgentNetwork
+from openagents.sdk.client import AgentClient
+from openagents.sdk.workspace import Workspace
 from openagents.models.agent_config import AgentConfig
 from openagents.models.event_context import ChannelMessageContext
 from openagents.models.event import Event

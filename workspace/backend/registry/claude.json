@@ -1,0 +1,103 @@
+{
+  "name": "claude",
+  "label": "Claude Code CLI",
+  "description": "Anthropic's official CLI agent for Claude",
+  "homepage": "https://claude.ai/claude-code",
+  "tags": [
+    "coding",
+    "cli",
+    "anthropic"
+  ],
+  "featured": true,
+  "order": 1,
+  "builtin": true,
+  "logo": {
+    "key": "claude"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "claude",
+    "requires": [
+      "nodejs",
+      "git"
+    ],
+    "macos": "npm install -g @anthropic-ai/claude-code",
+    "linux": "npm install -g @anthropic-ai/claude-code",
+    "windows": "npm install -g @anthropic-ai/claude-code"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g @anthropic-ai/claude-code",
+    "linux": "npm uninstall -g @anthropic-ai/claude-code",
+    "windows": "npm uninstall -g @anthropic-ai/claude-code"
+  },
+  "adapter": {
+    "module": "openagents.adapters.claude",
+    "class": "ClaudeAdapter"
+  },
+  "launch": {
+    "args": [
+      "--append-system-prompt",
+      "Your agent name is '{agent_name}'."
+    ]
+  },
+  "check_ready": {
+    "env_vars": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "creds_file": "~/.claude/.credentials.json",
+    "creds_key": "claudeAiOauth",
+    "keychain_service": "Claude Code-credentials",
+    "not_ready_message": "Not logged in. Run: claude login",
+    "login_command": "claude login",
+    "alt_check": "claude --print hi",
+    "status_args": [
+      "auth",
+      "status"
+    ],
+    "logged_in_pattern": "\"loggedIn\"\\s*:\\s*true",
+    "logged_out_pattern": "\"loggedIn\"\\s*:\\s*false"
+  },
+  "probe": {
+    "args": [
+      "--print",
+      "hi"
+    ],
+    "timeout_s": 120
+  },
+  "env_config": [],
+  "models": {
+    "provider": "anthropic"
+  },
+  "workspace_model": true,
+  "vendor": "Anthropic",
+  "tagline": "The gold standard for agentic coding, right in your terminal.",
+  "protocol": "anthropic",
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "ANTHROPIC_AUTH_TOKEN",
+        "if_base_url_contains": "://"
+      },
+      {
+        "from": "LLM_API_KEY",
+        "to": "ANTHROPIC_API_KEY",
+        "unless_base_url_contains": "://"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "ANTHROPIC_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "ANTHROPIC_MODEL"
+      }
+    ]
+  }
+}

@@ -210,12 +210,20 @@ class HermesAdapter(BaseAdapter):
         return cmd
 
     @staticmethod
-    def _parse_hermes_output(output: str) -> tuple[str, Optional[str]]:
+    def _parse_hermes_output(output: str, meta: str | None = None) -> tuple[str, Optional[str]]:
         session_id = None
-        match = SESSION_ID_RE.search(output)
-        if match:
-            session_id = match.group(1)
-            output = SESSION_ID_RE.sub("", output)
+        # Hermes -Q mode emits session_id to stderr (meta); the response body
+        # is on stdout (output). Older Hermes printed session_id on stdout, so
+        # fall back to extracting it from the body when stderr carried none.
+        if meta:
+            match = SESSION_ID_RE.search(meta)
+            if match:
+                session_id = match.group(1)
+        if session_id is None:
+            match = SESSION_ID_RE.search(output)
+            if match:
+                session_id = match.group(1)
+                output = SESSION_ID_RE.sub("", output)
 
         lines = []
         for raw_line in output.splitlines():
@@ -252,7 +260,7 @@ class HermesAdapter(BaseAdapter):
             detail = (stderr_text or stdout_text).strip()[:600]
             raise RuntimeError(f"Hermes exited with code {process.returncode}: {detail}")
 
-        response_text, session_id = self._parse_hermes_output(stdout_text)
+        response_text, session_id = self._parse_hermes_output(stdout_text, stderr_text)
         if session_id:
             self._channel_sessions[channel_name] = session_id
             self._save_sessions()

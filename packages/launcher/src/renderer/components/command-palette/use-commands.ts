@@ -1,16 +1,14 @@
 import { useMemo } from "react"
 import {
+  Bot,
   Cpu,
-  Download,
   FileText,
   Folder,
   Github,
-  LayoutDashboard,
   Layers,
   Monitor,
   Moon,
   Play,
-  Plug,
   Plus,
   Settings,
   Square,
@@ -20,6 +18,7 @@ import {
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 
+import { isRunning, stateKeyOf } from "@renderer/lib/agent-state"
 import { useUiStore } from "@renderer/store/ui"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
@@ -37,12 +36,12 @@ export interface Command {
 // unreachable from the UI. Re-add here, in SHORTCUT_TABS and in the Settings →
 // Agents section when it ships.
 const NAV_TABS: Array<[id: string, icon: LucideIcon]> = [
-  ["dashboard", LayoutDashboard],
-  ["agents", Cpu],
+  // Connect Agents. The marketplace has no entry: it is reached from there.
+  ["dashboard", Bot],
   ["workspaces", Layers],
-  ["connections", Plug],
+  // `connections` is hidden alongside its rail entry until the platform
+  // options actually work (see nav-config.ts).
   ["github", Github],
-  ["install", Download],
   ["logs", FileText],
   ["settings", Settings],
 ]
@@ -53,15 +52,14 @@ const THEME_ICON: Record<ThemeMode, LucideIcon> = {
   system: Monitor,
 }
 
-const RUNNING_STATES = ["online", "running", "idle"]
-
 /** Every command the palette can run, in a stable order (groups stay together). */
 export function useCommands(): Command[] {
   const { t } = useTranslation()
-  const { setCurrentTab, goToInstallList } = useUiStore(
+  const { setCurrentTab, goToInstallList, requestCreate } = useUiStore(
     useShallow((s) => ({
       setCurrentTab: s.setCurrentTab,
       goToInstallList: s.goToInstallList,
+      requestCreate: s.requestCreate,
     })),
   )
   const agents = useAgentsStore((s) => s.agents)
@@ -81,19 +79,24 @@ export function useCommands(): Command[] {
     }))
 
     const agentCmds = agents.flatMap((a): Command[] => {
-      const running = RUNNING_STATES.includes(a.state)
+      const open: Command = {
+        id: `agent:open:${a.name}`,
+        title: t("commandPalette.commands.openAgent", { name: a.name }),
+        subtitle: a.type,
+        group: t("commandPalette.groups.agents"),
+        icon: Cpu,
+        // Agents page only. `setInstallFocusAgent` used to be called here
+        // too, but nothing on this page reads it — it just left a marketplace
+        // deep-link armed, to fire on some later, unrelated visit there.
+        run: () => setCurrentTab("dashboard"),
+      }
+      // Nothing drives an agent with no workspace, so neither command would do
+      // what it says — and "Stop" is what the palette offered, because that is
+      // the state the core writes for one.
+      if (stateKeyOf(a) === "notConnected") return [open]
+      const running = isRunning(a)
       return [
-        {
-          id: `agent:open:${a.name}`,
-          title: t("commandPalette.commands.openAgent", { name: a.name }),
-          subtitle: a.type,
-          group: t("commandPalette.groups.agents"),
-          icon: Cpu,
-          // Agents page only. `setInstallFocusAgent` used to be called here
-          // too, but nothing on this page reads it — it just left a marketplace
-          // deep-link armed, to fire on some later, unrelated visit there.
-          run: () => setCurrentTab("agents"),
-        },
+        open,
         running
           ? {
               id: `agent:stop:${a.name}`,
@@ -117,7 +120,9 @@ export function useCommands(): Command[] {
       { id: "action:start-all", title: t("commandPalette.commands.startAll"), group, icon: Play, run: () => void window.api.startAll() },
       { id: "action:stop-all", title: t("commandPalette.commands.stopAll"), group, icon: Square, run: () => void window.api.stopAll() },
       { id: "action:install-agent", title: t("commandPalette.commands.installAgent"), group, icon: Plus, run: () => goToInstallList() },
-      { id: "action:new-workspace", title: t("commandPalette.commands.newWorkspace"), group, icon: Folder, run: () => setCurrentTab("workspaces") },
+      // Opens the Workspaces page with its join dialog: the launcher joins an
+      // existing workspace by code, it never creates one.
+      { id: "action:add-workspace", title: t("commandPalette.commands.addWorkspace"), group, icon: Folder, run: () => requestCreate("workspace") },
     ]
 
     const themes: Command[] = (["light", "dark", "system"] as ThemeMode[]).map((m) => ({
@@ -132,5 +137,5 @@ export function useCommands(): Command[] {
     }))
 
     return [...nav, ...agentCmds, ...actions, ...themes]
-  }, [agents, setCurrentTab, goToInstallList, mode, setMode, t])
+  }, [agents, setCurrentTab, goToInstallList, requestCreate, mode, setMode, t])
 }

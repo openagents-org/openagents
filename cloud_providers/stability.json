@@ -1,0 +1,28 @@
+{
+  "name": "stability",
+  "label": "Stability AI",
+  "base_url": null,
+  "order": 170,
+  "models": [
+    {
+      "id": "sd3.5-large",
+      "category": "image",
+      "label": "Stable Diffusion 3.5 Large"
+    },
+    {
+      "id": "sd3.5-medium",
+      "category": "image",
+      "label": "Stable Diffusion 3.5 Medium"
+    },
+    {
+      "id": "stable-image-ultra",
+      "category": "image",
+      "label": "Stable Image Ultra"
+    },
+    {
+      "id": "stable-image-core",
+      "category": "image",
+      "label": "Stable Image Core"
+    }
+  ]
+}

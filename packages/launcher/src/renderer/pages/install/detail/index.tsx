@@ -3,12 +3,11 @@ import { ArrowLeft } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
-import { isLoginOnlyAgent } from "@renderer/lib/agent-auth"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { isJobBusy } from "../entry-meta"
-import { DetailConfig } from "./detail-config"
+import { DetailActions } from "./detail-actions"
 import { DetailHeader } from "./detail-header"
 import { DetailOverview } from "./detail-overview"
 import { DetailProgress } from "./detail-progress"
@@ -20,29 +19,33 @@ import { DetailVersions, MAX_VERSIONS } from "./detail-versions"
 import { InstallConfirmDialog } from "./install-confirm-dialog"
 import { UninstallDialog } from "./uninstall-dialog"
 import { useAgentDetail } from "./use-agent-detail"
+import { useUpdateTarget } from "./use-update-target"
 
 interface Props {
   entry: CatalogEntry
   onBack: () => void
   onAfterInstall: (entry: CatalogEntry) => void
-  onOpenWizard?: (entry: CatalogEntry) => void
+  /** Open the setup form on this type: the one way an agent is created. */
+  onAddAgent: (entry: CatalogEntry) => void
   showToast: (msg: string, type?: ToastType) => void
 }
 
 /**
- * Agent detail page. One document in the main column — overview, progress,
- * configuration, first commands, version history — with every action gathered
- * into the right rail.
+ * Agent detail page. The actions sit under the header, where the eye starts;
+ * below them one document in the main column — overview, progress, first
+ * commands, version history — and the facts to check in the right rail.
  */
 export default function AgentDetail({
   entry,
   onBack,
   onAfterInstall,
-  onOpenWizard,
+  onAddAgent,
   showToast,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const detail = useAgentDetail({ entry, onAfterInstall, showToast })
+  const updateTarget = useUpdateTarget(entry, detail.job?.phase)
+  const original = updateTarget?.kind === "original" ? updateTarget : null
   const [confirmInstall, setConfirmInstall] = useState<"install" | "update" | null>(
     null,
   )
@@ -66,8 +69,15 @@ export default function AgentDetail({
   useEffect(() => {
     if (busy) setProgressSticky(true)
   }, [busy])
+  // A finished job stays visible while the page is open (progressSticky), and a
+  // FAILED one stays visible even after navigating away and back: its log and
+  // its remedy are the only record of what went wrong, and the store keeps the
+  // job around for exactly that reason. Without the `error` clause the block —
+  // "Copy log" included — vanished the moment the user left the page.
   const showProgress =
-    !!detail.job && detail.job.verb !== "uninstall" && (busy || progressSticky)
+    !!detail.job &&
+    detail.job.verb !== "uninstall" &&
+    (busy || progressSticky || detail.job.phase === "error")
 
   const installedAtLabel = detail.installed?.installedAt
     ? new Date(detail.installed.installedAt).toLocaleString()
@@ -87,21 +97,47 @@ export default function AgentDetail({
 
         <DetailHeader
           entry={entry}
+          loading={detail.loading}
           currentVersion={detail.currentVersion}
           latestVersion={detail.latestVersion}
           homepage={entry.homepage || detail.changelog.homepage}
           github={entry.github}
           docs={entry.docs}
           installedAtLabel={installedAtLabel}
-        />
+        >
+          <DetailActions
+            entry={entry}
+            loading={detail.loading}
+            installed={detail.installed}
+            job={detail.job}
+            currentVersion={detail.currentVersion}
+            latestVersion={detail.latestVersion}
+            updateBlocked={
+              updateTarget?.kind === "original" &&
+              updateTarget.elevation === "manual"
+            }
+            onInstall={() => setConfirmInstall("install")}
+            onUpdate={() => setConfirmInstall("update")}
+            onUninstall={() => setConfirmUninstall(true)}
+            onRollback={detail.startRollback}
+            onAddAgent={() => onAddAgent(entry)}
+          />
+        </DetailHeader>
       </div>
 
       {/* Below `lg` there is no room for two columns, so the whole area
           becomes one scroller instead. */}
       <div className="mx-auto flex w-full min-h-0 max-w-7xl flex-1 flex-col gap-6 overflow-y-auto px-9 py-6 lg:flex-row lg:gap-8 lg:overflow-hidden">
+        {/* The padding is clearance for what a card draws OUTSIDE its own box:
+            the openagents skin lifts one 4px on hover and drops a 6px offset
+            shadow, and `overflow-y: auto` forces `overflow-x` to `auto` too,
+            so without room on all four sides the scroller clips both. The
+            negative top margin gives the lift its 4px back without moving the
+            content down. Harmless on the default skin, whose blurred shadow
+            was being clipped here as well, just less visibly. */}
         <div
           ref={documentRef}
-          className="flex min-w-0 flex-col gap-6 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1"
+          className="flex min-w-0 flex-col gap-6 lg:-mt-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
         >
           <DetailSection title={t("agents.readme.overview")}>
             <DetailOverview entry={entry} />
@@ -125,18 +161,6 @@ export default function AgentDetail({
                   : undefined
               }
             />
-          )}
-
-          {detail.envFields.length > 0 && (
-            <DetailSection title={t("agents.envConfig.title")}>
-              <DetailConfig
-                agentName={entry.name}
-                fields={detail.envFields}
-                values={detail.envValues}
-                onChange={detail.setEnvValues}
-                showToast={showToast}
-              />
-            </DetailSection>
           )}
 
           <DetailSection title={t("agents.quickStart.title")}>
@@ -165,27 +189,15 @@ export default function AgentDetail({
           </DetailSection>
         </div>
 
+        {/* Same clearance as the document column — its top card sits flush
+            against the scroller's edge and would have its hover lift sliced
+            off. */}
         <DetailRail
-          className="lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto"
+          className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
           entry={entry}
           installed={detail.installed}
-          job={detail.job}
-          currentVersion={detail.currentVersion}
-          latestVersion={detail.latestVersion}
           binaryPath={detail.binaryPath}
-          channel={detail.channel}
-          onChannelChange={detail.setChannel}
-          onInstall={() => setConfirmInstall("install")}
-          onUpdate={() => setConfirmInstall("update")}
-          onUninstall={() => setConfirmUninstall(true)}
-          onRollback={detail.startRollback}
-          onOpenWizard={
-            onOpenWizard &&
-            !detail.hasInstance &&
-            !isLoginOnlyAgent(entry, detail.envFields)
-              ? () => onOpenWizard(entry)
-              : undefined
-          }
+          updateTarget={updateTarget}
         />
       </div>
 
@@ -193,6 +205,12 @@ export default function AgentDetail({
         open={!!confirmInstall}
         verb={confirmInstall || "install"}
         entry={entry}
+        command={original?.command}
+        note={
+          original?.elevation === "prompt"
+            ? t("agents.unmanaged.adminPrompt")
+            : undefined
+        }
         onConfirm={() => {
           const verb = confirmInstall
           setConfirmInstall(null)

@@ -1,0 +1,317 @@
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
+import { credsVerdict, loginVerdict } from "./login-probe"
+import { DUAL_LOGIN_AGENTS, HOSTED_LOGIN_AGENTS } from "./auth-specs"
+
+/**
+ * Verbatim `status` output, captured by running each CLI. The codex pair is the
+ * one that forced this function to exist: it exits **1** when signed out, so
+ * "clean run, matched nothing ⇒ signed out" never fired for it.
+ */
+const CODEX_OUT = "Not logged in"
+const CODEX_IN_CHATGPT = "Logged in using ChatGPT"
+const CODEX_IN_KEY = "Logged in using an API key"
+
+describe("loginVerdict", () => {
+  const codex = DUAL_LOGIN_AGENTS.codex
+  const claude = DUAL_LOGIN_AGENTS.claude
+  const cursor = HOSTED_LOGIN_AGENTS.cursor
+
+  it("reads codex as SIGNED OUT despite its non-zero exit", () => {
+    // The regression: this used to be null, and health.ts treats null
+    // optimistically, so a signed-out codex looked usable.
+    expect(loginVerdict(codex, CODEX_OUT, 1)).toBe(false)
+  })
+
+  it("reads both of codex's signed-in wordings", () => {
+    expect(loginVerdict(codex, CODEX_IN_CHATGPT, 0)).toBe(true)
+    expect(loginVerdict(codex, CODEX_IN_KEY, 0)).toBe(true)
+  })
+
+  it("never lets 'Not logged in' match the signed-in pattern", () => {
+    expect(codex.loggedInPattern?.test(CODEX_OUT)).toBe(false)
+  })
+
+  it("still treats a clean run that matched nothing as the opposite", () => {
+    // claude declares only a signed-in pattern and exits 0 either way.
+    expect(loginVerdict(claude, '{"loggedIn": false}', 0)).toBe(false)
+    expect(loginVerdict(claude, '{"loggedIn": true}', 0)).toBe(true)
+    // cursor declares only a signed-out pattern — the shortcut runs the other way.
+    expect(loginVerdict(cursor, "Logged in as ada@example.com", 0)).toBe(true)
+    expect(loginVerdict(cursor, "Not logged in", 0)).toBe(false)
+  })
+
+  it("stays unknown when the CLI fell over rather than answered", () => {
+    // Non-zero AND nothing a pattern recognises: a crash, not a verdict.
+    expect(loginVerdict(claude, "panic: runtime error", 3)).toBe(null)
+    expect(loginVerdict(codex, "", 1)).toBe(null)
+    expect(loginVerdict(codex, "   ", null)).toBe(null)
+  })
+
+  it("stays unknown for a spec that declares no pattern at all", () => {
+    expect(loginVerdict({}, "anything", 0)).toBe(null)
+  })
+})
+
+describe("credsVerdict — Gemini's sign-in, read off disk", () => {
+  const gemini = DUAL_LOGIN_AGENTS.gemini
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-home-"))
+    fs.mkdirSync(path.join(home, ".gemini"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const accounts = (body: unknown): void =>
+    fs.writeFileSync(
+      path.join(home, ".gemini", "google_accounts.json"),
+      JSON.stringify(body),
+    )
+
+  it("reads the signed-in Google address as signed in", () => {
+    accounts({ active: "ada@example.com", old: [] })
+    expect(credsVerdict(gemini, home)).toBe(true)
+  })
+
+  it("does not count the file's existence — a signed-out account nulls it", () => {
+    // The exact shape the CLI leaves behind after a sign-out, and what a
+    // never-signed-in install has sat at the whole time.
+    accounts({ active: null, old: [] })
+    expect(credsVerdict(gemini, home)).toBe(false)
+  })
+
+  it("still recognises an older CLI's token file", () => {
+    // Current builds keep the token in the OS keychain and never write this,
+    // which is the regression the accounts file replaces.
+    fs.writeFileSync(
+      path.join(home, ".gemini", "oauth_creds.json"),
+      '{"access_token":"x"}',
+    )
+    expect(credsVerdict(gemini, home)).toBe(true)
+  })
+
+  it("says signed out when the CLI has left nothing at all", () => {
+    expect(credsVerdict(gemini, home)).toBe(false)
+  })
+
+  it("stays unknown when the evidence is there but unreadable", () => {
+    fs.writeFileSync(
+      path.join(home, ".gemini", "google_accounts.json"),
+      "{ this is not json",
+    )
+    expect(credsVerdict(gemini, home)).toBe(null)
+  })
+})
+
+describe("credsVerdict — Kimi's `kimi login` session", () => {
+  const kimi = DUAL_LOGIN_AGENTS.kimi
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "kimi-home-"))
+    fs.mkdirSync(path.join(home, ".kimi-code", "credentials"), { recursive: true })
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const session = (body: unknown): void =>
+    fs.writeFileSync(
+      path.join(home, ".kimi-code", "credentials", "kimi-code.json"),
+      JSON.stringify(body),
+    )
+
+  it("reads a stored OAuth session as signed in", () => {
+    session({ access_token: "a", refresh_token: "r", token_type: "Bearer" })
+    expect(credsVerdict(kimi, home)).toBe(true)
+  })
+
+  it("says signed out before `kimi login` has written anything", () => {
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+
+  it("does not count a session without a refresh token", () => {
+    session({ access_token: "a" })
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+})
+
+describe("credsVerdict — OpenCode's sign-in store", () => {
+  const opencode = DUAL_LOGIN_AGENTS.opencode
+  let home: string
+
+  const store = (body: unknown): void => {
+    const dir = path.join(home, ".local", "share", "opencode")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(body))
+  }
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  it("reads a stored provider as signed in", () => {
+    store({ anthropic: { type: "api", key: "sk-ant-x" } })
+    expect(credsVerdict(opencode, home)).toBe(true)
+  })
+
+  it("does not count an empty store, or no store at all", () => {
+    store({})
+    expect(credsVerdict(opencode, home)).toBe(false)
+    fs.rmSync(path.join(home, ".local"), { recursive: true })
+    expect(credsVerdict(opencode, home)).toBe(false)
+  })
+})
+
+describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
+  const codebuddy = DUAL_LOGIN_AGENTS.codebuddy
+  let home: string
+
+  // The macOS path, which is the first CODEBUDDY_SESSION_FILES entry. The other
+  // two are simply absent under this fake home and get skipped.
+  const SESSION = path.join(
+    "Library",
+    "Application Support",
+    "CodeBuddyExtension",
+    "Data",
+    "Public",
+    "auth",
+    "Tencent-Cloud.coding-copilot.info",
+  )
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "codebuddy-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const session = (body: unknown): void => {
+    const file = path.join(home, SESSION)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(body))
+  }
+
+  it("says signed out when /login has never run", () => {
+    expect(credsVerdict(codebuddy, home)).toBe(false)
+  })
+
+  it("reads a session as signed in when the agent pins no site", () => {
+    // international leaves CODEBUDDY_INTERNET_ENVIRONMENT unset, so the CLI
+    // follows whatever the session itself says — nothing can disagree.
+    session({ auth: { accessToken: "x", domain: "www.codebuddy.ai" } })
+    expect(credsVerdict(codebuddy, home)).toBe(true)
+    expect(
+      credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "international" }),
+    ).toBe(true)
+    expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+      false,
+    )
+  })
+
+  it("accepts a China session for a China agent, on every China host", () => {
+    for (const domain of [
+      "www.codebuddy.cn",
+      "staging.codebuddy.cn",
+      "www.workbuddy.cn",
+      "copilot.tencent.com",
+      "staging-copilot.tencent.com",
+    ]) {
+      session({ auth: { accessToken: "x", domain } })
+      expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+        true,
+      )
+    }
+  })
+
+  it("does not count a session with no token as a sign-in", () => {
+    session({ account: { uid: "1" } })
+    expect(credsVerdict(codebuddy, home)).toBe(false)
+  })
+
+  it("keeps a session whose domain it cannot read", () => {
+    // An older CLI wrote no domain. Being signed in is certain; the site is
+    // not, and refusing on that would lock out a working agent.
+    session({ auth: { accessToken: "x" } })
+    expect(credsVerdict(codebuddy, home, { CODEBUDDY_REGION: "china" })).toBe(
+      true,
+    )
+  })
+})
+
+describe("credsVerdict — Copilot's sign-in, read out of a JSONC config", () => {
+  const copilot = DUAL_LOGIN_AGENTS.copilot
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "copilot-home-"))
+    fs.mkdirSync(path.join(home, ".copilot"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const config = (body: string): void =>
+    fs.writeFileSync(path.join(home, ".copilot", "config.json"), body)
+
+  /**
+   * Verbatim shape captured from a real signed-in machine (v1.0.83), with the
+   * account renamed. The two leading `//` lines and the `https://` inside a
+   * value are the whole reason this case exists.
+   */
+  const SIGNED_IN = `// User settings belong in settings.json.
+// This file is managed automatically.
+{
+  "firstLaunchAt": "2026-07-21T12:33:08.482Z",
+  "appTipShown": true,
+  "loggedInUsers": [{ "host": "https://github.com", "login": "octocat" }],
+  "lastLoggedInUser": { "host": "https://github.com", "login": "octocat" }
+}`
+
+  it("reads a signed-in user through the file's // header", () => {
+    // The reported bug: a strict JSON.parse throws on the header, which used to
+    // land in the catch and report "cannot tell" for a user the terminal had
+    // just greeted by name.
+    config(SIGNED_IN)
+    expect(credsVerdict(copilot, home)).toBe(true)
+  })
+
+  it("does not cut a value in half at its //", () => {
+    // A comment stripper that did not track string state would truncate
+    // "https://github.com" and turn the whole file into a parse error.
+    config(SIGNED_IN)
+    expect(credsVerdict(copilot, home)).not.toBe(null)
+  })
+
+  it("treats an empty user list as signed out", () => {
+    // `![]` is false, so an empty array would otherwise sail through as a
+    // sign-in — the shape a signed-out CLI leaves behind.
+    config('{ "loggedInUsers": [] }')
+    expect(credsVerdict(copilot, home)).toBe(false)
+  })
+
+  it("says signed out when the CLI has written no config at all", () => {
+    expect(credsVerdict(copilot, home)).toBe(false)
+  })
+
+  it("stays unknown when the config is there but truly unreadable", () => {
+    config("{ this is not json, commented or otherwise")
+    expect(credsVerdict(copilot, home)).toBe(null)
+  })
+
+  it("never spawns the bare binary as a probe", () => {
+    // `copilot` with no subcommand launches the full-screen TUI. The creds file
+    // is what keeps the probe off it; statusArgs stays empty as a statement.
+    expect(copilot.statusArgs).toEqual([])
+    expect(copilot.credsFiles?.length).toBeGreaterThan(0)
+  })
+})

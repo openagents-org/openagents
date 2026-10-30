@@ -20,7 +20,7 @@ from openagents.models.network_management import (
 from openagents.models.network_config import NetworkConfig
 
 if TYPE_CHECKING:
-    from openagents.core.network import AgentNetwork
+    from openagents.sdk.network import AgentNetwork
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,7 @@ class NetworkImporter:
                         network.network_name = new_config.name
 
                         # Recreate topology
-                        from openagents.core.topology import NetworkMode, create_topology
+                        from openagents.sdk.topology import NetworkMode, create_topology
                         from openagents.models.network_config import NetworkMode as ConfigNetworkMode
 
                         topology_mode = (

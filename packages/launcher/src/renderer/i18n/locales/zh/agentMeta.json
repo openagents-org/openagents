@@ -8,13 +8,20 @@
     "copilot": "GitHub 官方 Copilot 编程智能体（新的 copilot CLI，非已停用的 gh copilot 扩展）。",
     "cursor": "Cursor 的 agent 模式 CLI，与编辑器共享上下文。",
     "gemini": "Google 开源命令行智能体，多模态、低延迟。",
+    "antigravity": "Google 面向智能体的命令行工具（agy），Gemini CLI 的继任者。",
     "goose": "Block 开源的 AI 开发者智能体（CLI 测试版）。",
     "nanoclaw": "容器化智能体运行时 —— 每个 Agent Group 跑在各自的 Docker 容器里（Claude Agent SDK），通过原生通道桥接到工作区。",
     "openclaw": "开源多模型编程智能体，支持自定义路由策略。",
     "opencode": "开源、终端原生的 AI 编程智能体，可接任意模型。",
-    "kimi": "Moonshot AI 驱动，OpenAI 兼容接口，长上下文见长。",
+    "kimi": "Moonshot AI 的 Kimi Code CLI 终端编程智能体，擅长长程任务。",
     "hermes": "Nous Hermes —— 带工具、画像、记忆与消息能力的自进化智能体。",
-    "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。"
+    "mini-swe-agent": "极简的 shell 编程智能体，用于在工作区中修复问题、改写代码。",
+    "pi": "Earendil 出品的终端编程智能体 Pi —— 无头 RPC 模式，支持众多服务商。",
+    "deepseek": "DeepSeek 开源智能体框架（dsh），以 headless 模式运行 —— 每条消息一个全新会话，版本固定在预览版。",
+    "commandcode": "会学习你代码风格的终端编码智能体 —— 以 headless 模式运行，每个频道一个会话。",
+    "openworker": "本地优先的 AI 同事 —— $t(common.appName) 以无界面方式拉起它的服务，每个频道一个会话。",
+    "codebuddy": "腾讯 CodeBuddy Code 命令行工具 —— 与 WorkBuddy 桌面端同源的智能体引擎，以 headless 模式驱动。",
+    "codearts": "华为云码道 CodeArts 代码智能体命令行工具，使用华为云访问密钥以 headless 模式驱动。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
@@ -24,11 +31,11 @@
     "token": "访问令牌"
   },
   "genericHints": {
-    "apiKey": "所选服务商的 API 密钥。留空则复用环境中已有的密钥。",
+    "apiKey": "所选服务商的 API 密钥。",
     "baseUrl": "接口地址。使用官方托管服务时留空；接中转、代理或自建端点时在此填写。",
     "model": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。",
     "provider": "服务商 id。留空则沿用该智能体已有的配置。",
-    "token": "访问令牌。留空则复用环境中已有的令牌。"
+    "token": "访问令牌。"
   },
   "env": {
     "AIDER_MODEL": {
@@ -59,6 +66,10 @@
       "label": "模型名称",
       "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
     },
+    "CLAUDE_CODE_OAUTH_TOKEN": {
+      "label": "订阅令牌",
+      "hint": "在已登录的机器上运行 `claude setup-token` 生成的长期令牌。粘贴到这里即可在本机复用 Pro/Max 订阅 —— 不需要 API 余额，也不用再走一次浏览器登录。如果你在上面直接登录了，这里留空。"
+    },
     "CLINE_API_KEY": {
       "label": "API 密钥",
       "hint": "所选服务商的 API 密钥 —— 也可以留空，改为运行 cline auth 登录。"
@@ -74,6 +85,22 @@
     "CODEX_MODEL": {
       "label": "模型名称",
       "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "COMMAND_CODE_API_KEY": {
+      "label": "API 密钥",
+      "hint": "Command Code 的 API 密钥，用于 headless 或 CI 场景。若已通过 `command-code login` 登录，可留空。"
+    },
+    "COMMANDCODE_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则使用账号默认模型。自行添加的服务商模型会带有前缀，例如 openrouter/deepseek-v4-flash。"
+    },
+    "COMMANDCODE_EFFORT": {
+      "label": "推理强度",
+      "hint": "可选 low、medium 或 high，留空则使用模型默认值。"
+    },
+    "COMMANDCODE_MAX_TURNS": {
+      "label": "最大轮次",
+      "hint": "单条消息最多可使用的工具调用轮次，留空则为默认的 100 轮。达到上限时仍会返回已完成的部分答复。"
     },
     "COPILOT_GITHUB_TOKEN": {
       "label": "GitHub 令牌",
@@ -96,8 +123,8 @@
       "hint": "原生 deepseek/… 模型的自定义端点。留空则使用 DeepSeek 默认地址。"
     },
     "DEEPSEEK_API_KEY": {
-      "label": "DeepSeek 密钥",
-      "hint": "DeepSeek API 密钥 —— 使用 deepseek/… 模型时生效，直连 api.deepseek.com，无需填接口地址。"
+      "label": "DeepSeek API 密钥",
+      "hint": "DeepSeek 的 API 密钥，可在 https://platform.deepseek.com 获取。"
     },
     "GEMINI_API_KEY": {
       "label": "API 密钥",
@@ -106,6 +133,10 @@
     "GEMINI_MODEL": {
       "label": "模型名称",
       "hint": "模型名称。使用中转或代理时通常需要改成对方支持的模型名。"
+    },
+    "ANTIGRAVITY_MODEL": {
+      "label": "模型名称",
+      "hint": "模型名称。留空使用 agy 默认模型；可用 `agy models` 查看可选值。"
     },
     "GOOGLE_GEMINI_BASE_URL": {
       "label": "接口地址",
@@ -133,7 +164,7 @@
     },
     "KIMI_API_KEY": {
       "label": "API 密钥",
-      "hint": "Moonshot / Kimi API 密钥（同样接受 MOONSHOT_API_KEY）。"
+      "hint": "Moonshot / Kimi API 密钥（同样接受 MOONSHOT_API_KEY）。留空则使用 `kimi login` 登录。"
     },
     "KIMI_BASE_URL": {
       "label": "接口地址",
@@ -145,7 +176,7 @@
     },
     "LLM_API_KEY": {
       "label": "API 密钥",
-      "hint": "所选服务商的 API 密钥。留空则复用环境中已有的密钥。"
+      "hint": "所选服务商的 API 密钥。"
     },
     "LLM_BASE_URL": {
       "label": "接口地址",
@@ -182,6 +213,114 @@
     "OPENAI_BASE_URL": {
       "label": "接口地址",
       "hint": "OpenAI 兼容的接口地址。默认值直连 OpenAI 官方 API；使用中转或代理时改这里。"
+    },
+    "PI_MODEL": {
+      "label": "模型名称",
+      "hint": "服务商或中转站提供的精确模型 id，例如 claude-sonnet-4-6、gpt-5-codex、deepseek-v4-flash。"
+    },
+    "PI_PROVIDER": {
+      "label": "服务商",
+      "hint": "原生 Claude/中转 Claude 选 anthropic；原生 OpenAI/Codex 中转选 openai；DeepSeek 选 deepseek；ChatGPT 订阅登录选 openai-codex。"
+    },
+    "PI_API_FORMAT": {
+      "label": "接口协议",
+      "hint": "原生服务保持 auto。中转站按其文档选择 anthropic-messages、openai-completions 或 openai-responses。"
+    },
+    "PI_BASE_URL": {
+      "label": "中转接口地址",
+      "hint": "原生服务留空；中转、代理或自建端点填写 Base URL。$t(common.appName)会自动配置 Pi，无需 models.json。"
+    },
+    "PI_API_KEY": {
+      "label": "API 密钥",
+      "hint": "所选服务商或中转站的 API 密钥。若要复用 Pi 的 /login 登录，可留空。"
+    },
+    "PI_THINKING": {
+      "label": "推理强度",
+      "hint": "可选 off、minimal、low、medium、high、xhigh、max。留空则用模型默认值。"
+    },
+    "PI_TRUST_PROJECT": {
+      "label": "信任项目文件",
+      "hint": "默认关闭。设为 1 后，Pi 会加载工作目录下的 .pi/settings.json、扩展与技能 —— 这些是来自仓库的可执行代码，只在信任该项目时开启。"
+    },
+    "DEEPSEEK_BASE_URL": {
+      "label": "DeepSeek 接口地址",
+      "hint": "可选的网关或代理地址。留空则使用 DeepSeek 公有 API。"
+    },
+    "DEEPSEEK_MODEL": {
+      "label": "DeepSeek 模型",
+      "hint": "从你的 API 密钥可用的模型中选择，也可以直接输入模型 ID。留空则使用 DeepSeek Harness 的默认模型。"
+    },
+    "DSH_PERMISSION_MODE": {
+      "label": "文件权限",
+      "hint": "workspace-write 将改动限制在项目目录内。计划模式始终强制只读。"
+    },
+    "OPENWORKER_PROVIDER": {
+      "label": "服务商",
+      "hint": "密钥对应的模型服务商 —— OpenWorker 自带模型，需要你自行配置。本地模型选 ollama；复用 ChatGPT 订阅选 openai-codex（该项还需要填写状态目录）。"
+    },
+    "OPENWORKER_API_KEY": {
+      "label": "API 密钥",
+      "hint": "上方所选服务商的密钥。仅通过环境变量传给 OpenWorker 服务，不会落盘。"
+    },
+    "OPENWORKER_BASE_URL": {
+      "label": "接口地址",
+      "hint": "接中转、自建网关、Azure OpenAI 或本地 Ollama 时填写。使用官方端点则留空。"
+    },
+    "OPENWORKER_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则用 OpenWorker 默认模型。服务商前缀会自动补上，直接填模型名即可。"
+    },
+    "OPENWORKER_MODE": {
+      "label": "权限模式",
+      "hint": "决定智能体可以自行做多少事。建议保持 bypass-approvals：无人值守时没人能点确认，其他模式会卡在第一个审批弹窗上。它的硬性红线（配置文件、工作目录外的写入、.git/hooks）依然生效。"
+    },
+    "OPENWORKER_ALLOW_TOOL_INSTALL": {
+      "label": "允许自动安装工具",
+      "hint": "允许智能体从 OpenWorker 的白名单里自行安装工具。默认关闭 —— 关闭时它会说明缺了什么并绕开。"
+    },
+    "OPENWORKER_STATE_DIR": {
+      "label": "状态目录",
+      "hint": "高级选项。会话记录与凭据的存放位置。留空则每个智能体各用一个独立目录。填写 OpenWorker 桌面版的目录可复用其登录状态 —— 但必须在桌面版关闭时才安全。"
+    },
+    "CODEBUDDY_REGION": {
+      "label": "站点",
+      "hint": "账号所属站点：国际站（codebuddy.ai / workbuddy.ai）或国内站（codebuddy.cn / workbuddy.cn）。同一个账号只存在于其中一个站点，选错会表现为登录失败。"
+    },
+    "CODEBUDDY_API_KEY": {
+      "label": "API 密钥",
+      "hint": "CodeBuddy 的 API 密钥，用于免交互登录运行。若已在本机运行 `codebuddy` 并通过 /login 登录，可留空。"
+    },
+    "CODEBUDDY_AUTH_TOKEN": {
+      "label": "认证令牌",
+      "hint": "平台认证令牌，是 API 密钥之外的另一种方式（例如企业 PAT）。直接粘贴令牌本身即可，开头的 `Bearer ` 会自动去除。"
+    },
+    "CODEBUDDY_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，留空则使用账号默认模型。default-model、fast-model、deep-model 这类别名在背后模型更替后依然可用。"
+    },
+    "CODEBUDDY_EFFORT": {
+      "label": "推理强度",
+      "hint": "可选 minimal、low、medium、high、xhigh 或 max，留空则使用模型默认值。"
+    },
+    "CODEBUDDY_MAX_TURNS": {
+      "label": "最大轮次",
+      "hint": "单条消息最多可使用的工具调用轮次，留空则使用 CLI 默认值。达到上限时仍会返回已完成的部分答复。"
+    },
+    "CODEBUDDY_BASE_URL": {
+      "label": "接入地址",
+      "hint": "高级选项。用于企业版或私有化部署的 CodeBuddy 接入地址覆盖，留空则使用上方站点对应的地址。这不是模型网关或中转站地址：CodeBuddy 走腾讯自有协议，填入 OpenAI 兼容的接口地址不会生效。"
+    },
+    "CODEARTS_CLI_AK": {
+      "label": "访问密钥 ID（AK）",
+      "hint": "华为云访问密钥 ID。CodeArts Agent 以 headless 模式运行时只接受访问密钥认证，可在 codearts.huaweicloud.com/portal/settings/cli-auth 创建。"
+    },
+    "CODEARTS_CLI_SK": {
+      "label": "秘密访问密钥（SK）",
+      "hint": "与上方 AK 配对的秘密访问密钥。"
+    },
+    "CODEARTS_MODEL": {
+      "label": "模型",
+      "hint": "本次运行使用的模型，格式为「服务商/模型」。可从列表中选择；留空则使用该访问密钥可用的第一个模型。"
     }
   }
 }

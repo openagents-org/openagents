@@ -12,7 +12,7 @@ import tempfile
 from typing import Dict, Any, List, Optional, Set, BinaryIO
 from pathlib import Path
 
-from openagents.core.base_mod import BaseMod
+from openagents.sdk.base_mod import BaseMod
 from openagents.models.messages import Event, Event, Event
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse

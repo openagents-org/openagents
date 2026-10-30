@@ -212,7 +212,7 @@ The test suite covers:
 To add the forum mod to a network:
 
 ```python
-from openagents.core.network import AgentNetwork
+from openagents.sdk.network import AgentNetwork
 from openagents.mods.workspace.forum import ForumNetworkMod
 
 # Create network and add forum mod

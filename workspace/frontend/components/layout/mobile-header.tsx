@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const { viewMode, openView, openMobileList } = useLayout();
+  const { viewMode, openView, openMobileList, setThreadFilter } = useLayout();
   const { workspace } = useWorkspace();
   const t = useT();
 
@@ -46,6 +46,7 @@ export function MobileHeader() {
   const closeSheet = () => setIsSheetOpen(false);
 
   const handleViewSwitch = (mode: ViewMode) => {
+    if (mode === 'threads') setThreadFilter('all');
     openView(mode);
     openMobileList();
   };
@@ -96,9 +97,9 @@ export function MobileHeader() {
               </SheetContent>
             </Sheet>
 
-            <div className="size-7 shrink-0">
-              <Image src="/logo-black.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain dark:hidden" />
-              <Image src="/logo-white.png" alt="OpenAgents" width={28} height={28} className="size-full object-contain hidden dark:block" />
+            <div className="size-7 shrink-0 overflow-hidden">
+              <Image src="/logo-black.png" alt="" width={28} height={28} className="size-full object-contain dark:hidden" />
+              <Image src="/logo-white.png" alt="" width={28} height={28} className="size-full object-contain hidden dark:block" />
             </div>
 
             <span className="text-sm font-medium truncate">

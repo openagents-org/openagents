@@ -168,17 +168,50 @@ function parseLine(line) {
  * When real samples are available, extend THIS table only.
  */
 const EVENT_KIND_BY_TYPE = {
-  // session lifecycle / identity (kind only mapped when an id is also present)
+  // ── CAPTURED from a real authenticated run (CLI v1.0.83) ────────────────
+  // Every name in this block was read off a live JSONL stream, not inferred.
+  // The payload of each sits under `data` (see the `data` unwrap in
+  // classifyEvent) — except `result`, which is flat.
+  //
+  // The full type list observed in one turn: assistant.turn_start,
+  // assistant.reasoning_delta, assistant.reasoning, assistant.message_start,
+  // assistant.message_delta, assistant.turn_end, assistant.idle,
+  // model.call_start, model.call_finished, session.auto_mode_resolved,
+  // session.usage_checkpoint, session.tools_updated, session.skills_loaded,
+  // session.mcp_servers_loaded, session.mcp_server_status_changed,
+  // session.custom_agents_updated, user.message, result.
+  //
+  // The ones with no entry here are deliberate: they carry no content the
+  // workspace shows (lifecycle bookkeeping, or `user.message`, which is our
+  // own prompt echoed back). They degrade to `unknown`, which is logged and
+  // ignored — mapping them would put noise in the chat.
+  'assistant.message_delta': 'text_delta',   // data.deltaContent — THE answer
+  'assistant.reasoning': 'reasoning',        // data.content — ONE whole block
+  result: 'done',                            // flat: sessionId, exitCode, usage
+  // NOT mapped on purpose: `assistant.reasoning_delta`. Copilot streams at
+  // TOKEN granularity — 81 deltas for one short thought in the captured turn —
+  // and every adapter here narrates progress in whole blocks (claude sends
+  // `block.text`, codex `item.text`). Mapping the deltas posted one chat
+  // message per token: a column of "How" / "can" / "I" / "help" / "?" in the
+  // workspace. `assistant.reasoning` carries the same content as a single
+  // block afterwards, so that is what gets narrated.
+  'session.usage_checkpoint': 'usage',
+  'session.auto_mode_resolved': 'usage',     // data.chosenModel under Auto
+  'model.call_finished': 'usage',
+
+  // ── INFERRED — no live sample yet ───────────────────────────────────────
+  // The captured turn was a plain greeting, so no tool/file/shell/permission
+  // event appeared in it. The names below predate that capture and are kept
+  // as a net: they cost nothing (the real names above are matched first) and
+  // an unrecognized event is logged, never rendered. Replace them the moment
+  // a tool-using turn is captured — do not add more guesses.
   session: 'session', 'session.created': 'session', 'session.started': 'session',
   session_started: 'session', thread: 'session', 'thread.started': 'session',
-  // streaming assistant text (qualified names only — no bare 'delta'/'token')
   'text.delta': 'text_delta', text_delta: 'text_delta',
   'message.delta': 'text_delta', 'assistant.delta': 'text_delta',
   content_block_delta: 'text_delta',
-  // final assistant text (qualified/explicit names only — no bare 'message')
   text: 'text', 'message.completed': 'text', 'assistant.message': 'text',
   assistant: 'text', completion: 'text', agent_message: 'text',
-  // reasoning / status narration
   reasoning: 'reasoning', thinking: 'reasoning', thought: 'reasoning',
   status: 'reasoning', progress: 'reasoning',
   // tool calls
@@ -250,7 +283,14 @@ function classifyEvent(obj) {
     const itemKind = itemType ? EVENT_KIND_BY_TYPE[itemType.toLowerCase()] : undefined;
     if (itemKind) kind = itemKind;
   }
-  const src = item || obj;
+  // Copilot puts every event's payload under `data`, with the envelope
+  // (type/id/timestamp/parentId) on the outside — so reading fields off the
+  // top level found nothing and the answer came back empty. `result` is the
+  // one exception: it is flat, and falls through to `obj` here.
+  const data = (obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data))
+    ? obj.data
+    : null;
+  const src = item || data || obj;
 
   switch (kind) {
     case 'session': {
@@ -261,7 +301,9 @@ function classifyEvent(obj) {
       return { kind: 'session', sessionId };
     }
     case 'text_delta': {
-      const text = _coerceText(src.delta) ?? _coerceText(src.text) ?? _coerceText(src.content) ?? _coerceText(src);
+      // `deltaContent` is Copilot's own field name, verified on v1.0.83.
+      const text = _coerceText(src.deltaContent) ?? _coerceText(src.delta)
+        ?? _coerceText(src.text) ?? _coerceText(src.content) ?? _coerceText(src);
       return { kind: 'text_delta', text: text || '' };
     }
     case 'text': {
@@ -269,7 +311,8 @@ function classifyEvent(obj) {
       return { kind: 'text', text: text || '' };
     }
     case 'reasoning': {
-      const text = _coerceText(src.text) ?? _coerceText(src.reasoning) ?? _coerceText(src.message)
+      const text = _coerceText(src.deltaContent) ?? _coerceText(src.text)
+        ?? _coerceText(src.reasoning) ?? _coerceText(src.message)
         ?? _coerceText(src.content) ?? _firstString(src, ['status', 'label', 'title']) ?? '';
       return { kind: 'reasoning', text };
     }
@@ -313,7 +356,14 @@ function classifyEvent(obj) {
     }
     case 'done': {
       const status = _firstString(src, ['status', 'reason', 'result']) || 'completed';
-      return { kind: 'done', status };
+      // The `result` frame is also where the real session id finally shows up
+      // — there is no session event earlier in the stream. Carrying it here is
+      // what lets the next turn resume instead of starting over. Read from the
+      // top level too: `result` is flat, so `src` is already `obj`, but an
+      // `item`-wrapped variant would not be.
+      const sessionId = _firstString(src, ['sessionId', 'session_id'])
+        ?? _firstString(obj, ['sessionId', 'session_id']);
+      return sessionId ? { kind: 'done', status, sessionId } : { kind: 'done', status };
     }
     case 'error': {
       const err = (src.error && typeof src.error === 'object') ? src.error : src;

@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Channel, KanbanTask, Workspace, WorkspaceMember
+from app.models import Channel, KanbanTask, Workflow, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event_blocking,
@@ -50,8 +50,48 @@ TASK_PRIORITIES = ("low", "normal", "high")
 TASK_CHANNEL_PREFIX = "task:"
 
 
+def _link_issue_work(db, workspace, task):
+    if not task.issue_id or not task.channel_name:
+        return
+    from app.models import Issue, IssueThread
+    issue = db.execute(select(Issue).where(Issue.id == task.issue_id, Issue.workspace_id == workspace.id)).scalar_one_or_none()
+    channel = db.execute(select(Channel).where(Channel.name == task.channel_name, Channel.workspace_id == workspace.id)).scalar_one_or_none()
+    if issue and channel and not db.get(IssueThread, (issue.id, channel.id)):
+        db.add(IssueThread(issue_id=issue.id, channel_id=channel.id))
+
+
 def _task_channel_name(task_id: str) -> str:
     return f"{TASK_CHANNEL_PREFIX}{task_id}"
+
+
+def _derive_title(description: str) -> str:
+    """Preview title for an untitled task: the first few words + an ellipsis.
+
+    Description is the primary field; the title is just how the card reads on
+    the board, so a short prefix of the description is enough.
+    """
+    words = (description or "").split()
+    if not words:
+        return ""
+    preview = " ".join(words[:8])
+    truncated = len(words) > 8
+    if len(preview) > 60:
+        preview = preview[:60].rstrip()
+        truncated = True
+    return preview + ("…" if truncated else "")
+
+
+def _bare_agent(name: Optional[str]) -> Optional[str]:
+    """Normalize an agent reference to its bare name (strip `openagents:`).
+
+    An empty/whitespace value returns None so callers can clear the assignee.
+    """
+    if not name:
+        return None
+    name = name.strip()
+    if name.startswith("openagents:"):
+        name = name[len("openagents:"):]
+    return name or None
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +99,15 @@ def _task_channel_name(task_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 class CreateTaskRequest(BaseModel):
+    issue_id: Optional[str] = None
     title: str
     description: str = ""
     status: str = "backlog"
     priority: str = "normal"
+    assignee: Optional[str] = None  # pre-assign an agent WITHOUT running it
+    workflow_id: Optional[str] = None  # run via a workflow instead of a single agent
+    knowledge_ids: Optional[List[str]] = None  # knowledge entries attached as context
+    file_ids: Optional[List[str]] = None  # workspace files attached (screenshots, docs)
     network: str
     source: Optional[str] = None  # "human:..." who created the card
 
@@ -74,32 +119,214 @@ class UpdateTaskRequest(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     position: Optional[int] = None
+    # Set/change the assigned agent WITHOUT running it. "" clears the assignee.
+    assignee: Optional[str] = None
+    # Assign the task to a workflow ("" clears it, back to single-agent).
+    workflow_id: Optional[str] = None
+    # Replace the attached knowledge context ([] clears; None = untouched).
+    knowledge_ids: Optional[List[str]] = None
+    # Replace the attached files ([] clears; None = untouched).
+    file_ids: Optional[List[str]] = None
 
 
 class AssignTaskRequest(BaseModel):
     network: str
-    agent: str                       # bare agent name to assign
-    source: Optional[str] = None     # human who assigned (for the kickoff message)
+    agent: Optional[str] = None      # bare agent to run; falls back to task.assignee
+    source: Optional[str] = None     # human who ran it (for the kickoff message)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _serialize_task(t: KanbanTask) -> dict:
+def _clean_knowledge_ids(db: Session, workspace_id: str, ids: Optional[List[str]]) -> Optional[list]:
+    """Keep only ids that are real, active knowledge entries of this workspace."""
+    from app.models import KnowledgeEntry
+
+    wanted = [i for i in (ids or []) if isinstance(i, str) and i.strip()]
+    if not wanted:
+        return None
+    rows = db.execute(
+        select(KnowledgeEntry.id).where(
+            KnowledgeEntry.workspace_id == workspace_id,
+            KnowledgeEntry.id.in_(wanted),
+            KnowledgeEntry.status == "active",
+        )
+    ).scalars().all()
+    valid = set(rows)
+    cleaned = [i for i in wanted if i in valid]  # preserve selection order
+    return cleaned or None
+
+
+def _clean_file_ids(db: Session, workspace_id: str, ids: Optional[List[str]]) -> Optional[list]:
+    """Keep only ids that are real, active files of this workspace."""
+    from app.models import FileRecord
+
+    wanted = [i for i in (ids or []) if isinstance(i, str) and i.strip()]
+    if not wanted:
+        return None
+    rows = db.execute(
+        select(FileRecord.id).where(
+            FileRecord.workspace_id == workspace_id,
+            FileRecord.id.in_(wanted),
+            FileRecord.status == "active",
+        )
+    ).scalars().all()
+    valid = set(rows)
+    cleaned = [i for i in wanted if i in valid]  # preserve selection order
+    return cleaned or None
+
+
+def _task_attachments(db: Session, workspace_id: str, task: KanbanTask) -> list:
+    """Attachment dicts for the task's files, in the shape chat messages use
+    (see cloud_agent._post_response), so agents/clients render them the same."""
+    from app.models import FileRecord
+
+    from app.models import Issue
+    issue = db.get(Issue, task.issue_id) if task.issue_id else None
+    issue_ids = (issue.file_ids or []) if issue and str(issue.workspace_id) == workspace_id else []
+    ids = list(dict.fromkeys([*issue_ids, *(task.file_ids or [])]))
+    if not ids:
+        return []
+    rows = db.execute(
+        select(FileRecord).where(
+            FileRecord.workspace_id == workspace_id,
+            FileRecord.id.in_(ids),
+            FileRecord.status == "active",
+        )
+    ).scalars().all()
+    by_id = {r.id: r for r in rows}
+    return [
+        {
+            "file_id": r.id,
+            "filename": r.filename,
+            "content_type": r.content_type,
+            "size": r.size,
+        }
+        for r in (by_id[i] for i in ids if i in by_id)
+    ]
+
+
+def _context_block(db: Session, workspace_id: str, task: KanbanTask) -> str:
+    """Render the task's attached knowledge as a kickoff context section.
+
+    Entries are referenced as @knowledge:<slug> — the same convention the chat
+    composer uses — so agents resolve them with their knowledge tool.
+    """
+    from app.models import Issue, IssueComment, KnowledgeEntry
+
+    issue_context = ""
+    knowledge_ids = list(task.knowledge_ids or [])
+    if task.issue_id:
+        issue = db.execute(select(Issue).where(Issue.id == task.issue_id, Issue.workspace_id == workspace_id)).scalar_one_or_none()
+        if issue:
+            knowledge_ids = list(dict.fromkeys([*(issue.knowledge_ids or []), *knowledge_ids]))
+            comments = list(db.execute(select(IssueComment).where(IssueComment.issue_id == issue.id,
+                IssueComment.kind != "status").order_by(IssueComment.created_at.desc()).limit(10)).scalars())
+            discussion = "\n\n".join(f"{c.author}: {c.content[:2000]}" for c in reversed(comments))
+            issue_context = f"\n\nRelated issue: {issue.title}\n{issue.description[:10000]}\n\nRecent discussion:\n{discussion}"
+
+    if not knowledge_ids:
+        return issue_context
+    rows = db.execute(
+        select(KnowledgeEntry).where(
+            KnowledgeEntry.workspace_id == workspace_id,
+            KnowledgeEntry.id.in_(knowledge_ids),
+            KnowledgeEntry.status == "active",
+        )
+    ).scalars().all()
+    if not rows:
+        return issue_context
+    by_id = {r.id: r for r in rows}
+    ordered = [by_id[i] for i in knowledge_ids if i in by_id]
+    lines = "\n".join(f"- “{r.title}” → @knowledge:{r.slug}" for r in ordered)
+    return issue_context + (
+        "\n\nContext documents — read each with your knowledge tool before "
+        f"starting:\n{lines}"
+    )
+
+
+def _serialize_task(t: KanbanTask, run: Optional[dict] = None, last_message: Optional[str] = None) -> dict:
     return {
         "id": t.id,
+        "issue_id": t.issue_id,
         "title": t.title,
         "description": t.description,
         "status": t.status,
         "assignee": t.assignee,
+        "workflow_id": t.workflow_id,
+        "knowledge_ids": t.knowledge_ids or [],
+        "file_ids": t.file_ids or [],
         "created_by": t.created_by,
         "channel_name": t.channel_name,
         "priority": t.priority,
         "position": t.position,
+        # Live workflow-run summary (step X of N, who's on it) — only for
+        # workflow tasks with a run; see workflow.run_info.
+        "run": run,
+        # Latest chat message in the thread — surfaced on need_input cards so
+        # the human can see the question without opening the popup.
+        "last_message": last_message,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
     }
+
+
+def _enrich(db: Session, workspace_id: str, tasks_list: list) -> list:
+    """Serialize tasks with run summaries + need-input snippets, batched.
+
+    One query for all runs, one for the latest chat message per need-input
+    channel — not a query per task.
+    """
+    from app.models import EventRecord, WorkflowRun
+    from app.services.workflow import run_info
+
+    wf_channels = [t.channel_name for t in tasks_list if t.workflow_id and t.channel_name]
+    runs_by_channel: dict = {}
+    if wf_channels:
+        runs = db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.workspace_id == workspace_id,
+                WorkflowRun.channel_name.in_(wf_channels),
+            ).order_by(WorkflowRun.created_at.asc())
+        ).scalars().all()
+        for r in runs:  # ascending → the latest run per channel wins
+            runs_by_channel[r.channel_name] = r
+
+    # Snippets: need_input cards show the last *chat* line (the question);
+    # in_progress cards show the latest activity of any kind (chat, status
+    # tool-lines, thinking) so the human sees what the agent is doing.
+    question_channels = {t.channel_name for t in tasks_list if t.status == "need_input" and t.channel_name}
+    activity_channels = {t.channel_name for t in tasks_list if t.status == "in_progress" and t.channel_name}
+    last_by_channel: dict = {}
+    if question_channels or activity_channels:
+        targets = [f"channel/{c}" for c in question_channels | activity_channels]
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.network_id == workspace_id,
+                EventRecord.type == "workspace.message.posted",
+                EventRecord.target.in_(targets),
+            ).order_by(EventRecord.timestamp.asc())
+        ).scalars().all()
+        for e in events:  # ascending → the last qualifying message per channel wins
+            channel = e.target[len("channel/"):]
+            msg_type = (e.payload or {}).get("message_type", "chat")
+            content = (e.payload or {}).get("content") or ""
+            if not content:
+                continue
+            if channel in question_channels and msg_type == "chat":
+                last_by_channel[channel] = content[:280]
+            elif channel in activity_channels and msg_type in ("chat", "status", "thinking"):
+                last_by_channel[channel] = content[:280]
+
+    return [
+        _serialize_task(
+            t,
+            run=run_info(runs_by_channel.get(t.channel_name)) if t.channel_name else None,
+            last_message=last_by_channel.get(t.channel_name) if t.channel_name else None,
+        )
+        for t in tasks_list
+    ]
 
 
 def _next_position(db: Session, workspace_id: str, status: str) -> int:
@@ -113,7 +340,7 @@ def _next_position(db: Session, workspace_id: str, status: str) -> int:
     return (max(rows) + 1) if rows else 0
 
 
-def _kickoff_message(task: KanbanTask, agent: str) -> str:
+def _kickoff_message(task: KanbanTask, agent: str, context: str = "") -> str:
     """The first message posted into the task thread when an agent is assigned.
 
     Frames the work as a long-running task and tells the agent the board's
@@ -125,7 +352,7 @@ def _kickoff_message(task: KanbanTask, agent: str) -> str:
     return (
         f"@{agent} You've been assigned this Kanban task. Work on it to "
         f"completion — this is a long-running task.\n\n"
-        f"**{task.title}**{body}\n\n"
+        f"**{task.title}**{body}{context}\n\n"
         f"When you need information or a decision from a human to continue, "
         f"say so clearly and end your message asking for that input — the "
         f"board will move the card to **Need Input** and notify the team. "
@@ -158,8 +385,15 @@ def list_tasks(
         query = query.where(KanbanTask.status == status)
     query = query.order_by(KanbanTask.status, KanbanTask.position, KanbanTask.created_at)
     rows = db.execute(query).scalars().all()
+    # v1.1 visibility: cards whose working thread is private stay hidden.
+    from app.services.visibility import hidden_channel_names, resolve_viewer
+    _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if _viewer.is_human:
+        _hidden = hidden_channel_names(db, str(workspace.id), _viewer)
+        if _hidden:
+            rows = [r for r in rows if not (r.channel_name and r.channel_name in _hidden)]
 
-    return success_response({"tasks": [_serialize_task(r) for r in rows]})
+    return success_response({"tasks": _enrich(db, str(workspace.id), list(rows))})
 
 
 # ---------------------------------------------------------------------------
@@ -180,18 +414,33 @@ def create_task(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    title = (body.title or "").strip()
+    # Description is the primary field; the title is optional and, when
+    # omitted, previews the description's first few words.
+    description = (body.description or "").strip()
+    title = (body.title or "").strip() or _derive_title(description)
     if not title:
-        return json_response(ResponseCode.BAD_REQUEST, "title is required")
+        return json_response(ResponseCode.BAD_REQUEST, "a title or a description is required")
     status = body.status if body.status in TASK_STATUSES else "backlog"
     priority = body.priority if body.priority in TASK_PRIORITIES else "normal"
 
+    if body.issue_id:
+        from app.routers.issues import _access, _issue
+        _access(body.network, db, x_workspace_token, authorization, write=True)
+        _issue(db, workspace, body.issue_id)
+
     task = KanbanTask(
+        issue_id=body.issue_id or None,
         workspace_id=str(workspace.id),
         title=title,
-        description=(body.description or "").strip(),
+        description=description,
         status=status,
         priority=priority,
+        # Pre-assigning an agent (or workflow) here only records who *will* run
+        # it — it does NOT start the work. Execution happens via POST /assign (Run).
+        assignee=_bare_agent(body.assignee),
+        workflow_id=(body.workflow_id or None),
+        knowledge_ids=_clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids),
+        file_ids=_clean_file_ids(db, str(workspace.id), body.file_ids),
         created_by=body.source or "human:user",
         position=_next_position(db, str(workspace.id), status),
     )
@@ -213,10 +462,11 @@ def update_task(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Update task fields — edit text, change priority, or drag between columns.
+    """Update task fields — edit text, move columns, or set the assignee.
 
-    Assignment is deliberately NOT handled here (it has side effects: creating
-    the thread and kicking the agent off). Use POST /v1/tasks/{id}/assign.
+    Setting ``assignee`` here only records who will run the task; it does NOT
+    start the work (no thread, no kickoff). Execution is triggered separately
+    by POST /v1/tasks/{id}/assign (the board's "Run" button).
     """
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
@@ -233,12 +483,13 @@ def update_task(
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
 
-    if body.title is not None:
-        title = body.title.strip()
-        if title:
-            task.title = title
+    # Description first — a cleared title derives its preview from the
+    # (possibly just-updated) description.
     if body.description is not None:
         task.description = body.description.strip()
+    if body.title is not None:
+        title = body.title.strip()
+        task.title = title or _derive_title(task.description) or task.title
     if body.priority is not None and body.priority in TASK_PRIORITIES:
         task.priority = body.priority
     if body.status is not None and body.status in TASK_STATUSES:
@@ -246,9 +497,25 @@ def update_task(
         # position is supplied.
         if body.status != task.status and body.position is None:
             task.position = _next_position(db, str(workspace.id), body.status)
+        # Stopping a workflow task (→ backlog) must pause its run, or a late
+        # agent reply would advance the run and yank the card back.
+        if body.status == "backlog" and task.workflow_id and task.channel_name:
+            from app.services.workflow import pause_run
+            pause_run(db, str(workspace.id), task.channel_name)
         task.status = body.status
     if body.position is not None:
         task.position = body.position
+    if body.assignee is not None:
+        # "" clears the assignee; a name (bare or openagents:) sets it.
+        task.assignee = _bare_agent(body.assignee)
+    if body.workflow_id is not None:
+        # "" clears (back to single-agent); a value assigns the task to a workflow.
+        task.workflow_id = body.workflow_id or None
+    if body.knowledge_ids is not None:
+        # [] clears the attached context; a list replaces it (validated).
+        task.knowledge_ids = _clean_knowledge_ids(db, str(workspace.id), body.knowledge_ids)
+    if body.file_ids is not None:
+        task.file_ids = _clean_file_ids(db, str(workspace.id), body.file_ids)
 
     db.commit()
     return success_response(_serialize_task(task))
@@ -258,6 +525,74 @@ def update_task(
 # POST /v1/tasks/{task_id}/assign
 # ---------------------------------------------------------------------------
 
+def _run_workflow_task(db, workspace, task, human_source: str, token: Optional[str]):
+    """Start a WorkflowRun for a task assigned to a workflow (the "Run" action).
+
+    Creates the hidden task thread (with all agent-step agents as participants),
+    then hands off to the engine to deliver step 1. Moving the card through
+    columns is owned by the workflow engine from here on.
+    """
+    from app.services.workflow import resume_or_restart
+
+    workflow = db.execute(
+        select(Workflow).where(
+            Workflow.id == task.workflow_id,
+            Workflow.workspace_id == str(workspace.id),
+        )
+    ).scalar_one_or_none()
+    if not workflow:
+        return json_response(ResponseCode.NOT_FOUND, "Workflow not found")
+    if not (workflow.steps or []):
+        return json_response(ResponseCode.BAD_REQUEST, "workflow has no steps")
+
+    channel_name = task.channel_name or _task_channel_name(task.id)
+
+    # Create the hidden thread if it doesn't exist yet, seeding it with every
+    # agent that appears as a step assignee.
+    existing_channel = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace.id,
+            Channel.name == channel_name,
+        )
+    ).scalar_one_or_none()
+    if existing_channel is None:
+        agents = []
+        for step in workflow.steps:
+            a = (step.get("assignee") or {})
+            if a.get("kind") == "agent" and a.get("agent") and a["agent"] not in agents:
+                agents.append(a["agent"])
+        create_evt = Event(
+            type="network.channel.create",
+            source=human_source,
+            target="core",
+            payload={
+                "name": channel_name,
+                "title": task.title,
+                "participants": agents or ["__no_response__"],
+            },
+            metadata={},
+        )
+        _emit_event_blocking(create_evt, workspace, db, token=token)
+
+    task.channel_name = channel_name
+    _link_issue_work(db, workspace, task)
+    task.status = "in_progress"
+    task.position = _next_position(db, str(workspace.id), "in_progress")
+    db.flush()
+
+    # Run semantics: no-op if already running, resume a paused run (re-deliver
+    # the current step), or start fresh when the last run finished/was stopped.
+    prev = task.title + (f"\n\n{task.description}" if task.description else "") \
+        + _context_block(db, str(workspace.id), task)
+    resume_or_restart(
+        db, workspace, channel_name, workflow, prev,
+        attachments=_task_attachments(db, str(workspace.id), task),
+    )
+
+    db.commit()
+    return success_response(_serialize_task(task))
+
+
 @router.post("/tasks/{task_id}/assign")
 def assign_task(
     body: AssignTaskRequest,
@@ -266,12 +601,13 @@ def assign_task(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Assign a task to an agent — creates the hidden thread and kicks it off.
+    """Run a task on an agent — creates the hidden thread and kicks it off.
 
-    On assignment we (1) create (or reuse) the ``task:<id>`` channel with the
-    agent as master + participant, (2) post a kickoff message describing the
-    task, which routes to the agent and starts the long-running work, and
-    (3) move the card to In Progress.
+    This is the board's "Run" action. The agent comes from the request body or,
+    if omitted, the task's pre-set ``assignee``. We (1) create (or reuse) the
+    ``task:<id>`` channel with the agent as master + participant, (2) post a
+    kickoff message that routes to the agent and starts the long-running work,
+    and (3) move the card to In Progress.
     """
     workspace = _resolve_workspace(db, body.network)
     if not workspace:
@@ -288,11 +624,34 @@ def assign_task(
     if not task:
         return json_response(ResponseCode.NOT_FOUND, "Task not found")
 
-    agent = (body.agent or "").strip()
-    if agent.startswith("openagents:"):
-        agent = agent[len("openagents:"):]
+    if task.issue_id:
+        from app.routers.issues import _access, _issue, _actor, _viewer
+        from app.services.thread_agent_requests import issue_request_access
+        _access(body.network, db, x_workspace_token, authorization, write=True)
+        issue = _issue(db, workspace, task.issue_id)
+        if issue.status == "closed":
+            return json_response(ResponseCode.BAD_REQUEST, "Reopen the issue before starting work")
+        actor, _ = _actor(db, authorization, body.source or "human:user")
+        body.source = actor
+        viewer = _viewer(db, workspace, x_workspace_token, authorization)
+        names = [_bare_agent(body.agent) or _bare_agent(task.assignee)]
+        if task.workflow_id:
+            workflow = db.execute(select(Workflow).where(Workflow.id == task.workflow_id, Workflow.workspace_id == workspace.id)).scalar_one_or_none()
+            names = [(step.get("assignee") or {}).get("agent") for step in (workflow.steps or []) if (step.get("assignee") or {}).get("kind") == "agent"] if workflow else []
+        if not viewer.machine:
+            for name in filter(None, names):
+                member = db.get(WorkspaceMember, (str(workspace.id), name))
+                if issue_request_access(db, workspace.id, issue, member, actor.removeprefix("human:")) == "no":
+                    return json_response(ResponseCode.FORBIDDEN, f"{name} is not shared with you. Ask its owner to enable sharing in this issue.")
+
+    # ── Workflow task: start a WorkflowRun instead of a single-agent kickoff ──
+    if task.workflow_id:
+        return _run_workflow_task(db, workspace, task, body.source or "human:user", x_workspace_token)
+
+    # Agent to run: explicit in the request, else the task's pre-set assignee.
+    agent = _bare_agent(body.agent) or _bare_agent(task.assignee)
     if not agent:
-        return json_response(ResponseCode.BAD_REQUEST, "agent is required")
+        return json_response(ResponseCode.BAD_REQUEST, "no agent to run: assign one first")
 
     # The agent must actually be a member of this workspace.
     is_member = db.execute(
@@ -335,12 +694,22 @@ def assign_task(
         # Reassignment — point the existing channel at the new agent.
         existing_channel.master_agent = agent
 
+    # Establish the issue context before dispatch so its sharing/approval rules
+    # apply to the kickoff, not only subsequent messages.
+    task.channel_name = channel_name
+    _link_issue_work(db, workspace, task)
+    db.flush()
+
     # 2. Post the kickoff message (routes to the agent, starts the work).
     kickoff = Event(
         type="workspace.message.posted",
         source=human_source,
         target=f"channel/{channel_name}",
-        payload={"content": _kickoff_message(task, agent), "message_type": "chat"},
+        payload={
+            "content": _kickoff_message(task, agent, _context_block(db, str(workspace.id), task)),
+            "message_type": "chat",
+            **({"attachments": atts} if (atts := _task_attachments(db, str(workspace.id), task)) else {}),
+        },
         metadata={"target_agents": [agent]},
     )
     _emit_event_blocking(kickoff, workspace, db, token=x_workspace_token)
@@ -382,7 +751,8 @@ def delete_task(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    # Archive the linked thread so it stops appearing anywhere.
+    # Archive the linked thread so it stops appearing anywhere, and kill any
+    # live workflow run so the engine can't keep acting on a deleted task.
     if task.channel_name:
         channel = db.execute(
             select(Channel).where(
@@ -392,6 +762,8 @@ def delete_task(
         ).scalar_one_or_none()
         if channel is not None:
             channel.status = "deleted"
+        from app.services.workflow import cancel_run
+        cancel_run(db, str(workspace.id), task.channel_name)
 
     db.delete(task)
     db.commit()

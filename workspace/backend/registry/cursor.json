@@ -1,0 +1,118 @@
+{
+  "name": "cursor",
+  "label": "Cursor",
+  "description": "AI-powered code editor with agent mode CLI",
+  "homepage": "https://cursor.com",
+  "tags": [
+    "coding",
+    "editor",
+    "cli",
+    "ai"
+  ],
+  "featured": true,
+  "order": 4,
+  "builtin": true,
+  "logo": {
+    "key": "cursor"
+  },
+  "support": {},
+  "install": {
+    "binary": "cursor-agent",
+    "binary_aliases": [
+      "agent"
+    ],
+    "verify": "cursor-agent --version 2>/dev/null | head -1",
+    "verify_win": "cursor-agent --version 2>nul",
+    "requires": [],
+    "macos": "curl https://cursor.com/install -fsSL | bash",
+    "linux": "curl https://cursor.com/install -fsSL | bash",
+    "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://cursor.com/install?win32=true' | Invoke-Expression\""
+  },
+  "uninstall": null,
+  "adapter": {
+    "module": "openagents.adapters.cursor",
+    "class": "CursorAdapter"
+  },
+  "launch": {
+    "args": []
+  },
+  "check_ready": {
+    "binary": "agent",
+    "not_ready_message": "Cursor is installed but not signed in — run `cursor-agent login` on the device (this is separate from signing in to the Cursor editor), or set a CURSOR_API_KEY from cursor.com/settings. Third-party or relay API keys do not work with Cursor.",
+    "env_vars": [
+      "CURSOR_API_KEY"
+    ],
+    "creds_file": "~/.cursor/cli-config.json",
+    "creds_key": "authInfo",
+    "creds_no_parse": true,
+    "unverifiable": true,
+    "login_command": "cursor-agent login",
+    "status_args": [
+      "status"
+    ],
+    "logged_out_pattern": "not logged in|not signed in|not authenticated|unauthenticated|logged out|signed out|login required|partially authenticated"
+  },
+  "env_config": [
+    {
+      "name": "CURSOR_API_KEY",
+      "description": "Cursor API key for CLI authentication",
+      "required": false,
+      "password": true
+    },
+    {
+      "name": "CURSOR_MODEL",
+      "description": "Model to use (e.g. claude-sonnet-4-6, gpt-4o)",
+      "required": false
+    }
+  ],
+  "models": [
+    {
+      "id": "auto",
+      "label": "Auto (Cursor Router)",
+      "category": "chat"
+    },
+    {
+      "id": "composer-2.5",
+      "label": "Composer 2.5",
+      "category": "chat"
+    },
+    {
+      "id": "claude-opus-5-thinking-high",
+      "label": "Claude Opus 5 (Thinking High)",
+      "category": "chat"
+    },
+    {
+      "id": "claude-sonnet-5-thinking-high",
+      "label": "Claude Sonnet 5 (Thinking High)",
+      "category": "chat"
+    },
+    {
+      "id": "gpt-5.6-sol-high",
+      "label": "GPT-5.6 Sol (High)",
+      "category": "chat"
+    },
+    {
+      "id": "gemini-3.7-flash-high",
+      "label": "Gemini 3.7 Flash (High)",
+      "category": "chat"
+    }
+  ],
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "CURSOR_API_KEY"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "CURSOR_MODEL"
+      }
+    ]
+  },
+  "vendor": "Cursor",
+  "tagline": "The AI editor you love — now headless on your node.",
+  "provider_locked": true,
+  "probe": {
+    "api_test": false
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "version": "0.9.26",
+  "date": "2026-08-31",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "CodeBuddy Code is now a supported agent",
+        "zh": "新增支持 CodeBuddy Code"
+      },
+      "description": {
+        "en": "CodeBuddy Code is Tencent's terminal agent, and the same engine the WorkBuddy desktop app runs behind its own window — so a CodeBuddy or WorkBuddy account can now join a workspace and answer messages like any other agent. It installs from the marketplace and runs headlessly, one conversation per channel, with the workspace's files, browser and other agents available to it. Setup asks which site your account is on, because codebuddy.ai / workbuddy.ai and codebuddy.cn / workbuddy.cn are separate accounts and the wrong one simply fails to sign in. You can either paste an API key or run `codebuddy` once in a terminal and sign in with /login — the CLI has no non-interactive login command, so the launcher opens the session for you rather than pretending otherwise. Worth knowing before you install it: this is the coding and general terminal agent. WorkBuddy's office skills — the decks, documents and spreadsheets — live inside that desktop application and are not part of the command line, so they do not come with it.",
+        "zh": "CodeBuddy Code 是腾讯的终端智能体，也正是 WorkBuddy 桌面端在窗口背后所运行的同一套引擎 —— 因此 CodeBuddy 或 WorkBuddy 账号现在可以像其他 Agent 一样加入工作区并回复消息。它可从应用市场安装，以无界面方式运行，每个频道维持一个会话，并可使用工作区的文件、浏览器与其他 Agent。配置时会先询问账号所属站点：codebuddy.ai / workbuddy.ai 与 codebuddy.cn / workbuddy.cn 是彼此独立的账号体系，选错只会表现为登录失败。认证方式有两种：填入 API 密钥，或在终端运行一次 `codebuddy` 并使用 /login 登录 —— 该命令行并未提供免交互的登录子命令，因此启动器会直接为你打开会话，而不是佯装存在这样的命令。安装前需要知晓：接入的是编码与通用终端能力。WorkBuddy 的办公技能（演示文稿、文档与表格）内置于其桌面应用之中，并不属于命令行的一部分，因此不会随之提供。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "OpenWorker is now a supported agent",
+        "zh": "新增支持 OpenWorker"
+      },
+      "description": {
+        "en": "OpenWorker (openworker.com) is a local-first AI coworker: the agent loop, your conversations and your model keys all stay on your machine. It is now installable from the marketplace and can join a workspace like any other agent. Unlike the terminal agents, OpenWorker has no headless command line — the launcher starts its local server for you and drives one session per channel, so nothing has to be launched by hand. It brings its own model, so setup asks which provider your key belongs to (OpenAI, Anthropic, Gemini, DeepSeek, Kimi, Qwen, OpenRouter, a local Ollama, and a dozen more); the model list then loads from that provider. Installing it needs git and uv on your machine, and the launcher now says which one is missing, with a command you can copy, instead of failing part way through.",
+        "zh": "OpenWorker（openworker.com）是一款本地优先的 AI 同事：智能体循环、会话记录与模型密钥全部保留在本机。现在可以从应用市场安装，并像其他 Agent 一样加入工作区。与终端类 Agent 不同，OpenWorker 并不提供无界面的命令行接口——启动器会代为拉起它的本地服务，并为每个频道维持一个会话，无需你手动启动任何进程。它需要自备模型，因此配置时会先询问密钥所属的服务商（OpenAI、Anthropic、Gemini、DeepSeek、Kimi、通义千问、OpenRouter、本地 Ollama 等十余种），模型列表随后会从该服务商载入。安装 OpenWorker 需要本机具备 git 与 uv；若缺少其中之一，启动器现在会直接指明并给出可复制的安装命令，而不是在安装中途失败。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Approvals no longer stall an unattended agent",
+        "zh": "无人值守时不再卡在审批弹窗上"
+      },
+      "description": {
+        "en": "OpenWorker is built around a person confirming consequential actions, which has no equivalent when an agent is answering messages in a workspace. Those confirmations are now handled for you, with the decision posted into the channel so it is visible rather than silent: a tool call is approved for that one call only, a request to reach a folder outside the working directory is declined, and a question the agent asks is answered with an instruction to proceed and state its assumption. Tool installs are declined unless you turn them on in the agent's settings.",
+        "zh": "OpenWorker 的设计前提是由人来确认高风险操作，而 Agent 在工作区里自动回复消息时并不存在这样的确认者。现在这些确认会由启动器代为处理，并将处理结果发回频道，使其可见而非静默：工具调用仅对该次调用授权，越出工作目录的文件夹访问请求一律拒绝，Agent 提出的问题则会被告知自行判断并在回复中说明所作假设。自动安装工具默认拒绝，可在该 Agent 的设置中开启。"
+      }
+    }
+  ]
+}

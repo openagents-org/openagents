@@ -1,0 +1,17 @@
+{
+  "version": "0.9.13",
+  "date": "2026-08-17",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "DeepSeek Harness is now a supported download",
+        "zh": "DeepSeek Harness 现已支持一键安装"
+      },
+      "description": {
+        "en": "DeepSeek's open-source agent harness (dsh) moves from \"coming soon\" to installable on the Install page. It runs in headless mode — one run per message — with your API key kept out of the command line and a private per-agent home so your own ~/.dsh setup is never touched. Heads up: the runtime is a large install (about 360 MB) and needs a DEEPSEEK_API_KEY before it will answer.",
+        "zh": "DeepSeek 开源智能体框架（dsh）从“即将上线”变为可在安装页直接安装。它以无头模式运行——每条消息独立执行一次——API 密钥不会出现在命令行里，并使用独立的专属目录，不会碰你自己的 ~/.dsh 配置。提醒：运行时体积较大（约 360 MB），并且需要先配置 DEEPSEEK_API_KEY 才能正常应答。"
+      }
+    }
+  ]
+}

@@ -6,6 +6,10 @@ import { Badge } from "../ui/badge"
 export type WorkspaceHealthState =
   | "healthy"
   | "warning"
+  /** No agent bound here, but this device itself is paired to the workspace. */
+  | "device"
+  /** This device's pairing was revoked by the workspace (node row deleted). */
+  | "revoked"
   | "disconnected"
   | "error"
 
@@ -17,6 +21,9 @@ export type WorkspaceHealthState =
 const VARIANT = {
   healthy: "success",
   warning: "warning",
+  // Informational, not green: the device is in, but nothing is running here yet.
+  device: "outline",
+  revoked: "danger",
   disconnected: "muted",
   error: "danger",
 } as const

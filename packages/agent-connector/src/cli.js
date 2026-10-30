@@ -1,7 +1,12 @@
 'use strict';
 
+// Before ./index so the daemon and every `agn` subprocess inherit the same
+// no-stray-console-window default on Windows. See win-console.js.
+require('./win-console').installWindowsHideDefault();
+
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
+const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -49,6 +54,35 @@ function getConnector(flags) {
 }
 
 function print(msg) { process.stdout.write(msg + '\n'); }
+
+// ---------------------------------------------------------------------------
+// Banner — the OpenAgents wordmark (figlet "Small Slant", pure ASCII so it
+// renders on every console including legacy Windows codepages). Colored with
+// a cyan→violet gradient only on a real TTY; pipes and NO_COLOR get plain
+// text. 47 columns wide, so it fits any 80-column terminal.
+// ---------------------------------------------------------------------------
+const OA_LOGO = [
+  '  ____                ___                __    ',
+  ' / __ \\___  ___ ___  / _ |___ ____ ___  / /____',
+  '/ /_/ / _ \\/ -_) _ \\/ __ / _ `/ -_) _ \\/ __(_-<',
+  '\\____/ .__/\\__/_//_/_/ |_\\_, /\\__/_//_/\\__/___/',
+  '    /_/                 /___/                  ',
+];
+
+function printBanner() {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  // 256-color gradient, one shade per row: cyan → azure → blue → violet.
+  const shades = [51, 45, 39, 63, 99];
+  let version = '';
+  try { version = require('../package.json').version; } catch {}
+  print('');
+  OA_LOGO.forEach((line, i) => {
+    print(useColor ? `\x1b[38;5;${shades[i]}m${line}\x1b[0m` : line);
+  });
+  const tag = `  v${version} · multi-agent orchestration for your machine`;
+  print(useColor ? `\x1b[2m${tag}\x1b[0m` : tag);
+  print('');
+}
 
 function table(rows, headers) {
   if (rows.length === 0) return;
@@ -174,7 +208,18 @@ async function cmdCreate(connector, flags, positional) {
       print('This agent is local-only and will not appear in Workspace Dashboard yet.');
       print('');
       print('To connect it to a Workspace, run:');
-      print(`  agn connect ${name} <workspace-token>`);
+      // A paired device already holds the credential — point at the
+      // pairing-first form instead of the deprecated manual-token one.
+      let pairings = [];
+      try { pairings = require('./node-config').listPairings().filter((p) => p && p.workspace_slug); } catch {}
+      if (pairings.length) {
+        for (const p of pairings.slice(0, 3)) {
+          print(`  agn connect ${name} --workspace ${p.workspace_slug}${p.workspace_name ? `   (${p.workspace_name})` : ''}`);
+        }
+      } else {
+        print(`  agn connect ${name} <workspace-token>`);
+        print('Or pair this device first: agn device connect <pairing-code>');
+      }
     } else {
       print(`Agent '${name}' created (type: ${type})`);
     }
@@ -311,7 +356,70 @@ async function cmdList(connector) {
   table(rows, ['NAME', 'TYPE', 'ROLE', 'NETWORK']);
 }
 
-async function cmdRuntimes(connector) {
+async function cmdRuntimes(connector, flags) {
+  // Machine-readable detection for every supported type: installed? logged-in?
+  // Used by the daemon to report node runtimes to the workspace (Add-agent
+  // gallery). Emits ONLY JSON on stdout.
+  if (flags && flags.json) {
+    // --types a,b,c limits the run to those entries: the daemon splits
+    // detection over several of these so one slow CLI cannot hold up the rest.
+    const only = typeof flags.types === 'string'
+      ? new Set(flags.types.split(',').map((s) => s.trim()).filter(Boolean))
+      : null;
+    const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
+    let agents = [];
+    try { agents = connector.config.getAgents() || []; } catch {}
+    const runtimes = catalog.map((e) => {
+      let h;
+      try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      // The workspace's Configure saves a key on the AGENT (daemon.yaml), never
+      // in <type>.env, so judged on the type alone a Kimi or Pi agent that
+      // answered fine read "Needs login" in the workspace while the launcher,
+      // which judges the type again with its agents' env, said Ready. Judge it
+      // the way the daemon launches it: a type is ready when one of its agents
+      // is.
+      let agentEnv = null;
+      if (h.installed && !h.ready) {
+        for (const a of agents) {
+          if ((a.type || 'openclaw') !== e.name) continue;
+          let ah;
+          try { ah = connector.healthCheck(e.name, { cliLogin: isCliLogin(a.env), agentEnv: a.env || {} }); } catch { continue; }
+          if (ah && ah.ready) { h = { ...h, ...ah, installed: true }; agentEnv = a.env || {}; break; }
+        }
+      }
+      // Credential contract, upward half: STATUS goes up, the secret stays on
+      // this device. `mode` says how the type authenticates today
+      // (subscription = CLI/OAuth login, api_key = a stored key, none = not
+      // configured); keyMasked shows only the key's tail.
+      let keyMasked = null;
+      try {
+        const env = { ...(connector.env.load(e.name) || {}), ...(agentEnv || {}) };
+        const key = env.LLM_API_KEY || null;
+        if (key && key.length > 7) keyMasked = `…${key.slice(-4)}`;
+        else if (key) keyMasked = '…';
+      } catch {}
+      const mode = !h.ready
+        ? 'none'
+        : h.auth_mode === 'cli_login'
+          ? 'subscription'
+          : h.auth_mode === 'api_key'
+            ? 'api_key'
+            : 'none';
+      return {
+        type: e.name,
+        installed: !!h.installed,
+        ready: !!h.ready,
+        version: h.version || null,
+        reason: h.reason || null,
+        message: h.message || null,
+        authStatus: h.auth_status || null,
+        auth: { mode, keyMasked: mode === 'api_key' ? keyMasked : null },
+      };
+    });
+    process.stdout.write(JSON.stringify(runtimes));
+    return;
+  }
+
   let catalog;
   try {
     catalog = await connector.getCatalog();
@@ -347,7 +455,17 @@ async function cmdConnect(connector, flags, positional) {
 
   if (!name) {
     print('Usage: agn connect <agent-name> <token>');
+    print('       agn connect <agent-name> --workspace <slug>   (paired/known workspace, no token)');
     process.exitCode = 1;
+    return;
+  }
+
+  // --workspace <slug|id>: bind to a workspace this device already knows —
+  // a registered network or a device pairing. No token, no /v1/token/resolve,
+  // no server round-trip; the credential is already on disk. This is the
+  // pairing-first path; the token form below stays for manual connection.
+  if (flags.workspace && typeof flags.workspace === 'string') {
+    connectKnownWorkspace(connector, name, flags.workspace, flags.connection);
     return;
   }
 
@@ -381,6 +499,14 @@ async function cmdConnect(connector, flags, positional) {
     // Connect agent
     connector.connectWorkspace(name, slug);
     print(`'${name}' connected to workspace '${wsName}'`);
+    // Manual token connection is being retired in favor of device pairing.
+    // It keeps working (backward compatibility is deliberate); this is the
+    // CLI half of the dismissible launcher notice.
+    if (!process.env.OPENAGENTS_NO_DEPRECATION_NOTES) {
+      print('note: manual token connection is being retired in favor of device pairing.');
+      print('      Pair once with `agn device connect <code>`, then `agn connect <agent> --workspace <slug>`.');
+      print('      (Silence this note with OPENAGENTS_NO_DEPRECATION_NOTES=1.)');
+    }
 
     // Signal daemon reload
     const pid = connector.getDaemonPid();
@@ -394,6 +520,213 @@ async function cmdConnect(connector, flags, positional) {
     print(`Error: ${e.message}`);
     process.exitCode = 1;
   }
+}
+
+/**
+ * Bind an agent to a workspace already known to this device, by slug or id.
+ * Sources, in order: registered networks (daemon.yaml), then device pairings
+ * (node.json) — a pairing registers its network on the spot so the daemon can
+ * pick up the token. Never touches the server.
+ */
+function connectKnownWorkspace(connector, name, ref, connectionId) {
+  const matches = require('./node-config').listPairings().filter((p) => p.workspace_slug === ref || p.workspace_id === ref);
+  if ((!connectionId && matches.length > 1) || (connectionId && !matches.some((p) => p.node_id === connectionId))) {
+    throw new Error("Choose a device connection with --connection <id>");
+  }
+  const chosen = matches.find((p) => !connectionId || p.node_id === connectionId);
+  const networks = connector.config.getNetworks() || [];
+  let net = networks.find((n) => n.slug === ref || n.id === ref);
+
+  if (!net) {
+    const nodeCfg = require('./node-config');
+    const pairing = (nodeCfg.listPairings() || []).find(
+      (p) => p.workspace_slug === ref || p.workspace_id === ref,
+    );
+    if (pairing && pairing.token) {
+      connector.config.addNetwork({
+        id: pairing.workspace_id,
+        slug: pairing.workspace_slug,
+        name: pairing.workspace_name || pairing.workspace_slug,
+        endpoint: pairing.endpoint || connector.workspace.endpoint,
+        token: pairing.token,
+      });
+      net = { slug: pairing.workspace_slug, name: pairing.workspace_name };
+    }
+  }
+
+  if (!net) {
+    const known = [
+      ...new Set([
+        ...networks.map((n) => n.slug || n.id),
+        ...(() => {
+          try {
+            return require('./node-config').listPairings().map((p) => p.workspace_slug);
+          } catch { return []; }
+        })(),
+      ]),
+    ].filter(Boolean);
+    print(`No workspace '${ref}' is known on this device.`);
+    if (known.length) print(`Known workspaces: ${known.join(', ')}`);
+    print('Pair this device first (`agn device connect <code>`), or connect with a token.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const slug = net.slug || ref;
+  connector.connectWorkspace(name, slug);
+  if (chosen) connector.config.updateAgent(name, { node_id: chosen.node_id });
+  print(`'${name}' connected to workspace '${net.name || slug}'`);
+
+  const pid = connector.getDaemonPid();
+  if (pid) {
+    connector.sendDaemonCommand(`restart:${name}`);
+    print('Daemon notified');
+  } else {
+    print('Daemon is not running. Run `agn up` to bring this agent online.');
+  }
+}
+
+/**
+ * Browser URL of a workspace, matching the TUI's convention: a localhost/dev
+ * endpoint serves its own web app; everything else lives on the hosted
+ * dashboard. This is what a freshly paired user actually needs next — NOT
+ * another CLI command.
+ */
+function workspaceWebUrl(slug, endpoint) {
+  const ep = String(endpoint || '');
+  const isLocal = ep.includes('localhost') || ep.includes('127.0.0.1');
+  return isLocal
+    ? `${ep.replace(/\/+$/, '')}/${slug}`
+    : `https://workspace.openagents.org/${slug}`;
+}
+
+/**
+ * `agn device <connect|status>` — pair this device (formerly "node") to a
+ * workspace. `agn node`, `agn devices` and `agn nodes` are aliases so existing
+ * scripts and older docs keep working; the product wording is "device".
+ */
+async function cmdNode(connector, flags, positional) {
+  const sub = positional[0] || 'status';
+  const nodeCfg = require('./node-config');
+
+  if (sub === 'connect') {
+    const code = positional[1] || flags.code;
+    if (!code) {
+      print('Usage: agn device connect <pairing-code>');
+      print('Get a pairing code from your workspace: Devices → Connect a device.');
+      process.exitCode = 1;
+      return;
+    }
+    let info;
+    try {
+      info = nodeCfg.gatherDeviceInfo();
+    } catch (e) {
+      // Pairing on top of an unreadable node.json would replace the pairings
+      // it holds; stop instead, so nothing is lost while it is sorted out.
+      print(`Could not read ${nodeCfg.NODE_FILE}: ${e.message}`);
+      print('Close anything that may have it open and try again.');
+      process.exitCode = 1;
+      return;
+    }
+    if (flags.type) info.deviceType = flags.type;   // server | laptop | desktop
+    if (flags.name) info.name = flags.name;
+
+    // Existing pairings up front, so a re-run shows where this device already
+    // lives instead of looking like a first-time setup.
+    const priorPairings = nodeCfg.listPairings().filter((p) => p.node_id);
+    if (priorPairings.length) {
+      print('This device is already paired with:');
+      for (const p of priorPairings) {
+        print(`  ${p.workspace_name || p.workspace_slug} — ${workspaceWebUrl(p.workspace_slug || p.workspace_id, p.endpoint)}`);
+      }
+      print('');
+    }
+
+    print('Connecting this device to your workspace...');
+    try {
+      const res = await connector.redeemNodePairingCode(code, info);
+      // A code always redeems against ONE workspace; if that workspace is one
+      // this device already belongs to, this is a re-pair, not a new pairing.
+      // recordPairing below still runs — it refreshes the (possibly rotated)
+      // credential in place — but the user should hear "already paired", not
+      // a duplicate "connected".
+      const alreadyPaired = priorPairings.some(
+        (p) => p.node_id === res.nodeId,
+      );
+      // recordPairing, not saveNode: this device can be a node in several
+      // workspaces at once, and a bare save would drop the others' pairings.
+      // Freeze legacy bindings before another owner adds a connection here.
+      const prior = priorPairings.filter((p) => p.workspace_id === res.workspaceId);
+      if (prior.length === 1) for (const agent of connector.config.getAgents()) {
+        if (!agent.node_id && (agent.network === prior[0].workspace_slug || agent.network === prior[0].workspace_id))
+          connector.config.updateAgent(agent.name, { node_id: prior[0].node_id });
+      }
+      nodeCfg.recordPairing(info.nodeKey, {
+        node_id: res.nodeId,
+        owner_email: res.ownerEmail,
+        workspace_id: res.workspaceId,
+        workspace_slug: res.workspaceSlug,
+        workspace_name: res.workspaceName,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      // Register the workspace locally so agents created on this node can use it.
+      connector.config.addNetwork({
+        id: res.workspaceId,
+        slug: res.workspaceSlug,
+        name: res.workspaceName,
+        endpoint: connector.workspace.endpoint,
+        token: res.token,
+      });
+      if (alreadyPaired) {
+        print(`Already paired with '${res.workspaceName}' (${res.workspaceSlug}) — refreshed this device's credential.`);
+      } else {
+        print(`Device connected to workspace '${res.workspaceName}' (${res.workspaceSlug})`);
+      }
+      print(`  This device: ${info.hostname} (${info.deviceType})`);
+
+      // (Re)start the daemon so it runs the CURRENT launcher build and loads
+      // the new node identity. A daemon started before the connect-a-node
+      // feature has no node-heartbeat loop, so reusing it would leave the node
+      // showing offline — recycle it rather than reuse it.
+      if (connector.getDaemonPid()) {
+        print('  Restarting daemon...');
+        connector.stopDaemon();
+        for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      } else {
+        print('  Starting daemon...');
+      }
+      connector.startDaemon();
+      print('');
+      // The user came from the workspace's "Connect a Node" page — send them
+      // straight back there with a clickable link, not more CLI homework.
+      print('All set! Open your workspace to add and manage agents on this device:');
+      print(`  ${workspaceWebUrl(res.workspaceSlug, connector.workspace.endpoint)}`);
+    } catch (e) {
+      print(`Error: ${e.message}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (sub === 'status') {
+    const pairings = nodeCfg.listPairings().filter((p) => p.node_id);
+    if (!pairings.length) {
+      print('No device connected. Run: agn device connect <pairing-code>');
+      return;
+    }
+    print(`Device connected to ${pairings.length} workspace(s):`);
+    for (const p of pairings) {
+      const slug = p.workspace_slug || p.workspace_id;
+      print(`  ${p.workspace_name || slug} (${slug}) — ${workspaceWebUrl(slug, p.endpoint)}`);
+    }
+    return;
+  }
+
+  print('Usage: agn device <connect|status> [pairing-code]   (alias: agn node)');
+  process.exitCode = 1;
 }
 
 async function cmdDisconnect(connector, _flags, positional) {
@@ -700,12 +1033,87 @@ async function cmdTestLLM(connector, _flags, positional) {
   }
 }
 
+async function cmdProbe(connector, flags, positional) {
+  const target = positional[0];
+  if (!target) { print('Usage: agn probe <type|agent> [--json]'); return; }
+
+  // Accept an agent name — probe its type on that agent's own env, so a
+  // signed-in agent is tested on its sign-in rather than the type's key.
+  let type = target;
+  let agentEnv;
+  try {
+    const agent = connector.config.getAgent(target);
+    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+  } catch {}
+
+  const result = await connector.probeAgentType(type, { agentEnv });
+
+  if (flags && flags.json) {
+    // Machine consumers (the daemon's probe_agent node command) read ONLY
+    // stdout JSON — same contract as `agn runtimes --json`.
+    process.stdout.write(JSON.stringify(result));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (result.ok) {
+    print(`OK (${result.method}, ${result.durationMs}ms)${result.reply ? ` — ${result.reply}` : ''}`);
+    if (result.code === 'static_only') print(result.message);
+  } else if (result.ok === null) {
+    // Nothing could be run and the sign-in could not be checked either.
+    print(`UNVERIFIED ${result.message || ''}`.trim());
+    process.exitCode = 1;
+  } else {
+    print(`FAILED [${result.code}] ${result.message || ''}`.trim());
+    for (const line of result.guidance || []) print(`  → ${line}`);
+    process.exitCode = 1;
+  }
+}
+
+async function cmdModels(connector, flags, positional) {
+  const target = positional[0];
+  if (!target) { print('Usage: agn models <type|agent> [--json] [--sign-in]'); return; }
+
+  // Accept an agent name, as `agn probe` does: its CLI is asked on that
+  // agent's own env, so a signed-in agent answers for its sign-in.
+  // --sign-in: the target is a type, asked on the device's own sign-in with
+  // no key at all, as an agent added with "sign in on the device" runs. Not
+  // looked up as an agent: the first agent of a type is often named after it.
+  let type = target;
+  let agentEnv;
+  if (flags && flags['sign-in']) {
+    agentEnv = { [AUTH_MODE_KEY]: CLI_LOGIN };
+  } else {
+    try {
+      const agent = connector.config.getAgent(target);
+      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+    } catch {}
+  }
+
+  const result = await connector.listCliModels(type, { agentEnv });
+
+  if (flags && flags.json) {
+    // Machine consumers (the daemon's model sweep) read ONLY stdout JSON —
+    // same contract as `agn probe --json`.
+    process.stdout.write(JSON.stringify(result));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (!result.ok) {
+    print(`FAILED ${result.error || ''}`.trim());
+    process.exitCode = 1;
+    return;
+  }
+  for (const m of result.models) print(m.label === m.id ? m.id : `${m.id}  ${m.label}`);
+}
+
 async function cmdVersion() {
   const pkg = require('../package.json');
   print(`${pkg.name} v${pkg.version}`);
 }
 
-async function cmdUpdate() {
+async function cmdUpdate(connector) {
   const { checkForUpdate, runUpdate, currentVersion } = require('./update-check');
   const info = await checkForUpdate();
   if (!info) {
@@ -725,9 +1133,27 @@ async function cmdUpdate() {
     return;
   }
   print(`Updated to ${info.latest}.`);
+
+  // Recycle a running daemon so the new build takes effect immediately. Without
+  // this, a long-lived daemon keeps executing the OLD in-memory code (and misses
+  // new features) until the next manual restart or reboot — the failure mode
+  // that left a connected node showing offline after its launcher was upgraded.
+  try {
+    if (connector && connector.getDaemonPid()) {
+      print('Restarting daemon to apply the update...');
+      connector.stopDaemon();
+      for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      connector.startDaemon();
+    }
+  } catch (e) {
+    print(`Note: could not restart the daemon automatically (${e.message}). Run 'agn restart'.`);
+  }
 }
 
 async function cmdHelp() {
+  printBanner();
   print(`Usage: agn <command> [options]
 
 Commands:
@@ -744,13 +1170,18 @@ Commands:
   uninstall <type>            Uninstall an agent runtime
   search [query]              Browse agent catalog
   runtimes                    List installed runtimes
-  connect <agent> <token>     Connect agent to workspace
+  device connect <code>       Pair this device (formerly "node") to a workspace with a pairing code
+  device status               Show the workspaces this device is paired with (alias: node)
+  connect <agent> <token>     Connect agent to workspace (or --workspace <slug> for a paired one)
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
   skills [agent] [action]     Manage agent skills (enable/disable)
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
+  probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
+  models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
+                              (--sign-in: a type, on the device's own sign-in)
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token
@@ -828,8 +1259,12 @@ async function main() {
     install: () => cmdInstall(connector, flags, positional),
     uninstall: () => cmdUninstall(connector, flags, positional),
     search: () => cmdSearch(connector, flags, positional),
-    runtimes: () => cmdRuntimes(connector),
+    runtimes: () => cmdRuntimes(connector, flags),
     connect: () => cmdConnect(connector, flags, positional),
+    device: () => cmdNode(connector, flags, positional),
+    devices: () => cmdNode(connector, flags, positional),
+    node: () => cmdNode(connector, flags, positional),     // legacy spelling
+    nodes: () => cmdNode(connector, flags, positional),    // legacy spelling
     disconnect: () => cmdDisconnect(connector, flags, positional),
     logs: () => cmdLogs(connector, flags, positional),
     autostart: () => cmdAutostart(connector, flags),
@@ -838,7 +1273,9 @@ async function main() {
     skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
-    update: () => cmdUpdate(),
+    probe: () => cmdProbe(connector, flags, positional),
+    models: () => cmdModels(connector, flags, positional),
+    update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
       const workspaceId = flags['workspace-id'] || process.env.OPENAGENTS_WORKSPACE_ID;
@@ -854,6 +1291,10 @@ async function main() {
       const disabledModules = new Set();
       if (flags['disable-files']) disabledModules.add('files');
       if (flags['disable-browser']) disabledModules.add('browser');
+      // Without this the server still registers the knowledge tools, and in
+      // execute mode --dangerously-skip-permissions makes the allowlist a
+      // suggestion, not a boundary.
+      if (flags['disable-knowledge']) disabledModules.add('knowledge');
       runMcpServer({ workspaceId, channelName, agentName, endpoint, token, disabledModules });
     },
   };

@@ -10,6 +10,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from openagents.client.cli_shared import app, console
 

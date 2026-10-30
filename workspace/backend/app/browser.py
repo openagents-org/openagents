@@ -75,6 +75,15 @@ async def guard_browser_url(url: Optional[str]) -> str:
     return url
 
 
+class BrowserReactivationError(RuntimeError):
+    """Safe recovery diagnostics; never include provider payloads or credentials."""
+
+    def __init__(self, code: str, stage: str):
+        self.code = code
+        self.stage = stage
+        super().__init__(code)
+
+
 class BrowserNavigationError(RuntimeError):
     """Navigation failure with a machine-readable code the agent can act on."""
 
@@ -224,13 +233,28 @@ class BrowserManager:
     # ------------------------------------------------------------------
 
     async def _prune_dead_sessions(self) -> int:
-        """Remove BF sessions that are no longer alive. Returns number pruned."""
-        if not self.is_cloud or not self._sessions:
+        """Remove BF sessions that are no longer alive. Returns number pruned.
+
+        Gated on having sessions to check — NOT on the global env key. With
+        per-workspace keys there is usually no global key at all, and gating
+        on it silently disabled pruning so zombie entries piled up until
+        `MAX_BROWSER_TABS` rejected every new tab (2026-09-29 incident).
+        """
+        if not self._sessions:
             return 0
         dead: list[str] = []
         for tab_id, session_id in list(self._sessions.items()):
+            key = self._key_for_tab(tab_id)
+            if not key:
+                # No credential left for this session (restart wiped the
+                # per-tab cache and there is no global fallback): we can
+                # neither drive nor verify it, so it only occupies a slot.
+                dead.append(tab_id)
+                continue
             try:
-                await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                # probe=True: metadata only -- never counts as activity on BF
+                # and never wakes a hibernated (idle-suspended) tab.
+                await self._bf_call("get_page_info", {"probe": True}, session_id, api_key=key, tab_id=tab_id)
             except Exception:
                 dead.append(tab_id)
         for tab_id in dead:
@@ -240,28 +264,29 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
-        """Create a new browser tab. Returns {url, title}.
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = True) -> dict:
+        """Create a tab and return its display state and immutable session identity.
+
+        Shared cloud tabs always persist. The legacy persist argument is
+        accepted for older callers but cannot disable saving. BrowserFabric
+        controls awake-session capacity and idle hibernation.
 
         Raises UnsafeURLError if `url` is not a public http(s) target.
         """
         url = await guard_browser_url(url)
         if api_key:
             self._tab_keys[tab_id] = api_key
-        async with self._global_lock:
-            active_count = self.active_tab_count()
-            if active_count >= MAX_BROWSER_TABS:
-                if self.is_cloud_for(api_key):
-                    await self._prune_dead_sessions()
-                    active_count = len(self._sessions)
-                if active_count >= MAX_BROWSER_TABS:
+        # Cloud capacity is enforced by BrowserFabric and counts awake sessions.
+        # A process-local count includes sleeping saved tabs and other workspaces.
+        if not self.is_cloud_for(api_key):
+            async with self._global_lock:
+                if len(self._pages) >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
         if self.is_cloud_for(api_key):
-            args: dict = {"headless": True}
+            args: dict = {"persist": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
-                args["persist"] = True
 
             try:
                 result = await self._bf_call("create_session", args, tab_id=tab_id)
@@ -294,7 +319,12 @@ class BrowserManager:
                                tab_id, redact(str(e), key_used))
                 warnings.append(f"page_info_failed: {redact(str(e), key_used)}")
                 page_info = {}
-            return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "warnings": warnings}
+            # Validation may adopt the old DB mapping while initialization
+            # awaits provider I/O. Never make callers recover this newly created
+            # identity from that mutable worker cache.
+            return {"url": page_info.get("url", url), "title": page_info.get("title", ""),
+                    "warnings": warnings, "session_id": session_id,
+                    "live_url": session_data.get("share_url")}
         else:
             # Local mode
             async with self._global_lock:
@@ -401,6 +431,25 @@ class BrowserManager:
                 result = await page.evaluate(expression)
                 return {"result": result}
 
+    async def human_input(self, tab_id: str, command: dict) -> dict:
+        """Forward a gesture on a scaled screenshot to the same local page."""
+        page = self._get_page(tab_id)
+        async with self._get_lock(tab_id):
+            kind = command['kind']
+            if kind == 'click':
+                viewport = page.viewport_size
+                if not viewport:
+                    viewport = await page.evaluate('({width: innerWidth, height: innerHeight})')
+                await page.mouse.click(min(command['x'] * viewport['width'], viewport['width'] - 1),
+                                       min(command['y'] * viewport['height'], viewport['height'] - 1))
+            elif kind == 'text':
+                await page.keyboard.insert_text(command['text'])
+            elif kind == 'key':
+                await page.keyboard.press(command['key'])
+            elif kind == 'scroll':
+                await page.mouse.wheel(command['delta_x'], command['delta_y'])
+            return {'url': page.url, 'title': await page.title()}
+
     async def screenshot(self, tab_id: str) -> bytes:
         """Take a PNG screenshot of the tab."""
         if self._is_cloud_tab(tab_id):
@@ -454,11 +503,15 @@ class BrowserManager:
         required for cross-restart closes where the in-memory `_tab_keys`
         mapping is gone.
         """
-        session_id = self._sessions.pop(tab_id, None) or session_id_hint
-        tab_key = api_key or self._tab_keys.pop(tab_id, None)
-        if api_key:
+        # A caller holding the authoritative tab row names the exact session
+        # to release. Never substitute a different cached session.
+        cached_session = self._sessions.get(tab_id)
+        session_id = session_id_hint or cached_session
+        tab_key = api_key or self._tab_keys.get(tab_id)
+        if cached_session == session_id or not cached_session:
+            self._sessions.pop(tab_id, None)
             self._tab_keys.pop(tab_id, None)
-        self._live_urls.pop(tab_id, None)
+            self._live_urls.pop(tab_id, None)
         if session_id and self.is_cloud_for(tab_key):
             try:
                 await self._bf_call("close_session", {}, session_id, api_key=tab_key)
@@ -507,7 +560,7 @@ class BrowserManager:
             raise BrowserNavigationError("NAVIGATION_FAILED", "No URL to render")
         if self.is_cloud_for(api_key):
             key = api_key or BROWSERFABRIC_API_KEY
-            result = await self._bf_call("create_session", {"headless": True}, api_key=key)
+            result = await self._bf_call("create_session", {"persist": True}, api_key=key)
             session_id = result["result"]["session_id"]
             try:
                 try:
@@ -548,7 +601,7 @@ class BrowserManager:
                 try:
                     await self._bf_call("close_session", {}, session_id, api_key=key)
                 except Exception as e:
-                    logger.warning("Failed to close ephemeral BF session %s: %s", session_id, e)
+                    logger.warning("Failed to close fetch BF session %s: %s", session_id, e)
         else:
             async with self._global_lock:
                 await self._ensure_local_browser()
@@ -606,8 +659,16 @@ class BrowserManager:
                     pass
 
     async def shutdown(self) -> None:
-        """Close all tabs and the browser."""
-        for tab_id in list(self._sessions.keys()) + list(self._pages.keys()):
+        """Release this worker's resources without closing shared cloud sessions.
+
+        Cloud mappings are only a cache: other workers and live viewers still
+        use those sessions. Worker recycling/deployment must not send remote
+        close calls. Explicit tab closure and orphan maintenance own that work.
+        """
+        self._sessions.clear()
+        self._live_urls.clear()
+        self._tab_keys.clear()
+        for tab_id in list(self._pages.keys()):
             await self.close_tab(tab_id)
         if self._browser:
             try:
@@ -640,12 +701,16 @@ class BrowserManager:
         fall back to the global key). The next operation will use it to
         call the BF API.
         """
+        if not session_id:
+            raise KeyError(f"No saved session for tab: {tab_id}")
         if not self.is_cloud_for(api_key):
             raise KeyError(f"Cannot reconnect to local tab: {tab_id}")
         if api_key:
             self._tab_keys[tab_id] = api_key
-        if tab_id in self._sessions:
-            return
+        # The database mapping wins over this worker's cache. Another worker
+        # may have explicitly replaced the session since our last request.
+        if self._sessions.get(tab_id) != session_id:
+            self._live_urls.pop(tab_id, None)
         self._sessions[tab_id] = session_id
 
     # ------------------------------------------------------------------
@@ -665,19 +730,29 @@ class BrowserManager:
                 session_id,
                 tab_id=tab_id,
             )
-            return result.get("result", {}).get("context_id", str(__import__("uuid").uuid4()))
+            context_id = result.get("result", {}).get("context_id")
+            if not isinstance(context_id, str) or not context_id:
+                raise RuntimeError("BrowserFabric did not confirm a saved context")
+            return context_id
         import uuid
         return str(uuid.uuid4())
 
-    def delete_bb_context(self, bb_context_id: str) -> None:
-        """Delete a persistent context (fire-and-forget)."""
-        if not self.is_cloud:
+    def delete_bb_context(self, bb_context_id: str, api_key: str = None) -> None:
+        """Delete a persistent context on BF (fire-and-forget).
+
+        `api_key` is the key of the workspace that owns the context; BF
+        contexts are scoped per key, so the global env key (if any) can only
+        delete contexts that were created with it.
+        """
+        key = api_key or BROWSERFABRIC_API_KEY
+        if not key:
+            logger.warning("No BF key available to delete context %s — skipping (will leak on BF)", bb_context_id)
             return
         try:
             with httpx.Client(timeout=10.0) as client:
                 client.delete(
                     f"{BROWSERFABRIC_URL}/api/v1/contexts/{bb_context_id}",
-                    headers={"Authorization": f"Bearer {BROWSERFABRIC_API_KEY}"},
+                    headers={"Authorization": f"Bearer {key}"},
                 )
         except Exception as e:
             logger.warning("Failed to delete BF context %s: %s", bb_context_id, e)
@@ -716,9 +791,12 @@ class BrowserManager:
         if self._is_cloud_tab(tab_id):
             session_id = self._sessions[tab_id]
             try:
-                info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                # probe=True: this is polled by the tab list; it must not count
+                # as activity on BF nor wake a hibernated tab.
+                info = await self._bf_call("get_page_info", {"probe": True}, session_id, tab_id=tab_id)
                 page_info = info.get("result", {})
-                return {"url": page_info.get("url", ""), "title": page_info.get("title", "")}
+                return {"url": page_info.get("url", ""), "title": page_info.get("title", ""),
+                        "hibernated": bool(page_info.get("hibernated"))}
             except Exception:
                 return None
         else:
@@ -731,6 +809,83 @@ class BrowserManager:
                 return {"url": url, "title": title}
             except Exception:
                 return None
+
+    async def reactivate_tab(self, tab_id: str) -> dict:
+        """Wake the same cloud session and refresh its share link, without closing it.
+
+        Unlike polling, get_page_info without probe=True is an explicit user
+        action: BrowserFabric wakes hibernated sessions before running it.
+        Any failure leaves the existing session and saved context untouched.
+        """
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            raise RuntimeError("Browser session is unavailable")
+        try:
+            info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+        except Exception as exc:
+            # This means inaccessible, not permanently dead. Never use this
+            # text to authorize replacement or discard the saved mapping.
+            code = ("SESSION_UNAVAILABLE" if str(exc) ==
+                    "Browser Fabric error: No active session. Create a session first."
+                    else "WAKE_FAILED")
+            raise BrowserReactivationError(code, "wake") from exc
+        page = info.get("result", {})
+        if page.get("hibernated") or page.get("error"):
+            raise BrowserReactivationError("WAKE_FAILED", "wake")
+        try:
+            listing = await self._bf_call("list_sessions", tab_id=tab_id)
+        except Exception as exc:
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view") from exc
+        session = next((item for item in listing.get("result", {}).get("sessions", [])
+                        if item.get("session_id") == session_id), None)
+        if not session or not session.get("share_url"):
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view")
+        self._live_urls[tab_id] = session["share_url"]
+        return page
+
+    async def probe_session(self, tab_id: str, api_key: str = None) -> dict:
+        """Classify a session's liveness without tearing it down on a hiccup.
+
+        Returns {"status": "alive"|"dead"|"unknown", "url", "title"}.
+          - alive:   Browser Fabric returned page info.
+          - dead:    no local page/mapping exists; do not silently replace it.
+          - unknown: provider failure without a structured lifecycle verdict.
+                     Keep the existing session and offer a retry; text errors
+                     and HTTP 404 do not establish permanent session death.
+        """
+        if not self._is_cloud_tab(tab_id):
+            page = self._pages.get(tab_id)
+            if not page:
+                return {"status": "dead"}
+            try:
+                return {"status": "alive", "url": page.url, "title": await page.title()}
+            except Exception:
+                return {"status": "unknown"}
+
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            return {"status": "dead"}
+        try:
+            # probe=True: liveness check only. BF answers from cached metadata
+            # for a hibernated tab (hibernated=True) instead of waking it; a
+            # sleeping tab is alive -- it wakes on the next real action.
+            info = await self._bf_call("get_page_info", {"probe": True}, session_id, api_key=api_key, tab_id=tab_id)
+            page_info = info.get("result", {})
+            return {"status": "alive", "url": page_info.get("url", ""), "title": page_info.get("title", ""),
+                    "hibernated": bool(page_info.get("hibernated"))}
+        except httpx.TimeoutException:
+            return {"status": "unknown"}
+        except httpx.HTTPStatusError:
+            # The call endpoint's 404 is not a structured permanent-session
+            # verdict (it may be routing/registry state). Keep the mapping.
+            return {"status": "unknown"}
+        except RuntimeError:
+            # Provider text such as "No active session" does not distinguish
+            # permanent deletion from a temporarily inaccessible registry.
+            # Only a future structured lifecycle contract can establish death.
+            return {"status": "unknown"}
+        except Exception:
+            return {"status": "unknown"}
 
     def active_tab_count(self) -> int:
         return len(self._sessions) + len(self._pages)
