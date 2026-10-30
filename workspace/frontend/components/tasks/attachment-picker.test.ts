@@ -98,5 +98,6 @@ it('cancels one upload without touching the others and rejects oversized files u
   expect(host.textContent).toContain('b.txt');
   await act(async () => root.unmount());
   expect(signals[1].aborted).toBe(true);
+  expect(uploading.mock.calls.map(call => call[0])).toEqual([true, false]);
   root = createRoot(host);
 });

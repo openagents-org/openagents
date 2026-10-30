@@ -365,6 +365,39 @@ it('clears a saved comment and reports delivery failure without inviting a dupli
   expect(host.textContent).toContain('Comment saved; delivery failed');
 });
 
+it('can save again after closing the editor mid-upload', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(button('New issue'));
+  mocks.api.uploadFile.mockImplementationOnce(() => new Promise(() => {}));
+  const input = host.querySelector('input[type="file"]')!;
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['clip'], 'clip.mp4', { type: 'video/mp4' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(button('Cancel'));
+  await click(button('New issue'));
+  await fill(host.querySelector('input[required]')!, 'Retry later');
+  expect(button('Create issue').disabled).toBe(false);
+});
+
+it('keeps issue signals unread while the tab is in the background and reads them on return', async () => {
+  const markChannelSignalsRead = vi.fn();
+  const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+  Object.assign(mocks.ws, { unreadSignals: { 'issue:issue-1': { mentions: 1, dms: 0, latest: {} } }, markChannelSignalsRead });
+  try {
+    await openIssue();
+    expect(markChannelSignalsRead).not.toHaveBeenCalled();
+    hasFocus.mockReturnValue(true);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(markChannelSignalsRead).toHaveBeenCalledWith('issue:issue-1');
+  } finally {
+    hasFocus.mockRestore();
+    Object.assign(mocks.ws, { unreadSignals: undefined, markChannelSignalsRead: undefined });
+  }
+});
+
 it('adds a usable shared agent the comment mentions before posting, but not one the viewer cannot use', async () => {
   mocks.ws.agents = [
     { agentName: 'shared-agent', displayName: 'Shared agent', ownerEmail: 'bob@example.com', status: 'online', canStartThread: true },

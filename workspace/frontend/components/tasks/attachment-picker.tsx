@@ -102,11 +102,18 @@ export function AttachmentPicker({
   });
 
   const uploadingRef = useRef(false);
+  const onUploadingChangeRef = useRef(onUploadingChange);
+  onUploadingChangeRef.current = onUploadingChange;
   useEffect(() => {
     if (uploadingRef.current === uploads.uploading) return;
     uploadingRef.current = uploads.uploading;
-    onUploadingChange?.(uploads.uploading);
-  }, [uploads.uploading, onUploadingChange]);
+    onUploadingChangeRef.current?.(uploads.uploading);
+  }, [uploads.uploading]);
+  // Unmounting aborts in-flight uploads; tell the parent they are over, or a
+  // reopened form would stay blocked on an upload that no longer exists.
+  useEffect(() => () => {
+    if (uploadingRef.current) onUploadingChangeRef.current?.(false);
+  }, []);
 
   const resolve = (id: string): WorkspaceFile | undefined =>
     uploaded.find((f) => f.id === id) ?? files.find((f) => f.id === id);

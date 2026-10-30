@@ -52,6 +52,7 @@ export function IssueEditor({
       setChannel('');
       setAssignee(issue?.assignee ?? '');
       setFileIds(issue?.file_ids ?? []);
+      setUploading(false);
       setError('');
     }
   }, [open, issue?.id]);

@@ -78,8 +78,22 @@ export function IssueDiscussion({
   const { currentUser, sessions, refreshAgents, workspace, agents, unreadSignals, markChannelSignalsRead } = useWorkspace();
   const signalChannel = issueSignalChannel(id);
   const hasUnreadMention = !!unreadSignals?.[signalChannel];
+  // Signals arriving while the tab is hidden or unfocused stay unread until the
+  // person comes back to the issue.
   useEffect(() => {
-    if (hasUnreadMention) markChannelSignalsRead(signalChannel);
+    if (!hasUnreadMention) return;
+    const attentive = () => document.visibilityState === 'visible' && document.hasFocus();
+    if (attentive()) {
+      markChannelSignalsRead(signalChannel);
+      return;
+    }
+    const onReturn = () => { if (attentive()) markChannelSignalsRead(signalChannel); };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
   }, [hasUnreadMention, signalChannel, markChannelSignalsRead]);
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
