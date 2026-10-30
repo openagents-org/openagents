@@ -19,6 +19,7 @@ import {
 } from "./codebuddy-signin"
 import {
   MIMO_AUTH_FILE,
+  MIMO_AUTH_HOME_PATH,
   MIMO_AUTH_XDG_PATH,
   mimoHasXiaomiSignIn,
 } from "./mimo-signin"
@@ -391,7 +392,15 @@ export interface HostedLoginSpec {
   // `xdgDataPath` is for a CLI that keeps the file in the XDG data directory
   // and follows XDG_DATA_HOME when it is set (MiMo Code): the file is then
   // looked for there, under that relative path, and `path` is the default.
-  credsFiles?: Array<{ path: string; key?: string; xdgDataPath?: string }>
+  //
+  // `homeEnv` names a CLI home variable that overrides both, with `path` then
+  // relative to it (MiMo Code: $MIMOCODE_HOME/data/auth.json).
+  credsFiles?: Array<{
+    path: string
+    key?: string
+    xdgDataPath?: string
+    homeEnv?: { name: string; path: string }
+  }>
   /**
    * An extra condition on a creds file that was found and parsed, for a CLI
    * that keeps ONE session covering several services. CodeBuddy is the case:
@@ -768,7 +777,14 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     // already optional, which leaves the key as the alternative.
     loginCommand: "mimo providers login -p xiaomi",
     statusArgs: [],
-    credsFiles: [{ path: MIMO_AUTH_FILE, key: "xiaomi", xdgDataPath: MIMO_AUTH_XDG_PATH }],
+    credsFiles: [
+      {
+        path: MIMO_AUTH_FILE,
+        key: "xiaomi",
+        xdgDataPath: MIMO_AUTH_XDG_PATH,
+        homeEnv: { name: "MIMOCODE_HOME", path: MIMO_AUTH_HOME_PATH },
+      },
+    ],
     credsGuard: mimoHasXiaomiSignIn,
   },
   cline: {

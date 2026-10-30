@@ -433,8 +433,8 @@ class OpenCodeAdapter extends BaseAdapter {
         return;
       }
       const category = (e && e.category) ? e.category : this._classifyErrno(e);
-      const diagnostic = OpenCodeAdapter._redact((e && (e.diagnostic || e.message)) || '');
-      this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`);
+      const diagnostic = this._redact((e && (e.diagnostic || e.message)) || '');
+      this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`, 'error');
       await this._sendClassifiedError(msgChannel, category, e && e.detail);
     }
   }
@@ -984,7 +984,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
         if (code !== 0) {
           const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          this._log(`opencode exited code ${code} → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
+          this._log(`opencode exited code ${code} → [${cls.category}]: ${this._redact(cls.diagnostic).slice(0, 300)}`);
           return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
         }
 
@@ -993,7 +993,7 @@ class OpenCodeAdapter extends BaseAdapter {
         const outcome = this.constructor._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
         if (outcome.text) return finish(resolve, outcome.text);
         const f = outcome.failure;
-        this._log(`opencode exit 0 → [${f.category}]: ${OpenCodeAdapter._redact(f.diagnostic).slice(0, 300)}`);
+        this._log(`opencode exit 0 → [${f.category}]: ${this._redact(f.diagnostic).slice(0, 300)}`);
         return finish(reject, this._failure(f.category, f.diagnostic, f.detail));
       });
     });
@@ -1235,7 +1235,9 @@ class OpenCodeAdapter extends BaseAdapter {
     if (this._isMuted(channel)) return;
     const messages = this._failureMessages();
     const base = messages[category] || messages.unknown_error;
-    const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
+    // The instance redaction: this agent's own secrets by value (whatever their
+    // format), then the credential shapes the static pass already took.
+    const safe = detail ? this._redact(detail).trim() : '';
     const body = safe ? `${base}\n\n> ${safe}` : base;
     const label = this._cliLabel();
     const headline = category === 'incomplete_run' ? `${label} stopped mid-task` : `${label} couldn't run`;

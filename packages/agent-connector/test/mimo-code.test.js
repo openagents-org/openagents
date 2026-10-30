@@ -232,8 +232,68 @@ describe('MiMo Code — where a run goes', () => {
     assert.equal(MiMoCodeAdapter._classifyVersion('0.1.13'), 'unsupported');
     assert.equal(MiMoCodeAdapter._classifyVersion('0.1.14'), 'ok');
     assert.equal(MiMoCodeAdapter._classifyVersion('0.1.15'), 'ok');
+    assert.equal(MiMoCodeAdapter._classifyVersion('0.1.16'), 'ok');
+    assert.equal(MiMoCodeAdapter._classifyVersion('0.1.17'), 'degraded');
     assert.equal(MiMoCodeAdapter._classifyVersion('0.2.0'), 'degraded');
     assert.equal(MiMoCodeAdapter._classifyVersion('dev'), 'unknown');
+  });
+});
+
+describe('MiMo Code — before a run', () => {
+  it('reports runtime_missing at preflight when `mimo` is not installed', () => {
+    const adapter = makeAdapter(KEY);
+    adapter._opencodeBinary = null;
+    adapter._findOpencodeBinary = () => null;
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'runtime_missing');
+    assert.match(pf.message, /mimo/);
+
+    adapter._findOpencodeBinary = () => '/opt/mimo/bin/mimo';
+    assert.deepEqual(adapter.preflight(), { ok: true });
+    assert.equal(adapter._opencodeBinary, '/opt/mimo/bin/mimo');
+  });
+
+  it('reads $MIMOCODE_HOME/data/auth.json when MIMOCODE_HOME is set, as the CLI does', () => {
+    const mimoHome = path.join(home, 'mimo-home');
+    assert.equal(MiMoCodeAdapter._authFilePath({ MIMOCODE_HOME: mimoHome, XDG_DATA_HOME: path.join(home, 'xdg') }, home),
+      path.join(mimoHome, 'data', 'auth.json'));
+    fs.mkdirSync(path.join(mimoHome, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(mimoHome, 'data', 'auth.json'), JSON.stringify({ xiaomi: { type: 'api', key: 'k-home' } }));
+    assert.equal(makeAdapter({ MIMOCODE_HOME: mimoHome })._credentialState(), 'present');
+    assert.equal(makeAdapter({})._credentialState(), 'missing');
+
+    const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'registry.json'), 'utf-8'));
+    const entry = (registry.agents || registry).find((a) => a.name === 'mimo-code');
+    const { Installer } = require('../src/installer');
+    const inst = new Installer({ getEntry: () => null, getResolveRules: () => [] }, home);
+    inst._whichBinary = () => null;
+    assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code', { MIMOCODE_HOME: mimoHome }), true);
+    assert.equal(inst._checkCredsReady(entry.check_ready, 'mimo-code', { MIMOCODE_HOME: path.join(home, 'none') }), false);
+  });
+
+  it("masks the sign-in key from auth.json in a failure notice, whatever its shape", async () => {
+    // Not sk-shaped, too short and not hex: no pattern rule knows it.
+    const signInKey = 'mimo-cli-key-ABCdef123';
+    const OpenCodeAdapter = require('../src/adapters/opencode');
+    assert.ok(OpenCodeAdapter._redact(`x ${signInKey}`).includes(signInKey), 'the pattern rules alone miss it');
+
+    const auth = MiMoCodeAdapter._authFilePath({}, home);
+    fs.mkdirSync(path.dirname(auth), { recursive: true });
+    fs.writeFileSync(auth, JSON.stringify({ xiaomi: { type: 'api', key: signInKey } }));
+    const adapter = makeAdapter({});
+    const sent = [];
+    adapter.client = { sendMessage: async (_ws, _ch, _tok, content) => { sent.push(content); } };
+    await adapter._sendClassifiedError('thread', 'credential_invalid', `401 Unauthorized for ${signInKey} at api.xiaomimimo.com`);
+    assert.equal(sent.length, 1);
+    assert.ok(!sent[0].includes(signInKey), sent[0]);
+    assert.match(sent[0], /\[REDACTED\]/);
+
+    // A configured key of the same kind, too.
+    const keyed = makeAdapter({ LLM_API_KEY: 'plain-key-XYZ789' });
+    keyed.client = adapter.client;
+    await keyed._sendClassifiedError('thread', 'credential_invalid', 'rejected plain-key-XYZ789');
+    assert.ok(!sent[1].includes('plain-key-XYZ789'), sent[1]);
   });
 });
 
@@ -471,6 +531,11 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') { console.log('0.1.15'); process.exit(0); }
+if (argv[0] === 'models') {
+  if (process.env.FAKE_MODELS === 'hang') { setInterval(() => {}, 1000); return; }
+  console.log('xiaomi/mimo-v2.6-pro — window 1.05M, compacts at 944K');
+  process.exit(0);
+}
 const at = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };
 let input = '';
 process.stdin.on('data', (d) => { input += d; });
@@ -571,5 +636,22 @@ describe('MiMo Code — a run against the CLI', { skip: IS_WINDOWS && 'the stand
       try { process.kill(child, 0); await new Promise((r) => setTimeout(r, 50)); } catch { alive = false; }
     }
     assert.equal(alive, false, 'the command outside the CLI process group was ended');
+  });
+
+  it('a Stop during the model lookup ends it and starts no run', { timeout: 20000 }, async () => {
+    const { adapter, calls } = cliAdapter({ LLM_MODEL: '', FAKE_MODELS: 'hang' });
+    // As a real turn does: the stop is measured against the turn's start.
+    adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
+    const run = adapter._runOpencode('hi', 'thread');
+    for (let i = 0; i < 100 && !adapter._modelLookups.has('thread'); i++) await new Promise((r) => setTimeout(r, 20));
+    const lookup = adapter._modelLookups.get('thread');
+    assert.ok(lookup, 'the lookup is running');
+
+    const started = Date.now();
+    await adapter._onControlAction('stop', { channel: 'thread' });
+    assert.equal(await run, '');
+    assert.ok(Date.now() - started < 10000, 'not held for the lookup timeout');
+    assert.ok(lookup.signalCode || lookup.exitCode !== null, 'the lookup process was ended');
+    assert.equal(calls().length, 0, 'no run was started');
   });
 });

@@ -1111,18 +1111,30 @@ class Installer {
    * the XDG data directory (MiMo Code's auth.json) follows XDG_DATA_HOME when
    * it is set, so `creds_xdg_data_file` names the file under it and
    * `creds_file` stays the default — which is also all an older core reads.
-   * The agent's own setting (`savedEnv`, what the CLI is spawned with) comes
-   * before the daemon's. Not for a WSL install: the variable here is this
+   * `creds_home_env` + `creds_home_env_file` name a CLI home variable that
+   * overrides both. The agent's own setting (`savedEnv`, what the CLI is
+   * spawned with) comes before the daemon's. Not for a WSL install: the variable here is this
    * side's, not the distro's.
    */
   _credsFilePath(checkReady, agentType, savedEnv = null) {
+    const fromEnv = (name) => String((savedEnv && savedEnv[name]) || process.env[name] || '').trim();
+    let wsl = null;
+    const isWsl = () => {
+      if (wsl === null) {
+        wsl = false;
+        try { wsl = !!agentType && isWslBinary(this._whichBinary(agentType)); } catch { /* best-effort */ }
+      }
+      return wsl;
+    };
+    // A CLI home named by its own variable comes first (MiMo Code reads
+    // $MIMOCODE_HOME/data/auth.json when MIMOCODE_HOME is set).
+    const homeVar = checkReady.creds_home_env;
+    const homeRel = checkReady.creds_home_env_file;
+    const cliHome = homeVar && homeRel ? fromEnv(homeVar) : '';
+    if (cliHome && path.isAbsolute(cliHome) && !isWsl()) return path.join(cliHome, homeRel);
     const rel = checkReady.creds_xdg_data_file;
-    const dataHome = String((savedEnv && savedEnv.XDG_DATA_HOME) || process.env.XDG_DATA_HOME || '').trim();
-    if (rel && dataHome && path.isAbsolute(dataHome)) {
-      let wsl = false;
-      try { wsl = !!agentType && isWslBinary(this._whichBinary(agentType)); } catch { /* best-effort */ }
-      if (!wsl) return path.join(dataHome, rel);
-    }
+    const dataHome = fromEnv('XDG_DATA_HOME');
+    if (rel && dataHome && path.isAbsolute(dataHome) && !isWsl()) return path.join(dataHome, rel);
     return this._expandHome(this._credsFile(checkReady), agentType);
   }
 

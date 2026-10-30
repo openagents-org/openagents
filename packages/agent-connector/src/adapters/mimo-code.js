@@ -46,6 +46,7 @@ const path = require('path');
 const OpenCodeAdapter = require('./opencode');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 const { whichBinary } = require('../paths');
+const { REASON } = require('./health-status');
 const {
   MIMO_DEFAULT_BASE_URL,
   resolveMimoRoute,
@@ -62,7 +63,7 @@ const {
 const IS_WINDOWS = process.platform === 'win32';
 
 /** Newest CLI this adapter was checked against. Newer still runs, flagged. */
-const MIMO_TESTED_VERSION = '0.1.15';
+const MIMO_TESTED_VERSION = '0.1.16';
 /** Oldest release still downloadable when this was written, and verified to work. */
 const MIMO_MIN_VERSION = '0.1.14';
 
@@ -98,6 +99,8 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
   constructor(opts) {
     super(opts);
     this._runDir = path.join(this.agentHome, 'mimo-code');
+    /** channel → the `mimo models` child its turn is waiting on. */
+    this._modelLookups = new Map();
   }
 
   _cliLabel() {
@@ -121,6 +124,35 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     return whichBinary('mimo');
   }
 
+  /**
+   * The daemon's gate before join: without `mimo` there is nothing to run, so
+   * say so instead of joining and failing every message.
+   */
+  preflight() {
+    const binary = this._opencodeBinary || this._findOpencodeBinary();
+    if (!binary) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `MiMo Code CLI (mimo) not found. ${this._installHint()}`,
+      };
+    }
+    this._opencodeBinary = binary;
+    return { ok: true };
+  }
+
+  /**
+   * Besides the configured key and the workspace token: the Xiaomi-account
+   * sign-in key read out of auth.json, which a run passes to the CLI in its
+   * config and which has no shape the pattern rules know.
+   */
+  _knownSecrets() {
+    let signInKey = '';
+    try { signInKey = this._route().apiKey; } catch { /* unreadable: nothing to add */ }
+    return [...new Set([...super._knownSecrets(), signInKey].filter(Boolean))]
+      .sort((x, y) => y.length - x.length);
+  }
+
   /** Where one run goes — see resolveMimoRoute. */
   _route() {
     const env = this.agentEnv || process.env;
@@ -137,7 +169,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
    * pick to MiMo, and the user's own `model` / `agent.*.model` settings — on
    * other providers, so "Model not found" — would take it.
    */
-  async _ensureFallbackModel() {
+  async _ensureFallbackModel(channel = '') {
     if (this._fallbackModel) return;
     const route = this._route();
     if (route.providerId !== 'xiaomi' || route.model) return;
@@ -147,7 +179,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     delete env.LLM_API_KEY;
     delete env.XIAOMI_API_KEY;
     const out = await new Promise((resolve) => {
-      execFile(binary, ['models', 'xiaomi'], {
+      const child = execFile(binary, ['models', 'xiaomi'], {
         env: {
           ...env,
           MIMOCODE_AUTH_CONTENT: '{}',
@@ -157,11 +189,46 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
         // The first command on a machine migrates MiMo's database.
         timeout: 120000,
         windowsHide: true,
-      }, (err, stdout) => resolve(err ? '' : String(stdout || '')));
+      }, (err, stdout) => {
+        if (this._modelLookups.get(channel) === child) this._modelLookups.delete(channel);
+        resolve(err ? '' : String(stdout || ''));
+      });
+      // Stop ends the lookup along with the turn (see _stopChannelWork).
+      this._modelLookups.set(channel, child);
     });
     this._fallbackModel = pickMimoModel(parseMimoModelList(out));
     if (this._fallbackModel) this._log(`MiMo Code: no model set — using ${this._fallbackModel}, the first pro model it lists`);
-    else this._log('MiMo Code: no model set and its model list could not be read — MiMo picks');
+    else this._log('MiMo Code: no model set and its model list could not be read — MiMo picks', 'warn');
+  }
+
+  /**
+   * The model lookup runs before the turn's process exists, and can take a
+   * while (the first command on a machine migrates MiMo's database). A Stop
+   * that lands then ends it, so the turn does not sit out the lookup's
+   * timeout; the run itself is then never started (_stoppedBeforeStart).
+   */
+  _killModelLookup(channel) {
+    const child = this._modelLookups.get(channel);
+    if (!child) return false;
+    this._modelLookups.delete(channel);
+    if (child.exitCode !== null || child.signalCode) return false;
+    if (IS_WINDOWS) {
+      try { execSync(`taskkill /F /T /PID ${child.pid}`, { timeout: 5000, windowsHide: true }); } catch {}
+    }
+    try { child.kill('SIGKILL'); } catch {}
+    this._log(`MiMo Code: stopped the model lookup for channel=${channel}`);
+    return true;
+  }
+
+  async _stopChannelWork(channel) {
+    const looking = this._killModelLookup(channel);
+    const outcome = await super._stopChannelWork(channel);
+    return looking && outcome === 'idle' ? 'stopped' : outcome;
+  }
+
+  stop() {
+    for (const channel of [...this._modelLookups.keys()]) this._killModelLookup(channel);
+    super.stop();
   }
 
   /** `provider/model`, or '' when none is given for a sign-in or a non-MiMo endpoint. */
@@ -216,10 +283,13 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
   }
 
   /**
-   * MiMo's credential store. It follows the XDG data dir on every platform
-   * (on Windows too, under the user profile), as OpenCode's does.
+   * MiMo's credential store: $MIMOCODE_HOME/data/auth.json when MIMOCODE_HOME
+   * is set, else under the XDG data dir on every platform (on Windows too,
+   * under the user profile), as OpenCode's is.
    */
   static _authFilePath(env = process.env, home = os.homedir()) {
+    const mimoHome = String(env.MIMOCODE_HOME || '').trim();
+    if (mimoHome && path.isAbsolute(mimoHome)) return path.join(mimoHome, 'data', 'auth.json');
     const dataHome = String(env.XDG_DATA_HOME || '').trim() || path.join(home, '.local', 'share');
     return path.join(dataHome, 'mimocode', 'auth.json');
   }
@@ -294,7 +364,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
       this._instructionsWritten.add(channel);
     } catch (e) {
       this._instructionsWritten.delete(channel);
-      this._log(`Could not write the workspace briefing (it goes in the first message instead): ${OpenCodeAdapter._redact(e && e.message)}`);
+      this._log(`Could not write the workspace briefing (it goes in the first message instead): ${this._redact(e && e.message)}`, 'warn');
     }
   }
 
@@ -306,7 +376,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
   _mcpServer(channel) {
     const entry = path.resolve(__dirname, '..', '..', 'bin', 'agent-connector.js');
     if (!fs.existsSync(entry)) {
-      this._log('Could not find the agent-connector CLI — workspace MCP tools are unavailable this run');
+      this._log('Could not find the agent-connector CLI — workspace MCP tools are unavailable this run', 'warn');
       return null;
     }
     const args = [
@@ -372,7 +442,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
    */
   async _runOpencode(content, msgChannel) {
     await this.getBrowserEnabled();
-    await this._ensureFallbackModel();
+    await this._ensureFallbackModel(msgChannel);
     this._writeInstructions(msgChannel);
     try {
       return await super._runOpencode(content, msgChannel);

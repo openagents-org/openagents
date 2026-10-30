@@ -141,10 +141,15 @@ export function credsVerdict(
   // the daemon and the CLI it spawns) runs in.
   const dataHome = (env.XDG_DATA_HOME || process.env.XDG_DATA_HOME || "").trim()
   for (const c of spec.credsFiles || []) {
+    const cliHome = c.homeEnv
+      ? (env[c.homeEnv.name] || process.env[c.homeEnv.name] || "").trim()
+      : ""
     const file =
-      c.xdgDataPath && dataHome && path.isAbsolute(dataHome)
-        ? path.join(dataHome, c.xdgDataPath)
-        : path.join(homeDir, c.path)
+      c.homeEnv && cliHome && path.isAbsolute(cliHome)
+        ? path.join(cliHome, c.homeEnv.path)
+        : c.xdgDataPath && dataHome && path.isAbsolute(dataHome)
+          ? path.join(dataHome, c.xdgDataPath)
+          : path.join(homeDir, c.path)
     try {
       if (!fs.existsSync(file)) continue
       // Existence is the whole check unless something has to be read out of

@@ -220,6 +220,27 @@ describe("credsVerdict — MiMo Code's Xiaomi-account sign-in", () => {
       else process.env.XDG_DATA_HOME = saved
     }
   })
+
+  it("reads $MIMOCODE_HOME/data/auth.json first when MIMOCODE_HOME is set", () => {
+    const mimoHome = path.join(home, "mimo-home")
+    fs.mkdirSync(path.join(mimoHome, "data"), { recursive: true })
+    fs.writeFileSync(
+      path.join(mimoHome, "data", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.MIMOCODE_HOME
+    try {
+      delete process.env.MIMOCODE_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: mimoHome })).toBe(true)
+      // Set, it replaces the default location rather than adding to it.
+      store({ xiaomi: { type: "api", key: "sk-x" } })
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: path.join(home, "empty") })).toBe(false)
+    } finally {
+      if (saved === undefined) delete process.env.MIMOCODE_HOME
+      else process.env.MIMOCODE_HOME = saved
+    }
+  })
 })
 
 describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
