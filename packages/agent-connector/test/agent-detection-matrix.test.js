@@ -89,6 +89,9 @@ const LOC = {
   // that dir on the user Path; on Unix the same installer links ~/.local/bin.
   qoderWin: IS_WINDOWS ? '.qoder/bin/qodercli' : null,
   qoderCnWin: IS_WINDOWS ? '.qoder-cn/bin/qoderclicn' : null,
+  // Qwen Code's standalone installer (install-qwen-standalone.ps1) puts its
+  // qwen.cmd wrapper here; the .sh flavor uses ~/.local/bin.
+  qwenWin: IS_WINDOWS ? 'AppData/Local/qwen-code/bin' : null,
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
@@ -221,6 +224,12 @@ const WHERE = {
     [IS_WINDOWS ? null : LOC.localBin, 'qoder.com.cn/install (~/.local/bin symlink)', 'installer'],
     [LOC.qoderCnWin, 'qoder.com.cn/install.ps1', 'installer'],
     [LOC.nvm20, 'npm i -g @qodercn-ai/qoderclicn (the older route)', 'npm'],
+  ],
+  'qwen-code': [
+    [LOC.nvm22, 'npm i -g @qwen-code/qwen-code under a node version manager', 'npm'],
+    [LOC.npmDefault, 'npm i -g @qwen-code/qwen-code', 'npm'],
+    [IS_WINDOWS ? null : LOC.localBin, 'install-qwen-standalone.sh', 'installer'],
+    [LOC.qwenWin, 'install-qwen-standalone.ps1', 'installer'],
   ],
 }
 

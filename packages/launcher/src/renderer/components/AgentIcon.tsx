@@ -28,6 +28,7 @@ const BUNDLED_SLUGS = new Set([
   "pi",
   "qoder",
   "qoder-cn",
+  "qwen-code",
   "yaml-agent",
 ])
 

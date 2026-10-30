@@ -30,6 +30,7 @@ const CodeArtsAdapter = require('./codearts');
 const MiMoCodeAdapter = require('./mimo-code');
 const QoderAdapter = require('./qoder');
 const QoderCnAdapter = require('./qoder-cn');
+const QwenCodeAdapter = require('./qwen-code');
 
 const ADAPTER_MAP = {
   openclaw: OpenClawAdapter,
@@ -57,11 +58,12 @@ const ADAPTER_MAP = {
   'mimo-code': MiMoCodeAdapter,
   qoder: QoderAdapter,
   'qoder-cn': QoderCnAdapter,
+  'qwen-code': QwenCodeAdapter,
 };
 
 /**
  * Create an adapter instance for the given agent type.
- * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi, deepseek, antigravity, commandcode, openworker, codebuddy, codearts, mimo-code, qoder, qoder-cn)
+ * @param {string} type - Agent type (openclaw, claude, codex, opencode, nanoclaw, cursor, hermes, gemini, kimi, aider, goose, copilot, cline, amp, mini-swe-agent, pi, deepseek, antigravity, commandcode, openworker, codebuddy, codearts, mimo-code, qoder, qoder-cn, qwen-code)
  * @param {object} opts - Adapter constructor options
  * @returns {BaseAdapter}
  */
@@ -99,6 +101,7 @@ module.exports = {
   MiMoCodeAdapter,
   QoderAdapter,
   QoderCnAdapter,
+  QwenCodeAdapter,
   createAdapter,
   ADAPTER_MAP,
 };
