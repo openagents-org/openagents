@@ -40,6 +40,8 @@
 
 const path = require('path');
 const { classifyPiEvent } = require('./pi-stream');
+const { maskSecretValues, redactSecrets } = require('./utils');
+const { classifyRunFailure } = require('./run-failure');
 const { versionOutputMatches } = require('../binary-identity');
 
 // 0.1.4 is the first release with the Full Access tier (0.1.3 still has the
@@ -182,77 +184,37 @@ function classifyStepVersion(rawVersion, identify = null) {
 
 // ---------------------------------------------------------------------------
 // Redaction
+//
+// Masking is the shared one (utils.redactSecrets / maskSecretValues): the
+// exact values a run holds — this agent's own keys and workspace token
+// (BaseAdapter._knownSecrets), the resolved key, the credential-named values
+// of the run's environment and the saved sign-in — then credential shapes.
+// What is Step's own is where those values come from: every string of a frame
+// (the CLI's shell tool sees the whole environment), and the saved credential
+// files below.
 // ---------------------------------------------------------------------------
 
-const SECRET_PATTERNS = [
-  /\bsk-[A-Za-z0-9._-]{8,}\b/g,
-  /\bBearer\s+[A-Za-z0-9._-]{8,}\b/gi,
-  /\beyJ[A-Za-z0-9._-]{16,}\b/g,
-  /\b(api[_-]?key|token|secret|password|authorization)\b\s*[:=]\s*["']?[A-Za-z0-9._-]{8,}["']?/gi,
-];
-
-/** Secret-looking variable names whose values a run's output must not carry. */
-const SECRET_ENV_NAME = /(_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN|_OAUTH_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_PERSONAL_ACCESS_TOKEN)$/;
-
 /**
- * Redact secret material from free text before it is logged or posted.
- * `values` are the exact secrets this run holds: the format of a StepFun key
- * is not documented, so pattern matching alone cannot be trusted to catch one.
- */
-function redactSecrets(text, values = []) {
-  if (text == null) return text;
-  let out = redactValues(String(text), values);
-  for (const re of SECRET_PATTERNS) {
-    out = out.replace(re, (m) => {
-      const eq = m.match(/\s*[:=]\s*/);
-      if (eq) return m.slice(0, m.indexOf(eq[0])) + eq[0] + '[redacted]';
-      return /^bearer/i.test(m) ? 'Bearer [redacted]' : '[redacted]';
-    });
-  }
-  return out;
-}
-
-/**
- * Only the exact-value half of redactSecrets: safe on model output. Longest
- * first, so a value that contains another is not left half-replaced.
- */
-function redactValues(text, values = []) {
-  let out = text;
-  const list = values.map((v) => String(v || '')).filter((s) => s.length >= 8);
-  if (list.length > 1) list.sort((a, b) => b.length - a.length);
-  for (const s of list) out = out.split(s).join('[redacted]');
-  return out;
-}
-
-/**
- * redactValues over every string in a parsed frame, keys included. The CLI
- * hands its whole environment to the shell commands it runs (STEP_API_KEY
+ * maskSecretValues over every string in a parsed frame, keys included. The
+ * CLI hands its whole environment to the shell commands it runs (STEP_API_KEY
  * among it — verified with `env`), so a key can come back in a command, its
- * output, the model's reply or an error, and any of them may reach the channel.
+ * output, the model's reply or an error, and any of them may reach the
+ * channel. Value masking only: the shape rules would rewrite the model's own
+ * words and code. `values` must be longest first (secretValues sorts them).
  */
 function redactFrame(value, values) {
-  if (typeof value === 'string') return redactValues(value, values);
+  if (typeof value === 'string') return maskSecretValues(value, values);
   if (Array.isArray(value)) return value.map((v) => redactFrame(v, values));
   if (value && typeof value === 'object') {
     const out = {};
-    for (const [k, v] of Object.entries(value)) out[redactValues(k, values)] = redactFrame(v, values);
+    for (const [k, v] of Object.entries(value)) out[maskSecretValues(k, values)] = redactFrame(v, values);
     return out;
   }
   return value;
 }
 
-/**
- * The secret values in an environment: the variables named like credentials,
- * at least 8 characters long. Used to extend a run's redaction list with
- * whatever the daemon's own environment carries into the shell tool.
- */
-function secretValuesIn(env = {}) {
-  const out = [];
-  for (const [k, v] of Object.entries(env || {})) {
-    if (typeof v === 'string' && v.length >= 8 && SECRET_ENV_NAME.test(k)) out.push(v);
-  }
-  return out;
-}
+/** Variable names inside a saved credential document that hold a secret. */
+const SECRET_ENV_NAME = /(_API_KEY|_AUTH_TOKEN|_ACCESS_TOKEN|_OAUTH_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_PERSONAL_ACCESS_TOKEN)$/;
 
 /**
  * Fields of a saved credential document that hold a secret. Only these are
@@ -286,7 +248,7 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-/** An argv safe to log: the session id and the kilobytes of briefing hidden. */
+/** An argv safe to log: the session id and the briefing's file hidden. */
 function redactArgs(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
@@ -572,6 +534,12 @@ function buildStepChildEnv(baseEnv = {}, {
  * (`--plan`) swallow the next bare word as its value: `--plan "say hi"` runs
  * nothing at all (verified). `--plan` is therefore never followed by a value.
  *
+ * Nor is the briefing: `appendSystemPromptFile` is the path of a file holding
+ * it. The CLI reads `--append-system-prompt` as a file when the value names
+ * one that exists (resource-loader's resolvePromptInput, the same in the 0.1.4,
+ * 0.1.5 and 0.1.6 builds), so kilobytes of text — a pinned glossary included —
+ * stay clear of Windows' 32K command line and out of `ps`.
+ *
  *   --session-dir + --session-id: one flat directory of transcripts per agent;
  *     the id is chosen here and is created when missing, resumed when present.
  *   --no-approve: project-local .stepcode resources (config, extensions,
@@ -598,8 +566,7 @@ function buildStepArgs(o = {}) {
   args.push('--exclude-tools', [...new Set(excluded)].join(','));
   const model = String(o.model || '').trim();
   if (model) args.push('--model', model);
-  const systemPrompt = String(o.appendSystemPrompt || '').trim();
-  if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
+  if (o.appendSystemPromptFile) args.push('--append-system-prompt', o.appendSystemPromptFile);
   return args;
 }
 
@@ -700,16 +667,35 @@ function messages(auth = {}) {
 }
 
 /**
+ * The run-failure guidance for the causes run-failure.js recognises in a
+ * failure Step has no rule of its own for: its wording, with the region and
+ * credential hints that only this adapter knows.
+ */
+function guidanceFor(auth, msg) {
+  return {
+    auth: auth.mode === 'key' ? msg.keyRejected : msg.loginRejected,
+    quota: msg.quota,
+    network: msg.unreachable,
+    model: msg.model,
+  };
+}
+
+/**
  * How a run ended. A provider error on the last assistant message outranks
  * the exit code (exit 1 is every failure alike); stderr is read when the run
  * stopped before it reached the model.
  *
- * `probe` is the adapter's own check of the model list, run only after the
- * "no model" failure the CLI reports identically for a rejected key and an
- * unreachable endpoint: { status } or { networkError } or { emptyList }.
- * `hasLoginCredential` says whether the user's auth.json holds a Step
- * credential, which is what separates "never signed in" from "sign-in no
- * longer accepted" on the same failure without a key.
+ * Step's own rules come first, because they need what only this adapter has:
+ * the HTTP status the CLI puts at the head of a provider error ("401: {…}"),
+ * the region a key belongs to, and `probe` — the adapter's own check of the
+ * model list, run only after the "no model" failure the CLI reports
+ * identically for a rejected key and an unreachable endpoint ({ status } or
+ * { networkError } or { emptyList }). `hasLoginCredential` says whether the
+ * user's auth.json holds a Step credential, which is what separates "never
+ * signed in" from "sign-in no longer accepted" on the same failure without a
+ * key. Anything else goes to run-failure.js, which every adapter shares.
+ *
+ * `secrets` are the exact values to mask in any CLI text quoted back.
  *
  * @returns {{kind: string, ok: boolean, userMessage: string|null}}
  */
@@ -718,13 +704,16 @@ function classifyStepRun({
   code = null,
   signal = null,
   stderr = '',
-  anyFrame = false,
   probe = null,
   hasLoginCredential = false,
-} = {}, auth = {}) {
+} = {}, auth = {}, secrets = []) {
   const msg = messages(auth);
   const lines = stepErrorLines(stderr);
   const errText = String(turnError || '');
+  const generic = (input) => {
+    const v = classifyRunFailure({ code, cli: 'Step Code', guidance: guidanceFor(auth, msg), secrets, ...input });
+    return { kind: v.kind, ok: false, userMessage: v.message };
+  };
 
   if (!turnError && (code === 0 || code === null) && !signal) {
     return { kind: 'success', ok: true, userMessage: null };
@@ -732,24 +721,22 @@ function classifyStepRun({
 
   if (turnError) {
     const status = httpStatusOf(errText);
-    const detail = truncate(providerMessage(errText), 300);
+    const detail = truncate(redactSecrets(providerMessage(errText), secrets), 300);
+    const withDetail = (lead) => (detail ? `${lead}\n\nDetails: ${detail}` : lead);
     if (status === 401 || status === 403 || /invalid[_ ]api[_ ]key|unauthorized|authentication/i.test(errText)) {
-      return { kind: 'auth', ok: false, userMessage: auth.mode === 'key' ? msg.keyRejected : msg.loginRejected };
+      return { kind: 'auth', ok: false, userMessage: withDetail(auth.mode === 'key' ? msg.keyRejected : msg.loginRejected) };
     }
     if (status === 429 || status === 402 || /rate limit|quota|insufficient|balance|credit/i.test(errText)) {
-      return { kind: 'quota', ok: false, userMessage: `${msg.quota}\n\n${detail}` };
+      return { kind: 'quota', ok: false, userMessage: withDetail(msg.quota) };
     }
     if (status === 404 || /model.{0,40}(not found|not exist|does not exist|unsupported|invalid)/i.test(errText)) {
-      return { kind: 'model', ok: false, userMessage: `${msg.model}\n\n${detail}` };
+      return { kind: 'model', ok: false, userMessage: withDetail(msg.model) };
     }
-    if (status && status >= 500) return { kind: 'server', ok: false, userMessage: `${msg.server}\n\n${detail}` };
-    if (/econnrefused|enotfound|etimedout|fetch failed|network|socket hang up|getaddrinfo|certificate|timed out/i.test(errText)) {
-      return { kind: 'network', ok: false, userMessage: msg.unreachable };
+    if (status && status >= 500) return { kind: 'server', ok: false, userMessage: withDetail(msg.server) };
+    if (/context[ _-]?(?:length|window)|prompt is too long|too many tokens|maximum.{0,20}tokens/i.test(errText)) {
+      return { kind: 'context', ok: false, userMessage: withDetail("Step Code exceeded the model's context window. Use /restart in this channel to start a fresh session.") };
     }
-    if (/context|too long|maximum.{0,20}tokens/i.test(errText)) {
-      return { kind: 'context', ok: false, userMessage: `Step Code exceeded the model's context window: ${detail}\n\nUse /restart in this channel to start a fresh session.` };
-    }
-    return { kind: 'run_error', ok: false, userMessage: `Step Code could not finish the run: ${detail}` };
+    return generic({ error: providerMessage(errText) });
   }
 
   const all = lines.join('\n');
@@ -769,19 +756,8 @@ function classifyStepRun({
   }
   if (/base url must be a valid url/i.test(all)) return { kind: 'config', ok: false, userMessage: msg.badBaseUrl };
   if (signal) return { kind: 'interrupted', ok: false, userMessage: 'The run was interrupted.' };
-  const first = lines.find((l) => !/^at\s/.test(l)) || '';
-  if (first) {
-    return {
-      kind: 'startup_error',
-      ok: false,
-      userMessage: `Step Code stopped${anyFrame ? '' : ' before answering'}: ${truncate(redactSecrets(first.replace(/^error:\s*/i, '')), 400)}`,
-    };
-  }
-  return {
-    kind: 'no_result',
-    ok: false,
-    userMessage: `Step Code exited without answering (code ${code}). Check the daemon log, then retry.`,
-  };
+  // A stack trace's frames say nothing to the channel.
+  return generic({ stderr: lines.filter((l) => !/^at\s/.test(l)).join('\n') });
 }
 
 /**
@@ -855,10 +831,7 @@ module.exports = {
   parseStepVersion,
   compareVersions,
   classifyStepVersion,
-  redactSecrets,
-  redactValues,
   redactFrame,
-  secretValuesIn,
   credentialValuesIn,
   truncate,
   redactArgs,

@@ -3,6 +3,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { secretValues } = require('../src/adapters/utils');
 
 const {
   STEP_MIN_VERSION,
@@ -10,9 +11,7 @@ const {
   STEP_ROUTING_VARS,
   classifyStepVersion,
   parseStepVersion,
-  redactSecrets,
   redactFrame,
-  secretValuesIn,
   credentialValuesIn,
   redactArgs,
   resolveStepAuth,
@@ -67,12 +66,12 @@ describe('step-code-runtime — redaction', () => {
     };
     const out = JSON.stringify(redactFrame(frame, [key]));
     assert.ok(!out.includes(key));
-    assert.ok(out.includes('[redacted]'));
+    assert.ok(out.includes('[REDACTED]'));
   });
 
-  it('collects credential-named values from an env, and nothing else', () => {
-    const values = secretValuesIn({ OPENAI_API_KEY: 'sk-other-123456789', PATH: '/usr/bin:/bin:/x/y', SHORT_API_KEY: 'abc' });
-    assert.deepEqual(values, ['sk-other-123456789']);
+  it("masks values only, leaving the model's own words and code alone", () => {
+    const text = 'const token = req.headers.authorization; // Bearer abcdefghijklmnop';
+    assert.equal(redactFrame({ text }, ['sk-not-in-it-0123456789']).text, text);
   });
 
   it('takes the secrets out of a saved sign-in, and nothing else', () => {
@@ -91,15 +90,15 @@ describe('step-code-runtime — redaction', () => {
     assert.deepEqual(credentialValuesIn(null), []);
   });
 
-  it('replaces the longer of two overlapping values whole', () => {
+  it('replaces the longer of two overlapping values whole, given them longest first', () => {
     const outer = 'token-0123456789-renewed';
-    const out = JSON.stringify(redactFrame({ text: `old token-0123456789, new ${outer}` }, ['token-0123456789', outer]));
+    const values = secretValues({}, ['token-0123456789', outer]);
+    const out = JSON.stringify(redactFrame({ text: `old token-0123456789, new ${outer}` }, values));
     assert.ok(!out.includes('renewed'), out);
   });
 
-  it('masks key-shaped text and hides the briefing in a logged argv', () => {
-    assert.ok(!redactSecrets('Bearer abcdefghijklmnop').includes('abcdefghijklmnop'));
-    const logged = redactArgs(['-p', '--session-id', 'abc', '--append-system-prompt', 'long brief', '--model', 'm']);
+  it('hides the session id and the briefing in a logged argv', () => {
+    const logged = redactArgs(['-p', '--session-id', 'abc', '--append-system-prompt', '/r/system-prompt.md', '--model', 'm']);
     assert.deepEqual(logged, ['-p', '--session-id', '<session-id>', '--append-system-prompt', '<system-prompt>', '--model', 'm']);
   });
 });
@@ -258,7 +257,7 @@ describe('step-code-runtime — the child environment', () => {
 
 describe('step-code-runtime — argv', () => {
   it('runs headless JSON with project-local files untrusted, keeping project instructions and skills', () => {
-    const args = buildStepArgs({ sessionDir: '/s', sessionId: 'id', model: 'step-3.5-flash', appendSystemPrompt: 'brief' });
+    const args = buildStepArgs({ sessionDir: '/s', sessionId: 'id', model: 'step-3.5-flash', appendSystemPromptFile: '/r/system-prompt.md' });
     assert.deepEqual(args.slice(0, 3), ['-p', '--mode', 'json']);
     for (const f of ['--no-approve', '--no-update-check']) assert.ok(args.includes(f), f);
     for (const f of ['--no-context-files', '--no-skills']) assert.ok(!args.includes(f), f);
@@ -267,6 +266,9 @@ describe('step-code-runtime — argv', () => {
     assert.equal(args[args.indexOf('--model') + 1], 'step-3.5-flash');
     const excluded = args[args.indexOf('--exclude-tools') + 1].split(',');
     for (const t of ['clarify_user', 'enter_plan_mode', 'exit_plan_mode']) assert.ok(excluded.includes(t), t);
+    // The briefing goes in as the file the CLI reads, never as text.
+    assert.equal(args[args.indexOf('--append-system-prompt') + 1], '/r/system-prompt.md');
+    assert.ok(!buildStepArgs({ appendSystemPrompt: 'brief' }).includes('--append-system-prompt'));
   });
 
   it('never lets --plan swallow a value', () => {
@@ -330,7 +332,20 @@ describe('step-code-runtime — run classification', () => {
     assert.equal(classifyStepRun({ code: 1, turnError: '429: {"error":{"message":"rate limited"}}' }, key).kind, 'quota');
     assert.equal(classifyStepRun({ code: 1, turnError: '404: {"error":{"message":"model not found"}}' }, key).kind, 'model');
     assert.equal(classifyStepRun({ code: 1, turnError: '500: {"error":{"message":"boom"}}' }, key).kind, 'server');
-    assert.equal(classifyStepRun({ code: 1, turnError: 'fetch failed: ECONNREFUSED' }, key).kind, 'network');
+    const net = classifyStepRun({ code: 1, turnError: 'fetch failed: ECONNREFUSED' }, key);
+    assert.equal(net.kind, 'network');
+    assert.ok(net.userMessage.includes('could not reach https://api.stepfun.com/v1'));
+    assert.equal(classifyStepRun({ code: 1, turnError: '400: {"error":{"message":"context length exceeded"}}' }, key).kind, 'context');
+    assert.equal(classifyStepRun({ code: 1, turnError: 'context deadline exceeded' }, key).kind, 'timeout');
+  });
+
+  it('quotes what the provider said, with the run\'s secrets masked', () => {
+    const secret = 'step-plan-access-0123456789';
+    const v = classifyStepRun({ code: 1, turnError: `500: {"error":{"message":"upstream rejected ${secret}"}}` }, key, [secret]);
+    assert.equal(v.kind, 'server');
+    assert.ok(v.userMessage.includes('Details: upstream rejected [REDACTED]'), v.userMessage);
+    const odd = classifyStepRun({ code: 1, stderr: `Error: could not open ${secret}` }, key, [secret]);
+    assert.ok(!odd.userMessage.includes(secret), odd.userMessage);
   });
 
   it('tells a signed-out machine from a sign-in that no longer works', () => {
@@ -354,8 +369,10 @@ describe('step-code-runtime — run classification', () => {
     assert.deepEqual(stepErrorLines("Warning: No project session found with id 'x'; creating a new session with that id.\n" + NO_KEY),
       ['No API key found for the selected model.']);
     const v = classifyStepRun({ code: 3, stderr: 'Error: something odd\n    at x (y)' }, key);
-    assert.equal(v.kind, 'startup_error');
+    assert.equal(v.kind, 'unknown');
     assert.ok(v.userMessage.includes('something odd'));
+    assert.ok(!v.userMessage.includes('at x (y)'));
+    assert.ok(classifyStepRun({ code: 3, stderr: '' }, key).userMessage.includes('exited with code 3'));
   });
 
   it("keeps only the chat models the CLI keeps when reading a probe", () => {

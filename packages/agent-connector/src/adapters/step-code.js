@@ -33,6 +33,13 @@
  *   and the skills in ~/.stepcode/skills, ~/.agents/skills and
  *   ~/.claude/skills still load, as they do for the user.
  *
+ *   RUN FILES LIVE ONLY AS LONG AS THE RUN. The run's config.toml (the
+ *   workspace MCP server, with the workspace token in its env) and the
+ *   briefing (a file passed as --append-system-prompt, never argv text; it
+ *   holds workspace content such as a pinned glossary) are 0600 files in the
+ *   channel's root, removed when the run ends, and swept when the adapter
+ *   starts in case a daemon that died mid-run left them behind.
+ *
  *   NOTHING LANDS IN THE PROJECT. Plans go to a directory of ours
  *   (STEP_CODING_AGENT_PLAN_DIR), transcripts to --session-dir, plugins and
  *   logs to STEPCODE_STORAGE_ROOT_DIR. The CLI edits no rc file and no git
@@ -68,7 +75,7 @@ const { execFileSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, maskSecretValues, redactSecrets, secretValues } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 const { REASON } = require('./health-status');
 const { defaultAgentWorkdir, whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
@@ -89,9 +96,7 @@ const {
   parseProcessTable,
   readUserStepConfig,
   redactArgs,
-  redactSecrets,
   resolveStepAuth,
-  secretValuesIn,
   stepModelsUrl,
   stepRegionOf,
   summarizeModelsProbe,
@@ -137,6 +142,11 @@ const STOP_GRACE_MS = 3000;
 // start for want of one.
 const MODELS_PROBE_TIMEOUT_MS = 10000;
 
+// The per-run files in a channel's root: the run config (its MCP server's env
+// holds the workspace token) and the briefing.
+const RUN_CONFIG_FILE = 'config.toml';
+const RUN_PROMPT_FILE = 'system-prompt.md';
+
 class StepCodeAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -167,6 +177,7 @@ class StepCodeAdapter extends BaseAdapter {
     this._watchdogIntervalMs = WATCHDOG_INTERVAL_MS;
     this._watchdogMax = WATCHDOG_MAX;
     this._loadSessions();
+    this._sweepRunFiles();
   }
 
   static _safe(value) {
@@ -198,7 +209,7 @@ class StepCodeAdapter extends BaseAdapter {
       }
       this._log(`Loaded ${Object.keys(this._channelSessions).length} Step Code session(s)`);
     } catch {
-      this._log('Could not load the Step Code sessions file, starting fresh');
+      this._log('Could not load the Step Code sessions file, starting fresh', 'warn');
     }
   }
 
@@ -372,6 +383,16 @@ class StepCodeAdapter extends BaseAdapter {
   }
 
   /**
+   * How to start the CLI: { command, args }. Step Code ships as a native
+   * binary on every platform (step.exe on Windows), so it runs as is. The seam
+   * is for tests, whose stand-in CLI is a Node script — which Windows will not
+   * execute directly.
+   */
+  _spawnCommand(bin, args) {
+    return { command: bin, args };
+  }
+
+  /**
    * Run `--version` and return raw output. Isolated for testing.
    *
    * Even `--version` starts the whole runtime (~1–2s) and, on the user's own
@@ -382,7 +403,8 @@ class StepCodeAdapter extends BaseAdapter {
   _readVersionRaw(bin) {
     const probeRoot = path.join(this._root, 'probe');
     try {
-      return execFileSync(bin, ['--version'], {
+      const run = this._spawnCommand(bin, ['--version']);
+      return execFileSync(run.command, run.args, {
         encoding: 'utf-8',
         timeout: 15000,
         windowsHide: true,
@@ -536,6 +558,41 @@ class StepCodeAdapter extends BaseAdapter {
   }
 
   /**
+   * Remove the per-run files a daemon that died mid-run left in the channel
+   * roots. A run deletes its own when it ends; a crash skipped that, and the
+   * workspace token stayed on disk in config.toml until the channel's next
+   * run. Only this agent's root is read, and nothing of it is running yet.
+   */
+  _sweepRunFiles() {
+    const channels = path.join(this._root, 'channels');
+    let dirs = [];
+    try { dirs = fs.readdirSync(channels, { withFileTypes: true }); } catch { return 0; }
+    let removed = 0;
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      for (const name of [RUN_CONFIG_FILE, RUN_PROMPT_FILE]) {
+        try { fs.unlinkSync(path.join(channels, d.name, name)); removed++; } catch {}
+      }
+    }
+    if (removed) this._log(`Removed ${removed} Step Code run file(s) left behind by an earlier run`);
+    return removed;
+  }
+
+  /** Write one 0600 per-run file in a channel root. Returns its path, or null. */
+  _writeRunFile(configRoot, name, content, what) {
+    try {
+      fs.mkdirSync(path.join(configRoot, 'agent'), { recursive: true });
+      const file = path.join(configRoot, name);
+      fs.writeFileSync(file, content, { mode: 0o600 });
+      try { fs.chmodSync(file, 0o600); } catch {}
+      return file;
+    } catch (e) {
+      this._log(`Could not write the Step Code ${what}: ${this._redact(e && e.message)}`, 'warn');
+      return null;
+    }
+  }
+
+  /**
    * Write the channel root's config.toml for this run and return its path
    * (null if it could not be written — the run then cannot proceed safely,
    * since the CLI would fall back to a default config with no MCP server).
@@ -543,23 +600,24 @@ class StepCodeAdapter extends BaseAdapter {
    * ends; the CLI only reads it at startup.
    */
   _writeRunConfig(channel, configRoot, userConfig, planMode = false) {
-    try {
-      fs.mkdirSync(path.join(configRoot, 'agent'), { recursive: true });
-      const mcp = this._mcpServerSpec(channel);
-      if (!mcp) this._log('Could not find the openagents binary — workspace MCP tools are unavailable this run');
-      const file = path.join(configRoot, 'config.toml');
-      fs.writeFileSync(file, buildStepConfigToml({
-        mcp,
-        shellPath: userConfig.shellPath,
-        telemetryDisabled: userConfig.telemetryDisabled,
-        planMode,
-      }), { mode: 0o600 });
-      try { fs.chmodSync(file, 0o600); } catch {}
-      return file;
-    } catch (e) {
-      this._log(`Could not write the Step Code run config: ${redactSecrets(e && e.message)}`);
-      return null;
-    }
+    const mcp = this._mcpServerSpec(channel);
+    if (!mcp) this._log('Could not find the openagents binary — workspace MCP tools are unavailable this run', 'warn');
+    return this._writeRunFile(configRoot, RUN_CONFIG_FILE, buildStepConfigToml({
+      mcp,
+      shellPath: userConfig.shellPath,
+      telemetryDisabled: userConfig.telemetryDisabled,
+      planMode,
+    }), 'run config');
+  }
+
+  /**
+   * Write the briefing for --append-system-prompt, which reads a file when its
+   * value names one. Kept off argv, it cannot overflow Windows' 32K command
+   * line once a glossary is pinned, nor show in `ps`. 0600 and removed with
+   * the run config; there is no argv fallback when the write fails.
+   */
+  _writeSystemPrompt(configRoot, systemPrompt) {
+    return this._writeRunFile(configRoot, RUN_PROMPT_FILE, systemPrompt, 'briefing');
   }
 
   _readUserConfig(userPaths) {
@@ -609,7 +667,13 @@ class StepCodeAdapter extends BaseAdapter {
           seen.delete(file); // caught mid-write: read it again next time
           continue;
         }
-        for (const v of values) if (!secrets.includes(v)) secrets.push(v);
+        let added = false;
+        for (const v of values) {
+          if (!secrets.includes(v)) { secrets.push(v); added = true; }
+        }
+        // Longest first, so a renewed token that contains the old one is
+        // masked whole (maskSecretValues takes them in order).
+        if (added) secrets.sort((a, b) => b.length - a.length);
       }
     };
     sync();
@@ -659,8 +723,10 @@ class StepCodeAdapter extends BaseAdapter {
    * the reply. An error on an assistant message is held as the turn's error
    * until a later message succeeds — auto-retry produces exactly that order.
    *
-   * `secrets` is redacted by value from every frame and from stderr;
-   * `syncSecrets`, when given, brings it up to date before each read.
+   * `secrets` is masked by value from every frame and from stderr;
+   * `syncSecrets`, when given, brings it up to date before each read. The
+   * credential-shape rules are left to whoever quotes stderr: run-failure.js
+   * classifies the words they would rewrite.
    *
    * @returns {Promise<object>} { code, signal, sessionId, planActive,
    *   finalText, turnError, anyFrame, everPosted, userStopped,
@@ -674,7 +740,8 @@ class StepCodeAdapter extends BaseAdapter {
 
       let proc;
       try {
-        proc = spawn(bin, args, {
+        const run = this._spawnCommand(bin, args);
+        proc = spawn(run.command, run.args, {
           cwd: workingDir,
           env,
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -786,10 +853,10 @@ class StepCodeAdapter extends BaseAdapter {
             post(() => this.sendStatus(channel, 'Compacting the conversation context...'));
             return;
           case 'compaction_end':
-            if (ev.error) post(() => this.sendStatus(channel, `Context compaction failed: ${ev.error}`));
+            if (ev.error) post(() => this.sendStatus(channel, `Context compaction failed: ${redactSecrets(ev.error, secrets)}`));
             return;
           case 'extension_error':
-            this._log(`Step Code extension error on ${channel}: ${redactSecrets(ev.message, secrets)}`);
+            this._log(`Step Code extension error on ${channel}: ${redactSecrets(ev.message, secrets)}`, 'warn');
             return;
           case 'unknown':
             this._log(`Unrecognized Step Code record (ignored): ${redactSecrets(ev.raw, secrets)}`);
@@ -812,7 +879,7 @@ class StepCodeAdapter extends BaseAdapter {
           try {
             onEvent(interpretStepFrame(frame, secrets));
           } catch (e) {
-            this._log(`Frame handling failed: ${redactSecrets(e && e.message, secrets)}`);
+            this._log(`Frame handling failed: ${redactSecrets(e && e.message, secrets)}`, 'warn');
           }
         }
       };
@@ -849,7 +916,7 @@ class StepCodeAdapter extends BaseAdapter {
           everPosted,
           userStopped,
           watchdogKilled,
-          stderr: redactSecrets(stderrBuf, secrets),
+          stderr: maskSecretValues(stderrBuf, secrets),
         });
       };
 
@@ -863,7 +930,7 @@ class StepCodeAdapter extends BaseAdapter {
         resync();
         let lines;
         try { lines = framer.push(chunk); } catch (e) {
-          this._log(`Step Code stream framing error: ${redactSecrets(e && e.message, secrets)}`);
+          this._log(`Step Code stream framing error: ${redactSecrets(e && e.message, secrets)}`, 'warn');
           return;
         }
         onLines(lines);
@@ -895,7 +962,7 @@ class StepCodeAdapter extends BaseAdapter {
         silences += 1;
         if (silences === WATCHDOG_NUDGE_AT) post(() => this.sendStatus(channel, 'still working...'));
         if (silences >= this._watchdogMax) {
-          this._log('No output for ~5 minutes — killing a wedged run');
+          this._log('No output for ~5 minutes — killing a wedged run', 'warn');
           watchdogKilled = true;
           void this._stopProcess(proc);
         }
@@ -907,7 +974,7 @@ class StepCodeAdapter extends BaseAdapter {
         proc.stdin.write(prompt, 'utf-8');
         proc.stdin.end();
       } catch (e) {
-        this._log(`Could not write the prompt to stdin: ${redactSecrets(e && e.message, secrets)}`);
+        this._log(`Could not write the prompt to stdin: ${redactSecrets(e && e.message, secrets)}`, 'warn');
       }
     });
   }
@@ -973,7 +1040,7 @@ class StepCodeAdapter extends BaseAdapter {
     const channel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(channel);
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${channel}: ${redactSecrets(truncate(content, 80))}`);
+    this._log(`Processing message from ${sender} in ${channel}: ${this._redact(truncate(content, 80))}`);
 
     // Never silently fall back to the launcher/repo dir.
     const workingDir = this.workingDir || defaultAgentWorkdir(this.agentName);
@@ -985,12 +1052,13 @@ class StepCodeAdapter extends BaseAdapter {
     const bin = this._findStepBinary();
     const problem = this._binaryProblem(bin);
     if (problem) {
+      this._log(`Refusing to start: ${problem.message}`, 'warn');
       this._reportStatus(problem.reason, problem.message);
       await this.sendError(channel, problem.message);
       return;
     }
     if (this._versionProbe && this._versionProbe.supported === null) {
-      this._log('Could not determine the Step Code version — proceeding leniently');
+      this._log('Could not determine the Step Code version — proceeding leniently', 'warn');
     }
 
     // Auto-title + resume-from on first encounter (parity with other adapters).
@@ -1041,9 +1109,11 @@ class StepCodeAdapter extends BaseAdapter {
       toolsDirExists: this._dirExists(userPaths.toolsDir),
       telemetryDisabled: userConfig.telemetryDisabled,
     });
-    // The key, the workspace token, every credential-named value the shell
-    // tool will be able to print, and the saved sign-in it can read off disk.
-    const secrets = [...new Set([auth.key, this.token, ...secretValuesIn(env)].filter((s) => s && s.length >= 8))];
+    // Every value this agent must never quote back — the workspace token and
+    // the agentEnv credentials (base._knownSecrets) — plus the resolved key,
+    // every credential-named value the shell tool will be able to print, and
+    // the saved sign-in it can read off disk. Longest first.
+    const secrets = secretValues(baseEnv, [...this._knownSecrets(), auth.key]);
     const syncSecrets = this._trackSavedCredentials(userPaths, secrets);
 
     const planMode = this._mode === 'plan';
@@ -1052,7 +1122,9 @@ class StepCodeAdapter extends BaseAdapter {
     try { fs.mkdirSync(sessionDir, { recursive: true }); } catch {}
 
     const configFile = this._writeRunConfig(channel, configRoot, userConfig, planMode);
-    if (!configFile) {
+    const promptFile = configFile ? this._writeSystemPrompt(configRoot, systemPrompt) : null;
+    if (!configFile || !promptFile) {
+      if (configFile) try { fs.unlinkSync(configFile); } catch {}
       await this.sendError(channel, 'Step Code could not be started: its run configuration could not be written under ~/.openagents/step-code.');
       return;
     }
@@ -1070,7 +1142,7 @@ class StepCodeAdapter extends BaseAdapter {
         }), workingDir, '/plan', env, secrets, { quiet: true, syncSecrets });
         if (toggle.userStopped) return;
         if (toggle.planActive === false) this._notePlanState(channel, session.sessionId, false);
-        else this._log(`Could not take session ${session.sessionId} out of plan mode — it stays in plan mode this turn`);
+        else this._log(`Could not take session ${session.sessionId} out of plan mode — it stays in plan mode this turn`, 'warn');
       }
 
       let prompt = content;
@@ -1082,7 +1154,7 @@ class StepCodeAdapter extends BaseAdapter {
       const args = buildStepArgs({
         sessionDir,
         sessionId: session.sessionId,
-        appendSystemPrompt: systemPrompt,
+        appendSystemPromptFile: promptFile,
         model: auth.model,
         planMode,
         extraExcludedTools,
@@ -1094,16 +1166,19 @@ class StepCodeAdapter extends BaseAdapter {
         await this.sendError(channel, 'Step Code stopped responding for 5 minutes and was restarted. Send the message again to continue.');
         return;
       }
-      await this._postOutcome(channel, run, auth, userPaths);
+      await this._postOutcome(channel, run, auth, userPaths, secrets);
     } finally {
-      try { fs.unlinkSync(configFile); } catch {}
+      for (const file of [configFile, promptFile]) {
+        try { fs.unlinkSync(file); } catch {}
+      }
     }
   }
 
-  async _postOutcome(channel, run, auth, userPaths) {
+  async _postOutcome(channel, run, auth, userPaths, secrets = this._knownSecrets()) {
     if (run.spawnError) {
-      await this.sendError(channel,
-        `Step Code could not be started (${redactSecrets(run.spawnError)}). Reinstall it with: ${installHint()}`);
+      const why = redactSecrets(run.spawnError, secrets);
+      this._log(`Could not start Step Code: ${why}`, 'error');
+      await this.sendError(channel, `Step Code could not be started (${why}). Reinstall it with: ${installHint()}`);
       return;
     }
 
@@ -1116,10 +1191,9 @@ class StepCodeAdapter extends BaseAdapter {
       code: run.code,
       signal: run.signal,
       stderr: run.stderr,
-      anyFrame: run.anyFrame,
       probe,
       hasLoginCredential: auth.mode === 'login' && this._hasLoginCredential(userPaths),
-    }, auth);
+    }, auth, secrets);
 
     if (verdict.kind === 'auth') this._reportStatus(REASON.LOGIN_REQUIRED, verdict.userMessage);
     else this._reportStatus(null);
@@ -1131,7 +1205,7 @@ class StepCodeAdapter extends BaseAdapter {
       } else if (run.everPosted) {
         try { await this.sendResponse(channel, 'No response generated. Please try again.'); } catch {}
       } else {
-        const diag = truncate((run.stderr || '').trim(), 400);
+        const diag = truncate(redactSecrets(run.stderr || '', secrets).trim(), 400);
         try {
           await this.sendError(channel, 'Step Code finished without producing a response.' + (diag ? `\n\nLast diagnostics:\n${diag}` : ''));
         } catch {}
@@ -1142,12 +1216,12 @@ class StepCodeAdapter extends BaseAdapter {
     // The model answered, then a later step failed: deliver the answer with
     // the reason appended rather than replacing it.
     if (finalText && verdict.kind !== 'auth') {
-      this._log(`Run reported ${verdict.kind} but returned text; text delivered`);
+      this._log(`Run reported ${verdict.kind} but returned text; text delivered`, 'warn');
       try { await this.sendResponse(channel, `${finalText}\n\n_${verdict.userMessage}_`); } catch {}
       return;
     }
 
-    this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${truncate(run.stderr || '', 300)}`);
+    this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${truncate(redactSecrets(run.stderr || '', secrets), 300)}`, 'warn');
     try { await this.sendError(channel, verdict.userMessage); } catch {}
   }
 }
