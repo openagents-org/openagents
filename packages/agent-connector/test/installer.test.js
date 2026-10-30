@@ -647,10 +647,10 @@ describe('Installer min-version gate (generic, no per-agent special-casing)', ()
 
 describe('Installer.portableNodeVersion', () => {
   it('pins Node 24 everywhere Node 24 runs', () => {
-    assert.equal(Installer.portableNodeVersion('win32', '10.0.19045'), 'v24.21.0');
-    assert.equal(Installer.portableNodeVersion('linux', '5.15.0'), 'v24.21.0');
-    assert.equal(Installer.portableNodeVersion('darwin', '22.6.0'), 'v24.21.0');
-    assert.equal(Installer.portableNodeVersion('darwin', 'unknown'), 'v24.21.0');
+    assert.equal(Installer.portableNodeVersion('win32', '10.0.19045'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('linux', '5.15.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', '22.6.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', 'unknown'), 'v24.22.1');
   });
 
   it('keeps macOS before 13.5 on Node 22', () => {

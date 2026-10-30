@@ -403,6 +403,7 @@ class CodexAdapter extends BaseAdapter {
     const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
 
     // Run up to 2 attempts: first with resume, then fresh if stale
+    let relocated = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
 
@@ -478,6 +479,22 @@ class CodexAdapter extends BaseAdapter {
           return;
         }
       } catch (e) {
+        // The binary was looked up once, when the adapter started. A reinstall
+        // or update since then can move or remove it, and every turn failed
+        // with "spawn …/.bin/codex ENOENT" until the agent was restarted.
+        // Look again and rerun this attempt once.
+        if (e && e.code === 'ENOENT' && !relocated) {
+          relocated = true;
+          const found = this._findCodexBinary();
+          if (found) {
+            this._log(`Codex binary moved: ${this._codexBin} → ${found}`);
+            this._codexBin = found;
+            attempt--;
+            continue;
+          }
+          await this.sendError(msgChannel, "⚠️ **Codex couldn't run** — the Codex CLI is no longer installed on this device. Reinstall it from OpenAgents Launcher (Agents → Codex), then try again.");
+          return;
+        }
         this._log(`Error in subprocess: ${e.message}`);
         await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
         return;
@@ -730,12 +747,41 @@ class CodexAdapter extends BaseAdapter {
    * turn.failed / error event message → stderr tail → exit code. Redacted.
    */
   static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
-    const stderrTail = String(stderr || '').trim().split('\n').slice(-5).join('\n').trim();
     const raw = String(errorMessage || '').trim()
-      || stderrTail
+      || CodexAdapter._stderrReason(stderr)
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
     return CodexAdapter._redact(detail).slice(0, 500).trim();
+  }
+
+  /**
+   * The part of codex's stderr that says why the run died.
+   *
+   * codex logs through `tracing` on stderr — `2026-10-27T04:08:56.500Z  WARN
+   * codex_skills::interface: …` — and echoes "Reading prompt from stdin..."
+   * (or "Reading additional input from stdin...").
+   * A plain tail of the last lines was mostly that noise, so a usage limit or
+   * a model the account cannot use reached the chat buried under plugin-cache
+   * and skill-icon warnings. Lines the CLI printed for a person win; failing
+   * those, the ERROR records with their timestamp and module stripped; only
+   * when neither exists does the raw tail stand.
+   */
+  static _stderrReason(stderr) {
+    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    const TRACE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
+    const plain = [];
+    const errors = [];
+    for (const line of lines) {
+      const m = line.match(TRACE);
+      if (!m) {
+        if (!/^Reading (prompt|additional input) from stdin/i.test(line)) plain.push(line);
+      } else if (m[1] === 'ERROR' && m[2] && !errors.includes(m[2])) {
+        errors.push(m[2]);
+      }
+    }
+    const picked = plain.length ? plain : errors;
+    return (picked.length ? picked : lines).slice(-5).join('\n').trim();
   }
 
   /**

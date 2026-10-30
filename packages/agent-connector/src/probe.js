@@ -538,6 +538,20 @@ async function probeAgentType(connector, type, opts = {}) {
         reply: tail(reply, REPLY_CAP),
       });
     }
+    // The model answered and the CLI then failed to exit — Claude Code held
+    // open by a hook or an MCP server reads "Timed out after 120s: Hi! What
+    // can I help you with?". Sign-in, endpoint and model all just worked, and
+    // chat runs the CLI as a long-lived process where exiting never matters.
+    // Only for output that reads as an answer, never as a retry or an error.
+    const looksLikeAnswer = reply && !classifyOutputText(output.toLowerCase())
+      && !/\b(error|errors|failed|failure|retrying|exception)\b/i.test(reply);
+    if (res.timedOut && !res.spawnError && looksLikeAnswer) {
+      return done({
+        ok: true, method: 'cli', code: CODE.OK,
+        message: `Responded (the CLI did not exit within ${Math.round(timeoutMs / 1000)}s)`,
+        reply: tail(reply, REPLY_CAP),
+      });
+    }
     let code = res.code === 0 && !res.timedOut && !res.spawnError
       ? CODE.EMPTY_RESPONSE
       : classifyFailure(output, res);
