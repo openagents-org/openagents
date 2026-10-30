@@ -63,7 +63,7 @@ def main():
     Path('/usr/local/sbin/openagents-preview-track-develop').unlink(missing_ok=True)
     Path('/var/lib/openagents-preview/incoming').mkdir(parents=True, exist_ok=True)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
-    print('Provisioned isolated preview config, local DB credentials and beta branch tracking service.')
+    print('Provisioned isolated preview config, local DB credentials and develop branch tracking service.')
 
 
 if __name__ == '__main__':

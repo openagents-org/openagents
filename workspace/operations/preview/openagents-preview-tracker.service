@@ -1,5 +1,5 @@
 [Unit]
-Description=Build and deploy isolated OpenAgents preview from the beta branch
+Description=Build and deploy isolated OpenAgents preview from the develop branch
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
@@ -12,5 +12,5 @@ Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
 Environment=GIT_TERMINAL_PROMPT=0
-Environment=PREVIEW_BRANCH=beta
+Environment=PREVIEW_BRANCH=develop
 UMask=0077

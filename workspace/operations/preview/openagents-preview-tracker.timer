@@ -1,5 +1,5 @@
 [Unit]
-Description=Check the beta branch for OpenAgents preview updates every two minutes
+Description=Check the develop branch for OpenAgents preview updates every two minutes
 
 [Timer]
 OnBootSec=2min

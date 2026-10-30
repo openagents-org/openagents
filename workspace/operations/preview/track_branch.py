@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poll a public branch (beta by default) and build/deploy the same SHA. No GitHub token required."""
+"""Poll a public branch (develop by default) and build/deploy the same SHA. No GitHub token required."""
 import fcntl
 import json
 import os
@@ -33,7 +33,7 @@ def main():
         except BlockingIOError:
             print('A preview build is already running.')
             return
-        branch = require_branch(os.environ.get('PREVIEW_BRANCH', 'beta'))
+        branch = require_branch(os.environ.get('PREVIEW_BRANCH', 'develop'))
         os.environ['GIT_TERMINAL_PROMPT'] = '0'
         if not REPO.exists():
             run(['git', 'init', '--bare', str(REPO)])
