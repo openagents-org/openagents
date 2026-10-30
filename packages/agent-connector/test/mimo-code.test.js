@@ -345,7 +345,7 @@ describe('MiMo Code — the config a run starts with', () => {
     assert.equal(makeAdapter({ LLM_MODEL: 'myproxy/m' })._spawnEnv('thread').MIMOCODE_AUTH_CONTENT, undefined);
   });
 
-  it("asks the CLI for a model when none is set, so the user's own model settings cannot take it", async () => {
+  it("asks the CLI for a model when none is set, so the user's own model settings cannot take it", { skip: IS_WINDOWS && 'the stand-in CLI is a POSIX script' }, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-mimo-models-'));
     try {
       const bin = path.join(dir, 'mimo');
