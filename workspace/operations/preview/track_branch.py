@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Poll public develop and build/deploy the same SHA. No GitHub token required."""
+"""Poll a public branch (develop by default) and build/deploy the same SHA. No GitHub token required."""
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,6 +14,12 @@ import time
 ROOT = Path('/opt/openagents-preview-isolated')
 REPO = ROOT / 'source.git'
 URL = 'https://github.com/openagents-org/openagents.git'
+
+
+def require_branch(value):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,99}', value) or '..' in value:
+        raise ValueError('Invalid preview branch')
+    return value
 
 
 def run(args, **kwargs):
@@ -26,17 +33,18 @@ def main():
         except BlockingIOError:
             print('A preview build is already running.')
             return
+        branch = require_branch(os.environ.get('PREVIEW_BRANCH', 'develop'))
         os.environ['GIT_TERMINAL_PROMPT'] = '0'
         if not REPO.exists():
             run(['git', 'init', '--bare', str(REPO)])
         run(['git', '-C', str(REPO), '-c', 'credential.helper=', 'fetch', '--depth=1', URL,
-             '+refs/heads/develop:refs/heads/develop'])
-        sha = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'refs/heads/develop'], text=True).strip()
+             f'+refs/heads/{branch}:refs/heads/{branch}'])
+        sha = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', f'refs/heads/{branch}'], text=True).strip()
         if len(sha) != 40 or any(ch not in '0123456789abcdef' for ch in sha):
-            raise ValueError('Invalid develop revision')
+            raise ValueError(f'Invalid {branch} revision')
         deployed_file = ROOT / 'deployed.json'
         if deployed_file.exists() and json.loads(deployed_file.read_text()).get('revision') == sha:
-            print(f'Preview already tracks develop {sha}.')
+            print(f'Preview already tracks {branch} {sha}.')
             return
         failure_file = ROOT / 'build-failed.json'
         if failure_file.exists() and '--retry' not in sys.argv:
@@ -47,7 +55,7 @@ def main():
         build = ROOT / 'build'
         shutil.rmtree(build, ignore_errors=True)
         build.mkdir()
-        print(f'Building preview from develop {sha}', flush=True)
+        print(f'Building preview from {branch} {sha}', flush=True)
         try:
             # git archive contains tracked sources only, never host env files.
             archive = ROOT / 'source.tar'

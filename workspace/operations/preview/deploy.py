@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy an exact develop build using only this droplet's isolated preview data."""
+"""Deploy an exact preview branch build using only this droplet's isolated preview data."""
 import fcntl
 import json
 import os

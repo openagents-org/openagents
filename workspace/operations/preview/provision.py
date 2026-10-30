@@ -52,13 +52,18 @@ def main():
         shutil.copy2(Path('/opt/openagents-preview') / name, ROOT / name)
     shutil.copy2(SOURCE / 'deploy.py', '/usr/local/sbin/openagents-preview-deploy')
     Path('/usr/local/sbin/openagents-preview-deploy').chmod(0o755)
-    shutil.copy2(SOURCE / 'track_develop.py', '/usr/local/sbin/openagents-preview-track-develop')
-    Path('/usr/local/sbin/openagents-preview-track-develop').chmod(0o755)
-    for name in ('openagents-preview-develop.service', 'openagents-preview-develop.timer'):
+    shutil.copy2(SOURCE / 'track_branch.py', '/usr/local/sbin/openagents-preview-track-branch')
+    Path('/usr/local/sbin/openagents-preview-track-branch').chmod(0o755)
+    for name in ('openagents-preview-tracker.service', 'openagents-preview-tracker.timer'):
         shutil.copy2(SOURCE / name, Path('/etc/systemd/system') / name)
+    # Retire the earlier develop-only tracker so two timers never race.
+    subprocess.run(['systemctl', 'disable', '--now', 'openagents-preview-develop.timer'], check=False)
+    for name in ('openagents-preview-develop.service', 'openagents-preview-develop.timer'):
+        Path('/etc/systemd/system', name).unlink(missing_ok=True)
+    Path('/usr/local/sbin/openagents-preview-track-develop').unlink(missing_ok=True)
     Path('/var/lib/openagents-preview/incoming').mkdir(parents=True, exist_ok=True)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
-    print('Provisioned isolated preview config, local DB credentials and develop tracking service.')
+    print('Provisioned isolated preview config, local DB credentials and develop branch tracking service.')
 
 
 if __name__ == '__main__':
