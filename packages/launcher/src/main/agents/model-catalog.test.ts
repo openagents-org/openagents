@@ -658,13 +658,15 @@ describe("listAgentModels — Step Code", () => {
     expect(r.models.map((m) => m.id)).toEqual(["relay-a", "relay-b"])
   })
 
-  it("never filters the list down to nothing", async () => {
+  it("offers none of a typed list's models that Step Code would not run", async () => {
     httpRequestJson.mockResolvedValueOnce({
       status: 200,
       text: JSON.stringify({ data: [{ id: "only-tts", model_type: "语音合成" }] }),
     })
     const r = await listAgentModels("step-code", { STEP_API_KEY: "sk" }, {}, "key")
-    expect(r.models.map((m) => m.id)).toEqual(["only-tts"])
+    expect(r.models).toEqual([])
+    expect(r.source).toBe("none")
+    expect(r.error).toBeTruthy()
   })
 
   it("leaves other agents' lists unfiltered", async () => {

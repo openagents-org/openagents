@@ -1040,7 +1040,7 @@ class StepCodeAdapter extends BaseAdapter {
     const channel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(channel);
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${channel}: ${this._redact(truncate(content, 80))}`);
+    this._log(`Processing message from ${sender} in ${channel}: ${truncate(this._redact(content), 80)}`);
 
     // Never silently fall back to the launcher/repo dir.
     const workingDir = this.workingDir || defaultAgentWorkdir(this.agentName);
