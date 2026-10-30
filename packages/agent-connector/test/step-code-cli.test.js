@@ -246,6 +246,9 @@ describe('Step Code CLI (real binary)', { skip: !cli && 'set STEP_CODE_TEST_CLI 
       assert.ok(!/usermcp|claudemcp|steppage|cron_|workflow|_goal|clarify_user|_plan_mode/.test(t), `unexpected tool ${t}`);
     }
     const system = JSON.stringify(r.body.messages[0]);
+    // The briefing is passed as a file path; the CLI reads it into the prompt.
+    assert.ok(system.includes('step-cli-bot') && system.includes('mcp__openagents-workspace__'), 'the workspace briefing is missing');
+    assert.ok(!system.includes('system-prompt.md'), 'the briefing path was taken as the text');
     assert.ok(system.includes('PROJECT-CLAUDE-MD-MARKER'), 'project instructions are kept');
     assert.ok(system.includes('THEIR-SKILL-MARKER'), "the user's skills are kept");
     for (const req of requests) assert.ok(!req.auth.includes(SAVED_KEY));

@@ -87,7 +87,7 @@ step -p [--plan] --mode json --session-dir <dir> --session-id <uuid> \
   --no-approve --no-update-check \
   --non-interactive-approval allow \
   --exclude-tools clarify_user,enter_plan_mode,exit_plan_mode[,search_web] \
-  [--model <id>] --append-system-prompt <briefing>
+  [--model <id>] --append-system-prompt <channel root>/system-prompt.md
 ```
 
 One process per message, prompt over stdin (`--plan`, an extension flag, would
@@ -96,6 +96,11 @@ nothing). The session id is chosen by the adapter; `--session-id` creates the
 session on the first turn and resumes it on the next. Transcripts are kept in
 one directory per agent, and a session is only resumed from the working
 directory it started in.
+
+The briefing is a file, not argv text: `--append-system-prompt` reads a file
+when its value names one that exists (`resolvePromptInput` in the CLI's
+resource loader, unchanged from 0.1.4 to 0.1.6). So a pinned glossary cannot
+push the command line past Windows' 32K limit, and the text is not in `ps`.
 
 The workspace tools come from MCP. Step names an MCP tool `<server>__<tool>`,
 so the server is declared as `mcp__openagents-workspace`, which makes the tools
@@ -127,7 +132,10 @@ The CLI reads `config.toml`, `auth.json` and `models.json` from the parent of
 its agent directory. The adapter points `STEP_CODING_AGENT_DIR` at a directory
 of its own per channel (`~/.openagents/step-code/<ws>_<agent>/channels/<id>/agent`)
 and writes that parent's `config.toml` for each run (0600, removed after the
-run):
+run, like the briefing beside it; the file carries the workspace token, and
+the adapter removes any a daemon that died mid-run left behind when it
+starts).
+That file decides what a run sees:
 
 | From the user's setup | Kept out by |
 |---|---|
@@ -192,12 +200,16 @@ The idle watchdog (5 minutes without output) pauses while a tool call is out.
 
 The CLI hands its environment to its shell commands, so `STEP_API_KEY` is
 visible to `env`, and a sign-in run's `STEPCODE_AUTH_PATH` names the file
-holding the saved credential. Every string of every frame is redacted by value
-(the key, the workspace token, any credential-named variable in the run's
-environment, and the secrets in the user's `auth.json` and the account session
-`step-login.json` beside it) before anything reaches the channel or the log.
-Those two files are read again whenever they change during a run, so a token
-the CLI renews mid-run is covered too.
+holding the saved credential. Every string of every frame is masked by value
+before anything reaches the channel or the log: the agent's own credentials and
+workspace token (`BaseAdapter._knownSecrets`), the resolved key, any
+credential-named variable in the run's environment, and the secrets in the
+user's `auth.json` and the account session `step-login.json` beside it. Those
+two files are read again whenever they change during a run, so a token the CLI
+renews mid-run is covered too. CLI text quoted in a failure message or a log
+line goes through the shared `redactSecrets` with the same values, which also
+masks credential shapes; failures Step has no rule of its own for are worded
+by the shared `run-failure.js`.
 
 ## Testing
 
