@@ -14,6 +14,10 @@ const { REASON } = require('../src/adapters/health-status');
 // A mock `step`: a Node script that records how it was invoked and replays the
 // JSON stream the real CLI (0.1.5) printed for each scenario, so the adapter's
 // spawn → pipe-prompt → parse → reply path runs with no CLI, key or network.
+// It is run through the adapter's _spawnCommand seam, under this Node: the
+// real CLI is a native binary, and Windows will not execute a .js file. The
+// script is written without its execute bit, so a spawn that skips the seam
+// fails here as it would on Windows.
 //
 // The shapes that matter: a provider failure is an assistant message with
 // stopReason "error" and an errorMessage, exit 1; a run that never found a
@@ -79,13 +83,18 @@ process.stdin.on('end', () => {
     let config = null;
     let configMode = null;
     try { config = fs.readFileSync(cfgPath, 'utf8'); configMode = fs.statSync(cfgPath).mode & 0o777; } catch {}
+    // --append-system-prompt names a file the CLI reads; record what it held.
+    const promptArg = at('--append-system-prompt') >= 0 ? args[at('--append-system-prompt') + 1] : null;
+    let systemPrompt = null;
+    let systemPromptMode = null;
+    try { systemPrompt = fs.readFileSync(promptArg, 'utf8'); systemPromptMode = fs.statSync(promptArg).mode & 0o777; } catch {}
     const names = ['STEP_API_KEY', 'STEP_BASE_URL', 'STEP_CODING_AGENT_DIR', 'STEPCODE_STORAGE_ROOT_DIR',
       'STEP_CODING_AGENT_PLAN_DIR', 'STEPCODE_AUTH_PATH', 'STEPCODE_SEARCH_API_KEY', 'STEPCODE_SEARCH_WEB_MCP_URL',
       'STEP_NON_INTERACTIVE_DENIAL', 'STEP_DISABLE_CRON', 'STEP_DISABLE_WORKFLOW', 'STEPCODE_DISABLE_TELEMETRY',
       'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL', 'STEP_PROVIDER_API_URL', 'STEP_MODEL', 'PATH'];
     const env = Object.fromEntries(names.map((n) => [n, process.env[n] === undefined ? null : process.env[n]]));
     const prev = fs.existsSync(process.env.FAKE_CAPTURE) ? JSON.parse(fs.readFileSync(process.env.FAKE_CAPTURE, 'utf8')) : { runs: [] };
-    prev.runs.push({ args, stdin, cwd: process.cwd(), env, config, configMode, configPath: cfgPath });
+    prev.runs.push({ args, stdin, cwd: process.cwd(), env, config, configMode, configPath: cfgPath, promptArg, systemPrompt, systemPromptMode });
     fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify(prev));
   }
   const scenario = process.env.FAKE_SCENARIO || 'success';
@@ -154,6 +163,12 @@ process.stdin.on('end', () => {
     end();
     process.exit(0);
   }
+  if (scenario === 'echo_text') {
+    start();
+    assistant([{ type: 'text', text: process.env.FAKE_ECHO || '' }], 'stop');
+    end();
+    process.exit(0);
+  }
   if (scenario === 'cat_auth') {
     // The shell tool printing the saved sign-in and the account session
     // beside it. With FAKE_REFRESHED the CLI first renews the token, as it
@@ -219,7 +234,7 @@ const SESSIONS = () => path.join(tmpRoot, 'sessions.json');
 before(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-step-code-'));
   fakeBin = path.join(tmpRoot, 'fake-step.js');
-  fs.writeFileSync(fakeBin, FAKE_SCRIPT, { mode: 0o755 });
+  fs.writeFileSync(fakeBin, FAKE_SCRIPT, { mode: 0o644 });
   capturePath = path.join(tmpRoot, 'capture.json');
   homeDir = path.join(tmpRoot, 'home');
   fs.mkdirSync(homeDir, { recursive: true });
@@ -278,6 +293,7 @@ function makeAdapter(extra = {}) {
     getTodos: async () => ({ todos: [] }),
   };
   a._findStepBinary = () => fakeBin;
+  a._spawnCommand = (bin, args) => ({ command: process.execPath, args: [bin, ...args] });
   a._findNodeBin = () => process.execPath;
   a._probeModels = async () => extra.probe || null;
   if (extra.mode) a._mode = extra.mode;
@@ -400,9 +416,68 @@ describe('StepCodeAdapter — headless invocation', () => {
     // The browser directive is the part that names tools in full.
     a.getBrowserEnabled = async () => true;
     await send(a);
-    const brief = argAfter(lastRun(a), '--append-system-prompt');
+    const brief = lastRun(a).systemPrompt;
     assert.ok(brief.includes('step-bot'));
     assert.ok(brief.includes('mcp__openagents-workspace__'));
+  });
+
+  it('passes the briefing as a private file in the channel root, not as argv text, and removes it after the run', async () => {
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: KEY } });
+    // A pinned glossary is the part of the briefing that grows without bound.
+    a._pinnedContext.thread = { glossary: { available: true, state: 'found', entryId: 'g1', content: '- ZEBRA-77: the release codename' } };
+    await send(a);
+    const run = lastRun(a);
+    assert.equal(run.promptArg, path.join(path.dirname(run.env.STEP_CODING_AGENT_DIR), 'system-prompt.md'));
+    assert.ok(run.systemPrompt.includes('ZEBRA-77'));
+    assert.ok(!run.args.some((x) => x.includes('ZEBRA-77') || x.includes('step-bot')));
+    if (process.platform !== 'win32') assert.equal(run.systemPromptMode, 0o600);
+    assert.equal(fs.existsSync(run.promptArg), false);
+  });
+
+  it('sends no briefing to the silent plan-mode toggle', async () => {
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: KEY }, mode: 'plan' });
+    await send(a, 'plan it');
+    a._mode = 'execute';
+    await send(a, 'now do it');
+    const [, toggle, run] = runs();
+    assert.equal(toggle.promptArg, null);
+    assert.ok(run.systemPrompt.includes('step-bot'));
+  });
+
+  it('removes the token-bearing run files a crashed daemon left behind when it starts', () => {
+    const a = makeAdapter();
+    const dir = path.join(a._root, 'channels', '0123456789abcdef');
+    fs.mkdirSync(path.join(dir, 'agent', 'live-context'), { recursive: true });
+    for (const f of ['config.toml', 'system-prompt.md']) fs.writeFileSync(path.join(dir, f), 'OA_WORKSPACE_TOKEN = "ws-token-0123456789"');
+    fs.writeFileSync(path.join(dir, 'agent', 'live-context', 'session.json'), '{}');
+    assert.equal(a._sweepRunFiles(), 2);
+    assert.equal(fs.existsSync(path.join(dir, 'config.toml')), false);
+    assert.equal(fs.existsSync(path.join(dir, 'system-prompt.md')), false);
+    // The session's context archive is not a run file.
+    assert.equal(fs.existsSync(path.join(dir, 'agent', 'live-context', 'session.json')), true);
+    // A fresh agent has nothing to sweep.
+    fs.rmSync(a._root, { recursive: true, force: true });
+    assert.equal(a._sweepRunFiles(), 0);
+  });
+
+  it('sweeps from the constructor', () => {
+    const home = fs.mkdtempSync(path.join(tmpRoot, 'sweep-home-'));
+    const saved = process.env.HOME;
+    const savedProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      const dir = path.join(home, '.openagents', 'step-code', 'ws_bot', 'channels', 'abc');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'config.toml'), 'x');
+      // os.homedir() follows HOME on POSIX and USERPROFILE on Windows.
+      if (os.homedir() !== home) return;
+      new StepCodeAdapter({ workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'bot', endpoint: 'https://e', agentEnv: {} });
+      assert.equal(fs.existsSync(path.join(dir, 'config.toml')), false);
+    } finally {
+      if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved;
+      if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile;
+    }
   });
 
   it("honours the user's telemetry opt-out and puts the installer's fd/rg on PATH", async () => {
@@ -640,8 +715,42 @@ describe('StepCodeAdapter — redaction', () => {
     await send(a);
     const posted = JSON.stringify([a._captured.thinking, a._captured.status, a._captured.response, a._captured.error]);
     assert.ok(!posted.includes(KEY), posted);
-    assert.ok(posted.includes('[redacted]'));
+    assert.ok(posted.includes('[REDACTED]'));
     assert.ok(!a._captured.logs.join('\n').includes(KEY));
+  });
+
+  it("masks the workspace token and the agent's other credentials, as every adapter does", async () => {
+    const OTHER = 'relay-credential-0123456789';
+    const a = makeAdapter({
+      agentEnv: { LLM_API_KEY: KEY, RELAY_TOKEN: OTHER, FAKE_ECHO: 'token ws-token-0123456789 and ' + OTHER },
+      scenario: 'echo_text',
+    });
+    await send(a);
+    assert.deepEqual(a._captured.response, ['token [REDACTED] and [REDACTED]']);
+  });
+
+  it('keeps the key out of a failed start', async () => {
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: KEY } });
+    a._spawnCommand = () => ({ command: path.join(tmpRoot, 'missing', KEY, 'step'), args: [] });
+    await send(a);
+    assert.ok(a._captured.error[0].includes('could not be started'), a._captured.error[0]);
+    assert.ok(!a._captured.error[0].includes(KEY));
+    assert.ok(!a._captured.logs.join('\n').includes(KEY));
+  });
+
+  it('keeps the list longest first as a renewed token is added', () => {
+    const a = makeAdapter();
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'creds-'));
+    const authPath = path.join(dir, 'auth.json');
+    fs.writeFileSync(authPath, JSON.stringify({ step: { access: 'access-0123456789' } }));
+    const secrets = ['a-much-longer-unrelated-secret-0123456789'];
+    const sync = a._trackSavedCredentials({ authPath, loginStatePath: path.join(dir, 'none.json') }, secrets);
+    fs.writeFileSync(authPath, JSON.stringify({ step: { access: 'access-0123456789-renewed-and-longer-still' } }));
+    const st = fs.statSync(authPath);
+    fs.utimesSync(authPath, st.atime, new Date(st.mtimeMs + 5000));
+    sync();
+    assert.deepEqual(secrets.map((v) => v.length), [...secrets.map((v) => v.length)].sort((x, y) => y - x));
+    assert.ok(secrets.includes('access-0123456789') && secrets.includes('access-0123456789-renewed-and-longer-still'));
   });
 });
 
@@ -676,7 +785,7 @@ describe('StepCodeAdapter — redaction of the saved sign-in', () => {
     assert.equal(lastRun(a).env.STEPCODE_AUTH_PATH, authFile());
     assert.deepEqual(leaks(a, [ACCESS, SESSION_ACCESS, SESSION_REFRESH]), []);
     // Only the secrets go: the rest of the file is still readable.
-    assert.match(a._captured.response[0], /"profile":"step_plan".*\[redacted\]/);
+    assert.match(a._captured.response[0], /"profile":"step_plan".*\[REDACTED\]/);
   });
 
   it('keeps up with a token the CLI renews during the run', async () => {
@@ -684,7 +793,7 @@ describe('StepCodeAdapter — redaction of the saved sign-in', () => {
     const a = makeAdapter({ scenario: 'cat_auth', agentEnv: { FAKE_AUTH_FILE: authFile(), FAKE_REFRESHED: RENEWED } });
     await send(a);
     assert.deepEqual(leaks(a, [ACCESS, RENEWED, SESSION_ACCESS, SESSION_REFRESH]), []);
-    assert.ok(a._captured.logs.some((l) => l.includes('renewed [redacted]')), a._captured.logs.join('\n'));
+    assert.ok(a._captured.logs.some((l) => l.includes('renewed [REDACTED]')), a._captured.logs.join('\n'));
   });
 
   it("hides the user's saved sign-in from a key run's shell too", async () => {
