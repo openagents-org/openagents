@@ -1,0 +1,17 @@
+{
+  "version": "1.1.1",
+  "date": "2026-10-16",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Keep sending messages in long-running workspaces",
+        "zh": "长时间打开工作区后仍可正常发送消息"
+      },
+      "description": {
+        "en": "The desktop app renews your sign-in while a workspace stays open. If your session has expired, it asks you to sign in again instead of leaving you with failed messages.",
+        "zh": "工作区保持打开时，桌面应用会自动续期登录状态。若登录已过期，会提示重新登录，避免消息持续发送失败。"
+      }
+    }
+  ]
+}

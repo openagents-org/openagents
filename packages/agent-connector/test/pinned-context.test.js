@@ -5,9 +5,9 @@
  * - BaseAdapter._fetchGlossary channel→workspace fallback and caching
  * - BaseAdapter.pinnedPromptOpts / _prefetchPinnedContext gating
  * - the knowledge-disabled status warning (once per channel)
- * - glossary + read-only decision-log prompt sections
+ * - glossary prompt sections
  * - buildOpenclawSystemPrompt / buildOpenCodeSystemPrompt opt-in
- * - the Claude MCP allowlist naming the knowledge tools the decision
+ * - the Claude MCP allowlist naming the knowledge tools the glossary
  *   protocol instructs
  */
 
@@ -25,7 +25,6 @@ const {
 } = require('../src/adapters/decision-log');
 const {
   buildGlossaryPrompt,
-  buildDecisionLogPrompt,
   buildOpenclawSystemPrompt,
   buildOpenCodeSystemPrompt,
 } = require('../src/adapters/workspace-prompt');
@@ -142,18 +141,6 @@ describe('BaseAdapter._fetchGlossary', () => {
     assert.equal(res.entryId, 'g-1');
     assert.equal(adapter._glossaryEntryIds.general, 'g-1');
   });
-
-  it('uses a cache independent from the decision log', async () => {
-    const adapter = mkBase();
-    const gets = [];
-    adapter._glossaryEntryIds.general = 'g-1';
-    adapter._decisionEntryIds.general = 'd-1';
-    adapter.client = {
-      getKnowledge: async (ws, tok, id) => { gets.push(id); return { id, content: 'x' }; },
-    };
-    await adapter._fetchGlossary('general');
-    assert.deepEqual(gets, ['g-1']);
-  });
 });
 
 describe('knowledge-disabled warning', () => {
@@ -162,13 +149,12 @@ describe('knowledge-disabled warning', () => {
     adapter.disabledModules = new Set(['knowledge']);
     const logs = [];
     adapter._log = (m) => logs.push(m);
-    const first = await adapter._fetchDecisionLog('general');
+    const first = await adapter._fetchGlossary('general');
     await adapter._fetchGlossary('general');
-    await adapter._fetchDecisionLog('general');
-    await adapter._fetchDecisionLog('other');
+    await adapter._fetchGlossary('other');
     assert.equal(first.available, false);
     assert.equal(logs.filter((l) => /pinning is INACTIVE/.test(l)).length, 1);
-    const warned = adapter.statuses.filter((s) => /Decision pinning inactive/.test(s));
+    const warned = adapter.statuses.filter((s) => /Glossary pinning inactive/.test(s));
     assert.equal(warned.length, 2); // once for 'general', once for 'other'
   });
 });
@@ -177,13 +163,12 @@ describe('pinnedPromptOpts / _prefetchPinnedContext', () => {
   it('is empty until a prefetch ran, then reflects the fetched entries', async () => {
     const adapter = mkBase();
     adapter._usesPinnedContext = true;
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'd-1', content: '- decided', error: false });
     adapter._fetchGlossary = async () => ({ available: true, state: 'found', entryId: 'g-1', content: '- defined', error: false });
 
     assert.deepEqual(adapter.pinnedPromptOpts('general'), {});
     await adapter._prefetchPinnedContext('general');
     const opts = adapter.pinnedPromptOpts('general');
-    assert.deepEqual(opts.decisionLog, { enabled: true, state: 'found', entryId: 'd-1', content: '- decided' });
+    assert.equal(opts.decisionLog, undefined);
     assert.deepEqual(opts.glossary, { enabled: true, entryId: 'g-1', content: '- defined', scope: 'channel' });
   });
 
@@ -191,9 +176,6 @@ describe('pinnedPromptOpts / _prefetchPinnedContext', () => {
     const adapter = mkBase();
     adapter._usesPinnedContext = true;
     let fail = false;
-    adapter._fetchDecisionLog = async () => fail
-      ? { available: true, state: 'found', entryId: 'd-1', content: null, error: true }
-      : { available: true, state: 'found', entryId: 'd-1', content: '- decided', error: false };
     adapter._fetchGlossary = async () => fail
       ? { available: true, state: 'unknown', entryId: null, content: null, error: true }
       : { available: true, state: 'found', entryId: 'g-1', content: '- defined', error: false, scope: 'channel' };
@@ -202,7 +184,6 @@ describe('pinnedPromptOpts / _prefetchPinnedContext', () => {
     fail = true;
     await adapter._prefetchPinnedContext('general');
     const opts = adapter.pinnedPromptOpts('general');
-    assert.equal(opts.decisionLog.content, '- decided');
     assert.equal(opts.glossary.content, '- defined');
   });
 
@@ -217,15 +198,13 @@ describe('pinnedPromptOpts / _prefetchPinnedContext', () => {
     assert.equal(fetched, 1);
   });
 
-  it('omits the glossary when absent and blanks decision content on a failed read', async () => {
+  it('omits the glossary when absent', async () => {
     const adapter = mkBase();
     adapter._usesPinnedContext = true;
-    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'd-1', content: null, error: true });
     adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
     await adapter._prefetchPinnedContext('general');
     const opts = adapter.pinnedPromptOpts('general');
-    assert.equal(opts.decisionLog.content, '');
-    assert.equal(opts.glossary, undefined);
+    assert.deepEqual(opts, {});
   });
 });
 
@@ -281,48 +260,31 @@ describe('buildGlossaryPrompt', () => {
   });
 });
 
-describe('buildDecisionLogPrompt writeAccess', () => {
-  it('read-only callers get the pinned decisions but no write protocol', () => {
-    const out = buildDecisionLogPrompt({
-      channelName: 'general', entryId: 'e-1', content: '- decided thing', state: 'found', writeAccess: false,
-    });
-    assert.ok(out.includes('- decided thing'));
-    assert.ok(out.includes('cannot update this log'));
-    assert.ok(!out.includes('Update protocol'));
-    assert.ok(!out.includes('Updating it is part of your job'));
-  });
-});
-
 describe('openclaw/opencode system prompts opt in to pinning', () => {
   const BASE = {
     agentName: 'qa', workspaceId: 'ws-1', channelName: 'general',
     endpoint: 'https://example.test', token: 'tok', disabledModules: new Set(),
   };
   const PINNED = {
-    decisionLog: { enabled: true, state: 'found', entryId: 'e-1', content: '- fields are snake_case' },
     glossary: { enabled: true, entryId: 'g-1', content: '- amount: minor units' },
   };
 
-  it('buildOpenclawSystemPrompt emits both sections with skills phrasing', () => {
+  it('buildOpenclawSystemPrompt emits the glossary with skills phrasing', () => {
     const out = buildOpenclawSystemPrompt({ ...BASE, ...PINNED });
-    assert.ok(out.includes('## Decision log'));
-    assert.ok(out.includes('- fields are snake_case'));
     assert.ok(out.includes('## Shared glossary'));
     assert.ok(out.includes('- amount: minor units'));
     assert.ok(out.includes('PUT /v1/knowledge/ENTRY_ID'));
     assert.ok(!out.includes('workspace_write_knowledge'));
   });
 
-  it('buildOpenCodeSystemPrompt emits both sections', () => {
+  it('buildOpenCodeSystemPrompt emits the glossary', () => {
     const out = buildOpenCodeSystemPrompt({ ...BASE, ...PINNED });
-    assert.ok(out.includes('## Decision log'));
     assert.ok(out.includes('## Shared glossary'));
   });
 
   it('both stay unchanged when nothing is passed', () => {
     for (const build of [buildOpenclawSystemPrompt, buildOpenCodeSystemPrompt]) {
       const out = build({ ...BASE });
-      assert.ok(!out.includes('## Decision log'));
       assert.ok(!out.includes('## Shared glossary'));
     }
   });
@@ -382,7 +344,7 @@ describe('Claude MCP allowlist covers the knowledge tools', () => {
 });
 
 describe('Goose pins read-only into its per-turn system prompt', () => {
-  it('emits both sections without any write protocol', () => {
+  it('emits the glossary without any write protocol', () => {
     const GooseAdapter = require('../src/adapters/goose');
     const adapter = new GooseAdapter({
       workspaceId: `test-ws-${Math.random().toString(36).slice(2)}`,
@@ -390,17 +352,14 @@ describe('Goose pins read-only into its per-turn system prompt', () => {
     });
     assert.equal(adapter._usesPinnedContext, true);
     adapter._pinnedContext.general = {
-      decisions: { available: true, state: 'found', entryId: 'd-1', content: '- fields are snake_case', error: false },
       glossary: { available: true, state: 'found', entryId: 'g-1', content: '- amount: minor units', error: false, scope: 'channel' },
     };
     const prompt = adapter._buildSystemPrompt('general');
-    assert.ok(prompt.includes('## Decision log'));
-    assert.ok(prompt.includes('- fields are snake_case'));
+    assert.ok(!/decision log/i.test(prompt));
     assert.ok(prompt.includes('## Shared glossary'));
     assert.ok(prompt.includes('- amount: minor units'));
-    assert.ok(prompt.includes('cannot update this log'));
     assert.ok(!prompt.includes('Update protocol'));
     // Without a prefetch the prompt simply has no pinned sections.
-    assert.ok(!adapter._buildSystemPrompt('other').includes('## Decision log'));
+    assert.ok(!adapter._buildSystemPrompt('other').includes('## Shared glossary'));
   });
 });

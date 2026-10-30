@@ -88,37 +88,9 @@ export interface SkinDefinition {
 
 export const SKINS = [
   {
-    id: 'default',
-    lockedAccent: null,
-    chrome: {
-      light: {
-        bg: '#f2f2f7',
-        title: '#1c1c1e',
-        msg: '#636366',
-        detail: '#aeaeb2',
-        panel: '#ffffff',
-        rail: '#ffffff',
-        border: '#dcdce3',
-        shadow: null,
-      },
-      dark: {
-        bg: '#0f1115',
-        title: '#f5f5f7',
-        msg: '#a1a1aa',
-        detail: '#6b6f7a',
-        panel: '#1c1f26',
-        rail: '#0e1117',
-        border: '#2a2e38',
-        shadow: null,
-      },
-    },
-    frame: { radius: 8, borderWidth: 1 },
-    fontFamily: null,
-  },
-  {
     id: 'openagents',
-    /* The site's teal, declared as `--accent-oa` in globals.css alongside the
-       eight user-facing presets and deliberately absent from ACCENT_COLORS: it
+    /* The brand's deep blue, declared as `--accent-oa` in globals.css alongside
+       the eight user-facing presets and deliberately absent from ACCENT_COLORS: it
        is not a choice, so it is not a swatch. */
     lockedAccent: 'oa',
     chrome: {
@@ -149,11 +121,42 @@ export const SKINS = [
     frame: { radius: 6, borderWidth: 2 },
     fontFamily: 'Inter Variable',
   },
+  {
+    id: 'default',
+    lockedAccent: null,
+    chrome: {
+      light: {
+        bg: '#fcfdfe',
+        title: '#20262e',
+        msg: '#5c6978',
+        detail: '#8c97a5',
+        panel: '#ffffff',
+        rail: '#fcfdfe',
+        border: '#dfe5eb',
+        shadow: null,
+      },
+      dark: {
+        bg: '#151a20',
+        title: '#e9eef4',
+        msg: '#a4b0bf',
+        detail: '#6f7c8c',
+        panel: '#1c232c',
+        rail: '#151a20',
+        border: '#303a47',
+        shadow: null,
+      },
+    },
+    frame: { radius: 6, borderWidth: 1 },
+    fontFamily: null,
+  },
 ] as const satisfies readonly SkinDefinition[]
 
 export type SkinId = (typeof SKINS)[number]['id']
 
-export const DEFAULT_SKIN: SkinId = 'default'
+/* The brand skin is what a fresh install gets: it matches openagents.org, and
+   testers moving between the site and the app found two looks confusing. A
+   stored pick (either one) still wins — see `readStored` in the store. */
+export const DEFAULT_SKIN: SkinId = 'openagents'
 
 export const SKIN_IDS: SkinId[] = SKINS.map((s) => s.id)
 
@@ -164,5 +167,9 @@ export function isSkinId(value: unknown): value is SkinId {
 /** The named skin, or the default one — never undefined, so callers that came
  *  from stored state (settings.json, localStorage) need no guard of their own. */
 export function getSkin(id: unknown): SkinDefinition {
-  return SKINS.find((s) => s.id === id) ?? SKINS[0]
+  return (
+    SKINS.find((s) => s.id === id) ??
+    SKINS.find((s) => s.id === DEFAULT_SKIN) ??
+    SKINS[0]
+  )
 }

@@ -283,7 +283,7 @@ def approve_approval(
     body: ResolveApprovalRequest,
     background_tasks: BackgroundTasks,
     approval_id: str = Path(...),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):

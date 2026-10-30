@@ -403,6 +403,10 @@ def _sender_email_for(event: dict) -> str | None:
 def _fanout_impl(workspace_id: str, event: dict) -> None:
     db = SessionLocal()
     try:
+        from app.services.issue_notifications import notify_issue_completion
+        if notify_issue_completion(db, workspace_id, event):
+            db.commit()
+            return  # Addressed inbox notification also sends the phone push.
         agent_names = _workspace_agent_names(db, workspace_id)
         human_keys = _workspace_human_keys(db, workspace_id)
         should, reason, mention_target_email = _should_push(

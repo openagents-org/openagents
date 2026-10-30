@@ -9,7 +9,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
-import { workspaceApi } from '@/lib/api';
+import { ApiError, workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -22,9 +22,13 @@ import { buildTabEntries, displayUrl, normalizeUrl, whoLabel, type PermanentEntr
 
 import { useBrowserControl } from './use-browser-control';
 
-/** The live view is embedded chrome-less; the workspace draws the browser around it. */
+/**
+ * The live view is embedded chrome-less; the workspace draws the browser around it.
+ * This is the surface people take over to read and type, so ask for the sharper
+ * stream: the default preset downscales a 1920px page to 1024px JPEG.
+ */
 function embedUrl(liveUrl: string): string {
-  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + 'embed=1';
+  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + 'embed=1&q=high';
 }
 
 /**
@@ -39,28 +43,50 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     browserTabs, browserContexts, browserTabLimits, agents,
     selectedBrowserTabId: workspaceBrowserTabId, setSelectedBrowserTabId,
     selectedBrowserContextId, setSelectedBrowserContextId,
-    closeBrowserTab, navigateBrowserTab, reconnectBrowserTab,
+    closeBrowserTab, navigateBrowserTab,
     openBrowserTabWithContext, deleteBrowserContext, refreshBrowserTabs,
   } = useWorkspace();
-  const { isMobile, isDetailExpanded, toggleDetailExpanded } = useLayout();
+  const { isMobile } = useLayout();
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const changed = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { toast.error(t("browser.fullscreenUnavailable")); }
+  };
 
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [sessionDead, setSessionDead] = useState(false);
+  const [sessionAsleep, setSessionAsleep] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [liveRevision, setLiveRevision] = useState(0);
+  const recoveryInFlight = useRef(false);
+  const validationGeneration = useRef(0);
   const [navigating, setNavigating] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
   const [editingUrl, setEditingUrl] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [wakingId, setWakingId] = useState<string | null>(null);
+  const [nudgeTakeOver, setNudgeTakeOver] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const screenshotRef = useRef<HTMLImageElement>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement>(null);
+  const liveFrameRef = useRef<HTMLIFrameElement>(null);
+  const composingRef = useRef(false);
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
   const refreshFrameRef = useRef<(() => void) | null>(null);
 
   const selectedBrowserTabId = artifactTabId || workspaceBrowserTabId;
   const tab = browserTabs.find((x) => x.id === selectedBrowserTabId);
+  useEffect(() => { setRecoveryError(null); }, [selectedBrowserTabId]);
   const { permanent, temporary } = buildTabEntries(browserTabs, browserContexts);
   const asleepEntry = !tab && selectedBrowserContextId
     ? permanent.find((e) => e.context.id === selectedBrowserContextId && !e.tab) ?? null
@@ -74,35 +100,43 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // screenshot refresh: people can still deliberately return to the composer.
   const hasScreenshot = !!screenshotUrl;
   useEffect(() => {
-    if (controlling) screenshotRef.current?.focus({ preventScroll: true });
-    else if (document.activeElement === screenshotRef.current) screenshotRef.current?.blur();
+    if (controlling) (liveFrameRef.current || keyboardRef.current)?.focus({ preventScroll: true });
+    else if (document.activeElement === keyboardRef.current) keyboardRef.current?.blur();
   }, [controlling, hasScreenshot]);
 
-  // Validate the live session on mount / tab switch, then keep checking. The
-  // backend probes the BF session and auto-reconnects if it can, returning
-  // fresh tab data (including a new live_url). See git history for why this
-  // repeats: a dead share link silently swaps in BF's own error page.
+  // Probe without waking sleeping browsers. Only an explicit user action
+  // reactivates a session; a provider outage must not destroy a saved login.
   const hasLiveUrl = !!tab?.liveUrl;
   useEffect(() => {
     if (!selectedBrowserTabId || !hasLiveUrl) return;
     let cancelled = false;
+    let validating = false;
+    setSessionAsleep(false);
+    setSessionDead(false);
     const validate = async (initial: boolean) => {
+      if (validating || recoveryInFlight.current) return;
+      validating = true;
+      const generation = validationGeneration.current;
       if (initial) setReconnecting(true);
       try {
-        await workspaceApi.validateBrowserTab(selectedBrowserTabId);
-        if (cancelled) return;
-        setSessionDead(false);
-        await refreshBrowserTabs();
+        const checked = await workspaceApi.validateBrowserTab(selectedBrowserTabId);
+        if (cancelled || recoveryInFlight.current || generation !== validationGeneration.current) return;
+        setSessionDead(checked.connectionStatus === 'unknown' || checked.connectionStatus === 'dead');
+        setSessionAsleep(!!checked.asleep);
+        // Another worker may have recreated this saved tab since the iframe
+        // mounted. Refresh its current URL even after the agent has finished.
+        if (checked.liveUrl && checked.liveUrl !== tab?.liveUrl) await refreshBrowserTabs();
       } catch {
-        if (!cancelled) setSessionDead(true);
+        if (!cancelled && generation === validationGeneration.current) setSessionDead(true);
       } finally {
-        if (!cancelled && initial) setReconnecting(false);
+        validating = false;
+        if (!cancelled && initial && !recoveryInFlight.current) setReconnecting(false);
       }
     };
     validate(true);
     const interval = setInterval(() => validate(false), 30000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [selectedBrowserTabId, hasLiveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedBrowserTabId, hasLiveUrl, tab?.liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screenshot polling — only for local (non-cloud) tabs without a live view.
   useEffect(() => {
@@ -184,15 +218,57 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const handleReconnect = async () => {
     if (!tab || reconnecting) return;
     setReconnecting(true);
+    setRecoveryError(null);
+    recoveryInFlight.current = true;
+    validationGeneration.current++;
     try {
-      await reconnectBrowserTab(tab.id);
+      await workspaceApi.reactivateBrowserTab(tab.id);
+      await refreshBrowserTabs();
+      setSessionAsleep(false);
+      setLiveRevision((value) => value + 1);
       setSessionDead(false);
       failCountRef.current = 0;
       setLoading(true);
       toast.success(t('browser.reconnected'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('browser.reconnectFailed'));
+      setSessionDead(true);
+      const message = err instanceof ApiError
+        ? err.serverMessage || t('browser.reconnectFailed')
+        : t('browser.reconnectFailed');
+      setRecoveryError(message);
     } finally {
+      recoveryInFlight.current = false;
+      setReconnecting(false);
+    }
+  };
+
+  const handleReplace = async () => {
+    if (!tab || reconnecting) return;
+    setReconnecting(true);
+    recoveryInFlight.current = true;
+    validationGeneration.current++;
+    try {
+      const current = await workspaceApi.getBrowserTab(tab.id);
+      const ok = await confirm({
+        title: t('browser.replaceTitle'),
+        description: t('browser.replaceDescription'),
+        confirmText: t('browser.replace'),
+        destructive: true,
+      });
+      if (!ok) return;
+      await workspaceApi.replaceBrowserTab(current.id, current.sessionId);
+      await refreshBrowserTabs();
+      setRecoveryError(null);
+      setSessionAsleep(false);
+      setSessionDead(false);
+      setLiveRevision((value) => value + 1);
+      failCountRef.current = 0;
+      setLoading(true);
+    } catch (err) {
+      setRecoveryError(err instanceof ApiError
+        ? err.serverMessage || t('browser.reconnectFailed') : t('browser.reconnectFailed'));
+    } finally {
+      recoveryInFlight.current = false;
       setReconnecting(false);
     }
   };
@@ -257,10 +333,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const activityLabel = activity.active
     ? t(`browser.agentAction.${activity.action ?? 'other'}` as MessageKey, { agent: agentWho })
     : null;
-  const liveState: 'live' | 'connecting' | 'expired' | 'none' = !tab
+  const liveState: 'live' | 'connecting' | 'unavailable' | 'asleep' | 'none' = !tab
     ? 'none'
     : sessionDead
-      ? 'expired'
+      ? 'unavailable'
+      : sessionAsleep || tab.asleep ? 'asleep'
       : reconnecting || (!tab.liveUrl && loading && !screenshotUrl)
         ? 'connecting'
         : 'live';
@@ -310,8 +387,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const tabStrip = (
     <div className="flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {permanent.map((entry) => {
-        const awake = !!entry.tab;
-        const active = awake ? entry.tab!.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
+        const awake = !!entry.tab && !entry.tab.asleep;
+        const active = entry.tab ? entry.tab.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
         return (
           <TabChip
             key={entry.key}
@@ -324,7 +401,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               ? <Globe className="size-3.5 text-muted-foreground" />
               : <Moon className="size-3.5 text-zinc-400" />}
             onSelect={() => {
-              if (awake) selectLive(entry.tab!);
+              if (entry.tab) selectLive(entry.tab);
               else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
             }}
             onClose={awake ? () => handleCloseOrSleep(entry.tab!) : undefined}
@@ -357,11 +434,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         <div className="mb-1.5 ml-auto hidden shrink-0 items-center gap-2 pl-3 text-[10px] tabular-nums text-muted-foreground md:flex">
           <span
             className="inline-flex items-center gap-1"
-            title={t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
+            title={t('browser.sessionCapacityHint')}
           >
             <Globe className="size-3" />
-            <span className={cn(browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max && 'text-red-500')}>
-              {browserTabLimits.concurrent.used}/{browserTabLimits.concurrent.max}
+            <span>
+              {t('browser.workspaceActiveSessions', { count: browserTabLimits.concurrent.used })}
             </span>
           </span>
         </div>
@@ -378,7 +455,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         disabled={reconnecting}
         className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
         title={t('browser.reconnectHint')}
-        aria-label={t('browser.reconnect')}
+        aria-label={t('browser.reactivate')}
       >
         <RefreshCw className={cn('size-3.5', (reconnecting || navigating) && 'animate-spin')} />
       </button>
@@ -424,7 +501,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
       <button
         onClick={toggleControl}
-        disabled={controlBusy || sessionDead || reconnecting}
+        disabled={controlBusy || sessionDead || sessionAsleep || tab.asleep || reconnecting}
         className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-accent px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
         title={controlling ? t('browser.handBack') : t('browser.takeOver')}
       >
@@ -452,24 +529,39 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         activity.active && 'shadow-[inset_0_0_0_2px_rgba(14,165,233,0.55)]',
       )}
     >
-      {sessionDead ? (
+      {sessionDead || sessionAsleep || tab.asleep ? (
         <div className="flex h-full items-center justify-center text-muted-foreground">
           <div className="space-y-3 text-center">
             <Globe className="mx-auto size-10 opacity-20" />
-            <p className="text-sm font-medium">{t('browser.expiredTitle')}</p>
-            <p className="text-xs text-muted-foreground">{t('browser.expiredBody')}</p>
+            <p className="text-sm font-medium">{t(sessionAsleep || tab.asleep ? 'browser.sleepingTitle' : 'browser.unavailableTitle')}</p>
+            <p className="text-xs text-muted-foreground" role={recoveryError ? 'alert' : undefined}>{recoveryError || t(sessionAsleep || tab.asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</p>
             <button
               onClick={handleReconnect}
               disabled={reconnecting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <RefreshCw className={cn('size-3.5', reconnecting && 'animate-spin')} />
-              {t('browser.reconnect')}
+              {t('browser.reactivate')}
             </button>
+            {sessionDead && tab.contextId && (
+              <div>
+                <button onClick={handleReplace} disabled={reconnecting}
+                  className="text-xs underline underline-offset-4 disabled:opacity-50">
+                  {t('browser.replace')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      ) : tab.liveUrl && !reconnecting ? (
+      ) : reconnecting ? (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+          <RefreshCw className="size-6 animate-spin" />
+        </div>
+      ) : tab.liveUrl ? (
         <iframe
+          key={`${tab.id}:${liveRevision}`}
+          ref={liveFrameRef}
+          onLoad={() => { if (controlling) liveFrameRef.current?.focus(); }}
           src={embedUrl(tab.liveUrl)}
           tabIndex={controlling ? 0 : -1}
           inert={!controlling}
@@ -483,39 +575,52 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         </div>
       ) : screenshotUrl ? (
         <div className="flex w-full justify-center overflow-auto p-4">
+          <textarea ref={keyboardRef} className="sr-only" tabIndex={controlling ? 0 : -1} disabled={!controlling}
+            aria-label={t('browser.controlInstructions')} autoComplete="off" autoCapitalize="off" spellCheck={false}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={event => {
+              composingRef.current = false;
+              if (controlling && event.data) sendInput({ kind: 'text', text: event.data });
+              event.currentTarget.value = '';
+            }}
+            onInput={event => {
+              if (composingRef.current || !controlling) return;
+              const text = event.currentTarget.value;
+              if (text) sendInput({ kind: 'text', text: text.slice(0, 10000) });
+              event.currentTarget.value = '';
+            }}
+            onKeyDown={event => {
+              if (!controlling) return;
+              event.stopPropagation();
+              if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === 'Escape') { event.currentTarget.blur(); return; }
+              if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
+              if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) return;
+              event.preventDefault();
+              sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key].filter(Boolean).join('+') });
+            }}
+            onKeyUp={event => event.stopPropagation()}
+            onPaste={event => {
+              if (!controlling) return;
+              event.preventDefault(); event.stopPropagation();
+              sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
+            }}
+          />
           <img
             ref={screenshotRef}
             src={screenshotUrl}
             alt={t('browser.screenshotOf', { url: tab.url })}
             className={cn('max-w-full rounded-lg border border-zinc-200 shadow-sm outline-none focus:ring-2 focus:ring-primary dark:border-zinc-700', controlling && 'cursor-pointer')}
             draggable={false}
-            tabIndex={controlling ? 0 : -1}
+            tabIndex={-1}
             role={controlling ? 'application' : undefined}
             aria-label={controlling ? t('browser.controlInstructions') : undefined}
             onClick={(event) => {
               if (!controlling) return;
-              event.currentTarget.focus();
+              keyboardRef.current?.focus({ preventScroll: true });
               const rect = event.currentTarget.getBoundingClientRect();
               sendInput({ kind: 'click', x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
-            }}
-            onKeyDown={(event) => {
-              if (!controlling) return;
-              event.stopPropagation();
-              if (event.nativeEvent.isComposing) return;
-              // Escape leaves the remote canvas, so keyboard users can reach Hand back.
-              if (event.key === 'Escape') { event.currentTarget.blur(); return; }
-              if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
-              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
-              event.preventDefault();
-              if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) sendInput({ kind: 'text', text: event.key });
-              else sendInput({ kind: 'key', key: [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift', event.key === ' ' ? 'Space' : event.key].filter(Boolean).join('+') });
-            }}
-            onKeyUp={(event) => { if (controlling) event.stopPropagation(); }}
-            onPaste={(event) => {
-              if (!controlling) return;
-              event.stopPropagation();
-              event.preventDefault();
-              sendInput({ kind: 'text', text: event.clipboardData.getData('text/plain').slice(0, 10000) });
             }}
             onWheel={(event) => {
               if (!controlling) return;
@@ -533,11 +638,20 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {/* Control layer. Watching = a glass sheet that keeps stray clicks away
           from the agent's page and offers "Take over". Controlling = no sheet;
           just a small pill to hand back. */}
-      {tab.liveUrl && !sessionDead && !reconnecting && (
+      {tab.liveUrl && !sessionDead && !sessionAsleep && !tab.asleep && !reconnecting && (
         !controlling ? (
           <div
-            className="absolute inset-0 z-10 flex cursor-default flex-col justify-end"
-
+            className={cn('absolute inset-0 z-10 flex flex-col justify-end', activity.active ? 'cursor-default' : 'cursor-pointer')}
+            onClick={(event) => {
+              if (event.target !== event.currentTarget || controlBusy) return;
+              // A click on the page means "let me use it". Take over when the
+              // agent is idle; while it is acting, point at the switch instead.
+              if (!activity.active) void toggleControl();
+              else {
+                setNudgeTakeOver(true);
+                setTimeout(() => setNudgeTakeOver(false), 1200);
+              }
+            }}
           >
             <div className="pointer-events-none flex items-end justify-between gap-3 bg-gradient-to-t from-black/45 to-transparent px-3 pb-3 pt-10">
               <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[12px] text-white shadow backdrop-blur">
@@ -560,7 +674,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               <button
                 onClick={toggleControl}
                 disabled={controlBusy}
-                className="pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100"
+                className={cn(
+                  'pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100',
+                  nudgeTakeOver && 'scale-110 ring-4 ring-sky-400/70',
+                )}
               >
                 <Hand className="size-3.5" />
                 {t('browser.takeOver')}
@@ -582,7 +699,6 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
                 onClick={toggleControl}
                 disabled={controlBusy}
                 className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium hover:bg-white/25"
-                title={t('browser.watchingHint')}
               >
                 {t('browser.handBack')}
               </button>
@@ -603,10 +719,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             'size-1.5 rounded-full',
             liveState === 'live' && 'bg-emerald-500 animate-pulse',
             liveState === 'connecting' && 'bg-amber-500 animate-pulse',
-            liveState === 'expired' && 'bg-red-500',
+            liveState === 'unavailable' && 'bg-red-500',
           )}
         />
-        {liveState === 'live' ? t('browser.live') : liveState === 'expired' ? t('browser.expiredTitle') : t('browser.opening')}
+        {liveState === 'live' ? t('browser.live') : liveState === 'unavailable' ? t('browser.unavailableTitle') : liveState === 'asleep' ? t('browser.sleepingTitle') : t('browser.opening')}
         <span className="hidden text-muted-foreground/60 sm:inline">· {t('browser.cloudBrowser')}</span>
       </span>
       <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
@@ -686,11 +802,12 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       >
         {!isMobile && (
           <button
-            onClick={toggleDetailExpanded}
+            onClick={() => void toggleFullscreen()}
             className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            title={isDetailExpanded ? t('browser.restoreSize') : t('browser.expandFullPage')}
+            aria-label={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
+            title={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
           >
-            {isDetailExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
         )}
       </DetailHeader>}

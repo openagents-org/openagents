@@ -111,3 +111,99 @@ def test_forged_routing_metadata_is_not_trusted(client, workspace, thread):
     assert data['metadata']['routing_choice']['candidates'] == ['agent-alpha', 'agent-beta']
     assert 'routing_assignment' not in data['metadata']
     assert resolve(client, workspace, data, agent='outsider').status_code == 403
+
+
+def continuation_choice(db, workspace, thread, root):
+    event = EventRecord(id='continuation-choice', network_id=workspace['id'],
+        type='workspace.message.posted', source='openagents:agent-alpha', target=f'channel/{thread.name}',
+        visibility='channel', timestamp=root['timestamp'] + 1,
+        payload={'content': 'OAuth is implemented. The review is still outstanding.'},
+        metadata_={'target_agents': ['__no_response__'], 'routing_choice': {
+            'status': 'pending', 'requester_email': 'ann@acme.test', 'candidates': ['agent-beta'],
+            'continuation': True, 'root_id': root['id'], 'task': 'Review OAuth state validation.'}})
+    db.add(event); db.commit()
+    return {'id': event.id}
+
+
+def test_continuation_selection_preserves_request_and_result_once(client, workspace, thread, db):
+    root = post(client, workspace, thread)
+    event = continuation_choice(db, workspace, thread, root)
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        assert resolve(client, workspace, event, user='ben').status_code == 403
+        result = resolve(client, workspace, event)
+        assert result.status_code == 200, result.text
+        assert resolve(client, workspace, event).json() == result.json()
+        assert invoke.call_count == 1
+    dispatch = db.get(EventRecord, result.json()['data']['assignment_event_id'])
+    assert dispatch.source == 'human:ann@acme.test'
+    assert dispatch.metadata_['target_agents'] == ['agent-beta']
+    for text in ['Publish this blog', 'Review OAuth state validation', 'OAuth is implemented']:
+        assert text in dispatch.payload['content']
+
+
+@pytest.mark.parametrize('change', ['new-message', 'stop'])
+def test_old_continuation_choice_cannot_restart_work(client, workspace, thread, db, change):
+    root = post(client, workspace, thread)
+    event = continuation_choice(db, workspace, thread, root)
+    if change == 'new-message':
+        db.add(EventRecord(id='newer-human', network_id=workspace['id'], type='workspace.message.posted',
+            source='human:ann@acme.test', target=f'channel/{thread.name}', timestamp=root['timestamp'] + 2,
+            payload={'content': 'Do something else'}, metadata_={}))
+    else:
+        db.add(EventRecord(id='stop', network_id=workspace['id'], type='workspace.agent.control',
+            source='human:ann@acme.test', target=f'channel/{thread.name}', timestamp=root['timestamp'] + 2,
+            payload={'action': 'stop', 'channel': thread.name}, metadata_={}))
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        assert resolve(client, workspace, event).status_code == 409
+        invoke.assert_not_called()
+
+
+def reclassify(client, ws, event, user='ann', agent='agent-beta'):
+    return client.post(f"/v1/events/{event['id']}/routing?network={ws['id']}", headers=_bearer(user), json={'agent': agent, 'reclassify': True})
+
+
+@pytest.mark.parametrize('dismissed', [False, True])
+def test_sender_can_reclassify_conversation_once(client, workspace, thread, db, dismissed):
+    event = post(client, workspace, thread)
+    original = db.get(EventRecord, event['id'])
+    metadata = dict(original.metadata_)
+    if dismissed:
+        metadata['routing_choice'] = {**metadata['routing_choice'], 'status': 'dismissed'}
+    else:
+        metadata.pop('routing_choice')
+    metadata['routing_decision'] = 'stop'
+    original.metadata_ = metadata
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        first = reclassify(client, workspace, event)
+        assert first.status_code == 200, first.text
+        assert reclassify(client, workspace, event).json() == first.json()
+        # A stale picker choosing a different agent must retain the first assignment.
+        assert reclassify(client, workspace, event, agent='agent-alpha').json() == first.json()
+        assert invoke.call_count == 1
+    dispatched = db.get(EventRecord, first.json()['data']['assignment_event_id'])
+    assert dispatched.metadata_['target_agents'] == ['agent-beta']
+    assert dispatched.payload['content'] == event['payload']['content']
+    assert dispatched.payload['attachments'] == event['payload']['attachments']
+
+
+@pytest.mark.parametrize('change,code', [('other-sender', 403), ('offline', 403), ('left', 403), ('unshared', 403), ('recalled', 409), ('already-routed', 409), ('approval', 409)])
+def test_reclassify_checks_current_eligibility(client, workspace, thread, db, change, code):
+    event = post(client, workspace, thread)
+    original = db.get(EventRecord, event['id'])
+    metadata = dict(original.metadata_)
+    metadata.pop('routing_choice')
+    beta = db.get(WorkspaceMember, (workspace['id'], 'agent-beta'))
+    if change == 'offline': beta.status = 'offline'
+    if change == 'left': db.delete(db.get(ChannelMember, (thread.id, 'agent-beta')))
+    if change == 'unshared': beta.owner_email = 'ben@acme.test'
+    if change == 'recalled': metadata['recalled'] = True
+    if change == 'already-routed': metadata['target_agents'] = ['agent-alpha']
+    if change == 'approval': metadata['approval_id'] = 'pending'
+    original.metadata_ = metadata
+    db.commit()
+    with patch('app.services.cloud_agent.invoke_cloud_agents') as invoke:
+        response = reclassify(client, workspace, event, user='ben' if change == 'other-sender' else 'ann')
+        assert response.status_code == code, response.text
+        invoke.assert_not_called()

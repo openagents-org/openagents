@@ -4,8 +4,9 @@
 // keeps every spawn from popping a stray console window. See win-console.js.
 require('./win-console').installWindowsHideDefault();
 
+const fs = require('fs');
 const { Config } = require('./config');
-const { EnvManager } = require('./env');
+const { EnvManager, isCliLogin, typeEnvFor } = require('./env');
 const { Registry } = require('./registry');
 const { Installer } = require('./installer');
 const { Daemon } = require('./daemon');
@@ -57,8 +58,19 @@ class AgentConnector {
 
   // -- Install / Uninstall --
 
+  /**
+   * Install an agent runtime the way the launcher's Install button does
+   * (installStreaming): it installs Node.js when an npm agent needs it, uses
+   * the configured npm mirror and runs npm path-safely. `agn install` and the
+   * workspace's remote create used the bare install(), which had none of
+   * that, and the failures it produced surfaced only as "Not installed".
+   */
   async install(agentType) {
-    return this.installer.install(agentType);
+    let output = '';
+    const result = await this.installer.installStreaming(agentType, (chunk) => {
+      output = (output + String(chunk)).slice(-8000);
+    });
+    return { ...result, output: output.trim() };
   }
 
   async uninstall(agentType) {
@@ -100,8 +112,52 @@ class AgentConnector {
   }
 
   addAgent({ name, type, role, path, env }) {
-    this.config.addAgent({ name, type: type || 'openclaw', role: role || 'worker', path, env });
+    const agentType = type || 'openclaw';
+    this.config.addAgent({ name, type: agentType, role: role || 'worker', path, env });
+    // A key entered while ADDING the agent needs the same native side effects
+    // as one saved later: OpenClaw and Hermes read a custom endpoint only from
+    // their own config. Without this a new agent's test passed on the form's
+    // key while the run used a stale one ("401 Invalid token") or none at all
+    // (Hermes falling back to OpenRouter: "401 Missing Authentication header").
+    if (env && Object.keys(env).length) {
+      this._configureAgentNativeAuth(agentType, env, name);
+    }
     return { success: true };
+  }
+
+  /**
+   * _configureNativeAuth for one agent, on the env it actually runs with: the
+   * type's keys and endpoint only when it has none of its own and does not
+   * sign in through its CLI (typeEnvFor). Merging all of <type>.env pushed a
+   * key saved there earlier into Hermes's config.yaml for an agent created on
+   * the sign-in tab, which then ran on that key (401).
+   */
+  _configureAgentNativeAuth(agentType, agentEnv, agentName) {
+    const typeEnv = typeEnvFor(agentType, this.env.load(agentType), this.registry, agentEnv);
+    this._configureNativeAuth(agentType, { ...typeEnv, ...agentEnv }, agentName);
+    // A Hermes agent moved to the `hermes setup` sign-in gets back the
+    // provider the custom endpoint replaced.
+    if (agentType === 'hermes' && isCliLogin(agentEnv)) {
+      try { require('./adapters/hermes').restoreNativeAuth(); } catch {}
+    }
+  }
+
+  /** Push an agent's endpoint and key into the CLI's own config, for the types that need it. */
+  _configureNativeAuth(agentType, env, agentName) {
+    try {
+      if (agentType === 'openclaw') {
+        const OpenClawAdapter = require('./adapters/openclaw');
+        OpenClawAdapter.configureNativeAuth(agentName
+          ? OpenClawAdapter.instanceEnv(agentName, env, this._configDir)
+          : env);
+      }
+      // Hermes reads a custom endpoint only from its own config.yaml, so the
+      // saved LLM_* values must be pushed through `hermes config set` — the
+      // env file alone leaves it "No inference provider configured".
+      if (agentType === 'hermes') {
+        require('./adapters/hermes').configureNativeAuth(env);
+      }
+    } catch {}
   }
 
   /**
@@ -194,7 +250,16 @@ class AgentConnector {
   }
 
   removeAgent(name) {
+    const agent = this.config.getAgent(name);
     this.config.removeAgent(name);
+    // Its private OpenClaw store keeps the key in openclaw.json, and would
+    // hand old sessions to a new agent added later under the same name.
+    if (agent && agent.type === 'openclaw') {
+      try {
+        const dir = require('./adapters/openclaw').instanceStateDir(name, this._configDir);
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
     return { success: true };
   }
 
@@ -212,22 +277,7 @@ class AgentConnector {
 
   saveAgentEnv(agentType, env) {
     this.env.save(agentType, env);
-    // Configure native auth for agents that need it (e.g. OpenClaw auth-profiles.json)
-    try {
-      if (agentType === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const saved = this.env.load(agentType);
-        OpenClawAdapter.configureNativeAuth(saved);
-      }
-      // Hermes reads a custom endpoint only from its own config.yaml, so the
-      // saved LLM_* values must be pushed through `hermes config set` — the
-      // env file alone leaves it "No inference provider configured".
-      if (agentType === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const saved = this.env.load(agentType);
-        HermesAdapter.configureNativeAuth(saved);
-      }
-    } catch {}
+    this._configureNativeAuth(agentType, this.env.load(agentType));
     return { success: true };
   }
 
@@ -249,18 +299,8 @@ class AgentConnector {
 
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
-    try {
-      if ((agent.type || 'openclaw') === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const typeEnv = this.env.load(agent.type || 'openclaw');
-        OpenClawAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-      if (agent.type === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const typeEnv = this.env.load('hermes');
-        HermesAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-    } catch {}
+    const agentType = agent.type || 'openclaw';
+    this._configureAgentNativeAuth(agentType, saved, agentName);
 
     return { success: true };
   }

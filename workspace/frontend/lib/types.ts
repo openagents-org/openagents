@@ -1,4 +1,6 @@
 export interface Workspace {
+  /** Workspace-wide setup state; absent until a compatible backend responds. */
+  needsFirstDevice?: boolean;
   workspaceId: string;
   slug: string;
   name: string;
@@ -61,9 +63,14 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** How the agent authenticates: on a key, or on its CLI's own sign-in
+   * (`codex login`). Absent: a launcher too old to report it. */
+  authMode?: 'api_key' | 'cli_login' | null;
   /** Hostname of the endpoint the agent is configured to call. Null or absent:
    * its CLI's default, or a launcher too old to report it. */
   baseUrlHost?: string | null;
+  /** Custom Codex endpoint mode, reported by launcher 0.2.197+. */
+  codexWireApi?: 'responses' | 'chat' | null;
   /** Models the agent's own CLI offers the account it is signed in to (a
    * ChatGPT or Claude subscription). Null or absent: the agent runs on a key
    * or a relay, its CLI has not answered, or the launcher is too old to ask. */
@@ -95,6 +102,11 @@ export interface NodeRuntime {
   reason: string | null;
   message: string | null;
   authStatus?: string | null;
+  /** Models the type's CLI offers the device's own sign-in (a ChatGPT or
+   * Claude subscription): what an agent added with "sign in on the device"
+   * can run. Null or absent: the CLI cannot be asked, has not answered yet,
+   * or the launcher is too old to ask. */
+  cliModels?: AgentCatalogModel[] | null;
   probe?: NodeProbe | null;
 }
 
@@ -396,6 +408,7 @@ export interface BrowserTab {
   lastActiveAt: string | null;
   /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
   asleep?: boolean;
+  connectionStatus?: 'alive' | 'dead' | 'unknown';
 }
 
 /** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */
@@ -481,6 +494,22 @@ export interface TimerItem {
   createdAt: string | null;
 }
 
+/**
+ * The fields a routine is created or edited with. Shared by the dialog, the
+ * workspace context and the API client so the three can't drift apart.
+ * Schedule is either/or: `interval_minutes`, or `hour`/`minute`/`days`.
+ */
+export interface RoutineDraft {
+  name: string;
+  message: string;
+  source: string;
+  hour?: number;
+  minute?: number;
+  days?: number[];
+  interval_minutes?: number;
+  conversation_history?: string;
+}
+
 export interface RoutineItem {
   id: string;
   name: string;
@@ -493,7 +522,8 @@ export interface RoutineItem {
   timezone: string;
   nextFiresAt: string;
   lastFiredAt: string | null;
-  status: string;
+  /** `paused` routines stay listed but never fire; `cancelled` is terminal. */
+  status: 'active' | 'paused' | 'cancelled';
   createdBy: string;
   channelName: string;
   createdAt: string | null;
@@ -1118,7 +1148,7 @@ export interface ChannelParticipants {
   visibility: ChannelVisibility;
   director_email: string | null;
   humans: { email: string; display_name: string | null; joined_at: string | null }[];
-  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean }[];
+  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean; thread_access_requested?: boolean }[];
 }
 
 /** POST /v1/channels/{channel}/participants — either joined right away or
@@ -1335,6 +1365,9 @@ export interface WorkspaceSession {
 }
 
 export interface ChannelParticipants {
+  collaboration_supported?: boolean;
+  collaboration?: Record<string, { instructions: string; review_after: string | null }>;
+  thread_access_requests_supported?: boolean;
   can_manage?: boolean;
   can_add_people?: boolean;
   can_add_agents?: boolean;
@@ -1399,6 +1432,8 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  linked_channels?: string[];
+  due_date?: string | null;
   knowledge_ids?: string[];
   file_ids?: string[];
   id: string;
@@ -1415,13 +1450,14 @@ export interface WorkspaceIssue {
   comment_count?: number;
 }
 export interface IssueComment {
+  reply_channel_name?: string | null;
   dispatch_error?: string;
   channel_name?: string;
   id: string;
   author: string;
   author_name?: string | null;
   content: string;
-  kind: 'comment' | 'status' | 'result' | 'activity' | 'approval';
+  kind: 'comment' | 'status' | 'result' | 'activity' | 'approval' | 'due_date';
   approval?: ApprovalRequest;
   source_event_id: string | null;
   created_at: string;

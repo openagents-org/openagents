@@ -607,15 +607,14 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the reserved strip: (40 - 12) / 2 ≈ 14 from the top,
-          // and far enough in from the left to clear the rail's rounded corner.
-          trafficLightPosition: { x: 16, y: 14 },
+          // Centred in the top bar: (48 - 12) / 2 = 18 from the top.
+          trafficLightPosition: { x: 16, y: 18 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white
     // before the first frame — the frame used to hide that behind its own
     // chrome. Matches `--background`, like the overlay above.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#f2f2f7",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a20" : "#fcfdfe",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -966,11 +965,11 @@ function notifyAgentUpdates(
       // Clicking the entry lands on the surface that performs the upgrade —
       // and when the entry names one agent, on that agent's own page rather
       // than on a list the user then has to search. With several there is no
-      // single destination, so `tab` alone sends them to the list.
+      // single destination, so they get the list, narrowed to those updates.
       payload:
         updates.length === 1
           ? { tab: "install", agent: names[0] }
-          : { tab: "install" },
+          : { tab: "install", filter: "updatable" },
       priority: "low",
     })
   } catch {}
@@ -1268,13 +1267,13 @@ function setupIPC(): void {
       // fresh data instead of an empty cache — otherwise a just-updated agent
       // could keep showing "Update available" because the renderer overrides
       // its store with the empty list before the hourly background refresh.
-      // Await the refresh before returning so the renderer's follow-up
-      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-      // populated cache instead of the empty value clearCatalogCache() just
-      // wrote. Without the await, the rollback / install / uninstall returns,
-      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-      // disappears even when one is genuinely available.
-      await refreshAgentUpdates().catch(() => {})
+      // Not awaited: it asks the registry about every installed agent, and the
+      // install should not be reported done only after that. Starting it is
+      // enough — the refresh registers itself as the cache's in-flight load
+      // synchronously, so the renderer's follow-up checkAgentUpdates() (no
+      // `force`) waits on it instead of reading the empty cache, and
+      // `agent-updates-changed` is pushed when it lands.
+      void refreshAgentUpdates()
       return result
     } catch (e: unknown) {
       return { success: false, error: (e as Error).message }
@@ -2638,6 +2637,8 @@ function setupIPC(): void {
     getWindow: () => mainWindow,
     connectNode: (code) => requireManager().connectNode(code),
     nodeStatus: () => requireManager().refreshNodeStatus(true),
+    ensureDaemon: () => requireManager()._ensureDaemon(),
+    nudgeNode: () => agentManager?.nudgeNodeHeartbeat(),
     // The launcher's own look and feel, which the hosted workspace shares.
     // `nativeTheme.themeSource` is already the mode the renderer put there
     // (see theme:set-source), so main does not keep a second copy of it.

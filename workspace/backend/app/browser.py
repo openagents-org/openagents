@@ -75,6 +75,15 @@ async def guard_browser_url(url: Optional[str]) -> str:
     return url
 
 
+class BrowserReactivationError(RuntimeError):
+    """Safe recovery diagnostics; never include provider payloads or credentials."""
+
+    def __init__(self, code: str, stage: str):
+        self.code = code
+        self.stage = stage
+        super().__init__(code)
+
+
 class BrowserNavigationError(RuntimeError):
     """Navigation failure with a machine-readable code the agent can act on."""
 
@@ -255,33 +264,29 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = False) -> dict:
-        """Create a new browser tab. Returns {url, title}.
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None, persist: bool = True) -> dict:
+        """Create a tab and return its display state and immutable session identity.
 
-        `persist=True` (or a `bb_context_id`) asks Browser Fabric for a
-        persistent session: it counts against the persistent-tab quota, runs
-        headed, and saves its cookies/storage to a context on close.
+        Shared cloud tabs always persist. The legacy persist argument is
+        accepted for older callers but cannot disable saving. BrowserFabric
+        controls awake-session capacity and idle hibernation.
 
         Raises UnsafeURLError if `url` is not a public http(s) target.
         """
         url = await guard_browser_url(url)
         if api_key:
             self._tab_keys[tab_id] = api_key
-        async with self._global_lock:
-            active_count = self.active_tab_count()
-            if active_count >= MAX_BROWSER_TABS:
-                if self._sessions:
-                    await self._prune_dead_sessions()
-                    active_count = self.active_tab_count()
-                if active_count >= MAX_BROWSER_TABS:
+        # Cloud capacity is enforced by BrowserFabric and counts awake sessions.
+        # A process-local count includes sleeping saved tabs and other workspaces.
+        if not self.is_cloud_for(api_key):
+            async with self._global_lock:
+                if len(self._pages) >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
         if self.is_cloud_for(api_key):
-            args: dict = {"headless": True}
+            args: dict = {"persist": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
-            if bb_context_id or persist:
-                args["persist"] = True
 
             try:
                 result = await self._bf_call("create_session", args, tab_id=tab_id)
@@ -314,7 +319,12 @@ class BrowserManager:
                                tab_id, redact(str(e), key_used))
                 warnings.append(f"page_info_failed: {redact(str(e), key_used)}")
                 page_info = {}
-            return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "warnings": warnings}
+            # Validation may adopt the old DB mapping while initialization
+            # awaits provider I/O. Never make callers recover this newly created
+            # identity from that mutable worker cache.
+            return {"url": page_info.get("url", url), "title": page_info.get("title", ""),
+                    "warnings": warnings, "session_id": session_id,
+                    "live_url": session_data.get("share_url")}
         else:
             # Local mode
             async with self._global_lock:
@@ -493,11 +503,15 @@ class BrowserManager:
         required for cross-restart closes where the in-memory `_tab_keys`
         mapping is gone.
         """
-        session_id = self._sessions.pop(tab_id, None) or session_id_hint
-        tab_key = api_key or self._tab_keys.pop(tab_id, None)
-        if api_key:
+        # A caller holding the authoritative tab row names the exact session
+        # to release. Never substitute a different cached session.
+        cached_session = self._sessions.get(tab_id)
+        session_id = session_id_hint or cached_session
+        tab_key = api_key or self._tab_keys.get(tab_id)
+        if cached_session == session_id or not cached_session:
+            self._sessions.pop(tab_id, None)
             self._tab_keys.pop(tab_id, None)
-        self._live_urls.pop(tab_id, None)
+            self._live_urls.pop(tab_id, None)
         if session_id and self.is_cloud_for(tab_key):
             try:
                 await self._bf_call("close_session", {}, session_id, api_key=tab_key)
@@ -546,7 +560,7 @@ class BrowserManager:
             raise BrowserNavigationError("NAVIGATION_FAILED", "No URL to render")
         if self.is_cloud_for(api_key):
             key = api_key or BROWSERFABRIC_API_KEY
-            result = await self._bf_call("create_session", {"headless": True}, api_key=key)
+            result = await self._bf_call("create_session", {"persist": True}, api_key=key)
             session_id = result["result"]["session_id"]
             try:
                 try:
@@ -587,7 +601,7 @@ class BrowserManager:
                 try:
                     await self._bf_call("close_session", {}, session_id, api_key=key)
                 except Exception as e:
-                    logger.warning("Failed to close ephemeral BF session %s: %s", session_id, e)
+                    logger.warning("Failed to close fetch BF session %s: %s", session_id, e)
         else:
             async with self._global_lock:
                 await self._ensure_local_browser()
@@ -645,8 +659,16 @@ class BrowserManager:
                     pass
 
     async def shutdown(self) -> None:
-        """Close all tabs and the browser."""
-        for tab_id in list(self._sessions.keys()) + list(self._pages.keys()):
+        """Release this worker's resources without closing shared cloud sessions.
+
+        Cloud mappings are only a cache: other workers and live viewers still
+        use those sessions. Worker recycling/deployment must not send remote
+        close calls. Explicit tab closure and orphan maintenance own that work.
+        """
+        self._sessions.clear()
+        self._live_urls.clear()
+        self._tab_keys.clear()
+        for tab_id in list(self._pages.keys()):
             await self.close_tab(tab_id)
         if self._browser:
             try:
@@ -679,12 +701,16 @@ class BrowserManager:
         fall back to the global key). The next operation will use it to
         call the BF API.
         """
+        if not session_id:
+            raise KeyError(f"No saved session for tab: {tab_id}")
         if not self.is_cloud_for(api_key):
             raise KeyError(f"Cannot reconnect to local tab: {tab_id}")
         if api_key:
             self._tab_keys[tab_id] = api_key
-        if tab_id in self._sessions:
-            return
+        # The database mapping wins over this worker's cache. Another worker
+        # may have explicitly replaced the session since our last request.
+        if self._sessions.get(tab_id) != session_id:
+            self._live_urls.pop(tab_id, None)
         self._sessions[tab_id] = session_id
 
     # ------------------------------------------------------------------
@@ -704,7 +730,10 @@ class BrowserManager:
                 session_id,
                 tab_id=tab_id,
             )
-            return result.get("result", {}).get("context_id", str(__import__("uuid").uuid4()))
+            context_id = result.get("result", {}).get("context_id")
+            if not isinstance(context_id, str) or not context_id:
+                raise RuntimeError("BrowserFabric did not confirm a saved context")
+            return context_id
         import uuid
         return str(uuid.uuid4())
 
@@ -781,15 +810,48 @@ class BrowserManager:
             except Exception:
                 return None
 
+    async def reactivate_tab(self, tab_id: str) -> dict:
+        """Wake the same cloud session and refresh its share link, without closing it.
+
+        Unlike polling, get_page_info without probe=True is an explicit user
+        action: BrowserFabric wakes hibernated sessions before running it.
+        Any failure leaves the existing session and saved context untouched.
+        """
+        session_id = self._sessions.get(tab_id)
+        if not session_id:
+            raise RuntimeError("Browser session is unavailable")
+        try:
+            info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+        except Exception as exc:
+            # This means inaccessible, not permanently dead. Never use this
+            # text to authorize replacement or discard the saved mapping.
+            code = ("SESSION_UNAVAILABLE" if str(exc) ==
+                    "Browser Fabric error: No active session. Create a session first."
+                    else "WAKE_FAILED")
+            raise BrowserReactivationError(code, "wake") from exc
+        page = info.get("result", {})
+        if page.get("hibernated") or page.get("error"):
+            raise BrowserReactivationError("WAKE_FAILED", "wake")
+        try:
+            listing = await self._bf_call("list_sessions", tab_id=tab_id)
+        except Exception as exc:
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view") from exc
+        session = next((item for item in listing.get("result", {}).get("sessions", [])
+                        if item.get("session_id") == session_id), None)
+        if not session or not session.get("share_url"):
+            raise BrowserReactivationError("LIVE_VIEW_UNAVAILABLE", "live_view")
+        self._live_urls[tab_id] = session["share_url"]
+        return page
+
     async def probe_session(self, tab_id: str, api_key: str = None) -> dict:
         """Classify a session's liveness without tearing it down on a hiccup.
 
         Returns {"status": "alive"|"dead"|"unknown", "url", "title"}.
           - alive:   Browser Fabric returned page info.
-          - dead:    BF reports the session/page is gone (recreate it).
-          - unknown: a transient transport error (timeout / 5xx). The caller
-                     MUST keep the existing session — a slow get_page_info on a
-                     heavy SPA must not kill a healthy, logged-in tab.
+          - dead:    no local page/mapping exists; do not silently replace it.
+          - unknown: provider failure without a structured lifecycle verdict.
+                     Keep the existing session and offer a retry; text errors
+                     and HTTP 404 do not establish permanent session death.
         """
         if not self._is_cloud_tab(tab_id):
             page = self._pages.get(tab_id)
@@ -813,16 +875,15 @@ class BrowserManager:
                     "hibernated": bool(page_info.get("hibernated"))}
         except httpx.TimeoutException:
             return {"status": "unknown"}
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code if e.response is not None else 0
-            # 5xx / 429 are transient; a hard 404 means the session is gone.
-            return {"status": "dead"} if code == 404 else {"status": "unknown"}
-        except RuntimeError as e:
-            # BF application-level error (HTTP 200, success=false).
-            msg = str(e).lower()
-            dead_markers = ("no active session", "session not found", "session expired",
-                            "unknown session", "no session", "not found")
-            return {"status": "dead"} if any(m in msg for m in dead_markers) else {"status": "unknown"}
+        except httpx.HTTPStatusError:
+            # The call endpoint's 404 is not a structured permanent-session
+            # verdict (it may be routing/registry state). Keep the mapping.
+            return {"status": "unknown"}
+        except RuntimeError:
+            # Provider text such as "No active session" does not distinguish
+            # permanent deletion from a temporarily inaccessible registry.
+            # Only a future structured lifecycle contract can establish death.
+            return {"status": "unknown"}
         except Exception:
             return {"status": "unknown"}
 

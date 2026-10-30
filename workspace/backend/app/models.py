@@ -16,6 +16,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -68,6 +69,20 @@ class EventRecord(Base):
         Index("idx_events_network_target", "network_id", "target"),
         Index("idx_events_network_timestamp", "network_id", "timestamp"),
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),
+        Index("idx_events_channel_latest", "network_id", "target", timestamp.desc(), id.desc(),
+              postgresql_where=text("target LIKE 'channel/%'")),
+        Index("idx_events_poll_message", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.message.posted%'")),
+        Index("idx_events_poll_control", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.agent.control%'")),
+        Index("idx_events_poll_tool_result", "network_id", timestamp.desc(), id.desc(),
+              postgresql_where=text("type LIKE 'workspace.tool_result%'")),
+        # The viewer's privacy OR also references visibility. Include it so
+        # signed-in reads stay index-only despite the partial predicate.
+        Index("idx_events_dm_history", "network_id", "source", "target", timestamp.desc(), id.desc(),
+              postgresql_include=["visibility"],
+              postgresql_where=text("visibility = 'direct' AND type = 'workspace.message.posted'"),
+              sqlite_where=text("visibility = 'direct' AND type = 'workspace.message.posted'")),
     )
 
 
@@ -820,6 +835,7 @@ class Issue(Base):
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False, default="", server_default="")
     status = Column(Text, nullable=False, default="open", server_default="open")
+    due_date = Column(Date, nullable=True)
     assignee = Column(Text, nullable=True)
     assignee_name = Column(Text, nullable=True)
     labels = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
@@ -1516,6 +1532,18 @@ class DirectThreadPreference(Base):
     user_email = Column(Text, primary_key=True)
     pinned = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
+
+
+class ReadMarker(Base):
+    """A person's last-read position in one thread or DM, shared by all of
+    their devices. `session_id` is the client session id: the thread name, or
+    a canonical `dm:<a>,<b>` id. Times are unix ms; read_at only moves forward."""
+    __tablename__ = 'read_markers'
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey('workspaces.id', ondelete='CASCADE'), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    session_id = Column(Text, primary_key=True)
+    read_at = Column(BigInteger, nullable=False)
+    updated_at = Column(BigInteger, nullable=False)
 
 
 class ProjectPreviewTicket(Base):

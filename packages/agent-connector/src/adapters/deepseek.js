@@ -74,6 +74,8 @@ const {
   classifyNodeVersion,
   cleanStdout,
   defaultInstallCommand,
+  isOfficialDeepseekRoot,
+  classifyDshEndpoint,
   nodeRequirementText,
   resolvePermissionMode,
   safeDshHomeName,
@@ -400,7 +402,14 @@ class DeepSeekAdapter extends BaseAdapter {
   }
 
   _baseUrl() {
-    return String(this.agentEnv.DEEPSEEK_BASE_URL || this.agentEnv.LLM_BASE_URL || '').trim();
+    const base = String(this.agentEnv.DEEPSEEK_BASE_URL || this.agentEnv.LLM_BASE_URL || '').trim();
+    return isOfficialDeepseekRoot(base) ? '' : base;
+  }
+
+  /** The configured base when it is an OpenAI-compatible gateway, else ''. */
+  _gatewayBaseUrl() {
+    const base = this._baseUrl();
+    return classifyDshEndpoint(base) === 'openai' ? base : '';
   }
 
   _model() {
@@ -536,7 +545,7 @@ class DeepSeekAdapter extends BaseAdapter {
    * starts mid-write can never read a half-file.
    */
   _writePrivatePatch() {
-    const { text } = buildPrivatePatch({ model: this._model() });
+    const { text } = buildPrivatePatch({ model: this._model(), gatewayBaseUrl: this._gatewayBaseUrl() });
     const tmp = `${this._patchFile}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, text, { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmp, this._patchFile);
@@ -567,8 +576,12 @@ class DeepSeekAdapter extends BaseAdapter {
 
     const key = this._apiKey();
     if (key) env.DEEPSEEK_API_KEY = key;
-    const base = this._baseUrl();
+    // Set or cleared, never inherited: env already carries the raw agent value,
+    // and _baseUrl() drops DeepSeek's own OpenAI-style roots. A gateway is
+    // reached through the patch's pi-ai route, not dsh's DeepSeek provider.
+    const base = this._gatewayBaseUrl() ? '' : this._baseUrl();
     if (base) env.DEEPSEEK_BASE_URL = base;
+    else delete env.DEEPSEEK_BASE_URL;
 
     // The task file references this by NAME; the value never appears in it.
     env[TOKEN_ENV] = this.token;

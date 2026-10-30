@@ -1,3 +1,5 @@
+import { normalizePolicyRequirements } from './approvals';
+import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -31,6 +33,8 @@ import type {
   ONMEvent,
   IntegrationBinding,
   PairingCode,
+  RoutineDraft,
+  RoutineItem,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -77,7 +81,7 @@ import type {
 } from './types';
 import { eventToMessage } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 /** Deadline for the static catalogs the Connect Agent view loads (and retries). */
 const CATALOG_TIMEOUT_MS = 15_000;
 
@@ -168,10 +172,50 @@ function mapKnowledgeEntry(raw: Record<string, unknown>): KnowledgeEntry {
   };
 }
 
+/** A non-2xx API response. `message` keeps the historical
+ *  "API <status>: <body>" text; `status` / `serverMessage` let callers react. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly serverMessage: string;
+  constructor(status: number, body: string) {
+    super(`API ${status}: ${body}`);
+    this.name = 'ApiError';
+    this.status = status;
+    let msg = '';
+    try { msg = (JSON.parse(body) as { message?: string })?.message || ''; } catch { /* not JSON */ }
+    this.serverMessage = msg;
+  }
+}
+
+function toRoutineItem(raw: Record<string, unknown>): RoutineItem {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    message: raw.message as string,
+    context: (raw.context || null) as string | null,
+    scheduleHour: (raw.schedule_hour || 0) as number,
+    scheduleMinute: (raw.schedule_minute || 0) as number,
+    scheduleDays: (raw.schedule_days || null) as number[] | null,
+    scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
+    timezone: (raw.timezone || 'UTC') as string,
+    nextFiresAt: (raw.next_fires_at || '') as string,
+    lastFiredAt: (raw.last_fired_at || null) as string | null,
+    status: (raw.status || 'active') as RoutineItem['status'],
+    createdBy: (raw.created_by || '') as string,
+    channelName: (raw.channel_name || '') as string,
+    createdAt: (raw.created_at || null) as string | null,
+  };
+}
+
 class WorkspaceApi {
   private token: string = '';
   private bearerToken: string = '';
   private workspaceId: string = '';
+  // Mints a fresh identity token after the server rejected ours (401). Set by
+  // the auth context for Firebase sign-ins; null where the page cannot refresh
+  // (workspace-issued sessions, the desktop host which pushes renewals itself).
+  private bearerRefresher: (() => Promise<string | null>) | null = null;
+  private refreshInFlight: Promise<string | null> | null = null;
 
   configure(workspaceId: string, token: string, bearerToken?: string) {
     this.workspaceId = workspaceId;
@@ -190,6 +234,21 @@ class WorkspaceApi {
 
   setBearerToken(bearerToken: string) {
     this.bearerToken = bearerToken;
+  }
+
+  setBearerRefresher(refresher: (() => Promise<string | null>) | null) {
+    this.bearerRefresher = refresher;
+  }
+
+  /** One refresh at a time, shared by every request that hit a 401 together. */
+  private refreshBearer(): Promise<string | null> {
+    if (!this.bearerRefresher) return Promise.resolve(null);
+    if (!this.refreshInFlight) {
+      this.refreshInFlight = this.bearerRefresher()
+        .catch(() => null)
+        .finally(() => { this.refreshInFlight = null; });
+    }
+    return this.refreshInFlight;
   }
 
   getSSEUrl(channelName: string): string {
@@ -225,13 +284,14 @@ class WorkspaceApi {
     return this.workspaceId;
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
     const authHeaders: Record<string, string> = {};
     if (this.token) {
       authHeaders['X-Workspace-Token'] = this.token;
     }
-    if (this.bearerToken) {
-      authHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
+    const sentBearer = this.bearerToken;
+    if (sentBearer) {
+      authHeaders['Authorization'] = `Bearer ${sentBearer}`;
     }
 
     const url = `${API_URL}${path}`;
@@ -245,9 +305,20 @@ class WorkspaceApi {
       },
     });
 
+    // An identity the server could not verify (usually expired) is rejected
+    // outright since Workspace v1.1 — the workspace token no longer covers
+    // for it. Refresh it once and retry; a second 401 is a real denial.
+    if (res.status === 401 && sentBearer && !retried) {
+      const fresh = await this.refreshBearer();
+      if (fresh && fresh !== sentBearer) {
+        this.bearerToken = fresh;
+        return this.request<T>(path, options, true);
+      }
+    }
+
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`API ${res.status}: ${body}`);
+      throw new ApiError(res.status, body);
     }
 
     const json: ApiResponse<T> = await res.json();
@@ -876,6 +947,19 @@ class WorkspaceApi {
     return response;
   }
 
+  /** Downloads must carry the viewer's bearer credentials, never a bare navigation. */
+  async downloadFile(fileId: string, filename: string): Promise<void> {
+    const response = await this.fetchFile(fileId);
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename.split('/').pop() || 'download';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   /** Get the download URL for a file. */
   getFileUrl(fileId: string): string {
     const params = new URLSearchParams();
@@ -1094,6 +1178,7 @@ class WorkspaceApi {
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
       asleep: Boolean(t.asleep),
+      connectionStatus: t.connection_status as BrowserTab['connectionStatus'],
     };
   }
 
@@ -1127,9 +1212,9 @@ class WorkspaceApi {
   }
 
   /** List active browser tabs, with the per-kind quota the workspace's key allows. */
-  async listBrowserTabs(): Promise<{ tabs: BrowserTab[]; total: number; limits: BrowserTabLimits | null }> {
+  async listBrowserTabs(status: 'active' | 'closed' = 'active'): Promise<{ tabs: BrowserTab[]; total: number; limits: BrowserTabLimits | null }> {
     const result = await this.request<{ tabs: unknown[]; total: number; limits?: Record<string, unknown> }>(
-      `/v1/browser/tabs?network=${this.workspaceId}`
+      `/v1/browser/tabs?network=${this.workspaceId}${status === 'closed' ? '&status=closed' : ''}`
     );
     return {
       tabs: (result.tabs as Record<string, unknown>[]).map((t) => this.mapTab(t)),
@@ -1171,10 +1256,28 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Validate a browser tab session — auto-reconnects if expired. */
+  /** Probe a browser session without waking or replacing it. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}?validate=true`,
+    );
+    return this.mapTab(result);
+  }
+
+  /** Wake the existing saved session and refresh its live-view URL. */
+  async reactivateBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reactivate`, { method: 'POST' },
+    );
+    return this.mapTab(result);
+  }
+
+  /** Explicit replacement, guarded against replacing a newer session. */
+  async replaceBrowserTab(tabId: string, expectedSessionId: string | null): Promise<BrowserTab> {
+    const query = new URLSearchParams({ confirm_replace: 'true' });
+    if (expectedSessionId) query.set('expected_session_id', expectedSessionId);
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reconnect?${query}`, { method: 'POST' },
     );
     return this.mapTab(result);
   }
@@ -1498,9 +1601,9 @@ class WorkspaceApi {
     return this.request(`/v1/events/${encodeURIComponent(messageId)}/recall?network=${encodeURIComponent(this.requireWorkspace())}`, { method: 'POST' });
   }
 
-  async resolveRoutingChoice(messageId: string, agent: string | null): Promise<{ status: string; agent?: string }> {
+  async resolveRoutingChoice(messageId: string, agent: string | null, reclassify = false): Promise<{ status: string; agent?: string }> {
     return this.request(`/v1/events/${encodeURIComponent(messageId)}/routing?network=${encodeURIComponent(this.requireWorkspace())}`, {
-      method: 'POST', body: JSON.stringify({ agent }),
+      method: 'POST', body: JSON.stringify({ agent, ...(reclassify ? { reclassify: true } : {}) }),
     });
   }
 
@@ -1675,12 +1778,19 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
       ...(input.status ? { status: input.status } : {}),
+      ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
+      ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueLabels(): Promise<string[]> {
+    const result = await this.request<{ labels: string[] }>(this.issuePath('/labels'));
+    return result.labels;
   }
 
   async getIssue(id: string): Promise<IssueDetail> {
@@ -1698,11 +1808,11 @@ class WorkspaceApi {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
@@ -1857,7 +1967,7 @@ class WorkspaceApi {
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
-      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+      policyRequirements: normalizePolicyRequirements(a.policy_requirements),
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
@@ -2020,40 +2130,13 @@ class WorkspaceApi {
     });
   }
 
-  async listRoutines(): Promise<{ routines: import('./types').RoutineItem[] }> {
+  async listRoutines(): Promise<{ routines: RoutineItem[] }> {
     const params = new URLSearchParams({ network: this.workspaceId });
     const raw = await this.request<{ routines: Record<string, unknown>[] }>(`/v1/routines?${params}`);
-    return {
-      routines: (raw.routines || []).map((r) => ({
-        id: r.id as string,
-        name: r.name as string,
-        message: r.message as string,
-        context: (r.context || null) as string | null,
-        scheduleHour: (r.schedule_hour || 0) as number,
-        scheduleMinute: (r.schedule_minute || 0) as number,
-        scheduleDays: (r.schedule_days || null) as number[] | null,
-        scheduleIntervalMinutes: (r.schedule_interval_minutes || null) as number | null,
-        timezone: (r.timezone || 'UTC') as string,
-        nextFiresAt: (r.next_fires_at || '') as string,
-        lastFiredAt: (r.last_fired_at || null) as string | null,
-        status: (r.status || 'active') as string,
-        createdBy: (r.created_by || '') as string,
-        channelName: (r.channel_name || '') as string,
-        createdAt: (r.created_at || null) as string | null,
-      })),
-    };
+    return { routines: (raw.routines || []).map(toRoutineItem) };
   }
 
-  async createRoutine(params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }): Promise<import('./types').RoutineItem> {
+  async createRoutine(params: RoutineDraft): Promise<RoutineItem> {
     const raw = await this.request<Record<string, unknown>>('/v1/routines', {
       method: 'POST',
       body: JSON.stringify({
@@ -2061,23 +2144,26 @@ class WorkspaceApi {
         network: this.workspaceId,
       }),
     });
-    return {
-      id: raw.id as string,
-      name: raw.name as string,
-      message: raw.message as string,
-      context: (raw.context || null) as string | null,
-      scheduleHour: (raw.schedule_hour || 0) as number,
-      scheduleMinute: (raw.schedule_minute || 0) as number,
-      scheduleDays: (raw.schedule_days || null) as number[] | null,
-      scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
-      timezone: (raw.timezone || 'UTC') as string,
-      nextFiresAt: (raw.next_fires_at || '') as string,
-      lastFiredAt: (raw.last_fired_at || null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdBy: (raw.created_by || '') as string,
-      channelName: (raw.channel_name || '') as string,
-      createdAt: (raw.created_at || null) as string | null,
-    };
+    return toRoutineItem(raw);
+  }
+
+  /**
+   * Edit a routine in place. Omitted fields keep their current value; the
+   * schedule follows the same either/or rule as creation (`interval_minutes`
+   * or `hour`/`minute`/`days`).
+   */
+  async updateRoutine(
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ): Promise<RoutineItem> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/routines/${routineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...params,
+        network: this.workspaceId,
+      }),
+    });
+    return toRoutineItem(raw);
   }
 
   async cancelRoutine(routineId: string): Promise<void> {
@@ -2138,6 +2224,19 @@ class WorkspaceApi {
       notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
       unreadCount: raw.unread_count || 0,
     };
+  }
+
+  /**
+   * Store the signed-in person's read markers ({sessionId: readAtMs}) so their
+   * other devices see the thread / DM as read. Markers only move forward; the
+   * result is the stored marker per session (empty for token-only callers).
+   */
+  async markRead(markers: Record<string, number>): Promise<Record<string, number>> {
+    const raw = await this.request<{ markers?: Record<string, number> }>('/v1/read-state', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), markers }),
+    });
+    return raw?.markers ?? {};
   }
 
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */
@@ -2237,6 +2336,18 @@ class WorkspaceApi {
   /** Who is in a thread — the humans on its ACL and the agents in it. */
   async requestAgentSharing(channel: string, agent: string): Promise<ApprovalRequest> {
     return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/sharing-requests`, {
+      method: 'POST', body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
+  async saveThreadCollaboration(channel: string, agent: string, instructions: string, reviewAfter: string | null): Promise<{ agents: Record<string, { instructions: string; review_after: string | null }> }> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/collaboration`, {
+      method: 'PUT', body: JSON.stringify({ network: this.requireWorkspace(), instructions, review_after: reviewAfter }),
+    });
+  }
+
+  async requestThreadAgentAccess(channel: string, agent: string): Promise<ApprovalRequest> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/agents/${encodeURIComponent(agent)}/thread-access-requests`, {
       method: 'POST', body: JSON.stringify({ network: this.requireWorkspace() }),
     });
   }
@@ -2495,7 +2606,7 @@ class WorkspaceApi {
   }
   async previewWebProject(id: string): Promise<ProjectPreview> {
     const result = await this.request<ProjectPreview>(`/v1/web-projects/${encodeURIComponent(id)}/preview?network=${encodeURIComponent(this.requireWorkspace())}`, {method:'POST'});
-    return {...result,preview_path:API_URL + result.preview_path};
+    return {...result,preview_path:getProjectPreviewUrl(result.preview_path, API_URL)};
   }
 
   async getThreadArtifact(channel: string): Promise<ThreadArtifactSetting> {
@@ -2559,6 +2670,16 @@ class WorkspaceApi {
     const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ network: this.requireWorkspace(), visibility }),
+    });
+    return mapFileResponse(raw);
+  }
+
+  /** Save an edited markdown file in place. `baseSha256` is the hash of the
+   *  text the editor opened; the server answers 409 if the file moved on. */
+  async updateFileContent(fileId: string, content: string, baseSha256?: string): Promise<WorkspaceFile> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.requireWorkspace(), content, base_sha256: baseSha256 }),
     });
     return mapFileResponse(raw);
   }

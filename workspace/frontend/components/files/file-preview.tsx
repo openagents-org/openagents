@@ -1,9 +1,10 @@
 'use client';
 
 import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
+import { DocxStage } from './docx-stage';
 import { ProjectPreview } from '@/components/artifacts/project-preview';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -11,12 +12,14 @@ import {
   ExternalLink,
   Loader2,
   PanelRight,
+  Pencil,
+  Save,
   Trash2,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
-import { workspaceApi } from '@/lib/api';
+import { ApiError, workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
@@ -254,6 +257,53 @@ function UnsupportedStage({
   );
 }
 
+/** Hex SHA-256 of the bytes as served — what the save route compares against
+ *  to tell whether the file moved on while it was open. Undefined where the
+ *  browser has no SubtleCrypto (plain-http origins); the save then skips the check. */
+async function sha256Hex(data: ArrayBuffer): Promise<string | undefined> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) return undefined;
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Markdown source on the left, the rendered result on the right — the right
+ *  pane drops away where there's no room for two. */
+function MarkdownEditStage({
+  draft,
+  onChange,
+  onSave,
+}: {
+  draft: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex h-full min-h-0">
+      <textarea
+        value={draft}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            onSave();
+          }
+        }}
+        autoFocus
+        spellCheck={false}
+        aria-label={t('files.editMarkdown')}
+        className="h-full min-w-0 flex-1 resize-none bg-transparent p-5 font-mono text-sm leading-6 text-foreground outline-none"
+      />
+      <div className="hidden h-full min-w-0 flex-1 overflow-auto border-l border-border/60 lg:block">
+        <p className="px-5 pt-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('files.editPreview')}</p>
+        <div className="p-5 pt-2 text-sm">
+          <MarkdownContent content={draft} agentNames={[]} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
 export function FilePreview() {
@@ -268,6 +318,12 @@ export function FilePreview() {
   /** Whether the stages that have a metadata column are showing it. Kept here
    *  rather than per stage so the choice survives moving between files. */
   const [infoOpen, setInfoOpen] = useState(true);
+  /** Hash of the markdown as loaded, sent back on save so an edit made
+   *  meanwhile (say, by an agent) isn't silently overwritten. */
+  const [contentHash, setContentHash] = useState<string | undefined>();
+  /** The text being edited; null when the file is just being viewed. */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const file = files.find((f) => f.id === selectedFileId);
   const contentType = file?.contentType || '';
@@ -304,6 +360,8 @@ export function FilePreview() {
   // media straight off the download route.
   useEffect(() => {
     setContent(null);
+    setContentHash(undefined);
+    setDraft(null);
     setError(null);
     setBlobUrl(null);
 
@@ -326,8 +384,13 @@ export function FilePreview() {
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (strategy === 'text') {
-          const text = await res.text();
-          if (!cancelled) setContent(text);
+          const bytes = await res.arrayBuffer();
+          const text = new TextDecoder().decode(bytes);
+          const hash = kind === 'markdown' ? await sha256Hex(bytes).catch(() => undefined) : undefined;
+          if (!cancelled) {
+            setContent(text);
+            setContentHash(hash);
+          }
         } else {
           const data = await res.blob();
           // Force the type: the browser only opens its PDF viewer when the
@@ -349,6 +412,46 @@ export function FilePreview() {
     };
   }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const dirty = draft !== null && draft !== content;
+
+  // Closing the tab with unsaved edits asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const handleSave = useCallback(async () => {
+    if (!file || draft === null || saving) return;
+    if (!dirty) {
+      setDraft(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = draft;
+      await workspaceApi.updateFileContent(file.id, saved, contentHash);
+      const bytes = new TextEncoder().encode(saved);
+      setContent(saved);
+      setContentHash(await sha256Hex(bytes.buffer as ArrayBuffer).catch(() => undefined));
+      setDraft(null);
+      toast.success(t('files.fileSaved', { name: basename(file.filename) }));
+      void refreshFiles();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) toast.error(t('files.editConflict'));
+      else if (err instanceof ApiError && err.status === 403) toast.error(t('files.noEditPermission'));
+      else toast.error(err instanceof ApiError && err.serverMessage ? err.serverMessage : t('files.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [file, draft, saving, dirty, contentHash, refreshFiles, t]);
+
+  const cancelEdit = () => {
+    if (dirty && !window.confirm(t('files.discardEdits'))) return;
+    setDraft(null);
+  };
+
   if (!file) {
     return selectedFileId ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t("resourceLinks.unavailable")}</p><Button variant="outline" onClick={() => setSelectedFileId(null)}>{t("files.backToFiles")}</Button></div> : <FileGrid />;
   }
@@ -362,9 +465,7 @@ export function FilePreview() {
   };
 
   const handleDownload = () => {
-    // We can't attach headers to an <a download>, so the tokenised URL opens
-    // in a new tab and the route's Content-Disposition does the rest.
-    window.open(sourceUrl, '_blank');
+    void workspaceApi.downloadFile(file.id, filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
 
   const handleDelete = async () => {
@@ -453,6 +554,10 @@ export function FilePreview() {
           />
         );
 
+      case 'doc':
+        if (/\.docx$/i.test(filename)) return <DocxStage key={file.id} fileId={file.id} filename={basename(filename)} size={file.size} onDownload={handleDownload} />;
+        return <UnsupportedStage filename={filename} contentType={contentType} onDownload={handleDownload} />;
+
       case 'pdf':
         return blobUrl ? (
           <iframe src={blobUrl} title={projectDisplayName(basename(filename),contentType)} className="h-full w-full border-0" />
@@ -479,7 +584,9 @@ export function FilePreview() {
         );
 
       case 'markdown':
-        return content === null ? null : (
+        if (content === null) return null;
+        if (draft !== null) return <MarkdownEditStage draft={draft} onChange={setDraft} onSave={handleSave} />;
+        return (
           <div className="mx-auto max-w-3xl p-5 text-sm">
             <MarkdownContent content={content} agentNames={[]} />
           </div>
@@ -577,6 +684,22 @@ export function FilePreview() {
             <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
           </span>
         )}
+        {kind === 'markdown' && content !== null && (draft === null ? (
+          <Button variant="outline" size="sm" onClick={() => setDraft(content)}>
+            <Pencil className="size-3.5" />
+            {t('files.editMarkdown')}
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {t('common.save')}
+            </Button>
+          </>
+        ))}
         <CopyResourceLink view="files" id={file.id} />
         <ArtifactSharePopover
           kind="file"
@@ -669,7 +792,7 @@ export function FilePreview() {
       <div
         className={cn(
           'flex-1',
-          kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'web'
+          kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'web' || draft !== null
             ? 'overflow-hidden'
             : 'overflow-auto',
         )}

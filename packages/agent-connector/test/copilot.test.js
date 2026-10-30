@@ -409,3 +409,25 @@ describe('CopilotAdapter — session/working-dir binding', () => {
       'different working dirs must yield different session names');
   });
 });
+
+describe('CopilotAdapter — failure notices are redacted', () => {
+  const BEARER = 'abc123bearerTOKENvalue';
+  const OWN_KEY = 'my-own-provider-key-0042';
+  const leaky = `upstream said: Authorization: Bearer ${BEARER} (key ${OWN_KEY})`;
+
+  it('masks an Authorization: Bearer token and the agent\'s own key in the notice', async () => {
+    const a = makeAdapter({ env: { COPILOT_PROVIDER_API_KEY: OWN_KEY } });
+
+    const outcome = a._classifyOutcome(1, { message: leaky }, '');
+    assert.ok(outcome && outcome.message, 'a failure notice was produced');
+    assert.ok(!outcome.message.includes(BEARER), outcome.message);
+    assert.ok(!outcome.message.includes(OWN_KEY), outcome.message);
+
+    a._runTurn = async () => { throw new Error(leaky); };
+    await a._handleMessage(msg('hi'));
+    const err = a.sent.find((s) => s.type === 'error');
+    assert.ok(err, 'an error was surfaced');
+    assert.ok(!err.content.includes(BEARER), err.content);
+    assert.ok(!err.content.includes(OWN_KEY), err.content);
+  });
+});

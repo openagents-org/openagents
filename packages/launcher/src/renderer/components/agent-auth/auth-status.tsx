@@ -8,6 +8,7 @@ import {
   Terminal,
 } from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { CliLoginPanel, UseTerminalButton } from "./cli-login-panel"
 import { needsRealTerminal } from "../../../shared/agent-login"
 import type { CliLoginApi } from "./use-cli-login"
@@ -52,11 +53,14 @@ export function LoginStatusRow({
   loginPhase,
   loggedIn,
   notInstalled = false,
+  installOnAdd = false,
 }: {
   loginPhase: "idle" | "awaiting" | "checking"
   loggedIn: boolean | null
   /** The CLI isn't on disk yet, so "not signed in" would misname the problem. */
   notInstalled?: boolean
+  /** Adding the agent installs it, so the missing CLI is not a dead end. */
+  installOnAdd?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
   // Outranks every other state: with no CLI on disk there is nothing to be
@@ -66,7 +70,7 @@ export function LoginStatusRow({
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <AlertTriangle className="size-3.5 shrink-0" strokeWidth={2} />
-        <span>{t("agents.loginStatus.installFirst")}</span>
+        <span>{t(installOnAdd ? "agents.loginStatus.installOnAdd" : "agents.loginStatus.installFirst")}</span>
       </div>
     )
   }
@@ -149,6 +153,8 @@ export function CliLoginBlock({
   onConfirmLogin,
   onCancelAwaiting,
   notInstalled = false,
+  onInstall,
+  installing = false,
 }: {
   agentType: string
   loginCmd: string
@@ -168,8 +174,15 @@ export function CliLoginBlock({
    * ever renders for an agent that exists.
    */
   notInstalled?: boolean
+  /**
+   * With the CLI missing, offer to install it and sign in here — the one
+   * action that can go forward — in place of a sign-in button that cannot.
+   */
+  onInstall?: () => void
+  installing?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const canInstall = notInstalled && !!onInstall
   // A terminal icon over a flow that never opens one reads as "this is a
   // terminal thing" no matter what the words say.
   const viaTerminal = needsRealTerminal(agentType, loginCmd)
@@ -227,23 +240,31 @@ export function CliLoginBlock({
             loginPhase={loginPhase}
             loggedIn={loggedIn}
             notInstalled={notInstalled}
+            installOnAdd={canInstall}
           />
           {/* Both actions in one group, or justify-between spreads status and
               the two buttons evenly across the row and they stop reading as a
               primary action with an alternative beside it. */}
           <div className="flex shrink-0 flex-wrap items-center gap-1">
-            <Button
-              size="sm"
-              variant={loggedIn ? "outline" : "default"}
-              disabled={
-                notInstalled || loginPhase === "checking" || login.active
-              }
-              onClick={() => onStartLogin()}
-            >
-              {loggedIn
-                ? t("agents.loginStatus.reLogin")
-                : t("agents.loginStatus.signIn")}
-            </Button>
+            {canInstall ? (
+              <Button size="sm" variant="outline" disabled={installing} onClick={onInstall}>
+                {installing && <Spinner />}
+                {t(installing ? "agents.shared.installing" : "agents.shared.installAndSignIn")}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant={loggedIn ? "outline" : "default"}
+                disabled={
+                  notInstalled || loginPhase === "checking" || login.active
+                }
+                onClick={() => onStartLogin()}
+              >
+                {loggedIn
+                  ? t("agents.loginStatus.reLogin")
+                  : t("agents.loginStatus.signIn")}
+              </Button>
+            )}
             {/* Pointless for an agent whose primary button already opens a
                 terminal (gemini, hermes) — two buttons, one action. The
                 terminal is no escape hatch from a missing CLI either, so it

@@ -118,6 +118,12 @@ class Config:
 
     # LLM Router — uses a small model to decide agent turn-taking in multi-agent threads
     # Provider: "anthropic" (default) or "openai" (any OpenAI-compatible endpoint)
+    # Enable only after every approval handler has the scoped-access release.
+    THREAD_COLLABORATION_ENABLED: bool = os.environ.get("THREAD_COLLABORATION_ENABLED", "false").lower() in ("true", "1", "yes")
+    THREAD_AGENT_ACCESS_ENABLED: bool = os.environ.get("THREAD_AGENT_ACCESS_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_ENABLED: bool = os.environ.get("COMPLETION_ROUTING_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_MAX_HANDOFFS: int = max(1, min(20, int(os.environ.get("COMPLETION_ROUTING_MAX_HANDOFFS", "6"))))
+    AUTOMATIC_REVIEW_HANDOFF_ENABLED: bool = os.environ.get("AUTOMATIC_REVIEW_HANDOFF_ENABLED", "false").lower() in ("true", "1", "yes")
     ROUTER_LLM_ENABLED: bool = os.environ.get("ROUTER_LLM_ENABLED", "true").lower() in ("true", "1", "yes")
     ROUTER_LLM_PROVIDER: str = os.environ.get("ROUTER_LLM_PROVIDER", "anthropic")  # "anthropic" or "openai"
     ROUTER_LLM_MODEL: str = os.environ.get("ROUTER_LLM_MODEL", "")  # auto-detected from provider if empty
@@ -172,11 +178,11 @@ class Config:
 
     # Server-side product analytics (PostHog). Authoritative funnel
     # checkpoints keyed by account email — see app/services/analytics.py.
-    # Defaults to the public project key shared by the web clients; posts
-    # straight to PostHog Cloud (not the CN-flaky Cloudflare proxy).
-    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "phc_t27xjrx9U42B54arcMwpiBgQxEFikBzXGnvzVtFEGtpf")
+    # Explicit opt-in: local checkouts, tests and self-hosted instances must
+    # never send synthetic activity into the hosted production project.
+    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "")
     POSTHOG_HOST: str = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
-    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "1") not in ("0", "false", "False")
+    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "false").lower() in ("1", "true")
 
     # Chat-platform integrations (Slack / Telegram bridges). The public base
     # URL is what external platforms call back to — Telegram setWebhook and

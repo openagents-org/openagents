@@ -87,6 +87,13 @@ def create_share(
     if _viewer.is_human and not can_view_channel_name(db, str(workspace.id), _viewer, body.channel):
         return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
+    from app.services.personal_assistant import require_shareable_channel
+    channel = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == body.channel,
+    )).scalar_one_or_none()
+    if channel is not None:
+        require_shareable_channel(db, channel)
+
     channel_target = f"channel/{body.channel}"
     events = db.execute(
         select(EventRecord)
@@ -160,6 +167,13 @@ def get_public_share(
     ).scalar_one_or_none()
 
     if not snapshot:
+        return json_response(ResponseCode.NOT_FOUND, "Share not found")
+
+    from app.services.personal_assistant import is_personal_channel
+    channel = db.execute(select(Channel).where(
+        Channel.workspace_id == snapshot.workspace_id, Channel.name == snapshot.channel_name,
+    )).scalar_one_or_none()
+    if channel is not None and is_personal_channel(db, channel):
         return json_response(ResponseCode.NOT_FOUND, "Share not found")
 
     return success_response({

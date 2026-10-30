@@ -10,14 +10,19 @@ import type { TeamMember } from '@/lib/types';
  * sessions may not be allowed to read the team — they get an empty roster.
  */
 const cache = new Map<string, Promise<TeamMember[]>>();
-const handledProfileEvents = new WeakSet<Event>();
+// Dropped here rather than by the hooks: a profile is saved from Settings,
+// while the views that show it are unmounted or hidden and listen to nothing.
+if (typeof window !== 'undefined') window.addEventListener('workspace-profile-updated', () => cache.clear());
+/** What a failed load resolves to: empty for now, but worth asking again. */
+const FAILED: TeamMember[] = [];
+const RETRIES = 3;
 
 export function loadTeamRoster(workspaceId: string): Promise<TeamMember[]> {
   let p = cache.get(workspaceId);
   if (!p) {
     p = workspaceApi.getTeam().catch(() => {
       cache.delete(workspaceId);
-      return [] as TeamMember[];
+      return FAILED;
     });
     cache.set(workspaceId, p);
   }
@@ -31,19 +36,27 @@ export function useTeamRoster(): TeamMember[] {
   useEffect(() => {
     if (!workspaceId) return;
     let active = true;
+    // One failed request used to leave names and avatars missing until reload.
+    let failures = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const refresh = (invalidate = false) => {
       if (invalidate) cache.delete(workspaceId);
-      void loadTeamRoster(workspaceId).then(members => { if (active) setTeam({ id: workspaceId, members }); });
+      void loadTeamRoster(workspaceId).then(members => {
+        if (!active) return;
+        setTeam({ id: workspaceId, members });
+        if (members !== FAILED) { failures = 0; return; }
+        if (failures >= RETRIES) return;
+        failures += 1;
+        clearTimeout(retry);
+        retry = setTimeout(() => refresh(), failures * 5000);
+      });
     };
     refresh();
-    const onProfile = (event: Event) => {
-      const invalidate = !handledProfileEvents.has(event);
-      handledProfileEvents.add(event);
-      refresh(invalidate);
-    };
+    const onProfile = () => refresh();
     window.addEventListener('workspace-profile-updated', onProfile);
     return () => {
       active = false;
+      clearTimeout(retry);
       window.removeEventListener('workspace-profile-updated', onProfile);
     };
   }, [workspaceId]);

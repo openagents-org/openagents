@@ -11,7 +11,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useMe } from '@/hooks/use-me';
 import { useFormatters, useT } from '@/lib/i18n';
-import { approvalActionBlockedReason, canActOnApproval } from '@/lib/approvals';
+import { approvalActionBlockedReason, canActOnApproval, normalizePolicyRequirements } from '@/lib/approvals';
 import { roleLabel } from '@/lib/roles';
 import type { MessageKey } from '@/lib/i18n/translate';
 import type { ApprovalRequest } from '@/lib/types';
@@ -87,7 +87,7 @@ export function ApprovalCard({
     ? t('approvals.roleAdmin')
     : approval.requiredRole === 'owner' ? t('approvals.roleOwner') : t('approvals.roleAny');
 
-  const requirements = approval.policyRequirements;
+  const requirements = normalizePolicyRequirements(approval.policyRequirements);
   const roleText = requirements?.members.length ? requirements.members.map(personName).join(', ') + (requirements.role_required ? ` + ${baseRoleText}` : '') : baseRoleText;
 
   // Who this is for: the named assignee, else the agent's owner, else the role.

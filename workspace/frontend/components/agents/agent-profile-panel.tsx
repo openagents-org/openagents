@@ -14,6 +14,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
+import { isOwnedAgent } from '@/lib/sidebar-agents';
 import { curatedModelsFitEndpoint } from '@/lib/model-picker';
 import { toast } from 'sonner';
 import type { CloudAgentConfig, AgentCatalogModel, NodeCommand, WorkspaceNode } from '@/lib/types';
@@ -65,7 +66,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const {
     selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
   } = useLayout();
-  const { agents, refreshWorkspace, createSession } = useWorkspace();
+  const { agents, refreshWorkspace, createSession, currentUser } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const confirm = useConfirm();
   const t = useT();
@@ -87,6 +88,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   // credentials are fixed by the server and the API rejects changes, so
   // the model picker and key editor below render read-only for it.
   const isManaged = Boolean(agent?.builtin) || Boolean(cloudConfig?.managed);
+  // Using an agent someone shared does not make its settings yours: the server
+  // refuses changes from anyone but the owner, so they render read-only here
+  // rather than failing on save. An agent with no recorded owner predates
+  // ownership and stays editable, as the server allows.
+  const canManage = !agent?.ownerEmail || isOwnedAgent(agent, currentUser.id);
+  const modelReadOnly = isManaged || !canManage;
 
   const handleRemoveCloudAgent = useCallback(async () => {
     if (!agent) return;
@@ -476,13 +483,13 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               ) : (
                 <div className="group/name flex items-center gap-1.5 min-w-0">
                   <h3 className="text-[15px] font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
-                  <button
+                  {canManage && <button
                     onClick={() => setEditingName(true)}
                     className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/name:opacity-100"
                     title={t('agents.editDisplayName')}
                   >
                     <Pencil className="size-3" />
-                  </button>
+                  </button>}
                 </div>
               )}
               {agent.displayName && agent.displayName !== agent.agentName && (
@@ -512,7 +519,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
           <div className="rounded-lg border overflow-hidden">
             <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">
               <span className="text-xs font-medium">{t('agents.description')}</span>
-              <button
+              {canManage && <button
                 onClick={handleGenerateDescription}
                 disabled={generatingDesc}
                 className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors shrink-0"
@@ -522,7 +529,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   ? <RefreshCw className="size-3 animate-spin" />
                   : <Sparkles className="size-3 text-amber-500" />}
                 {generatingDesc ? 'Generating…' : t('agents.autoGenerate')}
-              </button>
+              </button>}
             </div>
             <div className="p-3">
               <textarea
@@ -533,9 +540,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   setDescription(e.target.value);
                   setDescDirty(true);
                 }}
-                onBlur={handleSaveDescription}
+                onBlur={canManage ? handleSaveDescription : undefined}
+                readOnly={!canManage}
                 rows={3}
               />
+              <p className="text-[11px] text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
               {descDirty && (
                 <div className="flex justify-end mt-1.5">
                   <button
@@ -589,7 +598,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               endpoint's own list when the catalog isn't for that endpoint;
               free-form ids stay selectable (prepended when not listed).
               The built-in assistant shows its server-set model read-only. */}
-          {isManaged ? (
+          {modelReadOnly ? (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
@@ -597,7 +606,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               </div>
               <div className="p-3 space-y-1.5">
                 <div className="text-xs font-mono">{currentModel || '—'}</div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelManagedHint')}</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{t(isManaged ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
               </div>
             </div>
           ) : (
@@ -734,7 +743,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}
-          {isCloud && cloudConfig && !isManaged && (
+          {isCloud && cloudConfig && !isManaged && canManage && (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b">
                 <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>
@@ -877,7 +886,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
           {/* Danger zone — remove this agent from the workspace (node/local
               agents; cloud agents use the footer Remove button). */}
-          {!isCloud && (
+          {!isCloud && canManage && (
             <div className="rounded-lg border border-red-200 dark:border-red-900/50 overflow-hidden">
               <div className="px-3.5 py-2.5 border-b border-red-200 dark:border-red-900/50">
                 <span className="text-xs font-medium text-red-600 dark:text-red-400">{t('agents.dangerZone')}</span>
@@ -907,7 +916,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               <Plus className="size-3" />
               {t('agents.startThread')}
             </button>
-            {isCloud && (
+            {isCloud && canManage && (
               <button
                 onClick={handleRemoveCloudAgent}
                 className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

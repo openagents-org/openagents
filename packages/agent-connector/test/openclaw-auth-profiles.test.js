@@ -55,6 +55,8 @@ describe('OpenClaw native auth', () => {
     assert.equal(fs.existsSync(authFile()), false);
     const config = readConfig();
     assert.equal(config.models.providers.custom.apiKey, 'sk-gw');
+    // So the key just saved outranks any stored `custom` profile.
+    assert.equal(config.models.providers.custom.auth, 'api-key');
     assert.equal(config.agents.defaults.model.primary, 'custom/glm-5.3');
   });
 

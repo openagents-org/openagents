@@ -27,3 +27,7 @@ it('always offers an authenticated self DM, even without roster or history, and 
   expect(rows[0]).toMatchObject({ email: 'me@example.com', name: 'Maya Chen' });
   expect(sidebarMembers([], [], [], 'human:user')).toEqual([]);
 });
+
+it('names yourself by your profile, not the email the session started with', () => {
+  expect(sidebarMembers(team, [], [], me, 'me@example.com')[0].name).toBe('me');
+});

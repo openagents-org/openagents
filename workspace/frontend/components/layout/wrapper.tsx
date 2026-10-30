@@ -6,9 +6,10 @@ import { resourcePath } from '@/lib/resource-link';
 import { threadPath, messagePath, requestedThreadId, requestedMessageId } from '@/lib/thread-link';
 import { desktopHost } from '@/lib/desktop-host';
 
-import { Activity, useEffect, useRef } from 'react';
+import { Activity, useEffect, useRef, useState } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 import { useSignalNotifications } from './use-signal-notifications';
+import { useDesktopThreadLinks } from './use-desktop-thread-links';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
@@ -37,6 +38,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
+import { WorkspaceLoadError } from './workspace-load-error';
 
 function WorkspaceLoadingScreen() {
   const t = useT();
@@ -74,9 +76,11 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
+  const t = useT();
   useThreadArtifactPreview();
   useDesktopWorkspaceState();
   useSignalNotifications();
+  useDesktopThreadLinks();
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
@@ -90,10 +94,11 @@ export function Wrapper() {
     const q = hash.indexOf('?');
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const { workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   // Resolve a stable identity before writing the URL; never expose DM participants.
   useEffect(() => {
-    if (loading || desktopHost()) return;
+    if (loading || workspaceLoadError || desktopHost()) return;
     let active = true;
     const update = async () => {
       const url = new URL(window.location.href);
@@ -117,7 +122,7 @@ export function Wrapper() {
     };
     void update();
     return () => { active = false; };
-  }, [loading, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
+  }, [loading, workspaceLoadError, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
 
@@ -159,11 +164,15 @@ export function Wrapper() {
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
     !currentSessionId?.startsWith('dm:');
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
+  }
+
+  if (workspaceLoadError) {
+    return <WorkspaceLoadError status={workspaceLoadError.status} onRetry={retryWorkspace} />;
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──
@@ -175,7 +184,7 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {showOnboarding ? (
             <div className="h-full bg-background overflow-hidden">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -290,7 +299,7 @@ export function Wrapper() {
             /* No agents yet: guided first-run onboarding (choose node vs local,
                node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */

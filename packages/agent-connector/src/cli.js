@@ -6,6 +6,7 @@ require('./win-console').installWindowsHideDefault();
 
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
+const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -360,16 +361,39 @@ async function cmdRuntimes(connector, flags) {
   // Used by the daemon to report node runtimes to the workspace (Add-agent
   // gallery). Emits ONLY JSON on stdout.
   if (flags && flags.json) {
-    const runtimes = connector.registry.getCatalogSync().map((e) => {
+    // --types a,b,c limits the run to those entries: the daemon splits
+    // detection over several of these so one slow CLI cannot hold up the rest.
+    const only = typeof flags.types === 'string'
+      ? new Set(flags.types.split(',').map((s) => s.trim()).filter(Boolean))
+      : null;
+    const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
+    let agents = [];
+    try { agents = connector.config.getAgents() || []; } catch {}
+    const runtimes = catalog.map((e) => {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      // The workspace's Configure saves a key on the AGENT (daemon.yaml), never
+      // in <type>.env, so judged on the type alone a Kimi or Pi agent that
+      // answered fine read "Needs login" in the workspace while the launcher,
+      // which judges the type again with its agents' env, said Ready. Judge it
+      // the way the daemon launches it: a type is ready when one of its agents
+      // is.
+      let agentEnv = null;
+      if (h.installed && !h.ready) {
+        for (const a of agents) {
+          if ((a.type || 'openclaw') !== e.name) continue;
+          let ah;
+          try { ah = connector.healthCheck(e.name, { cliLogin: isCliLogin(a.env), agentEnv: a.env || {} }); } catch { continue; }
+          if (ah && ah.ready) { h = { ...h, ...ah, installed: true }; agentEnv = a.env || {}; break; }
+        }
+      }
       // Credential contract, upward half: STATUS goes up, the secret stays on
       // this device. `mode` says how the type authenticates today
       // (subscription = CLI/OAuth login, api_key = a stored key, none = not
       // configured); keyMasked shows only the key's tail.
       let keyMasked = null;
       try {
-        const env = connector.env.load(e.name) || {};
+        const env = { ...(connector.env.load(e.name) || {}), ...(agentEnv || {}) };
         const key = env.LLM_API_KEY || null;
         if (key && key.length > 7) keyMasked = `…${key.slice(-4)}`;
         else if (key) keyMasked = '…';
@@ -1035,6 +1059,10 @@ async function cmdProbe(connector, flags, positional) {
   if (result.ok) {
     print(`OK (${result.method}, ${result.durationMs}ms)${result.reply ? ` — ${result.reply}` : ''}`);
     if (result.code === 'static_only') print(result.message);
+  } else if (result.ok === null) {
+    // Nothing could be run and the sign-in could not be checked either.
+    print(`UNVERIFIED ${result.message || ''}`.trim());
+    process.exitCode = 1;
   } else {
     print(`FAILED [${result.code}] ${result.message || ''}`.trim());
     for (const line of result.guidance || []) print(`  → ${line}`);
@@ -1044,16 +1072,23 @@ async function cmdProbe(connector, flags, positional) {
 
 async function cmdModels(connector, flags, positional) {
   const target = positional[0];
-  if (!target) { print('Usage: agn models <type|agent> [--json]'); return; }
+  if (!target) { print('Usage: agn models <type|agent> [--json] [--sign-in]'); return; }
 
   // Accept an agent name, as `agn probe` does: its CLI is asked on that
   // agent's own env, so a signed-in agent answers for its sign-in.
+  // --sign-in: the target is a type, asked on the device's own sign-in with
+  // no key at all, as an agent added with "sign in on the device" runs. Not
+  // looked up as an agent: the first agent of a type is often named after it.
   let type = target;
   let agentEnv;
-  try {
-    const agent = connector.config.getAgent(target);
-    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
-  } catch {}
+  if (flags && flags['sign-in']) {
+    agentEnv = { [AUTH_MODE_KEY]: CLI_LOGIN };
+  } else {
+    try {
+      const agent = connector.config.getAgent(target);
+      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+    } catch {}
+  }
 
   const result = await connector.listCliModels(type, { agentEnv });
 
@@ -1146,6 +1181,7 @@ Commands:
   test-llm <type>             Test LLM connection
   probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
   models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
+                              (--sign-in: a type, on the device's own sign-in)
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token

@@ -1,7 +1,7 @@
 """Per-thread permission to request work from another person's agent."""
 from sqlalchemy import select
 from app.models import ChannelAgentSharing, ChannelMember
-from app.services.access_model import Principal, explain, resource_for_agent, channel_participant_emails
+from app.services.access_model import Principal, explain, resource_for_agent, channel_participant_emails, active_grants
 
 
 def sharing_mode(setting):
@@ -13,12 +13,22 @@ def sharing_mode(setting):
 def request_access(db, workspace_id, channel, member, email):
     if not member or member.status == "removed" or not email:
         return "no"
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    if is_yumi(db, workspace_id, member.agent_name):
+        return "yes" if channel and is_personal_channel(db, channel) and email.lower() == (channel.owner_email or "").lower() else "no"
     # Explicit agent grants remain independent of this thread-only setting.
     principal = Principal("human", email=email, workspace_id=str(workspace_id))
     if explain(db, principal, resource_for_agent(member), "act", str(workspace_id), include_thread_sharing=False).allowed:
         return "yes"
     if not channel or channel.service_id:
         return "no"
+    owner = (member.owner_email or "").strip().lower()
+    people = channel_participant_emails(db, channel)
+    if (channel.status != "deleted" and email in people and owner in people
+            and db.get(ChannelMember, (channel.id, member.agent_name))):
+        grants = active_grants(db, str(workspace_id), "thread_agent", f"{channel.id}:{member.agent_name}", ("human", email))
+        if any("act" in (grant.rights or []) and grant.granted_by == f"human:{owner}" for grant in grants):
+            return "yes"
     issue = issue_for_work(db, channel)
     if issue:
         return issue_request_access(db, workspace_id, issue, member, email)
@@ -92,6 +102,9 @@ def issue_for_work(db, channel):
 def issue_request_access(db, workspace_id, issue, member, email):
     from app.models import IssueAgentSharing
     from app.routers.issues import _participants, _linked_channels
+    from app.services.personal_assistant import is_yumi
+    if member and is_yumi(db, workspace_id, member.agent_name):
+        return "no"
     if not member or member.status == "removed" or not email:
         return "no"
     if explain(db, Principal("human", email=email, workspace_id=str(workspace_id)),

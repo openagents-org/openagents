@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
-import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
+import { createLocalSetupApi, type DeferredCreateEvents, type LocalConfiguration } from "./local-setup-api"
 
-function fixture() {
+function fixture(deferred?: DeferredCreateEvents) {
   const api = {
     getCatalog: vi.fn().mockResolvedValue([{ name: "claude", installed: true }]),
     getSupportedAgentTypes: vi.fn().mockResolvedValue(["claude"]),
@@ -13,7 +13,7 @@ function fixture() {
     setAgentWorkingDir: vi.fn().mockResolvedValue({ success: true }),
   }
   const config: LocalConfiguration = { type: "claude", fields: [], values: { ANTHROPIC_API_KEY: "test-key" }, initial: {} }
-  const backend = createLocalSetupApi(api as unknown as Window["api"], () => config)
+  const backend = createLocalSetupApi(api as unknown as Window["api"], () => config, deferred)
   return { api, config, backend }
 }
 
@@ -40,6 +40,31 @@ describe("shared agent setup local backend", () => {
     expect(api.addAgent).not.toHaveBeenCalled()
     await backend.enqueueNodeCommand("this-computer", "create_agent", args)
     expect(api.addAgent).toHaveBeenCalledTimes(1)
+  })
+  it("returns before a needed install and adds the agent once it lands", async () => {
+    const events = { onCreated: vi.fn(), onFailed: vi.fn() }
+    const { api, backend } = fixture(events)
+    api.getCatalog.mockResolvedValue([{ name: "claude", installed: false }])
+    let finish: (value: { success: boolean }) => void = () => {}
+    api.installAgentTypeStreaming.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    const args = { name: "deferred-helper", type: "claude" }
+    await expect(backend.enqueueNodeCommand("this-computer", "create_agent", args)).resolves.toEqual({ deferred: true })
+    expect(api.addAgent).not.toHaveBeenCalled()
+    await expect(backend.enqueueNodeCommand("this-computer", "create_agent", args)).rejects.toThrow("already being saved")
+    finish({ success: true })
+    await vi.waitFor(() => expect(events.onCreated).toHaveBeenCalledWith("deferred-helper"))
+    expect(api.addAgent).toHaveBeenCalledTimes(1)
+    expect(events.onFailed).not.toHaveBeenCalled()
+  })
+  it("reports a detached install failure without creating the agent", async () => {
+    const events = { onCreated: vi.fn(), onFailed: vi.fn() }
+    const { api, backend } = fixture(events)
+    api.getCatalog.mockResolvedValue([{ name: "claude", installed: false }])
+    api.installAgentTypeStreaming.mockResolvedValueOnce({ success: false, error: "Installation failed" })
+    await backend.enqueueNodeCommand("this-computer", "create_agent", { name: "failing-helper", type: "claude" })
+    await vi.waitFor(() => expect(events.onFailed).toHaveBeenCalledWith("failing-helper", "Installation failed"))
+    expect(api.addAgent).not.toHaveBeenCalled()
+    expect(events.onCreated).not.toHaveBeenCalled()
   })
   it("keeps saved credentials when changing the model and folder", async () => {
     const { api, config, backend } = fixture()

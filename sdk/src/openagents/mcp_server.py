@@ -190,7 +190,7 @@ def create_mcp_server(
             # ── Browser tools ──
             types.Tool(
                 name="workspace_browser_open",
-                description="Open a new shared browser tab. Returns the tab ID for use in other browser tools.",
+                description="Open a new saved shared browser tab. Reuse existing tabs first. Returns the stable tab ID for later browser tools.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -295,7 +295,7 @@ def create_mcp_server(
             ),
             types.Tool(
                 name="workspace_browser_close",
-                description="Close a shared browser tab.",
+                description="Close a shared browser tab only when the user requests it. Keep saved tabs for future tasks.",
                 inputSchema={
                     "type": "object",
                     "properties": {

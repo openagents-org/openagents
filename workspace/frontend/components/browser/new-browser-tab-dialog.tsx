@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -17,9 +17,8 @@ import { Label } from '@/components/ui/label';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { hostOf, normalizeUrl } from './tab-model';
+import { normalizeUrl } from './tab-model';
 
 export function NewBrowserTabDialog({
   open,
@@ -29,42 +28,35 @@ export function NewBrowserTabDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
-  const { openBrowserTab, browserTabLimits, setSelectedBrowserTabId } = useWorkspace();
+  const { openBrowserTab, browserTabLimits, refreshBrowserTabs, setSelectedBrowserTabId } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
 
   const [url, setUrl] = useState('');
-  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-
-  // One limit for both kinds: tabs currently awake. Sleeping tabs are free.
-  const quotaFull = !!browserTabLimits && browserTabLimits.concurrent.used >= browserTabLimits.concurrent.max;
-  const idleMinutes = browserTabLimits?.idleMinutes ?? 15;
 
   // Fresh form on every open.
   useEffect(() => {
     if (!open) return;
     setUrl('');
-    setName('');
     setBusy(false);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const suggestedName = useMemo(() => hostOf(normalizeUrl(url)) || '', [url]);
-  const chosenFull = quotaFull;
 
   const submit = async () => {
-    if (busy || chosenFull) return;
+    if (busy) return;
     setBusy(true);
     try {
       const tab = await openBrowserTab(normalizeUrl(url), {
         persistent: true,
-        name: name.trim() || undefined,
       });
       setSelectedBrowserTabId(tab.id);
       if (isMobile) openMobileDetail();
       toast.success(t('browser.tabOpened'));
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('browser.tabOpenFailed'));
+      const capacity = err instanceof Error && /concurrent (?:tab|session) limit|active.session.{0,20}limit/i.test(err.message);
+      toast.error(t(capacity ? 'browser.activeSessionLimit' : 'browser.tabOpenFailed'));
+      void refreshBrowserTabs().catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -98,38 +90,17 @@ export function NewBrowserTabDialog({
             />
           </div>
 
-          <div className="space-y-1.5">
-            {browserTabLimits && (
-              <p className={cn('text-xs', quotaFull ? 'text-red-500' : 'text-muted-foreground/80')}>
-                {quotaFull
-                  ? t('browser.quotaFull', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })
-                  : t('browser.awakeSlots', { max: browserTabLimits.concurrent.max, minutes: idleMinutes })}
-                {' '}
-                ({t('browser.slotsUsed', { used: browserTabLimits.concurrent.used, max: browserTabLimits.concurrent.max })})
-              </p>
-            )}
-          </div>
+          <p className="text-xs text-muted-foreground/80">{t('browser.sessionCapacityHint')}
+            {browserTabLimits && <> {t('browser.workspaceActiveSessions', { count: browserTabLimits.concurrent.used })}</>}
+          </p>
 
-          <div className="space-y-1.5">
-              <Label htmlFor="new-tab-name">{t('browser.nameLabel')}</Label>
-              <Input
-                id="new-tab-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submit();
-                }}
-                placeholder={suggestedName || t('browser.namePlaceholder')}
-                autoComplete="off"
-              />
-          </div>
         </DialogBody>
 
         <DialogFooter className="px-6 pb-6 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={submit} disabled={busy || chosenFull}>
+          <Button onClick={submit} disabled={busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Globe className="size-4" />}
             {busy ? t('browser.opening') : t('browser.open')}
           </Button>

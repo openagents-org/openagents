@@ -56,3 +56,33 @@ def test_existing_access_and_nonmembers_cannot_request(client,workspace,private_
     assert request(client,workspace).status_code==400
     data=client.get(f"/v1/channels/settings-test/participants?network={workspace['id']}",headers=_bearer('vic',workspace)).json()['data']
     assert next(a for a in data['agents'] if a['agent_name']=='agent-alpha')['request_access']=='approval'
+
+
+def test_thread_access_never_grants_direct_or_other_thread_access(client, workspace, private_agent, db, monkeypatch):
+    from app.config import config
+    monkeypatch.setattr(config, "THREAD_AGENT_ACCESS_ENABLED", True)
+    from app.models import ChannelMember
+    from app.services.thread_agent_requests import request_access
+    from app.services.access_model import Principal, explain, resource_for_agent
+    endpoint = '/v1/channels/settings-test/agents/agent-alpha/thread-access-requests'
+    first = client.post(endpoint, headers=_bearer('vic', workspace), json={'network': workspace['id']})
+    assert first.status_code == 200, first.text
+    assert client.post(endpoint, headers=_bearer('vic', workspace), json={'network': workspace['id']}).json()['data']['id'] == first.json()['data']['id']
+    approval = db.get(ApprovalRequest, first.json()['data']['id'])
+    assert approval.kind == 'thread_agent_access_request'
+    assert decide(client, workspace, approval, user='vic').status_code == 403
+    assert decide(client, workspace, approval).status_code == 200
+    ch = db.execute(select(Channel).where(Channel.name == 'settings-test')).scalar_one()
+    assert request_access(db, workspace['id'], ch, private_agent, 'vic@acme.test') == 'yes'
+    assert not explain(db, Principal('human', email='vic@acme.test', workspace_id=workspace['id']), resource_for_agent(private_agent), 'act', workspace['id'], include_thread_sharing=False).allowed
+    other = Channel(workspace_id=workspace['id'], name='other-review-thread')
+    db.add(other); db.flush()
+    db.add_all([ChannelHumanMember(channel_id=other.id, user_email=email) for email in ['vic@acme.test', 'mia@acme.test']])
+    db.add(ChannelMember(channel_id=other.id, agent_name=private_agent.agent_name)); db.flush()
+    assert request_access(db, workspace['id'], other, private_agent, 'vic@acme.test') == 'no'
+    endpoint = f'/v1/channels/{ch.name}/agents/agent-alpha/access/vic@acme.test?network={workspace["id"]}'
+    assert client.delete(endpoint, headers=_bearer('vic', workspace)).status_code == 403
+    assert client.delete(endpoint, headers=_bearer('mia', workspace)).status_code == 200
+    assert request_access(db, workspace['id'], ch, private_agent, 'vic@acme.test') == 'no'
+    private_agent.owner_email = 'adam@acme.test'; db.flush()
+    assert request_access(db, workspace['id'], ch, private_agent, 'vic@acme.test') == 'no'

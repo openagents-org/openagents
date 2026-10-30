@@ -15,6 +15,11 @@ export interface DesktopHost {
   signOut(): void;
   connectComputer(workspaceId: string): Promise<DesktopComputer>;
   getComputerStatus(workspaceId: string): Promise<DesktopComputer>;
+  /**
+   * A command was just queued for this computer: have it check in now rather
+   * than on its next 10s heartbeat. Optional: older launchers lack it.
+   */
+  nudgeComputer?(): void;
   /** Surface a newly observed agent reply through the launcher's OS notifications. */
   notifyAgentReply?(input: {
     workspaceId: string;
@@ -28,6 +33,16 @@ export interface DesktopHost {
    * Optional: an older preload can briefly coexist with a newer bundle in dev.
    */
   onSession?(callback: (session: WorkspaceSession) => void): () => void;
+  /**
+   * Name the launcher tab this page is in, and let it answer to both the
+   * workspace's slug and its id. Optional: only a launcher with tabs has it.
+   */
+  reportWorkspace?(info: { id: string; slug: string; name: string }): void;
+  /**
+   * The launcher's own Sign out button, above All Workspaces, asks this page
+   * to confirm it, so both sign-outs share one dialog. Optional, as onSession.
+   */
+  onSignOutRequest?(callback: () => void): () => void;
 }
 
 export function desktopHost(): DesktopHost | null {

@@ -2,7 +2,7 @@ name: Promote develop to release
 
 # The only sanctioned way to move `release`.
 #
-# `release` is what Railway deploys. It must always be a fast-forward of
+# `release` triggers the DigitalOcean backend deployment and Vercel frontend deployment. It must always be a fast-forward of
 # `develop`: never a merge commit, never a commit that isn't on develop. A
 # ruleset on `release` blocks direct pushes from everyone; this workflow pushes
 # with a dedicated deploy key (RELEASE_PROMOTE_SSH_KEY) that the ruleset lets

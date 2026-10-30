@@ -21,10 +21,11 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
+const { isPostinstallStub } = require('../postinstall-stub');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -40,7 +41,10 @@ class ClaudeAdapter extends BaseAdapter {
    *    gets a 403). Cloud-provider and model config is kept, and so is the
    *    subscription token from `claude setup-token` — that one IS the
    *    credential, and sweeping it up as a stray CLAUDE_* left anyone who
-   *    pasted one authenticating as nobody, silently.
+   *    pasted one authenticating as nobody, silently. CLAUDE_CONFIG_DIR is
+   *    kept too: it is where the user's global CLAUDE.md, settings, skills and
+   *    project memory live, and dropping it started the agent from a blank
+   *    ~/.claude with none of the memory it has outside the workspace.
    *
    * 2. Mirror the API key into ANTHROPIC_AUTH_TOKEN for third-party relays. The
    *    CLI sends ANTHROPIC_API_KEY as `x-api-key`, which most Anthropic-
@@ -50,6 +54,13 @@ class ClaudeAdapter extends BaseAdapter {
    *    launcher normally sets this when saving env; this is the runtime backstop
    *    for envs saved by an older launcher or coming from anywhere else. Only
    *    for a NON-official base — api.anthropic.com wants x-api-key.
+   *
+   * 3. Turn MCP tool search off behind a relay (ENABLE_TOOL_SEARCH=false).
+   *    Claude Code 2.1.304 made it the default behind a custom base URL, and
+   *    the deferred-tool content blocks it sends are rejected by relays whose
+   *    schema predates them (422 "unknown variant `tool_definition`, expected
+   *    `tool_reference`"). Newer CLIs retry without it, but only after the
+   *    rejected request, on every turn. A value the user set is left alone.
    *
    * @param {Record<string, string>} baseEnv
    * @returns {Record<string, string>}
@@ -62,6 +73,7 @@ class ClaudeAdapter extends BaseAdapter {
       'CLAUDE_API_KEY',
       'CLAUDE_CODE_MAX_TURNS',
       'CLAUDE_CODE_OAUTH_TOKEN',
+      'CLAUDE_CONFIG_DIR',
     ]);
     const env = { ...(baseEnv || {}) };
     for (const k of Object.keys(env)) {
@@ -71,15 +83,17 @@ class ClaudeAdapter extends BaseAdapter {
     }
 
     const base = (env.ANTHROPIC_BASE_URL || '').trim();
+    if (!base) return env;
+    let official = false;
+    try {
+      const host = new URL(base).hostname.toLowerCase();
+      official = host === 'anthropic.com' || host.endsWith('.anthropic.com');
+    } catch { official = false; }
+    if (official) return env;
+
     const key = (env.ANTHROPIC_API_KEY || '').trim();
-    if (key && base && !(env.ANTHROPIC_AUTH_TOKEN || '').trim()) {
-      let official = false;
-      try {
-        const host = new URL(base).hostname.toLowerCase();
-        official = host === 'anthropic.com' || host.endsWith('.anthropic.com');
-      } catch { official = false; }
-      if (!official) env.ANTHROPIC_AUTH_TOKEN = key;
-    }
+    if (key && !(env.ANTHROPIC_AUTH_TOKEN || '').trim()) env.ANTHROPIC_AUTH_TOKEN = key;
+    if (!(env.ENABLE_TOOL_SEARCH || '').trim()) env.ENABLE_TOOL_SEARCH = 'false';
     return env;
   }
 
@@ -97,7 +111,7 @@ class ClaudeAdapter extends BaseAdapter {
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
-    // Knowledge pinning (decision log + glossary) lives in BaseAdapter; this
+    // Knowledge pinning (glossary) lives in BaseAdapter; this
     // adapter fetches directly in _handleMessage because the result also
     // drives the persistent-process staleness check.
     this._IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
@@ -270,16 +284,22 @@ class ClaudeAdapter extends BaseAdapter {
    *
    * Excludes the user's current message (the caller appends it normally)
    * and any status/thinking events, which are mostly tool-call noise.
+   * `current` is the triggering message: when given, the trigger itself and
+   * anything posted after it (queued follow-ups) are left out by event, since
+   * `currentMessage` text no longer matches once history is prepended.
    */
-  async _buildChannelRecap(channelName, currentMessage) {
-    // The head window is raw events — status/thinking noise is filtered out
-    // AFTER the fetch, and an opening turn is often mostly noise, so fetch
-    // well more than the 5 chat messages the sampler will keep.
+  async _buildChannelRecap(channelName, currentMessage, current = null) {
+    const before = current?.messageId;
     const [headMsgs, tailMsgs] = await Promise.all([
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { sort: 'asc' }),
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60, before ? { before } : {}),
     ]);
-    const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
+    const cutoff = Date.parse(current?.createdAt || '');
+    const priorOnly = (msgs) => (msgs || []).filter((m) => {
+      if (before && m.messageId === before) return false;
+      return !(Number.isFinite(cutoff) && Date.parse(m.createdAt || '') > cutoff);
+    });
+    const lines = sampleRecap(priorOnly(headMsgs), priorOnly(tailMsgs), currentMessage);
     if (lines.length === 0) return null;
 
     return (
@@ -448,11 +468,12 @@ class ClaudeAdapter extends BaseAdapter {
     return null;
   }
 
-  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, decisionLog = null, glossary = null } = {}) {
+  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, glossary = null } = {}) {
     const claudeBin = this._findClaudeBinary();
     if (!claudeBin) {
       throw new Error('claude CLI not found. Install with: curl -fsSL https://claude.ai/install.sh | bash');
     }
+    if (isPostinstallStub(claudeBin)) throw new Error(ClaudeAdapter.INSTALL_INCOMPLETE);
 
     // The builder emits the correct tool-reference block for toolMode directly
     // (mcp → workspace_* tools, skills → openagents-workspace skill), so there
@@ -465,7 +486,6 @@ class ClaudeAdapter extends BaseAdapter {
       model: this.modelLabel(),
       browserEnabled,
       toolMode: this.toolMode,
-      decisionLog,
       glossary,
     });
 
@@ -516,14 +536,17 @@ class ClaudeAdapter extends BaseAdapter {
     // process.cwd() as the fallback — on a packaged Windows daemon that is
     // C:\WINDOWS\system32 and mkdir there throws EPERM.
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-    const skillDir = path.join(workDir, '.claude', 'skills');
-    fs.mkdirSync(skillDir, { recursive: true });
-    // Per-agent filename: agents sharing a working directory used to clobber
+    const skillsRoot = path.join(workDir, '.claude', 'skills');
+    const skillDir = path.join(skillsRoot, workspaceSkillName(this.agentName));
+    fs.mkdirSync(skillDir, { recursive: true, mode: 0o700 });
+    // Per-agent directory: Claude discovers <name>/SKILL.md, not flat .md files.
+    // Agents sharing a working directory used to clobber
     // one shared openagents-workspace.md, so uploads carried the identity of
     // whichever agent wrote the file last. Drop that legacy file so a stale
     // copy (with another agent's embedded identity) can never be read again.
-    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
-    try { fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md')); } catch {}
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    try { fs.unlinkSync(path.join(skillsRoot, 'openagents-workspace.md')); } catch {}
+    try { fs.unlinkSync(path.join(skillsRoot, `${workspaceSkillName(this.agentName)}.md`)); } catch {}
 
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,
@@ -534,7 +557,8 @@ class ClaudeAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       browserEnabled: this._browserEnabledCache === true,
     });
-    fs.writeFileSync(skillFile, skillContent, 'utf-8');
+    fs.writeFileSync(skillFile, skillContent, { encoding: 'utf-8', mode: 0o600 });
+    fs.chmodSync(skillFile, 0o600);
     this._log(`Wrote workspace skill to ${skillFile}`);
 
     return { cmd, skillFile };
@@ -562,7 +586,7 @@ class ClaudeAdapter extends BaseAdapter {
       mcpWriteTools.push(`${pfx}workspace_image_save`);
     }
     if (!this.disabledModules.has('knowledge')) {
-      // The decision-log/glossary protocol instructs these by name — they
+      // The glossary protocol instructs these by name — they
       // must be callable or the pinned knowledge silently stops updating.
       mcpTools.push(`${pfx}workspace_list_knowledge`, `${pfx}workspace_read_knowledge`);
       mcpWriteTools.push(`${pfx}workspace_write_knowledge`);
@@ -589,7 +613,7 @@ class ClaudeAdapter extends BaseAdapter {
 
     // Todos, Timers & Routines (always enabled)
     mcpTools.push(`${pfx}workspace_get_todos`, `${pfx}workspace_list_timers`, `${pfx}workspace_list_routines`);
-    mcpWriteTools.push(`${pfx}workspace_put_todos`, `${pfx}workspace_create_timer`, `${pfx}workspace_cancel_timer`, `${pfx}workspace_create_routine`, `${pfx}workspace_cancel_routine`);
+    mcpWriteTools.push(`${pfx}workspace_put_todos`, `${pfx}workspace_create_timer`, `${pfx}workspace_cancel_timer`, `${pfx}workspace_create_routine`, `${pfx}workspace_update_routine`, `${pfx}workspace_cancel_routine`);
 
     if (this._mode === 'plan') {
       cmd.push('--permission-mode', 'plan');
@@ -1051,8 +1075,10 @@ class ClaudeAdapter extends BaseAdapter {
    * and silent exit — where it is the ONLY thing there is to report.
    */
   _stderrTail(pp) {
-    const tail = String((pp && pp.stderrBuf) || '').trim();
-    return tail ? redactSecrets(tail).slice(-800) : '';
+    // Without Claude Code's harmless notices (an unknown relay model, the
+    // disabled connectors): posted as "the" error, they hid the real one.
+    const tail = stripCliNoise((pp && pp.stderrBuf) || '').trim();
+    return tail ? this._redact(tail).slice(-800) : '';
   }
 
   /**
@@ -1061,8 +1087,12 @@ class ClaudeAdapter extends BaseAdapter {
    * invisible — add a concrete hint about which env vars to check.
    */
   _formatClaudeError(text) {
-    const msg = String(text || '').trim() || 'Claude returned an error.';
-    if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(msg)) {
+    const raw = String(text || '').trim() || 'Claude returned an error.';
+    // Matched on the raw text — redaction rewrites the very words the pattern
+    // below keys on — but only the redacted text is quoted: a `result` error
+    // is the provider's own message, and providers echo the key they rejected.
+    const msg = this._redact(raw);
+    if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(raw)) {
       return `Claude authentication failed: ${msg}\n\n` +
         'Check this agent\'s API key and Base URL in the launcher — the key may be invalid or expired.';
     }
@@ -1090,7 +1120,12 @@ class ClaudeAdapter extends BaseAdapter {
         }
       } catch {}
     }
-    return pp.lastResponseText.join('\n').trim();
+    const response = pp.lastResponseText.join('\n').trim();
+    // Consume this turn before posting it. A persistent CLI can emit another
+    // turn when a background task finishes, without a new user message (and
+    // therefore without _sendToPersistentProc resetting the buffer).
+    pp.lastResponseText = [];
+    return response;
   }
 
   /** True when the CLI reported the resumed conversation no longer fits. */
@@ -1113,7 +1148,7 @@ class ClaudeAdapter extends BaseAdapter {
     try {
       await this.sendStatus(
         msgChannel,
-        'Claude context reached its limit. Starting a fresh session from the channel recap and pinned decisions.'
+        'Claude context reached its limit. Starting a fresh session from the channel recap.'
       );
     } catch {}
   }
@@ -1125,7 +1160,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _postTurnOutcome(pp, msgChannel, finalResponse) {
     if (finalResponse) {
-      try { await this.sendResponse(msgChannel, finalResponse); } catch {}
+      try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed' }); } catch {}
     } else if (pp.lastErrorText) {
       try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
     } else if (!pp.everPostedAnything) {
@@ -1167,7 +1202,10 @@ class ClaudeAdapter extends BaseAdapter {
       return null;
     }
     try {
-      const remaining = await this.getRemainingTodos(msgChannel);
+      // Pending includes work waiting for a human or an earlier step.
+      // Only explicitly active work is eligible for automatic continuation.
+      const remaining = (await this.getRemainingTodos(msgChannel))
+        .filter((todo) => todo.status === 'in_progress');
       if (remaining.length === 0) return null;
       const items = remaining.map((t) => `- ${t.content}`).join('\n');
       return {
@@ -1197,16 +1235,15 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   /**
-   * The pinned decision log / glossary, rendered exactly as in the system
+   * The pinned glossary, rendered exactly as in the system
    * prompt, framed as replacing the copy the running session started with.
    * Returns '' when nothing is pinned.
    */
-  _pinnedUpdatePreamble(msgChannel, decisionLog, glossary) {
+  _pinnedUpdatePreamble(msgChannel, glossary) {
     const sections = buildPinnedSections({
       toolMode: this.toolMode,
       channelName: msgChannel,
       mode: this._mode,
-      decisionLog,
       glossary,
     }).join('').trim();
     if (!sections) return '';
@@ -1288,23 +1325,18 @@ class ClaudeAdapter extends BaseAdapter {
 
     await this.sendStatus(msgChannel, 'thinking...');
 
-    // Read the channel's pinned knowledge (decision log + glossary) up front
-    // — the fast-path staleness check and any (re)spawn below both need it.
-    const decisions = await this._fetchDecisionLog(msgChannel);
+    // Read the channel's pinned knowledge (glossary) up front — the
+    // fast-path staleness check and any (re)spawn below both need it.
     const glossary = await this._fetchGlossary(msgChannel);
     // null fingerprint = a fetch failed, current state unknown; never treat
     // that as a change (it would churn respawns on every workspace hiccup).
     // The fingerprint covers entry ids AND content — both are pinned into
     // the prompt, and a recreated entry can change id without changing content.
-    const pinnedHash = (decisions.error || glossary.error)
+    const pinnedHash = glossary.error
       ? null
       : pinnedFingerprint([
-        { entryId: decisions.entryId, content: decisions.content },
         { entryId: glossary.entryId, content: glossary.content },
       ]);
-    const decisionLogOpt = decisions.available
-      ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
-      : null;
     const glossaryOpt = (glossary.available && glossary.state === 'found' && glossary.content)
       ? { enabled: true, entryId: glossary.entryId, content: glossary.content, scope: glossary.scope || 'channel' }
       : null;
@@ -1332,15 +1364,14 @@ class ClaudeAdapter extends BaseAdapter {
           : `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`);
         await this._killPersistentProc(msgChannel);
       } else {
-        // A pinned-knowledge change no longer restarts the process. Agents
-        // edit the decision log themselves on nearly every decision, and the
+        // A pinned-knowledge change no longer restarts the process. The
         // restart killed whatever they had running in the background (a
         // sub-agent mid-build) and replayed into a false "agent hit an error".
         // The new version rides in with this message instead and supersedes
         // the copy baked into the system prompt.
         let turnContent = content;
         if (pinnedStale) {
-          const update = this._pinnedUpdatePreamble(msgChannel, decisionLogOpt, glossaryOpt);
+          const update = this._pinnedUpdatePreamble(msgChannel, glossaryOpt);
           if (update) turnContent = `${update}\n\n---\n\n${content}`;
           existingPP.pinnedHash = pinnedHash;
           this._log(`Pinned knowledge changed for ${msgChannel} — passing the update to the running session`);
@@ -1381,12 +1412,14 @@ class ClaudeAdapter extends BaseAdapter {
 
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;
+    // The trigger's own text, before thread history was prepended to it.
+    const recapExclude = String(msg.originalContent ?? msg.content ?? '').trim();
 
     // When starting without a session (no --resume), prepend channel
     // history so the fresh CLI has conversation context.
     if (!this._channelSessions[msgChannel]) {
       try {
-        const recap = await this._buildChannelRecap(msgChannel, content);
+        const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
         if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
       } catch {}
     }
@@ -1398,7 +1431,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._killPersistentProc(msgChannel);
         // Rebuild recap for retry without resume
         try {
-          const recap = await this._buildChannelRecap(msgChannel, content);
+          const recap = await this._buildChannelRecap(msgChannel, recapExclude, msg);
           if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
         } catch {}
       }
@@ -1408,7 +1441,6 @@ class ClaudeAdapter extends BaseAdapter {
         const built = this._buildClaudeCmd(effectiveContent, msgChannel, {
           skipResume: attempt > 0,
           browserEnabled,
-          decisionLog: decisionLogOpt,
           glossary: glossaryOpt,
         });
         cmd = built.cmd;
@@ -1427,7 +1459,6 @@ class ClaudeAdapter extends BaseAdapter {
         // When the fetch errored (pinnedHash null) hash what was actually
         // pinned, so the next successful fetch triggers a re-pin.
         pp.pinnedHash = pinnedHash !== null ? pinnedHash : pinnedFingerprint([
-          { entryId: decisionLogOpt && decisionLogOpt.entryId, content: decisionLogOpt && decisionLogOpt.content },
           { entryId: glossaryOpt && glossaryOpt.entryId, content: glossaryOpt && glossaryOpt.content },
         ]);
         pp.spawnMode = this._mode;
@@ -1463,7 +1494,7 @@ class ClaudeAdapter extends BaseAdapter {
             try {
               await this.sendStatus(
                 msgChannel,
-                'Claude session could not be resumed. Rebuilding context from the channel recap and pinned decisions.'
+                'Claude session could not be resumed. Rebuilding context from the channel recap.'
               );
             } catch {}
             continue;
@@ -1477,7 +1508,7 @@ class ClaudeAdapter extends BaseAdapter {
             if (detail) {
               try { await this.sendError(msgChannel, this._formatClaudeError(detail)); } catch {}
             } else {
-              try { await this.sendResponse(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
+              try { await this.sendError(msgChannel, `No response generated (exit code ${result.code === undefined ? 'unknown' : result.code}). Please try again.`); } catch {}
             }
           }
           break;
@@ -1496,7 +1527,14 @@ class ClaudeAdapter extends BaseAdapter {
         break;
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        // EFTYPE: Windows refused to start the file as a program — in practice
+        // the claude-code package's placeholder claude.exe, left behind when
+        // its install script was skipped. The bare errno named nothing a user
+        // could act on.
+        const reason = (e && e.code === 'EFTYPE') || /\bEFTYPE\b/.test(String(e && e.message))
+          ? ClaudeAdapter.INSTALL_INCOMPLETE
+          : `Error processing message: ${this._redact(e.message)}`;
+        await this.sendError(msgChannel, reason);
         break;
       }
     }
@@ -1506,5 +1544,18 @@ class ClaudeAdapter extends BaseAdapter {
     }
   }
 }
+
+/**
+ * @anthropic-ai/claude-code ships a placeholder where its native binary goes
+ * and swaps the real one in from a postinstall script. With that script
+ * skipped (`ignore-scripts=true` in an npmrc, pnpm, bun) the placeholder is
+ * what runs: shell text on macOS/Linux, and on Windows a `claude.exe` the OS
+ * will not start (spawn EFTYPE).
+ */
+ClaudeAdapter.INSTALL_INCOMPLETE = 'Claude Code is installed, but its setup never finished: the '
+  + '@anthropic-ai/claude-code package\'s postinstall script did not run (npm `ignore-scripts`, or a '
+  + 'pnpm/bun install), so the `claude` command is only a placeholder. Reinstall Claude Code from the '
+  + 'launcher — or, for a copy you installed yourself, run '
+  + '`npm install -g @anthropic-ai/claude-code --ignore-scripts=false` — then retry.';
 
 module.exports = ClaudeAdapter;
