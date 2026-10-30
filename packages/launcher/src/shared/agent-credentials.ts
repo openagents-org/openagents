@@ -167,6 +167,7 @@ export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "openworker",
   "pi",
   "qwen-code",
+  "step-code",
 ])
 
 /** True when offering a "Test connection" button would be a dead end. */
