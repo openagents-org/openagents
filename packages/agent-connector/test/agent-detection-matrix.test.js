@@ -78,10 +78,17 @@ const LOC = {
   // Huawei's CodeArts installer (install.sh and install.ps1 alike) unpacks into
   // ~/.codeartsdoer/installers and puts that dir on PATH itself.
   codearts: '.codeartsdoer/installers',
+  // Xiaomi's MiMo Code installer (install.sh and install.ps1 alike) drops the
+  // binary into ~/.mimocode/bin and edits PATH through the shell rc / user Path.
+  mimo: '.mimocode/bin',
   // `claude install` (the native build) relocates the CLI here and reaches it
   // through a shell alias a GUI process never sees.
   claudeLocal: '.claude/local',
   hermesHome: '.hermes/bin',
+  // Qoder's install.ps1 keeps qodercli.exe in its own versions dir and puts
+  // that dir on the user Path; on Unix the same installer links ~/.local/bin.
+  qoderWin: IS_WINDOWS ? '.qoder/bin/qodercli' : null,
+  qoderCnWin: IS_WINDOWS ? '.qoder-cn/bin/qoderclicn' : null,
   // Qwen Code's standalone installer (install-qwen-standalone.ps1) puts its
   // qwen.cmd wrapper here; the .sh flavor uses ~/.local/bin.
   qwenWin: IS_WINDOWS ? 'AppData/Local/qwen-code/bin' : null,
@@ -153,6 +160,7 @@ const WHERE = {
     [LOC.codebuddyNative, 'CodeBuddy native install', 'installer'],
   ],
   codearts: [[LOC.codearts, 'CodeArts install.sh / install.ps1', 'installer']],
+  'mimo-code': [[LOC.mimo, 'mimo.xiaomi.com/install (.sh / .ps1)', 'installer']],
   codex: [[LOC.npmPrefix, 'npm -g with a relocated prefix', 'npm']],
   commandcode: [[LOC.bun, 'bun install -g', 'npm']],
   copilot: [
@@ -207,6 +215,16 @@ const WHERE = {
     [pipx('coworker'), 'pipx install coworker', 'pip'],
   ],
   pi: [[LOC.nvm20, 'npm -g under a non-default node version', 'npm']],
+  qoder: [
+    [IS_WINDOWS ? null : LOC.localBin, 'qoder.com/install (~/.local/bin symlink)', 'installer'],
+    [LOC.qoderWin, 'qoder.com/install.ps1', 'installer'],
+    [LOC.nvm20, 'npm i -g @qoder-ai/qodercli (the older route)', 'npm'],
+  ],
+  'qoder-cn': [
+    [IS_WINDOWS ? null : LOC.localBin, 'qoder.com.cn/install (~/.local/bin symlink)', 'installer'],
+    [LOC.qoderCnWin, 'qoder.com.cn/install.ps1', 'installer'],
+    [LOC.nvm20, 'npm i -g @qodercn-ai/qoderclicn (the older route)', 'npm'],
+  ],
   'qwen-code': [
     [LOC.nvm22, 'npm i -g @qwen-code/qwen-code under a node version manager', 'npm'],
     [LOC.npmDefault, 'npm i -g @qwen-code/qwen-code', 'npm'],

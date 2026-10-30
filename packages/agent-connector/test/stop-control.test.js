@@ -813,7 +813,9 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'qwen-code',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'qoder', 'qoder-cn',
+  'qwen-code',
 ];
 
 function fakeProc(pid) {
@@ -1061,6 +1063,14 @@ const START_RUN = {
     start: (a, ch) => a._runCodeBuddy(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
     stopped: { userStopped: true },
   },
+  qoder: {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qoder-cn': {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
   'qwen-code': {
     start: (a, ch) => a._runQwen(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
     stopped: { userStopped: true },
@@ -1086,6 +1096,18 @@ const START_RUN = {
       a._resolveModel = () => 'openai/gpt-4o';
       a._ensureWorkspaceSkill = () => {};
       a._buildSystemContext = () => '';
+      return a._runOpencode('p', ch);
+    },
+    stopped: '',
+  },
+  'mimo-code': {
+    start: (a, ch) => {
+      a._preflight = () => ({ ok: true });
+      a._opencodeBinary = MISSING_BIN;
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._resolveModel = () => 'xiaomi/mimo-v2.5-pro';
+      a.getBrowserEnabled = async () => false;
+      a._writeInstructions = () => {};
       return a._runOpencode('p', ch);
     },
     stopped: '',

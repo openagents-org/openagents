@@ -532,6 +532,35 @@ describe('Daemon', () => {
     assert.equal(roster[0].baseUrlHost, 'gw.example.org');
   });
 
+  it('_heartbeatRuntimes tells the workspace to sign in with agn login', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: false },
+      { type: 'openclaw', installed: true, ready: false },
+      null,
+      { type: 'opencode', installed: true, ready: false },
+    ];
+    const [codex, openclaw, gap, opencode] = daemon._heartbeatRuntimes();
+    assert.equal(codex.loginCommand, 'agn login codex');
+    // Signs in (ChatGPT, GitHub Copilot) though the registry gives it no login command.
+    assert.equal(opencode.loginCommand, 'agn login opencode');
+    // No sign-in of its own: only a key works, so there is no command to show.
+    assert.equal('loginCommand' in openclaw, false);
+    assert.equal(gap, null);
+  });
+
+  it('_heartbeatRuntimes looks each type up once, not on every heartbeat', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const lookups = [];
+    const getEntry = daemon.registry.getEntry.bind(daemon.registry);
+    daemon.registry.getEntry = (type) => { lookups.push(type); return getEntry(type); };
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: false }, { type: 'openclaw', installed: true, ready: false }];
+    for (let i = 0; i < 3; i++) daemon._heartbeatRuntimes();
+    assert.deepEqual(lookups.filter((t) => t === 'codex').length, 1);
+    assert.deepEqual(lookups.filter((t) => t === 'openclaw').length, 1);
+    assert.equal(daemon._heartbeatRuntimes()[0].loginCommand, 'agn login codex');
+  });
+
   const ACCOUNT_MODELS = [
     { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
     { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
@@ -578,6 +607,16 @@ describe('Daemon', () => {
     env.save('codex', { LLM_API_KEY: 'sk-type-level-123456' });
     const daemon = new Daemon(config, env, new Registry(tmpDir));
     seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  it('_buildRoster lists for a Qoder agent on a token: the token is the account', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'qd', type: 'qoder', env: { LLM_API_KEY: 'pat-qoder-123456' } });
+    config.setAgentNetwork('qd', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'qd');
     const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
     assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
   });
@@ -801,11 +840,11 @@ describe('Daemon', () => {
     ];
     daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
     assert.deepEqual(daemon._heartbeatRuntimes(), [
-      { type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS },
+      { type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS },
       // Not answered yet: the form keeps the catalog list.
-      { type: 'claude', installed: true, ready: false, cliModels: null },
-      { type: 'gemini', installed: true, ready: true },
-      { type: 'cursor', installed: false, ready: false },
+      { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', cliModels: null },
+      { type: 'gemini', installed: true, ready: true, loginCommand: 'agn login gemini' },
+      { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor' },
     ]);
     // The detection snapshot itself is left as it was.
     assert.equal(daemon._runtimes[0].cliModels, undefined);
@@ -819,7 +858,7 @@ describe('Daemon', () => {
       let sent = null;
       daemon._nodeClients.set('n1', { nodeHeartbeat: async (id, token, body) => { sent = body; return {}; } });
       await daemon._nodeHeartbeat();
-      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS }]);
+      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS }]);
     });
   });
 

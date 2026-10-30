@@ -505,9 +505,9 @@ export function ChatView() {
         lastMsg.messageType === 'thinking' ||
         lastMsg.messageType === 'loading'
       );
-      updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking);
+      updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking, lastMsg.senderType === 'agent');
     } else {
-      updateLastMessage(currentSessionId, '', '');
+      updateLastMessage(currentSessionId, '', '', false, false);
     }
   }, [currentSessionId, displayMessages, updateLastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 

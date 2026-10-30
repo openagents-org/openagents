@@ -108,6 +108,11 @@ const CREDENTIALS: Record<string, AgentCredentials> = {
     reason: "codearts",
     noEndpoint: "codearts",
   },
+  // A Qoder personal access token, checked by Qoder's own service when the CLI
+  // runs (or a browser sign-in, which has no key at all). Models come from the
+  // Qoder account, so there is no endpoint to point anywhere.
+  qoder: { endpoint: "none", probeable: "never", reason: "qoder", noEndpoint: "qoder" },
+  "qoder-cn": { endpoint: "none", probeable: "never", reason: "qoder", noEndpoint: "qoder" },
 
   // ── Provider-driven: the form's provider field decides the protocol. ──
   pi: { endpoint: "openai", probeable: "conditional" },
@@ -156,6 +161,7 @@ export const MODEL_LIST_AGENTS: ReadonlySet<string> = new Set([
   "deepseek",
   "gemini",
   "kimi",
+  "mimo-code",
   "openclaw",
   "opencode",
   "openworker",

@@ -32,6 +32,7 @@ import path from "node:path"
 import { dshModelsBase } from "./deepseek-harness-base"
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { mimoRecommendedModel, parseMimoModels } from "./mimo-signin"
 import { opencodeRecommendedModel } from "./opencode-signin"
 import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
@@ -530,6 +531,20 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     // Left blank, the adapter runs the first model this list names.
     recommend: (models) => models[0]?.id,
   },
+  // MiMo Code's adapter sends a blank base URL to MiMo's API, so the picker
+  // lists from there too. On the sign-in path the CLI's own catalog answers —
+  // it lists signed out as well — and the ids come as `xiaomi/<model>`, which
+  // the adapter runs on the sign-in.
+  "mimo-code": {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    defaultBase: "https://api.xiaomimimo.com/v1",
+    cliCommand: { args: ["models", "xiaomi"], parse: parseMimoModels },
+    listsSignedOut: true,
+    recommend: mimoRecommendedModel,
+  },
 }
 
 /**
@@ -646,6 +661,25 @@ function resolveSource(
   if (agentType === "pi") return piSource(env)
   if (agentType === "openworker") return openworkerSource(env)
   return MODEL_SOURCES[agentType] || null
+}
+
+/**
+ * `env` with the agent's default endpoint filled in when none of its base-URL
+ * variables holds one — the endpoint the agent itself runs against with the
+ * field left blank, and the one its model list asks. The connection test sees
+ * only the form's values, and an untouched field's default is shown but never
+ * lands in them, so a blank base fell through to api.openai.com there: a MiMo
+ * key "verified" against OpenAI and came back 401. Agents whose endpoint
+ * follows a provider field (Pi, OpenWorker) pick their own in the probe.
+ */
+export function withDefaultBase(
+  agentType: string,
+  env: Record<string, string>,
+): Record<string, string> {
+  const source = MODEL_SOURCES[agentType]
+  if (!source?.defaultBase || !source.baseVars.length) return env
+  if (pick(env, source.baseVars)) return env
+  return { ...env, [source.baseVars[0]]: source.defaultBase }
 }
 
 /** The model env var an agent's list applies to, or null if it has none. */

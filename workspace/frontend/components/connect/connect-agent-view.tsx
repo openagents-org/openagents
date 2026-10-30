@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ExpandableError } from './expandable-error';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -73,6 +74,9 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   openworker: { bg: 'bg-blue-600',   text: 'text-white' },
   codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
   codearts:  { bg: 'bg-red-600',     text: 'text-white' },
+  'mimo-code': { bg: 'bg-orange-500', text: 'text-white' },
+  qoder:     { bg: 'bg-emerald-500', text: 'text-white' },
+  'qoder-cn': { bg: 'bg-emerald-500', text: 'text-white' },
   'qwen-code': { bg: 'bg-violet-700', text: 'text-white' },
 };
 
@@ -647,11 +651,7 @@ function PairingPanel({
           )}
           <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
           <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
-            {([
-              { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
-              { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
-              { os: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-            ]).map((d) => (
+            {desktopDownloads(t).map((d) => (
               <a
                 key={d.os}
                 href={d.href}
