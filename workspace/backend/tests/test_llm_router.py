@@ -718,3 +718,49 @@ class TestRoutingConversationEvidence:
         prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True,allowed_agents=['agent-worker'])
         evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
         assert evidence['follow_up_evidence']['dispatched_to']==['agent-worker']
+
+@pytest.mark.parametrize('human_request', [True, False])
+def test_dedicated_classifier_does_not_change_other_routing(db, multi_agent_workspace, monkeypatch, human_request):
+    from app.config import config
+    from app.mods import workspace_mod
+    from app.services import message_router
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'openagents-routing-qwen3.5-2b')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_BASE_URL', 'https://router.example/v1')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', 'classifier-test-key')
+    dedicated, general = MagicMock(), MagicMock()
+    for client in (dedicated, general):
+        client.chat.completions.create.return_value = _mock_openai_response('next:agent-worker')
+    factory = MagicMock(return_value=dedicated)
+    monkeypatch.setattr(message_router, 'get_client', factory)
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (general, 'openai'))
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'general-test-key')
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: 'general-model')
+    event = _make_event('human:user' if human_request else 'openagents:agent-master',
+                        'channel/session-test', 'Please open the page')
+    assert _run(_route_with_llm(multi_agent_workspace['channel'], event, db,
+                multi_agent_workspace['workspace'], allow_human_stop=human_request)) == ['agent-worker']
+    if human_request:
+        factory.assert_called_once_with('https://router.example/v1', 'classifier-test-key')
+        general.chat.completions.create.assert_not_called()
+        args = dedicated.chat.completions.create.call_args.kwargs
+        assert args['model'] == 'openagents-routing-qwen3.5-2b'
+        assert args['max_tokens'] == 500
+        assert args['temperature'] == 0
+        assert 'extra_body' not in args
+    else:
+        factory.assert_not_called()
+        assert general.chat.completions.create.call_args.kwargs['model'] == 'general-model'
+
+
+def test_incomplete_dedicated_classifier_does_not_use_general_credentials(db, multi_agent_workspace, monkeypatch):
+    from app.config import config
+    from app.mods import workspace_mod
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'dedicated-model')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', '')
+    factory = MagicMock()
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', factory)
+    event = _make_event('human:user', 'channel/session-test', 'Please open the page')
+    assert _run(_route_with_llm(multi_agent_workspace['channel'], event, db,
+                 multi_agent_workspace['workspace'], allow_human_stop=True)) == []
+    assert event.metadata['router_unavailable'] is True
+    factory.assert_not_called()

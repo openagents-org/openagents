@@ -1446,12 +1446,15 @@ async def _route_with_llm(
     """
     from app.models import EventRecord
 
+    from app.config import config
+    dedicated_classifier = allow_human_stop and bool(config.MESSAGE_ROUTER_MODEL)
+
     if allow_human_stop:
         new_event.metadata["routing_decision"] = "ask"
-    if not _get_router_api_key():
+    if not (config.MESSAGE_ROUTER_API_KEY if dedicated_classifier else _get_router_api_key()):
         if allow_human_stop:
             new_event.metadata["router_unavailable"] = True
-        logger.warning("LLM router: no API key set (ROUTER_LLM_API_KEY or ANTHROPIC_API_KEY), defaulting to stop")
+        logger.warning("LLM router: no API key set for the selected routing client, defaulting to stop")
         return []
 
     from app.services.routing_context import (
@@ -1605,14 +1608,19 @@ async def _route_with_llm(
     )
 
     try:
-        client, provider = _get_llm_client()
-        model = _get_router_model()
+        if dedicated_classifier:
+            from app.services.message_router import get_client
+            client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
+            provider, model = "openai", config.MESSAGE_ROUTER_MODEL
+        else:
+            client, provider = _get_llm_client()
+            model = _get_router_model()
 
         # One classification call; keep reasoning disabled for DeepSeek.
         if provider == "openai":
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=256,
+                max_tokens=500 if dedicated_classifier else 256,
                 # DeepSeek otherwise spends the output budget on reasoning and
                 # can return no routing decision. Other providers must not receive
                 # this provider-specific option.

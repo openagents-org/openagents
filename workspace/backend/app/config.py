@@ -129,6 +129,10 @@ class Config:
     ROUTER_LLM_MODEL: str = os.environ.get("ROUTER_LLM_MODEL", "")  # auto-detected from provider if empty
     ROUTER_LLM_API_KEY: str = os.environ.get("ROUTER_LLM_API_KEY", "")  # universal key (checked first)
     ROUTER_LLM_BASE_URL: str = os.environ.get("ROUTER_LLM_BASE_URL", "")  # custom endpoint for openai provider
+    # Only human-message recipient classification; other LLM tasks keep ROUTER_LLM_*.
+    MESSAGE_ROUTER_MODEL: str = os.environ.get("MESSAGE_ROUTER_MODEL", "")
+    MESSAGE_ROUTER_BASE_URL: str = os.environ.get("MESSAGE_ROUTER_BASE_URL", "")
+    MESSAGE_ROUTER_API_KEY: str = os.environ.get("MESSAGE_ROUTER_API_KEY", "")
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")  # fallback for anthropic provider
 
     # Cloud agents
