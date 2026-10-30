@@ -86,7 +86,8 @@ export function IssueEditor({
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!busy && !uploading) onOpenChange(value);
+        // Closing while files upload is fine: the picker unmounts and aborts them.
+        if (!busy) onOpenChange(value);
       }}
     >
       <DialogContent className="max-w-[620px]">
@@ -180,7 +181,7 @@ export function IssueEditor({
                 size="sm"
                 type="button"
                 variant="ghost"
-                disabled={busy || uploading}
+                disabled={busy}
                 onClick={() => onOpenChange(false)}
               >
                 {t('common.cancel')}
@@ -192,7 +193,9 @@ export function IssueEditor({
                 disabled={busy || uploading || !title.trim()}
               >
                 {t(
-                  busy
+                  uploading
+                    ? 'tasks.attachUploading'
+                    : busy
                     ? 'common.saving'
                     : issue
                       ? 'common.save'

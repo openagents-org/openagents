@@ -27,6 +27,7 @@ import {
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
+import { issueSignalChannel } from '@/lib/signals';
 import { useT, useFormatters } from '@/lib/i18n';
 import type { IssueDetail, IssueReply, IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,9 @@ import { ApprovalCard } from '@/components/chat/approval-card';
 import { IssueEditor } from './issue-editor';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
+import { mentionsAgent } from './issue-mentions';
+import { AttachmentPicker } from '@/components/tasks/attachment-picker';
+import { sidebarAgents } from '@/lib/sidebar-agents';
 import {
   ErrorNotice,
   StatusBadge,
@@ -71,13 +75,21 @@ export function IssueDiscussion({
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents, workspace, agents } = useWorkspace();
+  const { currentUser, sessions, refreshAgents, workspace, agents, unreadSignals, markChannelSignalsRead } = useWorkspace();
+  const signalChannel = issueSignalChannel(id);
+  const hasUnreadMention = !!unreadSignals?.[signalChannel];
+  useEffect(() => {
+    if (hasUnreadMention) markChannelSignalsRead(signalChannel);
+  }, [hasUnreadMention, signalChannel, markChannelSignalsRead]);
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [comment, setComment] = useState('');
   const [replyTo, setReplyTo] = useState<{ eventId: string; name: string } | null>(null);
-  useEffect(() => { setReplyTo(null); setComment(''); }, [id]);
+  const [commentFiles, setCommentFiles] = useState<string[]>([]);
+  const [commentUploading, setCommentUploading] = useState(false);
+  const [pickerKey, setPickerKey] = useState(0);
+  useEffect(() => { setReplyTo(null); setComment(''); setCommentFiles([]); setPickerKey(k => k + 1); }, [id]);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -162,7 +174,11 @@ export function IssueDiscussion({
   const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
   const activityIndicator = (names: typeof agents) => <span className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span aria-hidden="true" className="inline-flex shrink-0 items-center gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />)}</span><span className="truncate">{workingLabel(names)}</span></span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
+  // Agents the viewer may ask for work; mentioning one not yet on the issue
+  // adds it before the comment is posted.
+  const usableAgents = new Set(sidebarAgents(agents ?? [], currentUser.id).filter(a => !a.builtin).map(a => `openagents:${a.agentName}`));
   const mentions = useIssueMentions(issue);
+  const canPost = !commentUploading && (!!comment.trim() || commentFiles.length > 0);
   const agentNames = mentions
     .filter((m) => m.kind === 'agent')
     .map((m) => m.token);
@@ -441,13 +457,16 @@ export function IssueDiscussion({
                             </time>
                           </div>
                           <div className="text-[13px] leading-6 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line">
-                            <MarkdownContent
+                            {c.content && <MarkdownContent
                               content={c.content}
                               agentNames={agentNames}
                               agentLabels={agentLabels}
                               humanNames={humanNames}
-                            />
+                            />}
                           </div>
+                          {!!c.attachments?.length && <div className="mt-2">
+                            <IssueAttachments files={c.attachments} workspaceId={workspace?.slug || workspace?.workspaceId || ''} />
+                          </div>}
                           {c.kind === 'result' && c.source_event_id && c.reply_channel_name && (
                             <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 gap-1.5 px-2 text-xs text-muted-foreground"
                               disabled={busy || issue.status === 'closed'}
@@ -476,20 +495,28 @@ export function IssueDiscussion({
                     if (e.target instanceof HTMLTextAreaElement && e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
                       e.preventDefault();
                       e.stopPropagation();
-                      if (!busyRef.current && comment.trim()) e.currentTarget.requestSubmit();
+                      if (!busyRef.current && canPost) e.currentTarget.requestSubmit();
                     }
                   }}
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (busyRef.current || !comment.trim()) return;
+                    if (busyRef.current || !canPost) return;
+                    const invite = [...usableAgents].filter(source => !people.has(source))
+                      .map(source => source.slice('openagents:'.length))
+                      .filter(name => mentionsAgent(comment, name));
                     void mutate(
-                      () =>
-                        workspaceApi.commentOnIssue(id, {
+                      async () => {
+                        // Adding participants is idempotent, so a failed post can be retried.
+                        if (invite.length) await workspaceApi.addIssueParticipants(id, invite.map(name => ({ kind: 'agent' as const, id: name })));
+                        const result = await workspaceApi.commentOnIssue(id, {
                           content: comment,
+                          ...(commentFiles.length ? { file_ids: commentFiles } : {}),
                           ...(replyTo ? { reply_to_event_id: replyTo.eventId } : {}),
                           ...identity,
-                        }).then((result) => { if (result.dispatch_error) setError(result.dispatch_error); }),
-                      () => { setComment(''); setReplyTo(null); },
+                        });
+                        if (result.dispatch_error) setError(result.dispatch_error);
+                      },
+                      () => { setComment(''); setReplyTo(null); setCommentFiles([]); setPickerKey(k => k + 1); },
                     );
                   }}
                 >
@@ -508,7 +535,7 @@ export function IssueDiscussion({
                       {t('issues.addComment')}
                     </label>
                     <IssueMentionInput
-                      mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source))}
+                      mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source) || usableAgents.has(m.source))}
                       readOnly={busy}
                       id={`issue-comment-${id}`}
                       className="min-h-24 resize-y rounded-none border-0 px-4 py-3 text-[13px] shadow-none focus-visible:ring-0"
@@ -517,6 +544,10 @@ export function IssueDiscussion({
                       onValueChange={setComment}
                       placeholder={t('issues.commentPlaceholder')}
                     />
+                    <div className="px-3 pb-2">
+                      <AttachmentPicker key={pickerKey} media value={commentFiles} onChange={setCommentFiles}
+                        disabled={busy} onUploadingChange={setCommentUploading} />
+                    </div>
                     <div className="flex items-center justify-between gap-3 px-3 pb-3">
                       <p className="max-w-[52ch] flex-1 pl-1 text-[11px] leading-4 text-muted-foreground">
                         {t('issues.commentHint')}
@@ -528,9 +559,9 @@ export function IssueDiscussion({
                         className="shrink-0"
                         title={t('issues.commentShortcut')}
                         aria-keyshortcuts="Meta+Enter Control+Enter"
-                        disabled={busy || !comment.trim()}
+                        disabled={busy || !canPost}
                       >
-                        {t('issues.postComment')}
+                        {t(commentUploading ? 'tasks.attachUploading' : 'issues.postComment')}
                         <Send className="size-3" />
                       </Button>
                     </div>

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLayout } from '@/components/layout/layout-context';
+import { ListToggleButton } from '@/components/layout/list-collapse-button';
 import { knowledgeTitle } from '@/lib/knowledge-title';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
@@ -101,22 +102,21 @@ export function KnowledgeList() {
     <div className="flex h-full flex-col bg-background">
       {/* Header */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">{t('knowledge.title')}</span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm leading-relaxed font-semibold">{t('knowledge.title')}</span>
           {knowledge.length > 0 && (
             <Badge variant="secondary" appearance="light" size="sm" shape="circle">
               {knowledge.length}
             </Badge>
           )}
-          {/* Primary action sits beside the title, where the eye lands —
-              not in the right corner, where it went unnoticed. */}
-          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openNew}>
-            <Plus className="size-4" />
-            {t('knowledge.newEntry')}
-          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
+          <Button size="sm" className="mr-1 shrink-0 gap-1.5 font-semibold" onClick={openNew}>
+            <Plus className="size-4" />
+            {t('knowledge.newEntry')}
+          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

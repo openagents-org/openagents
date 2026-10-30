@@ -18,6 +18,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { isRecentAgent } from '@/lib/helpers';
 import { countFiles } from '@/components/files/file-utils';
+import { unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
 import { useLayout, type ViewMode } from './layout-context';
 
@@ -35,8 +36,9 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal } = useWorkspace();
+  const { agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
+  const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   // Fresh workspace (no real agent, no threads) is in guided onboarding — the
@@ -52,7 +54,13 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           icon: <MessageSquare />,
           count: unreadThreadsTotal,
         },
-    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
+    {
+      mode: 'issues',
+      label: t('views.issues'),
+      icon: <CircleDot />,
+      count: unreadIssues,
+      urgent: true,
+    },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText /> },

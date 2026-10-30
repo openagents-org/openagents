@@ -987,3 +987,111 @@ def test_invalid_reply_does_not_save_comment_or_dispatch(client, workspace, db, 
     assert response.status_code in (404, 409, 422), response.text
     assert len(detail(client, workspace, issue)['comments']) == before
     cloud_dispatch.assert_not_called()
+
+
+def _signals(client, workspace, name):
+    response = client.get('/v1/notifications', params={'network': workspace['id'], 'kinds': 'dm,mention,issue', 'is_read': 'false'},
+                          headers=_bearer(name))
+    assert response.status_code == 200, response.text
+    return response.json()['data']
+
+
+def test_human_mention_in_issue_signals_the_mentioned_person_until_read(client, workspace, two_members):
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': '@ben@acme.test can you take a look? `@ann@acme.test`'})
+    assert response.status_code == 200, response.text
+
+    signals = _signals(client, workspace, 'ben')
+    assert signals['unread_count'] == 1
+    assert signals['notifications'][0]['channel_name'] == f"issue:{issue['id']}"
+    assert signals['notifications'][0]['kind'] == 'mention'
+    assert _signals(client, workspace, 'ann')['unread_count'] == 0
+    # Personal signals stay out of the shared inbox.
+    inbox = client.get('/v1/notifications', params={'network': workspace['id']}, headers=_bearer('ben'))
+    assert inbox.json()['data']['unread_count'] == 0
+
+    read = client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+    assert read.status_code == 200, read.text
+    assert _signals(client, workspace, 'ben')['unread_count'] == 0
+
+
+def test_human_mention_in_new_issue_description_signals_the_person(client, workspace, two_members):
+    response = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Ship it', 'description': 'Owner: @ben@acme.test'})
+    assert response.status_code == 200, response.text
+    assert _signals(client, workspace, 'ben')['unread_count'] == 1
+
+
+def test_added_participant_and_assignee_are_signalled_distinctly(client, workspace, two_members):
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/participants"), headers=_bearer('ann'),
+        json={'participants': [{'kind': 'human', 'id': 'ben@acme.test'}]})
+    assert response.status_code == 200, response.text
+    [added] = _signals(client, workspace, 'ben')['notifications']
+    assert added['kind'] == 'issue' and added['title'] == 'Ann added you to Improve onboarding'
+    assert added['channel_name'] == f"issue:{issue['id']}"
+    # Re-adding an existing participant is not news.
+    client.post(path(workspace, f"/{issue['id']}/participants"), headers=_bearer('ann'),
+        json={'participants': [{'kind': 'human', 'id': 'ben@acme.test'}]})
+    assert _signals(client, workspace, 'ben')['unread_count'] == 1
+
+    client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+    assigned = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Fix login', 'assignee': 'human:ben@acme.test'})
+    assert assigned.status_code == 200, assigned.text
+    [signal] = _signals(client, workspace, 'ben')['notifications']
+    assert signal['title'] == 'Ann assigned you Fix login'
+
+
+def test_followers_see_new_comments_and_status_changes_as_one_unread_row(client, workspace, two_members):
+    response = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Fix login', 'assignee': 'human:ben@acme.test'})
+    issue = response.json()['data']
+    client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+
+    client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'), json={'content': 'First pass done'})
+    client.patch(path(workspace, f"/{issue['id']}"), headers=_bearer('ann'), json={'status': 'paused'})
+    signals = _signals(client, workspace, 'ben')['notifications']
+    assert len(signals) == 1
+    assert signals[0]['title'] == 'Ann updated Fix login'
+    # The creator follows the issue too, but never hears about their own actions.
+    assert _signals(client, workspace, 'ann')['unread_count'] == 0
+    client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ben'), json={'content': 'On it'})
+    assert _signals(client, workspace, 'ann')['notifications'][0]['title'] == 'Ben commented on Fix login'
+
+
+def test_comment_attachments_are_saved_and_shown(client, workspace, db, two_members):
+    from app.models import FileRecord
+    db.add(FileRecord(id='shot', workspace_id=workspace['id'], filename='shot.png', content_type='image/png',
+                      size=3, storage_key='k', uploaded_by='human:ann@acme.test', owner='ann@acme.test',
+                      visibility='public'))
+    db.commit()
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': '', 'file_ids': ['shot']})
+    assert response.status_code == 200, response.text
+    [comment] = [c for c in detail(client, workspace, issue)['comments'] if c['kind'] == 'comment']
+    assert comment['file_ids'] == ['shot']
+    assert comment['attachments'] == [{'file_id': 'shot', 'filename': 'shot.png', 'content_type': 'image/png', 'size': 3}]
+    missing = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': 'see', 'file_ids': ['nope']})
+    assert missing.status_code == 404
+
+
+def test_agent_request_carries_comment_attachments(client, workspace, db, cloud_dispatch):
+    from app.models import FileRecord
+    db.add(FileRecord(id='clip', workspace_id=workspace['id'], filename='bug.mp4', content_type='video/mp4',
+                      size=9, storage_key='k', uploaded_by='human:alice', owner='alice', visibility='public'))
+    db.commit()
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+        json={'content': '@agent-alpha see the clip', 'source': 'human:alice', 'file_ids': ['clip']})
+    assert response.status_code == 200, response.text
+    assert response.json()['data']['channel_name']
+    attachments = cloud_dispatch.call_args.args[1]['payload']['attachments']
+    assert [a['file_id'] for a in attachments] == ['clip']

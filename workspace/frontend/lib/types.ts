@@ -1460,6 +1460,9 @@ export interface IssueComment {
   kind: 'comment' | 'status' | 'result' | 'activity' | 'approval' | 'due_date';
   approval?: ApprovalRequest;
   source_event_id: string | null;
+  file_ids?: string[];
+  /** Readable images and videos posted with the comment. */
+  attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
   created_at: string;
 }
 export interface IssueReply { id: string; author: string; content: string }
