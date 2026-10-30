@@ -490,8 +490,13 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
-        } else if (result.exitCode !== 0 && threadId && attempt === 0) {
-          // Stale thread — clear and retry fresh
+        } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted) {
+          // Stale thread — clear and retry fresh. Only when the turn never
+          // started: a thread codex cannot resume fails at once with nothing
+          // on stdout ("no rollout found for thread id"). A resumed turn
+          // that then failed (no network, a quota) was taken for a stale
+          // thread too, so the channel's thread was thrown away and the
+          // whole failing run waited out a second time.
           this._log(`Stale thread detected for ${msgChannel}, clearing and retrying`);
           delete this._channelThreads[msgChannel];
           this._saveSessions();
@@ -550,6 +555,7 @@ class CodexAdapter extends BaseAdapter {
       const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
+      let turnStarted = false;
       let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
@@ -577,6 +583,8 @@ class CodexAdapter extends BaseAdapter {
             this._saveSessions();
             this._log(`Thread started: ${event.thread_id}`);
           }
+        } else if (eventType === 'turn.started') {
+          turnStarted = true;
         } else if (eventType === 'item.completed') {
           const item = event.item || {};
           if (item.type === 'agent_message' && item.text) {
@@ -663,6 +671,7 @@ class CodexAdapter extends BaseAdapter {
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
           turnFailed,
+          turnStarted,
         });
       });
 

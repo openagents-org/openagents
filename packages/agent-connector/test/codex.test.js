@@ -454,6 +454,7 @@ describe('Codex — a device that cannot reach the model service', () => {
     const IS_WINDOWS = process.platform === 'win32';
     let root;
     let bin;
+    let runsLog;
     before(() => {
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-codex-offline-'));
       const events = [
@@ -466,7 +467,9 @@ describe('Codex — a device that cannot reach the model service', () => {
         { type: 'turn.failed', error: { message: 'workspace routing discovery failed' } },
       ];
       const entry = path.join(root, 'fake-codex.js');
+      runsLog = path.join(root, 'runs.log');
       fs.writeFileSync(entry, [
+        `require('fs').appendFileSync(${JSON.stringify(runsLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
         "process.stdin.resume();",
         "process.stdin.on('end', () => {",
         `  process.stderr.write(${JSON.stringify(`Reading prompt from stdin...\n${REFUSED_STDERR}\n`)});`,
@@ -486,7 +489,10 @@ describe('Codex — a device that cannot reach the model service', () => {
     });
     after(() => { fs.rmSync(root, { recursive: true, force: true }); });
 
+    const runs = () => (fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+
     it('says once that it is retrying, then fails with the network named', async () => {
+      fs.rmSync(runsLog, { force: true });
       const posted = [];
       const adapter = Object.assign(Object.create(CodexAdapter.prototype), {
         agentEnv: { ...process.env }, workspaceModel: null, _directModel: '', _directApiKey: '', _directBaseUrl: '',
@@ -505,5 +511,72 @@ describe('Codex — a device that cannot reach the model service', () => {
       assert.match(posted[1].m, /network, proxy or firewall/);
       assert.ok(!posted[1].m.includes('Reading prompt from stdin'));
     });
+
+    // The field test that found this: the status showed twice and the
+    // failure took seven minutes, because the failed resumed run was taken
+    // for a stale thread, the thread dropped and the whole run repeated.
+    it('runs once on a resumed thread, and keeps the thread', async () => {
+      fs.rmSync(runsLog, { force: true });
+      const posted = [];
+      let saved = 0;
+      const adapter = Object.assign(Object.create(CodexAdapter.prototype), {
+        agentEnv: { ...process.env }, workspaceModel: null, _directModel: '', _directApiKey: '', _directBaseUrl: '',
+        _codexBin: bin, _channelThreads: { general: 't-1' }, _channelProcesses: {}, workingDir: root,
+        _buildSystemContext: () => 'system context', _log: () => {}, _saveSessions: () => { saved++; },
+        _stoppedBeforeStart: () => false, _stopRequestedDuringTurn: () => false,
+        sendThinking: async () => {},
+        sendStatus: async (ch, m) => { posted.push({ kind: 'status', m }); },
+        sendResponse: async (ch, m) => { posted.push({ kind: 'response', m }); },
+        sendError: async (ch, m) => { posted.push({ kind: 'error', m }); },
+      });
+      await adapter._handleViaSubprocess('hi', 'general');
+      assert.equal(runs().length, 1, JSON.stringify(runs()));
+      assert.deepEqual(runs()[0].slice(-2), ['resume', 't-1']);
+      assert.deepEqual(posted.map((p) => p.kind), ['status', 'error'], JSON.stringify(posted));
+      assert.equal(adapter._channelThreads.general, 't-1');
+    });
+  });
+});
+
+describe('Codex — what counts as a stale thread', () => {
+  function fakeAdapter(results) {
+    const calls = [];
+    const sent = [];
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: {}, workspaceModel: null, _directModel: '', _directApiKey: '', _directBaseUrl: '',
+      _codexBin: 'codex', _channelThreads: { general: 'old-thread' }, workingDir: '',
+      _buildSystemContext: () => 'system context', _log: () => {}, _saveSessions: () => {},
+      _spawnCodex: async (cmd) => { calls.push(cmd); return results[calls.length - 1]; },
+      sendResponse: async (ch, m) => { sent.push({ kind: 'response', m }); },
+      sendError: async (ch, m) => { sent.push({ kind: 'error', m }); },
+    });
+    return { fake, calls, sent };
+  }
+
+  it('a thread codex cannot find is dropped and the turn run fresh', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: '', turnStarted: false,
+        stderr: 'Error: thread/resume: thread/resume failed: no rollout found for thread id old-thread (code -32600)' },
+      { exitCode: 0, responseText: 'fresh answer', turnStarted: true },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes('resume'));
+    assert.ok(!calls[1].includes('resume'));
+    assert.equal(fake._channelThreads.general, undefined);
+    assert.deepEqual(sent, [{ kind: 'response', m: 'fresh answer' }]);
+  });
+
+  it('a resumed turn that failed keeps its thread and is not run again', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+        errorMessage: 'workspace routing discovery failed', stderr: 'ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request' },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 1);
+    assert.equal(fake._channelThreads.general, 'old-thread');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].kind, 'error');
+    assert.match(sent[0].m, /lost its connection/);
   });
 });
