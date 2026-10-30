@@ -611,9 +611,20 @@ describe('PiAdapter — launch command', () => {
     const idx = snap.argv.indexOf('--append-system-prompt');
     assert.ok(idx >= 0);
     assert.ok(!snap.argv.includes('--system-prompt'));
-    const prompt = snap.argv[idx + 1];
-    assert.match(prompt, /OpenAgents workspace/);
-    assert.match(prompt, new RegExp(a.agentName));
+    const promptPath = snap.argv[idx + 1];
+    assert.ok(promptPath.length < 512);
+    assert.equal(path.dirname(promptPath), a._sessionDir);
+    assert.match(
+      path.basename(promptPath),
+      /^system-prompt-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/i,
+    );
+    assert.ok(!snap.argv.join(' ').includes('workspace-token-value'));
+    const body = fs.readFileSync(promptPath, 'utf-8');
+    assert.match(body, /OpenAgents workspace/);
+    assert.match(body, new RegExp(a.agentName));
+    assert.match(body, /workspace-token-value/);
+    if (!IS_WINDOWS) assert.equal(fs.statSync(promptPath).mode & 0o777, 0o600);
+    assert.equal(a._captured.response.length, 1);
     await shutdown(a);
   });
 
@@ -623,6 +634,99 @@ describe('PiAdapter — launch command', () => {
     assert.equal(a._captured.error.length, 1);
     assert.match(a._captured.error[0], /Working directory does not exist/);
     assert.equal(Object.keys(a._persistentProcs).length, 0);
+  });
+});
+
+describe('the staged system prompt is removed when it is no longer read', () => {
+  const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const longPrompt = `token-in-here ${'q'.repeat(600)}`;
+
+  function staged(a) {
+    fs.mkdirSync(a._sessionDir, { recursive: true });
+    return PiAdapter.stagePiAppendSystemPrompt(longPrompt, a._sessionDir, sessionId);
+  }
+
+  it('removes it when the process that read it exits', () => {
+    const a = makeAdapter();
+    const file = staged(a);
+    const pp = { stagedPrompt: file };
+    a._persistentProcs.thread = pp;
+    a._releaseStagedPrompt('thread', pp);
+    assert.equal(fs.existsSync(file), false);
+  });
+
+  it('keeps it when a newer process already owns the channel', () => {
+    // A respawn rewrites the same path; the old process exiting late must not
+    // delete the file the new one is reading.
+    const a = makeAdapter();
+    const file = staged(a);
+    const oldPp = { stagedPrompt: file };
+    a._persistentProcs.thread = { stagedPrompt: file };
+    a._releaseStagedPrompt('thread', oldPp);
+    assert.equal(fs.existsSync(file), true);
+  });
+
+  it('removes it when the session is cleared and nothing is running', () => {
+    const a = makeAdapter();
+    a._channelSessions.thread = sessionId;
+    const file = staged(a);
+    a._clearSession('thread');
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(a._channelSessions.thread, undefined);
+  });
+
+  it('keeps it when the session is cleared while a process still runs', () => {
+    const a = makeAdapter();
+    a._channelSessions.thread = sessionId;
+    const file = staged(a);
+    a._persistentProcs.thread = { stagedPrompt: file };
+    a._clearSession('thread');
+    assert.equal(fs.existsSync(file), true);
+  });
+});
+
+describe('stagePiAppendSystemPrompt', () => {
+  const stage = PiAdapter.stagePiAppendSystemPrompt;
+  const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  it('returns a 512-character prompt unchanged and writes no file', () => {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'stage-short-'));
+    const prompt = 'x'.repeat(512);
+    assert.equal(stage(prompt, dir, sessionId), prompt);
+    const staged = fs.readdirSync(dir).filter((name) => /^system-prompt-.*\.md$/.test(name));
+    assert.deepEqual(staged, []);
+  });
+
+  it('writes a 513-character prompt and returns the file path', () => {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'stage-long-'));
+    const prompt = 'y'.repeat(513);
+    const got = stage(prompt, dir, sessionId);
+    assert.equal(fs.readFileSync(got, 'utf-8'), prompt);
+  });
+
+  it('uses system-prompt-default.md inside sessionDir for a non-UUID id', () => {
+    const prompt = 'z'.repeat(513);
+    for (const id of ['../x', '']) {
+      const dir = fs.mkdtempSync(path.join(tmpRoot, 'stage-id-'));
+      const got = stage(prompt, dir, id);
+      assert.equal(path.basename(got), 'system-prompt-default.md');
+      assert.equal(path.dirname(got), dir);
+    }
+  });
+
+  it('throws when sessionDir is an existing file', () => {
+    const sessionDir = path.join(tmpRoot, `stage-file-${Date.now()}`);
+    fs.writeFileSync(sessionDir, 'not a directory');
+    const prompt = `secret-${'p'.repeat(513)}`;
+    assert.throws(
+      () => stage(prompt, sessionDir, sessionId),
+      (err) => {
+        assert.match(err.message, /stage/i);
+        assert.ok(err.message.includes(sessionDir));
+        assert.ok(!err.message.includes(prompt));
+        return true;
+      },
+    );
   });
 });
 
