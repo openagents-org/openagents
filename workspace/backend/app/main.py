@@ -446,7 +446,7 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(bootstrap_builtin_registry)
     except Exception as e:
         # Keep the rest of Workspace available if a deployment starts before
-        # migration 030 is applied; Registry endpoints will simply be empty.
+        # migration 087 is applied; Registry endpoints will simply be empty.
         logger.error("LIFESPAN: skill registry bootstrap failed: %s", e)
 
     background_tasks = []

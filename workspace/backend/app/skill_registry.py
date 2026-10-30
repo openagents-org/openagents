@@ -179,7 +179,9 @@ def materialize_legacy_workspace_skills(db: Session, workspace) -> list[Workspac
 
 # A repeat signal from the same origin inside this window is ignored, so an
 # install/uninstall loop cannot pump a score. It is >= the longest ranking
-# window, which makes each origin worth at most one point on any board.
+# window, which makes each origin worth at most one point on any board. The
+# origin is the installing workspace, not the agent: agents are cheap to add,
+# so per-agent dedup would let one workspace mint points by joining agents.
 RANKING_DEDUP_DAYS = 30
 RANKING_WINDOWS = {7, 30}
 
@@ -194,22 +196,26 @@ def record_skill_activity(
 ) -> "SkillActivityEvent | None":
     """Append one ranking signal, or return None if it was suppressed.
 
-    Suppressed when the same origin already produced this signal inside the
-    dedup window. Signals from the workspace that authored the skill are still
-    recorded — they are simply flagged so leaderboards can ignore them, which
-    keeps the raw stream honest for later analysis.
+    Suppressed when the same origin (workspace) already produced this signal
+    inside the dedup window. Signals from the workspace that authored the
+    skill, or from any workspace its publisher belongs to, are still recorded —
+    they are simply flagged so leaderboards can ignore them, which keeps the
+    raw stream honest for later analysis.
     """
-    from app.models import SkillActivityEvent
+    from app.models import SkillActivityEvent, User, Workspace, WorkspaceMembership
 
     if skill is None or event_type not in {"install", "fork"}:
         return None
     now = datetime.now(timezone.utc)
+    origin = [SkillActivityEvent.workspace_id == str(workspace_id)] if workspace_id else [
+        SkillActivityEvent.workspace_id.is_(None),
+        SkillActivityEvent.agent_name == agent_name,
+    ]
     recent = db.execute(
         select(SkillActivityEvent.id).where(
             SkillActivityEvent.skill_id == skill.id,
             SkillActivityEvent.event_type == event_type,
-            SkillActivityEvent.workspace_id == (str(workspace_id) if workspace_id else None),
-            SkillActivityEvent.agent_name == agent_name,
+            *origin,
             SkillActivityEvent.created_at >= now - timedelta(days=RANKING_DEDUP_DAYS),
         ).limit(1)
     ).first()
@@ -224,6 +230,21 @@ def record_skill_activity(
                 WorkspaceSkill.workspace_id == str(workspace_id),
             ).limit(1)
         ).first())
+        namespace = db.get(SkillNamespace, skill.namespace_id) if not self_authored else None
+        if namespace is not None and namespace.type == "user" and namespace.owner_user_id:
+            # The publisher installing from another workspace they belong to
+            # is still a self-install.
+            owner = db.get(User, namespace.owner_user_id)
+            workspace = db.get(Workspace, str(workspace_id))
+            self_authored = bool(db.execute(
+                select(WorkspaceMembership.user_id).where(
+                    WorkspaceMembership.workspace_id == str(workspace_id),
+                    WorkspaceMembership.user_id == namespace.owner_user_id,
+                ).limit(1)
+            ).first()) or bool(
+                owner and workspace and workspace.creator_email
+                and workspace.creator_email.strip().lower() == (owner.email or "").strip().lower()
+            )
 
     event = SkillActivityEvent(
         skill_id=skill.id,

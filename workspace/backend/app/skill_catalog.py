@@ -784,6 +784,7 @@ _SKILL_TAGS = {
     "sn-da-excel-workflow": ["excel", "data-analysis", "pivot"],
     "sn-image-base": ["image-gen", "vlm", "vision"],
     "sn-md-to-html-report": ["markdown", "html", "report"],
+    "hypit": ["video", "svml", "authoring"],
 }
 
 for _skill in SKILL_CATALOG:

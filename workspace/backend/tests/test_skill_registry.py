@@ -720,7 +720,9 @@ def test_leaderboard_ranks_by_installs_plus_forks(client, workspace, db):
     for index, agent in enumerate(("claude", "codex", "cursor")):
         consumer = client.post("/v1/workspaces", json={
             "name": f"Consumer {index}", "agent_name": agent,
-            "creator_email": f"consumer{index}@example.com",
+            # The forking identity must belong to the target workspace: a
+            # presented bearer is authoritative even alongside a token.
+            "creator_email": "target@example.com" if index == 0 else f"consumer{index}@example.com",
         }).json()["data"]
         consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
         _join_agent(client, consumer_ws, agent, agent)
@@ -843,3 +845,58 @@ def test_unlisted_skill_leaves_the_leaderboard(client, workspace, db):
         json={"visibility": "unlisted"}, headers=_headers(workspace, "publisher"),
     )
     assert _leaderboard(client) == []
+
+
+def test_leaderboard_counts_one_point_per_workspace_not_per_agent(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    consumer = client.post("/v1/workspaces", json={
+        "name": "Consumer", "agent_name": "claude", "creator_email": "agents@example.com",
+    }).json()["data"]
+    consumer_ws = {"id": consumer["workspaceId"], "token": consumer["token"]}
+    for agent in ("claude", "codex", "cursor"):
+        _join_agent(client, consumer_ws, agent, agent)
+        _report_installed(client, consumer_ws, agent, published["id"])
+
+    assert _leaderboard(client)[0]["score"] == 1
+    assert db.get(RegistrySkill, published["id"]).install_count == 1
+
+
+def test_publisher_installs_from_another_workspace_are_self_authored(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    published = _publish(client, workspace, _upload_and_register(client, workspace))
+    # The publisher (test@example.com) owns a second workspace.
+    other = client.post("/v1/workspaces", json={
+        "name": "Publisher Two", "agent_name": "claude", "creator_email": "test@example.com",
+    }).json()["data"]
+    other_ws = {"id": other["workspaceId"], "token": other["token"]}
+    _join_agent(client, other_ws)
+    _report_installed(client, other_ws, "claude", published["id"])
+
+    assert _leaderboard(client) == []
+    assert db.get(RegistrySkill, published["id"]).install_count == 0
+
+
+def test_another_member_cannot_publish_into_the_original_publishers_skill(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    _add_workspace_member(db, workspace, "target-user")
+    local = _upload_and_register(client, workspace)
+    _publish(client, workspace, local)
+
+    hijack = client.post(
+        f"/v1/workspaces/{workspace['id']}/skills/{local['workspace_skill_id']}/publish",
+        json={"license_spdx": "MIT", "version": "2.0.0", "changelog": "Not mine"},
+        headers=_headers(workspace, "target-user"),
+    )
+    assert hijack.status_code == 403, hijack.text
+
+
+def test_publish_inputs_are_bounded(client, workspace, db):
+    _add_workspace_member(db, workspace, "publisher")
+    local = _upload_and_register(client, workspace)
+    response = client.post(
+        f"/v1/workspaces/{workspace['id']}/skills/{local['workspace_skill_id']}/publish",
+        json={"license_spdx": "MIT", "version": "1.0.0", "changelog": "x" * 5000},
+        headers=_headers(workspace, "publisher"),
+    )
+    assert response.status_code == 422

@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
 """Add workspace skill authoring and public registry MVP tables.
 
-Revision ID: 030
-Revises: 029
+Revision ID: 087
+Revises: 086
 Create Date: 2026-08-06
 """
 
@@ -10,8 +9,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision = "030"
-down_revision = "029"
+deployment_backward_compatible = True
+revision = "087"
+down_revision = "086"
 branch_labels = None
 depends_on = None
 

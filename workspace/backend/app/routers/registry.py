@@ -9,12 +9,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Text, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
 from app.database import get_db
+from app.routers.network import _resolve_workspace
 from app.models import (
     FileRecord,
     RegistrySkill,
@@ -40,21 +41,32 @@ from app.storage import get_file_store
 router = APIRouter(prefix="/v1", tags=["Skill Registry"])
 
 
+# Public listings are cross-workspace, so every user-controlled field that ends
+# up in them is bounded. The Markdown body itself is capped by
+# scan_public_markdown().
+MAX_PUBLIC_NAME_LEN = 200
+MAX_PUBLIC_SUMMARY_LEN = 2000
+MAX_CHANGELOG_LEN = 4000
+# Coarse per-publisher abuse cap; generous for real iteration, small enough to
+# stop scripted flooding of the public registry.
+MAX_PUBLISHES_PER_HOUR = 20
+
+
 class PublishRequest(BaseModel):
-    license_spdx: str
-    version: Optional[str] = None
-    changelog: str = "Initial public release"
+    license_spdx: str = Field(max_length=64)
+    version: Optional[str] = Field(default=None, max_length=64)
+    changelog: str = Field(default="Initial public release", max_length=MAX_CHANGELOG_LEN)
 
 
 class ForkRequest(BaseModel):
-    workspace_id: str
-    version_id: Optional[str] = None
-    slug: Optional[str] = None
-    name: Optional[str] = None
+    workspace_id: str = Field(max_length=128)
+    version_id: Optional[str] = Field(default=None, max_length=128)
+    slug: Optional[str] = Field(default=None, max_length=64)
+    name: Optional[str] = Field(default=None, max_length=MAX_PUBLIC_NAME_LEN)
 
 
 class VisibilityRequest(BaseModel):
-    visibility: str
+    visibility: str = Field(max_length=32)
 
 
 def _require_publisher(db: Session, skill_id: str, authorization: Optional[str]):
@@ -309,8 +321,9 @@ def publish_workspace_skill(
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    workspace = db.get(Workspace, workspace_id)
-    if not workspace:
+    # Resolve by UUID or slug without casting a slug to UUID (a 500 on Postgres).
+    workspace = _resolve_workspace(db, workspace_id)
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
     user = resolve_current_user(db, authorization)
     if user is None:
@@ -320,6 +333,17 @@ def publish_workspace_skill(
         return json_response(ResponseCode.FORBIDDEN, "Workspace membership is required to publish")
     if body.license_spdx not in PUBLIC_LICENSES:
         return json_response(ResponseCode.BAD_REQUEST, "Public skills require a derivative-friendly license")
+    recent_publishes = db.execute(
+        select(func.count(RegistrySkillVersion.id)).where(
+            RegistrySkillVersion.published_by_user_id == user.id,
+            RegistrySkillVersion.published_at >= datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+    ).scalar_one()
+    if recent_publishes >= MAX_PUBLISHES_PER_HOUR:
+        return json_response(
+            ResponseCode.TOO_MANY_REQUESTS,
+            "Publishing limit reached; try again in an hour",
+        )
 
     materialize_legacy_workspace_skills(db, workspace)
     local = db.execute(select(WorkspaceSkill).where(
@@ -342,6 +366,13 @@ def publish_workspace_skill(
         frontmatter, scan_result = scan_public_markdown(data)
     except (FileNotFoundError, ValueError) as exc:
         return json_response(ResponseCode.BAD_REQUEST, str(exc))
+    if len(local.name or "") > MAX_PUBLIC_NAME_LEN:
+        return json_response(ResponseCode.BAD_REQUEST, f"Skill name is limited to {MAX_PUBLIC_NAME_LEN} characters")
+    if len(local.summary or frontmatter.get("description", "")) > MAX_PUBLIC_SUMMARY_LEN:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Skill description is limited to {MAX_PUBLIC_SUMMARY_LEN} characters",
+        )
 
     # Reuse the publisher's immutable namespace even if their display name
     # changes. New user namespaces always include an identity suffix, so an
@@ -371,6 +402,14 @@ def publish_workspace_skill(
         db.flush()
 
     registry_skill = db.get(RegistrySkill, local.registry_skill_id) if local.registry_skill_id else None
+    if registry_skill is not None and registry_skill.namespace_id != namespace.id:
+        # The workspace copy was first published by another member. Pushing a
+        # new version would put this caller's content under that publisher's
+        # public identity.
+        return json_response(
+            ResponseCode.FORBIDDEN,
+            "This skill was published by another user; only they can publish new versions",
+        )
     public_slug = slugify(local.slug)
     if registry_skill is None:
         registry_skill = db.execute(select(RegistrySkill).where(

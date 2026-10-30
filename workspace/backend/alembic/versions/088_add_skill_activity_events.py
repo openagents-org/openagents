@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
 """Add the append-only skill activity stream behind rolling leaderboards.
 
-Revision ID: 031
-Revises: 030
+Revision ID: 088
+Revises: 087
 Create Date: 2026-08-08
 """
 
@@ -10,8 +9,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = "031"
-down_revision = "030"
+deployment_backward_compatible = True
+revision = "088"
+down_revision = "087"
 branch_labels = None
 depends_on = None
 

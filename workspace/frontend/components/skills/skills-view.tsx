@@ -912,6 +912,7 @@ function SkillDetail({
               />
               <Input
                 value={newVersionChangelog}
+                maxLength={4000}
                 onChange={event => setNewVersionChangelog(event.target.value)}
                 placeholder={t('skills.publishChangelogPlaceholder')}
                 className="h-9"
@@ -949,6 +950,7 @@ function SkillDetail({
                   </label>
                   <Input
                     value={publishVersion}
+                    maxLength={64}
                     onChange={event => setPublishVersion(event.target.value)}
                     placeholder={t('skills.publishVersionPlaceholder')}
                     className="mt-1 h-9"
@@ -960,6 +962,7 @@ function SkillDetail({
                   </label>
                   <Input
                     value={publishChangelog}
+                    maxLength={4000}
                     onChange={event => setPublishChangelog(event.target.value)}
                     placeholder={t('skills.publishChangelogPlaceholder')}
                     className="mt-1 h-9"

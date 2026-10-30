@@ -1045,8 +1045,8 @@ class CustomSkillRegisterRequest(BaseModel):
 
 
 class CustomSkillVersionRequest(BaseModel):
-    file_id: str
-    changelog: str = ""
+    file_id: str = Field(max_length=128)
+    changelog: str = Field(default="", max_length=4000)
 
 
 def _custom_skills_map(workspace) -> dict:
@@ -1817,7 +1817,7 @@ def register_custom_skill(
 
 
 @router.get("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")
-async def list_custom_skill_versions(
+def list_custom_skill_versions(
     workspace_id: str,
     workspace_skill_id: str,
     db: Session = Depends(get_db),
@@ -1862,7 +1862,7 @@ async def list_custom_skill_versions(
 
 
 @router.post("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")
-async def create_custom_skill_version(
+def create_custom_skill_version(
     workspace_id: str,
     workspace_skill_id: str,
     body: CustomSkillVersionRequest,
