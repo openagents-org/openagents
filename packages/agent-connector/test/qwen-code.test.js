@@ -532,7 +532,7 @@ describe('QwenCodeAdapter — binary resolution', () => {
     return node;
   }
 
-  it("runs a standalone install on its own bundled Node, through the installer's wrapper", () => {
+  it("runs a standalone install on its own bundled Node, through the installer's wrapper", { skip: process.platform === 'win32' && 'the POSIX standalone layout (sh wrapper → node/bin/node); Windows is covered by the qwen.cmd case below' }, () => {
     const root = path.join(tmpRoot, 'local', 'lib', 'qwen-code');
     const node = makeStandalone(root);
     const wrapper = path.join(tmpRoot, 'local', 'bin', 'qwen');

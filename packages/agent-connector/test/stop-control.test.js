@@ -813,9 +813,8 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'qoder', 'qoder-cn',
-  'qwen-code',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code', 'qoder',
+  'qoder-cn', 'qwen-code',
 ];
 
 function fakeProc(pid) {
