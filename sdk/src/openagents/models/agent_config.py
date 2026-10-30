@@ -362,7 +362,7 @@ def create_openai_config(
 
 
 def create_claude_config(
-    model_name: str = "claude-3-5-sonnet-20241022",
+    model_name: str = "claude-sonnet-5",
     instruction: str = "You are Claude, an AI assistant by Anthropic.",
     api_key: Optional[str] = None,
     system_prompt_template: Optional[str] = None,
