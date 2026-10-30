@@ -203,6 +203,11 @@ describe('kimi-stream helpers', () => {
   it('classifies Kimi Code (0.x) vs the legacy Python kimi-cli (1.x)', () => {
     assert.deepEqual(classifyKimiVersion('0.39.1'), { version: '0.39.1', product: 'kimi-code' });
     assert.deepEqual(classifyKimiVersion('1.44.0'), { version: '1.44.0', product: 'legacy' });
+    // Kimi Code CLI's current line is 2.x (npm @moonshot-ai/kimi-code 2.4.0); only 1.x is
+    // the legacy Python kimi-cli. A 2.x install must not be refused as the wrong product.
+    assert.deepEqual(classifyKimiVersion('2.4.0'), { version: '2.4.0', product: 'kimi-code' });
+    assert.deepEqual(classifyKimiVersion('kimi, version 2.1.1'), { version: '2.1.1', product: 'kimi-code' });
+    assert.deepEqual(classifyKimiVersion('3.0.0'), { version: '3.0.0', product: 'kimi-code' });
     assert.deepEqual(classifyKimiVersion('nonsense'), { version: null, product: null });
     assert.deepEqual(classifyKimiVersion(''), { version: null, product: null });
   });
