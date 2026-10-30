@@ -12,6 +12,7 @@ const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
+const { agnLoginCommand, loginCommandOf } = require('./agent-login');
 const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
@@ -446,12 +447,21 @@ class Daemon {
    * its sign-in's models carries that list, for the add form's model picker.
    * Null until the CLI has answered, and from devices too old to ask, where
    * the form keeps the catalog's list.
+   *
+   * A type with a sign-in of its own also carries `loginCommand`, the command
+   * to run on this device (`agn login codex`). Its presence is how the
+   * workspace knows this device has `agn login`; for an older device it shows
+   * the CLI's own login command instead.
    */
   _heartbeatRuntimes() {
     return (this._runtimes || []).map((rt) => {
-      if (!rt || !rt.installed || !supportsCliModels(rt.type)) return rt;
+      if (!rt) return rt;
+      // Whatever `agn login` can sign in, which is wider than _hasCliSignIn:
+      // OpenCode signs in without the registry marking it a sign-in agent.
+      const out = this._agnLoginFor(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
+      if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
-      return { ...rt, cliModels: (listed && listed.models) || null };
+      return { ...out, cliModels: (listed && listed.models) || null };
     });
   }
 
@@ -716,6 +726,24 @@ class Daemon {
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);
+  }
+
+  /**
+   * Whether `agn login <type>` has a sign-in to run for this type. Remembered
+   * per type: the heartbeat asks for every runtime every 10s, and each
+   * getEntry() re-reads and parses the bundled registry (~25ms for all types).
+   */
+  _agnLoginFor(type) {
+    if (!this._agnLoginTypes) this._agnLoginTypes = new Map();
+    if (this._agnLoginTypes.has(type)) return this._agnLoginTypes.get(type);
+    let has = false;
+    try {
+      has = !!loginCommandOf(this.registry.getEntry(type));
+    } catch {
+      return false; // not remembered: a registry that failed to load can recover
+    }
+    this._agnLoginTypes.set(type, has);
+    return has;
   }
 
   /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */

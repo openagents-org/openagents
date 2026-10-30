@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
 import { uniqueAgentName } from '@/lib/agent-name';
@@ -14,6 +14,8 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
+import { desktopHost } from '@/lib/desktop-host';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
 import { SmokeTestPanel } from './smoke-test-panel';
 
@@ -153,6 +155,90 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
     default:
       return { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-zinc-400', text: 'text-muted-foreground' };
   }
+}
+
+/**
+ * CLIs that sign in to an account although the registry gives them no
+ * `login_command`. Declaring one there would also change how the form and the
+ * device treat their keys and models, so they are named here for the hint only.
+ * A device with `agn login` reports that command instead (EXTRA_LOGIN_COMMANDS
+ * in the connector's agent-login.js); this is what an older one is shown.
+ */
+const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> = {
+  // In `opencode auth login` (1.19.5) OpenAI offers a ChatGPT Plus/Pro sign-in
+  // and GitHub Copilot a GitHub one; every other provider only takes a key.
+  opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
+};
+
+const HINT_CODE = 'font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5';
+const CODE_MARK = '\u0000';
+
+/** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
+function withCode(text: string, codes: string[]): React.ReactNode[] {
+  return text.split(CODE_MARK).flatMap((part, i) =>
+    i < codes.length ? [part, <code key={i} className={HINT_CODE}>{codes[i]}</code>] : [part]);
+}
+
+/**
+ * What to do about an agent installed with no credentials: an API key always
+ * works; an agent whose CLI signs in to an account (a subscription) can also be
+ * signed in on its device — from the desktop app, or for a device paired from
+ * the command line, with `command` in a terminal there.
+ */
+function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
+  const t = useT();
+  // Already in the desktop app: no point offering to download it.
+  const downloads = desktopHost() ? [] : desktopDownloads(t);
+  // The CLI's own command (a device too old for `agn login`) relies on the
+  // terminal's PATH, which often lacks where the CLI really is — an npm global
+  // folder or OpenAgents' own. `agn runtimes`, which old devices have, prints
+  // that path; PowerShell needs `&` to run a quoted one.
+  const bare = !!command && !command.startsWith('agn ');
+  const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
+  return (
+    <div data-testid="agent-setup-needs-credentials" className="space-y-2">
+      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
+      <div>
+        <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
+        <p>{t('connect.nodeNeedsLoginKeyStep')}</p>
+      </div>
+      {command && (
+        <div>
+          <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
+          {note && <p className="mb-1">{t(note)}</p>}
+          <ol className="list-decimal space-y-1.5 pl-4">
+            <li>
+              {t('connect.nodeNeedsLoginDesktop', { device, label })}
+              {downloads.length > 0 && (
+                <span className="mt-1.5 flex flex-wrap gap-1.5">
+                  {downloads.map((d) => (
+                    <a
+                      key={d.os}
+                      href={d.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
+                    >
+                      <Download className="size-3" />{d.os}
+                    </a>
+                  ))}
+                </span>
+              )}
+            </li>
+            <li>
+              {t('connect.nodeNeedsLoginCli')}{' '}
+              <code className={HINT_CODE}>{command}</code>
+              {bare && (
+                <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
+                  {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}
+                </span>
+              )}
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
@@ -653,6 +739,17 @@ export function AgentSetup({
   const [modelError, setModelError] = useState<string | null>(null);
   const modelFieldRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  // A new agent on a device with no sign-in for its type cannot answer until
+  // it is signed in or given a key. The first Add points at the warning and
+  // turns the button into "Add anyway"; the second adds it (the detection can
+  // be wrong, and signing in later is a fine plan). An agent not installed
+  // yet gets no warning, since its CLI cannot be signed in before it exists.
+  const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
+    && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const [credsError, setCredsError] = useState(false);
+  const credsFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setCredsError(false); }, [credsMissing, selected]);
+
   const failModel = (message: string) => {
     // No model field on screen yet (the key's model list is still loading):
     // the form-wide line is the only place left to say it.
@@ -768,6 +865,14 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
+    if (credsMissing && !credsError) {
+      setCredsError(true);
+      requestAnimationFrame(() => {
+        credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        credsFieldRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      });
+      return;
+    }
     if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
     if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
@@ -889,7 +994,7 @@ export function AgentSetup({
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
-        {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
+        {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
@@ -919,7 +1024,16 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : t('connect.nodeNeedsLoginHint'))}
+              : <NeedsCredentialsHint
+                  label={selectedEntry?.label || selected || ''}
+                  device={node.name || node.hostname || ''}
+                  // A device new enough to have `agn login` says so; an older
+                  // one gets the CLI's own command.
+                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand
+                    || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || ''}
+                  note={selected ? HINT_ONLY_SIGN_IN[selected]?.note : undefined}
+                  os={node.os}
+                />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
@@ -973,7 +1087,11 @@ export function AgentSetup({
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
+            <Label className="text-xs font-medium">
+              {t('connect.nodeAgentNameLabel')}
+              {/* Locked when editing, so only a new agent asks for it. */}
+              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
+            </Label>
             <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {nameError || nameClash
               ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
@@ -1010,8 +1128,11 @@ export function AgentSetup({
                 )}
               </div>
 
-              {/* Saved model access + add-new */}
-              <div className="flex gap-2">
+              {/* Add-new + saved model access */}
+              <div ref={credsFieldRef} className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-48">
+                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
+                </Button>
                 <Select
                   value={byokAccessId || (keepCurrent ? KEEP_CURRENT : NO_ACCESS)}
                   onValueChange={(v) => {
@@ -1040,7 +1161,7 @@ export function AgentSetup({
                     )}
                     <SelectItem value={NO_ACCESS}>
                       {signInType && loginCommand
-                        ? t('connect.byokDeviceSignIn', { command: loginCommand })
+                        ? t('connect.byokDeviceSignIn', { command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })
                         : t('connect.byokProviderNone')}
                     </SelectItem>
                     {byokAccessOptions.map((a) => (
@@ -1050,23 +1171,38 @@ export function AgentSetup({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
-                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
-                </Button>
               </div>
+
+              {/* No key picked on a device with no sign-in either. Adding is
+                  first points here, then lets it through as "Add anyway"
+                  (credsMissing); editing an existing agent only warns.
+                  Re-detect is the way back for someone who just signed in. */}
+              {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
+                <p
+                  data-testid="agent-setup-not-signed-in"
+                  role={credsError ? 'alert' : undefined}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-amber-700 dark:text-amber-500')}
+                >
+                  {t(isEdit ? 'connect.byokNotSignedInHint' : 'connect.byokNotSignedInRequired')}{' '}
+                  <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
+                    <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                    {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+                  </button>
+                </p>
+              )}
 
               {/* Which credential the agent will run on, in words: the select
                   alone did not say that "sign in on the device" means this
                   CLI's own account and never a key saved on the device. */}
               {signInChosen && (
                 <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
-                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: loginCommand })}
+                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })}
                   {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}
                 </p>
               )}
               {keepCurrent && !byokAccessId && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+                  <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
                   <Input
                     aria-label={t('connect.nodeModel')}
                     value={model}
@@ -1214,7 +1350,7 @@ export function AgentSetup({
               driving the list (its live models replace the curated set). */}
           {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+              <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
                 value={model.trim() || AUTO_MODEL}
                 onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
@@ -1395,7 +1531,7 @@ export function AgentSetup({
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
           <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+            <div className="text-sm text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
 
             {/* Agent hero */}
             <div className="flex items-center gap-4">
