@@ -33,7 +33,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from openagents.core.network import create_network
+from openagents.sdk.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.utils.port_allocator import get_port_pair, release_port, wait_for_port_free
 

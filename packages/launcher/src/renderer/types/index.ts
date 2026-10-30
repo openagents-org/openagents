@@ -1,3 +1,7 @@
+import type { Release } from "../../shared/changelog"
+import type { ImportCandidate } from '../../shared/credential-import'
+import type { WorkspaceTabsSnapshot } from '../../shared/workspace-view'
+
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
 export interface HealthCheck {
@@ -45,7 +49,13 @@ export interface CliLoginEvent {
 }
 
 export interface Agent {
+  /** Identity. Keys config, working dir, sessions and workspace membership. */
   name: string
+  /**
+   * Label to show instead of `name`, when the user has set one. Never use it
+   * to address an agent — every API still takes `name`.
+   */
+  displayName?: string | null
   type: string
   state: AgentState
   health: HealthCheck | null
@@ -55,6 +65,13 @@ export interface Agent {
   runtimeMismatch?: boolean
   restarts?: number
   env?: Record<string, string>
+  /**
+   * The model this agent runs on, resolved in the main process from the type
+   * env merged with the instance env above (see `deriveModelFromEnv`). The
+   * instance env alone is not the answer: most agents are configured at the
+   * type level and carry none.
+   */
+  model?: string | null
   path?: string
   // True when the agent type has an interactive CLI that can be opened in a
   // terminal. API-only types (e.g. kimi) are false — the "Chat" action hides.
@@ -75,7 +92,16 @@ export interface ModelListResult {
   source: "cli" | "api" | "builtin" | "none"
   error?: string
   /** Translatable reason for an empty list; `error` is the raw fallback. */
-  code?: "need_key" | "need_login" | "no_list"
+  code?:
+    | "need_key"
+    | "need_login"
+    | "no_list"
+    | "cli_missing"
+    | "cli_timeout"
+    | "cli_failed"
+    | "cli_empty"
+  /** The id to preselect while the field is empty. */
+  recommended?: string
 }
 
 /**
@@ -233,6 +259,21 @@ export interface AgentUpdateInfo {
   latest: string | null
   changelog?: Array<{ version: string; date?: string }>
 }
+
+/**
+ * Where "Update" puts the new version. `original`: the user's own npm install,
+ * updated in its own prefix — `elevation` says whether that needs the macOS
+ * admin prompt or a command the user runs themselves. `managed`: a copy under
+ * ~/.openagents/.
+ */
+export type AgentUpdateTarget =
+  | { kind: "managed" }
+  | {
+      kind: "original"
+      prefix: string
+      elevation: "none" | "prompt" | "manual"
+      command: string
+    }
 
 export type InstallPhase = 'idle' | 'preparing' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error'
 
@@ -414,6 +455,19 @@ export interface UpdaterState {
    * so the UI can offer a manual download instead of another no-op restart.
    */
   installFailedVersion: string | null
+  /**
+   * What the offered version changes, fetched from the update feed by main.
+   * Null while it loads, and for releases that published no notes — the UI
+   * falls back to announcing the version alone.
+   */
+  pendingRelease: Release | null
+  pendingReleaseLoading?: boolean
+  /**
+   * The "Download updates automatically" setting. It decides which surface
+   * announces an update: on → the banner reports the download already running;
+   * off → the prompt asks before anything is fetched.
+   */
+  autoDownload: boolean
 }
 
 // ── Chat ──
@@ -507,6 +561,47 @@ export interface PythonStatus {
   runtime: string
 }
 
+/** A completed Tencent Captcha run (ticket + randstr) for the email forms. */
+export interface CaptchaPass {
+  ticket: string
+  randstr: string
+}
+
+/** Whether the account service requires the captcha, from GET /v1/auth/captcha-config. */
+export interface CaptchaConfig {
+  enabled: boolean
+  appId: string | null
+  scriptUrl: string
+  surfaces: { register?: boolean; login?: boolean }
+}
+
+/** The signed-in user, as main reports them. Never carries the token itself. */
+export interface AccountInfo {
+  email: string
+  displayName: string | null
+  /** Unix seconds. */
+  expiresAt: number
+}
+
+/** One membership from GET /v1/account/workspaces — the account scope. */
+export interface AccountWorkspace {
+  workspaceId: string
+  name: string
+  slug: string
+  /** Shared access token; null for a viewer or a workspace without one. */
+  token: string | null
+  role: "owner" | "admin" | "member" | "viewer"
+  lastActivityAt: string | null
+}
+
+/** Where in the renderer's layout the embedded workspace page is drawn. */
+export interface ViewBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -520,8 +615,12 @@ declare global {
       listAgents(): Promise<Agent[]>
       getSupportedAgentTypes(): Promise<string[]>
       getAgentCoreInfo(): Promise<unknown>
-      addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
-      removeAgent(name: string): Promise<unknown>
+      addAgent(config: { name: string; type: string; path?: string; env?: Record<string, string> }): Promise<unknown>
+      removeAgent(
+        name: string,
+        opts?: { fromWorkspace?: boolean },
+      ): Promise<unknown>
+      renameAgent(name: string, displayName: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
       setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>
       startAgent(name: string): Promise<unknown>
@@ -530,7 +629,7 @@ declare global {
       stopAll(): Promise<unknown>
       agentStatus(): Promise<Record<string, { state: AgentState; last_error?: string; restarts?: number }>>
       agentLogs(name: string, lines: number): Promise<{ lines: string[] }>
-      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number }>
+      tailAgentLogs(name: string, lines: number, offset: number): Promise<{ lines: string[]; size?: number; reset?: boolean }>
       clearLogsInRange(start: string, end: string): Promise<{ removed: number; remaining: number }>
       installAgentType(type: string): Promise<unknown>
       installAgentTypeStreaming(type: string): Promise<unknown>
@@ -543,6 +642,7 @@ declare global {
       checkAgentType(type: string): Promise<{ installed: boolean; binary: string | null }>
       getCatalog(force?: boolean): Promise<CatalogEntry[]>
       getInstalledAgents(): Promise<InstalledAgentRecord[]>
+      getAgentUpdateTarget(type: string): Promise<AgentUpdateTarget>
       checkAgentUpdates(force?: boolean): Promise<AgentUpdateInfo[]>
       rollbackAgentType(type: string): Promise<{ success: boolean; version?: string | null; error?: string }>
       getAgentChangelog(type: string): Promise<{ versions: Array<{ version: string; date?: string }>; homepage?: string; latest?: string | null; error?: string }>
@@ -552,12 +652,34 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{ success: boolean; model?: string; response?: string; error?: string }>
+      testLLM(env: Record<string, string>): Promise<{
+        success: boolean
+        model?: string
+        response?: string
+        error?: string
+        /** Nothing to test — a hosted platform, not a failed credential. */
+        unsupported?: boolean
+        /** Keys `agents.credentials.unprobeable.<reason>` for the copy. */
+        reason?: string
+      }>
       listModels(
         agentType: string,
         env: Record<string, string>,
         path?: ModelListPath,
+        /** `refresh` asks the CLI again instead of reusing a recent answer. */
+        opts?: { refresh?: boolean },
       ): Promise<ModelListResult>
+      /** Keys on this machine this agent's form can take, masked. */
+      scanCredentialImports(agentType: string): Promise<ImportCandidate[]>
+      parseCredentialImport(
+        agentType: string,
+        text: string,
+      ): Promise<ImportCandidate[]>
+      /** One candidate as form values — the only call that returns a key. */
+      resolveCredentialImport(
+        agentType: string,
+        id: string,
+      ): Promise<Record<string, string> | null>
       signalReload(): Promise<unknown>
       connectWorkspace(agentName: string, slug: string): Promise<unknown>
       disconnectWorkspace(agentName: string): Promise<unknown>
@@ -587,6 +709,7 @@ declare global {
         agentType: string
         agentName: string
         path?: string | null
+        env?: Record<string, string>
       }): Promise<{ agentName: string; warning: string | null }>
       getNodeStatus(): Promise<NodeStatus>
       /** Same, but verified against the workspace first (throttled). */
@@ -791,6 +914,63 @@ declare global {
         issueNumber: number
         body: string
       }): Promise<{ ok: boolean; result?: unknown; error?: string }>
+
+      // ── Account ──
+      getAccount(): Promise<AccountInfo | null>
+      /** Opens the browser and resolves when the sign-in comes back. */
+      signIn(): Promise<AccountInfo>
+      /** Whether the email forms must run the Tencent captcha first. */
+      getCaptchaConfig(): Promise<CaptchaConfig>
+      /** In-app sign-in; only for accounts that have a password. */
+      signInWithPassword(email: string, password: string, captcha?: CaptchaPass): Promise<AccountInfo>
+      /** Create an email account and open its Workspace session. */
+      signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
+      cancelSignIn(): Promise<void>
+      /**
+       * Has All Workspaces confirm the sign-out in its own dialog. False when
+       * that page is not on screen and ready to ask.
+       */
+      requestSignOut(): Promise<boolean>
+      signOut(): Promise<void>
+      listAccountWorkspaces(): Promise<AccountWorkspace[]>
+      /** A sign-in that had to move to the browser (Google, GitHub). */
+      onSignInExternal(cb: () => void): () => void
+      onSignInFailed(cb: (info: { message: string }) => void): () => void
+      onAccountChanged(cb: (account: AccountInfo | null) => void): () => void
+
+      // ── Embedded workspace view ──
+      showWorkspaceView(
+        target: string | null,
+        bounds: ViewBounds,
+        token?: string | null,
+        sessionId?: string | null,
+        /** What to call a new tab until its page names the workspace. */
+        title?: string | null,
+      ): Promise<void>
+      setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
+      /** Push the launcher's theme/language to the hosted workspace. */
+      syncAppearance(next: { theme: string; language: string }): Promise<void>
+      /** The hosted workspace changed one of them. */
+      onAppearanceChanged(
+        cb: (next: { theme?: string; language?: string }) => void,
+      ): () => void
+      hideWorkspaceView(): Promise<void>
+      /** Repeat a launcher toast inside the Workspace; ignored when it is not on screen. */
+      showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
+      reloadWorkspaceView(): Promise<void>
+      openWorkspaceHome(): Promise<void>
+      getWorkspaceTabs(): Promise<WorkspaceTabsSnapshot>
+      activateWorkspaceTab(id: string): Promise<void>
+      /** Closes the page only; the workspace and this device's connection stay. */
+      closeWorkspaceTab(id: string): Promise<void>
+      retryWorkspaceTab(id: string): Promise<void>
+      /** Reorders the strip: the tab ends up at `index` among the open tabs. */
+      moveWorkspaceTab(id: string, index: number): Promise<void>
+      showWorkspaceTabMenu(position: { x: number; y: number }): Promise<void>
+      /** Reload, close, close others, close to the right, close all. */
+      showWorkspaceTabContextMenu(id: string): Promise<void>
+      onWorkspaceTabsChanged(cb: (snapshot: WorkspaceTabsSnapshot) => void): () => void
+      onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }
 }

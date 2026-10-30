@@ -4,10 +4,10 @@
  */
 import path from "path"
 import fs from "fs"
-import { spawnSync } from "child_process"
-import { withPathEnv } from "../env"
+import { execFile, spawnSync } from "child_process"
+import { readPathEnv, withPathEnv } from "../env"
 import { compareVersions } from "../../shared/version-compare"
-import { CONFIG_DIR, GLOBAL_CORE, LOCAL_CORE } from "./paths"
+import { CONFIG_DIR, GLOBAL_CORE, LOCAL_CORE, PORTABLE_NODE_DIR } from "./paths"
 
 /** The install-command key for this OS, as the shared registry spells it. */
 export function platformKey(): "macos" | "linux" | "windows" {
@@ -182,23 +182,14 @@ export function resolveWorkingNode(
   for (const c of candidates) {
     if (fs.existsSync(c) && canExecuteNode(c)) return c
   }
-  // Bundled node missing or won't run — try the system one.
-  try {
-    const which = process.platform === "win32" ? "where" : "which"
-    const out = require("child_process").execFileSync(which, ["node"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-      windowsHide: true,
-      env: withPathEnv(enhancedPath),
-    }) as string
-    for (const line of out
-      .split(/\r?\n/)
-      .map((s: string) => s.trim())
-      .filter(Boolean)) {
-      if (canExecuteNode(line)) return line
-    }
-  } catch {}
+  // Bundled node missing or won't run — try the system one. PATH is walked
+  // here rather than asking `where`, which prints in the OEM codepage and so
+  // mangled a non-ASCII profile path (C:\Users\王…) past recognition.
+  const exe = process.platform === "win32" ? "node.exe" : "node"
+  for (const dir of enhancedPath.split(path.delimiter).filter(Boolean)) {
+    const c = path.join(dir.replace(/^"(.*)"$/, "$1"), exe)
+    if (fs.existsSync(c) && canExecuteNode(c)) return c
+  }
   return null
 }
 
@@ -254,4 +245,35 @@ export function resolveNpmInvocation(): {
     preArgs: [],
     useShell: true,
   }
+}
+
+/**
+ * The Node that npm agents are installed and run on, as `22.22.3`: the
+ * portable runtime when there is one (the binary resolveNpmInvocation hands
+ * npm), otherwise the `node` an install's PATH finds. Null when neither
+ * answers. Asynchronous because the detail page asks every time it opens.
+ */
+export function agentNodeVersion(): Promise<string | null> {
+  const inv = resolveNpmInvocation()
+  const bin = inv.useShell ? "node" : inv.cmd
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        bin,
+        ["--version"],
+        {
+          encoding: "utf-8",
+          timeout: 5000,
+          windowsHide: true,
+          env: withPathEnv(PORTABLE_NODE_DIR + path.delimiter + readPathEnv()),
+        },
+        (err, stdout) => {
+          const m = err ? null : /^v?(\d+\.\d+\.\d+)/.exec(stdout.trim())
+          resolve(m ? m[1] : null)
+        },
+      )
+    } catch {
+      resolve(null)
+    }
+  })
 }

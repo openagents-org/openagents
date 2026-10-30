@@ -69,6 +69,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
       .fn()
       .mockResolvedValue([{ name: "claude", current: "2.3.1", latest: "2.4.0" }]),
     listAgents: vi.fn().mockResolvedValue([]),
+    getAgentUpdateTarget: vi.fn().mockResolvedValue({ kind: "managed" }),
     getEnvFields: vi.fn().mockResolvedValue([]),
     getAgentEnv: vi.fn().mockResolvedValue({}),
     saveAgentEnv: vi.fn().mockResolvedValue(undefined),
@@ -101,13 +102,64 @@ beforeEach(() => {
   useAgentsStore.setState({ agents: [] })
   // Both outlive the page, so a deep-link left over from one case would decide
   // where the next one opens.
-  useUiStore.setState({ installFocusAgent: null, installListSignal: 0 })
+  useUiStore.setState({ installFocusAgent: null, installListSignal: 0, installListFilter: "all", pendingCreate: null, pendingCreateType: null })
   localStorage.clear()
   showToast.mockClear()
   installApi()
 })
 
 describe("marketplace", () => {
+  it("offers an update for an outdated system install", async () => {
+    installApi({
+      getCatalog: vi.fn().mockResolvedValue([
+        { ...CATALOG[0], managed: false, location: "global" },
+      ]),
+      getInstalledAgents: vi.fn().mockResolvedValue([]),
+      checkAgentUpdates: vi.fn().mockResolvedValue([
+        { name: "codex", current: "0.150.0", latest: "0.160.0" },
+      ]),
+      healthCheck: vi.fn().mockResolvedValue({
+        installed: true,
+        binary: "C:\\npm\\codex.cmd",
+        version: "0.150.0",
+      }),
+      getAgentUpdateTarget: vi.fn().mockResolvedValue({
+        kind: "original",
+        prefix: "C:\\npm",
+        elevation: "none",
+        command: "npm install -g --prefix C:\\npm @openai/codex@latest",
+      }),
+    })
+    render(<Install showToast={showToast} />)
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    expect(await screen.findByRole("button", { name: /Update to v0\.160\.0/ })).toBeInTheDocument()
+    // Updated where the user installed it — not shadowed by a second copy.
+    expect(await screen.findByText(/applied at its original install path/)).toBeInTheDocument()
+    expect(screen.queryByText(/To remove the original install/)).not.toBeInTheDocument()
+  })
+  it("hands over the command when only an administrator can update the install", async () => {
+    installApi({
+      getCatalog: vi.fn().mockResolvedValue([
+        { ...CATALOG[0], managed: false, location: "global" },
+      ]),
+      getInstalledAgents: vi.fn().mockResolvedValue([]),
+      checkAgentUpdates: vi.fn().mockResolvedValue([
+        { name: "codex", current: "0.150.0", latest: "0.160.0" },
+      ]),
+      getAgentUpdateTarget: vi.fn().mockResolvedValue({
+        kind: "original",
+        prefix: "/usr/lib",
+        elevation: "manual",
+        command: "sudo npm install -g --prefix /usr/lib @openai/codex@latest",
+      }),
+    })
+    render(<Install showToast={showToast} />)
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    expect(
+      await screen.findByText("sudo npm install -g --prefix /usr/lib @openai/codex@latest"),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Update to v0\.160\.0/ })).not.toBeInTheDocument()
+  })
   it("shows catalog counts and one card per agent", async () => {
     render(<Install showToast={showToast} />)
 
@@ -272,112 +324,29 @@ describe("deep links", () => {
   })
 })
 
-describe("setup wizard", () => {
-  it("switches between CLI login and API key for a dual-auth agent", async () => {
-    installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-      ]),
-    })
+describe("adding an agent", () => {
+  // Agents are created in one place — Connect Agents' setup form — so the
+  // marketplace hands the type over rather than running a setup of its own.
+  it("opens the setup form on this type from its page", async () => {
     render(<Install showToast={showToast} />)
 
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    await userEvent.click(await screen.findByTestId("detail-add-agent"))
 
-    // CLI leads: it is the path that needs no secret typed in.
-    const dialog = await screen.findByRole("dialog")
-    const cliTab = within(dialog).getByRole("tab", { name: /Account sign-in/ })
-    expect(cliTab).toHaveAttribute("data-state", "active")
-    expect(within(dialog).getByText("claude login")).toBeInTheDocument()
-
-    await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_API_KEY/)).toBeInTheDocument()
+    expect(useUiStore.getState()).toMatchObject({
+      currentTab: "dashboard",
+      pendingCreate: "agent",
+      pendingCreateType: "codex",
+    })
   })
 
-  it("keeps the API form's model out of the sign-in tab", async () => {
-    // An uninstall that kept its data leaves a key and a relay's model id on
-    // file. The key form should still offer them back; the sign-in tab must
-    // not, because that model id belongs to an endpoint this account has
-    // never talked to.
-    installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-        { name: "ANTHROPIC_MODEL" },
-      ]),
-      getAgentEnv: vi.fn().mockResolvedValue({
-        ANTHROPIC_API_KEY: "sk-relay",
-        ANTHROPIC_MODEL: "claude-opus-4-8",
-      }),
-    })
+  it("opens the list filtered as requested", async () => {
     render(<Install showToast={showToast} />)
+    await screen.findByTestId("agent-card-openclaw")
 
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
+    await act(async () => useUiStore.getState().goToInstallList("installed"))
 
-    const dialog = await screen.findByRole("dialog")
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue("")
-
-    await userEvent.click(within(dialog).getByRole("tab", { name: /API key/ }))
-    expect(await within(dialog).findByLabelText(/ANTHROPIC_MODEL/)).toHaveValue(
-      "claude-opus-4-8",
-    )
-  })
-
-  it("saves the model the sign-in tab was given, and nothing else", async () => {
-    // This button only ever advanced the step, so a model picked here was
-    // dropped on the floor.
-    const api = installApi({
-      getEnvFields: vi.fn().mockResolvedValue([
-        { name: "ANTHROPIC_API_KEY", password: true, required: true },
-        { name: "ANTHROPIC_MODEL" },
-      ]),
-      getAgentEnv: vi.fn().mockResolvedValue({ ANTHROPIC_API_KEY: "sk-relay" }),
-    })
-    render(<Install showToast={showToast} />)
-
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    await userEvent.click(await screen.findByRole("button", { name: /Setup wizard/ }))
-
-    const dialog = await screen.findByRole("dialog")
-    await userEvent.type(
-      await within(dialog).findByLabelText(/ANTHROPIC_MODEL/),
-      "claude-sonnet-4-6",
-    )
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: /Save & create agent/i }),
-    )
-
-    await waitFor(() =>
-      expect(api.saveAgentEnv).toHaveBeenCalledWith("claude", {
-        ANTHROPIC_MODEL: "claude-sonnet-4-6",
-      }),
-    )
-  })
-
-  it("stops offering itself once the agent exists", async () => {
-    // The list IPC can answer nothing while the core is still loading. Taking
-    // that for "no agents exist" is what kept the wizard on offer for an agent
-    // that already had an instance — with no agent polling to repair it.
-    useAgentsStore.setState({
-      agents: [
-        { name: "my-claude", type: "claude", state: "stopped", health: null },
-      ],
-    })
-    installApi({
-      getEnvFields: vi
-        .fn()
-        .mockResolvedValue([{ name: "ANTHROPIC_API_KEY", password: true }]),
-      listAgents: vi.fn().mockRejectedValue(new Error("core not loaded yet")),
-    })
-    render(<Install showToast={showToast} />)
-
-    await userEvent.click(await screen.findByTestId("agent-card-claude"))
-    // The rail rendered — claude has an update pending in this fixture.
-    expect(
-      await screen.findByRole("button", { name: /Update to v2\.4\.0/ }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /Setup wizard/ }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId("agent-card-openclaw")).not.toBeInTheDocument()
+    expect(screen.getByTestId("agent-card-codex")).toBeInTheDocument()
   })
 })

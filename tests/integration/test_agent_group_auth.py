@@ -8,8 +8,8 @@ gRPC and HTTP transports.
 import pytest
 import asyncio
 
-from openagents.core.network import AgentNetwork
-from openagents.core.client import AgentClient
+from openagents.sdk.network import AgentNetwork
+from openagents.sdk.client import AgentClient
 from openagents.models.network_config import NetworkConfig, AgentGroupConfig, NetworkMode, TransportConfigItem
 from openagents.models.transport import TransportType
 

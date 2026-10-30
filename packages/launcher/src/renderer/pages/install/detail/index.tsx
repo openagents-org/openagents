@@ -3,12 +3,11 @@ import { ArrowLeft } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
-import { isLoginOnlyAgent } from "@renderer/lib/agent-auth"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { isJobBusy } from "../entry-meta"
-import { DetailConfig } from "./detail-config"
+import { DetailActions } from "./detail-actions"
 import { DetailHeader } from "./detail-header"
 import { DetailOverview } from "./detail-overview"
 import { DetailProgress } from "./detail-progress"
@@ -20,32 +19,33 @@ import { DetailVersions, MAX_VERSIONS } from "./detail-versions"
 import { InstallConfirmDialog } from "./install-confirm-dialog"
 import { UninstallDialog } from "./uninstall-dialog"
 import { useAgentDetail } from "./use-agent-detail"
+import { useUpdateTarget } from "./use-update-target"
 
 interface Props {
   entry: CatalogEntry
   onBack: () => void
   onAfterInstall: (entry: CatalogEntry) => void
-  onOpenWizard?: (entry: CatalogEntry) => void
-  /** Bumped when the setup wizard closes — see DetailConfig.authRefresh. */
-  authRefresh?: number
+  /** Open the setup form on this type: the one way an agent is created. */
+  onAddAgent: (entry: CatalogEntry) => void
   showToast: (msg: string, type?: ToastType) => void
 }
 
 /**
- * Agent detail page. One document in the main column — overview, progress,
- * configuration, first commands, version history — with every action gathered
- * into the right rail.
+ * Agent detail page. The actions sit under the header, where the eye starts;
+ * below them one document in the main column — overview, progress, first
+ * commands, version history — and the facts to check in the right rail.
  */
 export default function AgentDetail({
   entry,
   onBack,
   onAfterInstall,
-  onOpenWizard,
-  authRefresh,
+  onAddAgent,
   showToast,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const detail = useAgentDetail({ entry, onAfterInstall, showToast })
+  const updateTarget = useUpdateTarget(entry, detail.job?.phase)
+  const original = updateTarget?.kind === "original" ? updateTarget : null
   const [confirmInstall, setConfirmInstall] = useState<"install" | "update" | null>(
     null,
   )
@@ -104,7 +104,25 @@ export default function AgentDetail({
           github={entry.github}
           docs={entry.docs}
           installedAtLabel={installedAtLabel}
-        />
+        >
+          <DetailActions
+            entry={entry}
+            loading={detail.loading}
+            installed={detail.installed}
+            job={detail.job}
+            currentVersion={detail.currentVersion}
+            latestVersion={detail.latestVersion}
+            updateBlocked={
+              updateTarget?.kind === "original" &&
+              updateTarget.elevation === "manual"
+            }
+            onInstall={() => setConfirmInstall("install")}
+            onUpdate={() => setConfirmInstall("update")}
+            onUninstall={() => setConfirmUninstall(true)}
+            onRollback={detail.startRollback}
+            onAddAgent={() => onAddAgent(entry)}
+          />
+        </DetailHeader>
       </div>
 
       {/* Below `lg` there is no room for two columns, so the whole area
@@ -145,25 +163,6 @@ export default function AgentDetail({
             />
           )}
 
-          {/* A login-only agent (Cursor, Hermes) has no env fields at all — it
-              still needs this section, or its marketplace page offers no way
-              to authenticate. */}
-          {(detail.envFields.length > 0 ||
-            !!entry.check_ready?.login_command) && (
-            <DetailSection title={t("agents.envConfig.title")}>
-              <DetailConfig
-                agentName={entry.name}
-                fields={detail.envFields}
-                values={detail.envValues}
-                onChange={detail.setEnvValues}
-                loginCommand={entry.check_ready?.login_command || null}
-                installed={!!entry.installed}
-                authRefresh={authRefresh}
-                showToast={showToast}
-              />
-            </DetailSection>
-          )}
-
           <DetailSection title={t("agents.quickStart.title")}>
             <DetailQuickStart entry={entry} showToast={showToast} />
           </DetailSection>
@@ -190,29 +189,15 @@ export default function AgentDetail({
           </DetailSection>
         </div>
 
-        {/* Same clearance as the document column — this rail is where it shows
-            first, because its top card sits flush against the scroller's edge
-            and had its hover lift sliced off. */}
+        {/* Same clearance as the document column — its top card sits flush
+            against the scroller's edge and would have its hover lift sliced
+            off. */}
         <DetailRail
           className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
           entry={entry}
-          loading={detail.loading}
           installed={detail.installed}
-          job={detail.job}
-          currentVersion={detail.currentVersion}
-          latestVersion={detail.latestVersion}
           binaryPath={detail.binaryPath}
-          onInstall={() => setConfirmInstall("install")}
-          onUpdate={() => setConfirmInstall("update")}
-          onUninstall={() => setConfirmUninstall(true)}
-          onRollback={detail.startRollback}
-          onOpenWizard={
-            onOpenWizard &&
-            !detail.hasInstance &&
-            !isLoginOnlyAgent(entry, detail.envFields)
-              ? () => onOpenWizard(entry)
-              : undefined
-          }
+          updateTarget={updateTarget}
         />
       </div>
 
@@ -220,6 +205,12 @@ export default function AgentDetail({
         open={!!confirmInstall}
         verb={confirmInstall || "install"}
         entry={entry}
+        command={original?.command}
+        note={
+          original?.elevation === "prompt"
+            ? t("agents.unmanaged.adminPrompt")
+            : undefined
+        }
         onConfirm={() => {
           const verb = confirmInstall
           setConfirmInstall(null)

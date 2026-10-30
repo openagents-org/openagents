@@ -13,7 +13,11 @@ vi.mock("electron", () => ({
 
 let resolveProxyResult = "DIRECT"
 
-import { adoptSystemProxyForChildren, firstProxyUrl } from "./net-config"
+import {
+  adoptSystemProxyForChildren,
+  firstProxyUrl,
+  proxyEnvForChildren,
+} from "./net-config"
 import type { Store } from "./store"
 
 const emptyStore = { get: () => undefined } as unknown as Store
@@ -122,5 +126,48 @@ describe("adoptSystemProxyForChildren", () => {
     await adoptSystemProxyForChildren(emptyStore)
     expect(process.env.HTTPS_PROXY).toBeUndefined()
     expect(process.env.NO_PROXY).toBeUndefined()
+  })
+})
+
+/**
+ * The sign-in terminal is not a child of this process on macOS — `osascript`
+ * hands a script to the already-running Terminal.app — so the proxy has to be
+ * written INTO the script. Without it the browser half of a sign-in completes
+ * through the system proxy and the CLI's token exchange dies going direct:
+ * "Client network socket disconnected before secure TLS connection was
+ * established", which is what both `kimi login` and CodeBuddy's `/login` hit.
+ */
+describe("proxyEnvForChildren", () => {
+  it("hands over both spellings of whatever proxy won", () => {
+    clearProxyEnv()
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7897"
+    process.env.HTTP_PROXY = "http://127.0.0.1:7897"
+    const env = proxyEnvForChildren()
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7897")
+    expect(env.https_proxy).toBe("http://127.0.0.1:7897")
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:7897")
+    expect(env.http_proxy).toBe("http://127.0.0.1:7897")
+  })
+
+  it("keeps the CLI's own OAuth callback off the proxy", () => {
+    clearProxyEnv()
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7897"
+    // The sign-in completes on a local callback (CodeBuddy listens on
+    // 127.0.0.1); tunnelling that would break the half that works today.
+    expect(proxyEnvForChildren().NO_PROXY).toContain("127.0.0.1")
+    expect(proxyEnvForChildren().NO_PROXY).toContain("localhost")
+  })
+
+  it("respects a bypass list the user configured", () => {
+    clearProxyEnv()
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7897"
+    process.env.NO_PROXY = "example.com"
+    expect(proxyEnvForChildren().NO_PROXY).toBe("example.com")
+  })
+
+  it("hands over nothing when there is no proxy", () => {
+    clearProxyEnv()
+    // A terminal that would otherwise have gone direct must keep going direct.
+    expect(proxyEnvForChildren()).toEqual({})
   })
 })

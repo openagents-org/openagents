@@ -2,12 +2,14 @@
 //
 // Electron's stock menu is a developer's menu: View → Reload, Force Reload and
 // Toggle Developer Tools arrive pre-bound to Cmd/Ctrl+R, Cmd/Ctrl+Shift+R and
-// F12. Windows and Linux drop the whole menu (`installApplicationMenu` below),
-// but macOS cannot — the menu bar is where Cmd+C/Cmd+V live — so a shipped
-// build kept a one-keystroke way to throw the renderer's entire state away in
-// the middle of an install, an agent login or a chat.
+// F12. A shipped build therefore kept a one-keystroke way to throw the
+// renderer's entire state away in the middle of an install, an agent login or
+// a chat. Reload is a development affordance, so it exists only in development.
 //
-// Reload is a development affordance, so it exists only in development.
+// What the menu cannot be is ABSENT. It is also where Cmd/Ctrl+C, +V and +X
+// are bound — on every platform, not just macOS — so replacing it with `null`
+// took the clipboard out of every text field in the app. Each platform gets
+// the smallest menu that keeps the editing verbs and carries no reload.
 import { Menu, app } from "electron"
 
 /**
@@ -41,13 +43,21 @@ function packagedMacTemplate(): Electron.MenuItemConstructorOptions[] {
  * Called once at startup, before the first window exists.
  *
  * macOS in development keeps Electron's default menu, reload included — that
- * shortcut is the point of a dev build. Windows and Linux have no menu at all,
- * as before: the app draws its own top edge, and dropping the menu drops every
- * accelerator attached to it.
+ * shortcut is the point of a dev build.
+ *
+ * Windows and Linux get an Edit-only menu. They used to get `null`, and that
+ * is where the clipboard went: on those platforms the application menu is what
+ * BINDS Ctrl+C/V/X/A/Z, so removing the whole menu to take away Ctrl+R took
+ * every editing shortcut with it — no text field in the app could paste. An
+ * `editMenu` role restores exactly those accelerators (and the platform's
+ * Shift+Insert conventions with them) while still carrying no reload item.
+ *
+ * Nothing of it is drawn: the window is frameless (`titleBarStyle: "hidden"`)
+ * and sets `autoHideMenuBar`, so there is no menu bar to show.
  */
 export function installApplicationMenu(): void {
   if (process.platform !== "darwin") {
-    Menu.setApplicationMenu(null)
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: "editMenu" }]))
     return
   }
   if (app.isPackaged) {
@@ -76,3 +86,4 @@ export function isReloadShortcut(
   // fields), so each platform only blocks its own modifier.
   return platform === "darwin" ? input.meta : input.control
 }
+

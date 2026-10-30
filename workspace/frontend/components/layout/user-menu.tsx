@@ -21,11 +21,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/dialogs-provider';
+import { useMe } from '@/hooks/use-me';
+import { canAdminister } from '@/components/settings/admin-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
+import { currentRouteSearch } from '@/lib/route-search';
 import { LanguageMenuSub } from './language-menu';
+import { HumanAvatar } from '@/components/chat/human-avatar';
 import { FeedbackDialog } from '@/components/feedback/feedback-dialog';
 
 interface UserMenuProps {
@@ -43,6 +47,8 @@ const THEME_OPTIONS = [
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
+  const me = useMe(workspace?.slug || workspace?.workspaceId);
+  const isAdmin = canAdminister(me);
   const [showFeedback, setShowFeedback] = useState(false);
   const { theme, setTheme } = useTheme();
   const confirm = useConfirm();
@@ -65,6 +71,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const isOwnedByUser = workspace && user && workspace.creatorEmail === user.email;
 
   const handleCopyToken = async () => {
+    if (!isAdmin) return;
     if (!token) {
       toast.error(t('userMenu.tokenMissing'));
       return;
@@ -117,9 +124,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             {user ? (
-              <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                {user.email[0].toUpperCase()}
-              </span>
+              <HumanAvatar email={user.email} className="size-6" />
             ) : (
               <User className="size-4" />
             )}
@@ -143,7 +148,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
           {isOpenAgentsDomain && user && (
             <>
-              <DropdownMenuItem onClick={() => { window.location.href = '/'; }}>
+              <DropdownMenuItem onClick={() => router.push('/')}>
                 <LayoutGrid />
                 {t('userMenu.switchWorkspace')}
               </DropdownMenuItem>
@@ -175,7 +180,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
           <LanguageMenuSub />
 
-          {token && (
+          {isAdmin && token && (
             <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleCopyToken(); }}>
               {tokenCopied ? <Check /> : <KeyRound />}
               {tokenCopied ? t('userMenu.tokenCopied') : t('userMenu.copyToken')}
@@ -184,15 +189,17 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
           {/* Straight to the Members section's invite box — the most common
               admin action gets its own entry. */}
-          <DropdownMenuItem
-            onClick={() => {
-              if (!workspace) return;
-              router.push(`/${workspace.slug}/settings/members${window.location.search}`);
-            }}
-          >
-            <UserPlus />
-            {t('userMenu.inviteMembers')}
-          </DropdownMenuItem>
+          {isAdmin && (
+            <DropdownMenuItem
+              onClick={() => {
+                if (!workspace) return;
+                router.push(`/${workspace.slug}/settings/members${currentRouteSearch()}`);
+              }}
+            >
+              <UserPlus />
+              {t('userMenu.inviteMembers')}
+            </DropdownMenuItem>
+          )}
 
           {/* Feedback goes to POST /v1/feedback (stored + forwarded to the
               team) — the cheapest possible path from an annoyed user to us. */}
@@ -202,16 +209,16 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           </DropdownMenuItem>
 
           {/* Full-page admin dashboard (general / members / security / devices /
-              integrations / preferences). window.location.search carries an
+              integrations / preferences). currentRouteSearch() carries an
               incoming ?token= through so token-link visitors keep access. */}
           <DropdownMenuItem
             onClick={() => {
               if (!workspace) return;
-              router.push(`/${workspace.slug}/settings${window.location.search}`);
+              router.push(`/${workspace.slug}/settings/${isAdmin ? 'general' : 'profile'}${currentRouteSearch()}`);
             }}
           >
             <Settings />
-            {t('userMenu.workspaceSettings')}
+            {isAdmin ? t('userMenu.workspaceSettings') : t('userMenu.personalSettings')}
           </DropdownMenuItem>
 
           {isOpenAgentsDomain && (

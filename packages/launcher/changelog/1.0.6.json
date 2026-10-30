@@ -1,0 +1,17 @@
+{
+  "version": "1.0.6",
+  "date": "2026-09-20",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "DeepSeek Harness installs no longer stall",
+        "zh": "DeepSeek Harness 安装不再卡住"
+      },
+      "description": {
+        "en": "DeepSeek Harness installations now avoid an npm dependency resolver issue that could leave setup stuck at Resolving dependencies, especially on Windows.",
+        "zh": "DeepSeek Harness 安装现已避开 npm 依赖解析问题，修复了安装过程停在“正在解析依赖项”的情况，尤其改善了 Windows 上的安装体验。"
+      }
+    }
+  ]
+}

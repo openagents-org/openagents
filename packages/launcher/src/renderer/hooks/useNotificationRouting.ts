@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { useAccountStore } from "@renderer/store/account"
 
 import { useNotificationsStore } from "@renderer/store/notifications"
 import { useUiStore } from "@renderer/store/ui"
@@ -20,7 +21,11 @@ import type { NotifRecord } from "@renderer/types"
 interface NotificationRoute {
   tab?: unknown
   agent?: unknown
+  /** With `tab: "install"` and no agent: how to narrow the list. */
+  filter?: unknown
   settingsSection?: unknown
+  workspaceId?: unknown
+  sessionId?: unknown
 }
 
 /**
@@ -33,6 +38,7 @@ export function canRouteNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as NotificationRoute
   return (
     record.source === "launcher-update" ||
+    (typeof payload.workspaceId === "string" && !!payload.workspaceId) ||
     typeof payload.settingsSection === "string" ||
     typeof payload.agent === "string" ||
     typeof payload.tab === "string"
@@ -49,6 +55,15 @@ export function canRouteNotification(record: NotifRecord): boolean {
  */
 export function routeNotification(record: NotifRecord): boolean {
   const payload = (record.payload ?? {}) as NotificationRoute
+  if (typeof payload.workspaceId === "string" && payload.workspaceId) {
+    useAccountStore.getState().openWorkspace({
+      slug: payload.workspaceId,
+      token: null,
+      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+    })
+    return true
+  }
+  if (canRouteNotification(record)) useAccountStore.getState().exitWorkspace()
   const ui = useUiStore.getState()
   let acted = false
 
@@ -80,7 +95,7 @@ export function routeNotification(record: NotifRecord): boolean {
   // `setCurrentTab("install")` would leave whatever detail page is open sitting
   // there, so a notification about three agents would appear to do nothing.
   if (payload.tab === "install") {
-    ui.goToInstallList()
+    ui.goToInstallList(payload.filter === "updatable" ? "updatable" : "all")
     return true
   }
 

@@ -18,7 +18,7 @@ export function TourBubble({
   icon: Icon,
   index,
   total,
-  arrowTop,
+  arrowLeft,
   style,
   onSkip,
   onBack,
@@ -27,12 +27,13 @@ export function TourBubble({
   ref: React.Ref<HTMLDivElement>
   /** i18n key under `onboarding.tour.steps.<key>`. */
   stepKey: string
-  /** The rail's own icon for the highlighted item, so the bubble names it twice. */
+  /** The tab's own icon for the highlighted item, so the bubble names it twice. */
   icon: LucideIcon | null
   index: number
   total: number
   /** Pointer offset from the bubble's top, in px. */
-  arrowTop: number
+  /** Where along the bubble's top edge the pointer sits. */
+  arrowLeft: number
   style: React.CSSProperties
   onSkip: () => void
   onBack: () => void
@@ -50,8 +51,8 @@ export function TourBubble({
       {/* Pointer back at the highlighted item: a rotated square sharing the
           bubble's background, so only its two outer edges read as border. */}
       <span
-        className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-l border-border bg-popover"
-        style={{ top: arrowTop, left: 0 }}
+        className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-t border-l border-border bg-popover"
+        style={{ top: 0, left: arrowLeft }}
         aria-hidden
       />
 

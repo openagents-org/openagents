@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  KanbanSquare,
   Plus,
-  RefreshCw,
   Trash2,
   Pencil,
   UserPlus,
@@ -15,11 +13,10 @@ import {
   RotateCcw,
   Waypoints,
   BookOpen,
+  Paperclip,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
-import { DetailHeader } from '@/components/layout/app-header';
-import { FeatureTourBanner } from '@/components/tours/feature-tours';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
@@ -37,7 +34,7 @@ import { TaskChatPopup } from './task-chat-popup';
 
 // ── Card ──────────────────────────────────────────────────────────────────
 
-function TaskCard({
+export function TaskCard({
   task,
   onSetAssignee,
   onRun,
@@ -71,7 +68,7 @@ function TaskCard({
   return (
     <div
       onClick={openable ? onOpenChat : isBacklog ? onEdit : undefined}
-      title={openable ? t('tasks.openChat') : isBacklog ? t('tasks.editTaskTitle') : undefined}
+      title={openable ? t('tasks.openChat') : isBacklog ? t('issueWork.edit') : undefined}
       className={cn(
         'group relative rounded-lg border bg-card p-3 shadow-sm transition-colors',
         openable || isBacklog ? 'cursor-pointer hover:border-foreground/30' : 'hover:border-foreground/20',
@@ -95,7 +92,7 @@ function TaskCard({
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="-m-1 p-1 text-muted-foreground hover:text-foreground"
-              title={t('tasks.editTaskTitle')}
+              title={t('issueWork.edit')}
             >
               <Pencil className="size-3.5" />
             </button>
@@ -103,7 +100,7 @@ function TaskCard({
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
             className="-m-1 p-1 text-muted-foreground hover:text-rose-500"
-            title={t('tasks.deleteTask')}
+            title={t('issueWork.delete')}
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -182,6 +179,11 @@ function TaskCard({
         {task.knowledgeIds.length > 0 && (
           <span className="inline-flex items-center gap-0.5" title={t('tasks.contextCount', { count: task.knowledgeIds.length })}>
             · <BookOpen className="size-3" /> {task.knowledgeIds.length}
+          </span>
+        )}
+        {task.fileIds.length > 0 && (
+          <span className="inline-flex items-center gap-0.5" title={t('tasks.attachedCount', { count: task.fileIds.length })}>
+            · <Paperclip className="size-3" /> {task.fileIds.length}
           </span>
         )}
       </p>
@@ -323,11 +325,15 @@ function BoardColumn({
 
 // ── Board ─────────────────────────────────────────────────────────────────
 
-export function TasksView() {
-  const { tasks, refreshTasks, createTask, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
+export function TasksView({ onNewIssue, onOpenIssue }: { onNewIssue: () => void; onOpenIssue: (id: string) => void }) {
+  const { tasks, refreshTasks, updateTask, runTask, stopTask, deleteTask } = useWorkspace();
   const t = useT();
 
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (action: () => Promise<unknown>) => {
+    setError('');
+    try { await action(); } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+  };
   const [editTask, setEditTask] = useState<KanbanTask | null>(null);
   const [chatTask, setChatTask] = useState<KanbanTask | null>(null);
 
@@ -351,57 +357,41 @@ export function TasksView() {
     }
   }, [pendingTaskChannel, tasks, setPendingTaskChannel]);
 
-  const { backlog, inProgress, done } = useMemo(() => {
-    const b: KanbanTask[] = [], p: KanbanTask[] = [], d: KanbanTask[] = [];
+  const { backlog, inProgress, needsAttention, done } = useMemo(() => {
+    const b: KanbanTask[] = [], p: KanbanTask[] = [], n: KanbanTask[] = [], d: KanbanTask[] = [];
     for (const task of tasks) {
       if (task.status === 'done') d.push(task);
-      else if (task.status === 'in_progress' || task.status === 'need_input') p.push(task);
+      else if (task.status === 'need_input') n.push(task);
+      else if (task.status === 'in_progress') p.push(task);
       else b.push(task); // backlog (+ any legacy 'todo')
     }
     const sort = (arr: KanbanTask[]) =>
       arr.sort((a, c) => a.position - c.position || (a.createdAt || '').localeCompare(c.createdAt || ''));
-    return { backlog: sort(b), inProgress: sort(p), done: sort(d) };
+    return { backlog: sort(b), inProgress: sort(p), needsAttention: sort(n), done: sort(d) };
   }, [tasks]);
 
   const renderCards = (items: KanbanTask[]) =>
     items.map((task) => (
+      <div key={task.id} className="space-y-1">
+      {task.issueId && <button className="text-xs text-muted-foreground hover:text-foreground hover:underline" onClick={() => onOpenIssue(task.issueId!)}>{t('issueWork.openIssue')}</button>}
       <TaskCard
-        key={task.id}
         task={task}
         onSetAssignee={(agent) => updateTask(task.id, { assignee: agent })}
-        onRun={() => runTask(task.id)}
-        onStop={() => stopTask(task.id)}
+        onRun={() => void act(() => runTask(task.id))}
+        onStop={() => void act(() => stopTask(task.id))}
         onOpenChat={() => setChatTask(task)}
         onEdit={() => setEditTask(task)}
         onDelete={() => deleteTask(task.id)}
       />
+      </div>
     ));
 
   return (
     <div className="h-full flex flex-col">
-      <DetailHeader
-        title={<>
-          <KanbanSquare className="size-4 text-foreground" />
-          <h2 className="text-sm font-semibold">{t('views.tasks')}</h2>
-        </>}
-      >
-        <Button size="sm" onClick={() => setNewTaskOpen(true)} className="gap-1.5">
-          <Plus className="size-3.5" />
-          {t('tasks.newTask')}
-        </Button>
-        <button
-          onClick={refreshTasks}
-          className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-        </button>
-      </DetailHeader>
-
-      <FeatureTourBanner feature="tasks" />
-
-      {/* Board — stacks vertically on mobile; on ≥sm it's Backlog (2/3) beside
-          In Progress + Done stacked (1/3). The whole board scrolls on mobile;
-          on desktop each column scrolls within a fixed height. */}
+      {error && <p role="alert" className="px-4 pt-3 text-sm text-destructive">{error}</p>}
+      {/* Board — four equal columns in lifecycle order (Backlog → In Progress →
+          Needs attention → Done). Stacks vertically on mobile with whole-board
+          scroll; on ≥sm each column scrolls within a fixed height. */}
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:overflow-hidden sm:p-4">
         <div className="flex flex-col gap-3 sm:h-full sm:min-h-0 sm:flex-row">
           <BoardColumn
@@ -409,60 +399,65 @@ export function TasksView() {
             title={t('tasks.col.backlog')}
             count={backlog.length}
             canAdd
-            onAdd={() => setNewTaskOpen(true)}
-            className="sm:w-2/3"
+            onAdd={() => onNewIssue()}
+            className="sm:flex-1 sm:min-w-0"
           >
             {/* The primary add affordance: a big, unmissable button that opens
                 the full create dialog (title/description/context/run-with). */}
             <Button
               size="lg"
-              onClick={() => setNewTaskOpen(true)}
+              onClick={() => onNewIssue()}
               className="w-full gap-1.5 shrink-0"
             >
               <Plus className="size-4" />
-              {t('tasks.newTask')}
+              {t('issues.newIssue')}
             </Button>
             {renderCards(backlog)}
           </BoardColumn>
 
-          <div className="flex flex-col gap-3 sm:w-1/3 sm:min-h-0">
-            <BoardColumn
-              dotClass="bg-amber-500"
-              title={t('tasks.col.in_progress')}
-              count={inProgress.length}
-              className="sm:flex-1"
-            >
-              {inProgress.length === 0 ? (
-                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
-              ) : renderCards(inProgress)}
-            </BoardColumn>
+          <BoardColumn
+            dotClass="bg-amber-500"
+            title={t('tasks.col.in_progress')}
+            count={inProgress.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {inProgress.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyInProgress')}</p>
+            ) : renderCards(inProgress)}
+          </BoardColumn>
 
-            <BoardColumn
-              dotClass="bg-emerald-500"
-              title={t('tasks.col.done')}
-              count={done.length}
-              className="sm:flex-1"
-            >
-              {done.length === 0 ? (
-                <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
-              ) : renderCards(done)}
-            </BoardColumn>
-          </div>
+          <BoardColumn
+            dotClass="bg-rose-500"
+            title={t('tasks.col.need_input')}
+            count={needsAttention.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {needsAttention.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyNeedsAttention')}</p>
+            ) : renderCards(needsAttention)}
+          </BoardColumn>
+
+          <BoardColumn
+            dotClass="bg-emerald-500"
+            title={t('tasks.col.done')}
+            count={done.length}
+            className="sm:flex-1 sm:min-w-0"
+          >
+            {done.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground/50">{t('tasks.emptyDone')}</p>
+            ) : renderCards(done)}
+          </BoardColumn>
         </div>
       </div>
 
       <NewTaskDialog
-        open={newTaskOpen || !!editTask}
+        open={!!editTask}
         onOpenChange={(o) => {
-          if (!o) { setNewTaskOpen(false); setEditTask(null); }
+          if (!o) { setEditTask(null); }
         }}
         task={editTask}
-        onSubmit={({ title, description, assignee, workflowId, knowledgeIds }) => {
-          if (editTask) {
-            updateTask(editTask.id, { title, description, assignee, workflowId, knowledgeIds });
-          } else {
-            createTask({ title, description, assignee, workflowId, knowledgeIds, status: 'backlog' });
-          }
+        onSubmit={async (input) => {
+          if (editTask) await updateTask(editTask.id, input);
         }}
       />
 

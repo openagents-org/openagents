@@ -63,7 +63,11 @@ describe('resolveBinaryInKnownDirs', () => {
   test('handles empty and missing input without throwing', () => {
     assert.strictEqual(resolveBinaryInKnownDirs([], 'cursor'), null);
     assert.strictEqual(resolveBinaryInKnownDirs(null, 'cursor'), null);
-    assert.strictEqual(resolveBinaryInKnownDirs(['x'], undefined), null);
+    // A name nobody could have installed: the search now covers dirs that are
+    // also on PATH, so a one-letter placeholder like "x" matches /opt/X11/bin/x
+    // on a machine that has XQuartz — a real hit, and nothing to do with the
+    // "no agentType given" case this asserts.
+    assert.strictEqual(resolveBinaryInKnownDirs([`oa-absent-${process.pid}`], undefined), null);
   });
 });
 

@@ -50,7 +50,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whichBinary, getEnhancedEnv, aiderBinDirs } = require('../paths');
@@ -178,7 +182,7 @@ class MiniSweAgentAdapter extends BaseAdapter {
     // Shared cross-platform resolver runs `which`/`where` against an ENHANCED
     // PATH (nvm/fnm/volta/homebrew + pip/pipx/uv user-install dirs) — covers the
     // GUI/daemon "installed but not on PATH" case for a `pip install`.
-    const resolved = whichBinary('mini');
+    const resolved = whichBinary('mini', { allowWsl: false });
     if (resolved) return this._resolveExePreference(resolved, IS_WINDOWS);
 
     // Explicit fallback over the pip/pipx/uv user-install bin dirs plus the uv
@@ -201,7 +205,10 @@ class MiniSweAgentAdapter extends BaseAdapter {
         if (fs.existsSync(c)) return c;
       }
     }
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('mini');
   }
 
   /**
@@ -290,21 +297,8 @@ class MiniSweAgentAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop)
+  // Process teardown (BaseAdapter._stopChannelWork calls _stopProcess)
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        this._stoppingChannels.add(channel);
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
 
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
@@ -453,6 +447,8 @@ class MiniSweAgentAdapter extends BaseAdapter {
   }
 
   _spawnMini(cmd, msgChannel) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve({ text: '', error: null });
     return new Promise((resolve, reject) => {
       const env = this._buildSubprocessEnv();
 

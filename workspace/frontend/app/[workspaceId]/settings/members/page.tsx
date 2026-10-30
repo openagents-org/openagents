@@ -8,7 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { roleLabel } from '@/lib/roles';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { AgentRoster } from '@/components/settings/agent-roster'; // v1.1 M1
+import { GroupsPanel } from '@/components/settings/groups-panel'; // v1.1 permission model
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { workspaceApi } from '@/lib/api';
 import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -147,10 +158,18 @@ export default function MembersSettingsPage() {
       <SectionHeader title={t('admin.membersTitle')} description={t('admin.membersDescription')} />
       {!editable && <ReadOnlyBanner />}
 
+      {/* v1.1 permission model: the roster and the security groups share the page */}
+      <Tabs defaultValue="people" className="w-full flex-col gap-6">
+      <TabsList variant="line">
+        <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
+        <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="people" className="min-w-0 w-full space-y-8">
+
       {editable && (
         <div className="space-y-3 rounded-lg border p-4">
           <Label>{t('admin.inviteTitle')}</Label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               type="email"
               placeholder={t('admin.invitePlaceholder')}
@@ -159,13 +178,21 @@ export default function MembersSettingsPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') sendInvite(); }}
               className="flex-1"
             />
-            <select
-              className="h-9 rounded-md border bg-background px-2 text-sm"
+            <Select
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+              onValueChange={(v) => setInviteRole(v as WorkspaceRole)}
             >
-              {INVITE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
+              <SelectTrigger className="h-9 w-32 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {INVITE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {roleLabel(t, r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={sendInvite} disabled={busy || !inviteEmail.trim()}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
               <span className="hidden sm:inline">{t('admin.inviteSend')}</span>
@@ -219,6 +246,9 @@ export default function MembersSettingsPage() {
         </div>
       )}
 
+      {/* v1.1 M1: unified roster — people first, agents below */}
+      <Label variant="secondary">{t('collab.peopleSection')}</Label>
+
       {loading ? (
         <div className="flex items-center justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -254,13 +284,21 @@ export default function MembersSettingsPage() {
                 </div>
                 {editable ? (
                   <>
-                    <select
-                      className="h-8 rounded-md border bg-background px-2 text-xs"
+                    <Select
                       value={m.role}
-                      onChange={(e) => changeRole(m.email, e.target.value as WorkspaceRole)}
+                      onValueChange={(v) => changeRole(m.email, v as WorkspaceRole)}
                     >
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
+                      <SelectTrigger className="w-28 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {roleLabel(t, r)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -272,7 +310,7 @@ export default function MembersSettingsPage() {
                   </>
                 ) : (
                   <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                    {m.role}
+                    {roleLabel(t, m.role)}
                   </span>
                 )}
               </div>
@@ -280,6 +318,15 @@ export default function MembersSettingsPage() {
           })}
         </div>
       )}
+
+      {/* v1.1 M1: agents — owner + Personal/Team editable by owner/admins */}
+      {!loading && <AgentRoster me={me} members={members} />}
+      </TabsContent>
+
+      <TabsContent value="groups">
+        {!loading && <GroupsPanel editable={editable} members={members} />}
+      </TabsContent>
+      </Tabs>
     </div>
   );
 }

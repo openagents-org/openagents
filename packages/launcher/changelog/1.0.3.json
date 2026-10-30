@@ -1,0 +1,50 @@
+{
+  "version": "1.0.3",
+  "date": "2026-09-16",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Choose where Windows updates install",
+        "zh": "可选择 Windows 更新的安装位置"
+      },
+      "description": {
+        "en": "Before installing an update, you can keep the current folder or choose another drive.",
+        "zh": "安装更新前，可保留当前目录，也可选择其他磁盘。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer desktop controls",
+        "zh": "桌面端操作更清晰"
+      },
+      "description": {
+        "en": "Theme, language, and version are visible in the sidebar. The API connection check, theme menu, and quit confirmation have cleaner layouts.",
+        "zh": "侧边栏直接显示主题、语言和版本；API 连接测试、主题菜单与退出确认界面也更清晰。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Choose a working folder on any drive",
+        "zh": "可在任意磁盘选择工作目录"
+      },
+      "description": {
+        "en": "The Workspace folder picker now shows all available Windows drives, not just C:.",
+        "zh": "工作区的文件夹选择器现在会显示 Windows 上所有可用的磁盘，不再局限于 C 盘。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Windows updates start on the first try",
+        "zh": "Windows 更新首次点击即可安装"
+      },
+      "description": {
+        "en": "The installer now starts after OpenAgents fully exits, avoiding an update that only closes the app.",
+        "zh": "安装程序现在会在 OpenAgents 完全退出后启动，避免只退出应用却未开始更新。"
+      }
+    }
+  ]
+}

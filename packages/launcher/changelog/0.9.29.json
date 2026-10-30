@@ -1,0 +1,17 @@
+{
+  "version": "0.9.29",
+  "date": "2026-09-11",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agents installed inside WSL are found and can run",
+        "zh": "安装在 WSL 中的智能体现在可以被识别并运行"
+      },
+      "description": {
+        "en": "A CLI you installed in a WSL distribution used to read as Not installed, and the marketplace offered to install a second copy of it. It is detected now, keeps the sign-in you did inside the distribution, and runs there — including from the Login button.",
+        "zh": "装在 WSL 发行版里的 CLI 以前显示为「未安装」，应用市场还会再装一份。现在可以正确识别，沿用你在发行版内完成的登录，并在发行版内运行，登录按钮同样可用。"
+      }
+    }
+  ]
+}

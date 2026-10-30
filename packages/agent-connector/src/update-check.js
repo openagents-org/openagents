@@ -13,8 +13,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const { npmUrls } = require('./mirrors');
+const { whereBinary } = require('./paths');
 
 const PKG_NAME = '@openagents-org/agent-launcher';
 const CACHE_FILE = path.join(os.homedir(), '.openagents', '.update-check.json');
@@ -187,10 +188,9 @@ function findNpmBin(opts = {}) {
   }
   // PATH fallback (injectable so tests can exercise the hard fallback
   // deterministically regardless of the host OS).
-  const lookup = opts.lookup || (() =>
-    execSync(platform === 'win32' ? 'where npm' : 'which npm', {
-      encoding: 'utf-8', timeout: 3000,
-    }).trim().split(/\r?\n/)[0]);
+  // Walked in-process rather than via `where`, whose OEM-codepage output
+  // mangled non-ASCII profile paths.
+  const lookup = opts.lookup || (() => whereBinary('npm'));
   try {
     return lookup() || (platform === 'win32' ? 'npm.cmd' : 'npm');
   } catch { return platform === 'win32' ? 'npm.cmd' : 'npm'; }

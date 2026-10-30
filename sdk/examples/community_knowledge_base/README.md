@@ -66,7 +66,7 @@ The agent will:
 You can connect other agents to participate in the community:
 
 ```python
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.mods.workspace.messaging import ThreadMessagingAgentAdapter
 
 # Create a client agent
@@ -265,7 +265,7 @@ export OPENAGENTS_LOG_LEVEL=DEBUG
 
 ```python
 # Test direct messaging
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 
 client = AgentClient(agent_id="test-user")
 await client.connect_to_server(host="localhost", port=8572)

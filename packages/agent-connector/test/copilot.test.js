@@ -46,7 +46,12 @@ function makeAdapter({ scenario = 'success', mode = 'execute', workingDir, model
   a._versionGate = { version: '1.0.63', compatible: true };
   // Capture all outbound messages; avoid real workspace HTTP.
   a.sent = [];
-  a.client = { sendMessage: async () => ({}) };
+  // Posts that bypass the send* helpers — the stop notice — land here.
+  a.client = {
+    sendMessage: async (_ws, ch, _tok, content) => { a.sent.push({ type: 'direct', ch, content }); return {}; },
+    getTodos: async () => ({ todos: [] }),
+    putTodos: async () => ({}),
+  };
   a._autoTitleChannel = async () => {};
   a.sendStatus = async (ch, content, meta) => { a.sent.push({ type: 'status', ch, content, meta }); };
   a.sendThinking = async (ch, content) => { a.sent.push({ type: 'thinking', ch, content }); };
@@ -390,7 +395,7 @@ describe('CopilotAdapter — interrupt & process-tree cleanup', () => {
     await turn;
 
     assert.equal(a._channelProcesses.general, undefined, 'process map cleared after stop');
-    assert.ok(a.sent.some((s) => s.type === 'status' && /stopped by user/i.test(s.content)));
+    assert.ok(a.sent.some((s) => s.type === 'direct' && s.content === 'Execution stopped by user.'));
     // No response/error posted after an explicit user stop.
     assert.ok(!a.sent.some((s) => s.type === 'response'));
   });
@@ -402,5 +407,27 @@ describe('CopilotAdapter — session/working-dir binding', () => {
     const a2 = makeAdapter({ scenario: 'success', workingDir: path.join(tmp, 'projB') });
     assert.notEqual(a1._stableSessionName('general'), a2._stableSessionName('general'),
       'different working dirs must yield different session names');
+  });
+});
+
+describe('CopilotAdapter — failure notices are redacted', () => {
+  const BEARER = 'abc123bearerTOKENvalue';
+  const OWN_KEY = 'my-own-provider-key-0042';
+  const leaky = `upstream said: Authorization: Bearer ${BEARER} (key ${OWN_KEY})`;
+
+  it('masks an Authorization: Bearer token and the agent\'s own key in the notice', async () => {
+    const a = makeAdapter({ env: { COPILOT_PROVIDER_API_KEY: OWN_KEY } });
+
+    const outcome = a._classifyOutcome(1, { message: leaky }, '');
+    assert.ok(outcome && outcome.message, 'a failure notice was produced');
+    assert.ok(!outcome.message.includes(BEARER), outcome.message);
+    assert.ok(!outcome.message.includes(OWN_KEY), outcome.message);
+
+    a._runTurn = async () => { throw new Error(leaky); };
+    await a._handleMessage(msg('hi'));
+    const err = a.sent.find((s) => s.type === 'error');
+    assert.ok(err, 'an error was surfaced');
+    assert.ok(!err.content.includes(BEARER), err.content);
+    assert.ok(!err.content.includes(OWN_KEY), err.content);
   });
 });

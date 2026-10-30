@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
-from openagents.core.transports.http import HttpTransport
-from openagents.core.workspace_manager import WorkspaceManager
+from openagents.sdk.transports.http import HttpTransport
+from openagents.sdk.workspace_manager import WorkspaceManager
 
 
 def create_log_entry(

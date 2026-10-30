@@ -6,76 +6,27 @@
  * are bundled at build time, so the notes work offline and can never describe a
  * version other than the one the user is running.
  *
+ * The notes for a version that is *not installed yet* — what an offered update
+ * would bring — cannot come from here for exactly that reason; main fetches
+ * those off the update feed (see main/release-notes.ts). Both use the parser and
+ * types in shared/changelog.ts, so the two describe a release identically.
+ *
  * Not derived from the GitHub Release body: this is a monorepo, and that body
  * is generated from every PR since the last tag — mostly work in other packages
  * that means nothing to someone using the desktop app.
  */
 import { compareVersions } from "../../shared/version-compare"
+import { parseRelease, type Release } from "../../shared/changelog"
 
-export type ReleaseEntryType = "feature" | "improvement" | "fix"
-
-/** A string in both shipped languages; `localized` picks one. */
-export interface Bilingual {
-  en: string
-  zh: string
-}
-
-/**
- * One line of a release. `title` is the change in a few words and carries the
- * emphasis; `description` is the detail, and is optional because some changes
- * genuinely are one line.
- */
-export interface ReleaseEntry {
-  type: ReleaseEntryType
-  title: Bilingual
-  description?: Bilingual
-}
-
-export interface Release {
-  version: string
-  date: string
-  entries: ReleaseEntry[]
-}
-
-const ENTRY_TYPES: ReleaseEntryType[] = ["feature", "improvement", "fix"]
+export {
+  localized,
+  type Bilingual,
+  type Release,
+  type ReleaseEntry,
+  type ReleaseEntryType,
+} from "../../shared/changelog"
 
 const modules = import.meta.glob("../../../changelog/*.json", { eager: true })
-
-function isText(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0
-}
-
-/**
- * Anything malformed is dropped rather than thrown: a bad changelog file must
- * never be able to stop the app from starting. CI is what refuses to ship one
- * (`scripts/check-changelog.mjs`), which is the right place to be strict.
- */
-function bilingual(raw: unknown): Bilingual | null {
-  if (!raw || typeof raw !== "object") return null
-  const { en, zh } = raw as Record<string, unknown>
-  return isText(en) && isText(zh) ? { en, zh } : null
-}
-
-function parseRelease(raw: unknown): Release | null {
-  const r = (raw as { default?: unknown })?.default ?? raw
-  if (!r || typeof r !== "object") return null
-  const { version, date, entries } = r as Record<string, unknown>
-  if (!isText(version) || !isText(date) || !Array.isArray(entries)) return null
-
-  const parsed = entries.flatMap((e): ReleaseEntry[] => {
-    if (!e || typeof e !== "object") return []
-    const { type, title, description } = e as Record<string, unknown>
-    const heading = bilingual(title)
-    if (!heading) return []
-    const kind = ENTRY_TYPES.find((k) => k === type) ?? "improvement"
-    return [
-      { type: kind, title: heading, description: bilingual(description) ?? undefined },
-    ]
-  })
-  if (parsed.length === 0) return null
-
-  return { version, date, entries: parsed }
-}
 
 /** Every release that has notes, newest first. */
 export const RELEASES: Release[] = Object.values(modules)
@@ -94,9 +45,4 @@ export function releaseFor(version: string | null): Release | null {
   if (!version) return null
   const target = version.replace(/^v/, "")
   return RELEASES.find((r) => r.version === target) ?? null
-}
-
-/** Pick the language the user reads; en is the fallback, as in i18next. */
-export function localized(text: Bilingual, language: string): string {
-  return language.toLowerCase().startsWith("zh") ? text.zh : text.en
 }

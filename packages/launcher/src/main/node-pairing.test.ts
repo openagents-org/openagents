@@ -7,6 +7,7 @@ import {
   clearPairing,
   clearRevocation,
   formatPairingCode,
+  getOrCreateNodeKey,
   listPairings,
   listRevocations,
   loadNode,
@@ -72,6 +73,23 @@ describe("pairing history", () => {
     workspace_name: "OA Shared WS",
     token: "t-shared",
   }
+
+  it("keeps separate owners in one workspace and removes only the chosen connection", () => {
+    const mia = { ...shared, node_id: "mia-node", owner_email: "mia@example.com" }
+    const adam = { ...shared, node_id: "adam-node", owner_email: "adam@example.com", token: "adam-token" }
+    recordPairing("dev-1", mia)
+    recordPairing("dev-1", adam)
+    expect(listPairings()).toHaveLength(2)
+    expect(() => clearPairing(shared.workspace_id)).toThrow("specific device connection")
+    revokePairing(shared.workspace_id, ["mia-agent"], mia.node_id)
+    expect(listPairings()).toMatchObject([adam])
+    expect(listRevocations()).toMatchObject([{ owner_email: mia.owner_email, agents: ["mia-agent"] }])
+    recordPairing("dev-1", adam)
+    expect(listRevocations()).toHaveLength(1)
+    recordPairing("dev-1", { ...mia, node_id: "mia-reconnected" })
+    expect(listRevocations()).toEqual([])
+    expect(listPairings()).toHaveLength(2)
+  })
 
   it("records the first pairing and mirrors it at the top level", () => {
     recordPairing("dev-1", shared)
@@ -225,5 +243,37 @@ describe("pairing history", () => {
       "ccc",
       "shared",
     ])
+  })
+
+  // A torn write from the daemon, or a file an antivirus scan holds on
+  // Windows. Rebuilding from "nothing" wiped every pairing and minted a new
+  // device key, so every workspace read as disconnected after a restart.
+  describe("an unreadable node.json", () => {
+    const torn = '{"node_key": "dev-1", "pairi'
+    beforeEach(() => {
+      fs.mkdirSync(path.dirname(nodeFilePath()), { recursive: true })
+      fs.writeFileSync(nodeFilePath(), torn)
+    })
+
+    it("reads as no pairings for display", () => {
+      expect(listPairings()).toEqual([])
+      expect(loadNode()).toBeNull()
+    })
+
+    it("is never overwritten by a writer", () => {
+      expect(() => getOrCreateNodeKey()).toThrow()
+      expect(() => recordPairing("dev-1", ccc)).toThrow()
+      expect(() => clearPairing("w-ccc")).toThrow()
+      expect(() => revokePairing("w-ccc")).toThrow()
+      expect(() => clearRevocation("w-ccc")).toThrow()
+      expect(fs.readFileSync(nodeFilePath(), "utf-8")).toBe(torn)
+    })
+  })
+
+  it("writes atomically, leaving no temp file behind", () => {
+    recordPairing("dev-1", ccc)
+    const dir = path.dirname(nodeFilePath())
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([])
+    expect(listPairings()[0].workspace_slug).toBe("ccc")
   })
 })

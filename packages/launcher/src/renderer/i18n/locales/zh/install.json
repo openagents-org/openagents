@@ -1,7 +1,7 @@
 {
   "topbar": {
-    "title": "应用市场",
-    "subtitle": "发现并安装 AI 智能体"
+    "title": "智能体市场",
+    "back": "返回连接智能体"
   },
   "stats": {
     "available": "个可用",
@@ -15,7 +15,7 @@
   },
   "status": {
     "installed": "已安装",
-    "update": "可更新",
+    "update": "待更新",
     "available": "未安装",
     "comingSoon": "即将推出"
   },
@@ -27,6 +27,8 @@
     "current": "当前 v{{version}}",
     "latest": "最新 v{{version}}",
     "builtin": "内置",
+    "prev": "上一个",
+    "next": "下一个",
     "spec": {
       "runtime": "运行时",
       "platforms": "平台",
@@ -148,7 +150,7 @@
     },
     "logFile": {
       "label": "完整日志已保存到本地",
-      "reveal": "在访达中显示"
+      "reveal": "在文件夹中显示"
     }
   }
 }

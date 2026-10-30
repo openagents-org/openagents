@@ -3,7 +3,7 @@
 
 import time
 
-from openagents.core.onm_events import (
+from openagents.sdk.onm_events import (
     CoreEventTypes,
     Event,
     EventVisibility,

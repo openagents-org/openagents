@@ -1,3 +1,7 @@
+import fs from "fs"
+import os from "os"
+import path from "path"
+
 import { describe, expect, it } from "vitest"
 
 import { shellCommandFor, windowsExecutable } from "./win-exec"
@@ -28,6 +32,22 @@ describe("windowsExecutable", () => {
     expect(windowsExecutable("/usr/local/bin/claude", "darwin")).toEqual({
       command: "/usr/local/bin/claude",
       shell: false,
+    })
+  })
+
+  it("starts a WSL-resolved CLI through wsl.exe", () => {
+    expect(win("wsl:/home/u/.local/bin/claude")).toEqual({
+      command: 'wsl.exe -e "/home/u/.local/bin/claude"',
+      shell: true,
+    })
+  })
+
+  it("routes a WSL CLI through wsl.exe on every host platform", () => {
+    // The marker only ever comes from a Windows host, but the binary behind it
+    // is Linux either way — nothing else can start it.
+    expect(windowsExecutable("wsl:/usr/bin/codex", "darwin")).toEqual({
+      command: 'wsl.exe -e "/usr/bin/codex"',
+      shell: true,
     })
   })
 
@@ -73,6 +93,58 @@ describe("windowsExecutable", () => {
         'node "C:\\Users\\q\\.openagents\\nodejs\\node_modules\\@openai\\codex\\bin\\codex.js"',
       shell: true,
     })
+  })
+
+  it("runs an extensionless Node shebang through node on Windows", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-bin-"))
+    const bin = path.join(dir, "cline")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env node\n")
+      expect(windowsExecutable(bin, "win32")).toEqual({
+        command: `node "${bin}"`,
+        shell: true,
+      })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("treats an `env -S node --flag` shebang as a Node script, like the daemon does", () => {
+    // agent-connector's isNodeShebangScript accepts env flags; if this copy
+    // did not, the daemon would run such a bin through node while the login
+    // terminal fell to the shell fallback and failed.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-s-bin-"))
+    const bin = path.join(dir, "tool")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env -S node --no-warnings\n")
+      expect(windowsExecutable(bin, "win32")).toEqual({
+        command: `node "${bin}"`,
+        shell: true,
+      })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves other extensionless files on the shell fallback", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-other-bin-"))
+    try {
+      for (const [name, contents] of [
+        ["ts-node", "#!/usr/bin/env ts-node\n"],
+        ["node-wrapper", "#!/usr/bin/env node-wrapper\n"],
+        ["shell-script", "#!/bin/sh -c node\n"],
+        ["plain-text", "not a shebang\n"],
+      ]) {
+        const bin = path.join(dir, name)
+        fs.writeFileSync(bin, contents)
+        expect(windowsExecutable(bin, "win32")).toEqual({
+          command: `"${bin}"`,
+          shell: true,
+        })
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it("prefers a .js bin's real shim — named for the command, not the file", () => {
@@ -122,7 +194,24 @@ describe("shellCommandFor", () => {
     )
   })
 
+  it("keeps the node prefix for an extensionless Node shebang", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-node-bin-"))
+    const bin = path.join(dir, "cline")
+    try {
+      fs.writeFileSync(bin, "#!/usr/bin/env node\n")
+      expect(shellCommandFor(bin, "win32")).toBe(`node "${bin}"`)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("doesn't double-quote what is already quoted", () => {
     expect(win("C:\\bin\\amp.cmd")).toBe('"C:\\bin\\amp.cmd"')
+  })
+
+  it("keeps the wsl.exe prefix for an in-distro CLI", () => {
+    expect(win("wsl:/home/u/.local/bin/claude")).toBe(
+      'wsl.exe -e "/home/u/.local/bin/claude"',
+    )
   })
 })

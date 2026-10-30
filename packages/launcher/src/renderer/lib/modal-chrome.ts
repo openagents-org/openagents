@@ -17,8 +17,14 @@
  * reading it is both simpler and impossible to strand.
  */
 
-/** Radix stamps both, and both scrim the page. */
-const OPEN_MODAL =
+/**
+ * Radix stamps both, and both scrim the page.
+ *
+ * Exported because the embedded workspace view has the same question to ask:
+ * it is a native view painted above the page, so it covers any dialog the
+ * launcher opens over it (see hooks/useModalOpen).
+ */
+export const OPEN_MODAL =
   '[data-slot="dialog-content"][data-state="open"],' +
   '[data-slot="alert-dialog-content"][data-state="open"]'
 

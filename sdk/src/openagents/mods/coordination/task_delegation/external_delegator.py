@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from openagents.core.connectors.a2a_connector import A2ANetworkConnector
+from openagents.sdk.connectors.a2a_connector import A2ANetworkConnector
 from openagents.models.a2a import (
     A2AMessage,
     DataPart,
@@ -26,7 +26,7 @@ from .a2a_delegation import (
 )
 
 if TYPE_CHECKING:
-    from openagents.core.a2a_registry import A2AAgentRegistry
+    from openagents.sdk.a2a_registry import A2AAgentRegistry
 
 logger = logging.getLogger(__name__)
 

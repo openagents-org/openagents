@@ -3,13 +3,14 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { cn } from '@/lib/utils';
+import { Wallet } from 'lucide-react';
 
 interface IconProps {
   className?: string;
   size?: number;
 }
 
-const ICON_BASE = '/icons/agents';
+const ICON_BASE = typeof window !== 'undefined' && (window as unknown as { api?: unknown }).api ? 'icons' : '/icons/agents';
 
 const NEEDS_BG = new Set([
   'claude', 'codex', 'cline', 'amp', 'goose', 'openclaw', 'copilot',
@@ -46,5 +47,6 @@ export function AgentIcon({ name, className, size = 20 }: { name: string } & Ico
 }
 
 export function ProviderIcon({ name, className, size = 20 }: { name: string } & IconProps) {
+  if (name === 'tokenpay') return <Wallet size={size} className={cn('shrink-0', className)} />;
   return <IconWrapper name={name} size={size} className={className} />;
 }

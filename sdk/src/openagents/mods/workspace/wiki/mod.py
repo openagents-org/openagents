@@ -16,7 +16,7 @@ import uuid
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
-from openagents.core.base_mod import BaseMod, mod_event_handler
+from openagents.sdk.base_mod import BaseMod, mod_event_handler
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse

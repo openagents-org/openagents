@@ -17,6 +17,7 @@ import { nodeDistUrls, npmUrls } from "../mirror"
 import { downloadToFile, fetchTextRacing } from "../download"
 import { PORTABLE_NODE_DIR } from "../agents/paths"
 import { slog } from "./startup-log"
+import { NPM_VERSION, pinnedNodeVersion } from "./node-version"
 
 /**
  * Belt-and-braces guard for the install pipeline. The agent-launcher core
@@ -45,21 +46,89 @@ export function ensureBundledRuntimeFirstOnPath(): void {
   writePathEnv([PORTABLE_NODE_DIR, ...filtered].join(sep))
 }
 
-// Smoke-test a node binary. Returns true only if `--version` exits cleanly.
-// Used at startup to detect a corrupt bundled node.exe (e.g. from an
+/**
+ * Directories a user-level installer drops a binary into, which a GUI-launched
+ * app never has on PATH.
+ *
+ * `~/.local/bin` is the one that matters most: it is where uv's own
+ * `curl … | sh` installer puts `uv`, where pipx and `pip --user` put theirs,
+ * and (on Windows too) where uv installs by default. The Homebrew and
+ * /usr/local entries are for a Terminal-installed tool on a machine whose
+ * launchd PATH predates them.
+ */
+function userBinDirs(home: string = os.homedir()): string[] {
+  const dirs = [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+  ]
+  if (process.platform !== "win32") {
+    dirs.push("/opt/homebrew/bin", "/usr/local/bin")
+  }
+  return dirs
+}
+
+/**
+ * Put the user-level bin directories back on this process's PATH.
+ *
+ * A GUI app is started by launchd (or explorer.exe), not by a shell, so it
+ * inherits a minimal PATH — on macOS `/usr/bin:/bin:/usr/sbin:/sbin` — and
+ * never sees the line a tool's installer appended to the user's shell profile.
+ * Everything the launcher spawns copies `process.env` as its base, so the gap
+ * propagates: OpenWorker's install command IS `uv tool install …`, and on a
+ * machine with uv sitting in ~/.local/bin it died with `/bin/sh: uv: command
+ * not found` and exit 127. The install pre-flight had already LOOKED there and
+ * found uv — it searches ~/.local/bin explicitly — so the check passed and the
+ * spawn then failed, which is the worst of both answers.
+ *
+ * Appended, never prepended: a directory the user deliberately put first on
+ * their own PATH has to keep winning, and the bundled-runtime helper above is
+ * the only thing entitled to the front. Only directories that exist are added,
+ * so this is a no-op on a machine that has none of them.
+ */
+export function ensureUserBinDirsOnPath(): void {
+  const sep = path.delimiter
+  const current = readPathEnv()
+  const present = new Set(current.split(sep).filter(Boolean))
+  const missing = userBinDirs().filter((d) => {
+    if (present.has(d)) return false
+    try {
+      return fs.existsSync(d)
+    } catch {
+      return false
+    }
+  })
+  if (!missing.length) return
+  writePathEnv(current ? [current, ...missing].join(sep) : missing.join(sep))
+  slog(`PATH: added user bin dirs [${missing.join(", ")}]`)
+}
+
+// Smoke-test a node binary: its `--version` output, or null unless it exits
+// cleanly. Used at startup to detect a corrupt bundled node.exe (e.g. from an
 // interrupted download) that Windows would refuse to spawn with
-// "此应用无法在你的电脑上运行".
-export function canExecuteNodeBinary(binaryPath: string): boolean {
+// "此应用无法在你的电脑上运行", and to tell an outdated runtime from a current one.
+export function nodeBinaryVersion(binaryPath: string): string | null {
   try {
     const r = spawnSync(binaryPath, ["--version"], {
       timeout: 5000,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     })
-    return r.status === 0 && !r.error
+    if (r.status !== 0 || r.error) return null
+    return String(r.stdout || "").trim() || null
   } catch {
-    return false
+    return null
   }
+}
+
+export function canExecuteNodeBinary(binaryPath: string): boolean {
+  return nodeBinaryVersion(binaryPath) !== null
+}
+
+/** Where a runtime laid out by downloadNodejs keeps its node binary. */
+export function nodeBinaryIn(nodejsDir: string): string {
+  return process.platform === "win32"
+    ? path.join(nodejsDir, "node.exe")
+    : path.join(nodejsDir, "bin", "node")
 }
 
 // Node dist publishes SHASUMS256.txt beside the binaries and every mirror
@@ -81,9 +150,8 @@ async function fetchNodeShasum(
   return null
 }
 
-// Map process.arch to Node.js distribution arch. Falls back to x64 — Windows
-// ia32 is not produced for v22+ and Node.js does not publish 32-bit Windows
-// binaries anymore.
+// Map process.arch to Node.js distribution arch. Falls back to x64 — Node.js
+// no longer publishes 32-bit Windows binaries.
 function nodeDistArch(): string {
   if (process.arch === "arm64") return "arm64"
   return "x64"
@@ -117,7 +185,7 @@ export async function downloadNodejs(
   nodejsDir: string,
   onProgress: (pct: number, detail: string) => void,
 ): Promise<void> {
-  const nodeVersion = "v22.22.3"
+  const nodeVersion = pinnedNodeVersion()
   const arch = nodeDistArch()
 
   try {
@@ -125,7 +193,7 @@ export async function downloadNodejs(
   } catch {}
   fs.mkdirSync(nodejsDir, { recursive: true })
   slog(
-    `downloadNodejs: platform=${process.platform} arch=${arch} dir=${nodejsDir}`,
+    `downloadNodejs: ${nodeVersion} platform=${process.platform} arch=${arch} dir=${nodejsDir}`,
   )
 
   if (process.platform === "win32") {
@@ -148,11 +216,10 @@ export async function downloadNodejs(
       )
     }
 
-    const npmVersion = "10.9.8"
-    const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
+    const npmTgz = path.join(os.tmpdir(), `npm-${NPM_VERSION}.tgz`)
     const npmModDir = path.join(nodejsDir, "node_modules", "npm")
     if (onProgress) onProgress(85, "Installing npm...")
-    await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+    await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
       log: slog,
     })
 
@@ -206,13 +273,17 @@ export async function downloadNodejs(
       fs.unlinkSync(tarPath)
     } catch {}
 
-    const binDir = path.join(nodejsDir, "bin")
+    // Relative targets: an upgrade builds the runtime in a staging directory
+    // and renames it into place, which would leave absolute links pointing
+    // at the staging path.
     for (const name of ["node", "npm", "npx"]) {
-      const src = path.join(binDir, name)
       const dest = path.join(nodejsDir, name)
-      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+      if (
+        fs.existsSync(path.join(nodejsDir, "bin", name)) &&
+        !fs.existsSync(dest)
+      ) {
         try {
-          fs.symlinkSync(src, dest)
+          fs.symlinkSync(path.join("bin", name), dest)
         } catch {}
       }
     }

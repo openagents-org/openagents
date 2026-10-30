@@ -65,8 +65,10 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Same column, same reasoning as DetailOverview: no measure of its own,
+          because a `ch` cap at this size stops halfway across it. */}
       {prose && (
-        <p className="m-0 max-w-prose text-xs leading-loose whitespace-pre-wrap text-muted-foreground">
+        <p className="m-0 text-xs leading-loose whitespace-pre-wrap text-muted-foreground">
           {prose}
         </p>
       )}

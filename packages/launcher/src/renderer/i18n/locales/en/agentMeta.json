@@ -19,8 +19,9 @@
     "pi": "Earendil's Pi coding agent for the terminal — headless RPC mode, many providers.",
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
-    "openworker": "Local-first agent coworker — the launcher runs its server headlessly, one session per channel.",
-    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly."
+    "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
+    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -30,11 +31,11 @@
     "token": "Token"
   },
   "genericHints": {
-    "apiKey": "API key for the selected provider. Leave blank to reuse a key already in your environment.",
+    "apiKey": "API key for the selected provider.",
     "baseUrl": "Endpoint URL. Leave blank for the hosted service; set it for a relay, proxy or self-hosted gateway.",
     "model": "Model name. Change it when using a relay or proxy — their channels rarely match the default.",
     "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
-    "token": "Access token. Leave blank to reuse a token already in your environment."
+    "token": "Access token."
   },
   "env": {
     "AIDER_MODEL": {
@@ -175,7 +176,7 @@
     },
     "LLM_API_KEY": {
       "label": "API key",
-      "hint": "API key for the selected provider. Leave blank to reuse a key already in your environment."
+      "hint": "API key for the selected provider."
     },
     "LLM_BASE_URL": {
       "label": "Base URL",
@@ -247,7 +248,7 @@
     },
     "DEEPSEEK_MODEL": {
       "label": "DeepSeek model",
-      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the default."
+      "hint": "Pick from the models your API key can use, or type a model id. Leave blank to use the DeepSeek Harness default."
     },
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",
@@ -307,7 +308,19 @@
     },
     "CODEBUDDY_BASE_URL": {
       "label": "Base URL",
-      "hint": "Advanced. Endpoint override for an enterprise or self-hosted deployment. Leave blank to use the endpoint the site above selects."
+      "hint": "Advanced. Endpoint override for an enterprise or self-hosted CodeBuddy; blank uses the endpoint the site above selects. This is not a model gateway or relay URL — CodeBuddy speaks Tencent’s own protocol, and an OpenAI-compatible endpoint will not work here."
+    },
+    "CODEARTS_CLI_AK": {
+      "label": "Access key ID (AK)",
+      "hint": "Huawei Cloud access key ID. CodeArts Agent accepts no other credential when it runs headless — create one at codearts.huaweicloud.com/portal/settings/cli-auth."
+    },
+    "CODEARTS_CLI_SK": {
+      "label": "Secret access key (SK)",
+      "hint": "The secret access key paired with the access key ID above."
+    },
+    "CODEARTS_MODEL": {
+      "label": "Model",
+      "hint": "Model to run on, as provider/model. Pick one from the list, or leave blank to use the first model your access key can run."
     }
   }
 }

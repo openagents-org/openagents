@@ -10,9 +10,12 @@ import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chr
 import { workspaceApi } from '@/lib/api';
 import type { PairingCode, WorkspaceNode } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { desktopHost } from '@/lib/desktop-host';
 
 export default function DevicesSettingsPage() {
-  const { me } = useAdminSettings();
+  const { me, workspace } = useAdminSettings();
+  const host = desktopHost();
+  const [connecting, setConnecting] = useState(false);
   const t = useT();
   const confirm = useConfirm();
   const editable = canAdminister(me);
@@ -34,6 +37,23 @@ export default function DevicesSettingsPage() {
   }, []);
 
   useEffect(() => { loadNodes(); }, [loadNodes]);
+
+  const connectComputer = async () => {
+    if (!host || connecting) return;
+    const ok = await confirm({
+      title: t('admin.connectThisComputer'),
+      description: t('admin.connectThisComputerDescription'),
+      confirmText: t('admin.connectThisComputer'),
+    });
+    if (!ok) return;
+    setConnecting(true);
+    try {
+      await host.connectComputer(workspace.workspaceId);
+      await loadNodes();
+      toast.success(t('admin.computerConnected'));
+    } catch { toast.error(t('admin.pairingFailed')); }
+    finally { setConnecting(false); }
+  };
 
   const mintCode = async () => {
     setMinting(true);
@@ -67,6 +87,16 @@ export default function DevicesSettingsPage() {
     <div className="space-y-8">
       <SectionHeader title={t('admin.devicesTitle')} description={t('admin.devicesDescription')} />
       {!editable && <ReadOnlyBanner />}
+
+      {editable && host && (
+        <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+          <div><p className="text-sm font-medium">{t('admin.connectThisComputer')}</p><p className="mt-1 text-sm text-muted-foreground">{t('admin.connectThisComputerHint')}</p></div>
+          <Button onClick={connectComputer} disabled={connecting}>
+            {connecting ? <Loader2 className="size-4 animate-spin" /> : <Laptop className="size-4" />}
+            {t('admin.connectThisComputer')}
+          </Button>
+        </div>
+      )}
 
       {editable && (
         <div className="space-y-3 rounded-lg border p-4">

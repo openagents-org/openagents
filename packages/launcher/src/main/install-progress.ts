@@ -180,6 +180,10 @@ export function installStepLabel(
   return "finishing the installation"
 }
 
+const GENERIC_REASON = "The installer stopped before it could finish."
+const NO_COMMAND_REASON =
+  "The installer finished, but left no working command behind."
+
 export function userFacingInstallError(
   err: unknown,
   phase: InstallPhase,
@@ -187,9 +191,9 @@ export function userFacingInstallError(
 ): string {
   const raw = err instanceof Error ? err.message : String(err || "")
   const text = raw.toLowerCase()
-  const step = installStepLabel(phase, verb)
+  let step = installStepLabel(phase, verb)
 
-  let reason = "The installer stopped before it could finish."
+  let reason = GENERIC_REASON
   let hint = "Open the log for details, then try again."
 
   // Git failures are checked FIRST, ahead of the generic network and
@@ -230,6 +234,34 @@ export function userFacingInstallError(
     hint =
       "Run `xcode-select --install` (macOS) or install Git for your system, then retry."
   } else if (
+    // A child PowerShell that cannot auto-load a built-in module — e.g. "The
+    // 'Get-ExecutionPolicy' command was found in the module
+    // 'Microsoft.PowerShell.Security', but the module could not be loaded".
+    // Installers spawn such a child for sub-steps (hermes's install.ps1 does,
+    // for the astral uv installer, and without -NoProfile), and the step dies
+    // before doing anything. The cause is environmental — a PSModulePath that
+    // lost $PSHOME\\Modules, a profile that rewrites it, constrained language
+    // mode — so name the symptom and let the user check, rather than asserting
+    // one of them. Checked ahead of the permission bucket, which the bare
+    // substring "executionpolicy" inside that command name would claim.
+    text.includes("but the module could not be loaded") ||
+    (text.includes("could not be loaded") && text.includes("import-module"))
+  ) {
+    reason =
+      "A PowerShell step inside the installer could not load a built-in module, so it stopped before doing any work."
+    hint =
+      "Compare `powershell -NoProfile -Command \"$env:PSModulePath\"` with the same command without -NoProfile — a PSModulePath missing the Windows PowerShell module directory is the usual cause."
+  } else if (
+    text.includes("uv installation failed") ||
+    text.includes("uv installed but not found")
+  ) {
+    // Python-toolchain agents (hermes) bootstrap uv first and cannot continue
+    // without it. Its own failure is reported several lines above the one that
+    // reaches us, so name the step explicitly.
+    reason = "The installer could not set up uv, the Python toolchain it builds on."
+    hint =
+      "Install uv manually (https://docs.astral.sh/uv/getting-started/installation/), then retry — the installer reuses an existing copy."
+  } else if (
     text.includes("not recognized as an internal or external command") ||
     text.includes("not recognized") ||
     text.includes("enoent") ||
@@ -257,12 +289,50 @@ export function userFacingInstallError(
   ) {
     reason = "The installer did not have permission to complete."
     hint = "Check system permissions and retry."
-  } else if (text.includes("not found") || text.includes("not installed")) {
-    reason = "The installed command could not be found."
-    hint = "Open the log to see which command was missing."
+  } else if (
+    text.includes("not found") ||
+    text.includes("not installed") ||
+    // "…binary could not be found", the verify-before-mark wording. It matched
+    // nothing here ("not be found" is not "not found"), so an installer that
+    // exited 0 and left no command got the generic shrug.
+    text.includes("could not be found")
+  ) {
+    reason = NO_COMMAND_REASON
+    hint = "Open the log to see what the installer reported before it stopped."
+    // This is the verify-before-mark check that runs after the installer
+    // exits, so whatever phase the output last suggested is not where it
+    // failed. A quiet install.ps1 never leaves "preparing", which is how a
+    // Windows hermes failure came to read "Failed while preparing the
+    // installer".
+    if (text.includes("could not be found")) step = installStepLabel("verifying", verb)
   }
 
-  return `Failed while ${step}. ${reason} ${hint}`
+  // Neither bucket above knows this failure, so the generic copy is all the
+  // user would see. Quote the installer's own last line: it is usually the
+  // actual error, and it is what we need from a screenshot.
+  const fellThrough = reason === GENERIC_REASON || reason === NO_COMMAND_REASON
+  const last = fellThrough ? lastInstallerLine(raw) : ""
+  const quoted = last ? ` Installer said: "${last}"` : ""
+
+  return `Failed while ${step}. ${reason}${quoted} ${hint}`
+}
+
+/**
+ * Last non-empty line of the installer output the connector appends to a
+ * failed install ("…\n\nInstaller output:\n<tail>"), capped for a toast.
+ */
+export function lastInstallerLine(raw: string): string {
+  const marker = "Installer output:"
+  const at = raw.lastIndexOf(marker)
+  if (at < 0) return ""
+  const lines = raw
+    .slice(at + marker.length)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    // Skip banner rules and box-drawing; a line worth quoting has words.
+    .filter((l) => /[a-z]/i.test(l))
+  const last = lines[lines.length - 1] || ""
+  return last.length > 160 ? `${last.slice(0, 157)}...` : last
 }
 
 export function classifyInstallChunk(

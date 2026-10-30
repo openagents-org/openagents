@@ -2,7 +2,8 @@ import path from "path"
 import fs from "fs"
 import os from "os"
 import { app } from "electron"
-import { spawn } from "child_process"
+import { execFile, spawn } from "child_process"
+import { createHash } from "crypto"
 import {
   PAIRING_CODE_LENGTH,
   clearPairing,
@@ -11,6 +12,7 @@ import {
   inferDeviceType,
   listPairings,
   listRevocations,
+  nodeFilePath,
   normalizePairingCode,
   recordPairing,
   revokePairing,
@@ -35,17 +37,32 @@ import {
   KEY_OPTIONAL_LOGIN_AGENTS,
   launcherAuthFields,
 } from "./agents/auth-specs"
+import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
+import { listedAgentModel } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
 } from "./agents/env-normalize"
 import { testLLMConnection, type LLMTestResult } from "./agents/llm-test"
 import {
+  CLI_MODEL_CACHE_MS,
+  lastOutputLine,
   listAgentModels,
+  MODEL_LIST_TIMEOUT_MS,
+  type CliRunFailure,
   type ModelListPath,
   type ModelListResult,
 } from "./agents/model-catalog"
-import { clearLogsInRange as clearDaemonLogsInRange } from "./agents/daemon-logs"
+import {
+  CredentialImportService,
+  type SavedEnv,
+} from "./credential-import/service"
+import { readShellEnv } from "./credential-import/shell-env"
+import type { ImportCandidate } from "../shared/credential-import"
+import {
+  clearLogsInRange as clearDaemonLogsInRange,
+  tailLogs as tailDaemonLogs,
+} from "./agents/daemon-logs"
 import {
   appendDaemonLog,
   getLiveDaemonPid,
@@ -56,6 +73,7 @@ import { HealthResolver, type HealthResolverDeps } from "./agents/health"
 import {
   InstallService,
   type InstalledAgentRecord,
+  type UpdateTarget,
 } from "./agents/install-service"
 import { LoginProbe } from "./agents/login-probe"
 import { buildBinaryTypeMap } from "./agents/binary-map"
@@ -166,7 +184,16 @@ export class AgentManager extends EventEmitter {
   private _lastHealthRefreshAt = 0
   private _healthQueue: string[] = []
   private _healthProcessing = false
-  private _agentsCache: { value: unknown[]; at: number } = { value: [], at: 0 }
+  /**
+   * The built list, and the status snapshot it was built from. A list is only
+   * reused while that snapshot is still the current one: start and stop change
+   * nothing but the state, and serving a list built before the click left the
+   * row on its old state until the renderer's next 5s poll.
+   */
+  private _agentsCache: { value: unknown[]; at: number; status?: unknown } = {
+    value: [],
+    at: 0,
+  }
   private _catalogCache: {
     value: unknown[] | null
     at: number
@@ -189,6 +216,12 @@ export class AgentManager extends EventEmitter {
   private _install: InstallService
   /** Workspace chat: send, poll, sessions, files. */
   private _chat: ChatService
+  /** Model keys already on this machine, offered back to agent forms. */
+  private _credentialImport = new CredentialImportService({
+    savedEnvs: () => this._savedCredentialEnvs(),
+    shellEnv: readShellEnv,
+    home: os.homedir(),
+  })
 
   constructor(store: LauncherSettingsStore) {
     super()
@@ -207,6 +240,9 @@ export class AgentManager extends EventEmitter {
       // A probe that settles changes what the Agents list should say, so drop
       // the caches it would otherwise be served from.
       onSettled: (type) => {
+        // A sign-in that changed changes what the CLI lists; drop its cached
+        // lists so the picker never shows the signed-out line-up afterwards.
+        this._forgetCliModels(type)
         if (HOSTED_LOGIN_AGENTS[type]) {
           this._healthByType.set(type, this._health.hostedLoginHealth(type))
         }
@@ -334,7 +370,8 @@ export class AgentManager extends EventEmitter {
     const now = Date.now()
     if (
       this._agentsCache.value.length > 0 &&
-      now - this._agentsCache.at < 1500
+      now - this._agentsCache.at < 1500 &&
+      this._agentsCache.status === this.getAllStatus()
     ) {
       return this._agentsCache.value
     }
@@ -362,6 +399,22 @@ export class AgentManager extends EventEmitter {
     )
 
     const supportedTypes = new Set(this.getSupportedAgentTypes())
+    // One read per type, not per agent: `getAgentEnv` hits the disk, and a
+    // device with five agents of one type would otherwise read the same file
+    // five times per list refresh.
+    const typeEnvCache = new Map<string, Record<string, string>>()
+    const typeEnv = (type: string): Record<string, string> => {
+      const hit = typeEnvCache.get(type)
+      if (hit) return hit
+      let env: Record<string, string> = {}
+      try {
+        env = (this.getAgentEnv(type) as Record<string, string>) || {}
+      } catch {
+        env = {}
+      }
+      typeEnvCache.set(type, env)
+      return env
+    }
     const value = (agents as Array<Record<string, unknown>>).map((a) => {
       const type = (a.type as string) || "openclaw"
       const runtimeMismatch = !supportedTypes.has(type)
@@ -381,6 +434,14 @@ export class AgentManager extends EventEmitter {
           this._healthByType.get(type) || null,
         ),
         runtimeMismatch,
+        // The model this agent runs on, resolved here because only the main
+        // process holds both halves of the answer: an agent configured from
+        // the setup wizard or its marketplace page keeps its model in the TYPE
+        // env, while the row carries only the instance env — so the Agents
+        // list showed "—" for an agent that was configured correctly, and a
+        // user with no way to check what it was running had to take the
+        // agent's word for it (it guessed, and guessed wrong).
+        model: listedAgentModel(typeEnv(type), a as { env?: Record<string, string>; instanceEnv?: Record<string, string> }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
@@ -388,7 +449,7 @@ export class AgentManager extends EventEmitter {
         hasCli: !!this.resolveBinary(type),
       }
     })
-    this._agentsCache = { value, at: now }
+    this._agentsCache = { value, at: now, status }
     return value
   }
 
@@ -432,6 +493,7 @@ export class AgentManager extends EventEmitter {
               ? healthCheck.call(this._connector, type)
               : null
             this._healthByType.set(type, health)
+            this._recheckUnknownVersion(type, health)
             // Dual-auth agents (Claude): keep the CLI sign-in cache warm so the
             // agents list reflects a subscription login without an API key.
             if (DUAL_LOGIN_AGENTS[type]) void this._login.refresh(type)
@@ -445,6 +507,38 @@ export class AgentManager extends EventEmitter {
       }, 0)
     }
     tick()
+  }
+
+  /** Re-checks already spent per type on a version that was still unknown. */
+  private _versionRechecks = new Map<string, number>()
+
+  /**
+   * In this process the core answers `--version` from a background probe (see
+   * its probe-mode.js), so the first health check of an installed agent can
+   * come back without a version. Look again once that probe has had time to
+   * finish, instead of showing no version until the next 30s refresh. Bounded,
+   * so a CLI whose `--version` really fails is not asked on a loop.
+   */
+  private _recheckUnknownVersion(type: string, health: unknown): void {
+    const h = health as {
+      installed?: boolean
+      binary?: string | null
+      version?: string | null
+    } | null
+    if (!h?.installed || !h.binary || h.version) {
+      this._versionRechecks.delete(type)
+      return
+    }
+    const spent = this._versionRechecks.get(type) || 0
+    if (spent >= 2) return
+    this._versionRechecks.set(type, spent + 1)
+    setTimeout(() => {
+      if (this._healthRefreshInFlight.has(type)) return
+      this._healthRefreshInFlight.add(type)
+      this._healthQueue.push(type)
+      this._agentsCache = { value: [], at: 0 }
+      this._processHealthQueue()
+    }, 3000)
   }
 
   /**
@@ -493,14 +587,11 @@ export class AgentManager extends EventEmitter {
    * directly — the package's own `bin\x.js`, or npm's extensionless Git-Bash
    * script — because `where` found no `.cmd` shim for it.
    *
-   * This is a diagnostic, not a failure: the launcher runs those shapes fine now
-   * (see win-exec.ts). It is logged because the DAEMON does not. Every npm
-   * adapter (claude, codex, gemini, cline, opencode, pi) resolves its binary
-   * with its own tiered search that only ever builds `<name>.cmd` on Windows and
-   * never falls back to the package bin — so an agent in this state looks
-   * installed and signs in from the launcher while every message to it fails.
-   * When that report comes in, this line in the log is the answer, and nobody
-   * has to go read directories over chat to find it.
+   * This is a diagnostic, not a failure: the launcher runs those shapes through
+   * node/shebang handling (see win-exec.ts), and adapters that share the core's
+   * managed-package resolver (including Cline) resolve the same package entry.
+   * Older or private adapters may still require a Windows shim, so keep the path
+   * in the log without claiming that every daemon adapter will reject it.
    */
   private _logUnshimmedBinary(type: string, bin: string | null): void {
     if (process.platform !== "win32" || !bin) return
@@ -509,9 +600,8 @@ export class AgentManager extends EventEmitter {
     this._unshimmedLogged.set(type, bin)
     appendDaemonLog(
       `${type}: CLI resolved to "${bin}" — no Windows .cmd shim was found for it. ` +
-        `The launcher can run this, but the daemon's ${type} adapter only looks for ` +
-        `${type}.cmd, so agents of this type may fail to start. Reinstalling ${type} ` +
-        `from the marketplace should restore the shim.`,
+        `The launcher will use the package entry directly; daemon support depends ` +
+        `on the ${type} adapter's binary resolver.`,
     )
   }
 
@@ -641,19 +731,71 @@ export class AgentManager extends EventEmitter {
   async refreshHostedLogin(type: string): Promise<unknown> {
     if (!this._login.specFor(type)) return this.healthCheck(type)
     await this._login.refresh(type, true)
+    this.nudgeRuntimeDetect()
     // Pure hosted-login → login-only verdict. Dual-auth (Claude) → the combined
     // health, now reflecting the just-refreshed sign-in probe.
     if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
     return this.healthCheck(type)
   }
 
-  /** Saved type-level env for a probe (e.g. AMP_URL / AMP_API_KEY), never thrown. */
+  /**
+   * The saved env a launcher-side CLI spawn for this TYPE should carry — the
+   * sign-in probe (a configured AMP_URL / AMP_API_KEY) and the login terminal
+   * (which CodeBuddy site to sign into) both read it.
+   *
+   * Type-level env first, then the instance env of every agent of that type
+   * layered over it. Both levels are real: onboarding and the Install page save
+   * type-level, while Configure on an existing agent saves per-instance — so
+   * reading only the type would hand the probe a value the user has since
+   * changed. With more than one agent of a type the last one wins, which is the
+   * best a per-TYPE answer can do and matches what the probe is: a question
+   * about the CLI's own state, not about one agent.
+   *
+   * Reads the connector's raw list rather than getAgents(). getAgents() derives
+   * health, health asks the sign-in probe, and the probe lands back here — so
+   * going through it would recurse until the stack ran out, on every dual-login
+   * agent, the first time the list was built.
+   */
   private _savedTypeEnvForProbe(type: string): Record<string, string> {
+    let env: Record<string, string> = {}
     try {
-      return (this.getAgentEnv(type) as Record<string, string>) || {}
+      env = { ...((this.getAgentEnv(type) as Record<string, string>) || {}) }
     } catch {
-      return {}
+      /* no type-level env saved yet */
     }
+    try {
+      const listAgents = this._connector?.listAgents as
+        | (() => unknown[])
+        | undefined
+      const agents = (listAgents?.call(this._connector) || []) as Array<{
+        type?: string
+        env?: Record<string, string>
+      }>
+      for (const agent of agents) {
+        if (agent.type !== type) continue
+        for (const [k, v] of Object.entries(agent.env || {})) {
+          if ((v || "").trim()) env[k] = v
+        }
+      }
+    } catch {
+      /* the daemon config isn't readable — the type-level env still stands */
+    }
+    return env
+  }
+
+  /**
+   * Extra environment the sign-in terminal for this agent type has to carry.
+   *
+   * A CLI that fronts several services signs into whichever one its environment
+   * selects, and a sign-in on the wrong one is indistinguishable from no sign-in
+   * at all once the agent runs. CodeBuddy is the case: launched bare it signs in
+   * against the international site, while an agent configured for the China site
+   * runs with CODEBUDDY_INTERNET_ENVIRONMENT=internal and cannot use that
+   * session. Empty for every other agent.
+   */
+  loginEnvFor(type: string): Record<string, string> {
+    if (type !== "codebuddy") return {}
+    return codebuddyLoginEnv(this._savedTypeEnvForProbe(type))
   }
 
   /**
@@ -720,7 +862,40 @@ export class AgentManager extends EventEmitter {
     return { success: true, agent: agentConfig }
   }
 
-  async removeAgent(name: string): Promise<unknown> {
+  /**
+   * Remove an agent, optionally dropping its workspace membership too.
+   *
+   * Order matters: the workspace call goes FIRST, so a network failure leaves
+   * the agent intact locally and the user can retry. Removing locally first
+   * would strand a member row nobody can reach any more — the very state this
+   * option exists to prevent.
+   *
+   * `fromWorkspace` on a core too old to offer removeAgentFromWorkspace is
+   * reported rather than silently skipped, so nobody is told the workspace was
+   * cleaned up when it was not.
+   */
+  async removeAgent(
+    name: string,
+    opts?: { fromWorkspace?: boolean },
+  ): Promise<unknown> {
+    if (opts?.fromWorkspace) {
+      const drop = this._connector!.removeAgentFromWorkspace as
+        | ((n: string) => Promise<unknown>)
+        | undefined
+      if (typeof drop !== "function") {
+        throw new Error(
+          "This version of the agent core cannot remove a workspace membership. Update the core, or remove the agent from the workspace directly.",
+        )
+      }
+      try {
+        await drop.call(this._connector, name)
+      } catch (e) {
+        // The membership is already gone — the goal state. Cores before
+        // 0.2.204 lost the 404 on the way up and threw it as an error, which
+        // left the agent impossible to delete; match the server's message.
+        if (!/member not found/i.test((e as Error)?.message || "")) throw e
+      }
+    }
     try {
       await this.stopAgent(name)
     } catch {}
@@ -729,6 +904,25 @@ export class AgentManager extends EventEmitter {
     // See addAgent: bust the cache so the deleted agent doesn't linger.
     this._agentsCache = { value: [], at: 0 }
     return { success: true }
+  }
+
+  /**
+   * Set an agent's display label, which is pushed to its workspace when it has
+   * one (the core does that half — see setAgentDisplayName). The agent's
+   * `name` is its identity and is never touched.
+   */
+  async renameAgent(name: string, displayName: string): Promise<unknown> {
+    const rename = this._connector!.setAgentDisplayName as
+      | ((n: string, d: string) => Promise<unknown>)
+      | undefined
+    if (typeof rename !== "function") {
+      throw new Error(
+        "This version of the agent core cannot rename agents. Update the core to use this.",
+      )
+    }
+    const result = await rename.call(this._connector, name, displayName)
+    this._agentsCache = { value: [], at: 0 }
+    return result ?? { success: true }
   }
 
   async updateAgent(
@@ -1091,7 +1285,11 @@ export class AgentManager extends EventEmitter {
       console.error("Failed to configure OpenClaw native auth:", e)
     }
 
+    // The agents list now reports each agent's model out of this file, so a
+    // stale cache would keep showing the previous one for up to its lifetime.
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
+    this.nudgeRuntimeDetect()
     return { success: true }
   }
 
@@ -1105,6 +1303,7 @@ export class AgentManager extends EventEmitter {
       env: unknown,
     ) => void
     saveEnv.call(this._connector, agentName, env)
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }
@@ -1125,6 +1324,60 @@ export class AgentManager extends EventEmitter {
     return testLLMConnection(env)
   }
 
+  /** Keys on this machine this agent's form can take — see credential-import. */
+  scanCredentialImports(agentType: string): Promise<ImportCandidate[]> {
+    return this._credentialImport.scan(agentType)
+  }
+
+  parseCredentialImport(agentType: string, text: string): ImportCandidate[] {
+    return this._credentialImport.parse(agentType, text)
+  }
+
+  resolveCredentialImport(
+    agentType: string,
+    id: string,
+  ): Record<string, string> | null {
+    return this._credentialImport.resolve(agentType, id)
+  }
+
+  /**
+   * Every model credential the launcher has saved: each supported agent type's
+   * form, and each agent's own (Configure saves per agent). Empty until the core
+   * is loaded — nothing can have been saved before that either.
+   */
+  private _savedCredentialEnvs(): SavedEnv[] {
+    try {
+      this._ensureConnector()
+      const saved: SavedEnv[] = this.getSupportedAgentTypes().map((type) => ({
+        env: (this.getAgentEnv(type) as Record<string, string>) || {},
+        source: {
+          kind: "agent",
+          ref: type,
+          label: (this._getRegistryEntry(type)?.label as string) || undefined,
+        },
+      }))
+      const listAgents = this._connector!.listAgents as () => Array<{
+        name: string
+        displayName?: string | null
+        type: string
+        instanceEnv?: Record<string, string>
+      }>
+      for (const agent of listAgents.call(this._connector) || []) {
+        saved.push({
+          env: agent.instanceEnv || {},
+          source: {
+            kind: "agent",
+            ref: agent.type,
+            label: agent.displayName || agent.name,
+          },
+        })
+      }
+      return saved
+    } catch {
+      return []
+    }
+  }
+
   /**
    * The models this agent can be pointed at, given the credentials currently in
    * the form. Read from the agent's own CLI cache or the provider endpoint —
@@ -1136,23 +1389,72 @@ export class AgentManager extends EventEmitter {
     agentType: string,
     env: Record<string, string>,
     path?: ModelListPath,
+    opts: { refresh?: boolean } = {},
   ): Promise<ModelListResult> {
     return listAgentModels(
       agentType,
       env || {},
       {
-        runCli: (type, args, extra) => this._runCliForModels(type, args, extra),
+        runCli: (type, args, extra) =>
+          this._cachedCliModels(type, args, extra, !!opts.refresh),
+        // Only asked once a list has failed to come back, to tell "sign in
+        // first" apart from a signed-in CLI that failed.
+        isSignedIn: (type) =>
+          this._login.specFor(type)
+            ? this._login.refresh(type)
+            : Promise.resolve(null),
       },
       path,
     )
   }
 
   /**
-   * Run an agent's CLI for its model list (today: `cursor-agent --list-models`).
-   * Goes through LoginProbe.spawnAgentCli so it inherits the one launch shape
-   * that survives Windows npm shims and the enhanced PATH — the same reasons
-   * the sign-in probe can't just call spawn() itself. Returns null on anything
-   * that isn't a clean run; the caller then falls back or says it has no list.
+   * Recent CLI model lists, per agent type + arguments + the credentials handed
+   * to the child. A list takes seconds to produce (`codearts models` asks
+   * Huawei Cloud, ~3s every time) and the picker asks again on every form that
+   * shows it, so the same answer is reused for a few minutes. Only clean runs
+   * are kept — a failure is always retried — and the key is a hash, so no
+   * credential is held here in the clear.
+   */
+  private _cliModelCache = new Map<string, { out: string; at: number }>()
+
+  private async _cachedCliModels(
+    agentType: string,
+    args: string[],
+    extra: Record<string, string> | undefined,
+    refresh: boolean,
+  ): Promise<string | CliRunFailure> {
+    const key = [
+      agentType,
+      createHash("sha256")
+        .update(JSON.stringify([args, extra || {}]))
+        .digest("hex"),
+    ].join(":")
+    const hit = this._cliModelCache.get(key)
+    if (!refresh && hit && Date.now() - hit.at < CLI_MODEL_CACHE_MS) return hit.out
+    const run = await this._runCliForModels(agentType, args, extra)
+    if (typeof run === "string") this._cliModelCache.set(key, { out: run, at: Date.now() })
+    else this._cliModelCache.delete(key)
+    return run
+  }
+
+  /** Forget an agent type's cached lists — its sign-in changed. */
+  private _forgetCliModels(agentType: string): void {
+    for (const key of this._cliModelCache.keys())
+      if (key.startsWith(`${agentType}:`)) this._cliModelCache.delete(key)
+  }
+
+  /**
+   * Run an agent's CLI for its model list (`cursor-agent --list-models`,
+   * `opencode models`). Goes through LoginProbe.spawnAgentCli so it inherits the
+   * one launch shape that survives Windows npm shims and the enhanced PATH —
+   * the same reasons the sign-in probe can't just call spawn() itself.
+   *
+   * Anything but a clean run comes back as a CliRunFailure saying which way it
+   * failed, and is written to the daemon log. It used to come back as a bare
+   * null, which the picker could only phrase as "sign in first" — so a
+   * signed-in OpenCode whose list didn't arrive in time was told to sign in,
+   * and nothing on disk said why.
    *
    * `extra` carries the credentials being configured (e.g. the CURSOR_API_KEY
    * typed into the key form) so the CLI answers for THEM rather than for the
@@ -1163,34 +1465,79 @@ export class AgentManager extends EventEmitter {
     agentType: string,
     args: string[],
     extra?: Record<string, string>,
-  ): Promise<string | null> {
+  ): Promise<string | CliRunFailure> {
+    const command = [agentType, ...args].join(" ")
+    const fail = (failure: CliRunFailure): CliRunFailure => {
+      appendDaemonLog(
+        `${agentType}: model list from \`${command}\` failed (${failure.failed})` +
+          (failure.detail ? `: ${failure.detail}` : ""),
+      )
+      return failure
+    }
     return new Promise((resolve) => {
       const bin = this.resolveBinary(agentType)
-      if (!bin) return resolve(null)
+      if (!bin) return resolve(fail({ failed: "missing" }))
       try {
         const child = this._login.spawnAgentCli(bin, args, {
           ...this._savedTypeEnvForProbe(agentType),
           ...(extra || {}),
         })
         let out = ""
+        // Only the tail is ever reported, so only the tail is kept.
+        let err = ""
         let settled = false
-        const finish = (value: string | null): void => {
+        const finish = (value: string | CliRunFailure): void => {
           if (settled) return
           settled = true
           clearTimeout(timer)
-          resolve(value)
+          resolve(typeof value === "string" ? value : fail(value))
         }
         const timer = setTimeout(() => {
           try {
-            child.kill()
+            // A shell-wrapped .cmd on Windows leaves the real CLI running when
+            // only cmd.exe is killed — take the tree (as cli-login does).
+            if (process.platform === "win32" && child.pid)
+              execFile(
+                "taskkill",
+                ["/pid", String(child.pid), "/T", "/F"],
+                { windowsHide: true },
+                () => {},
+              )
+            else child.kill()
           } catch {}
-          finish(null)
-        }, 15000)
+          finish({
+            failed: "timeout",
+            detail: `no answer after ${MODEL_LIST_TIMEOUT_MS / 1000}s`,
+            out,
+          })
+        }, MODEL_LIST_TIMEOUT_MS)
         child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
-        child.on("error", () => finish(null))
-        child.on("close", (code) => finish(code === 0 ? out : null))
-      } catch {
-        resolve(null)
+        child.stderr?.on(
+          "data",
+          (c: Buffer) => (err = (err + c.toString("utf-8")).slice(-4000)),
+        )
+        child.on("error", (e: NodeJS.ErrnoException) =>
+          finish({
+            failed: e?.code === "ENOENT" ? "missing" : "exit",
+            detail: e?.message,
+          }),
+        )
+        child.on("close", (code) =>
+          finish(
+            code === 0
+              ? out
+              : {
+                  failed: "exit",
+                  detail:
+                    lastOutputLine(err) ||
+                    lastOutputLine(out) ||
+                    `exit code ${code}`,
+                  out,
+                },
+          ),
+        )
+      } catch (e) {
+        resolve(fail({ failed: "exit", detail: (e as Error)?.message }))
       }
     })
   }
@@ -1326,8 +1673,12 @@ export class AgentManager extends EventEmitter {
     const ref = (input || "").trim()
     if (!ref) throw new Error("Missing workspace")
 
+    const connectionChoices = listPairings().filter((p) => p.workspace_slug === ref || p.workspace_id === ref || p.node_id === ref)
+    if (connectionChoices.length > 1) throw new Error("Choose a specific device connection, not just the workspace")
+    const chosenConnection = connectionChoices[0]
+    const workspaceRef = chosenConnection?.workspace_slug || chosenConnection?.workspace_id || ref
     const paired = listPairings().some(
-      (p) => p.workspace_slug === ref || p.workspace_id === ref,
+      (p) => p.workspace_slug === workspaceRef || p.workspace_id === workspaceRef,
     )
     if (!paired)
       throw new Error(
@@ -1336,7 +1687,7 @@ export class AgentManager extends EventEmitter {
 
     const known = (
       this.getNetworks() as Array<{ id?: string; slug?: string }>
-    ).find((n) => n.slug === ref || n.id === ref)
+    ).find((n) => n.slug === workspaceRef || n.id === workspaceRef)
     if (!known)
       throw new Error(
         `WORKSPACE_NOT_REGISTERED: '${ref}' is paired but has no local entry — re-pair this device`,
@@ -1351,15 +1702,33 @@ export class AgentManager extends EventEmitter {
       agentName,
       (known.slug || known.id) as string,
     )
+    const config = this._connector!.config as { updateAgent: (name: string, updates: Record<string, unknown>) => void }
+    if (chosenConnection) config.updateAgent(agentName, { node_id: chosenConnection.node_id })
     this.signalReload()
     return { success: true }
   }
 
+  /**
+   * Leave the workspace on BOTH sides, keeping the agent itself.
+   *
+   * Unbinding locally while the workspace kept the member row left it listed
+   * there with nothing in the launcher able to reach it. Falls back to the
+   * local-only unbind on a core too old to know leaveWorkspace, so an outdated
+   * core degrades to the previous behaviour instead of failing outright.
+   */
   async disconnectWorkspace(agentName: string): Promise<unknown> {
-    const disconnectWorkspace = this._connector!.disconnectWorkspace as (
-      name: string,
-    ) => void
-    disconnectWorkspace.call(this._connector, agentName)
+    const leave = this._connector!.leaveWorkspace as
+      | ((n: string) => Promise<unknown>)
+      | undefined
+    if (typeof leave === "function") {
+      await leave.call(this._connector, agentName)
+    } else {
+      const disconnectWorkspace = this._connector!.disconnectWorkspace as (
+        name: string,
+      ) => void
+      disconnectWorkspace.call(this._connector, agentName)
+    }
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }
@@ -1401,6 +1770,8 @@ export class AgentManager extends EventEmitter {
     const networks = this.getNetworks() as Array<Record<string, unknown>>
     const network =
       networks.find((n) => n.slug === slug || n.id === slug) || null
+    if (listPairings().filter((p) => p.workspace_slug === slug || p.workspace_id === slug).length > 1)
+      throw new Error("Disconnect a specific device connection from its workspace account first")
     const pairing =
       listPairings().find(
         (p) =>
@@ -1475,7 +1846,7 @@ export class AgentManager extends EventEmitter {
     // A removal is a deliberate act, not a revocation: it settles the alarm
     // rather than raising one. Done even with no pairing left to drop — a
     // device the workspace already removed has only the record to clear.
-    if (pairing) clearPairing(pairing.workspace_id)
+    if (pairing) clearPairing(pairing.workspace_id, pairing.node_id)
     if (workspaceId) clearRevocation(workspaceId)
     this._removeNetworkAndUnbind(workspaceSlug, workspaceId)
 
@@ -1509,7 +1880,7 @@ export class AgentManager extends EventEmitter {
    * `setAgentWorkingDir` does: it is the core's serializer, and rewriting
    * daemon.yaml from here would risk diverging from it.
    */
-  private _rebindAgents(names: string[], ref: string | null): void {
+  private _rebindAgents(names: string[], ref: string | null, nodeId?: string): void {
     if (!ref || !names.length) return
     const config = (this._connector as { config?: unknown } | null)?.config as
       | { updateAgent?: (name: string, updates: unknown) => unknown }
@@ -1521,7 +1892,7 @@ export class AgentManager extends EventEmitter {
     for (const name of names) {
       if (!existing.has(name)) continue
       try {
-        config.updateAgent(name, { network: ref })
+        config.updateAgent(name, { network: ref, node_id: nodeId })
       } catch {
         // One agent that refuses to be re-filed is not a reason to fail a
         // pairing that has already succeeded.
@@ -1806,15 +2177,22 @@ export class AgentManager extends EventEmitter {
         let bound: string[] = []
         try {
           this._ensureConnector()
-          bound = this._agentsOnWorkspace(refs)
+          const config = this._connector!.config as {
+            getAgents: () => Array<{ name: string; network?: string; node_id?: string }>
+          }
+          const soleConnection = listPairings().filter((p) => p.workspace_id === pairing.workspace_id).length === 1
+          bound = config.getAgents().filter((a) => refs.includes(a.network || null)
+            && (a.node_id === pairing.node_id || (!a.node_id && soleConnection))).map((a) => a.name)
         } catch {
           // No core loaded — the bindings live in its config, so they are not
           // ours to read or clear right now. The pairing still goes.
         }
-        if (pairing.workspace_id) revokePairing(pairing.workspace_id, bound)
-        else clearPairing(pairing.workspace_id)
+        if (pairing.workspace_id) revokePairing(pairing.workspace_id, bound, pairing.node_id)
+        else clearPairing(pairing.workspace_id, pairing.node_id)
         try {
-          this._removeNetworkAndUnbind(refs[0], refs[1])
+          const remaining = listPairings().some((p) => p.workspace_id === pairing.workspace_id)
+          if (!remaining) this._removeNetworkAndUnbind(refs[0], refs[1])
+          // With another connection still alive, its bindings and credentials stay intact.
           this._agentsCache = { value: [], at: 0 }
         } catch {}
       }
@@ -1846,7 +2224,15 @@ export class AgentManager extends EventEmitter {
         "PAIRING_UNSUPPORTED_CORE: this launcher's agent core cannot connect a device — update the launcher",
       )
 
-    const info = gatherDeviceInfo(app.getVersion())
+    let info: DeviceInfo
+    try {
+      info = gatherDeviceInfo(app.getVersion())
+    } catch {
+      // Pairing over an unreadable node.json would replace the pairings it holds.
+      throw new Error(
+        `NODE_FILE_UNREADABLE: could not read ${nodeFilePath()} — close anything that may have it open and try again`,
+      )
+    }
     if (opts.name?.trim()) info.name = opts.name.trim()
     if (opts.deviceType?.trim()) info.deviceType = opts.deviceType.trim()
 
@@ -1860,14 +2246,27 @@ export class AgentManager extends EventEmitter {
     // Read before recordPairing settles the revocation: if this workspace once
     // removed the device, these are the agents that were filed under it.
     const orphaned =
-      listRevocations().find((r) => r.workspace_id === res.workspaceId)
+      listRevocations().find((r) => r.workspace_id === res.workspaceId
+        && !!res.ownerEmail && r.owner_email === res.ownerEmail)
         ?.agents || []
 
     // Additive: each workspace issues its own node row for this device, and the
     // daemon heartbeats every pairing, so connecting here does NOT take the
     // device away from the workspaces it already belongs to.
+    const priorConnections = listPairings().filter((p) => p.workspace_id === res.workspaceId)
+    if (priorConnections.length === 1) {
+      const agentConfig = this._connector!.config as {
+        getAgents: () => Array<{ name: string; network?: string; node_id?: string }>
+        updateAgent: (name: string, updates: Record<string, unknown>) => void
+      }
+      for (const agent of agentConfig.getAgents()) {
+        if (!agent.node_id && (agent.network === priorConnections[0].workspace_slug || agent.network === priorConnections[0].workspace_id))
+          agentConfig.updateAgent(agent.name, { node_id: priorConnections[0].node_id })
+      }
+    }
     recordPairing(info.nodeKey, {
       node_id: res.nodeId,
+      owner_email: res.ownerEmail,
       workspace_id: res.workspaceId,
       workspace_slug: res.workspaceSlug,
       workspace_name: res.workspaceName,
@@ -1894,7 +2293,7 @@ export class AgentManager extends EventEmitter {
     })
     // Joining the same workspace again puts its agents back where they were,
     // so a removal on the workspace's side is not a re-setup on this one.
-    this._rebindAgents(orphaned, res.workspaceSlug || res.workspaceId)
+    this._rebindAgents(orphaned, res.workspaceSlug || res.workspaceId, res.nodeId)
 
     // The node heartbeat — and with it remote agent management — lives in the
     // daemon. A running daemon re-reads node.json every tick, but one left over
@@ -2099,6 +2498,8 @@ export class AgentManager extends EventEmitter {
     agentType: string
     agentName: string
     path?: string | null
+    /** The agent's own env, e.g. the sign-in marker and its model. */
+    env?: Record<string, string>
   }): Promise<{ agentName: string; warning: string | null }> {
     this._ensureConnector()
     const type = (opts.agentType || "").trim()
@@ -2146,6 +2547,7 @@ export class AgentManager extends EventEmitter {
         type,
         role: "worker",
         ...(agentPath ? { path: agentPath } : {}),
+        ...(opts.env && Object.keys(opts.env).length ? { env: opts.env } : {}),
       })
       this._agentsCache = { value: [], at: 0 }
     }
@@ -2187,6 +2589,10 @@ export class AgentManager extends EventEmitter {
 
   getInstalledVersion(agentType: string): string | null {
     return this._install.getInstalledVersion(agentType)
+  }
+
+  getUpdateTarget(agentType: string): UpdateTarget {
+    return this._install.updateTarget(agentType)
   }
 
   private _getRegistryEntry(agentType: string): Record<string, unknown> | null {
@@ -2246,6 +2652,31 @@ export class AgentManager extends EventEmitter {
     return { success: true, message: `Start command sent for ${name}` }
   }
 
+  /** Recreate live adapters so their cached CLI path/version follows an install. */
+  restartAgentInstances(type: string): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    try {
+      const listAgents = this._connector.listAgents as () => Array<{
+        name: string
+        type: string
+      }>
+      const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+      const status = this.getAllStatus() as Record<string, { state?: string }>
+      for (const agent of listAgents.call(this._connector) || []) {
+        if (
+          agent.type === type &&
+          ["running", "starting"].includes(status[agent.name]?.state || "")
+        ) {
+          sendCmd.call(this._connector, `restart:${agent.name}`)
+        }
+      }
+      this._statusCache = { value: {}, at: 0 }
+    } catch {
+      // The install has succeeded; a daemon that is stopping can load the new
+      // binary on its next start without turning that install into a failure.
+    }
+  }
+
   async stopAgent(name: string): Promise<unknown> {
     const pid = this._getLiveDaemonPid()
     if (!pid) return { success: true, message: "Daemon not running" }
@@ -2253,6 +2684,39 @@ export class AgentManager extends EventEmitter {
     sendCmd.call(this._connector, `stop:${name}`)
     this._statusCache = { value: {}, at: 0 }
     return { success: true, message: `Stop command sent for ${name}` }
+  }
+
+  /**
+   * Ask the daemon to heartbeat now. The workspace queues device commands
+   * (a Start or Stop clicked on a workspace page) for the next heartbeat,
+   * which is up to 10s away; this collapses that wait to the daemon's 200ms
+   * command poll. A daemon too old to know the line ignores it.
+   */
+  nudgeNodeHeartbeat(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "heartbeat")
+    } catch {
+      // Nothing lost: the regular heartbeat still picks the command up.
+    }
+  }
+
+  /**
+   * Ask the daemon to re-detect its runtimes and report them now. The
+   * workspace's Ready / Needs login badges come from that report, refreshed
+   * every 2 minutes; after a sign-in or a saved key the launcher already says
+   * Ready, and without this the workspace kept saying Needs login meanwhile.
+   * A daemon too old to know the line ignores it.
+   */
+  nudgeRuntimeDetect(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "detect")
+    } catch {
+      // Nothing lost: the periodic detection still catches up.
+    }
   }
 
   async startAll(): Promise<unknown> {
@@ -2286,7 +2750,8 @@ export class AgentManager extends EventEmitter {
 
   getAllStatus(): unknown {
     const now = Date.now()
-    if (this._statusCache.value && now - this._statusCache.at < 1000) {
+    // Short on purpose: the file is small, and this is what start/stop wait on.
+    if (this._statusCache.value && now - this._statusCache.at < 300) {
       return this._statusCache.value
     }
     let value: unknown = {}
@@ -2312,9 +2777,11 @@ export class AgentManager extends EventEmitter {
   }
 
   tailLogs(name: string, lines = 200, offset = 0): unknown {
-    const config = this._connector!.config as Record<string, unknown>
-    const tailLogs = config.tailLogs as (opts: unknown) => unknown
-    return tailLogs.call(config, { agent: name || undefined, lines, offset })
+    return tailDaemonLogs(DAEMON_LOG_FILE, {
+      agent: name || undefined,
+      count: lines,
+      offset,
+    })
   }
 
   clearLogsInRange(
@@ -2331,6 +2798,7 @@ export class AgentManager extends EventEmitter {
     if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
     const healthCheck = this._connector!.healthCheck as (
       type: string,
+      opts?: { agentEnv?: Record<string, string> },
     ) => unknown
     const core = healthCheck.call(this._connector, type)
     // Dual-auth agents (Claude): fold the CLI sign-in state into the core
@@ -2338,7 +2806,18 @@ export class AgentManager extends EventEmitter {
     // a subscription login (no key) as ready. Adds an explicit `logged_in` flag
     // the renderer reads to distinguish "signed in via CLI" from "has API key".
     if (DUAL_LOGIN_AGENTS[type]) return this._health.dualLoginHealth(type, core)
-    return core
+    // The setup form saves a key on the AGENT, not the type, so the core's
+    // type-level verdict never sees it: Pi answered chats while its card said
+    // "Login required". Judge the type again with what its agents carry.
+    if ((core as { ready?: boolean } | null)?.ready !== false) return core
+    const agentEnv = this._savedTypeEnvForProbe(type)
+    if (!Object.keys(agentEnv).length) return core
+    try {
+      const withAgents = healthCheck.call(this._connector, type, { agentEnv }) as { ready?: boolean } | null
+      return withAgents?.ready ? withAgents : core
+    } catch {
+      return core
+    }
   }
 
   /**
@@ -2362,7 +2841,7 @@ export class AgentManager extends EventEmitter {
   }
 
   private _startDaemon(): { success: boolean; pid?: number; message: string } {
-    return startDaemon(this._connector)
+    return startDaemon(this._connector, this.extraBinDirs())
   }
 
   // ─────────────────────────────────────────────────────────

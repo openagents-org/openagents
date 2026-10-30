@@ -55,6 +55,6 @@ describe("resetLocalPreferences", () => {
     expect(appearance.accent).toBe("indigo")
     expect(appearance.scale).toBe("md")
     expect(appearance.highContrast).toBe(false)
-    expect(useThemeStore.getState().mode).toBe("system")
+    expect(useThemeStore.getState().mode).toBe("light")
   })
 })

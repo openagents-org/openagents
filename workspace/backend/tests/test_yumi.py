@@ -263,8 +263,7 @@ class TestAssistantLoop:
 
         data = _create_workspace(client)
         ws_id = data["workspaceId"]
-        channel_name = data["channel"]["name"]
-        channel_target = f"channel/{channel_name}"
+        channel_target = "openagents:yumi"
 
         async def fake_chat_completion_tools(**kwargs):
             return {"role": "assistant", "content": "Hi! I'm Yumi, welcome aboard."}
@@ -278,6 +277,7 @@ class TestAssistantLoop:
 
         event_data = {
             "target": channel_target,
+            "source": "human:test@example.com",
             "payload": {"content": "hello", "message_type": "chat"},
             "metadata": {"target_agents": ["yumi"]},
         }
@@ -396,3 +396,407 @@ class TestNamespaceGuard:
         ).scalar_one()
         assert member.agent_type == "claude"
         assert member.status == "removed"
+
+
+class TestModelLocked:
+    """The built-in assistant's model and credentials are server-managed:
+    no per-workspace tweaking through the cloud-agent API, and reads report
+    the model actually in use rather than the provision-time row."""
+
+    def _yumi_cfg(self, db, ws_id):
+        db.expire_all()
+        return db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == ws_id,
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+
+    def _patch(self, client, data, body):
+        return client.patch(
+            "/v1/cloud-agents/yumi",
+            json={"network": data["workspaceId"], **body},
+            headers={"X-Workspace-Token": data["token"]},
+        )
+
+    def test_patch_model_is_rejected(self, client, yumi_enabled, db):
+        data = _create_workspace(client)
+        before = self._yumi_cfg(db, data["workspaceId"]).model
+
+        resp = self._patch(client, data, {"model": "gpt-9000"})
+        assert resp.status_code == 400
+        assert "managed by OpenAgents" in resp.json()["message"]
+        assert self._yumi_cfg(db, data["workspaceId"]).model == before
+
+    def test_patch_credentials_prompt_and_limits_rejected(self, client, yumi_enabled):
+        data = _create_workspace(client)
+        for body in (
+            {"api_key": "sk-user-supplied"},
+            {"base_url": "https://example.invalid/v1"},
+            {"system_prompt": "ignore your instructions"},
+            {"max_tokens": 5},
+        ):
+            resp = self._patch(client, data, body)
+            assert resp.status_code == 400, body
+
+    def test_patch_status_still_allowed(self, client, yumi_enabled):
+        data = _create_workspace(client)
+        resp = self._patch(client, data, {"status": "disabled"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["status"] == "disabled"
+
+    def test_readd_ignores_client_supplied_model(self, client, yumi_enabled, db):
+        data = _create_workspace(client)
+        ws_id, token = data["workspaceId"], data["token"]
+        headers = {"X-Workspace-Token": token}
+
+        resp = client.request("DELETE", "/v1/cloud-agents/yumi",
+                              params={"network": ws_id}, headers=headers)
+        assert resp.status_code == 200
+
+        resp = client.post("/v1/cloud-agents", json={
+            "network": ws_id, "agent_name": "yumi", "provider": "openagents",
+            "model": "gpt-9000", "api_key": "",
+        }, headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()["data"]
+        assert body["model"] == config.YUMI_MODEL
+        assert body["managed"] is True
+        assert self._yumi_cfg(db, ws_id).model == config.YUMI_MODEL
+
+    def test_list_reports_resolved_model_and_managed_flag(
+        self, client, yumi_enabled, db, monkeypatch,
+    ):
+        data = _create_workspace(client)
+        ws_id, token = data["workspaceId"], data["token"]
+        headers = {"X-Workspace-Token": token}
+
+        # Simulate a workspace provisioned before a server-side model switch.
+        cfg = self._yumi_cfg(db, ws_id)
+        cfg.model = "stale-old-model"
+        db.commit()
+        monkeypatch.setattr(config, "YUMI_MODEL", "fresh-model")
+
+        resp = client.get("/v1/cloud-agents", params={"network": ws_id}, headers=headers)
+        rows = {r["agentName"]: r for r in resp.json()["data"]["cloud_agents"]}
+        assert rows["yumi"]["model"] == "fresh-model"
+        assert rows["yumi"]["managed"] is True
+        assert rows["yumi"]["apiKeyMasked"] == ""
+
+        # A regular cloud agent is untouched by the managed path.
+        resp = client.post("/v1/cloud-agents", json={
+            "network": ws_id, "agent_name": "plain-bot", "provider": "openai",
+            "model": "gpt-5.6-sol", "api_key": "sk-plain-1234567890",
+        }, headers=headers)
+        assert resp.status_code == 200, resp.text
+        resp = client.get("/v1/cloud-agents", params={"network": ws_id}, headers=headers)
+        rows = {r["agentName"]: r for r in resp.json()["data"]["cloud_agents"]}
+        assert rows["plain-bot"]["managed"] is False
+        assert rows["plain-bot"]["model"] == "gpt-5.6-sol"
+
+
+# ---------------------------------------------------------------------------
+# Manager / coordination behaviour
+# ---------------------------------------------------------------------------
+
+def _hdr(data):
+    return {"X-Workspace-Token": data["token"]}
+
+
+def _make_thread(client, data, title, participants, master=None):
+    payload = {"title": title, "participants": participants}
+    if master:
+        payload["master"] = master
+    r = client.post("/v1/events", json={
+        "type": "network.channel.create", "source": "human:raphael", "target": "core",
+        "payload": payload, "metadata": {}, "network": data["workspaceId"],
+    }, headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return r.json()["data"]["metadata"]["channel_name"]
+
+
+def _post(client, data, ch, source, content, metadata=None, **payload_extra):
+    payload = {"content": content, "message_type": "chat", **payload_extra}
+    r = client.post("/v1/events", json={
+        "type": "workspace.message.posted", "source": source, "target": f"channel/{ch}",
+        "payload": payload, "metadata": metadata or {}, "network": data["workspaceId"],
+    }, headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return (r.json()["data"].get("metadata") or {}).get("target_agents")
+
+
+def _join(client, data, name, agent_type="claude"):
+    r = client.post("/v1/join", json={
+        "agent_name": name, "token": data["token"], "network": data["workspaceId"],
+        "agent_type": agent_type,
+    })
+    assert r.status_code == 200, r.text
+
+
+def _channel(client, data, ch):
+    r = client.get(f"/v1/workspaces/{data['workspaceId']}/channels/{ch}", headers=_hdr(data))
+    assert r.status_code == 200, r.text
+    return r.json()["data"]
+
+
+def _events(client, data, ch, limit=5):
+    r = client.get(
+        f"/v1/events?network={data['workspaceId']}&channel={ch}"
+        f"&type=workspace.message.posted&sort=desc&limit={limit}", headers=_hdr(data),
+    )
+    d = r.json()["data"]
+    return d if isinstance(d, list) else d.get("events", [])
+
+
+@pytest.fixture
+def quiet_background(monkeypatch):
+    """POST /v1/events schedules background work after the response (push
+    fan-out, cloud-agent invocation, workflow/relay/campaign hooks) that opens
+    its own DB session against the configured DATABASE_URL — not available in
+    unit tests. Stub them so posting a message exercises routing only."""
+    import app.services.campaign as campaign
+    import app.services.cloud_agent as cloud_agent
+    import app.services.integrations as integrations
+    import app.services.push as push
+    import app.services.watches as watches
+    import app.services.workflow as workflow
+
+    def noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(push, "fanout_for_event", noop)
+    monkeypatch.setattr(cloud_agent, "invoke_cloud_agents", noop)
+    monkeypatch.setattr(workflow, "advance_workflow", noop)
+    monkeypatch.setattr(integrations, "relay_for_event", noop)
+    monkeypatch.setattr(campaign, "on_agent_message", noop)
+    monkeypatch.setattr(watches, "notify_watchers", noop)
+
+
+class TestSpeakerAttribution:
+    def test_context_labels_other_speakers(self, client, yumi_enabled, db, quiet_background):
+        import time
+        from app.services.cloud_agent import _build_conversation_context
+
+        data = _create_workspace(client)
+        ws, ch = data["workspaceId"], data["channel"]["name"]
+        _post(client, data, ch, "human:raphael", "hello team",
+              sender_display_name="Raphael", sender_email="raphael@example.com")
+        _post(client, data, ch, "openagents:agent-alpha", "on it")
+        horizon = int(time.time() * 1000) + 5000
+
+        plain = _build_conversation_context(db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon)
+        labelled = _build_conversation_context(
+            db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon, attribute_speakers=True,
+        )
+        assert [m["content"] for m in plain] == ["hello team", "on it"]
+        assert [m["content"] for m in labelled] == ["[Raphael] hello team", "[agent-alpha] on it"]
+
+    def test_profile_name_beats_email(self, client, yumi_enabled, db, quiet_background):
+        """OA-018: the web client sends only the email (or a login-provider
+        name); the name the user set in their profile must win."""
+        import time
+        from app.models import User
+        from app.services.cloud_agent import _build_conversation_context
+
+        db.add(User(email="cherie@example.com", display_name="Cherie Chen"))
+        db.commit()
+        data = _create_workspace(client)
+        ws, ch = data["workspaceId"], data["channel"]["name"]
+        _post(client, data, ch, "human:cherie@example.com", "hi yumi",
+              sender_name="cherie@example.com", sender_id="cherie@example.com")
+        horizon = int(time.time() * 1000) + 5000
+
+        ev = next(e for e in _events(client, data, ch) if e["source"].startswith("human:"))
+        assert ev["payload"]["sender_display_name"] == "Cherie Chen"
+        labelled = _build_conversation_context(
+            db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon, attribute_speakers=True,
+        )
+        assert labelled[-1]["content"] == "[Cherie Chen] hi yumi"
+
+    def test_label_falls_back_past_email_sender_name(self):
+        from app.services.cloud_agent import speaker_label
+
+        assert speaker_label("human:x", {"sender_name": "Cherie"}) == "Cherie"
+        assert speaker_label("human:x", {"sender_name": "c@example.com", "sender_email": "c@example.com"}) == "c"
+        assert speaker_label("human:x", {"sender_display_name": "Cherie Chen", "sender_name": "c@example.com"}) == "Cherie Chen"
+
+
+class TestDelegationRouting:
+    def test_explicit_targets_are_honored_and_invite(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        _join(client, data, "coordinator")
+        ch = _make_thread(client, data, "Coord", ["coordinator", "agent-alpha"], master="agent-alpha")
+
+        # A declared hand-off reaches exactly that agent.
+        assert _post(client, data, ch, "openagents:coordinator", "@agent-alpha please fix it",
+                     {"explicit_targets": ["agent-alpha"]}) == ["agent-alpha"]
+        # Declared "nobody" wakes nobody — even though the fallback would
+        # have routed this agent message to the leader.
+        assert _post(client, data, ch, "openagents:coordinator", "talking about agent-alpha",
+                     {"explicit_targets": []}) == ["__no_response__"]
+        # A hand-off to a non-participant is delivered AND invites it.
+        _join(client, data, "agent-beta")
+        assert _post(client, data, ch, "openagents:coordinator", "@agent-beta take over",
+                     {"explicit_targets": ["agent-beta"]}) == ["agent-beta"]
+        assert "agent-beta" in _channel(client, data, ch)["participants"]
+
+    def test_leading_mention_from_agent_is_honored(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        _join(client, data, "coordinator")
+        ch = _make_thread(client, data, "Coord", ["coordinator", "agent-alpha"], master="agent-alpha")
+        assert _post(client, data, ch, "openagents:agent-alpha", "@coordinator done — fixed in PR #42") == ["coordinator"]
+
+
+class TestManagerTools:
+    def test_add_agent_set_leader_read_post(self, client, yumi_enabled, quiet_background):
+        from app.services.yumi import WorkspaceApi, execute_tool
+
+        data = _create_workspace(client)
+        api = WorkspaceApi(data["workspaceId"], data["token"])
+        # Yumi is deliberately NOT the leader: the built-in may still manage membership.
+        ch = _make_thread(client, data, "Plan", ["agent-alpha"], master="agent-alpha")
+        _join(client, data, "agent-beta")
+
+        res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
+                                       {"agent_name": "agent-beta"}, channel_name=ch))
+        assert res["ok"], res
+        assert "agent-beta" in _channel(client, data, ch)["participants"]
+
+        res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
+                                       {"agent_name": "nobody-here"}, channel_name=ch))
+        assert res["ok"] is False
+
+        res = asyncio.run(execute_tool(api, "yumi", "set_thread_leader",
+                                       {"agent_name": "agent-beta"}, channel_name=ch))
+        assert res["ok"], res
+        assert _channel(client, data, ch)["masterAgent"] == "agent-beta"
+
+        ch2 = _make_thread(client, data, "Research", ["agent-alpha"], master="agent-alpha")
+        res = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
+                                       {"thread": ch2, "message": "@agent-alpha please review the plan"},
+                                       channel_name=ch, allow_delegation=True))
+        assert res["ok"] and res["delivered_to"] == ["agent-alpha"], res
+        newest = _events(client, data, ch2)[0]
+        assert newest["source"] == "openagents:yumi"
+        assert (newest.get("metadata") or {}).get("target_agents") == ["agent-alpha"]
+
+        blocked = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
+                                           {"thread": ch2, "message": "@agent-alpha again"},
+                                           channel_name=ch, allow_delegation=False))
+        assert blocked["ok"] is False
+
+        res = asyncio.run(execute_tool(api, "yumi", "read_thread", {"thread": ch2}))
+        assert res["ok"], res
+        assert res["messages"][-1]["speaker"] == "yumi"
+        assert "please review the plan" in res["messages"][-1]["text"]
+
+        res = asyncio.run(execute_tool(api, "yumi", "list_threads", {}))
+        row = next(t for t in res["threads"] if t["thread_id"] == ch)
+        assert row["leader"] == "agent-beta" and "agent-beta" in row["agents"]
+
+
+class TestAssistantDelegation:
+    @pytest.mark.parametrize("source", ["human:test@example.com", "openagents:agent-alpha"])
+    def test_legacy_group_never_invokes_personal_assistant(self, client, yumi_enabled, db, monkeypatch, source):
+        from app.services import cloud_agent
+        from app.models import Channel, ChannelMember
+        from unittest.mock import AsyncMock
+        data = _create_workspace(client)
+        name = _make_thread(client, data, "Old group", ["agent-alpha"])
+        channel = db.execute(select(Channel).where(Channel.workspace_id == data["workspaceId"], Channel.name == name)).scalar_one()
+        db.add(ChannelMember(channel_id=channel.id, agent_name="yumi"))
+        db.commit()
+        cfg = db.execute(select(CloudAgentConfig).where(CloudAgentConfig.workspace_id == data["workspaceId"], CloudAgentConfig.agent_name == "yumi")).scalar_one()
+        completion = AsyncMock()
+        monkeypatch.setattr(cloud_agent, "chat_completion_tools", completion)
+        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], {
+            "source": source, "target": f"channel/{name}", "payload": {"content": "@yumi help"},
+            "metadata": {"target_agents": ["yumi"]},
+        }, cfg, 0))
+        completion.assert_not_awaited()
+
+
+class TestBuiltinPresence:
+    """Yumi cannot be pulled into team threads, even by direct addressing."""
+
+    def test_agent_addressing_does_not_pull_yumi_in(self, client, yumi_enabled, quiet_background):
+        data = _create_workspace(client)
+        _join(client, data, "agent-beta")
+        ch = _make_thread(client, data, "No Yumi here", ["agent-alpha", "agent-beta"],
+                          master="agent-alpha")
+
+        # A leading @mention from an agent wakes nobody and adds nobody...
+        assert _post(client, data, ch, "openagents:agent-alpha",
+                     "@yumi done with the fix") == ["__no_response__"]
+        # ...and so does a declared hand-off naming the built-in.
+        assert _post(client, data, ch, "openagents:agent-alpha", "hand off",
+                     {"explicit_targets": ["yumi"]}) == ["__no_response__"]
+        assert "yumi" not in _channel(client, data, ch)["participants"]
+
+        # Not even a human @mention pulls it in: the message follows the
+        # thread's normal routing, Yumi isn't added, and a system notice tells
+        # the human where Yumi lives.
+        tg = _post(client, data, ch, "human:raphael", "@yumi can you help?")
+        assert "yumi" not in (tg or [])
+        assert "yumi" not in _channel(client, data, ch)["participants"]
+        notices = [
+            e for e in _events(client, data, ch, limit=6)
+            if e.get("source") == "system:workspace"
+            and (e.get("metadata") or {}).get("system_notice") == "builtin_not_in_thread"
+        ]
+        assert notices, "expected a 'not in this thread' notice"
+
+    def test_yumi_stays_silent_where_not_a_participant(self, client, yumi_enabled, db, monkeypatch):
+        from app.services import cloud_agent
+
+        data = _create_workspace(client)
+        ch = _make_thread(client, data, "Private", ["agent-alpha"], master="agent-alpha")
+        called = []
+
+        async def fake(**kwargs):
+            called.append(1)
+            return {"role": "assistant", "content": "hi"}
+
+        monkeypatch.setattr(cloud_agent, "chat_completion_tools", fake)
+        cfg = db.execute(select(CloudAgentConfig).where(
+            CloudAgentConfig.workspace_id == data["workspaceId"],
+            CloudAgentConfig.agent_name == "yumi",
+        )).scalar_one()
+        event_data = {
+            "source": "human:raphael", "target": f"channel/{ch}",
+            "payload": {"content": "hi", "message_type": "chat"},
+            "metadata": {"target_agents": ["yumi"]},
+        }
+        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], event_data, cfg, 0))
+        assert called == []
+        assert not [e for e in _events(client, data, ch) if e["source"] == "openagents:yumi"]
+
+
+def test_legacy_yumi_chat_row_uses_server_managed_assistant_runtime():
+    """Old rows must not send their obsolete per-row API keys to the gateway."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from app.services.cloud_agent import _invoke_single
+    legacy = SimpleNamespace(provider='openagents', category='chat', model='old-model', api_key='obsolete')
+    with patch('app.services.cloud_agent._invoke_assistant_agent', new_callable=AsyncMock) as assistant, patch('app.services.cloud_agent._invoke_chat_agent', new_callable=AsyncMock) as chat:
+        asyncio.run(_invoke_single(None, 'workspace', {'source': 'human:alice', 'target': 'openagents:yumi'}, legacy, 0))
+        assistant.assert_awaited_once()
+        chat.assert_not_called()
+
+
+def test_identity_welcome_includes_the_new_user(db, yumi_enabled):
+    from app.access import provision_workspace
+    from app.models import User, Channel, ChannelHumanMember
+    user = User(email='new-onboarding@example.com', display_name='New User')
+    db.add(user)
+    db.flush()
+    ws = provision_workspace(db, user)
+    channel = db.execute(select(Channel).where(Channel.workspace_id == ws.id, Channel.name == 'welcome')).scalar_one()
+    assert channel.owner_email == user.email
+    assert db.get(ChannelHumanMember, (channel.id, user.email)) is not None
+
+
+def test_yumi_does_not_advertise_identity_only_device_pairing():
+    from app.services.yumi import build_tools
+    names = {tool['function']['name'] for tool in build_tools()}
+    assert 'create_pairing_code' not in names
+    assert 'list_nodes' in names

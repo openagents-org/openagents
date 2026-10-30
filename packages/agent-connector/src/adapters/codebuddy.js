@@ -49,7 +49,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, spawn } = require('child_process');
+const { execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
@@ -72,7 +76,6 @@ const IS_WINDOWS = process.platform === 'win32';
 
 // Max wall-clock for a single headless run, after which the process group is
 // killed and the turn reported as interrupted.
-const TIMEOUT_MS = 600000; // 10 minutes
 
 // Idle watchdog: with no stdout frame for this long we nudge the channel, and
 // after MAX consecutive silences we kill a run that is probably wedged.
@@ -172,28 +175,8 @@ class CodeBuddyAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop / restart)
+  // Shutdown
   // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && payload.channel) || null;
-      if (channel) {
-        const proc = this._channelProcesses[channel];
-        if (proc) {
-          this._stoppingChannels.add(channel);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[channel];
-          delete this._channelQueues[channel];
-          try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
-        }
-        return;
-      }
-      await this._stopAllProcesses();
-      return;
-    }
-    return super._onControlAction(action, payload);
-  }
 
   stop() {
     super.stop();
@@ -587,6 +570,8 @@ class CodeBuddyAdapter extends BaseAdapter {
    * @returns {Promise<object>} { code, signal, result, sessionId, anyOutput, lastAssistantText, userStopped, stderr }
    */
   _runCodeBuddy(channel, bin, args, workingDir, prompt) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
       const [cmd, ...spawnArgs] = this._spawnableCmd(bin, args);
       this._log(`Spawning: ${path.basename(cmd)} ${redactArgs(spawnArgs).join(' ')} (cwd=${workingDir})`);
@@ -629,7 +614,6 @@ class CodeBuddyAdapter extends BaseAdapter {
         if (settled) return;
         settled = true;
         clearInterval(watchdog);
-        clearTimeout(timeout);
         if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
         resolve(payload);
       };
@@ -735,12 +719,6 @@ class CodeBuddyAdapter extends BaseAdapter {
         }
       }, WATCHDOG_INTERVAL_MS);
 
-      const timeout = setTimeout(() => {
-        this._log(`Run exceeded ${TIMEOUT_MS}ms — killing`);
-        killedByWatchdog = true;
-        void this._stopProcess(proc);
-      }, TIMEOUT_MS);
-
       try {
         proc.stdin.on('error', () => {});
         proc.stdin.write(prompt, 'utf-8');
@@ -824,6 +802,7 @@ class CodeBuddyAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName: channel,
       mode: this._mode,
+      model: this.modelLabel(),
       browserEnabled: await this.getBrowserEnabled(),
       toolMode: 'mcp',
     });

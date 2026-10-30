@@ -1,0 +1,41 @@
+name: Release sync check
+
+# Fails whenever `release` is not an ancestor of `develop`, i.e. whenever
+# release carries commits that never landed on develop. That is the state that
+# makes the next promotion impossible (see promote-release.yml). Runs on every
+# push to either branch so the divergence shows up as a red check on develop
+# the moment it happens, instead of at the next deploy.
+
+on:
+  push:
+    branches: [develop, release]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: release is a fast-forward ancestor of develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: |
+          set -euo pipefail
+          git fetch --quiet origin develop release
+          DEV=$(git rev-parse origin/develop)
+          REL=$(git rev-parse origin/release)
+          if git merge-base --is-ancestor "$REL" "$DEV"; then
+            BEHIND=$(git rev-list --count "$REL..$DEV")
+            echo "OK: release ($REL) is on develop; develop is $BEHIND commit(s) ahead."
+            exit 0
+          fi
+          echo "::error::release has commits that are not on develop. Promotion (fast-forward) is blocked until this is reconciled."
+          echo "Commits on release but not on develop:"
+          git log --format='  %h %an %s' "$DEV..$REL"
+          echo ""
+          echo "Fix: merge release into develop (normally a no-content merge), then run the 'Promote develop to release' workflow."
+          exit 1

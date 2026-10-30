@@ -37,7 +37,7 @@ from openagents.config.llm_configs import (
 from openagents.utils.verbose import verbose_print
 
 if TYPE_CHECKING:
-    from openagents.core.client import AgentClient
+    from openagents.sdk.client import AgentClient
 
 logger = logging.getLogger(__name__)
 

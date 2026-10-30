@@ -1,0 +1,24 @@
+{
+  "version": "1.1.5",
+  "date": "2026-10-21",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Enter a workspace from the agent list",
+        "zh": "可从智能体列表直接进入工作区"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Layout refinements",
+        "zh": "界面布局优化"
+      },
+      "description": {
+        "en": "A cleaner top bar with a more prominent Workspace / This Computer switch and workspace tabs you can drag to reorder; agent actions moved under the agent's name; a simpler device connection page; signing out now asks for confirmation.",
+        "zh": "顶部栏更简洁，「工作区 / 本机管理」切换更醒目，工作区标签可拖动排序；智能体操作按钮移至名称下方；设备连接页更简洁；退出登录前增加确认。"
+      }
+    }
+  ]
+}

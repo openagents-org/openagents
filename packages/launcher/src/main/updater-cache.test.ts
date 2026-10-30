@@ -9,12 +9,15 @@ import {
 } from "fs"
 import { tmpdir } from "os"
 import path from "path"
+import { createHash } from "crypto"
 
 import {
   adoptDifferentialBaseFile,
   asciiCacheRootCandidates,
   clearInstallAttempt,
+  hasVerifiedStagedUpdate,
   compareVersions,
+  purgeLegacyUpdaterCache,
   purgePendingUpdateCache,
   readInstallAttempt,
   readUpdaterCacheDirName,
@@ -31,6 +34,24 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe("hasVerifiedStagedUpdate", () => {
+  it("recovers only a cached package matching the offered release", async () => {
+    const pending = path.join(dir, "openagents", "pending")
+    mkdirSync(pending, { recursive: true })
+    const bytes = Buffer.from("verified update")
+    const sha512 = createHash("sha512").update(bytes).digest("base64")
+    writeFileSync(path.join(pending, "update.exe"), bytes)
+    writeFileSync(
+      path.join(pending, "update-info.json"),
+      JSON.stringify({ fileName: "update.exe", sha512 }),
+    )
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(true)
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", ["other"])).toBe(false)
+    writeFileSync(path.join(pending, "update.exe"), "corrupt")
+    expect(await hasVerifiedStagedUpdate(dir, "openagents", [sha512])).toBe(false)
+  })
 })
 
 describe("compareVersions", () => {
@@ -268,5 +289,21 @@ describe("install attempt bookkeeping", () => {
 
     clearInstallAttempt(dir)
     expect(readInstallAttempt(dir)).toBeNull()
+  })
+})
+
+describe("purgeLegacyUpdaterCache", () => {
+  it("removes the pre-rename cache directory from every root it finds it in", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "oa-legacy-cache-"))
+    const legacy = path.join(dir, "openagents-launcher-updater")
+    mkdirSync(path.join(legacy, "pending"), { recursive: true })
+    writeFileSync(path.join(legacy, "pending", "app.exe"), "x")
+
+    expect(purgeLegacyUpdaterCache([dir, null], "openagents-launcher-updater")).toBe(
+      true,
+    )
+    expect(existsSync(legacy)).toBe(false)
+    // Second run has nothing left to do.
+    expect(purgeLegacyUpdaterCache([dir], "openagents-launcher-updater")).toBe(false)
   })
 })

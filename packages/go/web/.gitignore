@@ -1,7 +1,0 @@
-node_modules/
-.next/
-.env.local
-.vercelignore
-
-# InsForge CLI local link (contains api_key — never commit)
-.insforge/

@@ -69,4 +69,30 @@ describe('readiness from saved per-agent env', () => {
     const health = makeInstaller().healthCheck('claudeish');
     assert.equal(health.ready, false);
   });
+
+  it('a key saved on the agent itself counts, with <type>.env empty', () => {
+    // What the workspace writes: LLM_API_KEY on the agent in daemon.yaml,
+    // nothing in <type>.env. The agent answered while its health check said
+    // "Not configured — … run: kimi login".
+    new EnvManager(tmpDir).delete('claudeish');
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    const agentEnv = { LLM_API_KEY: 'sk-agent-key', LLM_BASE_URL: 'https://relay.example/v1' };
+
+    const inst = makeInstaller();
+    assert.equal(inst.healthCheck('claudeish').ready, false);
+    const health = inst.healthCheck('claudeish', { agentEnv });
+    assert.equal(health.ready, true);
+    assert.equal(health.auth_mode, 'api_key');
+  });
+
+  it('a signed-in agent is not made ready by a key on the agent', () => {
+    new EnvManager(tmpDir).delete('claudeish');
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    const agentEnv = { OPENAGENTS_AUTH_MODE: 'cli_login', LLM_API_KEY: 'sk-agent-key', LLM_BASE_URL: 'https://relay.example/v1' };
+
+    const health = makeInstaller().healthCheck('claudeish', { cliLogin: true, agentEnv });
+    assert.equal(health.ready, false);
+  });
 });

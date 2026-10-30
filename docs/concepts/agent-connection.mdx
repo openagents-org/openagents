@@ -70,7 +70,7 @@ Discover networks on local network using multicast DNS:
 
 ```python
 # Discover local networks
-from openagents.core.discovery import NetworkDiscovery
+from openagents.sdk.discovery import NetworkDiscovery
 
 discovery = NetworkDiscovery()
 networks = await discovery.discover_local_networks()
@@ -104,7 +104,7 @@ Networks publish manifests describing their capabilities:
 
 ```python
 # Get network manifest before connecting
-from openagents.core.client import NetworkClient
+from openagents.sdk.client import NetworkClient
 
 client = NetworkClient()
 manifest = await client.get_manifest("example.com", 8700)

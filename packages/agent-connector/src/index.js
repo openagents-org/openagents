@@ -4,8 +4,9 @@
 // keeps every spawn from popping a stray console window. See win-console.js.
 require('./win-console').installWindowsHideDefault();
 
+const fs = require('fs');
 const { Config } = require('./config');
-const { EnvManager } = require('./env');
+const { EnvManager, isCliLogin, typeEnvFor } = require('./env');
 const { Registry } = require('./registry');
 const { Installer } = require('./installer');
 const { Daemon } = require('./daemon');
@@ -57,8 +58,19 @@ class AgentConnector {
 
   // -- Install / Uninstall --
 
+  /**
+   * Install an agent runtime the way the launcher's Install button does
+   * (installStreaming): it installs Node.js when an npm agent needs it, uses
+   * the configured npm mirror and runs npm path-safely. `agn install` and the
+   * workspace's remote create used the bare install(), which had none of
+   * that, and the failures it produced surfaced only as "Not installed".
+   */
   async install(agentType) {
-    return this.installer.install(agentType);
+    let output = '';
+    const result = await this.installer.installStreaming(agentType, (chunk) => {
+      output = (output + String(chunk)).slice(-8000);
+    });
+    return { ...result, output: output.trim() };
   }
 
   async uninstall(agentType) {
@@ -69,8 +81,8 @@ class AgentConnector {
     return this.installer.isInstalled(agentType);
   }
 
-  healthCheck(agentType) {
-    return this.installer.healthCheck(agentType);
+  healthCheck(agentType, opts) {
+    return this.installer.healthCheck(agentType, opts);
   }
 
   // -- Agent CRUD --
@@ -84,6 +96,10 @@ class AgentConnector {
       const network = networks.find((n) => n.slug === a.network || n.id === a.network);
       return {
         name: a.name,
+        // The label to show. `name` stays the identity — callers that key on
+        // it (sessions, working dirs, workspace membership) must keep using
+        // `name`, never this.
+        displayName: a.display_name || null,
         type,
         role: a.role || 'worker',
         network: a.network || null,
@@ -96,12 +112,154 @@ class AgentConnector {
   }
 
   addAgent({ name, type, role, path, env }) {
-    this.config.addAgent({ name, type: type || 'openclaw', role: role || 'worker', path, env });
+    const agentType = type || 'openclaw';
+    this.config.addAgent({ name, type: agentType, role: role || 'worker', path, env });
+    // A key entered while ADDING the agent needs the same native side effects
+    // as one saved later: OpenClaw and Hermes read a custom endpoint only from
+    // their own config. Without this a new agent's test passed on the form's
+    // key while the run used a stale one ("401 Invalid token") or none at all
+    // (Hermes falling back to OpenRouter: "401 Missing Authentication header").
+    if (env && Object.keys(env).length) {
+      this._configureAgentNativeAuth(agentType, env, name);
+    }
+    return { success: true };
+  }
+
+  /**
+   * _configureNativeAuth for one agent, on the env it actually runs with: the
+   * type's keys and endpoint only when it has none of its own and does not
+   * sign in through its CLI (typeEnvFor). Merging all of <type>.env pushed a
+   * key saved there earlier into Hermes's config.yaml for an agent created on
+   * the sign-in tab, which then ran on that key (401).
+   */
+  _configureAgentNativeAuth(agentType, agentEnv, agentName) {
+    const typeEnv = typeEnvFor(agentType, this.env.load(agentType), this.registry, agentEnv);
+    this._configureNativeAuth(agentType, { ...typeEnv, ...agentEnv }, agentName);
+    // A Hermes agent moved to the `hermes setup` sign-in gets back the
+    // provider the custom endpoint replaced.
+    if (agentType === 'hermes' && isCliLogin(agentEnv)) {
+      try { require('./adapters/hermes').restoreNativeAuth(); } catch {}
+    }
+  }
+
+  /** Push an agent's endpoint and key into the CLI's own config, for the types that need it. */
+  _configureNativeAuth(agentType, env, agentName) {
+    try {
+      if (agentType === 'openclaw') {
+        const OpenClawAdapter = require('./adapters/openclaw');
+        OpenClawAdapter.configureNativeAuth(agentName
+          ? OpenClawAdapter.instanceEnv(agentName, env, this._configDir)
+          : env);
+      }
+      // Hermes reads a custom endpoint only from its own config.yaml, so the
+      // saved LLM_* values must be pushed through `hermes config set` — the
+      // env file alone leaves it "No inference provider configured".
+      if (agentType === 'hermes') {
+        require('./adapters/hermes').configureNativeAuth(env);
+      }
+    } catch {}
+  }
+
+  /**
+   * The workspace an agent is bound to, as a ready-to-use client — or null
+   * when it is local-only or its network is no longer configured.
+   *
+   * Each network carries its own endpoint (a self-hosted workspace is not the
+   * official one), so the client is built per call rather than reusing
+   * `this.workspace`, the same way removeWorkspace does.
+   */
+  _workspaceClientFor(agentName) {
+    const agent = this.config.getAgent(agentName);
+    if (!agent || !agent.network) return null;
+    const network = this.config
+      .getNetworks()
+      .find((n) => n.slug === agent.network || n.id === agent.network);
+    if (!network || !network.id) return null;
+    const endpoint = network.endpoint || (this.workspace && this.workspace.endpoint);
+    const { WorkspaceClient } = require('./workspace-client');
+    return { client: new WorkspaceClient(endpoint, { agentName }), network };
+  }
+
+  /**
+   * Set (or clear, with an empty value) an agent's display label.
+   *
+   * The agent's `name` is its identity — it keys daemon.yaml, the working
+   * directory under ~/.openagents/agents, its sessions and its workspace
+   * membership — so renaming NEVER touches it. What changes is the label the
+   * launcher and the workspace show, which is precisely what the workspace
+   * already models as `display_name` next to `agent_name`.
+   *
+   * When the agent is in a workspace the new label is pushed there too, so the
+   * two sides agree. A workspace that rejects it (a name another member
+   * already answers to) fails the whole call rather than leaving the label
+   * changed on one side only.
+   */
+  async setAgentDisplayName(name, displayName) {
+    const agent = this.config.getAgent(name);
+    if (!agent) throw new Error(`Agent '${name}' not found`);
+    const label = (displayName || '').trim();
+
+    const bound = this._workspaceClientFor(name);
+    if (bound) {
+      await bound.client.setMemberDisplayName(
+        bound.network.id,
+        bound.network.token || '',
+        name,
+        label,
+      );
+    }
+    // Local write comes second: if the workspace refused the label, nothing
+    // here has changed and the two sides are still in agreement.
+    this.config.updateAgent(name, { display_name: label || undefined });
+    return { success: true, displayName: label || null };
+  }
+
+  /**
+   * Drop an agent's member row from the workspace it joined.
+   *
+   * Deliberately SEPARATE from removeAgent rather than a flag on it. Removing
+   * an agent is a synchronous local edit that `agn remove` and the TUI call
+   * without awaiting, inside a try/catch — making it async would turn a thrown
+   * error into an unhandled rejection those callers can no longer see. So the
+   * network half lives here, and a caller that wants both awaits this first:
+   * failing to reach the workspace then leaves the agent intact locally, which
+   * is the recoverable order.
+   *
+   * A local-only agent is a no-op success — there is nothing over there.
+   */
+  async removeAgentFromWorkspace(name) {
+    const bound = this._workspaceClientFor(name);
+    if (!bound) return { success: true, skipped: true };
+    try {
+      await bound.client.removeMember(
+        bound.network.id,
+        bound.network.token || '',
+        name,
+      );
+    } catch (e) {
+      // 404 is the goal state, reached by someone else: the member row is
+      // already gone, or the whole workspace is. Treating it as a failure
+      // would strand the agent on this device — removal happens local-last, so
+      // an error here means it cannot be removed at all. Anything else (a
+      // network blip, an auth failure) is real and must stop the removal so
+      // the user can retry rather than lose track of a live membership.
+      if (!e || e.status !== 404) throw e;
+      return { success: true, alreadyGone: true };
+    }
     return { success: true };
   }
 
   removeAgent(name) {
+    const agent = this.config.getAgent(name);
     this.config.removeAgent(name);
+    // Its private OpenClaw store keeps the key in openclaw.json, and would
+    // hand old sessions to a new agent added later under the same name.
+    if (agent && agent.type === 'openclaw') {
+      try {
+        const dir = require('./adapters/openclaw').instanceStateDir(name, this._configDir);
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
     return { success: true };
   }
 
@@ -119,22 +277,7 @@ class AgentConnector {
 
   saveAgentEnv(agentType, env) {
     this.env.save(agentType, env);
-    // Configure native auth for agents that need it (e.g. OpenClaw auth-profiles.json)
-    try {
-      if (agentType === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const saved = this.env.load(agentType);
-        OpenClawAdapter.configureNativeAuth(saved);
-      }
-      // Hermes reads a custom endpoint only from its own config.yaml, so the
-      // saved LLM_* values must be pushed through `hermes config set` — the
-      // env file alone leaves it "No inference provider configured".
-      if (agentType === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const saved = this.env.load(agentType);
-        HermesAdapter.configureNativeAuth(saved);
-      }
-    } catch {}
+    this._configureNativeAuth(agentType, this.env.load(agentType));
     return { success: true };
   }
 
@@ -156,18 +299,8 @@ class AgentConnector {
 
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
-    try {
-      if ((agent.type || 'openclaw') === 'openclaw') {
-        const OpenClawAdapter = require('./adapters/openclaw');
-        const typeEnv = this.env.load(agent.type || 'openclaw');
-        OpenClawAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-      if (agent.type === 'hermes') {
-        const HermesAdapter = require('./adapters/hermes');
-        const typeEnv = this.env.load('hermes');
-        HermesAdapter.configureNativeAuth({ ...typeEnv, ...saved });
-      }
-    } catch {}
+    const agentType = agent.type || 'openclaw';
+    this._configureAgentNativeAuth(agentType, saved, agentName);
 
     return { success: true };
   }
@@ -193,9 +326,36 @@ class AgentConnector {
     return { success: true };
   }
 
+  /**
+   * Local half of leaving a workspace: forget the binding, keep the agent.
+   *
+   * Synchronous, and deliberately still local-only — `agn disconnect` and the
+   * TUI call it without awaiting, inside a try/catch, so an async version
+   * would turn a throw into an unhandled rejection they can no longer see.
+   * Callers that want the membership dropped too use leaveWorkspace below.
+   */
   disconnectWorkspace(agentName) {
     this.config.setAgentNetwork(agentName, null);
     return { success: true };
+  }
+
+  /**
+   * Leave a workspace properly: drop the member row over there, and unbind
+   * here — the agent itself stays, with its config, credentials and working
+   * directory, ready to join another workspace.
+   *
+   * Leaving only the local half is the bug this replaces. The device stopped
+   * showing the agent as connected while the workspace went on listing it as a
+   * member, and nothing in the launcher could reach that row any more. The
+   * workspace-level "remove a workspace" action learned this same lesson
+   * already (see removeWorkspace) — this is the agent-level equivalent.
+   *
+   * Workspace first, local second: a failure there leaves the agent bound and
+   * retryable rather than orphaning a membership.
+   */
+  async leaveWorkspace(agentName) {
+    await this.removeAgentFromWorkspace(agentName);
+    return this.disconnectWorkspace(agentName);
   }
 
   async removeWorkspace(slug) {
@@ -310,6 +470,15 @@ class AgentConnector {
   async probeAgentType(agentType, opts) {
     const { probeAgentType } = require('./probe');
     return probeAgentType(this, agentType, opts);
+  }
+
+  /**
+   * Ask an agent type's own CLI which models the account it is signed in to
+   * can run. See cli-models.js.
+   */
+  async listCliModels(agentType, opts) {
+    const { listCliModels } = require('./cli-models');
+    return listCliModels(this, agentType, opts);
   }
 }
 

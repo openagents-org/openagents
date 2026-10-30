@@ -1,0 +1,28 @@
+{
+  "version": "1.0.9",
+  "date": "2026-09-24",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "See release notes as soon as an update is offered",
+        "zh": "新版本提示出现时即可看到更新说明"
+      },
+      "description": {
+        "en": "The update offer now waits briefly for the new version's release notes, so its first appearance includes the changes when notes are available. An update is still offered if the notes cannot be fetched.",
+        "zh": "更新提示现在会短暂等待新版本的更新说明；若能获取，首次弹出时就会列出改动。即使无法获取说明，更新仍会正常提示。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agent updates reflect the version actually installed",
+        "zh": "智能体更新会显示本机实际安装的版本"
+      },
+      "description": {
+        "en": "Global npm installs on Windows now report their installed version correctly. An outdated external install can be updated to a Launcher-managed copy, and running agents restart to use it. The system-installed copy remains in place.",
+        "zh": "Windows 上通过全局 npm 安装的智能体现在会正确显示当前版本。外部安装过旧时，可以更新为由 OpenAgents 管理的版本；正在运行的智能体会重启并使用新版本。系统原有的安装会保留。"
+      }
+    }
+  ]
+}

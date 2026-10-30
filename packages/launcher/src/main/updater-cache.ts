@@ -35,6 +35,9 @@ import {
   writeFileSync,
 } from "fs"
 import path from "path"
+import { createHash } from "crypto"
+import { createReadStream } from "fs"
+import { readFile } from "fs/promises"
 import { hasNonAsciiPathSegment } from "./windows-update-installer"
 
 // Minimal AppAdapter surface we patch. electron-updater declares `app` as
@@ -245,6 +248,35 @@ export function purgePendingUpdateCache(
   }
 }
 
+/** Check a staged package before presenting a second download offer. The
+ * updater will validate it again when downloadUpdate() adopts the cache. */
+export async function hasVerifiedStagedUpdate(
+  cacheRoot: string | null,
+  cacheDirName: string | null,
+  expectedHashes: string[],
+): Promise<boolean> {
+  if (!cacheRoot || !cacheDirName || expectedHashes.length === 0) return false
+  const pending = path.join(cacheRoot, cacheDirName, "pending")
+  try {
+    const cached = JSON.parse(
+      await readFile(path.join(pending, "update-info.json"), "utf8"),
+    ) as { fileName?: unknown; sha512?: unknown }
+    if (
+      typeof cached.fileName !== "string" ||
+      path.basename(cached.fileName) !== cached.fileName ||
+      typeof cached.sha512 !== "string" ||
+      !expectedHashes.includes(cached.sha512)
+    ) return false
+    const hash = createHash("sha512")
+    for await (const chunk of createReadStream(path.join(pending, cached.fileName))) {
+      hash.update(chunk)
+    }
+    return hash.digest("base64") === cached.sha512
+  } catch {
+    return false
+  }
+}
+
 // ── install-attempt record ──
 //
 // Kept next to settings.json in userData. Reading/writing a UTF-8 path from
@@ -321,4 +353,30 @@ export function reconcileInstallAttempt(
     return { kind: "succeeded", version: attempt.version }
   }
   return { kind: "failed", version: attempt.version, attempts: attempt.attempts }
+}
+
+// ── legacy updater cache (app renamed) ──
+//
+// electron-builder derives updaterCacheDirName from the package name, which
+// changed with the "OpenAgents Launcher" → "OpenAgents" rename. Nothing reads
+// the old directory any more, so on an updated install it is a ~100 MB orphan
+// sitting in the user's cache. Delete it once, on the first run that finds it.
+export function purgeLegacyUpdaterCache(
+  cacheRoots: Array<string | null>,
+  legacyDirName: string,
+  log: (msg: string) => void = () => {},
+): boolean {
+  let removed = false
+  for (const root of new Set(cacheRoots.filter((r): r is string => !!r))) {
+    const dir = path.join(root, legacyDirName)
+    try {
+      if (!existsSync(dir)) continue
+      rmSync(dir, { recursive: true, force: true })
+      log(`[updater] removed pre-rename update cache at ${dir}`)
+      removed = true
+    } catch (err) {
+      log(`[updater] failed to remove ${dir}: ${(err as Error).message}`)
+    }
+  }
+  return removed
 }

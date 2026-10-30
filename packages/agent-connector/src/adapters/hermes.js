@@ -10,25 +10,107 @@
  * - profile auto-detection from the agent name (falls back to 'default')
  * - workspace context injection (identity + recent history + agent roster)
  * - subprocess isolation (hermes manages its own HERMES_HOME per profile)
+ *
+ * One workspace thread is one Hermes session, resumed with `--resume` on every
+ * later message. Two rules keep that session — and the provider's prompt cache
+ * behind it — worth resuming:
+ * - a session is only given up when Hermes says it no longer exists. A turn
+ *   that fails, runs out of iterations or is stopped still belongs to it;
+ * - the workspace instructions ride alongside the conversation as a prefill
+ *   message instead of being written into it again with every user message.
  */
 
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync, execFile } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, bridgeSpawn, isWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
+const { isRecapEligible } = require('./decision-log');
+const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
+const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
+const { maskSecretValues } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
   ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex"'
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
+const SESSION_LINE_RE = /^session_id:\s*\S+$/;
+// Hermes validates the toolsets in its own config.yaml before the turn starts
+// and prints this to stdout, ahead of the reply, when one is unknown to the
+// installed version (e.g. `messaging` left over in `platform_toolsets.cli`).
+const TOOLSET_WARNING_RE = /^Warning: Unknown toolsets:/;
+// What Hermes prints, in place of a session_id, when `--resume` names a
+// session it no longer has. Upstream localises that line
+// (t("cli.resume.session_not_found")), so this only matches the English text;
+// under another locale a lost session is not recognised as lost.
+const SESSION_NOT_FOUND_RE = /session not found/i;
 const MAX_HISTORY_ENTRIES = 12;
+const OPENAGENTS_RULES = [
+  '\n## OpenAgents-specific Rules',
+  '- Your final text response is posted back to the workspace automatically.',
+  '- If you need to ask the user something, ask in normal text. Do not try to open an interactive prompt.',
+  '- Do not reveal secrets, tokens, raw auth headers, or internal command lines.',
+  '- Keep status concise. Focus on useful output over theatre.',
+];
+// Hermes sends the messages in this file at the head of every model request
+// without storing them in the session.
+const PREFILL_ENV = 'HERMES_PREFILL_MESSAGES_FILE';
+// The CLI has read that variable since release 0.16.0 of 2026.6.5; 0.15.1
+// (2026.5.29) still took the path from config.yaml only. `hermes --version`
+// prints the release date as "(YYYY.M.D)"; desktop-app installs print only the
+// version ("Hermes Agent v0.21.6 · stable").
+const PREFILL_ENV_SINCE = [2026, 6, 5];
+const PREFILL_ENV_SINCE_VERSION = [0, 16, 0];
+const RELEASE_DATE_RE = /\((\d{4})\.(\d{1,2})\.(\d{1,2})\)/;
+const SEMVER_RE = /\bv(\d+)\.(\d+)\.(\d+)\b/;
+// Our prefill files, in os.tmpdir(); they carry the workspace token. One left
+// behind by a killed daemon is removed at the next start once this old.
+const PREFILL_FILE_RE = /^openagents-hermes-[0-9a-f]+\.json$/;
+const STALE_PREFILL_MS = 60 * 60 * 1000;
+// `prefill_messages_file:` in config.yaml, at top level or under `agent:`.
+const CONFIG_PREFILL_RE = /^[ \t]*prefill_messages_file[ \t]*:(.*)$/gm;
+const PREFILL_CLOSING = [
+  '',
+  '---',
+  '',
+  'The text above is standing context from the OpenAgents workspace, not a message to answer. The conversation follows.',
+];
+
+// What a failed `hermes chat` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const HERMES_GUIDANCE = {
+  auth:
+    'Hermes could not authenticate. Set LLM_API_KEY (with LLM_BASE_URL and ' +
+    'LLM_MODEL) for this agent, or run `hermes setup` on the device to sign in ' +
+    'to a provider.',
+  quota:
+    "The provider is rate-limiting this agent or its quota is exhausted. Wait " +
+    'and try again, or use a key with more quota.',
+  network:
+    'Hermes could not reach its provider from this device. Check the device\'s ' +
+    'network, or its proxy, and LLM_BASE_URL if a custom endpoint is set.',
+  model:
+    'The provider rejected the requested model. Pick another model for this ' +
+    'agent, or clear LLM_MODEL to use the profile default.',
+  provider:
+    'Hermes has no inference provider configured. Set LLM_API_KEY (with ' +
+    'LLM_BASE_URL and LLM_MODEL) for this agent, or run `hermes setup` on the ' +
+    'device to choose one.',
+  config:
+    "Hermes's own configuration is invalid — check the profile's config under " +
+    'HERMES_HOME, or run `hermes setup` again.',
+};
 
 class HermesAdapter extends BaseAdapter {
   /**
@@ -42,7 +124,7 @@ class HermesAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the context prefix.
+    // Pin the channel's glossary into the context prefix.
     this._usesPinnedContext = true;
     this.hermesProfile = this._resolveProfile(opts.hermesProfile, this.agentName);
     this.hermesSource = opts.hermesSource || 'tool';
@@ -51,11 +133,14 @@ class HermesAdapter extends BaseAdapter {
 
     this._channelSessions = {};
     this._channelProcesses = {};
+    // { bin, ok }: whether the resolved hermes reads PREFILL_ENV.
+    this._prefillEnvSupport = null;
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_hermes.json`,
     );
     this._loadSessions();
+    HermesAdapter.sweepStalePrefillFiles();
 
     this._hermesBin = this._findHermesBinary();
     if (this._hermesBin) {
@@ -71,9 +156,6 @@ class HermesAdapter extends BaseAdapter {
 
   _findHermesBinary() {
     const home = os.homedir();
-    // Reset each call. When set, this._hermesBin is a path INSIDE WSL and must
-    // be invoked as `wsl -e <path> …` rather than spawned natively.
-    this._hermesViaWsl = false;
 
     // Tier 1: PATH (enriched env so we see the dirs the launcher adds; a fresh
     // install updates the user PATH, which the running daemon won't pick up).
@@ -112,41 +194,42 @@ class HermesAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
-    // Tier 3: Deep scan of every known bin dir.
+    // Tier 3: Deep scan of every known bin dir — which ends inside WSL when
+    // nothing native turned up, so a hermes the user set up in their distro is
+    // found here and comes back marked for the ../wsl spawn bridge. Native
+    // Windows (Tiers 1-2) is still preferred.
     const viaWhich = whichBinary('hermes');
     if (viaWhich) return viaWhich;
-
-    // Tier 4 (Windows only): fall back to a WSL install if one exists. Native
-    // Windows (Tiers 1-3) is preferred, but a user who set hermes up inside
-    // WSL2 still works — resolve its absolute in-WSL path; _runHermes then
-    // invokes it as `wsl -e <path> …`.
-    if (IS_WINDOWS) {
-      const wslPath = this._resolveWslHermes();
-      if (wslPath) {
-        this._hermesViaWsl = true;
-        return wslPath;
-      }
-    }
 
     return null;
   }
 
   /**
-   * Resolve hermes's absolute path inside the default WSL distro, or null.
-   * Uses a login shell (`bash -lc`) so the installer's PATH additions
-   * (~/.local/bin) are visible. Returns an absolute Linux path like
-   * /home/<user>/.local/bin/hermes.
+   * Preflight gate (run by the daemon before join). Hermes can do nothing
+   * without its CLI, so when none can be resolved we surface a precise
+   * 'runtime_missing' reason and skip the workspace join — instead of joining,
+   * reporting "online" and then failing every message. That contradiction is
+   * exactly what users hit: the workspace showed a green hermes and "all set"
+   * while the smoke test on the same screen said "Not installed", because
+   * `create_agent --install` treats a failed third-party install script as a
+   * warning and connects the agent anyway.
+   *
+   * Re-resolves rather than trusting the constructor's lookup: an install that
+   * landed after the daemon started must not need a restart to be seen. NOTE:
+   * 'runtime_missing' (binary gone/never landed at run time), NOT
+   * 'not_installed' — install detection lives in the installer.
    */
-  _resolveWslHermes() {
-    if (!IS_WINDOWS) return null;
-    try {
-      const out = execSync('wsl.exe -e bash -lc "command -v hermes"', {
-        encoding: 'utf-8', timeout: 8000, windowsHide: true,
-      }).trim();
-      const p = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-      if (p && p.startsWith('/')) return p;
-    } catch {}
-    return null;
+  preflight() {
+    if (!this._hermesBin) this._hermesBin = this._findHermesBinary();
+    if (!this._hermesBin) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `Hermes CLI not found — install with: ${HERMES_INSTALL_HINT}`,
+      };
+    }
+    this._log(`Hermes CLI resolved: ${this._hermesBin}`);
+    return { ok: true };
   }
 
   _resolveProfile(explicit, agentName) {
@@ -184,6 +267,12 @@ class HermesAdapter extends BaseAdapter {
     } catch {}
   }
 
+  _forgetSession(channelName) {
+    if (!(channelName in this._channelSessions)) return;
+    delete this._channelSessions[channelName];
+    this._saveSessions();
+  }
+
   // ------------------------------------------------------------------
   // Prompt assembly
   // ------------------------------------------------------------------
@@ -207,32 +296,38 @@ class HermesAdapter extends BaseAdapter {
     }
   }
 
-  async _getRecentHistoryText(channelName) {
+  /**
+   * What was said in this channel before the message being answered — for a
+   * Hermes session that starts with nothing: a thread the agent joins midway,
+   * or one whose earlier session can no longer be resumed. A resumed session
+   * holds its own history and is never given this.
+   *
+   * Bounded, because the whole prompt travels as a single argv entry.
+   */
+  async _getRecentHistoryText(channelName, currentMessage) {
     try {
-      const messages = await this.client.pollMessages({
-        workspaceId: this.workspaceId,
-        channelName,
-        token: this.token,
-        limit: MAX_HISTORY_ENTRIES,
-      });
-      if (!Array.isArray(messages) || messages.length === 0) return '';
-      const lines = messages
-        .filter((m) => m.messageType !== 'status')
+      const messages = await this.client.getRecentMessages(
+        this.workspaceId, channelName, this.token, 30,
+      );
+      const lines = (messages || [])
+        .filter((m) => isRecapEligible(m, currentMessage))
+        .slice(-MAX_HISTORY_ENTRIES)
         .map((m) => {
           const sender = m.senderName || m.senderType || 'unknown';
-          const content = (m.content || '').trim();
-          if (!content) return null;
-          return `- ${sender}: ${content.slice(0, 400)}`;
-        })
-        .filter(Boolean);
+          return `- ${sender}: ${m.content.trim().slice(0, 400)}`;
+        });
       return lines.length ? `## Recent Workspace Messages\n${lines.join('\n')}` : '';
     } catch {
       return '';
     }
   }
 
-  async _buildContextPrefix(channelName) {
-    const parts = [
+  /**
+   * The workspace's standing instructions for a channel: who the agent is
+   * here, the mode, the workspace API, the pinned decisions and glossary.
+   */
+  _buildWorkspaceInstructions(channelName) {
+    return [
       buildOpenclawSystemPrompt({
         agentName: this.agentName,
         workspaceId: this.workspaceId,
@@ -240,37 +335,177 @@ class HermesAdapter extends BaseAdapter {
         endpoint: this.endpoint,
         token: this.token,
         mode: this._mode,
+        model: this.modelLabel(),
         disabledModules: this.disabledModules,
         ...this.pinnedPromptOpts(channelName),
       }),
-      '\n## OpenAgents-specific Rules',
-      '- Your final text response is posted back to the workspace automatically.',
-      '- If you need to ask the user something, ask in normal text. Do not try to open an interactive prompt.',
-      '- Do not reveal secrets, tokens, raw auth headers, or internal command lines.',
-      '- Keep status concise. Focus on useful output over theatre.',
-    ];
+      ...OPENAGENTS_RULES,
+    ].join('\n').trim();
+  }
 
-    const [agentsText, historyText] = await Promise.all([
-      this._getAgentsText(),
-      this._getRecentHistoryText(channelName),
-    ]);
-    if (agentsText) parts.push('\n' + agentsText);
-    if (historyText) parts.push('\n' + historyText);
-    return parts.join('\n').trim();
+  /**
+   * The prompt for one turn.
+   *
+   * A session that is starting out is told who else is in the workspace and
+   * what was said before; a resumed one has its own history and gets the
+   * user's message as it is. `instructions` is only passed when they could not
+   * go out as a prefill and have to travel in the message instead.
+   */
+  async _buildPrompt(channelName, content, resumeId, instructions = '') {
+    const parts = [];
+    if (instructions) parts.push(instructions);
+    if (!resumeId) {
+      const [agentsText, historyText] = await Promise.all([
+        this._getAgentsText(),
+        this._getRecentHistoryText(channelName, content),
+      ]);
+      if (agentsText) parts.push('\n' + agentsText);
+      if (historyText) parts.push('\n' + historyText);
+    }
+    const context = parts.join('\n').trim();
+    if (context) return `${context}\n\n---\n\nUser message:\n${content}`;
+    // The prompt is the value of `-q`; one starting with a dash would be read
+    // as another flag.
+    return content.startsWith('-') ? `User message:\n${content}` : content;
+  }
+
+  // ------------------------------------------------------------------
+  // Workspace instructions as a Hermes prefill
+  // ------------------------------------------------------------------
+
+  /** What `hermes --version` prints; it opens with e.g. "Hermes Agent v0.21.4 (2026.9.24)". */
+  _hermesVersionText() {
+    const { file, args } = bridgeSpawn(this._hermesBin, ['--version']);
+    return new Promise((resolve, reject) => {
+      execFile(file, args, {
+        env: { ...(this.agentEnv || process.env) },
+        timeout: 20000,
+        windowsHide: true,
+      }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))));
+    });
+  }
+
+  /** True when a `hermes --version` output names a release that reads PREFILL_ENV. */
+  _readsPrefillEnv(versionText) {
+    const text = String(versionText || '');
+    const atLeast = (have, want) => {
+      const i = have.findIndex((n, k) => n !== want[k]);
+      return i === -1 || have[i] > want[i];
+    };
+    const date = RELEASE_DATE_RE.exec(text);
+    if (date) return atLeast(date.slice(1, 4).map(Number), PREFILL_ENV_SINCE);
+    const ver = SEMVER_RE.exec(text);
+    // The old calendar tags (v2026.3.12) are dates, not versions.
+    if (ver && Number(ver[1]) < 1000) return atLeast(ver.slice(1, 4).map(Number), PREFILL_ENV_SINCE_VERSION);
+    return false;
+  }
+
+  /**
+   * True when the user already points Hermes at a prefill file of their own,
+   * through the variable or `prefill_messages_file` in config.yaml. Setting
+   * the variable would replace theirs, so the instructions go in the message.
+   */
+  _userHasPrefill() {
+    const env = this.agentEnv || process.env;
+    if (String(env[PREFILL_ENV] || '').trim()) return true;
+    const homeEnv = String(env.HERMES_HOME || '').trim();
+    const home = homeEnv || (IS_WINDOWS
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
+      : path.join(os.homedir(), '.hermes'));
+    const configs = [path.join(home, 'config.yaml')];
+    if (this.hermesProfile && this.hermesProfile !== 'default') {
+      configs.push(path.join(home, 'profiles', this.hermesProfile, 'config.yaml'));
+    }
+    return configs.some((file) => {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { return false; }
+      return HermesAdapter.configHasPrefill(text);
+    });
+  }
+
+  /** True when a config.yaml text sets `prefill_messages_file` to something. */
+  static configHasPrefill(text) {
+    for (const m of String(text || '').matchAll(CONFIG_PREFILL_RE)) {
+      const value = m[1].replace(/\s#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+      if (value && value !== '~' && value.toLowerCase() !== 'null') return true;
+    }
+    return false;
+  }
+
+  /**
+   * Whether this hermes takes its prefill file from the environment. One that
+   * does not would simply start without the workspace instructions, so a
+   * version that cannot be read counts as too old. Asked once per binary.
+   */
+  async _supportsPrefillEnv() {
+    const known = this._prefillEnvSupport;
+    if (known && known.bin === this._hermesBin) return known.ok;
+    let ok = false;
+    try { ok = this._readsPrefillEnv(await this._hermesVersionText()); } catch {}
+    if (!ok) this._log(`This hermes does not read ${PREFILL_ENV}; sending the workspace instructions with each message`);
+    this._prefillEnvSupport = { bin: this._hermesBin, ok };
+    return ok;
+  }
+
+  /**
+   * Write the instructions where Hermes will pick them up as a prefill: one
+   * user message, placed ahead of the conversation on every model request and
+   * never stored in the session.
+   *
+   * Prepending them to each user message, as this adapter used to, wrote a
+   * fresh ~18 KB copy into the session every turn. The provider's prompt cache
+   * had never seen that copy, so it was new input each time, and it grew the
+   * conversation by that much per message however short the message — towards
+   * the point where Hermes compresses the conversation, which rewrites the
+   * cached prefix as well. Sending them once per session is not an option
+   * either: that compression folds old messages into a "reference only"
+   * summary, instructions included. As a prefill they are always there,
+   * always current, and identical from one request to the next.
+   *
+   * Returns the file's path, or null when they have to go in the message.
+   */
+  async _writePrefill(instructions) {
+    if (!(await this._supportsPrefillEnv())) return null;
+    if (this._userHasPrefill()) {
+      if (!this._userPrefillLogged) {
+        this._userPrefillLogged = true;
+        this._log('Hermes already has a prefill_messages_file; keeping it and sending the workspace instructions with each message');
+      }
+      return null;
+    }
+    const file = path.join(os.tmpdir(), `openagents-hermes-${crypto.randomBytes(8).toString('hex')}.json`);
+    const content = [instructions, ...PREFILL_CLOSING].join('\n');
+    try {
+      // Owner-only: the instructions carry the workspace token.
+      fs.writeFileSync(file, JSON.stringify([{ role: 'user', content }]), { mode: 0o600 });
+      return file;
+    } catch (e) {
+      this._log(`Could not write the Hermes prefill file (${e.message}); sending workspace instructions with the message`);
+      return null;
+    }
   }
 
   // ------------------------------------------------------------------
   // Output parsing
   // ------------------------------------------------------------------
 
-  _parseHermesOutput(raw) {
+  _parseHermesOutput(raw, meta) {
     let sessionId = null;
     let body = raw;
 
-    const m = SESSION_ID_RE.exec(body);
-    if (m) {
-      sessionId = m[1];
-      body = body.replace(SESSION_ID_RE, '');
+    // Hermes -Q mode emits session_id to stderr (meta); the response body is
+    // on stdout (raw). Older Hermes printed session_id on stdout, so fall
+    // back to extracting it from the body when stderr carried none.
+    if (meta) {
+      const m = SESSION_ID_RE.exec(meta);
+      if (m) sessionId = m[1];
+    }
+    if (!sessionId) {
+      const m = SESSION_ID_RE.exec(body);
+      if (m) {
+        sessionId = m[1];
+        body = body.replace(SESSION_ID_RE, '');
+      }
     }
 
     const lines = [];
@@ -278,9 +513,26 @@ class HermesAdapter extends BaseAdapter {
       const stripped = line.trim();
       if (!stripped) continue;
       if (stripped.startsWith('↻ Resumed session ')) continue;
+      // Only before the reply begins: the reply itself may quote the line.
+      if (!lines.length && TOOLSET_WARNING_RE.test(stripped)) {
+        this._log?.(`Hermes config: ${stripped} (check toolsets in ~/.hermes/config.yaml)`, 'warn');
+        continue;
+      }
       lines.push(line);
     }
     return { text: lines.join('\n').trim(), sessionId };
+  }
+
+  /** Hermes's stderr without the session bookkeeping it prints on every run. */
+  _stderrDetail(stderr) {
+    return String(stderr || '')
+      .split(/\r?\n/)
+      .filter((line) => {
+        const stripped = line.trim();
+        return stripped && !SESSION_LINE_RE.test(stripped) && !stripped.startsWith('↻ Resumed session ');
+      })
+      .join('\n')
+      .trim();
   }
 
   // ------------------------------------------------------------------
@@ -307,63 +559,128 @@ class HermesAdapter extends BaseAdapter {
     return args;
   }
 
-  async _runHermes(prompt, channelName) {
-    const resumeId = this._channelSessions[channelName];
+  /**
+   * Run one Hermes turn and report what became of it.
+   *
+   * `sessionId` is what Hermes itself reported for this run. It prints one
+   * whenever the turn got as far as the session — finished or not — and none
+   * when the turn never began. `detail` is its stderr without that
+   * bookkeeping; `stopped` says the user stopped the turn.
+   *
+   * @returns {Promise<{stopped: boolean, exitCode: number|null, text: string,
+   *   sessionId: string|null, detail: string}>}
+   */
+  async _runHermes(prompt, channelName, resumeId = null, prefillFile = null) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channelName)) {
+      return { stopped: true, exitCode: null, text: '', sessionId: null, detail: '' };
+    }
     const args = this._buildHermesCmd(prompt, resumeId);
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
 
     const env = { ...(this.agentEnv || process.env) };
+    if (prefillFile) env[PREFILL_ENV] = prefillFile;
 
-    // On Windows hermes lives inside WSL: invoke `wsl -e <wsl-hermes-path> …`.
-    // `-e` runs the binary directly (no shell), so every arg — including the
-    // multi-line prompt in `-q` — passes through verbatim with no quoting hazard.
-    // hermes then uses its own config (~/.hermes inside WSL) for model/keys.
-    let spawnBin = this._hermesBin;
-    let spawnArgs = args;
-    if (this._hermesViaWsl) {
-      spawnBin = 'wsl.exe';
-      spawnArgs = ['-e', this._hermesBin, ...args];
-    }
-
-    const proc = spawn(spawnBin, spawnArgs, {
+    // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
+    // the bridge in ../wsl (which also forces detached off, there being no
+    // process group on the far side, and hands the distro the agent's env via
+    // WSLENV). hermes then uses its own config — ~/.hermes inside the distro —
+    // for model and keys. Nothing to special-case here.
+    const proc = spawn(this._hermesBin, args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // No process group on Windows / WSL (can't signal a group); windowsHide
-      // keeps the wsl.exe console from flashing up.
-      detached: !IS_WINDOWS && !this._hermesViaWsl,
+      cwd: this.workingDir,
+      // No process group on Windows (can't signal one); windowsHide keeps a
+      // console from flashing up.
+      detached: !IS_WINDOWS,
       windowsHide: true,
     });
     this._channelProcesses[channelName] = proc;
 
     let stdout = '';
     let stderr = '';
+    let spawnError = null;
     proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
     proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
 
+    // 'exit' can fire with output still in the pipes, and the session id is
+    // the last thing Hermes prints. 'close' means they are drained — but it
+    // never comes while a process the agent left running holds them open, so
+    // it is only waited for briefly.
     const exitCode = await new Promise((resolve) => {
-      proc.on('exit', resolve);
-      proc.on('error', () => resolve(-1));
+      let code = null;
+      let drain = null;
+      const done = () => { clearTimeout(drain); resolve(code); };
+      proc.on('exit', (c) => { code = c; drain = setTimeout(done, 1000); });
+      proc.on('close', done);
+      proc.on('error', (e) => { spawnError = e; code = -1; done(); });
     });
     delete this._channelProcesses[channelName];
 
-    if (exitCode !== 0) {
-      if (resumeId) {
-        // Resume may have failed because the session was deleted — drop it and retry fresh
-        this._log(`Hermes resume failed (code=${exitCode}), retrying without resume`);
-        delete this._channelSessions[channelName];
-        this._saveSessions();
-        return this._runHermes(prompt, channelName);
-      }
-      const detail = (stderr || stdout).trim().slice(0, 600);
-      throw new Error(`hermes exited with code ${exitCode}: ${detail}`);
+    // Hermes -Q mode: response body on stdout, session metadata
+    // (session_id:, resume banner) on stderr — parse both streams.
+    const { text, sessionId } = this._parseHermesOutput(stdout, stderr);
+    return {
+      stopped: this._stopRequestedDuringTurn(channelName),
+      exitCode,
+      text,
+      sessionId,
+      detail: spawnError ? spawnError.message : this._stderrDetail(stderr),
+    };
+  }
+
+  /**
+   * One prompt-and-run against a given session (null starts a new one), and
+   * the bookkeeping that follows from it.
+   */
+  async _attemptTurn(channelName, content, resumeId) {
+    const instructions = this._buildWorkspaceInstructions(channelName);
+    const prefillFile = await this._writePrefill(instructions);
+    let run;
+    try {
+      const prompt = await this._buildPrompt(channelName, content, resumeId, prefillFile ? '' : instructions);
+      run = await this._runHermes(prompt, channelName, resumeId, prefillFile);
+    } finally {
+      // Hermes reads it once, at startup.
+      if (prefillFile) try { fs.unlinkSync(prefillFile); } catch {}
     }
 
-    const { text, sessionId } = this._parseHermesOutput(stdout);
-    if (sessionId) {
-      this._channelSessions[channelName] = sessionId;
+    // Whatever the exit code, a reported session exists and holds this turn.
+    if (run.sessionId && run.sessionId !== this._channelSessions[channelName]) {
+      this._channelSessions[channelName] = run.sessionId;
       this._saveSessions();
     }
-    return text;
+    return run;
+  }
+
+  /**
+   * Answer one message in the channel's Hermes session, starting a new session
+   * only when there is none to resume.
+   *
+   * Hermes exits non-zero for every turn that does not finish: a provider
+   * error, the iteration limit, a user stop. Each of those still prints the
+   * session id — the session is intact and the turn is in it — so none of them
+   * is a reason to let go of it. Reading any non-zero exit as "the resume
+   * failed" used to drop the session and run the same prompt again in an empty
+   * one: the conversation was lost, the work was done twice (tool calls
+   * included, for a turn that had spent its iterations), and the user was
+   * shown the second failure instead of Hermes's account of the first.
+   *
+   * What does call for a new session is a resumed turn that never began — no
+   * session id comes back, typically with "Session not found". The saved id is
+   * only replaced once the new run reports one of its own, or dropped when
+   * Hermes said outright that it is gone: a Hermes that cannot start at all
+   * (no credentials, say) says nothing about the session either.
+   */
+  async _converse(channelName, content) {
+    const resumeId = this._channelSessions[channelName] || null;
+    const run = await this._attemptTurn(channelName, content, resumeId);
+    const neverBegan = !run.stopped && run.exitCode !== 0 && !run.sessionId;
+    if (!resumeId || !neverBegan) return run;
+
+    this._log(`Hermes could not resume session ${resumeId} (code=${run.exitCode}), starting a new one`);
+    if (SESSION_NOT_FOUND_RE.test(run.detail)) this._forgetSession(channelName);
+    return this._attemptTurn(channelName, content, null);
   }
 
   async _stopProcess(proc) {
@@ -388,16 +705,6 @@ class HermesAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-        await this._stopProcess(proc);
-        delete this._channelProcesses[channel];
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      }
-    }
-  }
-
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------
@@ -410,28 +717,91 @@ class HermesAdapter extends BaseAdapter {
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing workspace message from ${sender} in ${msgChannel}`);
 
+    // Re-resolve per message: the constructor's lookup is a snapshot, and an
+    // agent that was created before its CLI finished installing would
+    // otherwise stay broken until the daemon restarts.
+    if (!this._hermesBin) this._hermesBin = this._findHermesBinary();
+    if (!this._hermesBin) {
+      const message = `Hermes CLI not found — install with: ${HERMES_INSTALL_HINT}`;
+      this._reportStatus(REASON.RUNTIME_MISSING, message);
+      await this.sendError(msgChannel, message);
+      return;
+    }
+
     await this._autoTitleChannel(msgChannel, content);
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const context = await this._buildContextPrefix(msgChannel);
-      const prompt = context ? `${context}\n\n---\n\nUser message:\n${content}` : content;
-      const responseText = await this._runHermes(prompt, msgChannel);
+      const run = await this._converse(msgChannel, content);
+      // The stop handler has already told the channel.
+      if (run.stopped) return;
 
-      if (responseText) {
-        await this.sendResponse(msgChannel, responseText);
+      if (run.exitCode === 0) {
+        await this.sendResponse(msgChannel, run.text || 'No response generated. Please try again.');
+      } else if (run.text) {
+        // The turn did not finish, and stdout is Hermes's own account of why,
+        // after whatever answer it had reached. Worth more to the user than
+        // an exit code.
+        // It is prose, so the shape rules of redaction stay off it; what is
+        // masked is this agent's own secrets, which a provider error quoted
+        // there would echo.
+        // Masked before it is cut, so a secret straddling the cut cannot
+        // survive as a fragment; the reason is at the end, so keep the tail.
+        this._log(`Hermes turn did not finish (code=${run.exitCode})`, 'error');
+        const said = maskSecretValues(run.text, this._knownSecrets());
+        await this.sendError(msgChannel, said.length > 2000 ? `…${said.slice(-2000)}` : said);
       } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+        // Nothing on stdout, so the reason is whatever Hermes wrote to stderr:
+        // in -Q mode that is where it reports a backend error that produced
+        // no reply, and a credential check that failed before the turn began.
+        // stdout is never classified — it is the model's reply, and a reply
+        // that mentions a sign-in page is not an auth failure.
+        const failure = classifyRunFailure({
+          code: run.exitCode,
+          stderr: run.detail,
+          cli: 'Hermes',
+          guidance: HERMES_GUIDANCE,
+          skip: ['session'],
+          secrets: this._knownSecrets(),
+        });
+        this._log(`Hermes run failed (${failure.kind}, code=${run.exitCode})`, 'error');
+        throw classifiedError(failure.message);
       }
     } catch (e) {
       this._log(`Hermes adapter error: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      // A classified failure is already the sentence the user should read;
+      // anything else is an adapter-side error and says so.
+      await this.sendError(
+        msgChannel,
+        isClassifiedError(e) ? e.message : `Error processing message: ${this._redact(e.message)}`,
+      );
     }
   }
 
   // ------------------------------------------------------------------
   // Static: configure Hermes's native model config from LLM env vars
   // ------------------------------------------------------------------
+
+  /**
+   * Remove prefill files a killed daemon left in `dir`: only ours, only once
+   * older than `maxAgeMs`. Best effort. Returns how many were removed.
+   */
+  static sweepStalePrefillFiles(dir = os.tmpdir(), maxAgeMs = STALE_PREFILL_MS, now = Date.now()) {
+    let removed = 0;
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return 0; }
+    for (const name of names) {
+      if (!PREFILL_FILE_RE.test(name)) continue;
+      const file = path.join(dir, name);
+      try {
+        const st = fs.lstatSync(file);
+        if (!st.isFile() || now - st.mtimeMs <= maxAgeMs) continue;
+        fs.unlinkSync(file);
+        removed++;
+      } catch {}
+    }
+    return removed;
+  }
 
   /**
    * Point Hermes at a custom OpenAI-compatible endpoint from user-provided
@@ -453,6 +823,9 @@ class HermesAdapter extends BaseAdapter {
    *
    * Only acts when LLM_BASE_URL is set: a user signed in via `hermes setup`
    * (the Nous login) must keep their own provider selection untouched.
+   *
+   * The `model:` lines this replaces are recorded (recordNativeAuth), so
+   * restoreNativeAuth can hand them back when an agent moves to the sign-in.
    */
   static configureNativeAuth(env) {
     const vals = env || {};
@@ -466,12 +839,16 @@ class HermesAdapter extends BaseAdapter {
     probe._log = () => {};
     const bin = probe._findHermesBinary();
     if (!bin) return { skipped: true, reason: 'hermes binary not found' };
+    // An in-distro hermes keeps its config inside WSL, out of reach of a file read.
+    const configFile = isWslBinary(bin) ? null : HermesAdapter.configFile();
+    const before = configFile ? readTextOrEmpty(configFile) : null;
 
     const { execFileSync } = require('child_process');
     const run = (args) => {
-      const spawnBin = probe._hermesViaWsl ? 'wsl.exe' : bin;
-      const spawnArgs = probe._hermesViaWsl ? ['-e', bin, ...args] : args;
-      execFileSync(spawnBin, spawnArgs, {
+      // Same rewrite the spawn bridge does, for the one call here that needs to
+      // be synchronous: an in-distro hermes is only reachable through wsl.exe.
+      const { file, args: argv } = bridgeSpawn(bin, args);
+      execFileSync(file, argv, {
         stdio: 'ignore',
         timeout: 20000,
         windowsHide: true,
@@ -482,7 +859,159 @@ class HermesAdapter extends BaseAdapter {
     run(['config', 'set', 'model.base_url', baseUrl]);
     if (model) run(['config', 'set', 'model.default', model]);
     if (apiKey) run(['config', 'set', 'model.api_key', apiKey]);
+    if (configFile) {
+      try { HermesAdapter.recordNativeAuth(configFile, before, readTextOrEmpty(configFile)); } catch {}
+    }
     return { configured: true };
+  }
+
+  /** The default profile's config.yaml, the one `hermes config set` writes. */
+  static configFile(env = process.env) {
+    const homeEnv = String(env.HERMES_HOME || '').trim();
+    const home = homeEnv || (IS_WINDOWS
+      ? path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
+      : path.join(os.homedir(), '.hermes'));
+    return path.join(home, 'config.yaml');
+  }
+
+  /** Where the `model:` lines from before configureNativeAuth are kept. */
+  static nativeAuthRecordFile() {
+    return path.join(os.homedir(), '.openagents', 'native-auth', 'hermes.json');
+  }
+
+  /**
+   * Remember what configureNativeAuth replaced. `original` is each managed
+   * `model:` line from before the FIRST custom endpoint, kept across later
+   * ones; `written` identifies each as configureNativeAuth left it, by hash
+   * only, so the key it wrote is not copied here.
+   */
+  static recordNativeAuth(configFile, beforeText, afterText) {
+    const recordFile = HermesAdapter.nativeAuthRecordFile();
+    const previous = readRecord(recordFile);
+    const original = previous && previous.configFile === configFile
+      ? previous.original
+      : HermesAdapter.modelLines(beforeText);
+    const written = {};
+    for (const [name, line] of Object.entries(HermesAdapter.modelLines(afterText))) written[name] = hashLine(line);
+    fs.mkdirSync(path.dirname(recordFile), { recursive: true });
+    // `original` may hold a key of the user's own provider.
+    fs.writeFileSync(recordFile, JSON.stringify({ configFile, original, written }, null, 2), { mode: 0o600 });
+  }
+
+  /**
+   * Hand Hermes back the `model:` lines configureNativeAuth replaced, for an
+   * agent that now runs on the `hermes setup` sign-in. Without this the custom
+   * endpoint and key stayed in config.yaml, and the signed-in agent kept
+   * calling them (401 once the key was gone or wrong).
+   *
+   * Only while every one of them is still exactly what configureNativeAuth
+   * wrote: lines the user has changed since (`hermes setup`, `hermes model`)
+   * are theirs and stay. Either way the record is dropped.
+   */
+  static restoreNativeAuth() {
+    const recordFile = HermesAdapter.nativeAuthRecordFile();
+    const record = readRecord(recordFile);
+    if (!record) return { skipped: true, reason: 'nothing recorded' };
+    const drop = () => { try { fs.unlinkSync(recordFile); } catch {} };
+    let text;
+    try { text = fs.readFileSync(record.configFile, 'utf8'); } catch {
+      drop();
+      return { skipped: true, reason: 'config.yaml not found' };
+    }
+    const current = HermesAdapter.modelLines(text);
+    if (Object.keys(current).some((name) => hashLine(current[name]) !== (record.written || {})[name])) {
+      drop();
+      return { skipped: true, reason: 'model section changed since' };
+    }
+    fs.writeFileSync(record.configFile, HermesAdapter.restoreModelLines(text, record.original || {}));
+    drop();
+    return { restored: true };
+  }
+
+  /**
+   * The lines of a config.yaml text that configureNativeAuth writes, verbatim
+   * or null where absent: the top-level `model:` line itself (`hermes config
+   * set` turns a plain `model: <id>` into a mapping) and its `default`,
+   * `provider`, `base_url` and `api_key` keys.
+   */
+  static modelLines(text) {
+    const { lines, at } = locateModelLines(text);
+    const out = {};
+    for (const name of MODEL_LINE_NAMES) out[name] = at[name] >= 0 ? lines[at[name]] : null;
+    return out;
+  }
+
+  /**
+   * `text` with each managed `model:` line put back as `original` has it: a
+   * line that was not there before is removed, one that was is restored in
+   * place (or under `model:`). Every other line, comments included, is left
+   * exactly as it is.
+   */
+  static restoreModelLines(text, original) {
+    const { lines, at } = locateModelLines(text);
+    const eol = /\r\n/.test(String(text || '')) ? '\r\n' : '\n';
+    const drop = new Set();
+    const insert = [];
+    for (const name of MODEL_LINE_NAMES) {
+      const was = original[name] == null ? null : String(original[name]);
+      if (at[name] >= 0) {
+        if (was == null) drop.add(at[name]);
+        else lines[at[name]] = was;
+      } else if (was != null && name !== 'header') {
+        insert.push(was);
+      }
+    }
+    const out = [];
+    lines.forEach((line, i) => {
+      if (!drop.has(i)) out.push(line);
+      if (i === at.header && !drop.has(i)) out.push(...insert);
+    });
+    return out.join(eol);
+  }
+}
+
+// What configureNativeAuth writes into config.yaml: the `model:` line and these keys under it.
+const MODEL_KEYS = ['default', 'provider', 'base_url', 'api_key'];
+const MODEL_LINE_NAMES = ['header', ...MODEL_KEYS];
+
+/**
+ * Line indexes of the managed `model:` lines (-1 where absent). The section
+ * runs to the next top-level key: Hermes's own config.yaml has a long run of
+ * column-0 comments inside it, and `hermes config set model.api_key` appends
+ * the key after them. Only direct children count, by their indentation.
+ */
+function locateModelLines(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const at = Object.fromEntries(MODEL_LINE_NAMES.map((name) => [name, -1]));
+  at.header = lines.findIndex((line) => /^model[ \t]*:/.test(line));
+  if (at.header < 0) return { lines, at };
+  let indent = null;
+  for (let i = at.header + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === '' || line.startsWith('#')) continue;
+    const m = /^([ \t]+)([A-Za-z_]+)[ \t]*:/.exec(line);
+    if (!/^[ \t]/.test(line)) break;
+    if (/^[ \t]*#/.test(line) || !m) continue;
+    if (indent == null) indent = m[1];
+    if (m[1] === indent && MODEL_KEYS.includes(m[2]) && at[m[2]] < 0) at[m[2]] = i;
+  }
+  return { lines, at };
+}
+
+function hashLine(line) {
+  return line == null ? null : crypto.createHash('sha256').update(line).digest('hex');
+}
+
+function readTextOrEmpty(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+
+function readRecord(file) {
+  try {
+    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return record && typeof record.configFile === 'string' ? record : null;
+  } catch {
+    return null;
   }
 }
 

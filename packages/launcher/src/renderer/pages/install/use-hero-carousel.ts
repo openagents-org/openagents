@@ -13,7 +13,13 @@ const INTERVAL_MS = 7000
 export function useHeroCarousel(
   count: number,
   paused: boolean,
-): { index: number; select: (i: number) => void } {
+): {
+  index: number
+  select: (i: number) => void
+  /** Step back / forward by hand, wrapping at either end. */
+  prev: () => void
+  next: () => void
+} {
   const [index, setIndex] = useState(0)
 
   // The candidate list shrinks as agents get installed; snap back rather than
@@ -31,7 +37,12 @@ export function useHeroCarousel(
     return () => window.clearTimeout(id)
   }, [count, paused, index])
 
-  return { index: count > 0 ? Math.min(index, count - 1) : 0, select: setIndex }
+  return {
+    index: count > 0 ? Math.min(index, count - 1) : 0,
+    select: setIndex,
+    prev: () => { if (count > 1) setIndex((i) => (i - 1 + count) % count) },
+    next: () => { if (count > 1) setIndex((i) => (i + 1) % count) },
+  }
 }
 
 /**

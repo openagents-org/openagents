@@ -31,45 +31,59 @@ const { sleep, ensureDir } = require("./util")
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..")
 const LAUNCHER_DIR = path.join(REPO_ROOT, "packages", "launcher")
 
-/** Installed-app locations per platform, in the order a user would have them. */
+/**
+ * Installed-app locations per platform, in the order a user would have them.
+ *
+ * "OpenAgents Launcher" is the pre-1.0.7 product name: a machine that updated
+ * in place on macOS keeps the old bundle name, so both are probed.
+ */
+const PRODUCT_NAMES = ["OpenAgents", "OpenAgents Launcher"]
+
 function installedCandidates() {
   const home = os.homedir()
   if (process.platform === "darwin") {
-    return [
-      "/Applications/OpenAgents Launcher.app/Contents/MacOS/OpenAgents Launcher",
-      path.join(
-        home,
-        "Applications/OpenAgents Launcher.app/Contents/MacOS/OpenAgents Launcher",
-      ),
-    ]
+    return PRODUCT_NAMES.flatMap((name) => [
+      `/Applications/${name}.app/Contents/MacOS/${name}`,
+      path.join(home, `Applications/${name}.app/Contents/MacOS/${name}`),
+    ])
   }
   if (process.platform === "win32") {
     const local =
       process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
-    const exe = "OpenAgents Launcher.exe"
     // The NSIS installer is `oneClick: false` and lets the user pick a
     // directory, so these are defaults rather than guarantees: per-user first
     // (what most people get), then per-machine, which the MSI always uses.
-    return [
-      path.join(local, "Programs", "OpenAgents Launcher", exe),
-      path.join(local, "Programs", "openagents-launcher", exe),
-      path.join(
-        process.env["ProgramFiles"] || "C:\\Program Files",
-        "OpenAgents Launcher",
-        exe,
-      ),
-      path.join(
-        process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
-        "OpenAgents Launcher",
-        exe,
-      ),
-    ]
+    return PRODUCT_NAMES.flatMap((name) => {
+      const exe = `${name}.exe`
+      return [
+        path.join(local, "Programs", name, exe),
+        path.join(
+          local,
+          "Programs",
+          name.toLowerCase().replace(/ /g, "-"),
+          exe,
+        ),
+        path.join(
+          process.env["ProgramFiles"] || "C:\\Program Files",
+          name,
+          exe,
+        ),
+        path.join(
+          process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+          name,
+          exe,
+        ),
+      ]
+    })
   }
-  return [
-    "/opt/OpenAgents Launcher/openagents-launcher",
-    "/usr/bin/openagents-launcher",
-    path.join(home, "Applications", "OpenAgents Launcher.AppImage"),
-  ]
+  return PRODUCT_NAMES.flatMap((name) => {
+    const bin = name.toLowerCase().replace(/ /g, "-")
+    return [
+      `/opt/${name}/${bin}`,
+      `/usr/bin/${bin}`,
+      path.join(home, "Applications", `${name}.AppImage`),
+    ]
+  })
 }
 
 /** The electron binary from the launcher's own node_modules, or null. */

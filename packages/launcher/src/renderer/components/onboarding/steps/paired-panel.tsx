@@ -20,17 +20,18 @@ import type { OnboardingPairingApi } from "../use-onboarding-pairing"
  */
 export function PairedPanel({
   pairing,
+  openedWorkspace,
   onContinueLocal,
   onFinish,
 }: {
   pairing: OnboardingPairingApi
+  /** The user already opened the workspace from the previous step. */
+  openedWorkspace: boolean
   onContinueLocal: () => void
   onFinish: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const node = pairing.connected!
-  // We can't refocus the exact tab the user left, but opening the workspace URL
-  // brings the browser forward and lands on the page where the flow continues.
   const workspaceRef = node.workspaceSlug || node.workspaceId
   const base = workspaceWebBaseUrl(node.endpoint ?? undefined)
   const browserUrl = workspaceRef ? `${base}/${workspaceRef}` : base
@@ -40,12 +41,30 @@ export function PairedPanel({
   // We say what we did, leave both cards live, and let them close this.
   const [handedOff, setHandedOff] = useState(false)
 
+  /**
+   * Almost everyone arrives here having just opened the workspace to fetch a
+   * pairing code — so the browser tab they need is already open, and this card
+   * used to hand them a SECOND one: `shell.openExternal` cannot focus an
+   * existing tab, and every browser answers it with a new one. Nothing needs
+   * opening either, because the page they left polls its own device list and
+   * has already shown this device coming online.
+   *
+   * So when we know they have that tab, the card stops opening anything and
+   * says where to go instead; reopening stays available underneath for the
+   * case we cannot see — a closed tab, a second browser, a different machine.
+   */
   const openWorkspace = (): void => {
     capture("onboarding_continue_in_browser", {
       workspace_id: node.workspaceSlug,
+      reopened: !openedWorkspace,
     })
-    void window.api.openExternal(browserUrl)
+    if (!openedWorkspace) void window.api.openExternal(browserUrl)
     setHandedOff(true)
+  }
+
+  const reopenWorkspace = (): void => {
+    capture("onboarding_reopen_browser", { workspace_id: node.workspaceSlug })
+    void window.api.openExternal(browserUrl)
   }
 
   return (
@@ -89,8 +108,14 @@ export function PairedPanel({
         />
         <ChoiceCard
           icon={<Globe className="size-4" />}
-          id="workspace"
-          cta={<ExternalLink className="size-4" />}
+          id={openedWorkspace ? "workspaceOpen" : "workspace"}
+          cta={
+            openedWorkspace ? (
+              <ChevronRight className="size-4" />
+            ) : (
+              <ExternalLink className="size-4" />
+            )
+          }
           onClick={openWorkspace}
         />
       </div>
@@ -100,19 +125,38 @@ export function PairedPanel({
           choice would just be a third option. Pressing the card again reopens
           the browser, so "it didn't open" needs no button of its own. */}
       {handedOff && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-(--accent-border) bg-(--accent-bg) px-4 py-3.5">
-          <div className="min-w-50 flex-1">
-            <div className="text-sm font-semibold">
-              {t("onboarding.flow.pairNode.next.handoff.title")}
+        <div className="mt-3 rounded-lg border border-(--accent-border) bg-(--accent-bg) px-4 py-3.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-50 flex-1">
+              <div className="text-sm font-semibold">
+                {t(
+                  openedWorkspace
+                    ? "onboarding.flow.pairNode.next.handoff.titleOpen"
+                    : "onboarding.flow.pairNode.next.handoff.title",
+                )}
+              </div>
+              <p className="m-0 mt-0.5 text-xs leading-relaxed text-(--text-secondary)">
+                {t("onboarding.flow.pairNode.next.handoff.desc")}
+              </p>
             </div>
-            <p className="m-0 mt-0.5 text-xs leading-relaxed text-(--text-secondary)">
-              {t("onboarding.flow.pairNode.next.handoff.desc")}
-            </p>
+            <Button onClick={onFinish}>
+              <Check className="size-4" />
+              {t("onboarding.flow.pairNode.next.handoff.finish")}
+            </Button>
           </div>
-          <Button onClick={onFinish}>
-            <Check className="size-4" />
-            {t("onboarding.flow.pairNode.next.handoff.finish")}
-          </Button>
+          {/* The escape hatch for the tab we cannot see: closed, in another
+              browser, or on another machine. Quiet, because for almost
+              everyone the tab is right there. */}
+          {openedWorkspace && (
+            <button
+              type="button"
+              onClick={reopenWorkspace}
+              className="mt-2.5 inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs text-(--text-secondary) underline underline-offset-2 hover:text-(--accent)"
+            >
+              <ExternalLink className="size-3" />
+              {t("onboarding.flow.pairNode.next.handoff.reopen")}
+            </button>
+          )}
         </div>
       )}
     </>
@@ -126,7 +170,7 @@ function ChoiceCard({
   onClick,
 }: {
   /** Keys the card's copy under `onboarding.flow.pairNode.next.<id>`. */
-  id: "local" | "workspace"
+  id: "local" | "workspace" | "workspaceOpen"
   icon: React.ReactNode
   cta: React.ReactNode
   onClick: () => void

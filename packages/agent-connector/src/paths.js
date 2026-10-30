@@ -11,7 +11,14 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execSync, execFileSync } = require('child_process');
+const { exec, execSync, execFile, execFileSync } = require('child_process');
+const {
+  isRunningInWsl,
+  resolveWslBinary,
+  clearWslBinaryCache,
+  wslBinDirs,
+} = require('./wsl');
+const { canBlock } = require('./probe-mode');
 
 const IS_WINDOWS = process.platform === 'win32';
 const IS_MACOS = process.platform === 'darwin';
@@ -19,21 +26,27 @@ const SEP = IS_WINDOWS ? ';' : ':';
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const PATH_LOOKUP_CACHE_TTL_MS = 30 * 1000;
 
+let knownBinDirsCache = { value: null, at: 0 };
 let extraBinDirsCache = { value: null, at: 0, path: '' };
 const whichBinaryCache = new Map();
 
 /**
- * Get all extra binary directories that should be checked beyond process.env.PATH.
- * Returns deduplicated list of existing directories.
+ * Every directory an agent CLI is known to land in, filtered to the ones that
+ * exist on this machine. Ranked: a copy the launcher installed outranks a copy
+ * the user installed, which outranks whatever the login shell happens to add.
+ *
+ * This is the whole curated set, INCLUDING dirs that are already on PATH —
+ * which is what separates it from getExtraBinDirs(). Anything resolving a
+ * binary off the filesystem wants this one: that lookup exists precisely for
+ * the cases where asking the shell failed, and a dir being on PATH is no
+ * evidence at all that `where`/`which` succeeded (see resolveBinaryInKnownDirs).
  */
-function getExtraBinDirs() {
-  const currentPATH = process.env.PATH || '';
+function getKnownBinDirs() {
   if (
-    extraBinDirsCache.value &&
-    extraBinDirsCache.path === currentPATH &&
-    Date.now() - extraBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
+    knownBinDirsCache.value &&
+    Date.now() - knownBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
   ) {
-    return [...extraBinDirsCache.value];
+    return [...knownBinDirsCache.value];
   }
 
   const dirs = [];
@@ -99,8 +112,6 @@ function getExtraBinDirs() {
   const seen = new Set();
   const value = dirs.filter(d => {
     if (!d || seen.has(d)) return false;
-    // Skip if already in PATH (case-insensitive on Windows)
-    if (IS_WINDOWS ? currentPATH.toLowerCase().includes(d.toLowerCase()) : currentPATH.includes(d)) return false;
     seen.add(d);
     try {
       return fs.statSync(d).isDirectory();
@@ -108,6 +119,32 @@ function getExtraBinDirs() {
       return false;
     }
   });
+  knownBinDirsCache = { value, at: Date.now() };
+  return [...value];
+}
+
+/**
+ * The known bin dirs that are NOT already on PATH — i.e. what has to be
+ * PREPENDED to build an environment in which every agent CLI resolves.
+ *
+ * Only ever use this to build a PATH. It is a strict subset of
+ * getKnownBinDirs(), and the dirs it drops (%APPDATA%\npm, /usr/local/bin, …)
+ * are the most common install locations there are, so using it as "the dirs to
+ * search" hides exactly the agents a user installed themselves.
+ */
+function getExtraBinDirs() {
+  const currentPATH = process.env.PATH || '';
+  if (
+    extraBinDirsCache.value &&
+    extraBinDirsCache.path === currentPATH &&
+    Date.now() - extraBinDirsCache.at < PATH_LOOKUP_CACHE_TTL_MS
+  ) {
+    return [...extraBinDirsCache.value];
+  }
+  const value = getKnownBinDirs().filter((d) =>
+    // Case-insensitive on Windows.
+    IS_WINDOWS ? !currentPATH.toLowerCase().includes(d.toLowerCase()) : !currentPATH.includes(d),
+  );
   extraBinDirsCache = { value, at: Date.now(), path: currentPATH };
   return [...value];
 }
@@ -153,78 +190,190 @@ function getEnhancedEnv(baseEnv) {
 
 /**
  * Find a binary by name. Returns full path or null.
+ *
+ * On Windows the search ends INSIDE WSL when nothing native turned up: an agent
+ * CLI the user installed in their distro is a real, usable install, and the
+ * Linux path that comes back is what adapters hand to the wsl.js spawn bridge.
+ * It is deliberately the last thing tried — a native copy always wins — and
+ * `allowWsl: false` opts out for callers (installer.js) that have further
+ * native tiers of their own to run first.
+ *
+ * @param {string} name
+ * @param {{allowWsl?: boolean}} [opts]
  */
-function whichBinary(name) {
+function whichBinary(name, { allowWsl = true } = {}) {
   if (!name) return null;
   const currentPATH = process.env.PATH || '';
-  const cacheKey = `${name}\0${currentPATH}`;
+  const cacheKey = `${name}\0${currentPATH}\0${allowWsl ? 'wsl' : 'native'}`;
   const cached = whichBinaryCache.get(cacheKey);
   if (cached && Date.now() - cached.at < PATH_LOOKUP_CACHE_TTL_MS) {
     return cached.value;
   }
 
-  // On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
-  // zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
-  // decoding execSync does — a Chinese username comes back mangled (e.g.
-  // `C:\Users\??.?[\…`) and yields ENOENT downstream. We can't reliably re-encode
-  // it (and forcing `chcp` is unsafe under windowsHide's console-less cmd), so we
-  // existence-check every hit and only return one that's real; a mangled path
-  // fails and the caller falls through to its Node-derived tiers (built from
-  // process.env / os.homedir, which the OS hands us as correct UTF-16).
-  const cmd = IS_WINDOWS ? `where ${name}` : `which ${name}`;
-  try {
-    const result = execSync(cmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PATH: getEnhancedPATH() },
-      timeout: 5000,
-      windowsHide: true,
-    });
-    const hits = [];
-    for (const line of result.split(/\r?\n/)) {
-      const hit = line.trim();
-      if (hit && fs.existsSync(hit)) hits.push(hit);
-    }
-    let value = hits[0] || null;
-    if (IS_WINDOWS && hits.length) {
-      // `where` can list npm's extensionless POSIX shim (node_modules/.bin/
-      // claude, a sh script) ahead of claude.cmd. Windows cannot execute that
-      // file — spawning it fails and the probe misreports an installed CLI as
-      // "not installed" while the chat adapters (which prefer .cmd) work fine.
-      // Prefer a hit Windows can run; failing that, a runnable sibling of the
-      // shim; only then fall back to the raw first hit.
-      const RUNNABLE = /\.(cmd|exe|bat|com)$/i;
-      const runnable = hits.find((h) => RUNNABLE.test(h));
-      if (runnable) {
-        value = runnable;
-      } else {
-        for (const h of hits) {
-          const sibling = ['.cmd', '.exe', '.bat'].map((e) => h + e).find((c) => fs.existsSync(c));
-          if (sibling) { value = sibling; break; }
-        }
+  let value = _whichNative(name);
+  if (!value && allowWsl) value = resolveWslBinary(name);
+  whichBinaryCache.set(cacheKey, { value, at: Date.now() });
+  return value;
+}
+
+/** The PATH lookup proper — `where`/`which`, this side of any boundary. */
+function _whichNative(name) {
+  let hits = _runWhich(name);
+
+  if (isRunningInWsl()) {
+    // Interop puts the Windows PATH on the distro's PATH, so `which claude`
+    // happily answers /mnt/c/Users/…/AppData/Roaming/npm/claude — npm's
+    // extensionless POSIX shim, a sh script that execs node.exe with Windows
+    // paths. Linux cannot run it, and returning it turns "not installed" into
+    // the more confusing "installed but every run fails". Only a real PE image
+    // crosses back this way, which interop does exec with argv intact.
+    hits = hits.filter((h) => !_isWindowsMount(h) || /\.exe$/i.test(h));
+    // `which cursor-agent` can't see cursor-agent.exe — the name on disk
+    // carries the suffix — so ask for it explicitly before giving up.
+    if (!hits.length && !/\.exe$/i.test(name)) hits = _runWhich(`${name}.exe`);
+  }
+
+  let value = hits[0] || null;
+  if (IS_WINDOWS && hits.length) {
+    // `where` can list npm's extensionless POSIX shim (node_modules/.bin/
+    // claude, a sh script) ahead of claude.cmd. Windows cannot execute that
+    // file — spawning it fails and the probe misreports an installed CLI as
+    // "not installed" while the chat adapters (which prefer .cmd) work fine.
+    // Prefer a hit Windows can run; failing that, a runnable sibling of the
+    // shim; only then fall back to the raw first hit.
+    const RUNNABLE = /\.(cmd|exe|bat|com)$/i;
+    const runnable = hits.find((h) => RUNNABLE.test(h));
+    if (runnable) {
+      value = runnable;
+    } else {
+      for (const h of hits) {
+        const sibling = ['.cmd', '.exe', '.bat'].map((e) => h + e).find((c) => fs.existsSync(c));
+        if (sibling) { value = sibling; break; }
       }
     }
-    whichBinaryCache.set(cacheKey, { value, at: Date.now() });
-    return value;
-  } catch {
-    whichBinaryCache.set(cacheKey, { value: null, at: Date.now() });
-    return null;
   }
+  return value;
+}
+
+/** The value of an env var, matching the key case-insensitively on Windows. */
+function _envValue(env, name) {
+  if (!IS_WINDOWS) return env[name];
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name);
+  return key ? env[key] : undefined;
 }
 
 /**
- * Codepage-safe `where`/`which` lookup, shared by every CLI adapter.
+ * Directory listings for _searchPath, keyed by dir. One sweep over every agent
+ * type asks for ~20 names × every PATHEXT spelling × every PATH dir — thousands
+ * of stats — where reading each dir once answers all of them.
+ */
+const DIR_INDEX_TTL_MS = 5000;
+const dirIndexCache = new Map();
+
+/** name (lower-cased on Windows) → name on disk; null when unlistable. */
+function _dirIndex(dir) {
+  const hit = dirIndexCache.get(dir);
+  if (hit && Date.now() - hit.at < DIR_INDEX_TTL_MS) return hit.names;
+  let names = new Map();
+  try {
+    for (const n of fs.readdirSync(dir)) names.set(IS_WINDOWS ? n.toLowerCase() : n, n);
+  } catch (e) {
+    // A dir that isn't there holds nothing. One we may not list can still hold
+    // files we may run (an execute-only dir), so that one is stat'ed instead.
+    if (e && e.code !== 'ENOENT' && e.code !== 'ENOTDIR') names = null;
+  }
+  dirIndexCache.set(dir, { names, at: Date.now() });
+  return names;
+}
+
+/** Whether `p` is a file `where`/`which` would report. */
+function _isCommandFile(p) {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+  } catch {
+    // App Execution Aliases (…\WindowsApps\*.exe) are reparse points stat
+    // cannot follow, yet Windows runs them and `where` lists them.
+    if (!IS_WINDOWS) return false;
+    try { fs.lstatSync(p); return true; } catch { return false; }
+  }
+  if (IS_WINDOWS) return true;
+  try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; }
+}
+
+/**
+ * What `where name` (Windows: every match, PATH order, PATHEXT applied to a
+ * bare name) or `which name` (Unix: the first executable) would report.
  *
- * Hazard: on a non-English Windows the console output codepage is OEM (e.g.
- * 936/GBK on zh-CN), so execSync decodes `where` stdout with the wrong codepage
- * and mangles a non-ASCII (e.g. Chinese) username in the path — yielding ENOENT
- * downstream (the `C:\Users\??.?[\…\claude.cmd` failure). Two safe defenses,
- * no `chcp` (which is unreliable under windowsHide's console-less cmd):
- *   1. (Windows) check the npm-global default `%APPDATA%\npm\<name>.cmd` FIRST.
- *      APPDATA comes from the OS as UTF-16 via Node, so this path is always
- *      correctly encoded — and it's where the npm-installed CLIs actually live.
- *   2. Fall back to `where`/`which`, but existence-check every hit so a mangled
- *      path is skipped and the caller drops to its own Node-derived tiers.
+ * Walked in-process rather than by spawning either command. Detection asks
+ * this for every agent type every time a lookup cache expires, and each spawn
+ * is a cmd.exe start — ~60-300ms apiece on Windows, far more under an
+ * antivirus scan — which in the desktop app froze the window for seconds on
+ * every refresh. It also removes the codepage hazard the spawn had: `where`
+ * printed paths in the OEM codepage (936 on zh-CN), mangling any non-ASCII
+ * user name, whereas these paths never leave UTF-16.
+ */
+function _searchPath(name, env) {
+  const hits = [];
+  if (!name) return hits;
+  const source = env || process.env;
+  let names = [name];
+  if (IS_WINDOWS) {
+    const exts = String(_envValue(source, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD')
+      .split(';')
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.startsWith('.'));
+    const ext = path.extname(name).toLowerCase();
+    if (!ext || !exts.includes(ext)) names = [name, ...exts.map((e) => name + e)];
+  }
+  const seen = new Set();
+  for (const raw of String(_envValue(source, 'PATH') || '').split(SEP)) {
+    const dir = raw.trim().replace(/^"(.*)"$/, '$1');
+    if (!dir) continue;
+    const index = _dirIndex(dir);
+    for (const n of names) {
+      let full;
+      if (index) {
+        const onDisk = index.get(IS_WINDOWS ? n.toLowerCase() : n);
+        if (!onDisk) continue;
+        full = path.join(dir, onDisk);
+      } else {
+        full = path.join(dir, n);
+      }
+      const key = IS_WINDOWS ? full.toLowerCase() : full;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!_isCommandFile(full)) continue;
+      hits.push(full);
+      if (!IS_WINDOWS) return hits;
+    }
+  }
+  return hits;
+}
+
+/** Existing paths `where`/`which` reports for a name, in its own order. */
+function _runWhich(name) {
+  // getEnhancedEnv(), never `{...process.env, PATH}`: spreading process.env on
+  // Windows yields a "Path" key, and a second PATH key makes which one counts
+  // undefined.
+  return _searchPath(name, getEnhancedEnv());
+}
+
+/**
+ * A path on a Windows drive as mounted inside a distro (/mnt/c/…). /mnt is
+ * WSL's default automount root and the only one interop puts on PATH itself;
+ * a distro that moved it in /etc/wsl.conf simply gets the old behaviour.
+ */
+function _isWindowsMount(p) {
+  return /^\/mnt\/[a-z]\//i.test(String(p || ''));
+}
+
+/**
+ * `where`/`which` lookup, shared by every CLI adapter.
+ *
+ *   1. (Windows) the npm-global default `%APPDATA%\npm\<name>.cmd` FIRST —
+ *      it's where the npm-installed CLIs actually live.
+ *   2. Then PATH, as `where <name>.cmd || where <name>.exe || where <name>`
+ *      (Unix: `which <name>`) would search it — see _searchPath.
  *
  * @param {string|string[]} names  base name(s), e.g. 'claude' or ['cursor-agent','agent'].
  *                                  On Windows each is tried as <name>.cmd, <name>.exe, <name>.
@@ -243,31 +392,39 @@ function whereBinary(names, env) {
     }
   }
 
-  // 2. PATH lookup, existence-guarded.
-  let cmd;
-  if (IS_WINDOWS) {
-    const parts = [];
-    for (const b of bases) {
-      parts.push(`where ${b}.cmd 2>nul`, `where ${b}.exe 2>nul`, `where ${b} 2>nul`);
+  // 2. PATH lookup.
+  const lookupEnv = env || getEnhancedEnv();
+  for (const b of bases) {
+    for (const form of IS_WINDOWS ? [`${b}.cmd`, `${b}.exe`, b] : [b]) {
+      const hit = _searchPath(form, lookupEnv)[0];
+      if (hit) return hit;
     }
-    cmd = parts.join(' || ');
-  } else {
-    cmd = bases.map((b) => `which ${b}`).join(' || ');
   }
-  try {
-    const out = execSync(cmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-      windowsHide: true,
-      env: env || getEnhancedEnv(),
-    });
-    for (const line of out.split(/\r?\n/)) {
-      const hit = line.trim();
-      if (hit && fs.existsSync(hit)) return hit;
-    }
-  } catch {}
   return null;
+}
+
+/**
+ * Every PATH hit for a name, in PATH order — for callers that filter the list
+ * (skip the bundled node, find the first one that runs). Like whereBinary it
+ * walks PATH in-process: `where` prints in the OEM codepage, and decoding that
+ * as UTF-8 mangles any non-ASCII profile path.
+ *
+ * @param {string} name
+ * @param {object} [env]  env whose PATH to search (defaults to process.env)
+ * @returns {string[]}
+ */
+function whereAll(name, env) {
+  return _searchPath(name, env || process.env);
+}
+
+/**
+ * Drop the bin-dir snapshots and every lookup answered from them — for when a
+ * background probe has just learned of directories they did not include.
+ */
+function _invalidateBinDirCaches() {
+  knownBinDirsCache = { value: null, at: 0 };
+  extraBinDirsCache = { value: null, at: 0, path: '' };
+  whichBinaryCache.clear();
 }
 
 /**
@@ -335,10 +492,11 @@ function _addPackageManagerPaths(dirs) {
  * reasons; anything added here is picked up on both.
  */
 function _addAgentInstallerPaths(dirs) {
-  // opencode — `curl -fsSL https://opencode.ai/install | bash` defaults to
-  // ~/.opencode/bin and honours OPENCODE_INSTALL_DIR. Reported as
-  // "launcher can't see my opencode" (#648).
-  _push(dirs, process.env.OPENCODE_INSTALL_DIR || path.join(HOME, '.opencode', 'bin'));
+  // opencode — `curl -fsSL https://opencode.ai/install | bash` is the route
+  // opencode.ai leads with, and its INSTALL_DIR is ~/.opencode/bin, reached
+  // through a shell rc edit. Reported as "launcher can't see my opencode"
+  // (#648, and again on launcher 0.9.27).
+  _push(dirs, path.join(HOME, '.opencode', 'bin'));
 
   // kimi — the npm package (@moonshot-ai/kimi-code) declares a real `kimi` bin,
   // but its postinstall ALSO drops a native build in ~/.kimi-code/bin and puts
@@ -354,6 +512,68 @@ function _addAgentInstallerPaths(dirs) {
   _push(dirs, path.join(HOME, '.npm-global', 'bin'));
   _push(dirs, path.join(HOME, '.openagents', 'npm-global', 'bin'));
 
+  // codebuddy — the npm package drops the usual global shim, but CodeBuddy also
+  // ships a native build (the engine behind the WorkBuddy desktop app) that
+  // installs to its own directory. The codebuddy adapter has always searched
+  // these; the installer that decides whether it EXISTS had not.
+  _push(dirs, path.join(HOME, '.codebuddy', 'bin'));
+
+  // codearts — Huawei's install.sh / install.ps1 unpack into
+  // ~/.codeartsdoer/installers and put that dir on PATH through a shell rc
+  // edit or the user `Path` registry value. The `codearts` there is a wrapper
+  // script; the CLI itself sits in its bin/, which the installer deliberately
+  // keeps off PATH.
+  _push(dirs, path.join(HOME, '.codeartsdoer', 'installers'));
+
+  // claude — `claude install` (the native, non-npm build) relocates the CLI to
+  // ~/.claude/local and reaches it through a shell alias, which a GUI process
+  // inherits no more than it inherits an rc-file PATH edit.
+  _push(dirs, path.join(HOME, '.claude', 'local'));
+
+  // hermes — the Unix installer's own bin dir. Its Windows counterparts are in
+  // _addWindowsPaths; this is the half nothing covered.
+  _push(dirs, path.join(HOME, '.hermes', 'bin'));
+
+  // Installers that let the user choose the install dir. Each of these CLIs
+  // reads an env var for its target, and a user who set one has their ONLY copy
+  // there — every hardcoded default above then finds nothing. Added rather than
+  // substituted: the default dir usually still holds an older copy, and which
+  // of the two is on the user's PATH is not ours to guess.
+  if (process.env.OPENCODE_INSTALL_DIR) _push(dirs, process.env.OPENCODE_INSTALL_DIR);
+  if (process.env.AMP_HOME) _push(dirs, path.join(process.env.AMP_HOME, 'bin'));
+  if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
+  if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
+  if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+
+  // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
+  // the executable into uv's bin dir, which reaches PATH through a shell rc
+  // edit a GUI launch never sees. Enumerated rather than named, for the same
+  // reason as pipx below: aider, mini-swe-agent and openworker all arrive this
+  // way today — `uv tool install mini-swe-agent` is the route mini's own docs
+  // give, and the mini adapter already searched here while the detection that
+  // decides whether mini EXISTS did not — and so will the next Python agent.
+  for (const root of _uvToolRoots()) {
+    try {
+      for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+        if (d.isDirectory()) _push(dirs, path.join(root, d.name, IS_WINDOWS ? 'Scripts' : 'bin'));
+      }
+    } catch {}
+  }
+
+  // pipx — `pipx install X` puts the executable in <PIPX_HOME>/venvs/X/bin and
+  // only SYMLINKS it into PIPX_BIN_DIR. When that link step is skipped, or its
+  // dir is one a GUI launch can't see, the venv copy is the only one there is.
+  // Enumerated rather than listed by name: aider, mini-swe-agent and openworker
+  // are all installable this way, and so is the next Python agent.
+  for (const root of _pipxHomes()) {
+    try {
+      const venvs = path.join(root, 'venvs');
+      for (const d of fs.readdirSync(venvs, { withFileTypes: true })) {
+        if (d.isDirectory()) _push(dirs, path.join(venvs, d.name, IS_WINDOWS ? 'Scripts' : 'bin'));
+      }
+    } catch {}
+  }
+
   // The plain ~/bin some installers fall back to when ~/.local/bin is absent.
   _push(dirs, path.join(HOME, 'bin'));
 
@@ -365,7 +585,50 @@ function _addAgentInstallerPaths(dirs) {
     // cursor-agent also ships under Programs\ on some Windows installs — the
     // cursor adapter checks both, the installer only knew one.
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
+    // codebuddy's native Windows install.
+    _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
+    // who didn't take the npm route. The copilot adapter knew it; nothing else did.
+    _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));
   }
+}
+
+/**
+ * Roots uv keeps its tool venvs under. UV_TOOL_DIR wins when exported;
+ * otherwise it is the XDG data dir on Unix — macOS included, uv does NOT use
+ * ~/Library/Application Support for this — and %APPDATA%\uv\tools on Windows.
+ */
+function _uvToolRoots() {
+  if (process.env.UV_TOOL_DIR) return [process.env.UV_TOOL_DIR];
+  // os.homedir(), not the module-level HOME: uvToolBinDirs() is also called by
+  // the adapters and the post-install verifier at arbitrary times, and that
+  // constant is frozen at require time — which resolved to the developer's real
+  // home in a test that had moved $HOME.
+  const home = os.homedir();
+  if (IS_WINDOWS) {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return [path.join(appData, 'uv', 'tools')];
+  }
+  const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+  return [path.join(dataHome, 'uv', 'tools')];
+}
+
+/**
+ * Roots pipx may keep its venvs under. PIPX_HOME wins when exported; otherwise
+ * pipx has moved its default once (~/.local/pipx → the platform user-data dir),
+ * so both layouts are still in the field.
+ */
+function _pipxHomes() {
+  if (process.env.PIPX_HOME) return [process.env.PIPX_HOME];
+  const roots = [path.join(HOME, '.local', 'pipx')];
+  if (IS_WINDOWS) {
+    if (process.env.LOCALAPPDATA) roots.push(path.join(process.env.LOCALAPPDATA, 'pipx', 'pipx'));
+  } else if (IS_MACOS) {
+    roots.push(path.join(HOME, 'Library', 'Application Support', 'pipx'));
+  } else {
+    roots.push(path.join(process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share'), 'pipx'));
+  }
+  return roots;
 }
 
 let npmPrefixCache;
@@ -413,14 +676,28 @@ function _npmPrefix() {
     }
   } catch {}
 
+  const opts = {
+    encoding: 'utf-8',
+    timeout: 8000,
+    windowsHide: true,
+    // The user's PATH first: it is their npm we are asking about.
+    env: { ...process.env, PATH: _basePATH() },
+  };
+  if (!canBlock()) {
+    // npm takes a second or more to start on Windows. Answer "no custom
+    // prefix" for now; the bin dirs are rebuilt once npm has said otherwise.
+    try {
+      const child = exec('npm config get prefix', opts, (err, stdout) => {
+        if (!err && accept(String(stdout).trim())) _invalidateBinDirCaches();
+      });
+      if (child.stdin) child.stdin.end();
+    } catch {}
+    return npmPrefixCache;
+  }
   try {
     const out = execSync('npm config get prefix', {
-      encoding: 'utf-8',
-      timeout: 8000,
-      windowsHide: true,
+      ...opts,
       stdio: ['ignore', 'pipe', 'ignore'],
-      // The user's PATH first: it is their npm we are asking about.
-      env: { ...process.env, PATH: _basePATH() },
     }).trim();
     accept(out);
   } catch {}
@@ -474,32 +751,52 @@ function loginShellDirs() {
   if (IS_WINDOWS) return loginShellDirsCache;
   if (process.env.OPENAGENTS_SKIP_SHELL_PATH === '1') return loginShellDirsCache;
   const shell = process.env.SHELL || '/bin/zsh';
+  const argv = ['-ilc', `echo ${SHELL_ENV_DELIM}; command env; echo ${SHELL_ENV_DELIM}`];
+  const opts = {
+    encoding: 'utf-8',
+    timeout: SHELL_PROBE_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+    maxBuffer: 4 * 1024 * 1024,
+  };
   try {
     if (!fs.existsSync(shell)) return loginShellDirsCache;
-    const out = execFileSync(
-      shell,
-      ['-ilc', `echo ${SHELL_ENV_DELIM}; command env; echo ${SHELL_ENV_DELIM}`],
-      {
-        encoding: 'utf-8',
-        timeout: SHELL_PROBE_TIMEOUT_MS,
-        killSignal: 'SIGKILL',
-        // stdin closed, stderr dropped: an interactive shell with no tty writes
-        // job-control warnings there and we do not want them in the output.
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: 4 * 1024 * 1024,
-      },
-    );
-    const parts = String(out).split(SHELL_ENV_DELIM);
-    if (parts.length < 3) return loginShellDirsCache;
-    const line = parts[1].split(/\r?\n/).find((l) => l.startsWith('PATH='));
-    if (!line) return loginShellDirsCache;
-    const seen = new Set();
-    for (const d of line.slice('PATH='.length).split(SEP)) {
-      const dir = d.trim();
-      if (dir && !seen.has(dir)) { seen.add(dir); loginShellDirsCache.push(dir); }
+    if (!canBlock()) {
+      // A login shell with nvm/oh-my-zsh in its rc files takes seconds. Search
+      // the curated dirs meanwhile and add the shell's once it has answered.
+      const child = execFile(shell, argv, opts, (err, stdout) => {
+        const dirs = err ? [] : _parseLoginShellPath(stdout);
+        if (dirs.length) {
+          loginShellDirsCache = dirs;
+          _invalidateBinDirCaches();
+        }
+      });
+      if (child.stdin) child.stdin.end();
+      return loginShellDirsCache;
     }
+    const out = execFileSync(shell, argv, {
+      ...opts,
+      // stdin closed, stderr dropped: an interactive shell with no tty writes
+      // job-control warnings there and we do not want them in the output.
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    loginShellDirsCache = _parseLoginShellPath(out);
   } catch {}
   return loginShellDirsCache;
+}
+
+/** The PATH entries in a delimited `env` dump, in order and deduplicated. */
+function _parseLoginShellPath(out) {
+  const parts = String(out).split(SHELL_ENV_DELIM);
+  if (parts.length < 3) return [];
+  const line = parts[1].split(/\r?\n/).find((l) => l.startsWith('PATH='));
+  if (!line) return [];
+  const dirs = [];
+  const seen = new Set();
+  for (const d of line.slice('PATH='.length).split(SEP)) {
+    const dir = d.trim();
+    if (dir && !seen.has(dir)) { seen.add(dir); dirs.push(dir); }
+  }
+  return dirs;
 }
 
 // ---- Windows paths ----
@@ -593,6 +890,17 @@ function _addUnixPaths(dirs) {
   // Standard
   _push(dirs, '/usr/local/bin');
   _push(dirs, '/usr/bin');
+
+  // Homebrew on Linux. macOS gets /opt/homebrew and /usr/local from
+  // _addMacPaths; Linuxbrew's prefix is in neither list, and `brew install` is
+  // a real route for goose, opencode, gemini and codex. Its PATH entry comes
+  // from `brew shellenv` in a shell rc file — invisible to a GUI launch, the
+  // same reason every other dir here is listed explicitly.
+  if (!IS_MACOS) {
+    if (process.env.HOMEBREW_PREFIX) _push(dirs, path.join(process.env.HOMEBREW_PREFIX, 'bin'));
+    _push(dirs, '/home/linuxbrew/.linuxbrew/bin');
+    _push(dirs, path.join(HOME, '.linuxbrew', 'bin'));
+  }
 
   // npm agents install to isolated prefixes: ~/.openagents/runtimes/<type>/
 
@@ -767,8 +1075,11 @@ function defaultAgentWorkdir(agentName) {
  * `whichBinary(name) === null` cached before install doesn't survive.
  */
 function clearBinaryLookupCache() {
+  knownBinDirsCache = { value: null, at: 0 };
   extraBinDirsCache = { value: null, at: 0, path: '' };
   whichBinaryCache.clear();
+  dirIndexCache.clear();
+  clearWslBinaryCache();
   // The login-shell / npm-prefix probes are deliberately NOT cleared: they each
   // cost a process spawn, they answer a question about the machine rather than
   // about any install, and this is called after every install/uninstall.
@@ -785,7 +1096,12 @@ function clearBinaryLookupCache() {
 function primeBinaryLookup() {
   try { loginShellDirs(); } catch {}
   try { _npmPrefix(); } catch {}
-  try { getExtraBinDirs(); } catch {}
+  try { getKnownBinDirs(); } catch {}
+  // The WSL side has the same shape of cost — one `wsl.exe -e bash -ilc` to
+  // learn the distro's login PATH — and it is paid by the first lookup that
+  // misses natively, which is the marketplace enumerating agents nobody has
+  // installed. Warm it here instead.
+  try { wslBinDirs(); } catch {}
 }
 
 /**
@@ -811,15 +1127,12 @@ function uvToolBinDirs(pkg) {
   if (process.env.XDG_BIN_HOME) dirs.push(process.env.XDG_BIN_HOME);
   if (process.env.XDG_DATA_HOME) dirs.push(path.join(process.env.XDG_DATA_HOME, '..', 'bin'));
   dirs.push(path.join(home, '.local', 'bin'));
+  for (const root of _uvToolRoots()) {
+    dirs.push(path.join(root, pkg, IS_WINDOWS ? 'Scripts' : 'bin'));
+  }
   if (IS_WINDOWS) {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    const uvTools = process.env.UV_TOOL_DIR || path.join(appData, 'uv', 'tools');
-    dirs.push(path.join(uvTools, pkg, 'Scripts'));
     dirs.push(path.join(home, 'bin'));
   } else {
-    const uvTools = process.env.UV_TOOL_DIR
-      || path.join(home, '.local', 'share', 'uv', 'tools');
-    dirs.push(path.join(uvTools, pkg, 'bin'));
     dirs.push(path.join(home, 'bin'), '/usr/local/bin', '/opt/homebrew/bin');
   }
   return dirs;
@@ -834,6 +1147,105 @@ function aiderBinDirs() {
 const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
 
 /**
+ * A `#!...node` shebang line, as the Windows launcher matches it (win-exec.ts).
+ * `env -S`/flag forms are allowed; `#!/bin/sh -c node` is NOT a node script.
+ */
+const NODE_SHEBANG_RE =
+  /^#!\s*(?:(?:\S*[\\/])?env(?:\.exe)?\s+(?:-\S+\s+)*)?(?:\S*[\\/])?node(?:\.exe)?(?:\s|$)/i;
+
+/**
+ * True when a file is an extensionless Node script — npm's package bin shape
+ * (e.g. node_modules/cline/bin/cline). Windows cannot execute one: handed to
+ * cmd.exe it fails with "is not recognized as an internal or external command",
+ * so every caller that shells out to a resolved binary must prefix `node`.
+ */
+function isNodeShebangScript(filePath) {
+  if (!filePath) return false;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(64);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      const firstLine = buf.subarray(0, n).toString('utf-8').split('\n', 1)[0];
+      return NODE_SHEBANG_RE.test(firstLine);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/** Managed npm module roots, in the same priority order used by Installer. */
+function managedNpmModuleDirs(agentType) {
+  const dirs = [
+    path.join(getRuntimePrefix(agentType), 'node_modules'),
+    path.join(os.homedir(), '.openagents', 'nodejs', 'node_modules'),
+  ];
+  return [...new Set(dirs)];
+}
+
+/**
+ * Resolve a package's declared `bin` target from an OpenAgents-managed npm
+ * prefix. This covers packages such as Cline whose root package is installed
+ * successfully but npm does not create a node_modules/.bin shim for it.
+ */
+function resolveManagedNpmPackageBin(agentType, packageName, binaryName) {
+  if (!agentType || !packageName || !binaryName) return null;
+
+  for (const modules of managedNpmModuleDirs(agentType)) {
+    const pkgDir = path.join(modules, packageName);
+    const pkgJsonPath = path.join(pkgDir, 'package.json');
+    try {
+      if (!fs.existsSync(pkgJsonPath)) continue;
+      const bin = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')).bin;
+      let rel = null;
+      if (typeof bin === 'string') rel = bin;
+      else if (bin && typeof bin === 'object') {
+        rel = bin[binaryName] || bin[packageName] || Object.values(bin)[0];
+      }
+      if (!rel) continue;
+      const abs = path.join(pkgDir, rel);
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+    } catch {
+      /* malformed or unreadable package — keep looking */
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the copy of an npm CLI installed in an OpenAgents-managed prefix.
+ * Package presence gates the lookup so an orphaned shim cannot shadow a
+ * working global install. The package's own bin is the final managed fallback.
+ */
+function resolveManagedNpmBinary(agentType, packageName, names) {
+  const list = (Array.isArray(names) ? names : [names]).filter(Boolean);
+  if (!agentType || !packageName || !list.length) return null;
+
+  for (const modules of managedNpmModuleDirs(agentType)) {
+    try {
+      if (!fs.existsSync(path.join(modules, packageName, 'package.json'))) continue;
+    } catch {
+      continue;
+    }
+    for (const name of list) {
+      for (const ext of BIN_EXTS) {
+        const candidate = path.join(modules, '.bin', `${name}${ext}`);
+        try {
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+        } catch {
+          /* unreadable shim — keep looking */
+        }
+      }
+    }
+    const own = resolveManagedNpmPackageBin(agentType, packageName, list[0]);
+    if (own) return own;
+  }
+  return null;
+}
+
+/**
  * Last-resort binary lookup: walk the directories we already know agent CLIs
  * land in and check the filesystem directly, instead of asking the shell.
  *
@@ -845,9 +1257,18 @@ const BIN_EXTS = IS_WINDOWS ? ['.cmd', '.exe', '.bat', ''] : [''];
  * find it" and then opened a terminal running a bare command that could only
  * fail with "'cursor-agent' is not recognized".
  *
- * Deliberately reuses getExtraBinDirs() rather than a second hardcoded list:
+ * Deliberately reuses getKnownBinDirs() rather than a second hardcoded list:
  * that list already IS the curated set, and a copy of it is exactly how the
  * launcher and the adapters drifted apart in the first place.
+ *
+ * It has to be the KNOWN dirs, not the extra ones. getExtraBinDirs() drops
+ * everything already on PATH, on the reasoning that PATH covers it — but the
+ * only way execution gets here is a `where`/`which` that ALREADY failed, and it
+ * fails wholesale on Windows (mangled OEM-codepage output on a non-English
+ * install, a 5s timeout, a cmd.exe that isn't resolvable from an Electron
+ * process). With the filter in place that failure erased every agent installed
+ * to a normal location — %APPDATA%\npm and friends — and the marketplace
+ * offered to install CodeBuddy/opencode/dsh over the copies already there.
  *
  * Runs only after a PATH lookup has already missed, so it can add resolutions
  * but never change one that already works.
@@ -868,7 +1289,7 @@ function resolveBinaryInKnownDirs(names, agentType) {
   if (agentType) push(path.join(getRuntimePrefix(agentType), 'node_modules', '.bin'));
   push(path.join(HOME, '.openagents', 'nodejs', 'node_modules', '.bin'));
   try { push(path.dirname(process.execPath)); } catch {}
-  for (const d of getExtraBinDirs()) push(d);
+  for (const d of getKnownBinDirs()) push(d);
 
   for (const dir of dirs) {
     for (const name of list) {
@@ -882,16 +1303,25 @@ function resolveBinaryInKnownDirs(names, agentType) {
       }
     }
   }
-  return null;
+
+  // Nothing native anywhere: the last place left to look is inside WSL, whose
+  // filesystem none of the dirs above can reach. Last by construction — a
+  // Windows copy of the CLI is always preferred to an in-distro one.
+  return resolveWslBinary(list);
 }
 
 
 module.exports = {
+  getKnownBinDirs,
   getExtraBinDirs,
   getEnhancedPATH,
   getEnhancedEnv,
   whichBinary,
   whereBinary,
+  whereAll,
+  resolveManagedNpmBinary,
+  resolveManagedNpmPackageBin,
+  isNodeShebangScript,
   resolveBinaryInKnownDirs,
   clearBinaryLookupCache,
   primeBinaryLookup,

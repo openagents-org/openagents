@@ -28,7 +28,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn, execSync, execFileSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { GooseStreamParser, classifyGooseError, redactSecrets } = require('./goose-stream');
@@ -38,7 +42,7 @@ const {
   buildModePrompt,
   buildPinnedSections,
 } = require('./workspace-prompt');
-const { whichBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
+const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -101,10 +105,9 @@ function findGooseBinary() {
   try {
     const env = getEnhancedEnv();
     if (IS_WINDOWS) {
-      const r = execSync('where goose.exe 2>nul || where goose.cmd 2>nul || where goose 2>nul', {
-        encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-      });
-      const hit = r.split(/\r?\n/)[0].trim();
+      // In-process PATH walk, not `where`: its OEM-codepage output mangled
+      // non-ASCII profile paths into a hit that could never be spawned.
+      const hit = whereBinary(['goose'], env);
       if (hit) return hit;
     } else {
       const hit = execSync('command -v goose', {
@@ -140,7 +143,7 @@ class GooseAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the per-turn --system
+    // Pin the channel's glossary into the per-turn --system
     // prompt (read-only: Goose gets no workspace API commands, so it can
     // only SEE the pinned knowledge, not update it).
     this._usesPinnedContext = true;
@@ -249,13 +252,12 @@ class GooseAdapter extends BaseAdapter {
 
   _buildSystemPrompt(channelName) {
     const pinned = this.pinnedPromptOpts(channelName);
-    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode)
+    let prompt = buildWorkspaceIdentity(this.agentName, this.workspaceId, channelName, this._mode, 'mcp', this.modelLabel())
       + buildCollaborationPrompt()
       + buildModePrompt(this._mode)
       + buildPinnedSections({
         channelName,
         mode: this._mode,
-        decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
         glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
       }).join('\n');
     if (this.workingDir) {
@@ -283,20 +285,7 @@ class GooseAdapter extends BaseAdapter {
     return redactSecrets(text, this._secrets);
   }
 
-  // -- control actions (stop) ---------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        await this._stopChannel(channel, 'Execution stopped by user.');
-      } else {
-        await this._stopAll('Execution stopped by user.');
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
+  // -- teardown -----------------------------------------------------------
 
   async _stopChannel(channel, message) {
     const proc = this._channelProcesses[channel];
@@ -485,6 +474,9 @@ class GooseAdapter extends BaseAdapter {
 
     this._log(`CLI: goose run --output-format stream-json --name ${sessionName}`
       + `${resume ? ' --resume' : ''} --no-profile --with-builtin developer`);
+
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve(null);
 
     return new Promise((resolve) => {
       let proc;

@@ -5,9 +5,10 @@ Revision ID: 034
 Revises: 033
 Create Date: 2026-08-12
 
-The daemon reports the device's home directory and its immediate subfolders each
-heartbeat so the workspace's "Add agent" working-directory picker can show real
-folders instantly (deeper browsing is on-demand via a list_dir command).
+The daemon reports the device's home directory, its immediate subfolders, and
+filesystem roots/drives each heartbeat so the workspace's "Add agent"
+working-directory picker can show real folders instantly (deeper browsing is
+on-demand via a list_dir command).
 """
 
 from alembic import op

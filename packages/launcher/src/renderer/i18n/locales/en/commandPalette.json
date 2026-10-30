@@ -11,14 +11,13 @@
     "recent": "Recent"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Connect Agents",
     "chat": "Chat",
-    "agents": "Agents",
-    "workspaces": "Workspaces",
+    "workspaces": "Joined Workspaces",
     "connections": "Connections",
     "credentials": "Credentials",
     "github": "GitHub",
-    "install": "Install",
+    "install": "Agent Marketplace",
     "logs": "Logs",
     "settings": "Settings"
   },

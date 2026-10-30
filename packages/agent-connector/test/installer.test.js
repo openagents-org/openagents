@@ -454,6 +454,8 @@ describe('Installer', () => {
       const wrapped = inst._wrapForWindowsShell("irm 'https://cursor.com/install?win32=true' | iex");
       assert.match(wrapped, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "/);
       assert.ok(wrapped.includes("cursor.com/install"));
+      // Output is read as UTF-8, so the console must not stay on the OEM codepage
+      assert.ok(wrapped.includes('[Console]::OutputEncoding=[Text.Encoding]::UTF8;'));
 
       // Already wrapped: don't double-wrap
       const already = 'powershell -c "irm https://foo | iex"';
@@ -640,5 +642,19 @@ describe('Installer min-version gate (generic, no per-agent special-casing)', ()
     clearVersionCache();
     const v3 = inst._detectVersion('node', `"${process.execPath}" --version`);
     assert.equal(v3, v1, 're-detection after cache clear yields the same version');
+  });
+});
+
+describe('Installer.portableNodeVersion', () => {
+  it('pins Node 24 everywhere Node 24 runs', () => {
+    assert.equal(Installer.portableNodeVersion('win32', '10.0.19045'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('linux', '5.15.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', '22.6.0'), 'v24.22.1');
+    assert.equal(Installer.portableNodeVersion('darwin', 'unknown'), 'v24.22.1');
+  });
+
+  it('keeps macOS before 13.5 on Node 22', () => {
+    assert.equal(Installer.portableNodeVersion('darwin', '21.6.0'), 'v22.22.3');
+    assert.equal(Installer.portableNodeVersion('darwin', '22.5.0'), 'v22.22.3');
   });
 });

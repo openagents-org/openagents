@@ -1,35 +1,40 @@
 import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
+import { hasPendingUpdate, useInstallStore } from "../../store/install"
 import { useShallow } from "zustand/react/shallow"
-import { Trans, useTranslation } from "react-i18next"
-import AgentIcon from "../../components/AgentIcon"
-import { ConfirmDialog, EmptyState } from "../../components/ui-kit"
-import { Cpu, FilterX, Plus, SearchX } from "lucide-react"
-import { Button } from "../../components/ui/button"
+import { useTranslation } from "react-i18next"
+import { RenameAgentDialog } from "./components/rename-agent-dialog"
 import { Card } from "../../components/ui/card"
 import { Skeleton } from "../../components/ui/skeleton"
 import { PageHeader } from "../../components/layout/page-header"
 import type { ToastType } from "../../hooks/useToast"
-import { NewAgentDialog } from "./components/new-agent-dialog"
-import { ConfigureDialog } from "./components/configure-dialog"
+import { MarketplaceStats } from "../install/components/marketplace-stats"
+import type { StatusFilter } from "../install/use-marketplace"
+import { useAgentCatalog } from "./use-agent-catalog"
+import { RecommendedAgents } from "./components/recommended-agents"
+import { AgentsEmpty } from "./components/agents-empty"
+import { RemoveAgentDialog } from "./components/remove-agent-dialog"
+/** A type's marketplace page: its versions, update, uninstall and history. */
+function openMarketPage(type: string): void {
+  useUiStore.getState().setInstallFocusAgent(type)
+  useUiStore.getState().setCurrentTab("install")
+}
+
+const LocalAgentSetup = React.lazy(() => import("./local-agent-setup").then((module) => ({ default: module.LocalAgentSetup })))
 import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
-import { AgentCard, AddAgentCard } from "./components/agent-card"
 import { AgentsToolbar } from "./components/agents-toolbar"
 import { AgentsTable } from "./components/agents-table"
 import { AgentsPagination } from "./components/agents-pagination"
-import {
-  useAgentsView,
-  type AgentFilter,
-  type AgentSort,
-  type AgentView,
-} from "./use-agents-view"
+import { useAgentsView, type AgentFilter } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
 import type { AgentActionHandlers } from "./components/agent-actions"
+import type { Agent } from "@renderer/types"
 
 export { formatHealthLabel } from "./format-health-label"
 
 interface AgentsProps {
+  overview?: boolean
   showToast: (msg: string, type?: ToastType) => void
 }
 
@@ -42,7 +47,7 @@ function SkeletonListItem(): React.JSX.Element {
   )
 }
 
-export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
+export default function Agents({ showToast, overview = false }: AgentsProps): React.JSX.Element {
   const { t } = useTranslation()
   const { agents, setAgents, pendingAgentActions } = useAgentsStore(
     useShallow((s) => ({
@@ -53,12 +58,21 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   )
   const pendingCreate = useUiStore((s) => s.pendingCreate)
   const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
+  const pendingCreateType = useUiStore((s) => s.pendingCreateType)
+  const updates = useInstallStore((s) => s.updates)
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
   const queued = useRef(false)
   const mounted = useRef(true)
 
   const [newAgentOpen, setNewAgentOpen] = useState(false)
+  // The type a recommended card asked for; null opens the full type picker.
+  const [setupType, setSetupType] = useState<string | null>(null)
+  const startSetup = (type: string | null): void => {
+    setSetupType(type)
+    setNewAgentOpen(true)
+  }
+  const { catalog, counts: typeCounts, loading: catalogLoading } = useAgentCatalog()
   const [configureOpen, setConfigureOpen] = useState(false)
   const [configureAgent, setConfigureAgent] = useState<{
     name: string
@@ -66,15 +80,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   } | null>(null)
   const [connectWsOpen, setConnectWsOpen] = useState(false)
   const [connectWsAgent, setConnectWsAgent] = useState<string>("")
-  // When a brand-new agent is created we walk the user from Configure straight
-  // into Connect Workspace. This flag distinguishes that flow from configuring
-  // an existing agent (where closing Configure should not prompt to connect).
-  const [connectAfterConfigure, setConnectAfterConfigure] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Agent | null>(null)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<AgentFilter>("all")
-  const [sort, setSort] = useState<AgentSort>("recent")
-  const [view, setView] = useState<AgentView>("list")
 
   const {
     rows,
@@ -85,7 +94,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     setPage,
     pageSize,
     setPageSize,
-  } = useAgentsView(agents, search, filter, sort)
+  } = useAgentsView(agents, search, filter, "recent")
 
   useEffect(() => {
     mounted.current = true
@@ -118,6 +127,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   const {
     toggleAgent,
     removeAgent,
+    renameAgent,
     disconnectAgent,
     openWorkspace,
     openAgentChat,
@@ -135,6 +145,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       setConnectWsAgent(a.name)
       setConnectWsOpen(true)
     },
+    onRename: (a) => setRenameTarget(a),
     onDisconnect: (a) => disconnectAgent(a.name),
     onOpenWorkspace: (a) => openWorkspace(a),
     onRemove: (a) => setRemoveTarget(a.name),
@@ -146,37 +157,55 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     return () => clearInterval(interval)
   }, [refresh])
 
-  // The dashboard's "New agent" button lands here with the dialog requested.
+  // A request from elsewhere (a marketplace page's Add agent) lands here on
+  // the setup form, on its type when it named one.
   useEffect(() => {
     if (pendingCreate !== "agent") return
-    setNewAgentOpen(true)
+    startSetup(pendingCreateType)
     clearPendingCreate()
-  }, [pendingCreate, clearPendingCreate])
+  }, [pendingCreate, pendingCreateType, clearPendingCreate])
+
+  // The marketplace is where types are browsed and kept up to date; this page
+  // only opens it. One pending update goes straight to that agent's page.
+  const openMarketplace = (filter: StatusFilter): void => {
+    const pending = catalog.filter((c) => hasPendingUpdate(updates, c.name))
+    if (filter === "updatable" && pending.length === 1) return openMarketPage(pending[0].name)
+    useUiStore.getState().goToInstallList(filter)
+  }
+
+  if (newAgentOpen || (configureOpen && configureAgent)) {
+    return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup initialType={setupType ?? undefined} agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
+      onManage={(agent) => { setNewAgentOpen(false); setConfigureAgent(agent); setConfigureOpen(true) }}
+      onBack={() => { setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); void refresh() }}
+      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
+  }
 
   return (
     <section className="flex flex-col h-full">
       <PageHeader
-        title={t("agents.list.title")}
-        subtitle={t("agents.list.subtitle")}
-        actions={
-          <Button variant="default" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
-            <Plus />
-            {t("agents.list.newAgent")}
-          </Button>
-        }
+        title={t(overview ? "nav.items.dashboard.label" : "agents.list.title")}
+        subtitle={t("agents.shared.overviewSubtitle")}
+        actions={catalogLoading ? null : <MarketplaceStats counts={typeCounts} onSelect={openMarketplace} />}
       />
 
-      <div className="flex-1 overflow-y-auto px-9 py-6">
+      {/* No scroll-edge fade: the sticky toolbar inside is what rows pass
+          under, and the fade would wash it out along with them. */}
+      <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
+        <RecommendedAgents
+          // Full panel for a first agent; one row once there are agents to
+          // list (and while they load, so a returning user's page doesn't jump).
+          compact={loading || agents.length > 0}
+          catalog={catalog}
+          onInstall={(type) => startSetup(type)}
+          onUpdate={openMarketPage}
+          onMore={() => openMarketplace("all")}
+        />
         <AgentsToolbar
           search={search}
           onSearch={setSearch}
           filter={filter}
           onFilter={setFilter}
           counts={counts}
-          sort={sort}
-          onSort={setSort}
-          view={view}
-          onView={setView}
         />
 
         {loading ? (
@@ -186,117 +215,27 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
             <SkeletonListItem />
           </div>
         ) : rows.length === 0 ? (
-          // Three reasons a list can be empty, and each gets its own way out:
-          // nothing installed (make one), nothing matching the search (drop
-          // it), nothing in this state (widen the filter). The page used to
-          // print one grey sentence for all three and offer nothing at all.
-          agents.length === 0 ? (
-            <EmptyState
-              icon={<Cpu />}
-              title={t("agents.list.emptyTitle")}
-              description={t("agents.list.empty")}
-              action={{
-                label: t("agents.list.newAgent"),
-                icon: <Plus />,
-                onClick: () => setNewAgentOpen(true),
-              }}
-            />
-          ) : search.trim() ? (
-            <EmptyState
-              icon={<SearchX />}
-              title={t("agents.list.emptyNoMatchTitle")}
-              description={t("agents.list.emptyNoMatch", {
-                query: search.trim(),
-              })}
-              action={{
-                label: t("common.clearSearch"),
-                onClick: () => setSearch(""),
-              }}
-            />
-          ) : (
-            <EmptyState
-              icon={<FilterX />}
-              title={t("agents.list.emptyNoFilterMatchTitle")}
-              description={t("agents.list.emptyNoFilterMatch")}
-              action={{
-                label: t("common.showAll"),
-                onClick: () => setFilter("all"),
-              }}
-            />
-          )
+          <AgentsEmpty
+            hasAny={agents.length > 0}
+            search={search}
+            onClearSearch={() => setSearch("")}
+            onShowAll={() => setFilter("all")}
+          />
         ) : (
           <>
-            {view === "list" ? (
-              <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
-            ) : (
-              // The grid is not paged. A page size that isn't a multiple of the
-              // column count leaves the last row half-empty next to a stranded
-              // "New agent" tile — and cards are for browsing, which is exactly
-              // what paging interrupts. Rows are cheap; the table keeps paging,
-              // where a fixed page height is the point.
-              // Three across at the 1200px minimum window, four once there is
-              // room for them.
-              <div className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
-                {rows.map((row) => (
-                  <AgentCard
-                    key={row.agent.name}
-                    row={row}
-                    pending={pendingAgentActions.has(row.agent.name)}
-                    {...handlers}
-                  />
-                ))}
-                <AddAgentCard onClick={() => setNewAgentOpen(true)} />
-              </div>
-            )}
-
-            {view === "list" ? (
-              <AgentsPagination
-                total={rows.length}
-                page={page}
-                pageCount={pageCount}
-                pageSize={pageSize}
-                onPage={setPage}
-                onPageSize={setPageSize}
-              />
-            ) : null}
+            <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
+            <AgentsPagination
+              total={rows.length}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+            />
           </>
         )}
       </div>
 
-
-      <NewAgentDialog
-        open={newAgentOpen}
-        onClose={() => setNewAgentOpen(false)}
-        showToast={showToast}
-        onCreated={(name, type) => {
-          setNewAgentOpen(false)
-          refresh()
-          setConfigureAgent({ name, type })
-          setConfigureOpen(true)
-          setConnectAfterConfigure(true)
-        }}
-      />
-
-      {configureAgent && (
-        <ConfigureDialog
-          open={configureOpen}
-          agentName={configureAgent.name}
-          agentType={configureAgent.type}
-          onClose={() => {
-            setConfigureOpen(false)
-            // For a freshly created agent, guide the user to connect it to a
-            // workspace. This step is skippable (Cancel) so local-only usage
-            // still works.
-            if (connectAfterConfigure) {
-              setConnectAfterConfigure(false)
-              setConnectWsAgent(configureAgent.name)
-              setConnectWsOpen(true)
-            }
-          }}
-          showToast={showToast}
-          onSaved={refresh}
-        />
-      )}
 
       <ConnectWorkspaceDialog
         open={connectWsOpen}
@@ -306,28 +245,23 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
         onConnected={refresh}
       />
 
-      <ConfirmDialog
-        open={!!removeTarget}
-        icon={
-          <AgentIcon
-            type={agents.find((a) => a.name === removeTarget)?.type || ""}
-            size={40}
-          />
-        }
-        title={t("agents.list.removeTitle", { name: removeTarget })}
-        description={
-          <Trans
-            i18nKey="agents.list.removeBody"
-            values={{ name: removeTarget }}
-            components={{ 1: <strong className="text-foreground" /> }}
-          />
-        }
-        confirmLabel={t("agents.list.remove")}
-        cancelLabel={t("agents.list.cancel")}
+      <RemoveAgentDialog
+        name={removeTarget}
+        agent={agents.find((a) => a.name === removeTarget)}
         onConfirm={() => {
-          if (removeTarget) removeAgent(removeTarget)
+          if (removeTarget) removeAgent(removeTarget, { fromWorkspace: true })
         }}
         onCancel={() => setRemoveTarget(null)}
+      />
+
+      <RenameAgentDialog
+        agent={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onSubmit={async (displayName) => {
+          if (!renameTarget) return
+          await renameAgent(renameTarget.name, displayName)
+          setRenameTarget(null)
+        }}
       />
     </section>
   )

@@ -100,9 +100,11 @@ export class ChatService {
           senderType: "human",
           senderName: "user",
           messageType: "chat",
-          metadata: targetAgents
-            ? { target_agents: targetAgents, mentions }
-            : { mentions },
+          metadata: {
+            mentions,
+            ...(targetAgents ? { target_agents: targetAgents } : {}),
+            ...(input.senderEmail ? { sender_email: input.senderEmail } : {}),
+          },
           attachments: attachmentsToServer(input.attachments),
         },
       )

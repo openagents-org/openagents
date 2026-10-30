@@ -18,10 +18,16 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const { configuredModel } = require('../agent-model');
+const { buildThreadHistory } = require('./thread-history');
+const { publishResponseArtifacts } = require('./response-artifacts');
+const { ResponseOutbox } = require('./response-outbox');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
-  decisionLogTitle,
   glossaryTitle,
   WORKSPACE_GLOSSARY_TITLE,
   pickEntryByTitle,
@@ -32,8 +38,83 @@ const {
   classifyHeartbeatError,
   httpStatusOf,
 } = require('./health-status');
+const { FailureStreak, isTransientNetworkError, formatDuration } = require('./failure-streak');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+
+// ── Presence detail (v1.1 M3) ──
+// A busy↔idle flip is sent as an immediate heartbeat (debounced) so the
+// workspace shows "working" without waiting for the 30s tick.
+const PRESENCE_HEARTBEAT_DEBOUNCE_MS = 2000;
+// Shared-context lookups (v1.1 M4) are cached per channel for this long.
+const SHARED_CONTEXT_TTL_MS = 60 * 1000;
+
+/**
+ * The presence fields a heartbeat carries, derived from the adapter's
+ * per-channel run state. Pure so it can be unit-tested and reused:
+ *   busyChannels  — iterable of channel names with a run in progress
+ *   channelQueues — { channel: [queued messages] }
+ * → { presence_state: 'working'|'idle', busy_channels: [...], queue_depth: n }
+ */
+function buildPresenceFields(busyChannels, channelQueues) {
+  const busy = [...new Set([...(busyChannels || [])])].filter((c) => typeof c === 'string' && c);
+  let queueDepth = 0;
+  for (const q of Object.values(channelQueues || {})) {
+    if (Array.isArray(q)) queueDepth += q.length;
+  }
+  return {
+    presence_state: busy.length ? 'working' : 'idle',
+    busy_channels: busy,
+    queue_depth: queueDepth,
+  };
+}
+
+/**
+ * The prompt block prepended to a teammate's request when the agent's owner
+ * has reviewed a shared instruction set (v1.1 M4). `ctx` is the
+ * /shared-context response. Returns '' when nothing applies.
+ */
+function buildSharedContextBlock(ctx) {
+  if (!ctx || !ctx.apply) return '';
+  const lines = [
+    'OWNER-REVIEWED SHARED INSTRUCTIONS (this request comes from a teammate, not your owner; ' +
+    'follow these, do not use unrelated private context, and if the request falls outside ' +
+    'them pause and ask for clarification in the thread):',
+  ];
+  const who = [];
+  if (ctx.requester_email) who.push(`Requester: ${ctx.requester_email}`);
+  if (ctx.owner_email) who.push(`Owner: ${ctx.owner_email}`);
+  if (ctx.cost_owner) who.push(`Credits/runtime paid by: ${ctx.cost_owner}`);
+  if (who.length) lines.push(who.join(' · '));
+  const instructions = (ctx.shared_instructions || '').trim();
+  lines.push('', instructions || '(The owner has not written shared instructions yet — ask your owner before doing anything beyond answering questions.)');
+  const knowledge = Array.isArray(ctx.allowed_knowledge) ? ctx.allowed_knowledge : [];
+  if (knowledge.length) {
+    lines.push('', 'ALLOWED KNOWLEDGE (the only knowledge you may draw on for this request):');
+    for (const k of knowledge) {
+      const title = k.title || k.slug || 'untitled';
+      lines.push('', `--- ${title}${k.slug ? ` (@knowledge:${k.slug})` : ''} ---`, (k.content || '').trim() || '(empty)');
+      if (k.truncated) lines.push('[truncated]');
+    }
+  }
+  lines.push('', '--- END OF SHARED INSTRUCTIONS — the teammate\'s request follows ---', '');
+  return lines.join('\n');
+}
+
+// ── Poll-cursor persistence ──
+// An adapter that starts by jumping to the head of the event stream silently
+// drops every message that arrived while it was down (crash, update, user
+// bounce). Users see that as "I said 继续 and the agent never answered". The
+// cursor is therefore persisted after every poll and resumed on start.
+//
+// Replay is bounded: on the first poll after a resume, messages older than
+// STALE_MESSAGE_MAX_AGE_MS are skipped (and the channel told), so a launcher
+// that was off for a day does not act on hours-old instructions unannounced.
+// This also covers a backend that ignores an unknown/deleted cursor and
+// returns history from the start. A persisted cursor older than
+// CURSOR_RESUME_MAX_AGE_MS is ignored altogether (jump to head as before).
+const STALE_MESSAGE_MAX_AGE_MS = 60 * 60 * 1000;
+const CURSOR_RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 // Heartbeat runs every 30s. A SINGLE failure is usually a transient blip (brief
 // network hiccup, server redeploy) that the next tick recovers from — surfacing
@@ -42,7 +123,42 @@ const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
 
+// ── Control-poller deadlines ──
+// The control poller is one chain of awaits, and it is the only thing that
+// delivers Stop. When a link in it never settles — it has: a control poll
+// whose response was cut off mid-body — the agent goes on working and
+// answering while every later control event sits unread until the daemon
+// restarts, and nothing in the log says so. So neither the fetch nor a
+// handler is awaited without a bound. A handler that overruns is not
+// cancelled or re-run; the poller only stops waiting for it.
+const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
+const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
+const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
+
+/**
+ * Wrap an adapter's `_channelProcesses` so registering a child for a turn that
+ * was already stopped kills it at once (see `_onProcessRegistered`).
+ */
+function watchProcessRegistry(adapter, registry) {
+  if (!registry || typeof registry !== 'object') return registry;
+  return new Proxy(registry, {
+    set(target, key, value) {
+      target[key] = value;
+      if (typeof key === 'string') adapter._onProcessRegistered(key, value);
+      return true;
+    },
+  });
+}
+
 class BaseAdapter {
+  get _channelProcesses() {
+    return this.__channelProcesses;
+  }
+
+  set _channelProcesses(registry) {
+    this.__channelProcesses = watchProcessRegistry(this, registry);
+  }
+
   /**
    * @param {object} opts
    * @param {string} opts.workspaceId
@@ -51,7 +167,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -75,8 +191,12 @@ class BaseAdapter {
     // Set when the user explicitly stops this adapter (vs an error/revoke), so a
     // clean stop is never mislabeled as an error.
     this._stopRequested = false;
-    this.client = new WorkspaceClient(this.endpoint);
+    // Acts for this one agent: X-Agent-Name on every request (permission model v1.1).
+    this.client = new WorkspaceClient(this.endpoint, { agentName: this.agentName });
     this._lastEventId = null;
+    this._cursorFile = this._cursorFilePath();
+    this._lastPersistedCursor = null;
+    this._resumedFromCursor = false;
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
@@ -88,42 +208,48 @@ class BaseAdapter {
     this.workspaceModel = null;
     this._lastControlId = null;
     this._controlWake = null;
+    this._CONTROL_POLL_DEADLINE_MS = CONTROL_POLL_DEADLINE_MS;
+    this._CONTROL_ACTION_DEADLINE_MS = CONTROL_ACTION_DEADLINE_MS;
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
-    // ── Stop watermarks ──
-    // A stop control event carries the SERVER timestamp of the moment the user
-    // hit Stop. Any message posted at or before that instant belongs to the turn
-    // the user just cancelled, so it must not start a fresh run — even if it
-    // reaches us afterwards, which is the common case: the message is posted,
-    // the user immediately hits Stop, and only then do we poll the message.
-    // Comparing server-to-server timestamps keeps this free of clock skew.
-    //
-    // Watermarks are NEVER cleared when a newer message passes. A newer message
-    // already fails the `<=` test on its own, and dropping the mark would let a
-    // message that was queued BEFORE the stop through when the worker drains
-    // that queue later.
-    this._stopWatermarks = new Map();  // channel → server ms
-    this._stopWatermarkAll = 0;        // stop with no channel (whole agent)
-    // Newest timestamp among messages we have accepted for processing. The poll
-    // cursor never goes backwards, so this is the floor below which the server
-    // can no longer deliver anything — see _pruneStopWatermarks.
-    this._lastDispatchedMessageTs = 0;
-    // channel → the watermark we already announced a stop for, so a burst of
-    // dropped messages posts one notice while a genuinely new stop (larger
-    // watermark) is still allowed to announce itself.
-    this._stopNoticedAt = new Map();
+    // Stop generations. A stop has to cancel work that is no longer IN the
+    // queue: the message a channel worker already shifted out, and anything
+    // the interrupted turn queues on its way out (Claude's todo nudge). The
+    // adapters clear `_channelQueues`, which cannot reach either — that is
+    // why one press of Stop used to report a stop and then let the agent
+    // pick straight back up, and only a second press stuck. Workers capture
+    // the generation they started under and abandon their drain loop the
+    // moment it moves.
+    this._stopGeneration = 0;
+    this._channelStopGeneration = {};
+    // The generation a channel's in-flight message started under, so an
+    // adapter can tell "a stop landed while I was preparing this turn" from
+    // "this turn started after the stop and is meant to run".
+    this._channelRunGeneration = {};
+    this._channelRequestContent = {};
+    this._channelTriggerId = {};
+    // Channels a user stopped whose next turn has not started yet. Everything
+    // the send* helpers would post there is dropped: output a killed run was
+    // still flushing lands after the stop notice otherwise, and the workspace
+    // UI reads the latest message to decide whether the agent is running.
+    this._mutedChannels = new Set();
+    // Channels whose current stop has been announced, so the control handler
+    // and an in-flight turn racing to report the same stop post it once.
+    this._stopNoticeSent = new Set();
+    // Channels being torn down by a stop. Adapters read it from their exit
+    // handlers to tell a user stop from a crash.
+    this._stoppingChannels = new Set();
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
     // the Python adapter behavior in workspace_prompt.py).
     this._browserEnabledCache = null;
-    // ── Knowledge pinning (decision log + glossary) ──
+    // ── Knowledge pinning (glossary) ──
     // Entry-id caches make the steady state a single GET per pinned entry;
     // reads happen on EVERY message, so they get a hard short deadline
     // instead of the client's default 15s — a workspace hiccup must cost the
     // turn a couple of seconds, not half a minute.
-    this._decisionEntryIds = {}; // channel → knowledge entry id of its decision log
     this._glossaryEntryIds = {}; // channel → knowledge entry id of its glossary
     this._DECISION_FETCH_TIMEOUT_MS = 2000;
     this._warnedKnowledgeDisabled = false;
@@ -133,16 +259,58 @@ class BaseAdapter {
     // every _handleMessage call. Adapters with their own pinning flow
     // (Claude) fetch directly instead and leave it false.
     this._usesPinnedContext = false;
-    this._pinnedContext = {}; // channel → { decisions, glossary }
+    this._pinnedContext = {}; // channel → { glossary }
+    // ── v1.1 M3/M4 ──
+    // Debounce handle for the busy↔idle presence heartbeat.
+    this._presenceHeartbeatTimer = null;
+    // channel → { fetchedAt, requesterEmail, ctx } from /shared-context.
+    this._sharedContext = {};
+    // channel → email of the person whose message is being handled (so the
+    // per-run MCP server can tell the owner who asked).
+    this._requesterEmail = {};
     // Wall-clock timestamp of adapter init, used by the `status` control
     // action to report uptime back to the channel. Reset on reinstantiation
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
     // restart" rather than the long-running daemon's process uptime.
     this._startedAt = Date.now();
-    this._log = (msg) => {
+    // Inside the daemon, `logSink` routes lines through its daemon.log writer
+    // (batching, repeat suppression, rotation). Standalone, they go to stdout.
+    const sink = typeof logSink === 'function' ? logSink : null;
+    this._log = (msg, level = 'info') => {
+      if (sink) return sink(level, msg);
       const ts = new Date().toISOString();
-      console.log(`${ts} INFO adapter [${this.agentName}]: ${msg}`);
+      console.log(`${ts} ${String(level).toUpperCase()} adapter [${this.agentName}]: ${msg}`);
     };
+    // Runs of identical background failures (see failure-streak.js).
+    this._pollFailures = new FailureStreak();
+    this._heartbeatFailures = new FailureStreak();
+    // The control poller (Stop, mode changes) fails silently otherwise: its
+    // errors are caught so the loop keeps going, and nothing else logs them.
+    this._controlFailures = new FailureStreak();
+  }
+
+  // ------------------------------------------------------------------
+  // Redaction of text quoted into the channel
+  // ------------------------------------------------------------------
+
+  /**
+   * The exact values this agent must never quote back: the credentials in the
+   * environment its CLI runs with, and its own workspace token. A CLI that
+   * fails on auth tends to echo the key it was handed, in whatever format the
+   * provider issues — matching by value catches it where no pattern would.
+   */
+  _knownSecrets() {
+    return secretValues(this.agentEnv, [this.token]);
+  }
+
+  /**
+   * Redact CLI or exception text on its way to the channel: this agent's own
+   * secrets by value first, then anything shaped like a credential. For quoted
+   * text only — authored guidance names variables ("set GEMINI_API_KEY") that
+   * the shape rules would rewrite.
+   */
+  _redact(text) {
+    return redactSecrets(text, this._knownSecrets());
   }
 
   // ------------------------------------------------------------------
@@ -221,6 +389,30 @@ class BaseAdapter {
     }
   }
 
+  /**
+   * The model this agent is actually running on, for the workspace prompt.
+   *
+   * The one fact about itself an agent cannot look up. Asked "what model are
+   * you?", a CLI-driven agent answers from what its weights remember about
+   * their own training, which is a guess — and a user who had configured
+   * deepseek was told, confidently, "I am Claude, by Anthropic". We know the
+   * real answer: it is the id we hand the CLI.
+   *
+   * Resolution order is the same one the adapters spawn with: a model chosen
+   * in the workspace wins, then this agent type's own model variable, then the
+   * generic LLM_MODEL that the LLM-direct types and the daemon's model.set
+   * both write. Adapters that qualify the id further (OpenWorker prefixes it
+   * with the provider) override this and return exactly what they send.
+   *
+   * Null when nothing is configured — the CLI is then running its own default
+   * and we have nothing truthful to say about it. Better silent than wrong.
+   */
+  modelLabel() {
+    const fromWorkspace = String(this.workspaceModel || '').trim();
+    if (fromWorkspace) return fromWorkspace;
+    return configuredModel(this.agentType, this.agentEnv);
+  }
+
   async run() {
     this._running = true;
 
@@ -244,7 +436,7 @@ class BaseAdapter {
         this._log(`Synced model from workspace: ${this.workspaceModel}`);
       }
     } catch (e) {
-      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
+      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`, 'warn');
     }
 
     // Fast-path operations (control-event cursor + heartbeat + control poll)
@@ -254,12 +446,14 @@ class BaseAdapter {
     // /status responsive immediately after join.
     await this._skipExistingControlEvents();
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+    const responseInterval = setInterval(() => this._flushResponses(), 10000);
+    void this._flushResponses();
     const controlPoller = this._controlPollerLoop();
 
     try {
       // Send initial heartbeat
       try { await this._heartbeat(); } catch (e) {
-        this._log(`Heartbeat failed (non-fatal): ${e.message}`);
+        this._log(`Heartbeat failed (non-fatal): ${e.message}`, 'warn');
       }
       // Slow path: only the message-poll loop waits for this.
       await this._skipExistingEvents();
@@ -269,6 +463,8 @@ class BaseAdapter {
       this._running = false;
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
+      clearInterval(responseInterval);
+      if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
@@ -285,7 +481,64 @@ class BaseAdapter {
   // Event cursor / skip existing
   // ------------------------------------------------------------------
 
+  /** Where this agent's poll cursor lives between runs (per workspace+agent). */
+  _cursorFilePath() {
+    const safe = (v) => String(v || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
+    return path.join(os.homedir(), '.openagents', 'cursors', `${safe(this.workspaceId)}__${safe(this.agentName)}.json`);
+  }
+
+  /** The cursor saved by the previous run, or null when absent/stale/foreign. */
+  _loadPersistedCursor() {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this._cursorFile, 'utf-8'));
+      if (!raw || typeof raw.cursor !== 'string' || !raw.cursor) return null;
+      if (raw.workspaceId !== this.workspaceId || raw.agentName !== this.agentName) return null;
+      const age = Date.now() - (Number(raw.savedAt) || 0);
+      if (!(age >= 0 && age <= CURSOR_RESUME_MAX_AGE_MS)) return null;
+      return raw.cursor;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persist the poll cursor (no-op when unchanged; never throws). */
+  _persistCursor(cursor) {
+    if (!cursor || cursor === this._lastPersistedCursor) return;
+    this._lastPersistedCursor = cursor;
+    try {
+      fs.mkdirSync(path.dirname(this._cursorFile), { recursive: true });
+      const tmp = `${this._cursorFile}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({
+        cursor, savedAt: Date.now(), workspaceId: this.workspaceId, agentName: this.agentName,
+      }));
+      fs.renameSync(tmp, this._cursorFile);
+    } catch (e) {
+      if (!this._warnedCursorPersist) {
+        this._warnedCursorPersist = true;
+        this._log(`Could not persist poll cursor (${e.message}) — a restart will skip messages that arrive while offline`, 'warn');
+      }
+    }
+  }
+
+  /** True when a replayed message is too old to act on (see STALE_MESSAGE_MAX_AGE_MS). */
+  _isStaleMessage(msg) {
+    if (!msg || !msg.createdAt) return false;
+    const t = Date.parse(msg.createdAt);
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t > STALE_MESSAGE_MAX_AGE_MS;
+  }
+
   async _skipExistingEvents() {
+    // Prefer the cursor the previous run persisted: a restart must not drop the
+    // messages that arrived in between (bounded by the stale filter in the
+    // poll loop).
+    const persisted = this._loadPersistedCursor();
+    if (persisted) {
+      this._lastEventId = persisted;
+      this._resumedFromCursor = true;
+      this._log(`Resuming from persisted cursor ${persisted}`);
+      return;
+    }
     // Jump straight to the head with one server call. Pagination from the
     // start was slow and brittle: on a busy workspace it could take many
     // minutes to chew through historical events 200 at a time, leaving the
@@ -294,6 +547,7 @@ class BaseAdapter {
     const head = await this.client.getHeadEventId(this.workspaceId, this.token);
     if (head) {
       this._lastEventId = head;
+      this._persistCursor(head);
       this._log(`Skipped existing events, cursor at ${head}`);
     }
   }
@@ -302,14 +556,39 @@ class BaseAdapter {
   // Heartbeat
   // ------------------------------------------------------------------
 
+  /** Presence fields for the next heartbeat (see buildPresenceFields). */
+  presenceFields() {
+    return buildPresenceFields(this._channelBusy, this._channelQueues);
+  }
+
+  /**
+   * A channel just went busy or idle (or its queue changed): send a heartbeat
+   * soon so the roster flips promptly instead of on the next 30s tick. Bursts
+   * collapse into one send.
+   */
+  _schedulePresenceHeartbeat() {
+    if (!this._running) return;
+    if (this._presenceHeartbeatTimer) return;
+    this._presenceHeartbeatTimer = setTimeout(() => {
+      this._presenceHeartbeatTimer = null;
+      if (!this._running) return;
+      this._heartbeat().catch(() => {});
+    }, PRESENCE_HEARTBEAT_DEBOUNCE_MS);
+    if (typeof this._presenceHeartbeatTimer.unref === 'function') this._presenceHeartbeatTimer.unref();
+  }
+
   async _heartbeat() {
     try {
-      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId, this.presenceFields());
       this._heartbeatFailStreak = 0;
+      const recovered = this._heartbeatFailures.succeed();
+      if (recovered) {
+        this._log(`Workspace heartbeat recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+      }
       this._reportStatus(null); // alive → clear any prior connectivity error
     } catch (e) {
       if (e instanceof SessionRevokedError) {
-        this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+        this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`, 'warn');
         // Terminal (not a user stop): record so the daemon can show why it ended.
         this._setExitInfo(REASON.SESSION_REVOKED, 'Workspace session revoked — another client joined with the same agent name');
         this._reportStatus(REASON.SESSION_REVOKED, 'Workspace session revoked');
@@ -320,7 +599,9 @@ class BaseAdapter {
       // single transient blip (or an expected brief reconnect) isn't mislabeled.
       this._heartbeatFailStreak++;
       const { reason, message } = classifyHeartbeatError(e);
-      this._log(`${message} (consecutive failures: ${this._heartbeatFailStreak})`);
+      if (this._heartbeatFailures.fail()) {
+        this._log(`${message} (consecutive failures: ${this._heartbeatFailStreak})`, 'warn');
+      }
       if (this._heartbeatFailStreak >= HEARTBEAT_ERROR_THRESHOLD) {
         this._reportStatus(reason, message);
       }
@@ -353,18 +634,20 @@ class BaseAdapter {
 
   async _pollControl() {
     try {
-      const events = await this.client.pollControl(
-        this.workspaceId, this.agentName, this.token,
-        { after: this._lastControlId }
+      const events = await this._withinControlDeadline(
+        this.client.pollControl(
+          this.workspaceId, this.agentName, this.token,
+          { after: this._lastControlId }
+        ),
+        this._CONTROL_POLL_DEADLINE_MS, 'control poll',
       );
+      // A poll abandoned at its deadline delivered nothing; the cursor has
+      // not moved, so the next one asks for the same events again.
+      if (events === CONTROL_DEADLINE_HIT) return;
       for (const ev of events) {
         if (ev.id) this._lastControlId = ev.id;
         const payload = ev.payload || {};
         const action = payload.action;
-        // Record the watermark BEFORE the adapter-specific handler runs, so a
-        // message that lands while that handler is still killing processes is
-        // already covered.
-        if (action === 'stop') this._markStopWatermark(payload, ev.timestamp);
         if (action === 'set_mode') {
           const newMode = payload.mode || 'execute';
           if ((newMode === 'execute' || newMode === 'plan') && newMode !== this._mode) {
@@ -372,122 +655,258 @@ class BaseAdapter {
             this._mode = newMode;
             this._log(`Mode changed: ${oldMode} -> ${newMode}`);
           }
+        } else if (action === 'stop') {
+          // Handled here for every adapter, never by an override: a stop has
+          // to stay inside the channel it names, and each adapter used to
+          // decide that for itself — several stopped every channel.
+          await this._withinControlDeadline(
+            this._handleUserStop(payload.channel || null),
+            this._CONTROL_ACTION_DEADLINE_MS, `stop for ${payload.channel || 'every channel'}`,
+          );
         } else {
-          await this._onControlAction(action, payload);
+          await this._withinControlDeadline(
+            this._onControlAction(action, payload),
+            this._CONTROL_ACTION_DEADLINE_MS, `control action '${action}'`,
+          );
         }
       }
-    } catch {}
+      const recovered = this._controlFailures.succeed();
+      if (recovered) {
+        this._log(`Control poll recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+      }
+    } catch (e) {
+      // Keep polling, but leave a trace: a control channel that keeps failing
+      // means Stop and mode changes are not reaching this agent.
+      if (this._controlFailures.fail()) {
+        const count = this._controlFailures.count;
+        const streak = count > 1 ? ` (consecutive failures: ${count})` : '';
+        this._log(`Control poll failed: ${e && e.message}${streak}`, isTransientNetworkError(e) ? 'warn' : 'error');
+      }
+    }
   }
 
   /**
-   * Remember when a stop was issued, using the control event's own server
-   * timestamp. An unusable timestamp is skipped rather than substituted with
-   * `Date.now()` — mixing this machine's clock into a server timeline would
-   * drop or admit the wrong messages under clock skew.
+   * Await `work` for at most `ms`. Resolves to CONTROL_DEADLINE_HIT when the
+   * deadline wins; `work` is left to finish, or not, on its own.
    */
-  _markStopWatermark(payload, timestamp) {
-    const ts = Number(timestamp);
-    if (!Number.isFinite(ts) || ts <= 0) {
-      this._log('Stop control event carried no usable timestamp — no watermark set');
-      return;
+  _withinControlDeadline(work, ms, what) {
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        this._log(`Control poller: ${what} still pending after ${Math.round(ms / 1000)}s — polling on without it`, 'warn');
+        resolve(CONTROL_DEADLINE_HIT);
+      }, ms);
+    });
+    return Promise.race([
+      Promise.resolve(work).finally(() => clearTimeout(timer)),
+      deadline,
+    ]);
+  }
+
+  /**
+   * Record a user stop for `channel` — or for every channel when it is null,
+   * which is how a workspace-wide stop arrives — and drop what is still
+   * queued there. A stop ends the queued work; it does not defer it.
+   */
+  _markStopRequested(channel) {
+    if (channel) {
+      this._channelStopGeneration[channel] = (this._channelStopGeneration[channel] || 0) + 1;
+      delete this._channelQueues[channel];
+    } else {
+      this._stopGeneration++;
+      this._channelQueues = {};
     }
-    const channel = payload && (payload.channel || payload.sessionId);
+  }
+
+  /** Stop generation for one channel; a channel-less stop counts for all. */
+  _stopGenerationFor(channel) {
+    return `${this._stopGeneration}:${this._channelStopGeneration[channel] || 0}`;
+  }
+
+  /**
+   * True when a stop landed after the worker handed this channel its current
+   * message. Adapters call this at their point of no return — the checks in
+   * `_channelWorker` cover the queue, but `_handleMessage` then spends
+   * several more HTTP round trips (session lookup, thinking status, pinned
+   * knowledge, channel recap) before the CLI is touched, and a stop landing
+   * inside those otherwise still reaches it.
+   */
+  _stopRequestedDuringTurn(channel) {
+    const started = this._channelRunGeneration[channel];
+    return started !== undefined && this._stopGenerationFor(channel) !== started;
+  }
+
+  /**
+   * Stop what a user asked to stop, and nothing else.
+   *
+   * `channel` is the thread the Stop button was pressed in; the workspace
+   * sends it for every participant agent. Only that channel's work is
+   * touched — the same agent running in another thread carries on. A null
+   * channel is the workspace-wide "stop everything" path.
+   *
+   * Order matters, and all of it is here so no adapter can get it wrong:
+   *   1. record the stop and mute the channel before the first await, so
+   *      workers and output parsers running during the teardown see it;
+   *   2. let the adapter stop its work for that channel;
+   *   3. cancel the stopped plan's todos (that posts the updated list);
+   *   4. announce the stop last — the UI reads the latest message.
+   */
+  async _handleUserStop(channel) {
+    const channels = channel ? [channel] : this._channelsWithWork();
+    // A repeat stop for a thread that has not started a new turn since its
+    // last stop — the workspace client re-sends Stop after 3s while it still
+    // shows "Stopping…" — has nothing new to cancel. Moving the generation
+    // again would only discard what the user typed after the first press.
+    const repeat = !!channel && this._mutedChannels.has(channel);
+    if (!repeat) this._markStopRequested(channel);
+    for (const ch of channels) {
+      this._mutedChannels.add(ch);
+      this._stoppingChannels.add(ch);
+    }
     if (!channel) {
-      this._stopWatermarkAll = Math.max(this._stopWatermarkAll, ts);
-      return;
+      try { await this._stopSharedWork(); } catch (e) {
+        this._log(`Stop: shared work did not stop cleanly: ${e && e.message ? e.message : e}`, 'warn');
+      }
     }
-    this._stopWatermarks.set(String(channel), ts);
+    for (const ch of channels) {
+      let outcome;
+      try {
+        outcome = await this._stopChannelWork(ch);
+      } catch (e) {
+        this._log(`Stop: ${ch} did not stop cleanly: ${e && e.message ? e.message : e}`, 'warn');
+        outcome = 'failed';
+      }
+      // The pressed channel is always answered, so its UI settles even when
+      // the agent had nothing running there. A workspace-wide stop only
+      // speaks where it actually stopped something.
+      if (outcome === 'idle' && ch !== channel) continue;
+      await this._finishUserStop(ch, outcome === 'failed' ? 'failed' : 'stopped');
+    }
   }
 
   /**
-   * Forget watermarks that can no longer match anything, so a long-lived agent
-   * does not accumulate one entry per channel it was ever stopped in.
-   *
-   * A watermark is only dropped when it is provably spent. The poll cursor is
-   * monotonic in (timestamp, id) and shared by every channel, so once a message
-   * timestamped T has been dispatched the server can never hand us one older
-   * than T again — for any channel. What the server can no longer deliver, only
-   * our own queue can, so a watermark below T is spent once nothing at or below
-   * it is still queued.
-   *
-   * Evicting by count instead would be a correctness bug, not a safety net: the
-   * mark it discarded might be the one still holding back a queued message.
+   * Channels with work a workspace-wide stop should end. Adapters that track
+   * runs somewhere other than `_channelProcesses` extend this.
    */
-  _pruneStopWatermarks() {
-    if (this._stopWatermarks.size === 0) return;
-    const delivered = this._lastDispatchedMessageTs;
-    if (!delivered) return;
-    for (const [channel, watermark] of this._stopWatermarks) {
-      if (watermark >= delivered) continue;
-      // A message already inside _handleMessage has left the queue but has not
-      // finished: it re-checks the watermark before it starts work, so the mark
-      // has to outlive the turn. Another channel's newer message would
-      // otherwise prune it out from under that check. The worker prunes again
-      // once it is no longer busy.
-      if (this._channelBusy.has(channel)) continue;
-      const queue = this._channelQueues[channel] || [];
-      const stillHeld = queue.some((m) => {
-        const ts = m && m.createdAt ? Date.parse(m.createdAt) : NaN;
-        return !Number.isFinite(ts) || ts <= watermark;
+  _channelsWithWork() {
+    return [...new Set([...this._channelBusy, ...Object.keys(this._channelProcesses || {})])];
+  }
+
+  /**
+   * Stop this adapter's work for ONE channel. Returns 'stopped' when
+   * something was running, 'idle' when nothing was, 'failed' when the run
+   * could not be confirmed dead. Must never touch another channel.
+   *
+   * The default covers every adapter that registers one child process per
+   * channel in `_channelProcesses` and kills it with `_stopProcess`.
+   * Adapters with other kinds of work (persistent processes, sockets, open
+   * HTTP requests) override it, and call super for their child processes.
+   */
+  async _stopChannelWork(channel) {
+    const procs = this._channelProcesses || {};
+    const proc = procs[channel];
+    if (!proc) return this._channelBusy.has(channel) ? 'stopped' : 'idle';
+    this._log(`Stopping process for channel=${channel}`);
+    const ended = typeof this._stopProcess === 'function'
+      ? await this._stopProcess(proc)
+      : undefined;
+    delete procs[channel];
+    // `_stopProcess` implementations that can tell return false for a kill
+    // they could not confirm; the rest return nothing.
+    return ended === false ? 'failed' : 'stopped';
+  }
+
+  /** Work shared by every channel, ended only by a workspace-wide stop. */
+  async _stopSharedWork() {}
+
+  /**
+   * Close out a stopped channel: cancel its plan, then say so. Deduped per
+   * channel until its next turn starts.
+   */
+  async _finishUserStop(channel, outcome = 'stopped') {
+    if (!channel || this._stopNoticeSent.has(channel)) return;
+    this._stopNoticeSent.add(channel);
+    await this.cleanupTodos(channel);
+    await this._announceUserStop(channel, outcome);
+  }
+
+  /**
+   * Post the stop notice. Bypasses the mute on purpose — it is the one
+   * message a stopped channel is meant to get.
+   *
+   * A plain message rather than a `status`: the workspace UI folds statuses
+   * into the collapsed step list, and the user has to see that the stop took.
+   * No `status_kind` either, which would push it as "<agent> finished".
+   * Both wordings match the client's terminal-status regex
+   * (/stopped|stopping failed/i).
+   */
+  async _announceUserStop(channel, outcome) {
+    const content = this._stopNoticeText(outcome);
+    try {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+        senderType: 'agent',
+        senderName: this.agentName,
+        metadata: { agent_mode: this._mode, stop_notice: true },
+        sessionId: this._sessionId,
       });
-      if (stillHeld) continue;
-      this._stopWatermarks.delete(channel);
-      this._stopNoticedAt.delete(channel);
+    } catch (e) {
+      if (e instanceof SessionRevokedError) this._onSessionRevoked();
     }
   }
 
-  _stopWatermarkFor(channel) {
-    return Math.max(this._stopWatermarks.get(channel) || 0, this._stopWatermarkAll);
+  /**
+   * The words of the stop notice. Override to tell the user something more
+   * specific — both must keep matching /stopped|stopping failed/i.
+   */
+  _stopNoticeText(outcome) {
+    return outcome === 'failed'
+      ? (this._stopFailedMessage || 'Stopping failed — the agent process did not exit and may still be running.')
+      : 'Execution stopped by user.';
   }
 
   /**
-   * True when *msg* was posted at or before the last stop for its channel, i.e.
-   * the user cancelled the turn this message belongs to. A message with no
-   * usable timestamp is never dropped — silently swallowing what someone typed
-   * is worse than running one extra turn.
+   * The check every adapter makes right before it starts its CLI, sends a
+   * prompt, or opens a model request: did the user stop this turn while it
+   * was still being prepared? Preparing takes several round trips (session
+   * lookup, status post, pinned knowledge, recap), and a run started after
+   * the stop spends tokens on an answer nobody will see.
+   *
+   * Returns true when the caller must give up without starting anything. The
+   * stop has already been announced by `_handleUserStop`. The channel is
+   * (re)marked as stopping because several adapters clear that flag only
+   * after their own first await, which can run after the stop landed.
    */
-  _isStoppedOut(channel, msg) {
-    const watermark = this._stopWatermarkFor(channel);
-    if (!watermark) return false;
-    const ts = msg && msg.createdAt ? Date.parse(msg.createdAt) : NaN;
-    if (!Number.isFinite(ts)) return false;
-    return ts <= watermark;
+  _stoppedBeforeStart(channel) {
+    if (!this._stopRequestedDuringTurn(channel)) return false;
+    this._stoppingChannels.add(channel);
+    this._log(`Stop landed while preparing ${channel} — not starting the run`);
+    return true;
   }
 
   /**
-   * Re-check, part way through handling *msg*, whether the user stopped this
-   * turn in the meantime.
-   *
-   * The dispatch-time check cannot cover the whole turn. Between it and the
-   * moment the CLI is actually spawned an adapter awaits several round trips
-   * (auto-title, a status ping), and a stop landing in that window finds no
-   * process to kill — so without this the run starts anyway and its answer is
-   * posted after "Execution stopped by user.". Call it immediately before
-   * starting the work, and again before posting a result.
+   * Last line of defence behind `_stoppedBeforeStart`: a child registered in
+   * `_channelProcesses` for a turn that was stopped while it was being
+   * prepared is killed on the spot, before it can reach the model. Covers any
+   * adapter that misses the explicit check, including ones added later.
    */
-  _turnWasStopped(channel, msg) {
-    return this._isStoppedOut(channel, msg);
+  _onProcessRegistered(channel, proc) {
+    if (!proc || typeof proc !== 'object' || typeof proc.on !== 'function') return;
+    if (!this._stopRequestedDuringTurn(channel)) return;
+    this._stoppingChannels.add(channel);
+    this._log(`Stop landed before ${channel}'s run registered — killing it`);
+    const kill = typeof this._stopProcess === 'function'
+      ? this._stopProcess(proc)
+      : Promise.resolve(proc.kill && proc.kill('SIGTERM'));
+    Promise.resolve(kill).catch(() => {}).finally(() => {
+      if (this._channelProcesses && this._channelProcesses[channel] === proc) {
+        delete this._channelProcesses[channel];
+      }
+    });
   }
 
-  /**
-   * Announce "stopped" in *channel*, at most once per stop.
-   *
-   * The workspace UI keeps its Stop button in a disabled "Stopping…" state
-   * until a non-status message lands in the thread, so a stop that posts
-   * nothing locks that button. Every stop path must end here — including the
-   * ones where there was no process to kill.
-   *
-   * Dedup is keyed on the current watermark rather than a flag someone has to
-   * remember to reset: a later stop raises the watermark and is free to
-   * announce itself, while several messages dropped by the same stop share one
-   * notice.
-   */
-  async _postStopNotice(channel, message = 'Execution stopped by user.') {
-    if (!channel) return;
-    const watermark = this._stopWatermarkFor(channel);
-    if (this._stopNoticedAt.get(channel) === watermark) return;
-    this._stopNoticedAt.set(channel, watermark);
-    try { await this.sendResponse(channel, message); } catch {}
+  /** True while a stopped channel is waiting for its next turn. */
+  _isMuted(channel) {
+    return !!channel && this._mutedChannels.has(channel);
   }
 
   /**
@@ -498,7 +917,9 @@ class BaseAdapter {
    * working uniformly across adapter types.
    */
   async _onControlAction(action, payload) {
-    if (action === 'status') {
+    if (action === 'stop') {
+      await this._handleUserStop((payload && payload.channel) || null);
+    } else if (action === 'status') {
       await this._postStatusReport(payload);
     } else if (action === 'routines') {
       await this._postRoutinesReport(payload);
@@ -539,7 +960,7 @@ class BaseAdapter {
         skillId, state: 'installing',
       });
     } catch (e) {
-      this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`);
+      this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`, 'warn');
     }
 
     try {
@@ -573,19 +994,19 @@ class BaseAdapter {
           skillId, state: 'installed', path: result.path, partial: result.partial === true,
         });
       } catch (e) {
-        this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`);
+        this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`, 'warn');
       }
       this._log(`skill.install: SUCCESS "${skillId}" → ${result.path}${result.partial ? ' (partial)' : ''}`);
       await this._onSkillsChanged();
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      this._log(`skill.install: FAILED "${skillId}": ${msg}`);
+      this._log(`skill.install: FAILED "${skillId}": ${msg}`, 'error');
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
           skillId, state: 'failed', error: msg,
         });
       } catch (e2) {
-        this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`);
+        this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`, 'warn');
       }
     }
   }
@@ -614,12 +1035,12 @@ class BaseAdapter {
           skillId, state: 'uninstalled',
         });
       } catch (e) {
-        this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`);
+        this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`, 'warn');
       }
       await this._onSkillsChanged();
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      this._log(`skill.uninstall: FAILED "${skillId}": ${msg}`);
+      this._log(`skill.uninstall: FAILED "${skillId}": ${msg}`, 'error');
     }
   }
 
@@ -674,13 +1095,13 @@ class BaseAdapter {
         sessionId: this._sessionId,
       });
     } catch (e) {
-      this._log(`Status: failed to post: ${e && e.message ? e.message : e}`);
+      this._log(`Status: failed to post: ${e && e.message ? e.message : e}`, 'warn');
     }
   }
 
   /**
-   * Post a markdown table of the agent's active routines back to the
-   * requesting channel. Used by the `/routines` slash command. Each agent
+   * Post a markdown table of the agent's routines (active and paused) back
+   * to the requesting channel. Used by the `/routines` slash command. Each agent
    * reports only routines it owns (created_by === openagents:<agentName>)
    * so the user sees a clear "my routines" view per agent, mirroring how
    * /status reports per-agent uptime.
@@ -701,7 +1122,7 @@ class BaseAdapter {
         (r) => r.created_by === prefixed || r.created_by === this.agentName,
       );
     } catch (e) {
-      this._log(`Routines: failed to list: ${e && e.message ? e.message : e}`);
+      this._log(`Routines: failed to list: ${e && e.message ? e.message : e}`, 'warn');
       try {
         await this.client.sendMessage(
           this.workspaceId, channel, this.token,
@@ -714,15 +1135,18 @@ class BaseAdapter {
 
     let content;
     if (!routines.length) {
-      content = `**Routines for \`${this.agentName}\`**\n\n_No active routines._`;
+      content = `**Routines for \`${this.agentName}\`**\n\n_No routines._`;
     } else {
       const rows = routines.map((r) => {
         const schedule = (r.schedule_interval_minutes != null)
           ? `every ${r.schedule_interval_minutes} min`
           : `${String(r.schedule_hour ?? 0).padStart(2, '0')}:${String(r.schedule_minute ?? 0).padStart(2, '0')} UTC` +
             (r.schedule_days ? ` (days [${r.schedule_days.join(',')}])` : ' daily');
-        const next = r.next_fires_at || '—';
-        const name = String(r.name || '').replace(/\|/g, '\\|');
+        // A paused routine keeps its last next_fires_at, which is stale (often
+        // in the past) — show that it's paused instead of a time it won't fire.
+        const paused = r.status && r.status !== 'active';
+        const next = paused ? '—' : (r.next_fires_at || '—');
+        const name = String(r.name || '').replace(/\|/g, '\\|') + (paused ? ` [${r.status}]` : '');
         const id = String(r.id || '').slice(0, 8);
         return `| \`${id}\` | ${name} | ${schedule} | ${next} |`;
       });
@@ -742,7 +1166,7 @@ class BaseAdapter {
         sessionId: this._sessionId,
       });
     } catch (e) {
-      this._log(`Routines: failed to post: ${e && e.message ? e.message : e}`);
+      this._log(`Routines: failed to post: ${e && e.message ? e.message : e}`, 'warn');
     }
   }
 
@@ -800,11 +1224,26 @@ class BaseAdapter {
         rawCursor = result.cursor;
         composingActive = !!result.composing;
         this._pollAuthFailStreak = 0;
+        const recovered = this._pollFailures.succeed();
+        if (recovered) {
+          this._log(`Poll recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
+        }
         if (pollCount <= 3 || pollCount % 20 === 0) {
           this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}${composingActive ? ' composing' : ''}`);
         }
       } catch (e) {
-        this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
+        // A workspace that is down or slow fails every poll until it is back;
+        // log the streak, not every attempt (see failure-streak.js).
+        if (this._pollFailures.fail()) {
+          const count = this._pollFailures.count;
+          const streak = count > 1 ? ` (consecutive failures: ${count})` : '';
+          if (isTransientNetworkError(e)) {
+            this._log(`Poll #${pollCount} failed: ${e.message}${streak} — retrying every 5s`, 'warn');
+          } else {
+            const stack = count === 1 && e && e.stack ? `\nStack: ${e.stack}` : '';
+            this._log(`Poll #${pollCount} failed: ${e && e.message}${streak}${stack}`, 'error');
+          }
+        }
         // A rejected credential never heals by retrying with the same token —
         // it means the device was re-paired/unpaired and this adapter is
         // running on a revoked one. After a few consecutive rejections (not
@@ -826,7 +1265,16 @@ class BaseAdapter {
         continue;
       }
 
-      if (rawCursor) this._lastEventId = rawCursor;
+      if (rawCursor) {
+        this._lastEventId = rawCursor;
+        this._persistCursor(rawCursor);
+      }
+      // Only the first poll after resuming from a persisted cursor is a
+      // replay; later polls carry live traffic and are never age-filtered
+      // (a skewed local clock must not make a live agent go deaf).
+      const isReplay = this._resumedFromCursor;
+      this._resumedFromCursor = false;
+      const staleByChannel = {};
 
       // Deduplicate
       const incoming = [];
@@ -834,6 +1282,12 @@ class BaseAdapter {
         const msgId = msg.id || msg.messageId;
         if (msgId && this._processedIds.has(msgId)) continue;
         if (msg.messageType === 'status') continue;
+        if (isReplay && this._isStaleMessage(msg)) {
+          if (msgId) this._processedIds.add(msgId);
+          const ch = msg.sessionId || this.channelName || 'general';
+          staleByChannel[ch] = (staleByChannel[ch] || 0) + 1;
+          continue;
+        }
         // Handle queue cancellation signals from frontend
         if (msg.messageType === 'queue_cancel') {
           if (msgId) this._processedIds.add(msgId);
@@ -843,6 +1297,17 @@ class BaseAdapter {
           continue;
         }
         incoming.push(msg);
+      }
+
+      for (const [ch, n] of Object.entries(staleByChannel)) {
+        const mins = Math.round(STALE_MESSAGE_MAX_AGE_MS / 60000);
+        this._log(`Skipped ${n} stale message(s) in ${ch} (older than ${mins} min, arrived while this agent was offline)`);
+        try {
+          await this.sendStatus(ch, `Skipped ${n} message(s) sent more than ${mins} minutes ago while this agent was offline — resend if still needed.`);
+        } catch {}
+      }
+      if (isReplay && incoming.length > 0) {
+        this._log(`Replaying ${incoming.length} message(s) that arrived while this agent was offline`);
       }
 
       if (incoming.length > 0) {
@@ -897,21 +1362,6 @@ class BaseAdapter {
       channel = msg.sessionId;
     }
 
-    // The user hit Stop after posting this. Killing the subprocess alone would
-    // not have helped — this message had not started running yet, so without
-    // this check it spawns a fresh run one poll later and Stop looks broken.
-    if (this._isStoppedOut(channel, msg)) {
-      this._log(`Dropping message posted before Stop in ${channel}`);
-      await this._postStopNotice(channel);
-      return;
-    }
-
-    const dispatchedTs = msg && msg.createdAt ? Date.parse(msg.createdAt) : NaN;
-    if (Number.isFinite(dispatchedTs)) {
-      this._lastDispatchedMessageTs = Math.max(this._lastDispatchedMessageTs, dispatchedTs);
-      this._pruneStopWatermarks();
-    }
-
     if (this._channelBusy.has(channel)) {
       // A routine that's already running must not stack up. Routine fires are
       // periodic, so a fire that arrives while the previous run is still going
@@ -925,7 +1375,9 @@ class BaseAdapter {
       if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
       const queueId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       msg._queueId = queueId;
+      msg._acceptedGeneration = this._stopGenerationFor(channel);
       this._channelQueues[channel].push(msg);
+      this._schedulePresenceHeartbeat();
       try {
         await this.sendStatus(channel, 'message queued — will process after current task', {
           queued_message: (msg.content || '').slice(0, 200),
@@ -935,6 +1387,10 @@ class BaseAdapter {
       return;
     }
 
+    // A message belongs to the stop generation it arrived in. One accepted
+    // before a stop never runs after it; one that arrives after the stop — the
+    // user typing again while the stopped run is still winding down — does.
+    msg._acceptedGeneration = this._stopGenerationFor(channel);
     // Run channel worker (don't await — parallel execution)
     this._channelWorker(channel, msg);
     this._wakeControlPoller();
@@ -952,45 +1408,167 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
-    try {
-      await this._prefetchPinnedContext(channel);
-      await this._handleMessage(msg);
-    } catch (e) {
-      this._log(`Error in channel worker for ${channel}: ${e.message}`);
-      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
-    }
+    this._schedulePresenceHeartbeat();
+    // Messages an adapter queues for itself (Claude's todo nudge) carry no
+    // generation; they belong to the turn that queued them.
+    const startGeneration = msg._acceptedGeneration !== undefined
+      ? msg._acceptedGeneration
+      : this._stopGenerationFor(channel);
+    const generationOf = (m) => (m._acceptedGeneration !== undefined ? m._acceptedGeneration : startGeneration);
+    let dropped = 0;
 
-    // Drain queue
-    while (true) {
-      const queue = this._channelQueues[channel];
-      if (!queue || queue.length === 0) break;
-      const nextMsg = queue.shift();
-      // Queued before the stop that just landed — drop it rather than running
-      // the work the user cancelled.
-      if (this._isStoppedOut(channel, nextMsg)) {
-        this._log(`Dropping queued message posted before Stop in ${channel}`);
-        await this._postStopNotice(channel);
-        continue;
-      }
-      if (nextMsg._queueId) {
-        try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
-      }
+    let next = msg;
+    let first = true;
+    while (next) {
+      const current = next;
+      const generation = generationOf(current);
       try {
+        if (!first && current._queueId && generation === this._stopGenerationFor(channel)) {
+          try { await this.sendStatus(channel, 'processing queued message', { queue_id: current._queueId, queue_status: 'processed' }); } catch {}
+        }
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
-        await this._handleMessage(nextMsg);
+        this._channelRequestContent[channel] = current.originalContent ?? current.content;
+        if (channel && !channel.startsWith('dm:') && current.messageId
+            && typeof this.client?.getRecentMessages === 'function') {
+          await this._applyThreadHistory(channel, current);
+        }
+        // A teammate's request runs under the owner-reviewed shared
+        // instructions (v1.1 M4); the block is prepended to the message.
+        // Gated synchronously so messages it cannot apply to (agents,
+        // anonymous humans, system) add no extra tick before the stop check.
+        this._applyThreadCollaboration(channel, current);
+        if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
+        // Checked after the round trips above, which a stop can land inside:
+        // a message from before the stop never reaches the CLI.
+        if (generation !== this._stopGenerationFor(channel)) {
+          dropped++;
+        } else {
+          this._channelRunGeneration[channel] = generation;
+          // A turn the user asked for after the stop speaks normally again.
+          this._mutedChannels.delete(channel);
+          this._stopNoticeSent.delete(channel);
+          this._stoppingChannels.delete(channel);
+          this._channelTriggerId[channel] = current.messageId || null;
+          await this._handleMessage(current);
+        }
       } catch (e) {
-        this._log(`Error processing queued message in ${channel}: ${e.message}`);
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
+        try { await this.sendError(channel, `Agent error: ${this._redact(e.message)}`); } catch {}
       }
+      delete this._channelRunGeneration[channel];
+      delete this._channelRequestContent[channel];
+      delete this._channelTriggerId[channel];
+      first = false;
+
+      const queue = this._channelQueues[channel];
+      next = queue && queue.length ? queue.shift() : null;
     }
+    if (dropped) this._log(`Stop in ${channel} — dropped ${dropped} message(s) accepted before it`);
     this._channelBusy.delete(channel);
-    // Safe to reconsider this channel's watermark now that nothing is in flight.
-    this._pruneStopWatermarks();
+    delete this._requesterEmail[channel];
+    this._schedulePresenceHeartbeat();
   }
 
   // ------------------------------------------------------------------
-  // Knowledge pinning (decision log + glossary)
+  // Shared context for teammates' requests (v1.1 M4)
+  // ------------------------------------------------------------------
+
+  /** The email of the person whose request this channel is running, if known. */
+  requesterEmailFor(channel) {
+    return this._requesterEmail[channel] || null;
+  }
+
+  /**
+   * Fetch (cached 60s per channel + requester) the owner-reviewed shared
+   * context for this run. Returns the /shared-context payload or null.
+   */
+  async _fetchSharedContext(channel, requesterEmail) {
+    const cached = this._sharedContext[channel];
+    const now = Date.now();
+    if (cached && cached.requesterEmail === requesterEmail && (now - cached.fetchedAt) < SHARED_CONTEXT_TTL_MS) {
+      return cached.ctx;
+    }
+    if (!this.client || typeof this.client.getSharedContext !== 'function') return null;
+    try {
+      const ctx = await this.client.getSharedContext(this.workspaceId, this.token, this.agentName, {
+        requesterEmail, channel,
+      });
+      this._sharedContext[channel] = { fetchedAt: now, requesterEmail, ctx };
+      return ctx;
+    } catch (e) {
+      this._log(`Shared-context fetch failed (${e && e.message ? e.message : e}) — running without it`);
+      // Keep a stale-but-recent answer rather than flip-flopping on a blip.
+      return cached && cached.requesterEmail === requesterEmail ? cached.ctx : null;
+    }
+  }
+
+  /**
+   * When the triggering message comes from an identified person, look up the
+   * shared context and, if it applies, prepend the instruction block to the
+   * message the adapter will turn into its prompt. Records the requester for
+   * the per-run MCP server. Never throws.
+   */
+  _sharedContextEmail(msg) {
+    if (!msg) return null;
+    const continuation = msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+    if (msg.senderType !== 'human' && !continuation) return null;
+    // Continuations retain the authenticated original requester so the next
+    // agent applies the same owner-reviewed shared context and tool identity.
+    const raw = continuation ? (msg.metadata.requester_email || '')
+      : (msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '');
+    const email = String(raw).trim().toLowerCase();
+    return email && email.includes('@') ? email : null;
+  }
+
+  _sharedContextCandidate(msg) {
+    return this._sharedContextEmail(msg) !== null;
+  }
+
+  _applyThreadCollaboration(channel, msg) {
+    if (msg._threadCollaborationApplied || !channel || channel.startsWith('dm:')) return;
+    const instructions = msg.metadata?.thread_agent_instructions?.[this.agentName];
+    if (typeof instructions !== 'string' || !instructions.trim()) return;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = `COLLABORATION INSTRUCTIONS FOR THIS THREAD ONLY (do not carry these into other threads; existing owner restrictions still apply):\n${instructions.slice(0, 10000)}\nEND THREAD INSTRUCTIONS\n\n${msg.content || ''}`;
+    msg._threadCollaborationApplied = true;
+  }
+
+  async _applySharedContext(channel, msg) {
+    const email = this._sharedContextEmail(msg);
+    if (!email) return false;
+    this._requesterEmail[channel] = email;
+    if (msg._sharedContextApplied) return true;
+    const ctx = await this._fetchSharedContext(channel, email);
+    const block = buildSharedContextBlock(ctx);
+    if (!block) return false;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = block + '\n' + (msg.content || '');
+    msg._sharedContextApplied = true;
+    this._log(`Shared context applied for ${email} in ${channel} (owner: ${ctx.owner_email || '?'})`);
+    return true;
+  }
+
+  async _applyThreadHistory(channel, msg) {
+    // DMs have separate peer sessions. Synthetic nudges have no event boundary.
+    if (!channel || channel.startsWith('dm:') || !msg.messageId || msg._threadHistoryApplied) return;
+    if (typeof this.client?.getRecentMessages !== 'function') return;
+    try {
+      const messages = await this.client.getRecentMessages(this.workspaceId, channel, this.token, 100, {
+        before: msg.messageId, timeout: 5000, throwOnError: true,
+      });
+      const block = buildThreadHistory(messages, channel, msg);
+      if (!block) return;
+      if (msg.originalContent === undefined) msg.originalContent = msg.content;
+      msg.content = block + (msg.content || '');
+      msg._threadHistoryApplied = true;
+    } catch (e) {
+      this._log(`Recent thread history unavailable for ${channel}: ${e.message}`);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Knowledge pinning (glossary)
   // ------------------------------------------------------------------
 
   /**
@@ -1017,8 +1595,7 @@ class BaseAdapter {
       if (!this._warnedKnowledgeDisabled) {
         this._warnedKnowledgeDisabled = true;
         this._log(
-          'Knowledge module is disabled — decision-log pinning is INACTIVE. ' +
-          'Confirmed decisions will not survive context compaction or session resets.'
+          'Knowledge module is disabled — glossary pinning is INACTIVE.'
         );
       }
       if (!this._pinnedStatusWarned.has(channel)) {
@@ -1026,9 +1603,9 @@ class BaseAdapter {
         try {
           await this.sendStatus(
             channel,
-            'Decision pinning inactive: the knowledge module is disabled for ' +
-            'this agent, so confirmed decisions and the shared glossary ' +
-            'cannot be pinned across session resets.'
+            'Glossary pinning inactive: the knowledge module is disabled for ' +
+            'this agent, so the shared glossary cannot be pinned across ' +
+            'session resets.'
           );
         } catch {}
       }
@@ -1060,7 +1637,7 @@ class BaseAdapter {
           delete cache[channel];
           // Entry is gone — fall through to list+match below.
         } else {
-          this._log(`${label} read failed (${e.message}) — reusing last known state`);
+          this._log(`${label} read failed (${e.message}) — reusing last known state`, 'warn');
           return { available: true, state: 'found', entryId: cachedId, title: titles[0], content: null, error: true };
         }
       }
@@ -1096,15 +1673,10 @@ class BaseAdapter {
       }
       return { available: true, state: 'found', entryId: entry.id, title: matchedTitle, content: (full && full.content) || '', error: false };
     } catch (e) {
-      this._log(`${label} fetch failed (${e.message}) — reusing last known state`);
+      this._log(`${label} fetch failed (${e.message}) — reusing last known state`, 'warn');
       const knownId = cache[channel] || null;
       return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, title: knownId ? titles[0] : null, content: null, error: true };
     }
-  }
-
-  /** Read the channel's decision log. See _fetchPinnedEntry for the contract. */
-  async _fetchDecisionLog(channel) {
-    return this._fetchPinnedEntry(channel, [decisionLogTitle(channel)], this._decisionEntryIds, 'Decision log');
   }
 
   /**
@@ -1125,11 +1697,10 @@ class BaseAdapter {
     return res;
   }
 
-  /** Fetch everything pinnable for a channel: { decisions, glossary }. */
+  /** Fetch everything pinnable for a channel: { glossary }. */
   async _fetchPinnedContext(channel) {
-    const decisions = await this._fetchDecisionLog(channel);
     const glossary = await this._fetchGlossary(channel);
-    return { decisions, glossary };
+    return { glossary };
   }
 
   /**
@@ -1145,21 +1716,18 @@ class BaseAdapter {
       const fresh = await this._fetchPinnedContext(channel);
       const prev = this._pinnedContext[channel];
       if (prev) {
-        if (fresh.decisions && fresh.decisions.error && prev.decisions && !prev.decisions.error) {
-          fresh.decisions = prev.decisions;
-        }
         if (fresh.glossary && fresh.glossary.error && prev.glossary && !prev.glossary.error) {
           fresh.glossary = prev.glossary;
         }
       }
       this._pinnedContext[channel] = fresh;
     } catch (e) {
-      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — reusing the last pinned context`);
+      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — reusing the last pinned context`, 'warn');
     }
   }
 
   /**
-   * Prompt-builder options ({ decisionLog, glossary }) derived from the last
+   * Prompt-builder options ({ glossary }) derived from the last
    * prefetch for the channel. Sync, so prompt builders can call it inline;
    * returns {} when nothing was prefetched or nothing is usable.
    */
@@ -1167,15 +1735,6 @@ class BaseAdapter {
     const ctx = this._pinnedContext[channel];
     if (!ctx) return {};
     const opts = {};
-    const d = ctx.decisions;
-    if (d && d.available) {
-      opts.decisionLog = {
-        enabled: true,
-        state: d.state,
-        entryId: d.entryId,
-        content: d.error ? '' : (d.content || ''),
-      };
-    }
     const g = ctx.glossary;
     if (g && g.available && g.state === 'found' && g.content) {
       opts.glossary = { enabled: true, entryId: g.entryId, content: g.content, scope: g.scope || 'channel' };
@@ -1190,7 +1749,7 @@ class BaseAdapter {
   async _autoTitleChannel(channel, content) {
     if (this._titledSessions.has(channel)) return;
     this._titledSessions.add(channel);
-    const title = generateSessionTitle(content);
+    const title = generateSessionTitle(this._channelRequestContent[channel] ?? content);
     if (!title) return;
     try {
       const info = await this.client.getSession(this.workspaceId, channel, this.token);
@@ -1202,7 +1761,7 @@ class BaseAdapter {
         this._log(`Auto-titled channel: ${title}`);
       }
     } catch (e) {
-      this._log(`Failed to auto-title channel: ${e.message}`);
+      this._log(`Failed to auto-title channel: ${e.message}`, 'warn');
     }
   }
 
@@ -1211,6 +1770,7 @@ class BaseAdapter {
   // ------------------------------------------------------------------
 
   async sendStatus(channel, content, extraMeta) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -1227,6 +1787,7 @@ class BaseAdapter {
   async sendThinking(channel, content) {
     // Skip empty thinking traces entirely.
     if (!content || !content.trim()) return;
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
@@ -1240,26 +1801,74 @@ class BaseAdapter {
     }
   }
 
-  async sendResponse(channel, content) {
+  /**
+   * Post the agent's answer for a turn — the last thing said before control
+   * returns to the user.
+   *
+   * `status_kind: 'completed'` marks it as exactly that. The backend's push
+   * fan-out (workspace/backend/app/services/push.py) reads the field and
+   * notifies under the user's "task completions" switch instead of the
+   * "all messages" firehose, which is off by default. It has to be a
+   * structured field: an earlier attempt matched the word "completed" in the
+   * message text and fired on every bash for-loop that ended in `done`.
+   */
+  async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
+    if (this._isMuted(channel)) return;
     try {
-      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
-        senderType: 'agent',
-        senderName: this.agentName,
-        sessionId: this._sessionId,
+      await this._replyOutbox().enqueue({
+        channel, content,
+        metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
       });
     } catch (e) {
-      if (e instanceof SessionRevokedError) {
-        this._onSessionRevoked();
-        return;
-      }
+      this._log('Could not save or deliver the final reply; check the local response outbox and disk permissions.', 'error');
       throw e;
     }
+  }
+
+  _replyOutbox() {
+    if (!this._responseOutbox) this._responseOutbox = new ResponseOutbox({
+      endpoint: this.endpoint, workspaceId: this.workspaceId, agentName: this.agentName,
+      directory: this._responseOutboxDirectory,
+      log: (message, level) => this._log(message, level),
+      onRevoked: () => this._onSessionRevoked(),
+      prepare: async (entry) => {
+        // Old/custom servers may not support idempotency. Never blindly retry
+        // an ambiguous send against one of those servers.
+        const safeRetry = this.client.supportsMessageDelivery
+          ? await this.client.supportsMessageDelivery() : false;
+        let published = { content: entry.content, attachments: [] };
+        if (!(this.disabledModules || new Set()).has('files') && entry.channel && !entry.channel.startsWith('dm:') && this.client.uploadFile) {
+          published = await publishResponseArtifacts({
+            content: entry.content, workingDir: this.workingDir,
+            upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
+              contentType, source: `openagents:${this.agentName}`, channelName: entry.channel, visibility: 'inherit',
+            }),
+            onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
+          });
+        }
+        return { ...published, safeRetry };
+      },
+      send: async (entry) => {
+        if (this._isMuted(entry.channel)) throw new Error('Channel is muted');
+        return this.client.sendMessage(this.workspaceId, entry.channel, this.token, entry.content, {
+          attachments: entry.attachments, senderType: 'agent', senderName: this.agentName,
+          metadata: entry.metadata, sessionId: this._sessionId,
+          idempotencyKey: entry.safeRetry ? entry.id : undefined,
+        });
+      },
+    });
+    return this._responseOutbox;
+  }
+
+  async _flushResponses() {
+    try { await this._replyOutbox().flush(); }
+    catch { this._log('Could not drain the response outbox; saved replies retained.', 'error'); }
   }
 
   async cleanupTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
       const hasActive = todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -1280,16 +1889,20 @@ class BaseAdapter {
   async getRemainingTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
-      return todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      // Defend against older endpoints returning the entire channel's list.
+      return todos.filter((t) => (!t.created_by || t.created_by === `openagents:${this.agentName}`)
+        && (!t.assignee || t.assignee === this.agentName || t.assignee === `openagents:${this.agentName}`)
+        && (t.status === 'pending' || t.status === 'in_progress'));
     } catch {
       return [];
     }
   }
 
   async sendTodos(channel, todos) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.putTodos(this.workspaceId, channel, this.token, todos, {
         source: `openagents:${this.agentName}`,
@@ -1315,11 +1928,19 @@ class BaseAdapter {
     }
   }
 
+  /**
+   * Post a turn that ended badly. Carries `status_kind: 'error'` so the push
+   * fan-out routes it to the user's "agent errors" switch rather than the
+   * general message firehose — same structured-field contract as
+   * sendResponse's 'completed'.
+   */
   async sendError(channel, error) {
+    if (this._isMuted(channel)) return;
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, error, {
         senderType: 'agent',
         senderName: this.agentName,
+        metadata: { status_kind: 'error' },
         sessionId: this._sessionId,
       });
     } catch (e) {
@@ -1328,7 +1949,7 @@ class BaseAdapter {
   }
 
   _onSessionRevoked() {
-    this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+    this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`, 'warn');
     this._running = false;
   }
 
@@ -1373,3 +1994,9 @@ class BaseAdapter {
 }
 
 module.exports = BaseAdapter;
+module.exports.STALE_MESSAGE_MAX_AGE_MS = STALE_MESSAGE_MAX_AGE_MS;
+module.exports.CURSOR_RESUME_MAX_AGE_MS = CURSOR_RESUME_MAX_AGE_MS;
+module.exports.PRESENCE_HEARTBEAT_DEBOUNCE_MS = PRESENCE_HEARTBEAT_DEBOUNCE_MS;
+module.exports.SHARED_CONTEXT_TTL_MS = SHARED_CONTEXT_TTL_MS;
+module.exports.buildPresenceFields = buildPresenceFields;
+module.exports.buildSharedContextBlock = buildSharedContextBlock;

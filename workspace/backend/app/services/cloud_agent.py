@@ -10,15 +10,18 @@ as push.py.
 import asyncio
 import json as _json
 import logging
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from app.config import config
 from app.database import SessionLocal
-from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace
+from app.models import CloudAgentConfig, EventRecord, FileRecord, Workspace, WorkspaceMember
 from app.services.cloud_providers import (
     audio_generation,
     chat_completion,
@@ -27,6 +30,17 @@ from app.services.cloud_providers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Keep blocking ORM work (including channel lock waits) off the HTTP loop.
+# Bound concurrent invocations and queue excess work before opening a session.
+_cloud_executor = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("CLOUD_AGENT_WORKERS", "2")),
+    thread_name_prefix="cloud-agent",
+)
+# Follow-up hooks can invoke another cloud agent. They must outlive the current
+# invocation loop, whose default executor asyncio.run() joins on shutdown.
+_followup_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud-followup")
+_in_cloud_worker = ContextVar("in_cloud_worker", default=False)
 
 # The image prompt composer only needs enough history to resolve references
 # like "the brief above" and runs on a small router model, so it gets a much
@@ -40,8 +54,86 @@ def _mask_key(key: str) -> str:
     return key[:4] + "..." + key[-4:]
 
 
+def _reply_route(target: str, trigger_source: Optional[str]) -> Optional[tuple[str, str]]:
+    """Return the reply target and visibility for a triggering event.
+
+    A channel reply stays in the channel. An address-targeted event is a DM,
+    so the response must go back to the triggering source and remain direct.
+    Without a source there is no safe DM recipient.
+    """
+    if target.startswith("channel/"):
+        return target, "channel"
+    if trigger_source:
+        return trigger_source, "direct"
+    return None
+
+
+def speaker_label(source: str, payload: Optional[dict] = None) -> str:
+    """Short author label for speaker-attributed context.
+
+    Agents by agent name; humans by their profile name (stamped on the
+    payload server-side), else the client-sent name, else the email local
+    part. Flattened to one short token run so a name
+    can never inject extra transcript lines or fake labels.
+    """
+    import re as _re
+
+    payload = payload or {}
+    source = source or ""
+    if source.startswith("openagents:"):
+        name = source[len("openagents:") :]
+    elif source.startswith("system:"):
+        # Timer fires, routine kicks, watch wake-ups: label as the system
+        # source so the assistant never mistakes them for a human speaking.
+        name = source
+    else:
+        name = (payload.get("sender_display_name") or "").strip()
+        if not name:
+            # Older messages carry no server-stamped name; the client's
+            # sender_name is usable unless it is just the email again.
+            name = (payload.get("sender_name") or "").strip()
+            if "@" in name or name.lower() in ("user", "unknown"):
+                name = ""
+        if not name:
+            email = (payload.get("sender_email") or "").strip()
+            name = email.split("@", 1)[0] if email else ""
+    name = _re.sub(r"[\s\[\]]+", " ", name).strip()
+    return name[:40] or "user"
+
+
+def _coordinated_handoff(metadata):
+    # This metadata is server-authored; workspace_mod strips caller attempts.
+    handoff = metadata.get('orchestration') or {}
+    if not isinstance(handoff, dict):
+        return False
+    step = handoff.get('step')
+    return (config.COMPLETION_ROUTING_ENABLED and handoff.get('action') == 'next'
+            and bool(handoff.get('root_id')) and type(step) is int
+            and 1 <= step <= config.COMPLETION_ROUTING_MAX_HANDOFFS)
+
+
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
+    if _in_cloud_worker.get():
+        # A coordinated handoff stays on its current worker. Re-queueing it
+        # could deadlock when all workers are awaiting their next handoff.
+        await _invoke_cloud_agents(workspace_id, event_data)
+        return
+    await asyncio.get_running_loop().run_in_executor(
+        _cloud_executor, copy_context().run, _run_cloud_invocation, workspace_id, event_data,
+    )
+
+
+def _run_cloud_invocation(workspace_id: str, event_data: dict) -> None:
+    token = _in_cloud_worker.set(True)
+    try:
+        # Session creation, use, and closure all belong to this worker thread.
+        asyncio.run(_invoke_cloud_agents(workspace_id, event_data))
+    finally:
+        _in_cloud_worker.reset(token)
+
+
+async def _invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     metadata = event_data.get("metadata") or {}
     target_agents = metadata.get("target_agents") or []
 
@@ -49,7 +141,7 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
         return
 
     depth = metadata.get("cloud_agent_depth", 0)
-    if depth >= config.CLOUD_AGENT_MAX_DEPTH:
+    if depth >= config.CLOUD_AGENT_MAX_DEPTH and not _coordinated_handoff(metadata):
         logger.warning("cloud_agent: max depth %d reached, skipping", depth)
         return
 
@@ -75,29 +167,37 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
             except Exception as exc:
                 logger.exception(
                     "cloud_agent: failed to invoke %s (%s/%s)",
-                    agent_name, cloud_config.provider, cloud_config.model,
+                    agent_name,
+                    cloud_config.provider,
+                    cloud_config.model,
                 )
                 error_detail = str(exc)[:200] if str(exc) else "Unknown error"
                 # Use a fresh DB session for error posting — the original
                 # session may be stale after a long async API call.
                 await _post_error_message(
-                    workspace_id, event_data, agent_name,
-                    f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: "
-                    f"{error_detail}",
+                    workspace_id,
+                    event_data,
+                    agent_name,
+                    f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: " f"{error_detail}",
                 )
     finally:
         db.close()
 
 
 async def _invoke_single(
-    db, workspace_id: str, event_data: dict,
-    cloud_config: CloudAgentConfig, depth: int,
+    db,
+    workspace_id: str,
+    event_data: dict,
+    cloud_config: CloudAgentConfig,
+    depth: int,
 ) -> None:
     """Invoke a single cloud agent and post the response."""
-    channel_target = event_data.get("target", "")
-    agent_name = cloud_config.agent_name
-
-    if cloud_config.category == "assistant":
+    from app.services.yumi import YUMI_PROVIDER
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        logger.info("Yumi: ignoring invocation outside a personal conversation")
+        return
+    if cloud_config.provider == YUMI_PROVIDER or cloud_config.category == "assistant":
         await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
     elif cloud_config.category == "image":
         await _invoke_image_agent(db, workspace_id, event_data, cloud_config)
@@ -108,8 +208,11 @@ async def _invoke_single(
 
 
 async def _invoke_chat_agent(
-    db, workspace_id: str, event_data: dict,
-    cloud_config: CloudAgentConfig, depth: int,
+    db,
+    workspace_id: str,
+    event_data: dict,
+    cloud_config: CloudAgentConfig,
+    depth: int,
 ) -> None:
     """Invoke a chat cloud agent."""
     channel_target = event_data.get("target", "")
@@ -123,6 +226,9 @@ async def _invoke_chat_agent(
     api_key = cloud_config.api_key
     base_url = cloud_config.base_url
     system_prompt = cloud_config.system_prompt
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt = (system_prompt or "") + "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
     max_tokens = cloud_config.max_tokens
 
     # The char budget covers the whole request, not just history — system
@@ -143,14 +249,20 @@ async def _invoke_chat_agent(
         )
     if content and system_len + len(content) > total_budget:
         logger.warning(
-            "cloud_agent: trigger message for %s exceeds the context budget "
-            "(%d + %d > %d chars), truncating",
-            agent_name, system_len, len(content), total_budget,
+            "cloud_agent: trigger message for %s exceeds the context budget " "(%d + %d > %d chars), truncating",
+            agent_name,
+            system_len,
+            len(content),
+            total_budget,
         )
         content = content[: max(0, total_budget - system_len)]
 
     messages = _build_conversation_context(
-        db, workspace_id, channel_target, agent_name,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        conversation_source=event_data.get("source"),
         exclude_event_id=event_data.get("id"),
         before_timestamp=_event_order_boundary(event_data),
         max_chars=max(0, total_budget - system_len - len(content)),
@@ -164,7 +276,10 @@ async def _invoke_chat_agent(
 
     logger.info(
         "cloud_agent: invoking %s (%s/%s) with %d messages",
-        agent_name, provider, model, len(messages),
+        agent_name,
+        provider,
+        model,
+        len(messages),
     )
 
     # Release the DB connection while we wait on the (multi-second) LLM call.
@@ -185,13 +300,17 @@ async def _invoke_chat_agent(
 
     await _post_response(
         db, workspace_id, channel_target, agent_name,
-        response_text, depth,
+        response_text, depth, in_reply_to=event_data.get("id"),
+        trigger_source=event_data.get("source"),
     )
 
 
 async def _invoke_assistant_agent(
-    db, workspace_id: str, event_data: dict,
-    cloud_config: CloudAgentConfig, depth: int,
+    db,
+    workspace_id: str,
+    event_data: dict,
+    cloud_config: CloudAgentConfig,
+    depth: int,
 ) -> None:
     """Invoke a tool-using assistant agent (Yumi) with a hand-rolled
     function-calling loop.
@@ -201,6 +320,9 @@ async def _invoke_assistant_agent(
     final answer, which is posted as a normal chat message.
     """
     from app.services import yumi
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == yumi.YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        return
 
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
@@ -210,41 +332,80 @@ async def _invoke_assistant_agent(
     # cloud_config inside the loop.
     provider = cloud_config.provider
     model = yumi.resolve_model(cloud_config)
-    max_tokens = cloud_config.max_tokens
+    max_tokens = cloud_config.max_tokens or config.YUMI_MAX_TOKENS
     api_key, base_url = yumi.resolve_credentials(cloud_config)
     if not api_key:
         logger.error("assistant %s: no API key configured", agent_name)
         await _post_error_message(
-            workspace_id, event_data, agent_name,
+            workspace_id,
+            event_data,
+            agent_name,
             "This assistant isn't configured on the server yet (missing key).",
         )
         return
 
-    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
-    content = event_data.get("payload", {}).get("content", "")
+    # Speaker-attributed transcript: the assistant coordinates a group chat,
+    # so it must know whether a line came from the human or from another
+    # agent (and which one). The trigger message is labelled the same way.
+    trigger_source = event_data.get("source") or ""
+    trigger_payload = event_data.get("payload") or {}
+    trigger_is_human = trigger_source.startswith("human:")
+    messages = _build_conversation_context(
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        conversation_source=event_data.get("source"),
+        exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
+        attribute_speakers=True,
+    )
+    content = trigger_payload.get("content", "")
     if content:
-        messages.append({"role": "user", "content": content})
+        label = speaker_label(trigger_source, trigger_payload)
+        messages.append({"role": "user", "content": f"[{label}] {content}"})
     if not messages:
         return
 
+    channel_name = channel_target[len("channel/") :] if channel_target.startswith("channel/") else None
+
     # Yumi's tools go through the real workspace HTTP API (in-process ASGI),
     # authenticated with the workspace token — never direct DB access.
-    workspace = db.execute(
-        select(Workspace).where(Workspace.id == workspace_id)
-    ).scalar_one_or_none()
+    workspace = db.execute(select(Workspace).where(Workspace.id == workspace_id)).scalar_one_or_none()
     if not workspace:
         logger.error("assistant %s: workspace %s not found", agent_name, workspace_id)
         return
     api = yumi.WorkspaceApi(workspace_id, workspace.password_hash)
 
+    # The built-in only speaks in threads a human added it to. Routing already
+    # never targets it elsewhere; this keeps the rule true even if some future
+    # path targets it directly.
+    if channel_name and not await yumi.is_thread_participant(api, channel_name, agent_name):
+        logger.info(
+            "assistant %s: not a participant of %s — staying silent",
+            agent_name,
+            channel_name,
+        )
+        return
+
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
+    thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
+    if isinstance(thread_instructions, str) and thread_instructions.strip():
+        system_prompt += "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]
+    thread_block = await yumi.thread_context(api, channel_name, trigger_source, trigger_payload)
+    if thread_block:
+        system_prompt = system_prompt + "\n\n" + thread_block
     tools = yumi.build_tools()
     max_iters = max(1, config.YUMI_MAX_TOOL_ITERATIONS)
 
     logger.info(
         "assistant: invoking %s (%s/%s), %d ctx msgs, max %d tool iters",
-        agent_name, provider, model, len(messages), max_iters,
+        agent_name,
+        provider,
+        model,
+        len(messages),
+        max_iters,
     )
 
     final_text = ""
@@ -284,30 +445,51 @@ async def _invoke_assistant_agent(
             except Exception:
                 args = {}
             result = await yumi.execute_tool(
-                api, agent_name, fn.get("name", ""), args,
+                api,
+                agent_name,
+                fn.get("name", ""),
+                args,
+                channel_name=channel_name,
+                allow_delegation=trigger_is_human,
             )
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.get("id"),
-                "content": _json.dumps(result, default=str),
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "content": _json.dumps(result, default=str),
+                }
+            )
 
     if not final_text:
-        final_text = (
-            "I've done what I can for now — let me know if you'd like anything else!"
-        )
+        final_text = "I've done what I can for now — let me know if you'd like anything else!"
+
+    # Deterministic addressing: the reply is delivered to exactly the agents
+    # it @mentions (and to nobody when it mentions none), bypassing the LLM
+    # router — which otherwise sometimes woke an agent that was merely
+    # referred to, or dropped a real hand-off as "stop". Delegation is
+    # human-initiated only: a reply to another agent's message never
+    # re-delegates, which is what keeps agent<->agent loops impossible.
+    explicit_targets: list = []
+    if trigger_is_human:
+        members = await yumi.workspace_member_names(api)
+        explicit_targets = yumi.delegation_targets(final_text, members, agent_name)
 
     await _post_response(
         db, workspace_id, channel_target, agent_name, final_text, depth,
+        explicit_targets=explicit_targets, in_reply_to=event_data.get("id"),
+        trigger_source=event_data.get("source"),
     )
 
 
 async def _invoke_image_agent(
-    db, workspace_id: str, event_data: dict,
+    db,
+    workspace_id: str,
+    event_data: dict,
     cloud_config: CloudAgentConfig,
 ) -> None:
     """Invoke an image generation cloud agent."""
     import re
+
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
     instruction = event_data.get("payload", {}).get("content", "")
@@ -320,16 +502,23 @@ async def _invoke_image_agent(
     # concrete prompt using recent channel history. Falls back to the raw
     # instruction when no router LLM / no context is available.
     prompt = await _compose_image_prompt(
-        db, workspace_id, channel_target, agent_name, instruction,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        instruction,
         exclude_event_id=event_data.get("id"),
         before_timestamp=_event_order_boundary(event_data),
+        conversation_source=event_data.get("source"),
     )
     if not prompt:
         return
 
     logger.info(
         "cloud_agent: generating image with %s (%s/%s)",
-        agent_name, cloud_config.provider, cloud_config.model,
+        agent_name,
+        cloud_config.provider,
+        cloud_config.model,
     )
 
     image_bytes, image_format = await image_generation(
@@ -341,29 +530,39 @@ async def _invoke_image_agent(
     )
 
     file_id = await _upload_image(
-        db, workspace_id, channel_target, agent_name,
-        image_bytes, image_format, prompt,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        image_bytes,
+        image_format,
+        prompt,
     )
 
-    channel_name = channel_target.replace("channel/", "") if channel_target.startswith("channel/") else None
     content_type = f"image/{image_format}"
     filename = f"generated_{file_id[:8]}.{image_format}"
 
     await _post_response(
-        db, workspace_id, channel_target, agent_name,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
         f"Here's the generated image for: *{instruction[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
         attachments=[{
             "file_id": file_id,
             "filename": filename,
             "content_type": content_type,
             "size": len(image_bytes),
         }],
+        trigger_source=event_data.get("source"),
     )
 
 
 async def _invoke_audio_agent(
-    db, workspace_id: str, event_data: dict,
+    db,
+    workspace_id: str,
+    event_data: dict,
     cloud_config: CloudAgentConfig,
 ) -> None:
     """Invoke a text-to-speech cloud agent."""
@@ -376,7 +575,9 @@ async def _invoke_audio_agent(
 
     logger.info(
         "cloud_agent: generating audio with %s (%s/%s)",
-        agent_name, cloud_config.provider, cloud_config.model,
+        agent_name,
+        cloud_config.provider,
+        cloud_config.model,
     )
 
     audio_bytes, audio_format = await audio_generation(
@@ -387,22 +588,31 @@ async def _invoke_audio_agent(
     )
 
     file_id = await _upload_image(
-        db, workspace_id, channel_target, agent_name,
-        audio_bytes, audio_format, text,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        audio_bytes,
+        audio_format,
+        text,
     )
 
     filename = f"speech_{file_id[:8]}.{audio_format}"
 
     await _post_response(
-        db, workspace_id, channel_target, agent_name,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
         f"Generated speech for: *{text[:100]}*",
-        depth=0,
+        depth=0, in_reply_to=event_data.get("id"),
         attachments=[{
             "file_id": file_id,
             "filename": filename,
             "content_type": f"audio/{audio_format}",
             "size": len(audio_bytes),
         }],
+        trigger_source=event_data.get("source"),
     )
 
 
@@ -415,12 +625,23 @@ def _event_order_boundary(event_data: dict) -> Optional[int]:
 
 
 def _build_conversation_context(
-    db, workspace_id: str, channel_target: str, agent_name: str,
+    db,
+    workspace_id: str,
+    channel_target: str,
+    agent_name: str,
     exclude_event_id: Optional[str] = None,
     before_timestamp: Optional[int] = None,
     max_chars: Optional[int] = None,
+    attribute_speakers: bool = False,
+    conversation_source: Optional[str] = None,
 ) -> list[dict]:
     """Fetch recent messages from the channel as conversation context.
+
+    With attribute_speakers, every non-self message is prefixed with its
+    author as ``[name] ``. In a multi-agent thread the plain role mapping
+    flattens the human and every other agent into indistinguishable "user"
+    turns, so a coordinating agent can't tell who said what; the label
+    restores that (the router uses the same ``[label] text`` shape).
 
     Only events causally prior to the trigger are eligible. When
     before_timestamp is given, rows at or after it are excluded in SQL, so
@@ -455,19 +676,43 @@ def _build_conversation_context(
     drop_newest = exclude_event_id is None and before_timestamp is None
 
     while len(collected) < max_messages and offset < max_scanned:
+        if channel_target.startswith("channel/"):
+            scope = EventRecord.target == channel_target
+        else:
+            # DM history is a two-address conversation. A missing counterpart
+            # must fail closed; a target-only query would mix in every message
+            # sent to this agent from other people and other DMs.
+            if not conversation_source or conversation_source == channel_target:
+                return []
+            scope = and_(
+                EventRecord.visibility == "direct",
+                or_(
+                    and_(
+                        EventRecord.source == conversation_source,
+                        EventRecord.target == channel_target,
+                    ),
+                    and_(
+                        EventRecord.source == channel_target,
+                        EventRecord.target == conversation_source,
+                    ),
+                ),
+            )
+
         query = select(EventRecord).where(
             EventRecord.network_id == workspace_id,
-            EventRecord.target == channel_target,
+            scope,
             EventRecord.type == "workspace.message.posted",
         )
         if before_timestamp is not None:
             query = query.where(EventRecord.timestamp < before_timestamp)
 
-        rows = db.execute(
-            query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
-            .offset(offset)
-            .limit(batch_size)
-        ).scalars().all()
+        rows = (
+            db.execute(
+                query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).offset(offset).limit(batch_size)
+            )
+            .scalars()
+            .all()
+        )
         if not rows:
             break
 
@@ -493,6 +738,8 @@ def _build_conversation_context(
                 role = "user"
             else:
                 continue
+            if attribute_speakers and role == "user":
+                content = f"[{speaker_label(source, payload)}] {content}"
 
             if used_chars + len(content) > max_chars:
                 # Keep at least a truncated newest message so the model
@@ -517,7 +764,10 @@ def _build_conversation_context(
             "cloud_agent: context scan cap (%d rows) reached for %s in %s "
             "with only %d chat message(s) collected — older history, if any, "
             "is invisible this turn",
-            max_scanned, agent_name, channel_target, len(collected),
+            max_scanned,
+            agent_name,
+            channel_target,
+            len(collected),
         )
 
     collected.reverse()
@@ -525,9 +775,14 @@ def _build_conversation_context(
 
 
 async def _compose_image_prompt(
-    db, workspace_id: str, channel_target: str, agent_name: str, instruction: str,
+    db,
+    workspace_id: str,
+    channel_target: str,
+    agent_name: str,
+    instruction: str,
     exclude_event_id: Optional[str] = None,
     before_timestamp: Optional[int] = None,
+    conversation_source: Optional[str] = None,
 ) -> str:
     """Turn a (possibly referential) instruction like "make an image of
     cherie's brief above" into a concrete, self-contained image prompt by
@@ -566,20 +821,20 @@ async def _compose_image_prompt(
     # the system prompt and the full user message (wrapper text included)
     # spend from it first and history gets what remains.
     context = _build_conversation_context(
-        db, workspace_id, channel_target, agent_name,
+        db,
+        workspace_id,
+        channel_target,
+        agent_name,
+        conversation_source=conversation_source,
         exclude_event_id=exclude_event_id,
         before_timestamp=before_timestamp,
-        max_chars=max(
-            0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(user_prompt)
-        ),
+        max_chars=max(0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(user_prompt)),
     )
     if not context:
         return instruction
 
     provider = config.ROUTER_LLM_PROVIDER
-    model = config.ROUTER_LLM_MODEL or (
-        "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
-    )
+    model = config.ROUTER_LLM_MODEL or ("gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001")
     messages = list(context)
     messages.append({"role": "user", "content": user_prompt})
 
@@ -596,9 +851,10 @@ async def _compose_image_prompt(
         composed = (composed or "").strip()
         if composed:
             logger.info(
-                "cloud_agent: composed image prompt from %d context msg(s) "
-                "(%d -> %d chars)",
-                len(context), len(instruction), len(composed),
+                "cloud_agent: composed image prompt from %d context msg(s) " "(%d -> %d chars)",
+                len(context),
+                len(instruction),
+                len(composed),
             )
             return composed
         return instruction
@@ -611,21 +867,38 @@ async def _compose_image_prompt(
 
 
 async def _upload_image(
-    db, workspace_id: str, channel_target: str, agent_name: str,
-    image_bytes: bytes, image_format: str, prompt: str,
+    db,
+    workspace_id: str,
+    channel_target: str,
+    agent_name: str,
+    image_bytes: bytes,
+    image_format: str,
+    prompt: str,
 ) -> str:
     """Upload generated image to file storage."""
     from app.storage import get_file_store
 
     file_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"uploaded_files/{timestamp}_generated.{image_format}"
+    from app.services.personal_files import default_file_folder
+    from app.services.access_model import Principal
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.agent_name == agent_name,
+    )).scalar_one_or_none()
+    viewer = Principal("agent", agent_name=agent_name, owner_email=member.owner_email if member else None, workspace_id=workspace_id)
+    folder = default_file_folder(db, workspace_id, viewer, channel_target.removeprefix("channel/")) or "uploaded_files"
+    filename = f"{folder}/{timestamp}_generated.{image_format}"
     storage_name = f"{timestamp}_generated.{image_format}"
 
     store = get_file_store()
     loop = asyncio.get_event_loop()
     storage_key = await loop.run_in_executor(
-        None, store.save, workspace_id, file_id, storage_name, image_bytes,
+        None,
+        store.save,
+        workspace_id,
+        file_id,
+        storage_name,
+        image_bytes,
     )
 
     channel_name = channel_target.replace("channel/", "") if channel_target.startswith("channel/") else None
@@ -639,6 +912,8 @@ async def _upload_image(
         storage_key=storage_key,
         uploaded_by=f"openagents:{agent_name}",
         channel_name=channel_name,
+        owner=f"openagents:{agent_name}",
+        visibility=None if channel_name else "public",
     )
     db.add(record)
     db.flush()
@@ -647,23 +922,42 @@ async def _upload_image(
 
 
 async def _post_response(
-    db, workspace_id: str, channel_target: str, agent_name: str,
-    content: str, depth: int,
+    db,
+    workspace_id: str,
+    channel_target: str,
+    agent_name: str,
+    content: str,
+    depth: int,
     attachments: Optional[list] = None,
+    explicit_targets: Optional[list] = None,
+    status_kind: str = "completed",
+    in_reply_to: Optional[str] = None,
+    trigger_source: Optional[str] = None,
 ) -> None:
-    """Post the cloud agent's response back through the event pipeline."""
+    """Post the cloud agent's response back through the event pipeline.
+
+    ``explicit_targets`` (a list, possibly empty) declares exactly which
+    agents the message addresses; the routing mod honors it instead of
+    asking the LLM router. None means "let the router decide" (legacy).
+    ``status_kind`` lets phone preferences distinguish a final reply from
+    an agent error.
+    """
     from app.models import Workspace
     from app.pipeline_factory import pipeline
     from openagents.core.onm_events import Event
     from openagents.core.onm_mods import EventRejected, PipelineContext
 
-    workspace = db.execute(
-        select(Workspace).where(Workspace.id == workspace_id)
-    ).scalar_one_or_none()
+    workspace = db.execute(select(Workspace).where(Workspace.id == workspace_id)).scalar_one_or_none()
 
     if not workspace:
         logger.error("cloud_agent: workspace %s not found", workspace_id)
         return
+
+    route = _reply_route(channel_target, trigger_source)
+    if route is None:
+        logger.warning("cloud_agent: refusing address-targeted response without trigger source")
+        return
+    reply_target, reply_visibility = route
 
     payload: dict = {
         "content": content,
@@ -672,13 +966,26 @@ async def _post_response(
     if attachments:
         payload["attachments"] = attachments
 
+    metadata: dict = {"cloud_agent_depth": depth + 1, "status_kind": status_kind}
+    if in_reply_to:
+        metadata["in_reply_to"] = in_reply_to
+    if explicit_targets is not None:
+        metadata["explicit_targets"] = list(explicit_targets)
+    if reply_visibility == "direct" and reply_target.startswith("openagents:"):
+        # A DM reply to another agent must not wake it. The DM routing branch
+        # would otherwise target the recipient, whose own reply comes straight
+        # back here at depth 0 (node agents don't carry cloud_agent_depth), so
+        # CLOUD_AGENT_MAX_DEPTH never stops the ping-pong. The reply is still
+        # stored and visible in the DM; it just doesn't trigger another turn.
+        metadata["target_agents"] = ["__no_response__"]
+
     event = Event(
         type="workspace.message.posted",
         source=f"openagents:{agent_name}",
-        target=channel_target,
+        target=reply_target,
         payload=payload,
-        metadata={"cloud_agent_depth": depth + 1},
-        visibility="channel",
+        metadata=metadata,
+        visibility=reply_visibility,
         network=workspace_id,
     )
 
@@ -698,9 +1005,38 @@ async def _post_response(
 
     db.commit()
 
+    # Push. Not automatic: the fan-out is scheduled by the `POST /v1/events`
+    # handler, and this path reaches the pipeline directly — so without this
+    # call the identical reply notifies the user when it comes from an agent
+    # running on a node, and silently does not when it comes from a cloud
+    # agent. `_should_push` still decides whether it is worth sending.
+    #
+    # Off-loop because the FCM client is blocking, and best-effort because the
+    # reply is already committed — a failed notification must not turn into a
+    # failed response.
+    try:
+        from app.services.push import fanout_for_event
+
+        await asyncio.to_thread(
+            fanout_for_event,
+            workspace_id,
+            {
+                "id": event.id,
+                "type": event.type,
+                "source": event.source,
+                "target": event.target,
+                "payload": event.payload,
+                "metadata": event.metadata,
+                "timestamp": event.timestamp,
+            },
+        )
+    except Exception:
+        logger.exception("cloud_agent: push fan-out failed for %s", agent_name)
+
     # Publish to Redis so SSE clients receive the event in real-time
     try:
         from app import cache
+
         snapshot = {
             "id": event.id,
             "type": event.type,
@@ -722,16 +1058,18 @@ async def _post_response(
     # route's advance hook never sees them. advance_workflow is a no-op when the
     # channel has no active run; run it off the event loop so we don't block.
     try:
-        import asyncio
         from app.services.workflow import advance_workflow
+
         wf_event = {
             "target": event.target,
             "source": event.source,
             "payload": event.payload,
             "metadata": event.metadata,
         }
-        asyncio.get_running_loop().run_in_executor(
-            None, advance_workflow, workspace_id, wf_event,
+        _followup_executor.submit(
+            advance_workflow,
+            workspace_id,
+            wf_event,
         )
     except Exception:
         logger.warning("cloud_agent: failed to schedule workflow advance", exc_info=True)
@@ -739,17 +1077,45 @@ async def _post_response(
     # Cloud replies bypass POST /v1/events, so the route's Slack/Telegram
     # relay hook never sees them either — schedule it here the same way.
     try:
-        import asyncio as _asyncio
         from app.services.integrations import relay_for_event
-        _asyncio.get_running_loop().run_in_executor(
-            None, relay_for_event, workspace_id, snapshot,
+
+        _followup_executor.submit(
+            relay_for_event,
+            workspace_id,
+            snapshot,
         )
     except Exception:
         logger.warning("cloud_agent: failed to schedule integration relay", exc_info=True)
 
+    # Same story for agent watches: a cloud agent's reply in a watched thread
+    # must wake the watcher exactly like a node agent's reply does.
+    try:
+        from app.services.watches import notify_watchers
+
+        _followup_executor.submit(
+            notify_watchers,
+            workspace_id,
+            snapshot,
+        )
+    except Exception:
+        logger.warning("cloud_agent: failed to schedule watch notify", exc_info=True)
+
+    # Cloud replies do not pass through the HTTP endpoint's background
+    # dispatch hook. Continue the server-authorized chain here as well.
+    # completion_routing owns its persisted per-request handoff limit.
+    if _coordinated_handoff(event.metadata):
+        await invoke_cloud_agents(workspace_id, {
+            'id': event.id, 'type': event.type, 'source': event.source,
+            'target': event.target, 'payload': event.payload,
+            'metadata': event.metadata, 'timestamp': event.timestamp,
+        })
+
 
 async def _post_error_message(
-    workspace_id: str, event_data: dict, agent_name: str, error_text: str,
+    workspace_id: str,
+    event_data: dict,
+    agent_name: str,
+    error_text: str,
 ) -> None:
     """Post an error message to the channel on behalf of the cloud agent.
 
@@ -759,11 +1125,14 @@ async def _post_error_message(
     err_db = SessionLocal()
     try:
         await _post_response(
-            err_db, workspace_id,
+            err_db,
+            workspace_id,
             event_data.get("target", ""),
             agent_name,
             f"[Error] {error_text}",
             depth=0,
+            status_kind="failed", in_reply_to=event_data.get("id"),
+        trigger_source=event_data.get("source"),
         )
     except Exception:
         logger.exception("cloud_agent: failed to post error message for %s", agent_name)

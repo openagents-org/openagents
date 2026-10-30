@@ -1,6 +1,9 @@
 {
   "name": "openrouter",
   "label": "OpenRouter",
+  "description": "One key for hundreds of models",
+  "description_zh": "一个 Key 调用数百个模型",
+  "key_url": "https://openrouter.ai/keys",
   "base_url": "https://openrouter.ai/api/v1",
   "order": 130,
   "models": [

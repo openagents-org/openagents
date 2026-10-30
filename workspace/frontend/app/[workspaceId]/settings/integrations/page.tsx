@@ -12,8 +12,24 @@ import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chr
 import { workspaceApi } from '@/lib/api';
 import type { IntegrationBinding, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type ConnectForm = 'telegram' | 'slack' | 'lark' | null;
+
+/**
+ * "No default agent", as a value a Select can hold.
+ *
+ * Radix refuses an empty string for an item — it reserves it for "nothing is
+ * selected" — so the absence has to travel under a name of its own and be
+ * turned back into '' at the edge, which is what the API stores.
+ */
+const NO_AGENT = '__none__';
 
 export default function IntegrationsSettingsPage() {
   const { workspace, me, refreshWorkspace } = useAdminSettings();
@@ -175,17 +191,23 @@ export default function IntegrationsSettingsPage() {
   };
 
   const agentPicker = (value: string, onChange: (v: string) => void) => (
-    <select
-      className="h-9 rounded-md border bg-background px-2 text-sm"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+    <Select
+      value={value || NO_AGENT}
+      onValueChange={(v) => onChange(v === NO_AGENT ? '' : v)}
       disabled={!editable}
     >
-      <option value="">{t('admin.integrationNoDefaultAgent')}</option>
-      {agents.map((a) => (
-        <option key={a.agentName} value={a.agentName}>{a.agentName}</option>
-      ))}
-    </select>
+      <SelectTrigger className="h-9 w-56">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NO_AGENT}>{t('admin.integrationNoDefaultAgent')}</SelectItem>
+        {agents.map((a) => (
+          <SelectItem key={a.agentName} value={a.agentName}>
+            {a.agentName}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 
   return (

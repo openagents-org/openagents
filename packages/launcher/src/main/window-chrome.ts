@@ -5,6 +5,7 @@
  */
 import { BrowserWindow, nativeImage, nativeTheme } from "electron"
 import { getSkin } from "../shared/skins"
+import { DEFAULT_THEME_MODE, isThemeMode } from "../shared/appearance-bridge"
 
 export function createPlaceholderIcon(): Electron.NativeImage {
   const size = 16
@@ -39,12 +40,12 @@ export function createPlaceholderIcon(): Electron.NativeImage {
  * Point Electron's native theme at the app's own theme setting.
  *
  * Only the three values `nativeTheme.themeSource` accepts are honoured; an
- * absent or unrecognised stored value falls back to `system`, which is the
+ * absent or unrecognised stored value falls back to `light`, which is the
  * renderer's default too.
  */
 export function applyThemeSource(mode: unknown): void {
   nativeTheme.themeSource =
-    mode === "dark" || mode === "light" ? mode : "system"
+    isThemeMode(mode) ? mode : DEFAULT_THEME_MODE
 }
 
 /**
@@ -57,7 +58,7 @@ export function applyThemeSource(mode: unknown): void {
  * root font size, and a `rem` here would drift away from the overlay, which
  * Electron only accepts in real pixels.
  */
-export const TITLEBAR_HEIGHT = 40
+export const TITLEBAR_HEIGHT = 48
 
 /**
  * Whether a modal is currently up in the renderer. See `setChromeDimmed`.
@@ -77,10 +78,22 @@ function dimmed(hex: string): string {
 }
 
 /**
- * The Windows/Linux window-controls overlay, coloured to match whatever is
- * behind it — `--background`, the content area's surface. Without this the
- * buttons sit on a grey system-drawn plate and the seam is exactly what
- * replacing the title bar was meant to remove.
+ * The stored skin, whose rail colour the overlay wears. See `setChromeSkin`.
+ */
+let chromeSkin: unknown = null
+
+/**
+ * The Windows/Linux window-controls overlay, coloured as the right-hand end of
+ * the mode bar it sits in. The bar spans the window above every area and is
+ * painted in the page surface (`bg-background`), as is the content the
+ * buttons sit over during onboarding. Taking the rail's colour instead left a
+ * lighter block at the end of the bar in any skin whose rail and page differ.
+ *
+ * Read from the skin table rather than the stylesheet, which main cannot
+ * reach: each skin's `bg` is the `--background` its stylesheet sets.
+ *
+ * One pixel shorter than the bar, so the bar's bottom border runs on under the
+ * buttons instead of stopping where they begin.
  *
  * macOS has no overlay: its traffic lights are positioned instead, at window
  * creation, and AppKit tints them itself.
@@ -90,14 +103,24 @@ export function titleBarOverlayColors(): {
   symbolColor: string
   height: number
 } {
-  const dark = nativeTheme.shouldUseDarkColors
-  const color = dark ? "#0f1115" : "#f2f2f7"
-  const symbolColor = dark ? "#f5f5f7" : "#1c1c1e"
+  const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
+  const color = getSkin(chromeSkin).chrome[scheme].bg
+  const symbolColor = scheme === "dark" ? "#f5f5f7" : "#1c1c1e"
   return {
     color: chromeDimmed ? dimmed(color) : color,
     symbolColor: chromeDimmed ? dimmed(symbolColor) : symbolColor,
-    height: TITLEBAR_HEIGHT,
+    height: TITLEBAR_HEIGHT - 1,
   }
+}
+
+/**
+ * Follow the stored skin. Called with the stored value before the window is
+ * created, and again whenever the renderer saves a new one.
+ */
+export function setChromeSkin(win: BrowserWindow | null, skin: unknown): void {
+  if (chromeSkin === skin) return
+  chromeSkin = skin
+  refreshTitleBarOverlay(win)
 }
 
 /** Repaint the overlay after a theme change. No-op where there isn't one. */
@@ -146,13 +169,12 @@ const ACCENT_HEX = {
     orange: "#ea580c",
     rose: "#e11d48",
     slate: "#475569",
-    /* The skin's locked accent — teal, the colour this very progress bar
-       draws in. Not a user-selectable preset, but it arrives here through the
+    /* The skin's locked accent — the brand's deep blue. Not a user-selectable preset, but it arrives here through the
        same door as the others, because the appearance store mirrors the
        EFFECTIVE accent rather than the stored one. Without an entry the lookup
        below would fall back to indigo and the splash would come up violet in
-       front of a teal app. Keep in step with `--accent-oa` in globals.css. */
-    oa: "#0d9488",
+       front of a blue app. Keep in step with `--accent-oa` in globals.css. */
+    oa: "#1d75af",
   },
   dark: {
     indigo: "#818cf8",
@@ -163,7 +185,7 @@ const ACCENT_HEX = {
     orange: "#fb923c",
     rose: "#fb7185",
     slate: "#94a3b8",
-    oa: "#2dd4bf",
+    oa: "#2797e2",
   },
 } as const
 
@@ -192,10 +214,13 @@ export function splashPalette(prefs: { accent: unknown; skin: unknown }): {
   const scheme = nativeTheme.shouldUseDarkColors ? "dark" : "light"
   const accents = ACCENT_HEX[scheme]
   const stored = prefs.accent
+  // Nothing stored yet (a fresh install, before the renderer's first sync):
+  // the skin's own accent if it pins one, so the splash matches the window.
+  const fallback = getSkin(prefs.skin).lockedAccent ?? "indigo"
   const accent =
     typeof stored === "string" && stored in accents
       ? accents[stored as keyof typeof accents]
-      : accents.indigo
+      : accents[fallback as keyof typeof accents] ?? accents.indigo
   // Straight from the shared skin table, so a skin added there gets a splash
   // in its own colours without a second table to remember. An unknown id (an
   // older build reading a newer settings.json) falls back to the default skin.

@@ -1,5 +1,7 @@
 'use client';
 
+import { getApiBaseUrl } from '@/lib/api-base';
+
 import { useEffect, useState, use } from 'react';
 import Image from 'next/image';
 import Avatar from 'boring-avatars';
@@ -8,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 import type { SharedSnapshotMessage } from '@/lib/types';
 import { useFormatters, useT } from '@/lib/i18n';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 
 const OA_PALETTE = ['#6C5CE7', '#A29BFE', '#74B9FF', '#0984E3', '#00CEC9'];
 

@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional, OrderedDict, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openagents.core.base_mod import BaseMod
-    from openagents.core.workspace_manager import WorkspaceManager
+    from openagents.sdk.base_mod import BaseMod
+    from openagents.sdk.workspace_manager import WorkspaceManager
     from openagents.models.network_config import NetworkConfig, NetworkProfile
     from openagents.models.external_access import ExternalAccessConfig
     from openagents.models.event import Event

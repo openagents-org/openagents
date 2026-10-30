@@ -14,8 +14,8 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
-from openagents.core.network import AgentNetwork
-from openagents.core.client import AgentClient
+from openagents.sdk.network import AgentNetwork
+from openagents.sdk.client import AgentClient
 from openagents.models.event import Event
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.mods.workspace.forum import ForumNetworkMod, ForumAgentAdapter

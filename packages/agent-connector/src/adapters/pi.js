@@ -24,7 +24,8 @@
  *
  * Verified against pi 0.83.0 (engines.node >= 22.19.0). Because that engine
  * floor is above what a user's ambient Node may satisfy, a resolved JS entry
- * point is launched with the launcher's own portable Node (v22.22.3) and
+ * point is launched with the launcher's own portable Node (v24, or v22 on
+ * macOS before 13.5) and
  * preflight refuses to start on anything older.
  */
 
@@ -34,7 +35,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, execSync, spawn } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
@@ -517,26 +522,6 @@ class PiAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-        const pp = this._persistentProcs[channel];
-        if (pp) pp.userStopped = true;
-        this._stoppingChannels.add(channel);
-        delete this._channelQueues[channel];
-        if (this._channelProcesses[channel]) {
-          this._log(`Stopping Pi for channel=${channel}`);
-          await this._abortChannel(channel);
-        }
-        // Acknowledged even with nothing running — the UI's Stop button stays
-        // disabled at "Stopping…" until something non-status lands.
-        await this._postStopNotice(channel);
-      } else {
-        for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
-        await this._stopAllProcesses('Execution stopped by user.');
-      }
-      return;
-    }
     if (action === 'restart') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
       if (channel) {
@@ -579,10 +564,7 @@ class PiAdapter extends BaseAdapter {
 
   async _stopAllProcesses(message = 'Execution stopped.') {
     const channels = Object.keys(this._persistentProcs);
-    if (!channels.length) {
-      await this._postStopNotice(this.channelName, message);
-      return;
-    }
+    if (!channels.length) return;
     this._log(`Stopping ${channels.length} Pi process(es)...`);
     for (const channel of channels) {
       this._stoppingChannels.add(channel);
@@ -590,6 +572,22 @@ class PiAdapter extends BaseAdapter {
       delete this._channelQueues[channel];
       try { await this.sendResponse(channel, message); } catch {}
     }
+  }
+
+  /**
+   * Stop ONE channel's Pi turn (BaseAdapter._handleUserStop drives this).
+   * `userStopped` goes on first so the turn that is winding down reports a
+   * stop rather than a failure.
+   */
+  async _stopChannelWork(channel) {
+    const pp = this._persistentProcs[channel];
+    if (pp) pp.userStopped = true;
+    // Abort goes over the RPC channel of the persistent record; a bare child
+    // with no record is simply killed.
+    if (!pp || !this._channelProcesses[channel]) return super._stopChannelWork(channel);
+    this._log(`Stopping Pi for channel=${channel}`);
+    await this._abortChannel(channel);
+    return 'stopped';
   }
 
   /**
@@ -1385,18 +1383,13 @@ class PiAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       browserEnabled,
     });
 
-    // The stop may have arrived during the status and prompt-building round
-    // trips above, when there was no process for it to kill. Starting the CLI
-    // now would run exactly what the user cancelled.
-    if (this._turnWasStopped(channel, msg)) {
-      this._log(`Not starting a run in ${channel} — the user stopped it first`);
-      await this._postStopNotice(channel);
-      return;
-    }
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return;
 
     let pp;
     try {
@@ -1405,6 +1398,9 @@ class PiAdapter extends BaseAdapter {
       await this.sendError(channel, this._redact(e && e.message) || 'Could not start the Pi CLI.');
       return;
     }
+
+    // Starting the process takes a moment; the prompt is what costs tokens.
+    if (this._stoppedBeforeStart(channel)) return;
 
     // Fresh per-turn accounting.
     pp.msgChannel = channel;
@@ -1451,7 +1447,7 @@ class PiAdapter extends BaseAdapter {
     pp.turnInFlight = false;
 
     if (pp.userStopped || this._stoppingChannels.has(channel)) {
-      if (!pp.everPosted) await this._postStopNotice(channel);
+      await this._finishUserStop(channel);
       pp.userStopped = false;
       return;
     }
@@ -1468,7 +1464,7 @@ class PiAdapter extends BaseAdapter {
   async _reportTurnFailure(pp, channel, error) {
     const raw = (error && error.message) || String(error);
     if (error instanceof PiCancelledError && (pp.userStopped || this._stoppingChannels.has(channel))) {
-      await this._postStopNotice(channel);
+      await this._finishUserStop(channel);
       return;
     }
     const { kind, userMessage } = classifyPiError(raw);

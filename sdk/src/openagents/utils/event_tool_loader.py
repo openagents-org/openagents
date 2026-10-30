@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 import yaml
 
 if TYPE_CHECKING:
-    from openagents.core.network import AgentNetwork
+    from openagents.sdk.network import AgentNetwork
     from openagents.models.network_context import NetworkContext
 
 from openagents.models.event import Event

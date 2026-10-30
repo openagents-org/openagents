@@ -33,7 +33,7 @@ A shared caching system for OpenAgents that enables agents to store and share da
 
 ```python
 from openagents.mods.core.shared_cache import SharedCacheAdapter
-from openagents.core.agent_client import AgentClient
+from openagents.sdk.agent_client import AgentClient
 
 # Create an agent with shared cache support
 agent = AgentClient(agent_id="my_agent")
@@ -302,7 +302,7 @@ The mod can be registered with the network:
 
 ```python
 from openagents.mods.core.shared_cache import SharedCacheMod
-from openagents.core.network import Network
+from openagents.sdk.network import Network
 
 network = Network(network_id="my_network")
 cache_mod = SharedCacheMod(mod_name="shared_cache")

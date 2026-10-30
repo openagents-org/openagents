@@ -248,6 +248,12 @@ class NanoClawAdapter extends BaseAdapter {
     await this._autoTitleChannel(channel, content);
     await this.sendStatus(channel, 'thinking...');
 
+    // Stopped while this turn was being prepared: inject nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) {
+      if (this._activeTurn.get(channel) === turnId) this._activeTurn.delete(channel);
+      return;
+    }
+
     // Inject and await the turn.
     this._injectedIds.add(msgId);
     let injected = false;
@@ -278,14 +284,25 @@ class NanoClawAdapter extends BaseAdapter {
   // never kills the Agent Group, the NanoClaw host, or any shared container.
   // ------------------------------------------------------------------
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const ch = payload && (payload.channel || payload.sessionId || payload.session);
-      if (ch) this._detachChannel(String(ch));
-      else for (const c of this._activeChannels()) this._detachChannel(c);
-      return;
-    }
-    await super._onControlAction(action, payload);
+  // BaseAdapter._handleUserStop drives these. A named channel is always
+  // detached (its epoch moves even if nothing was in flight), matching what
+  // the stop meant here before it moved into the base class.
+  async _stopChannelWork(channel) {
+    const wasActive = this._activeTurn.has(channel)
+      || this._pending.has(proto.platformIdFor(this.workspaceId, channel));
+    this._detachChannel(channel);
+    return wasActive ? 'stopped' : 'idle';
+  }
+
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...this._activeChannels()])];
+  }
+
+  /** The container task is not cancelled, only let go of — say so. */
+  _stopNoticeText(outcome) {
+    if (outcome === 'failed') return super._stopNoticeText(outcome);
+    return 'Stopped \u2014 replies from the previous task are dropped; a new message starts a fresh '
+      + 'NanoClaw session. The previous task may keep running in the background.';
   }
 
   _activeChannels() {
@@ -329,11 +346,6 @@ class NanoClawAdapter extends BaseAdapter {
     const state = this._pending.get(platformId);
     if (state && state.settle) state.settle({ detached: true });
     if (this._bridge) this._bridge.sendCancel(platformId, null); // best-effort notify
-    this.sendStatus(
-      channel,
-      'Stopped — replies from the previous task are dropped; a new message starts a fresh NanoClaw session. The previous task may keep running in the background.',
-      { nanoclaw_state: 'detached' },
-    ).catch(() => {});
   }
 
   /** A queued NanoClaw reply was dropped (overflow / expiry / corrupt) — surface it. */

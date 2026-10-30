@@ -7,7 +7,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
-import { FeatureTourBanner } from '@/components/tours/feature-tours';
+import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,7 @@ import {
 import type { Workflow } from '@/lib/types';
 import { useFormatters, useT } from '@/lib/i18n';
 import { WorkflowBuilderDialog } from './workflow-builder-dialog';
-import { KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
+import { AttachmentPicker, KnowledgeContextPicker } from '@/components/tasks/new-task-dialog';
 
 function StepPill({ step }: { step: Workflow['steps'][number] }) {
   const isAgent = step.assignee.kind === 'agent';
@@ -108,18 +108,20 @@ function RunWorkflowDialog({
 }: {
   workflow: Workflow | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; run: boolean }) => void;
+  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => void;
 }) {
   const t = useT();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [knowledgeIds, setKnowledgeIds] = useState<string[]>([]);
+  const [fileIds, setFileIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (workflow) {
       setTitle('');
       setDescription('');
       setKnowledgeIds([]);
+      setFileIds([]);
     }
   }, [workflow]);
 
@@ -127,7 +129,7 @@ function RunWorkflowDialog({
     // Description is required; an empty title gets a derived preview
     // ("first few words…") from the backend.
     if (!description.trim()) return;
-    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, run });
+    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, fileIds, run });
     onOpenChange(false);
   };
 
@@ -156,6 +158,7 @@ function RunWorkflowDialog({
             placeholder={t('tasks.fieldTitlePlaceholder')}
           />
           <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
+          <AttachmentPicker value={fileIds} onChange={setFileIds} />
         </DialogBody>
         <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -221,12 +224,13 @@ export function WorkflowsView() {
     });
   };
 
-  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; run: boolean }) => {
+  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => {
     const task = await createTask({
       title: input.title,
       description: input.description,
       workflowId: wf.id,
       knowledgeIds: input.knowledgeIds,
+      fileIds: input.fileIds,
       status: 'backlog',
     });
     if (input.run) await runTask(task.id);
@@ -280,6 +284,9 @@ export function WorkflowsView() {
         </button>
       </DetailHeader>
 
+      <div role="note" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+        <span className="font-semibold">{t('workflows.experimentalTitle')}</span>{' '}{t('workflows.experimentalBody')}
+      </div>
       <FeatureTourBanner feature="workflows" />
 
       <div className="flex-1 overflow-y-auto">

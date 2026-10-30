@@ -12,9 +12,9 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 import aiohttp
 
-from openagents.core.topology import CentralizedTopology
-from openagents.core.a2a_registry import A2AAgentRegistry
-from openagents.core.transports.http import HttpTransport
+from openagents.sdk.topology import CentralizedTopology
+from openagents.sdk.a2a_registry import A2AAgentRegistry
+from openagents.sdk.transports.http import HttpTransport
 from openagents.models.transport import TransportType, AgentConnection, RemoteAgentStatus
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.event import Event

@@ -13,8 +13,9 @@ import type { CatalogEntry } from "../../types"
 
 /**
  * The Pi catalog entry, read from the registry the launcher actually bundles.
- * These assertions are what stand between a hand-synced registry.json (the
- * build:registry script cannot run in this repo) and a broken Install page.
+ * These assertions are what stand between an edit to registry/pi.json and a
+ * broken Install page — the bundled copy is generated from it, so a field
+ * renamed at the source reaches this page without anything else noticing.
  */
 const PI = (BUNDLED_REGISTRY as unknown as Array<Record<string, unknown>>).find(
   (e) => e.name === "pi",

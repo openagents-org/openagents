@@ -13,4 +13,4 @@
 provider: generic
 url: https://dl.openagents.org/launcher/stable
 channel: latest
-updaterCacheDirName: openagents-launcher-updater-dev
+updaterCacheDirName: openagents-updater-dev

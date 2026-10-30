@@ -322,6 +322,20 @@ describe('Aider adapter — execution', () => {
     assert.ok(error && /code 1|exit/i.test(error));
   });
 
+  it('redacts the line it quotes when nothing classifies the failure', async () => {
+    // Aider's last line on a provider failure quotes the request it made.
+    spawnImpl = makeFakeSpawn(
+      ['working…'], 1,
+      'Traceback (most recent call last):\nRuntimeError: POST https://bob:hunter2pass@relay.example/v1 with Authorization: Bearer abcDEF1234567890xyz and kz-91Ab_x7.Qm4 gave 500',
+    );
+    const a = makeAdapter({ agentEnv: { AIDER_MODEL: 'gpt-4o', LLM_API_KEY: 'kz-91Ab_x7.Qm4' } });
+    const { error } = await a._spawnAider(['/usr/bin/aider'], 'general');
+    assert.match(error, /^Aider exited with code 1\. RuntimeError: POST https:\/\/\[REDACTED\]@relay\.example\/v1/);
+    for (const secret of ['hunter2pass', 'abcDEF1234567890xyz', 'kz-91Ab_x7.Qm4']) {
+      assert.ok(!error.includes(secret), error);
+    }
+  });
+
   it('classifies an authentication failure', async () => {
     spawnImpl = makeFakeSpawn(['litellm.AuthenticationError: invalid api key'], 1);
     const a = makeAdapter();
@@ -426,8 +440,10 @@ describe('Aider adapter — stop control', () => {
     const a = makeAdapter();
     const stopped = [];
     a._stopProcess = async () => stopped.push('killed');
+    // The stop notice is posted by BaseAdapter straight through the client.
     const statuses = [];
-    a.sendStatus = async (_c, content) => statuses.push(content);
+    a.client.getTodos = async () => ({ todos: [] });
+    a.client.sendMessage = async (_ws, _c, _t, content) => statuses.push(content);
 
     const proc = new EventEmitter();
     proc.pid = 99;
@@ -438,6 +454,30 @@ describe('Aider adapter — stop control', () => {
     assert.equal(stopped.length, 1);
     assert.equal('general' in a._channelProcesses, false);
     assert.equal(a._stoppingChannels.has('general'), true);
-    assert.deepEqual(statuses, ['Execution stopped by user']);
+    assert.deepEqual(statuses, ['Execution stopped by user.']);
+  });
+
+  it('a stop in one channel leaves its run in another channel alone', async () => {
+    const a = makeAdapter();
+    const killed = [];
+    a._stopProcess = async (proc) => killed.push(proc.pid);
+    const notices = [];
+    a.client.getTodos = async () => ({ todos: [] });
+    a.client.sendMessage = async (_ws, channel, _t, content) => notices.push({ channel, content });
+
+    const inA = new EventEmitter();
+    inA.pid = 101;
+    inA.exitCode = null;
+    const inB = new EventEmitter();
+    inB.pid = 102;
+    inB.exitCode = null;
+    a._channelProcesses.channelA = inA;
+    a._channelProcesses.channelB = inB;
+
+    await a._onControlAction('stop', { channel: 'channelA' });
+
+    assert.deepEqual(killed, [101]);
+    assert.equal(a._channelProcesses.channelB, inB);
+    assert.deepEqual(notices, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
   });
 });

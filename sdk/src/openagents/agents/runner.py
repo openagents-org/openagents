@@ -11,7 +11,7 @@ from openagents.config.llm_configs import (
     is_auto_model,
     resolve_auto_model_config,
 )
-from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.sdk.base_mod_adapter import BaseModAdapter
 from openagents.lms.providers import BaseModelProvider
 from openagents.models.agent_actions import AgentTrajectory
 from openagents.models.agent_config import AgentConfig
@@ -20,7 +20,7 @@ from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
 from openagents.models.tool import AgentTool
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.utils.mod_loaders import load_mod_adapters
 from openagents.utils.verbose import verbose_print
 from openagents.models.event_response import EventResponse

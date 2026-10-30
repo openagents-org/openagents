@@ -86,6 +86,10 @@ jobs:
         # lockfile is intentionally loose in this repo.
         run: npm install
 
+      # `npm run build` builds the Workspace bundle the launcher ships first.
+      - name: Install Workspace frontend deps
+        uses: ./.github/actions/workspace-frontend-deps
+
       - name: Build launcher (from source)
         run: npm run build
 

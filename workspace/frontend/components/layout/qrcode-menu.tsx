@@ -15,21 +15,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { QrcodeIcon } from '@/components/icons/qrcode-icon';
 import { listAccountWorkspaces } from '@/lib/account-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { shareOrigin } from '@/lib/share-origin';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
-
-/**
- * Where a scannable link has to point. `window.location.origin` is right for
- * every real deployment, but on localhost it produces a URL no phone can open —
- * fall back to the hosted app there, the same localhost carve-out
- * `lib/auth-redirects.ts` makes.
- */
-const HOSTED_ORIGIN = 'https://workspace.openagents.org';
-
-function shareOrigin(): string {
-  if (typeof window === 'undefined') return HOSTED_ORIGIN;
-  return window.location.hostname === 'localhost' ? HOSTED_ORIGIN : window.location.origin;
-}
 
 interface QrcodeMenuProps {
   side?: 'top' | 'right' | 'bottom' | 'left';

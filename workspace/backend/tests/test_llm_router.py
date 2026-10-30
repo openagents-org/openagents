@@ -7,10 +7,10 @@ Tests the _route_with_llm function with mocked LLM responses.
 
 import asyncio
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
-from app.models import Channel, ChannelMember, WorkspaceMember, Workspace
-from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
+from app.models import Channel, ChannelMember, EventRecord, WorkspaceMember, Workspace
+from app.mods.workspace_mod import _route_with_llm, _handle_message_posted
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import PipelineContext
 
@@ -213,69 +213,89 @@ class TestRouteWithLLM:
         assert result == [], "self-loop must be rejected"
 
 
-class TestMasterMode:
-    """Deterministic 'master' orchestration mode — no LLM. Star topology:
-    humans and sub-agents route to the master; the master delegates via
-    @mention."""
+class TestHumanMentionDeterministicRouting:
+    """A human @mention is an explicit addressing decision (#333).
 
-    def test_human_routes_to_master(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("human:user", "channel/session-test", "please do the thing")
-        assert _master_targets(event, ch, []) == ["agent-master"]
+    In dynamic/workflow threads every workspace agent tends to be a channel
+    participant (the UI's thread picker adds them by default), so letting the
+    LLM router re-decide who a "@name" message is for lets bystanders —
+    including agents the user never added to the thread — answer instead.
+    The mention must win.
+    """
 
-    def test_sub_agent_returns_to_master(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        # agent-worker (a sub-agent) reports back → routes to the master hub
-        event = _make_event("openagents:agent-worker", "channel/session-test", "here are my results")
-        assert _master_targets(event, ch, []) == ["agent-master"]
-
-    def test_master_delegates_via_mention(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "@agent-worker please handle this")
-        assert _master_targets(event, ch, ["agent-worker"]) == ["agent-worker"]
-
-    def test_master_no_mention_stops(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        # Master answered the human directly (no delegation) → stop
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "Here is the answer directly.")
-        assert _master_targets(event, ch, []) == []
-
-    def test_master_self_mention_excluded(self, db, multi_agent_workspace):
-        ch = multi_agent_workspace["channel"]
-        event = _make_event("openagents:agent-master", "channel/session-test",
-                            "@agent-master note to self")
-        assert _master_targets(event, ch, ["agent-master"]) == []
-
-    def test_no_master_returns_empty(self, db, multi_agent_workspace):
+    def _dynamic_thread(self, db, multi_agent_workspace):
+        """Reopen the fixture channel as a master-less dynamic thread with
+        a third participant the user never meant to talk to."""
+        ws = multi_agent_workspace["workspace"]
         ch = multi_agent_workspace["channel"]
         ch.master_agent = None
+        ch.orchestration_mode = "dynamic"
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="agent-bystander", role="member", status="online"))
+        db.add(ChannelMember(channel_id=ch.id, agent_name="agent-bystander"))
         db.flush()
-        event = _make_event("human:user", "channel/session-test", "hello")
-        assert _master_targets(event, ch, []) == []
+        db.refresh(ch)
+        return ws, ch
 
-    def test_handle_message_posted_master_mode_human(self, db, multi_agent_workspace):
-        """End-to-end: mode='master', human message → target the master,
-        with no LLM call involved."""
-        ws = multi_agent_workspace["workspace"]
-        ch = multi_agent_workspace["channel"]
-        ch.orchestration_mode = "master"
-        db.flush()
-        event = _make_event("human:user", "channel/session-test", "kick things off")
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_mention_bypasses_llm_router(self, _key, mock_router, db, multi_agent_workspace):
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-bystander"]
+        event = _make_event("human:user", "channel/session-test", "@agent-worker can you check the logs?")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
-        assert out.metadata.get("target_agents") == ["agent-master"]
+        assert out.metadata.get("target_agents") == ["agent-worker"]
+        mock_router.assert_not_called()
 
-    def test_handle_message_posted_master_mode_subagent_returns(self, db, multi_agent_workspace):
-        ws = multi_agent_workspace["workspace"]
-        ch = multi_agent_workspace["channel"]
-        ch.orchestration_mode = "master"
-        db.flush()
-        event = _make_event("openagents:agent-worker", "channel/session-test", "done, results attached")
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_multiple_mentions_target_all(self, _key, mock_router, db, multi_agent_workspace):
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-bystander"]
+        event = _make_event("human:user", "channel/session-test", "@agent-master and @agent-worker please pair on this")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master", "agent-worker"]
+        mock_router.assert_not_called()
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_human_mention_ignores_unknown_agent_names(self, _key, mock_router, db, multi_agent_workspace):
+        """A @token that isn't a workspace member isn't a mention — the
+        router still decides."""
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-worker"]
+        event = _make_event("human:user", "channel/session-test", "@nonexistent-style points, who takes this?")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-worker"]
+        mock_router.assert_called_once()
+
+    @patch("app.mods.workspace_mod._route_with_llm", new_callable=AsyncMock)
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_agent_mention_still_uses_llm_router(self, _key, mock_router, db, multi_agent_workspace):
+        """Only human-authored mentions are deterministic; an agent @mentioning
+        a peer mid-message is still a routing decision. (A LEADING @mention
+        from an agent is handled earlier by _explicit_agent_targets, so the
+        mention here is deliberately not the first token.)"""
+        ws, _ch = self._dynamic_thread(db, multi_agent_workspace)
+        mock_router.return_value = ["agent-master"]
+        event = _make_event("openagents:agent-worker", "channel/session-test", "finished the scan, @agent-master can take the handoff")
         ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
         out = _run(_handle_message_posted(event, ctx))
         assert out.metadata.get("target_agents") == ["agent-master"]
+        mock_router.assert_called_once()
+
+    def test_legacy_master_mode_honors_explicit_recipient(self, db, multi_agent_workspace):
+        """Retired master mode uses normal addressing semantics."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        event = _make_event("human:user", "channel/session-test", "@agent-worker can you check the logs?")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-worker"]
 
 
 class TestWorkflowMode:
@@ -384,13 +404,10 @@ class TestMessagePostedTargetAgents:
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
-    def test_human_message_always_routed_even_if_router_says_stop(
+    def test_proactive_human_message_stays_silent_when_router_says_stop(
         self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace,
     ):
-        """A human message must never fall through to the sentinel.
-        If the router mistakenly says 'stop' for a human question, the
-        safety net routes to the master/fallback so the user gets a reply.
-        """
+        """The router can identify human conversation and choose no agent."""
         from app.mods.workspace_mod import _handle_message_posted
         from openagents.core.onm_mods import PipelineContext
 
@@ -403,8 +420,7 @@ class TestMessagePostedTargetAgents:
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
 
         out = _run(_handle_message_posted(event, ctx))
-        # Master is the fallback; must NOT be the sentinel
-        assert out.metadata.get("target_agents") == ["agent-master"]
+        assert out.metadata.get("target_agents") == ["__no_response__"]
 
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
@@ -450,11 +466,10 @@ class TestMessagePostedTargetAgents:
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
-    def test_human_message_routed_to_fallback_on_llm_failure(
+    def test_proactive_human_message_stays_silent_on_llm_failure(
         self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace,
     ):
-        """LLM router exception on a human message → fallback target, not sentinel.
-        Humans must always get a response, even if routing fails."""
+        """A failed classifier must not arbitrarily interrupt a human conversation."""
         from app.mods.workspace_mod import _handle_message_posted
         from openagents.core.onm_mods import PipelineContext
 
@@ -467,4 +482,239 @@ class TestMessagePostedTargetAgents:
         ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
 
         out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["__no_response__"]
+
+
+class TestStopRestsTheThread:
+    """A user Stop must end the thread's agent-to-agent turn-taking.
+
+    Killing the CLI processes is not enough on its own: the router hands one
+    agent's message to another, so an agent still finishing its post when the
+    stop landed wakes the stopped one back up. That was the reported "Stop
+    only works on the second press" in a multi-agent thread.
+    """
+
+    @staticmethod
+    def _add_event(db, ws, *, type_, source, target, payload, ts):
+        db.add(EventRecord(
+            id=f"ev-{ts}-{source}",
+            network_id=str(ws.id),
+            type=type_,
+            source=source,
+            target=target,
+            payload=payload,
+            metadata_={},
+            timestamp=ts,
+        ))
+        db.flush()
+
+    def _human_message(self, db, ws, ts, content="go"):
+        self._add_event(
+            db, ws,
+            type_="workspace.message.posted",
+            source="human:user",
+            target="channel/session-test",
+            payload={"content": content, "message_type": "chat"},
+            ts=ts,
+        )
+
+    def _stop(self, db, ws, ts, channel="session-test"):
+        payload = {"action": "stop"}
+        if channel is not None:
+            payload["channel"] = channel
+        self._add_event(
+            db, ws,
+            type_="workspace.agent.control",
+            source="human:user",
+            target="openagents:agent-worker",
+            payload=payload,
+            ts=ts,
+        )
+
+    def test_agent_message_after_a_stop_wakes_nobody(self, db, multi_agent_workspace):
+        ws = multi_agent_workspace["workspace"]
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000)
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "I'll read the channel context first.")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["__no_response__"]
+
+    def test_a_human_message_lifts_the_rest(self, db, multi_agent_workspace):
+        """The user asking for more is the one thing that restarts the thread."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000)
+        self._human_message(db, ws, 3_000, content="keep going")
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
         assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_workspace_wide_stop_rests_every_thread(self, db, multi_agent_workspace):
+        """The stop-everything path sends no channel; it still rests this one."""
+        ws = multi_agent_workspace["workspace"]
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000, channel=None)
+
+        event = _make_event("openagents:agent-worker", "channel/session-test", "carrying on")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["__no_response__"]
+
+    def test_a_stop_in_another_channel_is_not_this_thread(self, db, multi_agent_workspace):
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._stop(db, ws, 2_000, channel="session-elsewhere")
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_humans_own_message_is_never_gated(self, db, multi_agent_workspace):
+        """Pressing Stop and then typing must work — the gate is for agents."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._stop(db, ws, 2_000)
+
+        event = _make_event("human:user", "channel/session-test", "@agent-master kick things off")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_a_mode_change_is_not_a_stop(self, db, multi_agent_workspace):
+        """Only `stop` rests the thread; other control events must not."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        self._human_message(db, ws, 1_000)
+        self._add_event(
+            db, ws,
+            type_="workspace.agent.control",
+            source="human:user",
+            target="openagents:agent-worker",
+            payload={"action": "set_mode", "mode": "plan", "channel": "session-test"},
+            ts=2_000,
+        )
+
+        event = _make_event("openagents:agent-worker", "channel/session-test",
+                            "@agent-master here is what I found")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+
+@pytest.mark.parametrize('human_request', [True, False])
+@pytest.mark.parametrize('provider,model', [
+    ('openai', 'DeepSeek-V4.1-flash'),
+    ('openai', 'gpt-4o-mini'),
+    ('anthropic', 'claude-haiku-4-5-20251001'),
+])
+def test_routing_budget_and_provider_specific_thinking(
+    db, multi_agent_workspace, monkeypatch, provider, model, human_request,
+):
+    """Both human classification and agent handoffs use the corrected request."""
+    from app.mods import workspace_mod
+    client = MagicMock()
+    client.chat.completions.create.return_value = _mock_openai_response('next:agent-worker')
+    client.messages.create.return_value = _mock_anthropic_response('next:agent-worker')
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (client, provider))
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'test-key')
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: model)
+    event = _make_event('human:user' if human_request else 'openagents:agent-master',
+                        'channel/session-test', 'Did you open the page?')
+    result = _run(_route_with_llm(multi_agent_workspace['channel'], event, db,
+                                 multi_agent_workspace['workspace'], allow_human_stop=human_request))
+    assert result == ['agent-worker']
+    create = client.chat.completions.create if provider == 'openai' else client.messages.create
+    kwargs = create.call_args.kwargs
+    assert kwargs['max_tokens'] == 256
+    if model.startswith('DeepSeek'):
+        assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
+    else:
+        assert 'extra_body' not in kwargs
+
+
+class TestRoutingConversationEvidence:
+    def _capture(self, db, fixture, event, **kwargs):
+        client = MagicMock()
+        client.messages.create.return_value = _mock_anthropic_response('stop')
+        with patch('app.mods.workspace_mod._get_router_api_key', return_value='test'), \
+             patch('app.mods.workspace_mod._get_llm_client', return_value=(client, 'anthropic')):
+            _run(_route_with_llm(fixture['channel'], event, db, fixture['workspace'], **kwargs))
+        return client.messages.create.call_args.kwargs['messages'][0]['content']
+
+    def test_history_filters_noise_before_limit_and_excludes_current_future(self, db, multi_agent_workspace):
+        import json
+        ws = multi_agent_workspace['workspace']
+        def add(id, ts, source='human:alice', kind='chat', metadata=None, target='channel/session-test', network=None):
+            db.add(EventRecord(id=id, network_id=network or ws.id, type='workspace.message.posted',
+                source=source, target=target, timestamp=ts,
+                payload={'content':id,'message_type':kind}, metadata_=metadata or {}))
+        for n in range(8):
+            add(f'chat-{n}',100+n,source='openagents:agent-worker' if n%2 else 'human:alice')
+        for n in range(30):add(f'noise-{n}',200+n,source='openagents:agent-worker',kind='thinking')
+        add('recalled',240,metadata={'recalled':True})
+        add('assignment',241,metadata={'routing_assignment':{'agent':'agent-worker'}})
+        add('system',242,source='system:notice')
+        add('other-channel',243,target='channel/other')
+        add('other-workspace',244,network='00000000-0000-0000-0000-000000000001')
+        event=_make_event('human:alice','channel/session-test','Please continue');event.timestamp=300
+        add(event.id,300);add('future',301);db.flush()
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert [m['content'] for m in evidence['turns']]==[f'chat-{n}' for n in range(2,8)]
+        assert evidence['turns'][-1]['sender_type']=='agent'
+        assert evidence['follow_up_evidence']['agents_who_spoke_after_request']==['agent-worker']
+
+    def test_historical_question_and_latest_handoff_survive_long_messages(self, db, multi_agent_workspace):
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='prior',network_id=ws.id,type='workspace.message.posted',
+            source='openagents:agent-worker',target='channel/session-test',timestamp=1,
+            payload={'content':'Background. '*1000+' Please send the requested screenshot.'},metadata_={}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Details. '*1200+' @agent-worker review the result.')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        assert 'Please send the requested screenshot.' in prompt
+        assert '@agent-worker review the result.' in prompt
+        assert '[...middle omitted...]' in prompt
+
+    def test_agent_turn_has_agent_only_rules(self, db, multi_agent_workspace):
+        event=_make_event('openagents:agent-worker','channel/session-test','Done. Would you like me to commit?')
+        prompt=self._capture(db,multi_agent_workspace,event)
+        assert 'LATEST message, written by AGENT agent-worker' in prompt
+        assert 'Default to stop' in prompt
+        assert 'Humans expect a reply' not in prompt
+
+    def test_context_targets_cannot_expand_allowed_candidates(self, db, multi_agent_workspace):
+        import json
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='request',network_id=ws.id,type='workspace.message.posted',
+            source='human:alice',target='channel/session-test',timestamp=1,
+            payload={'content':'Investigate this'},metadata_={'target_agents':['agent-worker','agent-master','unknown']}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Any update?')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True,allowed_agents=['agent-worker'])
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert evidence['follow_up_evidence']['dispatched_to']==['agent-worker']

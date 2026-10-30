@@ -699,6 +699,19 @@ SKILL_CATALOG: List[dict] = [
         "source_path": "skills/sn-md-to-html-report",
         "author": "SenseNova",
     },
+    # -------------------------------------------------------------------------
+    # Hypit
+    # -------------------------------------------------------------------------
+    {
+        "id": "hypit",
+        "name": "Hypit",
+        "description": "Produce complete videos with AI agents — author, preview, build and batch-expand Hypit/SVML projects",
+        "category": "ai-ml",
+        "icon": "video",
+        "source_repo": "hypit-ai/hypit",
+        "source_path": "skills/hypit",
+        "author": "Hypit",
+    },
 ]
 
 # Keep the workspace-module helpers for backward compatibility with the launcher

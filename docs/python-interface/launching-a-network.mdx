@@ -19,8 +19,8 @@ Create and start a network programmatically:
 
 ```python
 import asyncio
-from openagents.core.network import Network
-from openagents.core.config import NetworkConfig
+from openagents.sdk.network import Network
+from openagents.sdk.config import NetworkConfig
 
 async def create_basic_network():
     """Create and start a simple network"""
@@ -98,7 +98,7 @@ if __name__ == "__main__":
 Create networks from configuration dictionaries:
 
 ```python
-from openagents.core.network import Network
+from openagents.sdk.network import Network
 
 async def create_network_from_dict():
     """Create network from configuration dictionary"""
@@ -157,8 +157,8 @@ Create a production-ready network with advanced features:
 ```python
 import os
 from pathlib import Path
-from openagents.core.network import Network
-from openagents.core.config import NetworkConfig, SecurityConfig, ModConfig
+from openagents.sdk.network import Network
+from openagents.sdk.config import NetworkConfig, SecurityConfig, ModConfig
 
 async def create_production_network():
     """Create a production-ready network with full configuration"""
@@ -303,7 +303,7 @@ Configure networks based on environment:
 
 ```python
 import os
-from openagents.core.network import Network
+from openagents.sdk.network import Network
 
 def get_network_config_for_environment():
     """Get network configuration based on environment"""
@@ -661,7 +661,7 @@ Handle errors and implement recovery mechanisms:
 
 ```python
 import logging
-from openagents.core.exceptions import NetworkError, ConfigurationError
+from openagents.sdk.exceptions import NetworkError, ConfigurationError
 
 class ResilientNetwork:
     """Network with error handling and recovery"""

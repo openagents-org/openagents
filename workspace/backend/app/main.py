@@ -14,10 +14,12 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 
 from app.config import config
-from app.routers import account, app_version, browser, campaign, cloud_agents, devices, events, feedback, fetch, files, integrations, invites, knowledge, model_access, network, nodes, notifications, onboarding, routines, search, shares, tasks, timers, todos, workflows, workspaces
+from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -124,19 +126,30 @@ def _run_onboarding_reminders():
 
 
 async def _fire_due():
+    # Like send_event, the pipeline is async-shaped but performs synchronous
+    # DB work. Give it a private thread/loop so pool waits cannot stop response
+    # cleanup (which is what returns other requests' connections to the pool).
+    await asyncio.to_thread(_fire_due_blocking)
+
+
+def _fire_due_blocking():
+    asyncio.run(_fire_due_in_thread())
+
+
+async def _fire_due_in_thread():
     """Fire due timers and routines.
 
     Runs every loop cycle. Opens one short-lived session that is committed
     and closed within the cycle, so it never holds a pooled connection across
-    the sleep interval. ``pipeline.process`` is a coroutine (its mods are
-    async), so firing runs on the event loop — but only when something is
-    actually due, which is rare.
+    the sleep interval. The coroutine runs on a private worker-thread loop,
+    including when no timer is due: even checking out a connection can block.
     """
     from sqlalchemy import select, update
     from app.database import SessionLocal
     from app.models import EventRecord, RoutineRecord, TimerRecord, Workspace
     from app.pipeline_factory import pipeline
     from app.routers.routines import _compute_next_fires_at
+    from app.services.routine_backoff import backoff_wait_ms, consecutive_failed_runs
     from openagents.core.onm_events import Event
     from openagents.core.onm_mods import PipelineContext
 
@@ -234,6 +247,13 @@ async def _fire_due():
             # the winner commits, see a future time, and match nothing. We fire
             # only if we claimed a row; committing straight away releases the
             # lock so a losing replica isn't stalled for the whole cycle.
+            #
+            # synchronize_session=False: the default re-evaluates this WHERE in
+            # Python against the rows loaded above, which is wasted work (the
+            # commit below expires them anyway) and makes the claim depend on
+            # how the driver hands datetimes back — on a database that returns
+            # them naive, `next_fires_at <= now` raised TypeError and no
+            # routine ever fired.
             claimed = db.execute(
                 update(RoutineRecord)
                 .where(
@@ -242,6 +262,7 @@ async def _fire_due():
                     RoutineRecord.next_fires_at <= now,
                 )
                 .values(next_fires_at=next_fire)
+                .execution_options(synchronize_session=False)
             )
             db.commit()
             if claimed.rowcount == 0:
@@ -296,6 +317,20 @@ async def _fire_due():
                     # Previous run still working — skip (schedule already advanced).
                     continue
 
+                # The agent keeps failing (usage limit, broken CLI): fire less
+                # often until a run succeeds, instead of posting the same
+                # error on every tick. See services/routine_backoff.py.
+                failures, last_fire_ms = consecutive_failed_runs(
+                    db, workspace.id, channel_name, agent_name,
+                )
+                wait_ms = backoff_wait_ms(failures)
+                if wait_ms and last_fire_ms and now_ms - last_fire_ms < wait_ms:
+                    logger.info(
+                        "Routine %s backing off: %d failed runs in a row, next try in %ds",
+                        routine_id, failures, (wait_ms - (now_ms - last_fire_ms)) // 1000,
+                    )
+                    continue
+
             ctx = PipelineContext(
                 network_id=str(workspace.id),
                 agent_address=created_by,
@@ -329,6 +364,13 @@ async def _fire_due():
                 .values(last_fired_at=now)
             )
             db.commit()
+
+        # ── Expire due agent watches (one final wake-up for silent ones) ──
+        try:
+            from app.services.watches import expire_due
+            await expire_due(db, now)
+        except Exception:
+            logger.exception("Watch expiry failed")
 
         db.commit()
     finally:
@@ -371,14 +413,15 @@ async def _timer_loop():
 async def lifespan(app: FastAPI):
     logger.info("LIFESPAN: starting")
 
-    # Align the threadpool with the DB pool. All DB-bound handlers are `def`
-    # (run via anyio's threadpool) while the per-worker connection pool holds
+    # Align the threadpool with the DB pool. Synchronous handlers and explicitly
+    # offloaded DB phases share this limiter. The per-worker connection pool holds
     # pool_size+max_overflow connections (40+8, see app/database.py). If the
     # threadpool admitted more concurrent DB requests than there are
     # connections, the excess would wait pool_timeout=2s then raise QueuePool
     # TimeoutError (500s). Capping tokens at exactly the pool capacity makes
     # bursts queue for a THREAD (cheap, unbounded wait) instead of stampeding
-    # the pool. Env-overridable for ops.
+    # the pool. Background tasks can also use connections, so this is not a
+    # guarantee against pool exhaustion. Env-overridable for ops.
     import anyio.to_thread
     tokens = int(os.environ.get("THREADPOOL_TOKENS", "48"))
     anyio.to_thread.current_default_thread_limiter().total_tokens = tokens
@@ -395,25 +438,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
-    logger.info("LIFESPAN: creating timer task")
-    timer_task = asyncio.create_task(_timer_loop())
-
-    # One-off browser sweep at boot: sessions leaked before a restart (or
-    # closes that failed mid-deploy) get released now instead of waiting
-    # for the first periodic maintenance cycle.
-    from app.browser_maintenance import sweep_browser_tabs
-    startup_browser_sweep = asyncio.create_task(sweep_browser_tabs())  # noqa: F841 — keep ref so it isn't GC'd
+    background_tasks = []
+    # Additional HTTP replicas can share the database/cache without adding
+    # schedulers. At least one deployment must retain background jobs.
+    if os.environ.get("BACKGROUND_JOBS_ENABLED", "true").strip().lower() in ("1", "true", "yes"):
+        logger.info("LIFESPAN: creating background tasks")
+        background_tasks.append(asyncio.create_task(_timer_loop()))
+        from app.browser_maintenance import sweep_browser_tabs
+        background_tasks.append(asyncio.create_task(sweep_browser_tabs()))
+    else:
+        logger.info("LIFESPAN: background jobs disabled on this replica")
 
     logger.info("LIFESPAN: yielding (startup complete)")
-    yield
-    timer_task.cancel()
     try:
-        await timer_task
-    except asyncio.CancelledError:
-        pass
-    # Shutdown: close Playwright browser
-    from app.browser import BrowserManager
-    await BrowserManager.get().shutdown()
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        # Shutdown: close Playwright browser
+        from app.browser import BrowserManager
+        await BrowserManager.get().shutdown()
 
 
 app = FastAPI(
@@ -422,6 +467,19 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.exception_handler(PoolTimeoutError)
+@app.exception_handler(OperationalError)
+async def database_unavailable(request: Request, exc: Exception):
+    # A handled response passes through CORS. Unhandled DB failures otherwise
+    # become opaque "Failed to fetch" errors in cross-origin browser clients.
+    logger.warning("Database unavailable for %s (%s)", request.url.path, type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"code": 503, "message": "Workspace database is temporarily unavailable. Please retry.", "data": None},
+        headers={"Retry-After": "5", "Cache-Control": "no-store"},
+    )
+
 
 # CORS — added FIRST so it's innermost in the stack. That way CORS
 # headers (and OPTIONS preflight handling) are applied BEFORE gzip, so
@@ -443,7 +501,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 
-class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
+class NoTransformCompressionHeadersMiddleware:
     """Tell intermediate CDNs (Railway's Fastly layer) not to decompress
     our gzipped responses.
 
@@ -458,18 +516,28 @@ class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
     share across clients.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Don't override if the handler already set cache-control explicitly.
-        if "cache-control" not in response.headers:
-            response.headers["cache-control"] = "private, no-transform, max-age=0"
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_cache_policy(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                if not any(k.lower() == b"cache-control" for k, _ in headers):
+                    headers.append((b"cache-control", b"private, no-transform, max-age=0"))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache_policy)
 
 
 app.add_middleware(NoTransformCompressionHeadersMiddleware)
 
 
-class UserAgentLogMiddleware(BaseHTTPMiddleware):
+class UserAgentLogMiddleware:
     """Log User-Agent on every POST so we can tell which client (iPhone
     URLSession vs Mac vs Chrome) is calling each mutating endpoint.
     GETs are excluded because /v1/events polling would drown the logs.
@@ -477,19 +545,61 @@ class UserAgentLogMiddleware(BaseHTTPMiddleware):
     /v1/devices/register call from the iPhone.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if request.method == "POST":
-            logger.info(
-                "POST %s ua=%s status=%s",
-                request.url.path,
-                request.headers.get("user-agent", "<none>"),
-                response.status_code,
-            )
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        user_agent = next((v.decode("latin-1") for k, v in scope.get("headers", [])
+                           if k.lower() == b"user-agent"), "<none>")
+
+        async def send_with_log(message):
+            if message["type"] == "http.response.start":
+                logger.info("POST %s ua=%s status=%s", scope["path"], user_agent, message["status"])
+            await send(message)
+
+        await self.app(scope, receive, send_with_log)
 
 
 app.add_middleware(UserAgentLogMiddleware)
+
+
+class AgentIdentityMiddleware:
+    """Pure-ASGI: stash the agent identity of a machine call (header
+    `X-Agent-Name`, else `source=openagents:<name>` in the query string) in a
+    ContextVar so access_model.resolve_principal can pick it up without every
+    router growing a new parameter. A human bearer always wins over it."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from urllib.parse import parse_qs
+
+        from app.services.access_model import (
+            agent_name_from_request,
+            reset_request_agent_name,
+            set_request_agent_name,
+        )
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        query = {}
+        try:
+            raw = scope.get("query_string") or b""
+            if b"source=" in raw:
+                query = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", errors="replace")).items() if v}
+        except Exception:
+            query = {}
+        token = set_request_agent_name(agent_name_from_request(headers, query))
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            reset_request_agent_name(token)
+
+
+app.add_middleware(AgentIdentityMiddleware)
 
 
 # Log Pydantic validation failures with the offending body so we can
@@ -517,9 +627,20 @@ async def _log_validation_errors(request: Request, exc: RequestValidationError):
 
 
 # Routers
+app.include_router(reactions.router)
+app.include_router(agent_services.router)
 app.include_router(account.router)
 app.include_router(app_version.router)
+app.include_router(approvals.router)
+app.include_router(sharing.router)
+app.include_router(groups.router)
+app.include_router(grants.router)
+app.include_router(thread_access.router)
+app.include_router(agent_profile.router)
+app.include_router(briefs.router)
+app.include_router(auth.router)
 app.include_router(campaign.router)
+app.include_router(pilot.router)
 app.include_router(browser.router)
 app.include_router(cloud_agents.router)
 app.include_router(devices.router)
@@ -527,27 +648,54 @@ app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
+app.include_router(web_projects.router)
 app.include_router(integrations.router)
 app.include_router(invites.router)
 app.include_router(knowledge.router)
 app.include_router(model_access.router)
 app.include_router(network.router)
 app.include_router(nodes.router)
+app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay after devices.router
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
+app.include_router(read_state.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)
+app.include_router(issues.router)
 app.include_router(tasks.router)
 app.include_router(todos.router)
 app.include_router(workflows.router)
 app.include_router(timers.router)
+app.include_router(watches.router)
 app.include_router(workspaces.router)
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness():
+    """Readiness uses this worker's real connection pool; /health is liveness."""
+    from app.database import engine
+
+    try:
+        with engine.connect() as connection:
+            if engine.dialect.name == "postgresql":
+                connection.execute(text("SET LOCAL statement_timeout = '1000ms'"))
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "database": "unavailable"},
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(
+        content={"status": "ok", "database": "ok"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/.well-known/openagents.json")

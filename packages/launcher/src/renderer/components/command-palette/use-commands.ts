@@ -1,11 +1,10 @@
 import { useMemo } from "react"
 import {
+  Bot,
   Cpu,
-  Download,
   FileText,
   Folder,
   Github,
-  LayoutDashboard,
   Layers,
   Monitor,
   Moon,
@@ -37,13 +36,12 @@ export interface Command {
 // unreachable from the UI. Re-add here, in SHORTCUT_TABS and in the Settings →
 // Agents section when it ships.
 const NAV_TABS: Array<[id: string, icon: LucideIcon]> = [
-  ["dashboard", LayoutDashboard],
-  ["agents", Cpu],
+  // Connect Agents. The marketplace has no entry: it is reached from there.
+  ["dashboard", Bot],
   ["workspaces", Layers],
   // `connections` is hidden alongside its rail entry until the platform
   // options actually work (see nav-config.ts).
   ["github", Github],
-  ["install", Download],
   ["logs", FileText],
   ["settings", Settings],
 ]
@@ -90,7 +88,7 @@ export function useCommands(): Command[] {
         // Agents page only. `setInstallFocusAgent` used to be called here
         // too, but nothing on this page reads it — it just left a marketplace
         // deep-link armed, to fire on some later, unrelated visit there.
-        run: () => setCurrentTab("agents"),
+        run: () => setCurrentTab("dashboard"),
       }
       // Nothing drives an agent with no workspace, so neither command would do
       // what it says — and "Stop" is what the palette offered, because that is

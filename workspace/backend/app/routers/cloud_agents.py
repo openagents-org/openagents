@@ -11,7 +11,7 @@ DELETE /v1/cloud-agents/{name}       Remove cloud agent
 
 import logging
 import re
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
@@ -23,7 +23,14 @@ from app.database import get_db
 from app.models import CloudAgentConfig, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
+from app.config import config
 from app.services.cloud_providers import providers_catalog, validate_provider_model
+from app.services.yumi import (
+    YUMI_CATEGORY,
+    YUMI_KEY_PLACEHOLDER,
+    YUMI_PROVIDER,
+    resolve_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +46,22 @@ def _mask_api_key(key: str) -> str:
 
 
 def _format_cloud_agent(cfg: CloudAgentConfig) -> dict:
+    # The built-in assistant (Yumi) is server-managed: its model and
+    # credentials are resolved from server config at call time, so report the
+    # model actually in use (not the provision-time row) and flag it managed
+    # so clients render it read-only. Its stored key is only a placeholder.
+    managed = cfg.provider == YUMI_PROVIDER
     return {
         "agentName": cfg.agent_name,
         "provider": cfg.provider,
-        "model": cfg.model,
+        "model": resolve_model(cfg) if managed else cfg.model,
         "category": cfg.category,
-        "apiKeyMasked": _mask_api_key(cfg.api_key),
-        "baseUrl": cfg.base_url,
+        "apiKeyMasked": "" if managed else _mask_api_key(cfg.api_key),
+        "baseUrl": None if managed else cfg.base_url,
         "systemPrompt": cfg.system_prompt,
         "maxTokens": cfg.max_tokens,
         "status": cfg.status,
+        "managed": managed,
         "createdAt": cfg.created_at.isoformat() if cfg.created_at else None,
     }
 
@@ -68,44 +81,60 @@ async def list_providers():
 # ---------------------------------------------------------------------------
 
 class ModelProbeRequest(BaseModel):
+    """Probe a credential (and optionally a model) before saving it.
+
+    ``provider`` is a PROVIDERS name, ``custom`` (OpenAI-compatible URL) or
+    ``custom-anthropic`` (Anthropic-compatible URL); both custom kinds
+    require ``base_url``.
+    """
     network: str
-    provider: str                    # a PROVIDERS name, or "custom"
+    provider: str                    # a PROVIDERS name, "custom", or "custom-anthropic"
     api_key: str
-    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI-compatible)
+    base_url: Optional[str] = None   # custom/relay endpoint (OpenAI- or Anthropic-compatible)
     model: Optional[str] = None      # when set, run a live completion check
+    protocol: Optional[Literal["openai", "anthropic"]] = None
 
 
-@router.post("/model-probe")
-async def model_probe(
+def _authorize_model_probe(
     body: ModelProbeRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Tell the user their credentials work *before* they add an agent.
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    Raw-key variant used while typing a new key; saved keys use
-    POST /v1/model-access/{id}/probe instead. Semantics in
-    app.services.model_probe.
-    """
-    from app.services.cloud_providers import PROVIDERS
+        return None
+    finally:
+        db.close()
+
+
+@router.post("/model-probe")
+async def model_probe(body: ModelProbeRequest, error=Depends(_authorize_model_probe)):
+    """Validate against the provider after releasing the authorization session."""
+    from app.services.cloud_providers import ANTHROPIC_COMPAT, PROVIDERS
     from app.services.model_probe import probe
 
-    workspace = _resolve_workspace(db, body.network)
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    if error is not None:
+        return error
 
     provider = body.provider.strip()
-    if provider != "custom" and provider not in PROVIDERS:
+    # Same credential kinds Model access accepts: "custom" (OpenAI-compatible
+    # URL) and "custom-anthropic" (Anthropic-compatible URL) live outside the
+    # catalog, so the Verify button must not reject them.
+    custom_kinds = ("custom", ANTHROPIC_COMPAT)
+    if provider not in custom_kinds and provider not in PROVIDERS:
         return json_response(ResponseCode.BAD_REQUEST, f"Unknown provider '{provider}'")
-    if provider == "custom" and not (body.base_url or "").strip():
+    if provider in custom_kinds and not (body.base_url or "").strip():
         return json_response(ResponseCode.BAD_REQUEST, "base_url is required for a custom provider")
     if not body.api_key.strip():
         return json_response(ResponseCode.BAD_REQUEST, "api_key is required")
 
-    return success_response(await probe(provider, body.api_key, body.base_url, body.model))
+    return success_response(await probe(provider, body.api_key, body.base_url, body.model, body.protocol))
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +153,7 @@ class AddCloudAgentRequest(BaseModel):
 
 
 @router.post("/cloud-agents")
-async def add_cloud_agent(
+def add_cloud_agent(
     body: AddCloudAgentRequest,
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -144,24 +173,25 @@ async def add_cloud_agent(
             "Agent name must be 3-64 chars, alphanumeric/hyphen/underscore",
         )
 
-    model_info = validate_provider_model(body.provider, body.model)
-    if not model_info:
-        return json_response(
-            ResponseCode.BAD_REQUEST,
-            f"Unknown provider/model: {body.provider}/{body.model}",
-        )
-
-    # The built-in "openagents" provider (Yumi) is server-managed: it runs the
-    # assistant tool loop and its key is injected at call time, so the user
-    # doesn't (and can't) supply one. This is the re-add path after a user
-    # removed the built-in agent.
-    from app.services.yumi import YUMI_CATEGORY, YUMI_KEY_PLACEHOLDER
-    is_builtin = body.provider == "openagents"
+    # The built-in "openagents" provider (Yumi) is server-managed end to end:
+    # it runs the assistant tool loop, its key is injected at call time, and
+    # its MODEL is fixed by server config — whatever the client sends is
+    # ignored, so the built-in can't be pointed at a different model. This is
+    # the re-add path after a user removed the built-in agent.
+    is_builtin = body.provider == YUMI_PROVIDER
     if is_builtin:
+        effective_model = config.YUMI_MODEL
         category = YUMI_CATEGORY
         effective_key = YUMI_KEY_PLACEHOLDER
         member_description = "OpenAgents built-in assistant — helps you get started"
     else:
+        model_info = validate_provider_model(body.provider, body.model)
+        if not model_info:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"Unknown provider/model: {body.provider}/{body.model}",
+            )
+        effective_model = body.model
         category = model_info.category
         effective_key = body.api_key
         member_description = f"Cloud agent: {model_info.label} ({body.provider})"
@@ -217,7 +247,7 @@ async def add_cloud_agent(
         ).scalar_one_or_none()
         if cfg is not None:
             cfg.provider = body.provider
-            cfg.model = body.model
+            cfg.model = effective_model
             cfg.category = category
             cfg.api_key = effective_key
             cfg.base_url = None if is_builtin else body.base_url
@@ -227,7 +257,7 @@ async def add_cloud_agent(
         db.commit()
         logger.info(
             "cloud_agents: reactivated %s (%s/%s) in workspace %s",
-            body.agent_name, body.provider, body.model, workspace.id,
+            body.agent_name, body.provider, effective_model, workspace.id,
         )
         return success_response(_format_cloud_agent(cfg))
 
@@ -235,7 +265,7 @@ async def add_cloud_agent(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
         provider=body.provider,
-        model=body.model,
+        model=effective_model,
         category=category,
         api_key=effective_key,
         base_url=None if is_builtin else body.base_url,
@@ -244,9 +274,12 @@ async def add_cloud_agent(
     )
     db.add(cfg)
 
+    from app.access import resolve_current_user
+    creator = resolve_current_user(db, authorization)
     member = WorkspaceMember(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
+        owner_email=creator.email if creator else workspace.creator_email,
         role="member",
         agent_type=f"cloud:{body.provider}",
         status="online",
@@ -258,7 +291,7 @@ async def add_cloud_agent(
 
     logger.info(
         "cloud_agents: added %s (%s/%s) to workspace %s",
-        body.agent_name, body.provider, body.model, workspace.id,
+        body.agent_name, body.provider, effective_model, workspace.id,
     )
 
     return success_response(_format_cloud_agent(cfg))
@@ -269,7 +302,7 @@ async def add_cloud_agent(
 # ---------------------------------------------------------------------------
 
 @router.get("/cloud-agents")
-async def list_cloud_agents(
+def list_cloud_agents(
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
@@ -294,6 +327,30 @@ async def list_cloud_agents(
     })
 
 
+def _owner_error(db: Session, workspace, cfg: CloudAgentConfig, token, authorization):
+    """Only the agent's owner may reconfigure or remove a cloud agent.
+
+    The same rule the workspace member routes apply to every other agent (see
+    ``_connection_management_error``): being allowed to use an agent someone
+    shared does not make its model, key or prompt yours to change. Yumi is
+    exempt: its configuration is fixed server-side and only its on/off status
+    can change.
+    """
+    if cfg.provider == YUMI_PROVIDER:
+        return None
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == cfg.agent_name,
+        )
+    ).scalar_one_or_none()
+    if not member:
+        return None
+    # Imported here: the workspaces router pulls in a large dependency graph.
+    from app.routers.workspaces import _connection_management_error
+    return _connection_management_error(db, workspace, member, token, authorization)
+
+
 # ---------------------------------------------------------------------------
 # PATCH /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
@@ -309,7 +366,7 @@ class UpdateCloudAgentRequest(BaseModel):
 
 
 @router.patch("/cloud-agents/{agent_name}")
-async def update_cloud_agent(
+def update_cloud_agent(
     agent_name: str,
     body: UpdateCloudAgentRequest,
     db: Session = Depends(get_db),
@@ -333,6 +390,24 @@ async def update_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
+
+    # The built-in assistant is server-managed: model, credentials, endpoint
+    # and prompt are fixed by server config and can't be tweaked per
+    # workspace. Only enable/disable is allowed.
+    if cfg.provider == YUMI_PROVIDER and any(
+        v is not None for v in (
+            body.model, body.api_key, body.base_url,
+            body.system_prompt, body.max_tokens,
+        )
+    ):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Yumi is managed by OpenAgents — its model, credentials and prompt "
+            "can't be changed. You can only enable or disable it.",
+        )
 
     if body.model is not None:
         model_info = validate_provider_model(cfg.provider, body.model)
@@ -374,11 +449,57 @@ async def update_cloud_agent(
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/cloud-agents/{agent_name}/models
+# ---------------------------------------------------------------------------
+
+class CloudAgentModelsRequest(BaseModel):
+    network: str
+
+
+def _load_cloud_model_credentials(
+    agent_name: str,
+    body: CloudAgentModelsRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        workspace = _resolve_workspace(db, body.network)
+        if not workspace:
+            return json_response(ResponseCode.NOT_FOUND, "Network not found")
+        if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+        cfg = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == str(workspace.id),
+                CloudAgentConfig.agent_name == agent_name,
+            )
+        ).scalar_one_or_none()
+        if not cfg:
+            return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+        return cfg.provider, cfg.api_key, cfg.base_url
+    finally:
+        db.close()
+
+
+@router.post("/cloud-agents/{agent_name}/models")
+async def list_cloud_agent_models(credentials=Depends(_load_cloud_model_credentials)):
+    from starlette.responses import Response
+    from app.services.model_probe import probe
+
+    if isinstance(credentials, Response):
+        return credentials
+    provider, api_key, base_url = credentials
+    return success_response(await probe(provider, api_key, base_url, None))
+
+
+# ---------------------------------------------------------------------------
 # DELETE /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
 
 @router.delete("/cloud-agents/{agent_name}")
-async def remove_cloud_agent(
+def remove_cloud_agent(
     agent_name: str,
     network: str = Query(..., description="Workspace ID or slug"),
     db: Session = Depends(get_db),
@@ -402,6 +523,9 @@ async def remove_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     db.delete(cfg)
 

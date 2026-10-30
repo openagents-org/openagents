@@ -17,7 +17,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whereBinary } = require('../paths');
@@ -43,7 +47,7 @@ class AntigravityAdapter extends BaseAdapter {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
     // Read-only pinned context, same as gemini: agy has no MCP bridge to the
-    // workspace knowledge tools, so it can see the decision log but not write it.
+    // workspace knowledge tools, so it can see the glossary but not write it.
     this._usesPinnedContext = true;
     this._channelConversations = {}; // channel → agy conversation_id
     this._channelProcesses = {}; // channel → child process
@@ -76,12 +80,6 @@ class AntigravityAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _onControlAction(action, _payload) {
-    if (action === 'stop') {
-      await this._stopAllProcesses();
-    }
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {
@@ -104,20 +102,6 @@ class AntigravityAdapter extends BaseAdapter {
     } catch {}
   }
 
-  async _stopAllProcesses() {
-    const entries = Object.entries(this._channelProcesses);
-    if (!entries.length) return;
-    this._log(`Stopping ${entries.length} running process(es)...`);
-    for (const [channel, proc] of entries) {
-      await this._stopProcess(proc);
-      delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
-      try {
-        await this.sendStatus(channel, 'Execution stopped by user');
-      } catch {}
-    }
-  }
-
   _findAgyBinary() {
     // PATH first (codepage-safe lookup, see whereBinary), then the install
     // script's fixed destinations.
@@ -131,7 +115,10 @@ class AntigravityAdapter extends BaseAdapter {
     for (const c of candidates) {
       if (fs.existsSync(c)) return c;
     }
-    return null;
+    // Nothing native anywhere. Last of all, look inside WSL: a CLI the user
+    // installed in their distro is a real install, and the marked path it comes
+    // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
+    return resolveWslBinary('agy');
   }
 
   /**
@@ -178,7 +165,7 @@ class AntigravityAdapter extends BaseAdapter {
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
-      decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
+      model: this.modelLabel(),
       glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
     });
 
@@ -249,6 +236,9 @@ class AntigravityAdapter extends BaseAdapter {
         await this.sendError(msgChannel, e.message);
         return;
       }
+
+      // Stopped while this turn was being prepared: start nothing (no tokens).
+      if (this._stoppedBeforeStart(msgChannel)) return;
 
       try {
         const proc = spawn(cmd[0], cmd.slice(1), {
@@ -350,8 +340,10 @@ class AntigravityAdapter extends BaseAdapter {
               // Surface the real reason (auth, provider config, bad model)
               // instead of a generic retry prompt — the gemini adapter's
               // silent-stderr dead end is what this branch fixes.
-              const { kind, message } = classifyAgyFailure({ code, stderr: stderrBuf, error: run.error });
-              this._log(`run failed (${kind})`);
+              const { kind, message } = classifyAgyFailure({
+                code, stderr: stderrBuf, error: run.error, secrets: this._knownSecrets(),
+              });
+              this._log(`run failed (${kind})`, 'error');
               try { await this.sendError(msgChannel, message); } catch {}
               resolve(false);
             } else {
@@ -379,7 +371,7 @@ class AntigravityAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
         break;
       }
       if (!_shouldRetry) break;

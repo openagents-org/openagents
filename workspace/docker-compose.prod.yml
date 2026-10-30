@@ -21,7 +21,9 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/openagents_workspace
       AUTH_MODE: workspace_token
       IDENTITY_MODE: standalone
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://workspace.openagents.org}
+      # openagents://workspace is the Workspace bundled into the desktop
+      # launcher (packages/launcher/src/main/workspace-bundle.ts).
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://workspace.openagents.org,openagents://workspace}
     depends_on:
       db:
         condition: service_healthy

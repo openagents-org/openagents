@@ -1,8 +1,5 @@
 {
-  "title": "Settings overview",
-  "subtitle": "Manage $t(common.appName) preferences, connections and system configuration",
-  "searchPlaceholder": "Search settings",
-  "noSectionMatch": "No matching settings",
+  "title": "Settings",
   "sections": {
     "general": "General",
     "appearance": "Appearance",
@@ -13,42 +10,16 @@
     "language": "Language",
     "updates": "Updates",
     "runtime": "Runtime",
+    "logs": "Logs",
     "about": "About"
   },
-  "overview": {
-    "hint": "Pick a module to see its details",
-    "back": "Back to overview",
-    "resetDefaults": "Restore defaults"
-  },
   "detail": {
-    "autoSaved": "Every change saves itself",
-    "related": "Related settings"
+    "autoSaved": "Every change saves itself"
   },
   "groups": {
     "preferences": "App preferences",
-    "assistants": "Agents & notifications",
     "connectivity": "Connectivity & data",
     "system": "System"
-  },
-  "summary": {
-    "startupPage": "Opens {{page}} at launch",
-    "trayOn": "Runs in tray",
-    "trayOff": "Quits on close",
-    "accent": "{{color}} accent",
-    "scale": "{{size}} text size",
-    "agentsConfigured": "{{count}} configured",
-    "autoStartOn": "Auto-start on",
-    "autoStartOff": "Auto-start off",
-    "notificationsOn": "Desktop notifications on",
-    "notificationsOff": "Desktop notifications off",
-    "quietHours": "Quiet {{start}}–{{end}}",
-    "quietHoursOff": "No quiet hours",
-    "workspaceCustom": "Self-hosted workspace",
-    "workspaceHosted": "Hosted workspace",
-    "proxyOn": "Proxy configured",
-    "autoUpdateOn": "Auto-update on",
-    "autoUpdateOff": "Auto-update off",
-    "core": "Core {{version}}"
   },
   "pages": {
     "general": {
@@ -62,12 +33,6 @@
       "desc": "Customise how the interface looks",
       "keywords": "theme dark light colour accent font scale zoom",
       "short": "Theme, accent and text size"
-    },
-    "agents": {
-      "title": "Agents",
-      "desc": "Defaults and run policy shared by every agent",
-      "keywords": "agent autostart credentials keys",
-      "short": "Agent defaults and credentials"
     },
     "notifications": {
       "title": "Notifications",
@@ -150,8 +115,8 @@
     "startupGroup": "Startup & behaviour",
     "startOnBoot": "Launch $t(common.appName) at login",
     "startOnBootDesc": "Start automatically when you sign in",
-    "startupPage": "Open on launch",
-    "startupPageDesc": "Page to land on when the launcher opens",
+    "startupPage": "This Computer startup page",
+    "startupPageDesc": "Page to show when you enter This Computer after launching the app",
     "startupPageLast": "Last used page",
     "minimizeToTray": "Minimise to system tray",
     "minimizeToTrayDesc": "Keep running in the tray after the window is closed",
@@ -204,7 +169,7 @@
     "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
     "skins": {
       "default": {
-        "name": "Default",
+        "name": "Classic",
         "desc": "$t(common.appName)’s native look — soft borders and shadows"
       },
       "openagents": {
@@ -214,17 +179,8 @@
     }
   },
   "agents": {
-    "startupGroup": "Startup",
     "autoStart": "Start agents on launch",
-    "autoStartDesc": "Start every configured agent once the launcher opens",
-    "overviewGroup": "Agent overview",
-    "configured": "Configured agents",
-    "running": "Running",
-    "types": "Agent types in use",
-    "agentCount": "{{count}}",
-    "typeCount": "{{count}}",
-    "browseMarketplace": "Marketplace",
-    "openAgents": "Open Agents"
+    "autoStartDesc": "Start every configured agent once $t(common.appName) opens"
   },
   "notifications": {
     "deliveryGroup": "Desktop & sound",
@@ -255,14 +211,14 @@
     "workspaceUrlPlaceholder": "https://workspace.openagents.org or http://localhost:8000",
     "proxyGroup": "Proxy",
     "httpProxy": "HTTP proxy",
-    "httpProxyDesc": "Used for outbound HTTP by agents and the launcher",
+    "httpProxyDesc": "Used for outbound HTTP by agents and $t(common.appName)",
     "httpsProxy": "HTTPS proxy",
     "httpsProxyDesc": "Outbound HTTPS proxy",
     "proxyPlaceholder": "http://user:pass@host:port",
     "noProxy": "Bypass proxy",
     "noProxyDesc": "Comma-separated hosts that skip the proxy",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "Proxy settings are stored in the launcher config and reach running agents after a restart.",
+    "note": "Proxy settings are stored in the $t(common.appName) config and reach running agents after a restart.",
     "testConnection": "Test connection",
     "testOk": "Reachable",
     "testError": {
@@ -288,7 +244,7 @@
     "dangerGroup": "Danger zone",
     "resetSettings": "Reset all settings",
     "resetSettingsDesc": "Back to defaults. Agents and workspace data are left alone",
-    "localGroup": "Launcher's own data",
+    "localGroup": "$t(common.appName)'s own data",
     "localGroupDesc": "Cached files and interface state this app keeps on your computer. Agents, workspaces and settings are not affected.",
     "clearCache": "Clear cache",
     "clearCacheDesc": "Empty the cached web pages, icons and images. Safe — they are re-fetched as needed",
@@ -308,17 +264,22 @@
   "updates": {
     "settingsGroup": "Update settings",
     "autoUpdate": "Download updates automatically",
-    "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off you are still told about new versions, but download them yourself",
+    "autoUpdateDesc": "Download new versions in the background and prompt you to restart. With this off, each new version asks you first before anything is downloaded. Either way, an update only installs once you confirm it",
+    "offerTitle": "Version {{version}} is available",
+    "offerSubtitle": "A new version is ready to download.",
+    "offerWhatsNew": "What's new in this version",
+    "offerNoNotes": "Release notes for this version aren't available.",
+    "offerLater": "Later",
     "versionGroup": "Version",
     "installedVersion": "Installed version",
     "latestVersion": "Latest version",
     "releaseNotes": "View release notes",
     "checkHint": "Checking never installs anything without asking you first.",
+    "bannerWhatsNew": "What's new",
     "bannerReady": "Version {{version}} is downloaded and ready to install",
     "bannerAvailable": "Version {{version}} is available",
     "bannerDownloading": "Downloading {{version}} · {{percent}}%",
     "bannerUpdateNow": "Update now",
-    "bannerViewProgress": "View progress",
     "bannerInstallFailed": "Version {{version}} couldn't install automatically",
     "installFailedDesc": "v{{version}} was downloaded but the installer didn't replace the app — still on v{{current}}. Install it manually from the download page.",
     "installerDidNotStart": "the installer wouldn't start on this machine",
@@ -357,12 +318,12 @@
     "healthGroup": "Resource usage",
     "systemMemory": "System memory",
     "memoryUsage": "{{used}} used of {{total}}",
-    "appMemory": "Launcher memory",
-    "appCpu": "Launcher CPU",
+    "appMemory": "$t(common.appName) memory",
+    "appCpu": "$t(common.appName) CPU",
     "uptime": "Uptime",
     "diagnosticsGroup": "Diagnostics",
     "openLogs": "Open log folder",
-    "openLogsDesc": "Reveal the launcher log directory in your file manager",
+    "openLogsDesc": "Reveal the $t(common.appName) log directory in your file manager",
     "copyDiagnostics": "Copy diagnostics",
     "copyDiagnosticsDesc": "Copy a version and environment summary to attach to a bug report",
     "copy": "Copy",
@@ -398,7 +359,7 @@
       "appearance": "Theme, accent colour, skin, text size",
       "layout": "Sidebar state and the tab the app opens on",
       "history": "Command palette history and dismissed update notices",
-      "marketplace": "Marketplace view, sort and filters"
+      "marketplace": "Agent Marketplace view, sort and filters"
     },
     "keptTitle": "Left alone",
     "kept": {

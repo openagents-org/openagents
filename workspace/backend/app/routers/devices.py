@@ -4,6 +4,12 @@ Device registration endpoints for mobile push notifications.
 
 POST   /v1/devices/register    Upsert an FCM token for the calling workspace
 DELETE /v1/devices/register    Forget an FCM token (called on logout / uninstall)
+POST   /v1/devices/test-push   Send one push to one device, for diagnosis
+
+Both iOS and Android register the same way: the token is an FCM registration
+token, not a raw APNs device token, and `services/fcm_client.py` is the only
+sender. Registrations may carry the user's notification switches (`prefs`),
+which the fan-out honors before it sends.
 
 Auth: `X-Workspace-Token` header (or a Firebase bearer for workspace
 owners/collaborators) — reuses the existing `_verify_workspace_access`
@@ -12,6 +18,7 @@ helper from `routers/network.py`.
 
 import logging
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
@@ -38,11 +45,36 @@ class RegisterDeviceRequest(BaseModel):
     # notifications to "just bary's devices" instead of fanning out to
     # the whole workspace.
     user_email: Optional[str] = None
+    # Notification switches from the device's Notifications screen:
+    # {approvals, mentions, agentErrors, taskCompletions, allMessages,
+    # quietHours}. Optional — omitting it on a re-register keeps whatever
+    # was stored, and a device that never sends prefs gets everything.
+    prefs: Optional[dict] = None
 
 
 class DeregisterDeviceRequest(BaseModel):
     network: str
     fcm_token: str
+
+
+class TestPushRequest(BaseModel):
+    network: str
+    # Required, and deliberately so. Scoping the send by `user_email` would
+    # wake every device that person owns, and scoping by workspace would
+    # wake the whole team — neither is what "send me a test push" means.
+    # The caller names the one device it wants woken: its own.
+    fcm_token: str
+    # Tags the `data` payload exactly as the real fan-out would, so the
+    # client-side tap handling can be exercised per reason. Free-form
+    # rather than an enum, matching `PushReason` on the client: a value
+    # this backend has never heard of is still a deliverable notification.
+    reason: str = "task_completed"
+    # Goes out as `data.channel`, which is what the app turns into a route
+    # on tap. Leave it empty to exercise the other branch — the
+    # notification that names no thread and so opens the app where it was.
+    channel: Optional[str] = None
+    title: Optional[str] = None
+    body: Optional[str] = None
 
 
 @router.post("/devices/register")
@@ -55,8 +87,10 @@ def register_device(
     """Upsert a device's FCM token for this workspace.
 
     Idempotent: re-registering the same `(workspace_id, fcm_token)` pair
-    bumps `last_seen_at` and updates `bundle_id` / `device_type` if they
-    drifted, but doesn't create a duplicate row.
+    bumps `last_seen_at` and updates `bundle_id` / `device_type` / `prefs`
+    if they drifted, but doesn't create a duplicate row. Fields the client
+    omits are left as they were — an older build that doesn't know about
+    `prefs` must not wipe switches a newer one stored.
     """
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(body.network))
@@ -85,6 +119,8 @@ def register_device(
             existing.bundle_id = body.bundle_id
         if normalized_email is not None:
             existing.user_email = normalized_email
+        if body.prefs is not None:
+            existing.prefs = body.prefs
         device_id = existing.id
     else:
         token = DeviceToken(
@@ -93,6 +129,7 @@ def register_device(
             device_type=body.device_type,
             bundle_id=body.bundle_id,
             user_email=normalized_email,
+            prefs=body.prefs,
             created_at=now,
             last_seen_at=now,
         )
@@ -130,3 +167,165 @@ def deregister_device(
     ).delete()
     db.commit()
     return success_response({"deleted": deleted})
+
+
+@router.post("/devices/test-push")
+def test_push(
+    body: TestPushRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Send one push to one device and report, in detail, what happened.
+
+    Exists because "the notification didn't arrive" has six or seven
+    distinct causes spread across three systems, and the ordinary path
+    (post an event → `push.fanout_for_event`) silently collapses most of
+    them into "nothing happened": an unconfigured deployment, a device
+    that was never registered, a `prefs` switch left off, and a message
+    `_should_push` declined all look identical from the outside. This
+    endpoint answers each of those questions separately in its response
+    body, so one button tap in the app localizes the fault.
+
+    What it deliberately does *not* do is reimplement the fan-out. It
+    skips `_should_push` (the caller has already decided they want a
+    push) and it skips the `prefs` gate — but it *reports* what the
+    prefs gate would have done, which is the diagnostic half of it. A
+    test push that got suppressed by a switch the user forgot they
+    flipped would be exactly as uninformative as the silence it is
+    meant to explain.
+
+    Not a spam vector despite sending on request: it needs workspace
+    credentials, and the token must already be registered *in that
+    workspace*, so the set of devices it can reach is the set the caller
+    could already reach by posting a message. An unregistered token is
+    refused rather than forwarded to FCM.
+    """
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(body.network))
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Workspace access denied")
+
+    device = db.execute(
+        select(DeviceToken).where(
+            DeviceToken.workspace_id == str(workspace.id),
+            DeviceToken.fcm_token == body.fcm_token,
+        )
+    ).scalar_one_or_none()
+    if not device:
+        # The common first-run failure, and worth its own message: the app
+        # asked for a test push before `POST /v1/devices/register` had
+        # succeeded, which on iOS usually means the APNs token hadn't
+        # landed yet when the app started up.
+        return json_response(
+            ResponseCode.NOT_FOUND,
+            "This device is not registered in this workspace — register it "
+            "first (POST /v1/devices/register), then retry.",
+        )
+
+    from app.services.fcm_client import PushAlert, send_push_diagnostic
+    from app.services.push import _prefs_allow
+
+    reason = (body.reason or "task_completed").strip() or "task_completed"
+    channel = (body.channel or "").strip()
+    request_id = f"push_test_{uuid4().hex}"
+
+    alert = PushAlert(
+        title=body.title or "Test notification",
+        body=body.body or f"Test push (reason={reason}) from the backend.",
+        thread_id=channel or None,
+    )
+    # Same shape as `push._build_data_payload`, so a tap goes through the
+    # client's real routing code rather than a special case.
+    data = {
+        "reason": reason,
+        "channel": channel,
+        "event_id": "test-push",
+        "event_type": "devices.test_push",
+        "source": "system:test-push",
+        "diagnostic_id": request_id,
+    }
+
+    report = send_push_diagnostic([device.fcm_token], alert, data)
+    sent = report.sent_ok
+    dead = report.dead_tokens
+
+    if dead:
+        # FCM has told us this registration is gone for good. Drop it for
+        # the same reason the fan-out does, or every later push to this
+        # workspace keeps paying for a token that can never be delivered.
+        db.query(DeviceToken).filter(
+            DeviceToken.workspace_id == str(workspace.id),
+            DeviceToken.fcm_token == device.fcm_token,
+        ).delete()
+        db.commit()
+
+    logger.info(
+        "devices: test push id=%s workspace=%s reason=%s sent=%d dead=%d configured=%s errors=%s",
+        request_id, workspace.id, reason, len(sent), len(dead), report.configured,
+        ",".join(f.code for f in report.failures) or "none",
+    )
+
+    failure = report.failures[0] if report.failures else None
+    if sent:
+        outcome = "accepted"
+        stage = "fcm"
+    elif not report.configured:
+        outcome = "not_configured"
+        stage = "server_config"
+    elif dead:
+        outcome = "token_dead"
+        stage = "fcm"
+    else:
+        outcome = "rejected"
+        stage = "fcm"
+
+    token = device.fcm_token
+    token_fingerprint = (
+        f"{token[:8]}…{token[-4:]} ({len(token)} chars)"
+        if len(token) >= 16 else f"<{len(token)} chars>"
+    )
+
+    return success_response({
+        "request_id": request_id,
+        "outcome": outcome,
+        "stage": stage,
+        # `accepted` is precise: FCM accepting a message does not prove that
+        # APNs displayed it on the phone. Keep `sent` for existing clients.
+        "accepted_by_fcm": len(sent) > 0,
+        "provider_message_id": (
+            report.provider_message_ids[0] if report.provider_message_ids else None
+        ),
+        "error": ({
+            "code": failure.code,
+            "type": failure.error_type,
+            "retryable": failure.retryable,
+            "message": failure.message,
+        } if failure else None),
+        # False here is the whole answer: FIREBASE_CREDENTIALS_JSON is
+        # unset or unusable on this deployment, and no push of any kind
+        # has ever left it.
+        "configured": report.configured,
+        "sent": len(sent) > 0,
+        # True means the token was rejected permanently and has just been
+        # deleted — re-register (restart the app) and try again.
+        "token_dead": len(dead) > 0,
+        "device_type": device.device_type,
+        "token_fingerprint": token_fingerprint,
+        "bundle_id": device.bundle_id,
+        "last_seen_at": device.last_seen_at.isoformat() if device.last_seen_at else None,
+        # Null means this device is invisible to `mention` and `chat`
+        # pushes in the real fan-out, whatever this test says: both scope
+        # their `device_tokens` query by email.
+        "user_email": device.user_email,
+        # What the real fan-out would have done with this reason. False
+        # means a switch on the Notifications screen is off, and an
+        # ordinary push for this reason would never have been sent even
+        # though this test one was.
+        "prefs_would_allow": _prefs_allow(device.prefs, reason),
+        "reason": reason,
+        "channel": channel or None,
+    })

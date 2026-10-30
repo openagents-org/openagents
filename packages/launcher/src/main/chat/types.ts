@@ -58,6 +58,7 @@ export interface SendMessageInput {
   workspaceId: string
   channelName?: string
   agentId?: string
+  senderEmail?: string
   content: string
   mentions?: string[]
   attachments?: ChatAttachment[]

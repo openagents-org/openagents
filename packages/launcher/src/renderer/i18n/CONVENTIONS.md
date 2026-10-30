@@ -35,10 +35,11 @@ Supported languages: `en` (source wording, copy English verbatim) and `zh`
 
 ## Product name
 
-The app is **OpenAgents Launcher** / **OpenAgents 启动器**; plain **OpenAgents**
-is the platform behind it (the org, the site, the hosted services). Never type
-either name into a locale string — pull it in with i18next nesting so both
-languages stay in step and a rename touches one line:
+The desktop app is plain **OpenAgents** in both languages — never "Launcher" or
+"启动器" in anything a user reads. **OpenAgents** is also the platform behind it
+(the org, the site, the hosted services). Never type either name into a locale
+string — pull it in with i18next nesting so both languages stay in step and a
+rename touches one line:
 
 - `$t(common.appName)` — the thing the user is running (restart, start at login,
   appearance, About).

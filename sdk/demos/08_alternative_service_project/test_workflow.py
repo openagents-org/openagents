@@ -5,7 +5,7 @@ Test script for Service Alternatives Finder workflow
 
 import asyncio
 import sys
-from openagents.core.client import AgentClient
+from openagents.sdk.client import AgentClient
 from openagents.models.event import Event
 
 async def test_workflow():

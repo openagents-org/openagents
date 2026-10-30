@@ -149,3 +149,63 @@ describe('workspace config map allowlist', () => {
     assert.equal(calls.length, 0);
   });
 });
+
+describe('workspace model → the agent\'s own model setting', () => {
+  function harness(entry) {
+    const calls = [];
+    const self = {
+      registry: { getEntry: () => entry },
+      _runAgn: async (args) => { calls.push(args); return { code: 0 }; },
+      _log: () => {},
+    };
+    self._nativeModelVar = Daemon.prototype._nativeModelVar.bind(self);
+    return { self, calls };
+  }
+
+  it('also writes the model a type reads natively (CodeArts: CODEARTS_MODEL)', async () => {
+    const { self, calls } = harness({
+      env_config: [{ name: 'CODEARTS_CLI_AK' }, { name: 'CODEARTS_CLI_SK' }, { name: 'CODEARTS_MODEL' }],
+    });
+    await Daemon.prototype._setModelEnv.call(self, 'codearts', 'huaweicloud-maas/GLM-5.2');
+    assert.deepEqual(calls, [
+      ['env', 'codearts', '--set', 'LLM_MODEL=huaweicloud-maas/GLM-5.2'],
+      ['env', 'codearts', '--set', 'CODEARTS_MODEL=huaweicloud-maas/GLM-5.2'],
+    ]);
+  });
+
+  it('leaves a type that maps LLM_MODEL itself to env resolution', async () => {
+    const { self, calls } = harness({
+      env_config: [{ name: 'LLM_MODEL' }, { name: 'OPENCODE_MODEL' }],
+      resolve_env: { rules: [{ from: 'LLM_MODEL', to: 'OPENCODE_MODEL' }] },
+    });
+    await Daemon.prototype._setModelEnv.call(self, 'opencode', 'm');
+    assert.deepEqual(calls, [['env', 'opencode', '--set', 'LLM_MODEL=m']]);
+  });
+});
+
+describe('separate accounts connected to one workspace', () => {
+  const one = { node_id: 'alice-connection', workspace_id: 'same-workspace', workspace_slug: 'shared', token: 'alice-token' };
+  const two = { node_id: 'bob-connection', workspace_id: 'same-workspace', workspace_slug: 'shared', token: 'bob-token' };
+  beforeEach(() => writePairings([one, two]));
+  it('resolves only the explicitly selected connection and refuses ambiguous legacy agents', () => {
+    const daemon = { config: { getNetworks: () => [] } };
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', one.node_id).token, 'alice-token');
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', two.node_id).token, 'bob-token');
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared').token, null);
+    assert.equal(Daemon.prototype._resolveAgentNetwork.call(daemon, 'shared', 'revoked').token, null);
+  });
+  it('keeps agents out of the other connection roster and command targets', () => {
+    const agent = { name: 'mine', network: 'shared', node_id: one.node_id };
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace(agent, one), true);
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace(agent, two), false);
+    assert.equal(Daemon.prototype._agentOnNodeWorkspace({ name: 'legacy', network: 'shared' }, two), false);
+  });
+  it('preserves both pairings and only disconnects the selected one', () => {
+    const cfg = require('../src/node-config');
+    cfg.recordPairing('physical-device', { ...one, token: 'fresh-alice-token' });
+    assert.equal(cfg.listPairings().length, 2);
+    assert.throws(() => cfg.clearPairing('same-workspace'), /specific device connection/);
+    cfg.clearPairing('same-workspace', one.node_id);
+    assert.deepEqual(cfg.listPairings().map(p => p.node_id), [two.node_id]);
+  });
+});

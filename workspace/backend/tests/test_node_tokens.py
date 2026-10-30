@@ -13,12 +13,17 @@ import pytest
 
 from app.access import resolve_machine_token, verify_workspace_access
 from app.models import Node, Workspace, WorkspaceMember
+from tests.test_visibility import people, no_push
+
+@pytest.fixture(autouse=True)
+def pairing_identity(people):
+    pass
 
 
 def _mint_code(client, workspace):
     resp = client.post(
         f"/v1/workspaces/{workspace['id']}/pairing-codes",
-        headers={"X-Workspace-Token": workspace["token"]},
+        headers={"Authorization": "Bearer mia"},
         json={},
     )
     assert resp.status_code == 200
@@ -130,7 +135,7 @@ class TestNodeTokenLifecycle:
         data = _redeem(client, workspace)
         resp = client.delete(
             f"/v1/nodes/{data['nodeId']}",
-            headers={"X-Workspace-Token": workspace["token"]},
+            headers={"X-Workspace-Token": data["token"]},
         )
         assert resp.status_code == 200
         db.expire_all()

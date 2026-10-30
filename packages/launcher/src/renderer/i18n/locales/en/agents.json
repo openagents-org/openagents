@@ -2,7 +2,7 @@
   "list": {
     "title": "My Agents",
     "subtitle": "Manage installed agent instances",
-    "newAgent": "$t(common.actions.newAgent)",
+    "newAgent": "Add agent",
     "searchPlaceholder": "Search agents…",
     "filters": {
       "all": "All",
@@ -12,8 +12,8 @@
       "error": "Problems"
     },
     "emptyNoMatch": "No agent is named “{{query}}”.",
-    "empty": "Install one from the marketplace, or create an instance here. It then shows up on this page, ready to start, configure and join a workspace.",
-    "coreUpdateRequired": "Launcher core update required",
+    "empty": "Pick a recommended agent above, or browse and connect more agents.",
+    "coreUpdateRequired": "Agent core update required",
     "apiPrefix": "API: {{value}}",
     "modelPrefix": "Model: {{value}}",
     "stopping": "Stopping...",
@@ -24,11 +24,13 @@
     "configure": "Configure",
     "disconnect": "Leave workspace",
     "openWorkspace": "Open Workspace",
+    "enterWorkspace": "Enter workspace",
     "connect": "Join workspace",
     "remove": "Remove",
     "cancel": "Cancel",
     "removeTitle": "Remove {{name}}?",
     "removeBody": "This will stop and remove <1>{{name}}</1>.",
+    "alsoRemovedFromWorkspace": "Its membership in {{workspace}} is removed as well — otherwise it would stay there as a member $t(common.appName) can no longer reach.",
     "health": {
       "notConfigured": "Not configured",
       "notInstalled": "Not installed",
@@ -45,9 +47,12 @@
       "removed": "Agent '{{name}}' removed",
       "disconnected": "{{name}} left the workspace",
       "notConnectedYet": "{{name}} hasn't joined a workspace yet — click Join workspace first.",
+      "openedInBrowserNotMember": "The signed-in account isn't a member of {{workspace}}, so it opened in the browser.",
       "startingEllipsis": "Starting {{name}}…",
       "couldntStart": "Couldn't start {{name}}: {{message}}",
-      "error": "Error: {{message}}"
+      "error": "Error: {{message}}",
+      "removedEverywhere": "Removed '{{name}}' and its workspace membership",
+      "renamed": "Renamed"
     },
     "sorts": {
       "recent": "Recently active",
@@ -95,12 +100,14 @@
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
-    "emptyNoFilterMatchTitle": "Nothing matches this filter"
+    "emptyNoFilterMatchTitle": "Nothing matches this filter",
+    "rename": "Rename",
+    "theWorkspace": "the workspace"
   },
   "newDialog": {
     "title": "New Agent",
     "loadingTypes": "Loading installed types...",
-    "noRuntimes": "No Launcher-supported agent runtimes installed. Install one first.",
+    "noRuntimes": "No supported agent runtimes installed. Install one first.",
     "goToInstall": "Go to Install",
     "cancel": "Cancel",
     "agentType": "Agent type",
@@ -154,9 +161,6 @@
     "cancel": "Cancel",
     "fieldRequired": "{{field}} is required",
     "toast": {
-      "signedInReady": "Signed in — agent is ready",
-      "couldntConfirm": "Couldn't confirm sign-in. If you finished login, try again.",
-      "couldntReadStatus": "Couldn't read sign-in status. Try again.",
       "configurationSaved": "Configuration saved",
       "errorSaving": "Error saving: {{message}}"
     },
@@ -164,7 +168,8 @@
       "okResult": "OK — model: {{model}}, response: \"{{response}}\"",
       "unknownError": "Unknown error"
     },
-    "modelWithLogin": "Optional — leave empty to use the CLI's own default model."
+    "modelWithLogin": "Optional — leave empty to use the CLI's own default model.",
+    "modelRequiredWithLogin": "Required — this agent cannot run without a model."
   },
   "loginStatus": {
     "checking": "Checking sign-in…",
@@ -180,11 +185,11 @@
     "reLogin": "Re-login",
     "signIn": "Sign in",
     "opensTerminalTerminalPrefix": "This agent can only sign in from a terminal. “Sign in” opens one running",
-    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser."
+    "opensTerminalTerminalSuffix": "— the authorisation still happens in your browser.",
+    "installOnAdd": "Not installed yet — adding the agent installs it"
   },
   "connectDialog": {
     "title": "Add '{{name}}' to a workspace",
-    "keyboardHint": "Use ↑ ↓ to select, Enter to join.",
     "searchPlaceholder": "Search workspace name or ID…",
     "noMatch": "No workspaces match your search.",
     "cancel": "Cancel",
@@ -194,11 +199,16 @@
       "error": "Error: {{message}}"
     },
     "emptyTitle": "This device isn't in any workspace yet",
-    "emptyBody": "Join one on the Workspaces page with its pairing code, then come back and pick it here. This device can belong to several workspaces at once.",
-    "goToWorkspaces": "Join a workspace"
+    "getCode": "Get a pairing code to join a workspace",
+    "pickHint": "Choose the workspace this agent should join.",
+    "connect": "Connect",
+    "pairToggle": "Join with a pairing code",
+    "pairToggleHint": "Have a pairing code for a workspace? Join it here.",
+    "agentCount_one": "{{count}} agent from this computer",
+    "agentCount_other": "{{count}} agents from this computer"
   },
   "detail": {
-    "back": "Back to marketplace",
+    "back": "Back to Agent Marketplace",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -218,7 +228,8 @@
       "rollbackFailedBare": "Rollback failed",
       "logCopied": "Log copied to clipboard",
       "logCopyFailed": "Failed to copy log",
-      "uninstalledButGlobal": "Removed the launcher-managed copy of {{name}}, but another install is still on your PATH"
+      "uninstalledButGlobal": "Removed the copy of {{name}} that $t(common.appName) manages, but another install is still on your PATH",
+      "configNotRemoved": "The configuration could not be removed — check ~/.openagents/env/ yourself"
     }
   },
   "header": {
@@ -234,12 +245,12 @@
     "rollingBack": "Rolling back…",
     "updating": "Updating…",
     "installing": "Installing…",
-    "install": "Install",
     "updateToVersion": "Update to v{{version}}",
     "reinstall": "Reinstall",
-    "setupWizard": "Setup wizard",
     "rollBack": "Roll back",
-    "uninstall": "Uninstall"
+    "uninstall": "Uninstall",
+    "addAgent": "Add agent",
+    "installOnly": "Install only"
   },
   "readme": {
     "overview": "Overview",
@@ -261,21 +272,6 @@
   },
   "dependencies": {
     "title": "Install command"
-  },
-  "envConfig": {
-    "title": "Configuration",
-    "fieldRequired": "{{field}} is required",
-    "saving": "Saving…",
-    "save": "Save",
-    "testing": "Testing…",
-    "testConnection": "Test connection",
-    "toast": {
-      "configurationSaved": "Configuration saved",
-      "error": "Error: {{message}}",
-      "okResponded": "OK — {{model}} responded",
-      "modelFallback": "model",
-      "testFailed": "Test failed"
-    }
   },
   "quickStart": {
     "title": "Quick start",
@@ -305,6 +301,7 @@
     "cancel": "Cancel"
   },
   "envFields": {
+    "required": "{{name}} is required",
     "enterField": "Enter {{name}}",
     "model": {
       "placeholder": "Default model",
@@ -317,19 +314,34 @@
       "freeform": "Or type any id your provider serves",
       "source": {
         "cli": "From your signed-in account",
+        "cliKey": "From the key entered above",
         "api": "From this endpoint",
         "builtin": "Built-in list — may be out of date",
         "none": "No list available"
       },
+      "sourceByAgent": {
+        "opencode": {
+          "cli": "What OpenCode can run now — OpenCode Zen's free models until you sign in"
+        }
+      },
       "need_key": "Enter an API key above to load this endpoint's models.",
       "need_login": "Sign in above to load the models your account can run.",
-      "no_list": "This sign-in publishes no model list — type the model id."
-    }
+      "no_list": "This sign-in publishes no model list — type the model id.",
+      "cli_missing": "This agent's CLI wasn't found — install it first.",
+      "cli_timeout": "The CLI didn't return its model list in time. Refresh to retry, or type a model id.",
+      "cli_failed": "The CLI couldn't list its models: {{detail}}",
+      "cli_empty": "The CLI returned no model list. Refresh to retry, or type a model id.",
+      "recommended": "Recommended"
+    },
+    "advanced": "Advanced"
   },
   "unmanaged": {
-    "title": "Installed outside the launcher",
-    "body": "This copy lives on your system PATH, not under ~/.openagents/, so the launcher can update it but will not delete it. That is why there is no Uninstall button.",
-    "removeManually": "To remove it yourself, run:"
+    "title": "Installed by you",
+    "originalBody": "You installed this copy of {{name}} yourself, outside the $t(common.appName) directory (~/.openagents). Updates are applied at its original install path; no second copy is installed.",
+    "managedBody": "You installed this copy of {{name}} yourself (for example with Homebrew or a vendor install script), and $t(common.appName) cannot update it at its original install path. Updating installs a new version in the $t(common.appName) directory (~/.openagents) for workspaces to use; your original install is left unchanged.",
+    "installPath": "Install path: ",
+    "adminPrompt": "This path requires administrator rights; your system will ask for authorization during the update.",
+    "adminManual": "This path requires administrator rights and cannot be updated from here. Open a terminal as administrator and run:"
   },
   "cliLogin": {
     "browserHint": "A browser tab should have opened. If it didn't, use the link below.",
@@ -347,5 +359,74 @@
     "tryAgain": "Try again",
     "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
+  },
+  "shared": {
+    "thisComputer": "This Computer",
+    "runsHere": "Runs on: This Computer",
+    "localOnly": "Local use",
+    "apiKey": "API key",
+    "testing": "Testing…",
+    "testConnection": "Test connection",
+    "verifyApiSettings": "Verify API settings",
+    "verifyApiSettingsHint": "Check the key, endpoint, and model before saving.",
+    "connectionWorks": "Connection successful.",
+    "connectionFailed": "The connection could not be verified.",
+    "overviewSubtitle": "Install a recommended agent, or browse and connect more.",
+    "agentsHere": "Connected agents",
+    "installing": "Installing…",
+    "addedAfterInstall": "{{name}} is installed and added.",
+    "addAfterInstallFailed": "{{name}} could not be added because its install failed: {{message}}",
+    "installAndSignIn": "Install and sign in",
+    "agentUnavailable": "This agent is no longer available. Return to the agent list.",
+    "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
+    "homeFolder": "Your home folder",
+    "recommended": {
+      "label": "Recommended agents",
+      "prev": "Previous",
+      "next": "Next",
+      "installNow": "Install now",
+      "more": "Browse and connect more agents",
+      "hint": "Install one to create an agent on this computer; installed types are reused.",
+      "update": "A new version is available — update it"
+    },
+    "aside": {
+      "title": "Details",
+      "type": "Type",
+      "device": "Runs on",
+      "workspace": "Workspace",
+      "pickLater": "Choose after adding"
+    }
+  },
+  "renameDialog": {
+    "title": "Rename {{name}}",
+    "description": "This changes the label shown here and in the agent's workspace. Its identity is unchanged, so sessions, working directory and workspace membership all stay as they are.",
+    "label": "Display name",
+    "hint": "Leave empty to go back to {{name}}.",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "credentials": {
+    "unprobeable": {
+      "codebuddy": "CodeBuddy signs in against Tencent’s own service, so its key can’t be checked from here — save it and launch the agent to verify. Note that CODEBUDDY_BASE_URL selects another CodeBuddy deployment (enterprise or self-hosted), not an OpenAI-compatible endpoint: a model-gateway or relay key won’t work with this agent.",
+      "cursor": "Cursor signs in through its own service — there’s no key endpoint to test here. Save the key and launch the agent to verify.",
+      "amp": "Amp authenticates against Sourcegraph’s own service — its key is verified by running the CLI. Save it and launch the agent, or run `amp login`.",
+      "commandcode": "Command Code verifies its key against its own account service — there’s no endpoint to test here. Save it and launch the agent, or run `command-code login`.",
+      "copilot": "Copilot authenticates with your GitHub account, and its token is checked by GitHub on first use — there’s no model endpoint to probe here. Save it and launch the agent to verify.",
+      "claudeOauth": "A subscription token is verified by Claude itself on first use — there’s no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
+      "aider": "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there’s no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
+      "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
+      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify."
+    },
+    "unprobeableTitle": "This agent isn’t tested here",
+    "endpointMismatch": {
+      "gatewayIntoPlatform": "That looks like a model API endpoint (an OpenAI-compatible gateway or relay). This agent cannot use one: this field takes a deployment of the vendor’s own service. For a model-gateway key, use an OpenAI-protocol agent such as opencode, openclaw or codex."
+    },
+    "noEndpoint": {
+      "commandcode": "Command Code configures its own BYOK providers in ~/.commandcode/providers.json and calls them straight from this machine, so there is no endpoint field here. Once one is set up, name the model as provider/model above — for example openrouter/deepseek-v4-flash.",
+      "cline": "Cline’s providers and their endpoints are set up by `cline auth`, so there is no endpoint field here. The provider above only picks among the ones already configured.",
+      "cursor": "Cursor authenticates against its own service and takes no custom endpoint, so there is no such field here.",
+      "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here.",
+      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use."
+    }
   }
 }

@@ -112,6 +112,158 @@ class EnvManager {
     const resolved = this.resolve(agentType, saved, registry);
     return { ...saved, ...resolved };
   }
+
+  /**
+   * The saved env one agent runs on: the part of <type>.env it takes (see
+   * typeEnvFor) under its own env, resolved. The daemon launches the agent on
+   * this over its own environment, and readiness judges the agent on it too.
+   */
+  getForAgent(agentType, registry, agentEnv) {
+    const saved = { ...typeEnvFor(agentType, this.load(agentType), registry, agentEnv), ...(agentEnv || {}) };
+    const resolved = this.resolve(agentType, saved, registry);
+    return { ...saved, ...resolved };
+  }
+}
+
+/**
+ * Set on an agent's own env when it signs in through its CLI (`codex login`,
+ * `claude auth login`) instead of a key. Keys stay shared per type in
+ * <type>.env and the launcher's own environment, and a CLI prefers a key it
+ * is handed over its account session, so without this an agent created on
+ * the sign-in tab still ran on whatever key was saved there earlier.
+ */
+const AUTH_MODE_KEY = 'OPENAGENTS_AUTH_MODE';
+const CLI_LOGIN = 'cli_login';
+
+/**
+ * Whether the agent signs in through its CLI. Read from the agent's own env
+ * only: a marker in <type>.env or the launcher's environment would otherwise
+ * strip the key of every agent of that type, keyed ones included.
+ */
+function isCliLogin(agentEnv) {
+  return !!agentEnv && agentEnv[AUTH_MODE_KEY] === CLI_LOGIN;
+}
+
+/**
+ * Set on an agent's own env when its model is cleared from the workspace, so
+ * it runs on its CLI's default. A cleared model used to be dropped from the
+ * agent's env alone, and a model left in <type>.env (earlier versions saved
+ * workspace models there) filled the gap again at the agent's next start. A
+ * model in the agent's own env still wins; this only keeps the type's out.
+ */
+const MODEL_MODE_KEY = 'OPENAGENTS_MODEL_MODE';
+const MODEL_DEFAULT = 'default';
+
+function usesDefaultModel(agentEnv) {
+  return !!agentEnv && agentEnv[MODEL_MODE_KEY] === MODEL_DEFAULT;
+}
+
+/**
+ * Keys and endpoints a CLI reads under a name of its own that no registry
+ * field or readiness check declares (the launcher's auth-specs.ts offers the
+ * endpoints). Named per type rather than by suffix: the env stripped is the
+ * daemon's whole environment, where *_BASE_URL also names endpoints that are
+ * not the model's. CODEX_API_KEY: the Codex CLI honors it over its ChatGPT
+ * sign-in, so one set system-wide would defeat the sign-in just as
+ * OPENAI_API_KEY does.
+ */
+const NATIVE_CREDENTIALS = {
+  codex: ['CODEX_API_KEY'],
+  gemini: ['GOOGLE_GEMINI_BASE_URL'],
+  antigravity: ['GOOGLE_GEMINI_BASE_URL'],
+};
+
+/**
+ * The variables that carry a key or an endpoint for this agent type: its
+ * password and *_BASE_URL fields, what LLM_API_KEY / LLM_BASE_URL resolve to,
+ * and the *_API_KEY variables its readiness check accepts (Gemini has no
+ * fields at all, and reads GEMINI_API_KEY / GOOGLE_API_KEY). Only the
+ * *_API_KEY ones: that list also holds models and tokens other tools share
+ * (MSWEA_MODEL_NAME, GH_TOKEN). The model is not among them, it applies to a
+ * sign-in as well. So is
+ * CLAUDE_CODE_OAUTH_TOKEN: `claude setup-token` makes it from the account
+ * sign-in, so it is how a signed-in claude authenticates, not a key to drop.
+ */
+function credentialKeys(agentType, registry) {
+  const keys = new Set(['LLM_API_KEY', 'LLM_BASE_URL', ...(NATIVE_CREDENTIALS[agentType] || [])]);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (field.password || /BASE_URL$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (keys.has(rule.from) && rule.to) keys.add(rule.to);
+  }
+  const checkReady = registry.getEntry?.(agentType)?.check_ready;
+  for (const name of (checkReady && checkReady.env_vars) || []) {
+    if (/_API_KEY$/.test(name)) keys.add(name);
+  }
+  return keys;
+}
+
+/**
+ * The variables that pick the model: LLM_MODEL, what it resolves to
+ * (CODEX_MODEL, ANTHROPIC_MODEL), and a type's own *_MODEL fields.
+ */
+function modelKeys(agentType, registry) {
+  const keys = new Set(['LLM_MODEL']);
+  if (!registry) return keys;
+  for (const field of registry.getEnvFields?.(agentType) || []) {
+    if (/_MODEL(_NAME)?$/.test(field.name || '')) keys.add(field.name);
+  }
+  for (const rule of registry.getResolveRules?.(agentType) || []) {
+    if (rule.from === 'LLM_MODEL' && rule.to) keys.add(rule.to);
+  }
+  return keys;
+}
+
+/**
+ * Whether the agent's own env carries a key (not just an endpoint).
+ */
+function hasOwnKey(agentType, registry, agentEnv) {
+  if (!agentEnv) return false;
+  for (const key of credentialKeys(agentType, registry)) {
+    if (/BASE_URL$/.test(key)) continue;
+    if (String(agentEnv[key] == null ? '' : agentEnv[key]).trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * The part of <type>.env an agent runs on. All of it for an agent that brings
+ * no credentials of its own.
+ *
+ * A signed-in agent, or one with a key of its own, takes none of the type's
+ * keys or endpoints, and none of its model either: that model was picked for
+ * the type key's endpoint (a relay's openai-gpt-oss-20b), which neither the
+ * account behind a sign-in nor the agent's own provider serves. Resolution
+ * maps the generic LLM_* names over the provider ones, so a relay left in
+ * <type>.env used to override an agent configured for DeepSeek: its
+ * LLM_BASE_URL and LLM_MODEL became PI_BASE_URL and PI_MODEL, and the agent's
+ * key went to the relay. An agent whose model was cleared (MODEL_MODE_KEY)
+ * takes no model from it either. Its model is the one in its own env, else the
+ * CLI's default.
+ */
+function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
+  const signedIn = isCliLogin(agentEnv);
+  const ownKey = hasOwnKey(agentType, registry, agentEnv);
+  if (!signedIn && !ownKey && !usesDefaultModel(agentEnv)) return typeEnv;
+  const out = { ...typeEnv };
+  if (signedIn || ownKey) {
+    for (const key of credentialKeys(agentType, registry)) delete out[key];
+  }
+  for (const key of modelKeys(agentType, registry)) delete out[key];
+  return out;
+}
+
+/**
+ * `env` with every credential removed when the agent's own env (`agentEnv`)
+ * marks a sign-in, or unchanged for an agent that runs on a key.
+ */
+function stripForCliLogin(agentType, env, registry, agentEnv) {
+  if (!isCliLogin(agentEnv)) return env;
+  const out = { ...env };
+  for (const key of credentialKeys(agentType, registry)) delete out[key];
+  return out;
 }
 
 /**
@@ -128,4 +280,7 @@ function normalizeAnthropicBase(url) {
   return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
-module.exports = { EnvManager };
+module.exports = {
+  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, isCliLogin, credentialKeys, modelKeys,
+  stripForCliLogin, typeEnvFor,
+};

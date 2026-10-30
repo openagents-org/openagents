@@ -1,0 +1,20 @@
+/**
+ * The desktop build's stylesheet entry.
+ *
+ * Tailwind v4 works out what to generate from where its stylesheet sits, and
+ * Vite's root here is `desktop/` — so building through the shared
+ * styles/globals.css produced a stylesheet with the reset and none of the
+ * utilities: every page rendered as unstyled HTML. The pages themselves live a
+ * level up, and are named here so this build scans what the Next build already
+ * scans on its own.
+ *
+ * Declared in this file rather than in globals.css so the web build is left
+ * entirely alone — the same reason the shims exist.
+ */
+
+@import '../styles/globals.css';
+
+@source '../app';
+@source '../components';
+@source '../lib';
+@source './';

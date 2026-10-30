@@ -1,5 +1,6 @@
-// Full keyed GUI flow: install → create instance → configure LLM → connect
-// workspace → start → send a message → poll the workspace API for a real reply.
+// Full keyed GUI flow: install → join the workspace on this device → create
+// instance → configure LLM → bind to the workspace → start → send a message →
+// poll the workspace API for a real reply.
 //
 // Gated so a cell without the needed credentials skips cleanly (not fails):
 //   - needs E2E_WS_TOKEN / E2E_WS_SLUG (workspace)
@@ -9,8 +10,11 @@
 
 import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
+import { openMarketplace } from "./marketplace"
 import {
   haveWorkspaceCreds,
+  createPairingCode,
+  WS_SLUG,
   sendMessage,
   baselineCursor,
   pollForReply,
@@ -21,6 +25,14 @@ const spec = agentBySlug(SLUG)
 
 const INSTALL_TIMEOUT = 15 * 60 * 1000
 const START_TIMEOUT = 90_000
+// Longer than any adapter's own give-up timer, which is 300s across the board:
+// claude's stdout watchdog (20 x 15s), codex's direct-LLM request timeout,
+// opencode's TIMEOUT_MS, gemini's idle monitor. Polling for the same 300s was a
+// dead heat — the adapter posts its diagnosis to the channel at the exact
+// moment this stops listening, so every failure reported as the contentless
+// "No agent reply within 300s" while the real reason was one second away.
+// Waiting past it makes that message the assertion's own failure text.
+const REPLY_TIMEOUT = 360_000
 
 // Per-agent credentials (keys from E2E_* secrets; all via one gateway). claude
 // speaks Anthropic (own base); the rest are OpenAI-compatible on E2E_OPENAI_BASE.
@@ -84,14 +96,14 @@ function injectionEnv(): Record<string, string> {
 }
 
 test.describe("launcher full flow", () => {
-  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
+  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir, launcher }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     // cursor-agent has no custom base-URL support and authenticates only against
     // Cursor's own cloud (browser login or a real cursor.com key) — the gateway
     // keys can't drive it, so its keyed flow stays install-smoke-only for now.
     test.skip(SLUG === "cursor", "cursor: needs a real cursor.com API key (no gateway support)")
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
-    test.setTimeout(INSTALL_TIMEOUT + 12 * 60 * 1000)
+    test.setTimeout(INSTALL_TIMEOUT + 13 * 60 * 1000)
 
     const runId = process.env.GITHUB_RUN_ID || String(Date.now())
     const osTag =
@@ -104,7 +116,7 @@ test.describe("launcher full flow", () => {
     const name = `e2e-${SLUG}-${osTag}-${runId}`.slice(0, 38)
 
     // 1. Install (skip if a warm profile already has it).
-    await page.getByTestId("nav-install").click()
+    await openMarketplace(launcher.app)
     const card = page.getByTestId(`agent-card-${SLUG}`)
     await expect(card).toBeVisible({ timeout: 30_000 })
     if ((await card.getAttribute("data-installed")) !== "true") {
@@ -126,12 +138,12 @@ test.describe("launcher full flow", () => {
         .toContain(SLUG)
     }
 
-    // Installing an API-key agent auto-opens the post-install SetupWizard modal,
-    // whose overlay blocks navigation. Dismiss it (Escape → base Modal.onClose),
-    // retrying because it opens asynchronously after the install resolves.
+    // Back to Connect Agents. Escape first, in case anything the install left
+    // open would swallow the click; retried because the page can still be
+    // settling after the install resolves.
     await expect(async () => {
       await page.keyboard.press("Escape")
-      await page.getByTestId("nav-agents").click({ timeout: 2_000 })
+      await page.getByTestId("nav-dashboard").click({ timeout: 2_000 })
       await expect(page.getByTestId("new-agent-open")).toBeVisible({
         timeout: 2_000,
       })
@@ -192,50 +204,106 @@ test.describe("launcher full flow", () => {
         })
     }
 
-    // 2. Create an agent instance. The working directory is normally async-
-    //    prefilled from listPaths(); fill it explicitly so Create never rejects
-    //    on an empty path (the prefill can lose the race, esp. on Windows).
-    await page.getByTestId("new-agent-open").click()
-    await page.locator("#agent-type").selectOption(SLUG)
-    await page.locator("#agent-name").fill(name)
-    await page.locator("#agent-working-directory").fill(homeDir)
-    await page.getByTestId("new-agent-create").click()
+    // 2. Join the workspace on this device, then create the agent instance.
+    //
+    //    Joining is device-level: `connectWorkspace` refuses a workspace this
+    //    device holds no pairing for, and the agent's Connect dialog offers only
+    //    the ones it does. Every test gets a fresh HOME, so nothing is paired —
+    //    redeem a code first, through the same Workspaces page a user would use.
+    //    The code is minted at run time from the workspace token the reply
+    //    assertion already needs, so no human has to stage one per run.
+    const pairingCode = await createPairingCode()
+    await page.getByTestId("nav-workspaces").click()
+    // Other pages can arrive here with the dialog already requested, so open it
+    // only when it isn't — its overlay would swallow the click that opens it.
+    const codeField = page.locator("#quick-connect-code")
+    if (!(await codeField.isVisible().catch(() => false)))
+      await page.getByTestId("workspace-join-open").click()
+    await codeField.fill(pairingCode)
+    await page.getByTestId("ws-pair-submit").click()
+    // Redeeming writes node.json; assert on that rather than on the card the
+    // page draws, so a rendering hiccup cannot read as a failed pairing.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const status = await (
+              window as unknown as {
+                api: {
+                  getNodeStatus: () => Promise<{
+                    workspaces?: Array<{ workspaceSlug?: string }>
+                  }>
+                }
+              }
+            ).api.getNodeStatus()
+            return (status.workspaces || []).map((w) => w.workspaceSlug)
+          }),
+        { timeout: 60_000, intervals: [2_000] },
+      )
+      .toContain(WS_SLUG)
 
-    // 3. Configure LLM — the dialog auto-opens after create. Agents with GUI key
-    //    fields (openclaw/opencode/codex/gemini) get filled + Saved. Agents with
-    //    no key field (claude no-config; cursor/hermes login-only) get their env
-    //    injected via IPC, then the dialog is closed (→ Connect dialog opens).
-    const save = page.getByTestId("cfg-save")
-    // getEnvFields (IPC → core) can be slow right after install, esp. on Windows.
-    const hasKeyFields = await save
+    //    Now the instance, through the one setup form every agent is created
+    //    with: the marketplace page of the type under test leads to it
+    //    already on that type. The working directory is filled explicitly so
+    //    Add never runs with an empty path.
+    await openMarketplace(launcher.app)
+    await page.getByTestId(`agent-card-${SLUG}`).click()
+    await page.getByTestId("detail-add-agent").click()
+    await page.getByTestId("agent-setup-name").fill(name)
+    await page.getByTestId("agent-setup-workdir").fill(homeDir)
+
+    // 3. Configure LLM — in the same form, before Add. Agents with GUI key
+    //    fields get them filled: openclaw/opencode show one plain form, while
+    //    the dual-auth ones (claude/codex/gemini) put it behind the API-key tab.
+    //    Agents with no key field at all (cursor/hermes, login-only) are added
+    //    as they are and get their env injected via IPC afterwards. Adding
+    //    opens the Connect dialog either way.
+    const connectDialog = page.getByTestId("connect-ws")
+    // Dual-auth agents open on the CLI sign-in tab, and Radix unmounts the tab
+    // that isn't selected — so the key form is not in the DOM until the API-key
+    // tab is chosen. Its fields arrive over IPC (getEnvFields → core), which
+    // can be slow right after install, esp. on Windows.
+    const keyTab = page.getByTestId("auth-tab-key")
+    if (await keyTab.isVisible({ timeout: 10_000 }).catch(() => false)) await keyTab.click()
+    const keyFields = page.locator('input[id^="agent-env-"]')
+    const hasKeyFields = await keyFields
+      .first()
       .isVisible({ timeout: 60_000 })
       .catch(() => false)
-    // Success of the configure step = the Connect dialog has opened (its
-    // join-token toggle is visible). We assert on THAT rather than the Save
-    // button vanishing, because codex's dual-auth dialog transiently re-enters
-    // its loading state on Windows (footer unmounts briefly), which would
-    // false-positive a "dialog closed" check.
-    const joinToggle = page.getByTestId("ws-join-toggle")
     if (hasKeyFields) {
-      await expect(async () => {
-        if (await joinToggle.isVisible().catch(() => false)) return
-        const fieldIds = await page.evaluate(() =>
-          Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
-            (e) => e.id,
-          ),
+      // An endpoint field may sit behind "Advanced"; open it so it can be filled.
+      const advanced = page.getByTestId("env-advanced-toggle")
+      if (await advanced.isVisible().catch(() => false)) await advanced.click()
+      const fieldIds = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('input[id^="agent-env-"]')).map(
+          (e) => e.id,
+        ),
+      )
+      let filledKey = false
+      for (const id of fieldIds) {
+        const varName = id.replace("agent-env-", "")
+        let val: string | undefined
+        if (varName.endsWith("_API_KEY")) val = cred.key
+        else if (varName.endsWith("_BASE_URL")) val = cred.base
+        else if (varName.endsWith("_MODEL")) val = cred.model
+        if (!val) continue
+        await page.locator(`[id="${id}"]`).fill(val)
+        if (varName.endsWith("_API_KEY")) filledKey = true
+      }
+      // Adding without a key is not a failure the form reports — the field is
+      // optional for an agent that could also be signed in — so assert it
+      // here. Without this the run reaches the reply check with nothing to
+      // authenticate, and reads as a gateway or model problem.
+      if (!filledKey)
+        throw new Error(
+          `no *_API_KEY input found for ${SLUG}; saw [${fieldIds.join(", ")}]`,
         )
-        for (const id of fieldIds) {
-          const varName = id.replace("agent-config-", "")
-          let val: string | undefined
-          if (varName.endsWith("_API_KEY")) val = cred.key
-          else if (varName.endsWith("_BASE_URL")) val = cred.base
-          else if (varName.endsWith("_MODEL")) val = cred.model
-          if (val) await page.locator(`[id="${id}"]`).fill(val)
-        }
-        await save.click().catch(() => {})
-        await expect(joinToggle).toBeVisible({ timeout: 6_000 })
-      }).toPass({ timeout: 60_000 })
-    } else {
+    }
+    await page.getByTestId("agent-setup-submit").click()
+    // Success of the configure step = the Connect dialog has opened: the agent
+    // exists, with whatever the form held.
+    await expect(connectDialog).toBeVisible({ timeout: 120_000 })
+    if (!hasKeyFields) {
       await page.evaluate(
         async ({ n, env }) => {
           await (
@@ -251,11 +319,6 @@ test.describe("launcher full flow", () => {
         },
         { n: name, env: injectionEnv() },
       )
-      await expect(async () => {
-        if (await joinToggle.isVisible().catch(() => false)) return
-        await page.keyboard.press("Escape")
-        await expect(joinToggle).toBeVisible({ timeout: 4_000 })
-      }).toPass({ timeout: 30_000 })
     }
 
     // hermes authenticates via ~/.hermes/{.env,config.yaml} (what `hermes setup`
@@ -273,10 +336,14 @@ test.describe("launcher full flow", () => {
       )
     }
 
-    // 4. Connect to the workspace (dialog auto-opens for a new agent).
-    await page.getByTestId("ws-join-toggle").click()
-    await page.locator("#workspace-url-or-token").fill(process.env.E2E_WS_TOKEN!)
-    await page.getByTestId("ws-join").click()
+    // 4. Bind the agent to the workspace (dialog auto-opens for a new agent).
+    //    It lists only what this device is paired with — the workspace joined in
+    //    step 2 — and has no token form of its own. An empty list means the
+    //    pairing was lost between the two steps, which `ws-none-paired` tells
+    //    apart from the dialog never opening at all.
+    const wsOption = page.getByTestId(`ws-option-${WS_SLUG}`)
+    await expect(wsOption).toBeVisible({ timeout: 60_000 })
+    await wsOption.click()
 
     // 5. Ensure the agent is running + connected. Connecting triggers a daemon
     //    reload that AUTO-STARTS the agent, so clicking Start on an already-
@@ -300,17 +367,31 @@ test.describe("launcher full flow", () => {
     const cursor = await baselineCursor()
     await sendMessage(name, name, "What is 2+2? Reply with just the number.")
     try {
-      const reply = await pollForReply(name, name, cursor, 300_000)
+      const reply = await pollForReply(name, name, cursor, REPLY_TIMEOUT)
       expect(reply).toContain("4")
     } catch (e) {
       // Attach the daemon log/status so a non-reply is diagnosable (why the
       // agent didn't answer: LLM error, join failure, wrong model, etc.).
+      //
+      // Redacted rather than attached as-is: daemon.yaml holds the instance env
+      // verbatim, so the raw file would put the gateway key and the workspace
+      // token into artifacts that outlive the run and get copied around. Only
+      // the values this test knows are secret are masked — everything else is
+      // left alone so the attachment stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
+      const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
+        (v): v is string => !!v,
+      )
+      const redact = (text: string): string =>
+        secrets.reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
       for (const rel of ["daemon.log", "daemon.status.json", "daemon.yaml"]) {
         const fp = p.join(homeDir, ".openagents", rel)
         if (fs.existsSync(fp)) {
-          await test.info().attach(rel, { path: fp })
+          await test.info().attach(rel, {
+            body: redact(fs.readFileSync(fp, "utf8")),
+            contentType: "text/plain",
+          })
         }
       }
       throw e

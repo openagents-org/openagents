@@ -1,5 +1,5 @@
 import React from "react"
-import { Download, RefreshCw, Trash2, Undo2, Wand2 } from "lucide-react"
+import { Download, Plus, RefreshCw, Trash2, Undo2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -19,11 +19,17 @@ interface Props {
   job: InstallJob | undefined
   latestVersion: string | null
   currentVersion: string | null
+  /**
+   * The update can only be run by the user, as administrator — the rail's
+   * notice hands them the command, so no button here pretends otherwise.
+   */
+  updateBlocked?: boolean
   onInstall: () => void
   onUpdate: () => void
   onUninstall: () => void
   onRollback: () => void
-  onOpenWizard?: () => void
+  /** Open the setup form on this type, installing it first if need be. */
+  onAddAgent: () => void
 }
 
 const BUSY_LABEL: Record<InstallJob["verb"], string> = {
@@ -34,17 +40,22 @@ const BUSY_LABEL: Record<InstallJob["verb"], string> = {
 }
 
 /**
- * The rail's action stack. Full-width buttons in a fixed order — primary move
- * first, destructive last — so the same action never changes position between
- * two agents.
+ * The page's action row, under the agent's name where the eye already is.
+ * Buttons in a fixed order — primary move first, destructive last — so the
+ * same action never changes position between two agents.
  *
  * Button matrix:
- *   not installed              → [Install]
- *   managed, update available  → [Update to v…] [Setup?] [Roll back?] [Uninstall]
- *   managed, up to date        → [Reinstall] [Setup?] [Roll back?] [Uninstall]
- *   global (unmanaged)         → [Reinstall] [Setup?]   (bundled npm can't
- *                                                        remove a system-wide
- *                                                        install)
+ *   not installed              → [Add agent] [Install only]
+ *   managed, update available  → [Update to v…] [Add agent] [Roll back?] [Uninstall]
+ *   managed, up to date        → [Add agent] [Reinstall] [Roll back?] [Uninstall]
+ *   global (unmanaged), old    → [Update to v…] [Add agent]
+ *   global (unmanaged), latest → [Add agent] [Reinstall]
+ *   Add agent opens the same setup form as Connect Agents — the one way an
+ *   agent is created; it installs the runtime first when it is missing, and a
+ *   type already installed can be added again as another agent.
+ *   An npm global install updates at its original install path; any other
+ *   global install gets a managed copy. Uninstall never removes the user's copy.
+ *   A user's copy that needs admin rights we cannot ask for: no update button.
  */
 export function DetailActions({
   entry,
@@ -53,11 +64,12 @@ export function DetailActions({
   job,
   latestVersion,
   currentVersion,
+  updateBlocked = false,
   onInstall,
   onUpdate,
   onUninstall,
   onRollback,
-  onOpenWizard,
+  onAddAgent,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const isInstalled = entry.installed
@@ -76,7 +88,7 @@ export function DetailActions({
 
   if (busy && job) {
     return (
-      <Button variant="secondary" className="w-full" disabled>
+      <Button variant="secondary" size="lg" disabled>
         <Spinner />
         {t(BUSY_LABEL[job.verb])}
       </Button>
@@ -90,46 +102,51 @@ export function DetailActions({
   // Placeholders until we know: only the count is guessed, from the catalog.
   if (loading) {
     return (
-      <>
+      <div className="flex flex-wrap items-center gap-2">
         {Array.from({ length: entry.installed ? 3 : 1 }, (_, i) => (
-          <Skeleton key={i} className="h-9 w-full" />
+          <Skeleton key={i} className="h-10 w-32" />
         ))}
-      </>
+      </div>
     )
   }
 
-  return (
-    <>
-      {!isInstalled && (
-        <Button className="w-full" onClick={onInstall}>
-          <Download />
-          {t("agents.actions.install")}
-        </Button>
-      )}
+  // The update leads while one is pending; otherwise adding an agent does.
+  const updateFirst = isInstalled && hasUpdate && !updateBlocked
+  const addAgent = (
+    <Button variant={updateFirst ? "outline" : "default"} size="lg" className="min-w-40" onClick={onAddAgent}
+      data-testid="detail-add-agent">
+      <Plus />
+      {t("agents.actions.addAgent")}
+    </Button>
+  )
 
-      {isInstalled && isManaged && hasUpdate && (
-        <Button className="w-full" onClick={onUpdate}>
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {updateFirst && (
+        <Button size="lg" className="min-w-40" onClick={onUpdate}>
           <RefreshCw />
           {t("agents.actions.updateToVersion", { version: latestVersion })}
         </Button>
       )}
 
-      {isInstalled && !(isManaged && hasUpdate) && (
-        <Button variant="outline" className="w-full" onClick={onInstall}>
+      {addAgent}
+
+      {!isInstalled && (
+        <Button variant="outline" size="lg" onClick={onInstall}>
+          <Download />
+          {t("agents.actions.installOnly")}
+        </Button>
+      )}
+
+      {isInstalled && !hasUpdate && !updateBlocked && (
+        <Button variant="outline" size="lg" onClick={onInstall}>
           <RefreshCw />
           {t("agents.actions.reinstall")}
         </Button>
       )}
 
-      {isInstalled && onOpenWizard && (
-        <Button variant="outline" className="w-full" onClick={onOpenWizard}>
-          <Wand2 />
-          {t("agents.actions.setupWizard")}
-        </Button>
-      )}
-
       {isInstalled && isManaged && canRollback && (
-        <Button variant="outline" className="w-full" onClick={onRollback}>
+        <Button variant="outline" size="lg" onClick={onRollback}>
           <Undo2 />
           {t("agents.actions.rollBack")}
         </Button>
@@ -138,13 +155,14 @@ export function DetailActions({
       {isInstalled && isManaged && (
         <Button
           variant="destructive-ghost"
-          className="w-full border border-destructive/25"
+          size="lg"
+          className="border border-destructive/25"
           onClick={onUninstall}
         >
           <Trash2 />
           {t("agents.actions.uninstall")}
         </Button>
       )}
-    </>
+    </div>
   )
 }

@@ -25,7 +25,9 @@ export function appendDaemonLog(message: string): void {
     fs.mkdirSync(CONFIG_DIR, { recursive: true })
     fs.appendFileSync(
       DAEMON_LOG_FILE,
-      `[${new Date().toISOString()}] launcher: ${message}\n`,
+      // Same shape as the daemon's own lines. Without a level the Logs page
+      // files these as "unknown", which its default level filter hides.
+      `${new Date().toISOString()} INFO launcher: ${message}\n`,
       "utf-8",
     )
   } catch {}
@@ -129,6 +131,35 @@ export function getLiveDaemonPid(
 }
 
 /**
+ * Stop a daemon left running by an earlier session, before the core is loaded
+ * and so without its stopDaemon. Used ahead of replacing the Node runtime the
+ * daemon runs on. Resolves once it has exited, or after about five seconds.
+ */
+export async function stopLeftoverDaemon(): Promise<void> {
+  const pidFromFile = (): number | null => {
+    try {
+      const pid = parseInt(fs.readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10)
+      return Number.isFinite(pid) ? pid : null
+    } catch {
+      return null
+    }
+  }
+  const pid = getLiveDaemonPid({ getDaemonPid: pidFromFile })
+  if (!pid) return
+  appendDaemonLog(`stopping daemon ${pid} to replace the Node runtime`)
+  try {
+    process.kill(pid)
+  } catch {}
+  for (let i = 0; i < 10 && isPidAlive(pid); i++)
+    await new Promise((r) => setTimeout(r, 500))
+  if (isPidAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {}
+  }
+}
+
+/**
  * Daemon liveness for the sidebar dot. `livePid` is getLiveDaemonPid's answer;
  * when it's null we still look for a just-spawned daemon (a young pid file that
  * hasn't written its first status yet) and call that "starting" rather than
@@ -155,7 +186,11 @@ export function readDaemonState(livePid: number | null): {
  * daemon.log. Returns the failure as a message rather than throwing: every
  * caller treats "no daemon" as a state to report, not an exception.
  */
-export function startDaemon(connector: Record<string, unknown> | null): {
+export function startDaemon(
+  connector: Record<string, unknown> | null,
+  /** The core's extra bin dirs (paths.getExtraBinDirs), when it is loaded. */
+  coreBinDirs: string[] = [],
+): {
   success: boolean
   pid?: number
   message: string
@@ -180,15 +215,12 @@ export function startDaemon(connector: Record<string, unknown> | null): {
   extraDirs.push(path.join(portableNodeDir, "node_modules", ".bin"))
   if (process.platform === "win32") {
     extraDirs.push(path.join(process.env.APPDATA || "", "npm"))
-    try {
-      const { execSync: _exec } = require("child_process")
-      const npmPrefix = _exec("npm config get prefix", {
-        encoding: "utf-8",
-        timeout: 5000,
-        windowsHide: true,
-      }).trim()
-      if (npmPrefix && !extraDirs.includes(npmPrefix)) extraDirs.push(npmPrefix)
-    } catch {}
+  }
+  // The core's set already carries npm's configured global prefix. Asking
+  // `npm config get prefix` here instead held the window for the second or
+  // more npm takes to start on Windows, on every daemon (re)start.
+  for (const d of coreBinDirs) {
+    if (d && !extraDirs.includes(d)) extraDirs.push(d)
   }
   const enhancedPath = [...extraDirs, process.env.PATH || ""].join(
     path.delimiter,
@@ -266,12 +298,26 @@ export function startDaemon(connector: Record<string, unknown> | null): {
       env: withPathEnv(enhancedPath, daemonEnv),
       windowsHide: true,
     })
+    const spawnedAt = Date.now()
     proc.once("error", (err: Error) => {
       appendDaemonLog(`daemon spawn error: ${err.message}`)
     })
     proc.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      // "early" used to be asserted rather than measured: this handler lives as
+      // long as the process, so a deliberate stop minutes in logged the very
+      // same line as a spawn that died on the spot. Every daemon.log therefore
+      // carried an alarming-looking exit that nothing could date. Print the age
+      // instead and let the reader tell the two apart.
+      const how =
+        `after ${Date.now() - spawnedAt}ms: ` +
+        `code=${code ?? "null"} signal=${signal ?? "null"}`
+      // Word the two cases apart: the Logs page classifies a line as an error
+      // by its text, so a clean stop must not read like a crash — and a
+      // non-zero exit still has to.
       appendDaemonLog(
-        `daemon process exited early: code=${code ?? "null"} signal=${signal ?? "null"}`,
+        code
+          ? `daemon process failed and exited ${how}`
+          : `daemon process exited ${how}`,
       )
     })
     proc.unref()

@@ -47,7 +47,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, spawn, execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
 const { whichBinary, getEnhancedEnv } = require('../paths');
@@ -70,6 +74,8 @@ const {
   classifyNodeVersion,
   cleanStdout,
   defaultInstallCommand,
+  isOfficialDeepseekRoot,
+  classifyDshEndpoint,
   nodeRequirementText,
   resolvePermissionMode,
   safeDshHomeName,
@@ -119,18 +125,8 @@ const RECAP_TAIL = 60;
 const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
 
 /**
- * The status that ends a run in the workspace UI.
- *
- * The client clears its "stopping" state only on a status matching
- * /stopped|stopping failed/i (chat-view.tsx). Any other final status leaves the
- * session marked as working forever — and a cancelled run produces nothing
- * later that could correct it. The wording is therefore load-bearing, and the
- * tests assert it against the client's own regex.
- */
-const STOPPED_STATUS = 'Execution stopped by user';
-
-/**
- * The status for a stop that could NOT be confirmed.
+ * The notice for a stop that could NOT be confirmed (BaseAdapter posts it when
+ * `_stopChannelWork` reports 'failed').
  *
  * Contains "stopping failed" because that is the other half of the client's
  * terminal-status regex. Reporting a clean stop when the child may still be
@@ -165,6 +161,7 @@ class DeepSeekAdapter extends BaseAdapter {
     // arriving in that window has no process to kill. Without this set the stop
     // would be silently dropped and the task would start anyway.
     this._busyChannels = new Set();
+    this._stopFailedMessage = STOP_FAILED_STATUS;
     // Channels cancelled while busy. Checked at every await boundary and once
     // more immediately before spawning.
     this._cancelledChannels = new Set();
@@ -405,7 +402,14 @@ class DeepSeekAdapter extends BaseAdapter {
   }
 
   _baseUrl() {
-    return String(this.agentEnv.DEEPSEEK_BASE_URL || this.agentEnv.LLM_BASE_URL || '').trim();
+    const base = String(this.agentEnv.DEEPSEEK_BASE_URL || this.agentEnv.LLM_BASE_URL || '').trim();
+    return isOfficialDeepseekRoot(base) ? '' : base;
+  }
+
+  /** The configured base when it is an OpenAI-compatible gateway, else ''. */
+  _gatewayBaseUrl() {
+    const base = this._baseUrl();
+    return classifyDshEndpoint(base) === 'openai' ? base : '';
   }
 
   _model() {
@@ -541,7 +545,7 @@ class DeepSeekAdapter extends BaseAdapter {
    * starts mid-write can never read a half-file.
    */
   _writePrivatePatch() {
-    const { text } = buildPrivatePatch({ model: this._model() });
+    const { text } = buildPrivatePatch({ model: this._model(), gatewayBaseUrl: this._gatewayBaseUrl() });
     const tmp = `${this._patchFile}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, text, { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmp, this._patchFile);
@@ -572,8 +576,12 @@ class DeepSeekAdapter extends BaseAdapter {
 
     const key = this._apiKey();
     if (key) env.DEEPSEEK_API_KEY = key;
-    const base = this._baseUrl();
+    // Set or cleared, never inherited: env already carries the raw agent value,
+    // and _baseUrl() drops DeepSeek's own OpenAI-style roots. A gateway is
+    // reached through the patch's pi-ai route, not dsh's DeepSeek provider.
+    const base = this._gatewayBaseUrl() ? '' : this._baseUrl();
     if (base) env.DEEPSEEK_BASE_URL = base;
+    else delete env.DEEPSEEK_BASE_URL;
 
     // The task file references this by NAME; the value never appears in it.
     env[TOKEN_ENV] = this.token;
@@ -586,78 +594,52 @@ class DeepSeekAdapter extends BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Control actions (stop)
+  // Stop (BaseAdapter._handleUserStop drives these)
   // ------------------------------------------------------------------
 
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      // The workspace sends the conversation it wants stopped. Honouring it is
-      // what keeps one user's stop from tearing down every other concurrent
-      // run — claude.js already scopes its stop this way; mini/amp do not, and
-      // following them here was the mistake. A stop with no channel still
-      // means "everything".
-      const target = (payload && typeof payload === 'object' && payload.channel)
-        ? payload.channel
-        : null;
-      await this._stopChannels(target);
-      return;
-    }
-    await super._onControlAction(action, payload);
-  }
-
   /**
-   * Stop one channel, or every channel when `target` is null.
-   *
-   * Each affected channel is told exactly once what happened — and told the
-   * TRUTH: a kill that could not be confirmed reports a failed stop rather than
-   * a clean one, because the child may still be writing to the workspace.
+   * Stop ONE conversation. A run that has not spawned yet is cancelled by
+   * flagging it — nothing is running, so that is complete by definition.
+   * A child whose kill could not be confirmed reports 'failed', and the user
+   * is told the truth: it may still be writing to the workspace.
    */
-  async _stopChannels(target) {
-    // channel -> was termination confirmed
-    const outcome = new Map();
-
-    const busy = target
-      ? (this._busyChannels.has(target) ? [target] : [])
-      : [...this._busyChannels];
-    for (const channel of busy) {
+  async _stopChannelWork(channel) {
+    let outcome = 'idle';
+    if (this._busyChannels.has(channel)) {
       this._cancelledChannels.add(channel);
-      this._stoppingChannels.add(channel);
       // Release a waiter parked on the shared bootstrap. Marking alone is not
       // enough: the flag is only read between awaits, and this one can last
       // the whole bootstrap timeout.
       const release = this._cancelWaiters.get(channel);
       if (release) release();
-      // Nothing has spawned yet, so cancellation is complete by definition.
-      outcome.set(channel, true);
+      outcome = 'stopped';
     }
-
-    for (const [channel, proc] of Object.entries(this._channelProcesses)) {
-      if (channel === BOOTSTRAP_KEY) {
-        // Bootstrap is SHARED: every channel waits on the same profile
-        // compose. Tearing it down because one conversation was stopped would
-        // fail the others too, so a scoped stop leaves it alone.
-        if (target) continue;
-      } else if (target && channel !== target) {
-        continue;
-      }
-
+    const proc = this._channelProcesses[channel];
+    if (proc) {
       // Untrack only once the kill has been attempted, so the child is never
       // missing from the registry while it may still be running.
       const ended = await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-
-      if (channel === BOOTSTRAP_KEY) continue;
-      this._stoppingChannels.add(channel);
-      outcome.set(channel, ended);
+      outcome = ended ? 'stopped' : 'failed';
     }
+    return outcome;
+  }
 
-    // The client clears its stopping state only on a terminal status, and a
-    // cancelled run produces nothing later that could supply one.
-    for (const [channel, ended] of outcome) {
-      try {
-        await this.sendStatus(channel, ended ? STOPPED_STATUS : STOP_FAILED_STATUS);
-      } catch { /* the run is already over; a failed post must not throw here */ }
-    }
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...this._busyChannels])]
+      .filter((channel) => channel !== BOOTSTRAP_KEY);
+  }
+
+  /**
+   * Bootstrap is SHARED: every conversation waits on the same profile
+   * compose. A scoped stop leaves it alone, or it would fail the others too;
+   * only a workspace-wide stop tears it down.
+   */
+  async _stopSharedWork() {
+    const proc = this._channelProcesses[BOOTSTRAP_KEY];
+    if (!proc) return;
+    await this._stopProcess(proc);
+    delete this._channelProcesses[BOOTSTRAP_KEY];
   }
 
   /** True when a child has ended, by exit code OR by signal. */
@@ -983,7 +965,7 @@ class DeepSeekAdapter extends BaseAdapter {
     try {
       // Last gate before anything is started. Everything above this line is
       // reversible; a process is not.
-      if (this._cancelled(msgChannel)) return { text: '', error: null };
+      if (this._cancelled(msgChannel) || this._stoppedBeforeStart(msgChannel)) return { text: '', error: null };
       return await this._spawnDsh({ taskFile, msgChannel, permissionMode });
     } finally {
       try { fs.rmSync(taskFile, { force: true }); } catch { /* best effort */ }

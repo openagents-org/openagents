@@ -6,19 +6,67 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
+import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
+import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
+import { isOwnedAgent } from '@/lib/sidebar-agents';
+import { curatedModelsFitEndpoint } from '@/lib/model-picker';
 import { toast } from 'sonner';
-import type { CloudAgentConfig, AgentCatalogModel } from '@/lib/types';
+import type { CloudAgentConfig, AgentCatalogModel, NodeCommand, WorkspaceNode } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+/** "Provider default", as a value a Select can hold. See NO_AGENT elsewhere. */
+const DEFAULT_MODEL = '__default__';
+
+/** Picking this in the list switches the field to a typed model id. */
+const CUSTOM_MODEL = '__custom__';
+
+/**
+ * Ask the agent's node which models its endpoint serves. The node holds the
+ * key, so this is a node command, answered on the node's next heartbeat.
+ */
+async function listNodeAgentModels(
+  nodeId: string,
+  agentName: string,
+  isCancelled: () => boolean,
+): Promise<{ models: AgentCatalogModel[] | null; error: string | null }> {
+  let commandId: string;
+  try {
+    commandId = (await workspaceApi.enqueueNodeCommand(nodeId, 'list_models', { name: agentName })).commandId;
+  } catch (e) {
+    return { models: null, error: e instanceof Error ? e.message : null };
+  }
+  for (let i = 0; i < 20 && !isCancelled(); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const cmds = await workspaceApi.listNodeCommands(nodeId).catch((): NodeCommand[] => []);
+    const c = cmds.find((x) => x.commandId === commandId);
+    if (!c || (c.status !== 'done' && c.status !== 'error')) continue;
+    const models = (c.result?.data as { models?: AgentCatalogModel[] } | undefined)?.models || [];
+    return c.result?.ok && models.length
+      ? { models, error: null }
+      : { models: null, error: c.result?.message || null };
+  }
+  return { models: null, error: null };
+}
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
     selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
   } = useLayout();
-  const { agents, refreshWorkspace, createSession } = useWorkspace();
+  const { agents, refreshWorkspace, createSession, currentUser } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const confirm = useConfirm();
   const t = useT();
@@ -35,6 +83,17 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
       setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
     }).catch(() => {});
   }, [isCloud, agent?.agentName]);
+
+  // The built-in assistant (Yumi) is server-managed: its model and
+  // credentials are fixed by the server and the API rejects changes, so
+  // the model picker and key editor below render read-only for it.
+  const isManaged = Boolean(agent?.builtin) || Boolean(cloudConfig?.managed);
+  // Using an agent someone shared does not make its settings yours: the server
+  // refuses changes from anyone but the owner, so they render read-only here
+  // rather than failing on save. An agent with no recorded owner predates
+  // ownership and stays editable, as the server allows.
+  const canManage = !agent?.ownerEmail || isOwnedAgent(agent, currentUser.id);
+  const modelReadOnly = isManaged || !canManage;
 
   const handleRemoveCloudAgent = useCallback(async () => {
     if (!agent) return;
@@ -99,27 +158,132 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const [modelOptions, setModelOptions] = useState<AgentCatalogModel[] | null>(null);
   const [savingModel, setSavingModel] = useState(false);
   const agentType = agent?.agentType || null;
+  const agentName = agent?.agentName || null;
+  // Some node agents never read the model picked here (for example Gemini): their
+  // CLI takes the model from the agent's own configuration. Saying "switches
+  // on the next reply" for those was untrue, so the picker is only offered
+  // where the registry says the adapter applies it.
+  const [modelApplies, setModelApplies] = useState(true);
+  // A node agent pointed at a relay or another vendor's endpoint can't use the
+  // catalog's ids: picking one failed its next task. Its node reports the
+  // endpoint host; when the catalog isn't that endpoint's, the node is asked
+  // which models the endpoint serves, and failing that the model is typed.
+  // A launcher too old to report a host keeps the catalog list.
+  const [endpointHost, setEndpointHost] = useState<string | null>(null);
+  const [catalogFits, setCatalogFits] = useState(true);
+  const [liveModels, setLiveModels] = useState<AgentCatalogModel[] | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  // A node agent on its CLI's own sign-in (a ChatGPT or Claude subscription)
+  // has no endpoint to list. Its node asks the CLI what that account is
+  // offered and reports it on the roster; the catalog's list, kept by hand,
+  // stays the fallback for a launcher that does not report one.
+  const [accountModels, setAccountModels] = useState<AgentCatalogModel[] | null>(null);
+  const [manualEntry, setManualEntry] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [modelReload, setModelReload] = useState(0);
   useEffect(() => {
     setModelOptions(null);
-    if (!agentType) return;
+    setModelApplies(true);
+    setEndpointHost(null);
+    setCatalogFits(true);
+    setLiveModels(null);
+    setLiveLoading(false);
+    setLiveError(null);
+    setAccountModels(null);
+    setManualEntry(false);
+    setModelLoadError(null);
+    if (!agentType || !agentName) return;
     let cancelled = false;
+    const isCancelled = () => cancelled;
     if (agentType.startsWith('cloud:')) {
       const provider = agentType.replace('cloud:', '');
       workspaceApi.getCloudProviders().then((provs) => {
         if (cancelled) return;
         const p = provs.find((x) => x.name === provider);
         setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch(() => {});
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     } else {
-      workspaceApi.getAgentCatalogDetail(agentType).then((detail) => {
+      Promise.all([
+        workspaceApi.getAgentCatalogDetail(agentType),
+        workspaceApi.listNodes().catch((): WorkspaceNode[] => []),
+      ]).then(async ([detail, nodes]) => {
         if (cancelled) return;
         setModelOptions((detail?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch(() => {});
+        setModelApplies(detail?.workspace_model === true);
+        if (detail?.workspace_model !== true) return;
+        const node = nodes.find((n) => (n.agents || []).some((a) => a.name === agentName));
+        const hosted = node?.agents.find((a) => a.name === agentName);
+        const host = hosted?.baseUrlHost || null;
+        if (!node || !host) {
+          setAccountModels(hosted?.cliModels?.length ? hosted.cliModels : null);
+          return;
+        }
+        const providers = detail?.models_provider
+          ? await workspaceApi.getCloudProviders().catch(() => [])
+          : [];
+        if (cancelled) return;
+        setEndpointHost(host);
+        const fits = curatedModelsFitEndpoint({
+          baseUrlHost: host,
+          modelsProvider: detail?.models_provider,
+          providers,
+        });
+        setCatalogFits(fits);
+        if (fits) return;
+        setLiveLoading(true);
+        const live = await listNodeAgentModels(node.nodeId, agentName, isCancelled);
+        if (cancelled) return;
+        setLiveLoading(false);
+        setLiveModels(live.models);
+        setLiveError(live.error);
+      }).catch((e) => {
+        if (cancelled) return;
+        setLiveLoading(false);
+        setModelOptions([]);
+        setModelLoadError(e instanceof Error ? e.message : String(e));
+      });
     }
     return () => { cancelled = true; };
-  }, [agentType]);
+  }, [agentType, agentName, modelReload]);
+
+  // A cloud agent on a custom endpoint gets that endpoint's own list; the
+  // provider catalog is the vendor's line-up, which a relay may not serve.
+  const cloudBaseUrl = cloudConfig?.baseUrl || null;
+  const cloudProvider = cloudConfig?.provider || null;
+  const [cloudLiveModels, setCloudLiveModels] = useState<AgentCatalogModel[] | null>(null);
+  useEffect(() => {
+    setCloudLiveModels(null);
+    if (!isCloud || !agentName) return;
+    if (!cloudBaseUrl && cloudProvider !== 'custom' && cloudProvider !== 'custom-anthropic') return;
+    let cancelled = false;
+    workspaceApi.listCloudAgentModels(agentName).then((r) => {
+      if (cancelled || r.source !== 'live') return;
+      setCloudLiveModels((r.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isCloud, agentName, cloudBaseUrl, cloudProvider]);
 
   const currentModel = isCloud ? (cloudConfig?.model || '') : (agent?.model || '');
+  const [modelDraft, setModelDraft] = useState(currentModel);
+  useEffect(() => { setModelDraft(currentModel); }, [currentModel]);
+  const pickerOptions = isCloud
+    ? (cloudLiveModels?.length ? cloudLiveModels : modelOptions)
+    : catalogFits
+      ? (accountModels?.length ? accountModels : modelOptions)
+      : liveModels;
+  const modelLoading = modelOptions === null || liveLoading;
+  const typeModel = modelApplies && !modelLoading && (
+    manualEntry
+    || Boolean(modelLoadError)
+    || (pickerOptions?.length ?? 0) === 0
+    || (!catalogFits && !liveModels?.length)
+  );
 
   const handleModelChange = useCallback(async (value: string) => {
     if (!agent) return;
@@ -319,19 +483,19 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               ) : (
                 <div className="group/name flex items-center gap-1.5 min-w-0">
                   <h3 className="text-[15px] font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
-                  <button
+                  {canManage && <button
                     onClick={() => setEditingName(true)}
                     className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/name:opacity-100"
                     title={t('agents.editDisplayName')}
                   >
                     <Pencil className="size-3" />
-                  </button>
+                  </button>}
                 </div>
               )}
               {agent.displayName && agent.displayName !== agent.agentName && (
                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{agent.agentName}</p>
               )}
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 <span className={cn(
                   'inline-flex items-center gap-1 text-[11px] px-1.5 py-px rounded font-medium',
                   isOnline ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
@@ -339,6 +503,10 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-green-500' : 'bg-zinc-400')} />
                   {agent.status}
                 </span>
+                {/* Permission model v1.1: who can use it (replaces the personal badge) */}
+                <AgentUsabilityLine agentName={agent.agentName} />
+                <DeviceOfflineHint agent={agent} withLabel />
+                <AccessExplainer resourceKind="agent" resourceId={agent.agentName} className="basis-full" />
               </div>
             </div>
           </div>
@@ -346,11 +514,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-3.5 space-y-3">
+          <AgentSharingButton agentName={agent.agentName} />
           {/* Description */}
           <div className="rounded-lg border overflow-hidden">
             <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">
               <span className="text-xs font-medium">{t('agents.description')}</span>
-              <button
+              {canManage && <button
                 onClick={handleGenerateDescription}
                 disabled={generatingDesc}
                 className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors shrink-0"
@@ -360,7 +529,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   ? <RefreshCw className="size-3 animate-spin" />
                   : <Sparkles className="size-3 text-amber-500" />}
                 {generatingDesc ? 'Generating…' : t('agents.autoGenerate')}
-              </button>
+              </button>}
             </div>
             <div className="p-3">
               <textarea
@@ -371,9 +540,11 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   setDescription(e.target.value);
                   setDescDirty(true);
                 }}
-                onBlur={handleSaveDescription}
+                onBlur={canManage ? handleSaveDescription : undefined}
+                readOnly={!canManage}
                 rows={3}
               />
+              <p className="text-[11px] text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
               {descDirty && (
                 <div className="flex justify-end mt-1.5">
                   <button
@@ -422,39 +593,157 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             </div>
           </div>
 
-          {/* Model — picker fed by the agent/provider catalog; free-form ids
-              stay selectable (they're prepended when not in the catalog). */}
-          {(currentModel || (modelOptions?.length ?? 0) > 0) && (
+          {/* Model — picker fed by the agent/provider catalog, by the list a
+              signed-in agent's CLI reports for its account, or by the
+              endpoint's own list when the catalog isn't for that endpoint;
+              free-form ids stay selectable (prepended when not listed).
+              The built-in assistant shows its server-set model read-only. */}
+          {modelReadOnly ? (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
                 <Cpu className="size-3 text-muted-foreground" />
                 <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-                {savingModel && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
               </div>
               <div className="p-3 space-y-1.5">
-                <select
-                  value={currentModel}
-                  onChange={(e) => handleModelChange(e.target.value)}
-                  disabled={savingModel || (isCloud && !cloudConfig)}
-                  className="w-full px-2 py-1.5 text-[13px] rounded-md border bg-background outline-none focus:ring-1 focus:ring-foreground/20 disabled:opacity-50"
-                >
-                  {!isCloud && <option value="">{t('agents.modelDefault')}</option>}
-                  {currentModel && !(modelOptions || []).some((m) => m.id === currentModel) && (
-                    <option value={currentModel}>{currentModel}</option>
-                  )}
-                  {(modelOptions || []).map((m) => (
-                    <option key={m.id} value={m.id}>{m.label || m.id}</option>
-                  ))}
-                </select>
-                {!isCloud && (
+                <div className="text-xs font-mono">{currentModel || '—'}</div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{t(isManaged ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
+                <Cpu className="size-3 text-muted-foreground" />
+                <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
+                {(savingModel || modelLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
+              </div>
+              <div className="p-3 space-y-1.5">
+                {modelLoading ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
+                ) : !modelApplies ? (
+                  <>
+                    {/* Only the way back to the default is offered: a model
+                        saved here earlier is shown, and can be cleared. */}
+                    {currentModel && (
+                      <Select
+                        value={currentModel}
+                        onValueChange={(v) => handleModelChange(v === DEFAULT_MODEL ? '' : v)}
+                        disabled={savingModel}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={DEFAULT_MODEL}>{t('agents.modelDefault')}</SelectItem>
+                          <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelNotApplied')}</p>
+                  </>
+                ) : typeModel ? (
+                  <>
+                    <Input
+                      aria-label={t('agents.fieldModel')}
+                      value={modelDraft}
+                      onChange={(e) => { setModelDraft(e.target.value); setManualEntry(true); }}
+                      onBlur={() => {
+                        const next = modelDraft.trim();
+                        if (next !== currentModel) void handleModelChange(next);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      placeholder={t('agents.modelCustomPlaceholder')}
+                      disabled={savingModel}
+                      className="h-9 text-sm font-mono"
+                    />
+                    {liveModels?.length ? (
+                      <button
+                        type="button"
+                        onClick={() => { setManualEntry(false); setModelDraft(currentModel); }}
+                        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      >
+                        {t('agents.modelPickFromList')}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <Select
+                    value={currentModel || DEFAULT_MODEL}
+                    onValueChange={(v) => {
+                      if (v === CUSTOM_MODEL) { setManualEntry(true); return; }
+                      void handleModelChange(v === DEFAULT_MODEL ? '' : v);
+                    }}
+                    disabled={savingModel || (isCloud && !cloudConfig)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!isCloud && (
+                        <SelectItem value={DEFAULT_MODEL}>
+                          {t('agents.modelDefault')}
+                        </SelectItem>
+                      )}
+                      {/* A model the agent is on but the list does not have
+                          — a hand-edited config, or one the provider dropped.
+                          Listing it is what keeps the picker from silently
+                          showing something the agent is not running. */}
+                      {currentModel && !(pickerOptions || []).some((m) => m.id === currentModel) && (
+                        <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                      )}
+                      {(pickerOptions || []).map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label || m.id}
+                        </SelectItem>
+                      ))}
+                      {!catalogFits && (
+                        <SelectItem value={CUSTOM_MODEL}>{t('agents.modelEnterCustom')}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                {modelApplies && !catalogFits && endpointHost && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {liveLoading
+                      ? t('agents.modelLiveLoading', { host: endpointHost })
+                      : typeModel
+                        ? t('agents.modelCustomHint', { host: endpointHost })
+                        : t('agents.modelLiveHint', { host: endpointHost })}
+                  </p>
+                )}
+                {modelApplies && !typeModel && !modelLoading && catalogFits && accountModels?.length ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t('agents.modelAccountHint')}
+                  </p>
+                ) : null}
+                {modelApplies && typeModel && !liveLoading && liveError && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                    {t('agents.modelLiveFailed', { error: liveError })}
+                  </p>
+                )}
+                {modelLoadError && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                      {t('agents.modelLiveFailed', { error: modelLoadError })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setModelReload((value) => value + 1)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                    >
+                      {t('agents.modelRetry')}
+                    </button>
+                  </div>
+                )}
+                {!isCloud && modelApplies && (
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Cloud config management */}
-          {isCloud && cloudConfig && (
+          {/* Cloud config management — hidden for the built-in: nothing is
+              user-configurable there (key and prompt are server-owned). */}
+          {isCloud && cloudConfig && !isManaged && canManage && (
             <div className="rounded-lg border overflow-hidden">
               <div className="px-3.5 py-2.5 border-b">
                 <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>
@@ -597,7 +886,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
           {/* Danger zone — remove this agent from the workspace (node/local
               agents; cloud agents use the footer Remove button). */}
-          {!isCloud && (
+          {!isCloud && canManage && (
             <div className="rounded-lg border border-red-200 dark:border-red-900/50 overflow-hidden">
               <div className="px-3.5 py-2.5 border-b border-red-200 dark:border-red-900/50">
                 <span className="text-xs font-medium text-red-600 dark:text-red-400">{t('agents.dangerZone')}</span>
@@ -627,7 +916,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               <Plus className="size-3" />
               {t('agents.startThread')}
             </button>
-            {isCloud && (
+            {isCloud && canManage && (
               <button
                 onClick={handleRemoveCloudAgent}
                 className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

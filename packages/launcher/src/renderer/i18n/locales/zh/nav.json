@@ -1,29 +1,24 @@
 {
-  "sections": {
-    "overview": "概览",
-    "manage": "管理",
-    "system": "系统"
-  },
   "items": {
     "dashboard": {
-      "label": "仪表盘",
-      "description": "概览：智能体状态、工作区与最近活动"
+      "label": "连接智能体",
+      "description": "安装、配置智能体，并把它们连接到工作区"
     },
     "install": {
-      "label": "应用市场",
-      "description": "第 1 步 · 浏览并安装智能体"
+      "label": "智能体市场",
+      "description": "浏览、安装和更新智能体"
     },
     "agents": {
       "label": "智能体",
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "工作区",
-      "description": "第 3 步 · 打开并管理工作区"
+      "label": "本机加入的工作区",
+      "description": "此电脑作为设备加入的工作区"
     },
     "chat": {
       "label": "对话",
-      "description": "与已连接的工作区对话"
+      "description": "与本机已加入的工作区对话"
     },
     "connections": {
       "label": "连接",
@@ -46,12 +41,6 @@
       "description": "应用设置与偏好"
     }
   },
-  "daemon": {
-    "running": "守护进程运行中",
-    "starting": "守护进程启动中",
-    "stopped": "守护进程已停止",
-    "offline": "守护进程离线"
-  },
   "notifications": {
     "tooltip": "通知",
     "title": "通知",
@@ -60,14 +49,17 @@
     "clear": "清空",
     "empty": "暂无通知。"
   },
-  "search": "搜索…",
-  "menu": {
-    "label": "更多选项"
-  },
-  "toggleSidebar": "折叠 / 展开侧边栏",
-  "collapseSidebar": "折叠侧边栏",
-  "expandSidebar": "展开侧边栏",
-  "guide": "快速上手指南",
+  "search": "搜索智能体、工作区…",
   "themeToggle": "主题",
-  "themeTooltip": "主题：{{mode}} — 点击切换为{{next}}"
+  "modeSwitch": "在工作区与本机管理之间切换",
+  "modeLauncher": "本机管理",
+  "modeWorkspace": "工作区",
+  "pages": "本机管理页面",
+  "agentsSummary": {
+    "running": "{{count}} 个智能体运行中",
+    "starting": "{{count}} 个智能体启动中",
+    "error": "{{count}} 个智能体异常",
+    "stopped": "智能体均未运行",
+    "none": "尚未添加智能体"
+  }
 }

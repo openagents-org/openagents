@@ -67,10 +67,12 @@ def _mock_cloud_manager(session_id="sess-1"):
     manager.is_cloud_for = MagicMock(return_value=True)
     manager.get_session_id.return_value = session_id
     manager.get_live_url.return_value = None
-    manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example", "warnings": []})
+    manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example", "warnings": [],
+                                            "session_id": session_id, "live_url": None})
     manager.close_tab = AsyncMock(return_value=(True, None))
     manager.reconnect = AsyncMock()
     manager.get_current_url = AsyncMock(return_value={"url": "https://example.com", "title": "Example"})
+    manager.create_bb_context = AsyncMock(return_value="bf-context")
     manager.delete_bb_context = MagicMock()
     manager._pages = {}
     manager._sessions = {}
@@ -363,21 +365,24 @@ class TestCredentialReference:
 
 class TestRouterOpenClose:
     @patch("app.routers.browser.BrowserManager")
-    def test_ephemeral_quota_precheck(self, MockManager, client, monkeypatch):
-        monkeypatch.setattr("app.routers.browser.BF_EPHEMERAL_TAB_LIMIT", 2)
+    def test_no_per_kind_precheck_bf_is_authoritative(self, MockManager, client, monkeypatch):
+        # BrowserFabric enforces the single awake-tab limit (and evicts idle
+        # tabs itself); the workspace must not pre-refuse by kind.
+        monkeypatch.setattr("app.routers.browser.BF_CONCURRENT_TAB_LIMIT", 2)
         ws = _create_workspace(client)
         manager = _mock_cloud_manager()
         _patch_manager_cls(MockManager, manager)
 
-        assert _open_tab(client, ws).status_code == 200
-        assert _open_tab(client, ws).status_code == 200
+        for _ in range(3):
+            assert _open_tab(client, ws).status_code == 200
+        assert manager.open_tab.await_count == 3
 
-        resp = _open_tab(client, ws)
-        assert resp.status_code == 400
-        body = resp.json()
-        assert "Temporary tab limit reached (2/2)" in body["message"]
-        assert len(body["data"]["open_tabs"]) == 2
-        assert manager.open_tab.await_count == 2  # BF never called for the rejected open
+        listing = client.get(f"/v1/browser/tabs?network={ws['id']}",
+                             headers={"X-Workspace-Token": ws["token"]}).json()["data"]
+        limits = listing["limits"]
+        assert limits["concurrent"]["max"] == 2
+        assert limits["concurrent"]["used"] == 3  # nothing asleep in this mock
+        assert limits["idle_minutes"] == limits["temporary_idle_minutes"]
 
     @patch("app.routers.browser.BrowserManager")
     def test_bf_limit_error_maps_to_structured_400(self, MockManager, client):
@@ -418,6 +423,7 @@ class TestRouterOpenClose:
         manager.open_tab = AsyncMock(return_value={
             "url": "https://example.com", "title": "",
             "warnings": ["navigation_failed: Browser Fabric error: timeout"],
+            "session_id": "sess-1", "live_url": None,
         })
         _patch_manager_cls(MockManager, manager)
 
@@ -524,25 +530,24 @@ class TestBrowserSweep:
         db.commit()
         return tab.id
 
-    def test_reaps_idle_ephemeral_tab(self, client, db, monkeypatch):
+    def test_cloud_tabs_are_not_closed_on_idle_even_without_a_context(self, client, db, monkeypatch):
         ws = _create_workspace(client)
-        _set_workspace_key(db, ws["id"])
-        tab_id = self._add_tab(db, ws["id"], idle_minutes=120,
-                               source="workspace", fingerprint=key_fingerprint(WS_KEY))
+        tab_id = self._add_tab(db, ws["id"], idle_minutes=120)
         manager = _mock_cloud_manager()
-
         stats = self._run_sweep(manager, monkeypatch)
+        assert stats["reaped"] == 0
+        manager.close_tab.assert_not_awaited()
+        db.expire_all()
+        assert db.get(BrowserTab, tab_id).status == "active"
+        assert db.query(BrowserUsage).filter_by(tab_id=tab_id).one().ended_at is None
 
+    def test_local_unsaved_tabs_still_expire(self, client, db, monkeypatch):
+        ws = _create_workspace(client)
+        tab_id = self._add_tab(db, ws["id"], idle_minutes=120, session_id=None)
+        stats = self._run_sweep(_mock_cloud_manager(), monkeypatch)
         assert stats["reaped"] == 1
         db.expire_all()
-        row = db.query(BrowserTab).filter_by(id=tab_id).one()
-        assert row.status == "closed"
-        assert row.close_status == "closed"
-        assert row.session_closed is True
-        usage = db.query(BrowserUsage).filter_by(tab_id=tab_id).one()
-        assert usage.ended_at is not None
-        # Reap resolved the key from the credential reference on the row
-        assert manager.close_tab.await_args.kwargs.get("api_key") == WS_KEY
+        assert db.get(BrowserTab, tab_id).status == "closed"
 
     def test_skips_fresh_and_persistent_tabs(self, client, db, monkeypatch):
         ws = _create_workspace(client)
@@ -663,7 +668,7 @@ class TestBrowserSweep:
         """If the session_id changes while the sweeper is closing (persist/
         reconnect swap), the outcome write must be dropped."""
         ws = _create_workspace(client)
-        tab_id = self._add_tab(db, ws["id"], idle_minutes=120, session_id="sess-old")
+        tab_id = self._add_tab(db, ws["id"], idle_minutes=30, session_id="sess-old", status="closed", close_status="close_failed")
         manager = _mock_cloud_manager()
 
         async def close_and_swap(*args, **kwargs):
@@ -698,10 +703,10 @@ class TestOrphanTombstones:
         _patch_manager_cls(MockManager, manager)
         tab = _open_tab(client, ws).json()["data"]
 
-        manager.get_session_id.return_value = "sess-new"
+        manager.open_tab.return_value["session_id"] = "sess-new"
         manager.close_tab = AsyncMock(return_value=(False, "HTTP 502 closing session"))
 
-        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect",
+        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
                            headers={"X-Workspace-Token": ws["token"]})
         assert resp.status_code == 200
         assert resp.json()["data"]["session_id"] == "sess-new"
@@ -718,10 +723,114 @@ class TestOrphanTombstones:
         _patch_manager_cls(MockManager, manager)
         tab = _open_tab(client, ws).json()["data"]
 
-        manager.get_session_id.return_value = "sess-new"
+        manager.open_tab.return_value["session_id"] = "sess-new"
 
-        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect",
+        resp = client.post(f"/v1/browser/tabs/{tab['id']}/reconnect?confirm_replace=true&expected_session_id=sess-old",
                            headers={"X-Workspace-Token": ws["token"]})
         assert resp.status_code == 200
 
         assert db.query(BrowserTab).filter_by(session_id="sess-old").count() == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. Per-workspace keys, no global env key: pruning + context deletion
+# ---------------------------------------------------------------------------
+
+class TestNoGlobalKeyMaintenance:
+    """Regression for the 2026-09-29 incident: with BROWSERFABRIC_API_KEY unset
+    (per-workspace keys), pruning was gated on the global key and never ran,
+    so zombie sessions accumulated until MAX_BROWSER_TABS rejected every tab."""
+
+    def _manager_with_zombies(self, monkeypatch, n):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        for i in range(n):
+            manager._sessions[f"tab-{i}"] = f"sess-{i}"
+            manager._tab_keys[f"tab-{i}"] = "ws-key"
+        return manager
+
+    def test_prune_runs_without_global_key(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 3)
+
+        async def bf(tool_name, arguments=None, session_id=None, api_key=None, tab_id=None):
+            if tool_name == "get_page_info":
+                raise _http_status_error(404)  # session gone on BF
+            return {"success": True, "result": {}}
+
+        manager._bf_call = AsyncMock(side_effect=bf)
+        pruned = asyncio.run(manager._prune_dead_sessions())
+
+        assert pruned == 3
+        assert manager._sessions == {}
+
+    def test_prune_probes_with_the_tab_key_not_global(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 1)
+        manager._bf_call = AsyncMock(return_value={"success": True, "result": {}})
+
+        asyncio.run(manager._prune_dead_sessions())
+
+        probe = manager._bf_call.await_args_list[0]
+        assert probe.kwargs.get("api_key") == "ws-key"
+        assert manager._sessions == {"tab-0": "sess-0"}  # alive, kept
+
+    def test_session_without_any_key_counts_as_dead(self, monkeypatch):
+        manager = self._manager_with_zombies(monkeypatch, 1)
+        manager._tab_keys.clear()  # e.g. cache lost across a restart
+        manager._bf_call = AsyncMock()
+
+        pruned = asyncio.run(manager._prune_dead_sessions())
+
+        assert pruned == 1
+        manager._bf_call.assert_not_awaited()
+
+    def test_cloud_open_delegates_capacity_without_probing_other_tabs(self, monkeypatch):
+        from app import browser as browser_module
+        manager = self._manager_with_zombies(monkeypatch, browser_module.MAX_BROWSER_TABS)
+
+        async def bf(tool_name, arguments=None, session_id=None, api_key=None, tab_id=None):
+            if tool_name == "get_page_info":
+                raise _http_status_error(404)
+            if tool_name == "create_session":
+                return {"success": True, "result": {"session_id": "sess-new", "share_url": "https://live"}}
+            return {"success": True, "result": {"url": "u", "title": "t"}}
+
+        manager._bf_call = AsyncMock(side_effect=bf)
+        asyncio.run(manager.open_tab("tab-new", "https://example.com", api_key="ws-key"))
+
+        assert manager.get_session_id("tab-new") == "sess-new"
+        assert len(manager._sessions) == browser_module.MAX_BROWSER_TABS + 1
+        assert manager._bf_call.await_args_list[0].args[0] == "create_session"
+
+    def test_delete_bb_context_uses_workspace_key(self, monkeypatch):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        seen = {}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, url, headers=None):
+                seen["url"] = url; seen["headers"] = headers
+
+        monkeypatch.setattr("app.browser.httpx.Client", _Client)
+        manager.delete_bb_context("ctx-1", api_key="ws-key")
+
+        assert seen["url"].endswith("/api/v1/contexts/ctx-1")
+        assert seen["headers"] == {"Authorization": "Bearer ws-key"}
+
+    def test_delete_bb_context_without_any_key_is_a_noop(self, monkeypatch):
+        monkeypatch.setattr("app.browser.BROWSERFABRIC_API_KEY", "")
+        manager = BrowserManager()
+        called = {"n": 0}
+
+        class _Client:
+            def __init__(self, *a, **k): called["n"] += 1
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def delete(self, *a, **k): pass
+
+        monkeypatch.setattr("app.browser.httpx.Client", _Client)
+        manager.delete_bb_context("ctx-1")
+
+        assert called["n"] == 0

@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@renderer/lib/utils"
 import { Button } from "@renderer/components/ui/button"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function Dialog({
   ...props
@@ -53,6 +54,9 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />

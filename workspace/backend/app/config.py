@@ -32,8 +32,33 @@ class Config:
     # deployment sets this explicitly via the environment.
     FIREBASE_PROJECT_ID: str = os.environ.get("FIREBASE_PROJECT_ID", "")
 
-    # Optional: Firebase service account credentials as JSON string
+    # Firebase service account credentials, the whole JSON key file as a
+    # single-line string. Optional for login (verifying an ID token needs only
+    # FIREBASE_PROJECT_ID plus Google's public certs) but REQUIRED for mobile
+    # push: services/fcm_client.py sends through Firebase Cloud Messaging,
+    # which is an authenticated API call. Without it, push is silently off.
     FIREBASE_CREDENTIALS_JSON: str = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
+
+    # Firebase Web API key of the same project — the public key that ships in
+    # the web client bundle. Used server-side to exchange the openagents.org
+    # login-handoff custom token via the Identity Toolkit REST API on behalf of
+    # browsers that cannot reach Google themselves (mainland China).
+    FIREBASE_WEB_API_KEY: str = os.environ.get(
+        "FIREBASE_WEB_API_KEY", "AIzaSyCXgN-7HfgAQiN0pRKqGi8jMbGGo9e9X34"
+    )
+
+    # Workspace-issued login session (HS256 JWT). Minted by POST /v1/auth/session
+    # after a server-side custom-token exchange and accepted as an identity
+    # bearer alongside Firebase / Apple ID tokens, so a signed-in browser never
+    # has to talk to Google. Unset = the endpoint is disabled (503).
+    WORKSPACE_SESSION_SECRET: str = os.environ.get("WORKSPACE_SESSION_SECRET", "")
+    WORKSPACE_SESSION_TTL_DAYS: int = int(os.environ.get("WORKSPACE_SESSION_TTL_DAYS", "30"))
+    # A session can be renewed (POST /v1/auth/session/renew) for this long after
+    # the sign-in that started it; past that the user signs in again. Bounds how
+    # long a leaked session could be kept alive by renewing it.
+    WORKSPACE_SESSION_MAX_AGE_DAYS: int = int(
+        os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "90")
+    )
 
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use
@@ -44,19 +69,11 @@ class Config:
     # in the environment for the deployment that owns that bundle id.
     APPLE_CLIENT_IDS: str = os.environ.get("APPLE_CLIENT_IDS", "")
 
-    # APNs (Apple Push Notification service) — direct, no FCM in between.
-    # Token-based auth via a .p8 key generated at
-    # developer.apple.com/account/resources/authkeys/list.
-    # APNS_AUTH_KEY contains the raw PEM body ("-----BEGIN PRIVATE KEY-----\n...");
-    # for local dev set APNS_AUTH_KEY_PATH instead to point at the .p8 file on disk.
-    APNS_AUTH_KEY: str = os.environ.get("APNS_AUTH_KEY", "")
-    APNS_AUTH_KEY_PATH: str = os.environ.get("APNS_AUTH_KEY_PATH", "")
-    APNS_KEY_ID: str = os.environ.get("APNS_KEY_ID", "")
-    APNS_TEAM_ID: str = os.environ.get("APNS_TEAM_ID", "")
-    APNS_BUNDLE_ID: str = os.environ.get("APNS_BUNDLE_ID", "org.openagents.workspace")
-    # "sandbox" for TestFlight / dev builds, "production" for App Store.
-    # One Apple key works for both; this picks which APNs host to hit.
-    APNS_ENVIRONMENT: str = os.environ.get("APNS_ENVIRONMENT", "production")
+    # Apple push used to be sent direct to APNs from here (APNS_AUTH_KEY /
+    # APNS_KEY_ID / APNS_TEAM_ID / APNS_BUNDLE_ID / APNS_ENVIRONMENT). It now
+    # goes through FCM like Android does, so those vars are gone: upload the
+    # .p8 key to the Firebase console (Project settings → Cloud Messaging →
+    # APNs Authentication Key) instead, and set FIREBASE_CREDENTIALS_JSON here.
 
     # Identity mode: "standalone" (own agent table) or "shared" (external agent_ids)
     IDENTITY_MODE: str = os.environ.get("IDENTITY_MODE", "standalone")
@@ -101,6 +118,12 @@ class Config:
 
     # LLM Router — uses a small model to decide agent turn-taking in multi-agent threads
     # Provider: "anthropic" (default) or "openai" (any OpenAI-compatible endpoint)
+    # Enable only after every approval handler has the scoped-access release.
+    THREAD_COLLABORATION_ENABLED: bool = os.environ.get("THREAD_COLLABORATION_ENABLED", "false").lower() in ("true", "1", "yes")
+    THREAD_AGENT_ACCESS_ENABLED: bool = os.environ.get("THREAD_AGENT_ACCESS_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_ENABLED: bool = os.environ.get("COMPLETION_ROUTING_ENABLED", "false").lower() in ("true", "1", "yes")
+    COMPLETION_ROUTING_MAX_HANDOFFS: int = max(1, min(20, int(os.environ.get("COMPLETION_ROUTING_MAX_HANDOFFS", "6"))))
+    AUTOMATIC_REVIEW_HANDOFF_ENABLED: bool = os.environ.get("AUTOMATIC_REVIEW_HANDOFF_ENABLED", "false").lower() in ("true", "1", "yes")
     ROUTER_LLM_ENABLED: bool = os.environ.get("ROUTER_LLM_ENABLED", "true").lower() in ("true", "1", "yes")
     ROUTER_LLM_PROVIDER: str = os.environ.get("ROUTER_LLM_PROVIDER", "anthropic")  # "anthropic" or "openai"
     ROUTER_LLM_MODEL: str = os.environ.get("ROUTER_LLM_MODEL", "")  # auto-detected from provider if empty
@@ -126,12 +149,16 @@ class Config:
     YUMI_ENABLED: bool = os.environ.get("YUMI_ENABLED", "true").lower() in ("true", "1", "yes")
     YUMI_API_KEY: str = os.environ.get("YUMI_API_KEY", "")
     YUMI_BASE_URL: str = os.environ.get("YUMI_BASE_URL", "https://api-gateway.openagents.org/v1")
-    # minimax-m2.5: fastest reliable tool-looper on the gateway (2026-08-27
-    # screen of all 23 models: ~7s/2-turn loop, 4/4 valid reps, all quality
-    # probes passed; deepseek-4-flash had degraded to >40s continuation turns).
-    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "minimax-m2.5")
+    # deepseek-v4.1-flash (2026-09-22): passes every manager/coordination
+    # probe with the most polished replies; ~2x slower per tool loop than
+    # minimax-m2.5 (14.7s vs 6.1s avg, mostly answer length) and ~33% pricier.
+    # Previous: minimax-m2.5 (fastest reliable tool-looper, 2026-08-27 screen).
+    YUMI_MODEL: str = os.environ.get("YUMI_MODEL", "deepseek-v4.1-flash")
     # Safety cap on the tool-calling loop per user message.
     YUMI_MAX_TOOL_ITERATIONS: int = int(os.environ.get("YUMI_MAX_TOOL_ITERATIONS", "6"))
+    # Output cap per LLM turn. The prompt asks for short replies; this bounds
+    # the answer turn (which dominates latency) for verbose models.
+    YUMI_MAX_TOKENS: int = int(os.environ.get("YUMI_MAX_TOKENS", "800"))
 
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
@@ -148,6 +175,14 @@ class Config:
     RESEND_API_KEY: str = os.environ.get("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
+
+    # Server-side product analytics (PostHog). Authoritative funnel
+    # checkpoints keyed by account email — see app/services/analytics.py.
+    # Explicit opt-in: local checkouts, tests and self-hosted instances must
+    # never send synthetic activity into the hosted production project.
+    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "")
+    POSTHOG_HOST: str = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "false").lower() in ("1", "true")
 
     # Chat-platform integrations (Slack / Telegram bridges). The public base
     # URL is what external platforms call back to — Telegram setWebhook and
@@ -171,6 +206,52 @@ class Config:
     CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
     CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
     CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
+    # Anti-farming (2026-09-20 incident: 700 bot accounts on a catch-all domain
+    # scripted the ladder for $23k of limits). Credits require a verified email
+    # (Google/Apple sign-in counts; email/password users confirm the welcome
+    # link), and blocked/disposable domains never get a key or a grant.
+    # Unverified users still receive the signup credit ($5) and their key the
+    # moment they sign up; every further reward needs a verified address
+    # (decision 2026-09-20). Expressed as a ladder-total allowance so a future
+    # signup amount needs no code change. 0 = nothing before verification.
+    CAMPAIGN_UNVERIFIED_ALLOWANCE_USD: float = float(os.environ.get("CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", "5"))
+    CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
+    # openagents.org account API (openagents-web backend) — consulted once per
+    # unverified user's status fetch to learn whether the address was confirmed
+    # there (covers sessions established before the handoff carried the claim).
+    ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
+    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de,temp-mail-free.dedyn.io")
+    # Only addresses at these common mailbox providers earn credits (decision
+    # 2026-10-08): every farm since 09-18 used catch-all domains on email
+    # sign-up, solving the captcha and rotating proxies past the per-IP cap.
+    # Exact domain match. Other domains can sign up and use the product but
+    # get no key and no grants. Empty string turns the restriction off.
+    CAMPAIGN_ALLOWED_EMAIL_DOMAINS: str = os.environ.get(
+        "CAMPAIGN_ALLOWED_EMAIL_DOMAINS",
+        "gmail.com,googlemail.com,"
+        "qq.com,vip.qq.com,foxmail.com,163.com,vip.163.com,126.com,yeah.net,"
+        "sina.com,sina.cn,aliyun.com,139.com,"
+        "outlook.com,hotmail.com,live.com,msn.com,"
+        "icloud.com,me.com,mac.com,privaterelay.appleid.com,"
+        "yahoo.com,aol.com,proton.me,protonmail.com,pm.me,"
+        "naver.com,mail.ru,yandex.ru,yandex.com,gmx.de,gmx.com,web.de",
+    )
+
+    # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
+    # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
+    # set; every call must present it in X-Admin-Secret. Amount is fixed
+    # server-side (never client-supplied). Eligibility = a launcher/CLI agent
+    # connected in an owned workspace + one real conversation with it (a human
+    # message and a qualifying agent reply). PILOT_MIN_ACTIVE_DAYS optionally
+    # adds a distinct-active-days requirement within PILOT_WINDOW_DAYS.
+    PILOT_ADMIN_SECRET: str = os.environ.get("PILOT_ADMIN_SECRET", "")
+    PILOT_GRANT_USD: float = float(os.environ.get("PILOT_GRANT_USD", "300"))
+    # 0 = no day requirement (decision 2026-09-15: one real conversation is enough).
+    # >0 re-enables the "N distinct active UTC days in the window" rule.
+    PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "0"))
+    PILOT_WINDOW_DAYS: int = int(os.environ.get("PILOT_WINDOW_DAYS", "30"))
+    # Blast-radius cap for the grant endpoint (per process, sliding hour).
+    PILOT_MAX_GRANTS_PER_HOUR: int = int(os.environ.get("PILOT_MAX_GRANTS_PER_HOUR", "30"))
 
     # In-app feedback forwarding. Feedback rows always land in the DB; when
     # this is set they are also emailed (via Resend) to the team.

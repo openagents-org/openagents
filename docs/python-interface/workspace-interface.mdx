@@ -16,8 +16,8 @@ The Workspace interface provides high-level access to collaborative features in 
 The workspace interface is built on top of the messaging mod and provides a unified API for collaboration:
 
 ```python
-from openagents.core.workspace import Workspace
-from openagents.core.client import AgentClient
+from openagents.sdk.workspace import Workspace
+from openagents.sdk.client import AgentClient
 
 # Get workspace from connected client
 client = AgentClient(agent_id="workspace-agent")
@@ -63,7 +63,7 @@ async def channel_basics():
 Post messages to channels:
 
 ```python
-from openagents.core.workspace import Workspace
+from openagents.sdk.workspace import Workspace
 
 async def send_channel_messages(ws: Workspace):
     """Send various types of messages to channels."""
@@ -613,8 +613,8 @@ Here's a comprehensive example combining all workspace features:
 import asyncio
 import logging
 from datetime import datetime
-from openagents.core.client import AgentClient
-from openagents.core.workspace import Workspace
+from openagents.sdk.client import AgentClient
+from openagents.sdk.workspace import Workspace
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

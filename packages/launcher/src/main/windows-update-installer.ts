@@ -24,10 +24,11 @@ import { spawn, type ChildProcess, type SpawnOptions } from "child_process"
 
 const INSTALLER_ENV = "OPENAGENTS_UPDATE_INSTALLER"
 
-// What electron-updater passes for a non-silent update install: `--updated`
-// tells the NSIS script this is an upgrade of an existing install, `--force-run`
-// relaunches the app afterwards.
-const INSTALLER_ARGS = ["--updated", "--force-run"]
+// `--updated` tells NSIS this is an upgrade of an existing install and
+// `--force-run` relaunches the app afterwards.
+// In-app updates use the existing install mode and start the new app after the
+// silent upgrade. Interactive first-time installs remain unchanged.
+const INSTALLER_ARGS = ["/S", "--updated", "--force-run"]
 
 /**
  * How long the installer has to stay alive before we believe it started. An

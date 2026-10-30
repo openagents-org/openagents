@@ -1,6 +1,9 @@
 {
   "name": "openai",
   "label": "OpenAI",
+  "description": "GPT-5 and the o-series",
+  "description_zh": "GPT-5 与 o 系列",
+  "key_url": "https://platform.openai.com/api-keys",
   "base_url": null,
   "order": 20,
   "models": [

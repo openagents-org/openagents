@@ -8,6 +8,10 @@ routers, and adding first-class user/membership resolution on top of the
 verified identity token.
 
 Access rules (evaluated in order):
+  0. A deleted workspace admits nobody, whatever they hold. Its token and its
+     memberships outlive the soft delete in the database, so without this a
+     client that still had the token kept working in a workspace its owner had
+     removed and never learned it was gone.
   1. Workspace token — `X-Workspace-Token` == `workspace.password_hash`.
      The MACHINE credential (agents, daemons, adapters, iOS, legacy share
      links). Always accepted regardless of `require_login`.
@@ -27,10 +31,12 @@ left on its own path for now; enforcement there lands with Phase 3.
 
 import logging
 import secrets
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session as SqlaSession
 
@@ -41,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Role hierarchy, highest to lowest. Token/machine access is treated as
 # owner-equivalent for min-role checks (fully trusted credential).
-ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+ROLE_RANK = {"guest": 0, "viewer": 1, "member": 2, "admin": 3, "owner": 4}
 
 
 def _now() -> datetime:
@@ -55,6 +61,16 @@ def extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+def repeats_machine_token(token: Optional[str], authorization: Optional[str]) -> bool:
+    """Older machine clients repeat X-Workspace-Token as a Bearer header.
+
+    This only identifies the wire format; callers must still validate the
+    credential against the requested workspace or connection.
+    """
+    bearer = extract_bearer(authorization)
+    return bool(token and bearer and secrets.compare_digest(token.encode(), bearer.encode()))
+
+
 def role_at_least(role: Optional[str], min_role: Optional[str]) -> bool:
     """True if `role` meets or exceeds `min_role` (None min_role = any role)."""
     if min_role is None:
@@ -65,6 +81,39 @@ def role_at_least(role: Optional[str], min_role: Optional[str]) -> bool:
 # ---------------------------------------------------------------------------
 # User resolution
 # ---------------------------------------------------------------------------
+
+def _insert_user_or_get_winner(db: Session, candidate: User) -> tuple[User, bool]:
+    """Recover a concurrent first-login/invite without rolling back the caller.
+
+    The unique email constraint arbitrates across workers. Only the losing
+    insert is rolled back; identity backfills still run on the winning row.
+    """
+    # begin_nested flushes pending caller writes. Keep that outside the handler
+    # so failures in those writes are never mistaken for our insertion race.
+    connection = db.connection()
+    if connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
+        # SQLite's legacy transaction mode does not BEGIN for SELECT/SAVEPOINT.
+        # Releasing a first savepoint must not commit the user behind the caller.
+        connection.exec_driver_sql("BEGIN")
+    savepoint = db.begin_nested()
+    try:
+        with savepoint:
+            db.add(candidate)
+            db.flush()
+    except IntegrityError as exc:
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        email_conflict = constraint == "uq_users_email" or (
+            isinstance(exc.orig, sqlite3.IntegrityError)
+            and str(exc.orig) == "UNIQUE constraint failed: users.email"
+        )
+        if not email_conflict:
+            raise
+        winner = db.execute(select(User).where(User.email == candidate.email)).scalar_one_or_none()
+        if winner is None:
+            raise
+        return winner, False
+    return candidate, True
+
 
 def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
     """Resolve (or lazily create) the User row for a verified identity.
@@ -78,6 +127,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    verified = bool(claims.get("email_verified"))
     if user is None:
         user = User(
             email=email,
@@ -85,10 +135,13 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
             apple_sub=claims.get("apple_sub"),
             display_name=claims.get("display_name"),
             last_login_at=_now(),
+            email_verified_at=_now() if verified else None,
         )
-        db.add(user)
-        db.flush()
-        return user
+        user, created = _insert_user_or_get_winner(db, user)
+        if created:
+            from app.services.analytics import track_account_created
+            track_account_created(email, provider=claims.get("provider"), email_verified=verified)
+            return user
 
     # Backfill identity fields we didn't have yet (never clobber existing).
     if claims.get("firebase_uid") and not user.firebase_uid:
@@ -97,6 +150,10 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         user.apple_sub = claims["apple_sub"]
     if claims.get("display_name") and not user.display_name:
         user.display_name = claims["display_name"]
+    # Verification only ever ratchets on: a later unverified token (e.g. the
+    # China session path) must not un-verify an address.
+    if verified and not user.email_verified_at:
+        user.email_verified_at = _now()
     user.last_login_at = _now()
     return user
 
@@ -121,9 +178,10 @@ def get_or_create_user_by_email(db: Session, email: str) -> User:
     email = email.strip().lower()
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None:
-        user = User(email=email)
-        db.add(user)
-        db.flush()
+        user, created = _insert_user_or_get_winner(db, User(email=email))
+        if created:
+            from app.services.analytics import track_account_created
+            track_account_created(email, provider=None, email_verified=False, via="invite")
     return user
 
 
@@ -210,6 +268,8 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
             seed_welcome_thread(db, ws)
     except Exception:
         logger.warning("provision_workspace: failed to provision Yumi", exc_info=True)
+    from app.services.analytics import track_workspace_created
+    track_workspace_created(user.email, ws.slug, auto_provisioned=True)
     return ws
 
 
@@ -251,7 +311,8 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
         return "owner"
     for c in (workspace.collaborators or []):
         if c.email == email:
-            return "member" if (c.role or "editor") == "editor" else "viewer"
+            r = c.role or "editor"
+            return "member" if r == "editor" else ("guest" if r == "guest" else "viewer")
     return None
 
 
@@ -307,6 +368,16 @@ def verify_workspace_access(
     (owner|admin|member|viewer) gates identity-based access; token (machine)
     access is fully trusted and bypasses the role check.
     """
+    # 0. Deleted: no credential opens it.
+    if workspace.status == "deleted":
+        return False
+    # A presented person identity is authoritative, even with a workspace token.
+    if authorization and not repeats_machine_token(token, authorization):
+        if db is None:
+            db = SqlaSession.object_session(workspace)
+        role = resolve_user_role(db, workspace, authorization) if db is not None else None
+        return role is not None and role_at_least(role, min_role)
+
     # 1. Machine / legacy workspace token — fully trusted.
     if workspace.password_hash and token and token == workspace.password_hash:
         return True

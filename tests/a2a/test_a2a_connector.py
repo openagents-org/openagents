@@ -7,7 +7,7 @@ import asyncio
 import aiohttp
 from aiohttp import web
 
-from openagents.core.connectors.a2a_connector import A2ANetworkConnector
+from openagents.sdk.connectors.a2a_connector import A2ANetworkConnector
 from openagents.models.a2a import (
     Task,
     TaskState,

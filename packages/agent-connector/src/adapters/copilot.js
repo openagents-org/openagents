@@ -38,9 +38,14 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, execFileSync, spawn } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+// spawn() here is the WSL bridge from ../wsl: same signature as
+// child_process.spawn, and a straight pass-through unless the resolved CLI
+// lives on the other side of the Windows/WSL boundary.
+const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { failureDetail } = require('./run-failure');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 const { compareVersions } = require('../installer');
@@ -72,7 +77,7 @@ const SECRET_ENV_VARS = [
 const ACT_ALLOW_TOOLS = ['shell', 'write'];
 
 // How long to wait for a turn before giving up (no output / hung CLI).
-const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+const TURN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 class CopilotAdapter extends BaseAdapter {
   /**
@@ -82,7 +87,7 @@ class CopilotAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the system prompt.
+    // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;
@@ -326,44 +331,10 @@ class CopilotAdapter extends BaseAdapter {
       endpoint: this.endpoint,
       token: this.token,
       mode: this._mode,
+      model: this.modelLabel(),
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });
-  }
-
-  // ------------------------------------------------------------------
-  // Control actions (stop / interrupt)
-  // ------------------------------------------------------------------
-
-  async _onControlAction(action, payload) {
-    if (action === 'stop') {
-      const channel = (payload && typeof payload === 'object') ? payload.channel : null;
-      if (channel) {
-      // Scoped to the named channel whether or not anything is running there.
-      // Keying the per-channel branch on a live process meant a stop naming an
-      // idle channel fell through and killed every other channel's work.
-        this._stoppingChannels.add(channel);
-        delete this._channelQueues[channel];
-        if (this._channelProcesses[channel]) {
-          await this._stopProcess(this._channelProcesses[channel]);
-          delete this._channelProcesses[channel];
-        }
-        // Announced as a status, not a response — this adapter deliberately
-        // posts nothing of type 'response' after a user stop. The wording still
-        // carries "stopped", which is what the workspace UI matches on to
-        // release its Stop button.
-        try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
-      } else {
-        for (const [ch, proc] of Object.entries(this._channelProcesses)) {
-          this._stoppingChannels.add(ch);
-          await this._stopProcess(proc);
-          delete this._channelProcesses[ch];
-          try { await this.sendStatus(ch, 'Execution stopped by user'); } catch {}
-        }
-      }
-      return;
-    }
-    await super._onControlAction(action, payload);
   }
 
   /**
@@ -458,14 +429,6 @@ class CopilotAdapter extends BaseAdapter {
 
     // Up to 2 attempts: resume first, then a fresh session if resume was stale.
     for (let attempt = 0; attempt < 2; attempt++) {
-      // Re-checked every attempt. The stop can land during the awaits above,
-      // when there is no process to kill, and again between the first spawn and
-      // the stale-session retry — either way the work must not start.
-      if (this._turnWasStopped(channel, msg)) {
-        this._log(`Not starting a run in ${channel} — the user stopped it first`);
-        await this._postStopNotice(channel);
-        return;
-      }
       const skipResume = attempt > 0;
       const args = this._buildArgs(fullPrompt, channel, { skipResume });
       this._logSpawn(channel, args, skipResume);
@@ -474,7 +437,7 @@ class CopilotAdapter extends BaseAdapter {
       try {
         result = await this._runTurn(channel, args);
       } catch (e) {
-        await this.sendError(channel, `Error: ${redactSensitive(e.message)}`);
+        await this.sendError(channel, `Error: ${this._redact(e.message)}`);
         return;
       }
 
@@ -556,6 +519,8 @@ class CopilotAdapter extends BaseAdapter {
    * `errorMessage` / `staleSession` / `timedOut` so the caller can react.
    */
   _runTurn(channel, args) {
+    // Stopped while this turn was being prepared: start nothing (no tokens).
+    if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const [file, ...prefix] = this._resolveExec(this._copilotBin);
     const env = getEnhancedEnv({ ...(this.agentEnv || process.env) });
     const cwd = this.workingDir || defaultAgentWorkdir(this.agentName);
@@ -571,7 +536,7 @@ class CopilotAdapter extends BaseAdapter {
           windowsHide: true,
         });
       } catch (e) {
-        return resolve({ errorMessage: `Failed to launch Copilot CLI: ${redactSensitive(e.message)}` });
+        return resolve({ errorMessage: `Failed to launch Copilot CLI: ${this._redact(e.message)}` });
       }
       this._channelProcesses[channel] = proc;
 
@@ -601,10 +566,15 @@ class CopilotAdapter extends BaseAdapter {
       let pending = Promise.resolve();
       let settled = false;
 
-      const timeout = setTimeout(() => {
-        this._stopProcess(proc).catch(() => {});
-        finish({ timedOut: true, finalText: accumulatedText() });
-      }, TURN_TIMEOUT_MS);
+      let timeout = null;
+      const resetTimeout = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          this._stopProcess(proc).catch(() => {});
+          finish({ timedOut: true, finalText: accumulatedText() });
+        }, TURN_IDLE_TIMEOUT_MS);
+      };
+      resetTimeout();
 
       const finish = (summary) => {
         if (settled) return;
@@ -623,10 +593,14 @@ class CopilotAdapter extends BaseAdapter {
             }
             break;
           case 'text_delta':
-            // Streamed interim text is shown live as `thinking`; the final
-            // `text` event (if any) is the authoritative answer.
+            // Accumulate only — never narrate. These deltas ARE the final
+            // answer being streamed a token at a time (Copilot's
+            // `assistant.message_delta`), and the answer is posted in full
+            // when the turn ends. Sending each one as `thinking` published the
+            // reply twice: once as a column of one-word messages, then again
+            // whole.
             if (sawToolSinceText) { finalParts.length = 0; deltaBuf = ''; sawToolSinceText = false; }
-            if (ev.text) { deltaBuf += ev.text; try { await this.sendThinking(channel, ev.text); } catch {} }
+            if (ev.text) deltaBuf += ev.text;
             break;
           case 'text':
             // A complete message supersedes the deltas streamed for this block.
@@ -672,6 +646,13 @@ class CopilotAdapter extends BaseAdapter {
             errorEvent = errorEvent || { message: ev.message, code: ev.code };
             break;
           case 'done':
+            // Copilot reports its session id only in the terminal `result`
+            // frame — no session event precedes it — so this is the one place
+            // a resumable id can be captured.
+            if (ev.sessionId && this._channelSessions[channel] !== ev.sessionId) {
+              this._channelSessions[channel] = ev.sessionId;
+              this._saveSessions();
+            }
             break;
           case 'unknown':
             // Preserve a redacted diagnostic; never crash the task.
@@ -681,6 +662,9 @@ class CopilotAdapter extends BaseAdapter {
             break;
         }
       };
+
+      if (proc.stdout) proc.stdout.on('data', resetTimeout);
+      if (proc.stderr) proc.stderr.on('data', resetTimeout);
 
       proc.stdout.on('data', (chunk) => {
         for (const ev of parser.push(chunk)) {
@@ -692,7 +676,7 @@ class CopilotAdapter extends BaseAdapter {
       }
 
       proc.on('error', (err) => {
-        finish({ errorMessage: `Copilot CLI failed to start: ${redactSensitive(err.message)}` });
+        finish({ errorMessage: `Copilot CLI failed to start: ${this._redact(err.message)}` });
       });
 
       proc.on('exit', async (code) => {
@@ -803,10 +787,20 @@ class CopilotAdapter extends BaseAdapter {
       return { hard: true, message: 'Copilot was denied a required permission (path/tool). The task may need access outside the working directory.' };
     }
     if (errorEvent && errorEvent.message) {
-      return { hard: true, message: `Copilot error: ${redactSensitive(errorEvent.message).slice(0, 300)}` };
+      return { hard: true, message: `Copilot error: ${this._redact(errorEvent.message).slice(0, 300)}` };
     }
     if (exitCode && exitCode !== 0) {
-      return { hard: false, message: `Copilot CLI exited with code ${exitCode}.` };
+      // Nothing above matched, so quote what the CLI actually said (redacted,
+      // chatter dropped) — a bare exit code tells the user nothing.
+      const detail = failureDetail({
+        stderr, error: errorEvent && errorEvent.message, secrets: this._knownSecrets(),
+      });
+      return {
+        hard: false,
+        message: detail
+          ? `Copilot CLI exited with code ${exitCode}: ${detail}`
+          : `Copilot CLI exited with code ${exitCode}.`,
+      };
     }
     return null;
   }

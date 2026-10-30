@@ -20,14 +20,18 @@ interface UiState {
   // dropping the user on the page. Consumed once and cleared by the page, which
   // keeps a later visit to that tab from re-opening the dialog.
   pendingCreate: 'agent' | 'workspace' | null
-  requestCreate: (what: 'agent' | 'workspace') => void
+  /** With `pendingCreate: 'agent'`: the type to open the setup form on. */
+  pendingCreateType: string | null
+  requestCreate: (what: 'agent' | 'workspace', type?: string) => void
   clearPendingCreate: () => void
 
   // Bumped each time the user explicitly clicks the Install sidebar tab.
   // The Install page watches this and clears any open detail view so the
   // user always lands on the marketplace list when entering via the tab.
   installListSignal: number
-  goToInstallList: () => void
+  /** The status filter the list opens with, set alongside the signal. */
+  installListFilter: 'all' | 'installed' | 'updatable'
+  goToInstallList: (filter?: 'all' | 'installed' | 'updatable') => void
 
   // Deep-link into a specific Settings section (used by the update banner to
   // drop the user straight on Settings → Updates). The signal is bumped on
@@ -54,6 +58,13 @@ interface UiState {
   dismissUpdateBanner: (key: string) => void
   showUpdateBanner: () => void
 
+  // True while the update prompt is on screen. The banner says the same thing
+  // in one line as that dialog says in full, and both were appearing at once —
+  // the banner answering, from behind the dialog, the question the dialog was
+  // still asking.
+  updatePromptOpen: boolean
+  setUpdatePromptOpen: (open: boolean) => void
+
   // Activity log — replaces legacy activityEntries[]
   activityLog: ActivityEntry[]
   addActivity: (msg: string) => void
@@ -70,22 +81,42 @@ interface UiState {
 
 export const useUiStore = create<UiState>((set) => ({
   currentTab: 'dashboard',
-  setCurrentTab: (tab) => set({ currentTab: tab }),
+  // The Agents page has no rail entry of its own: This Computer lists the
+  // agents, so anything still asking for it — a notification, a saved deep
+  // link — lands there and the rail shows where the user is.
+  // Retired pages land where they live now: Agents on Connect Agents, Logs as
+  // a module of Settings (so the palette, shortcuts, notifications and a saved
+  // startup page that still say "logs" keep working).
+  setCurrentTab: (tab) =>
+    tab === 'logs'
+      ? set((s) => ({
+          currentTab: 'settings',
+          settingsSection: 'logs',
+          settingsSectionSignal: s.settingsSectionSignal + 1,
+        }))
+      : set({ currentTab: tab === 'agents' ? 'dashboard' : tab }),
 
   installFocusAgent: null,
   setInstallFocusAgent: (name) => set({ installFocusAgent: name }),
 
   pendingCreate: null,
-  requestCreate: (what) =>
+  pendingCreateType: null,
+  requestCreate: (what, type) =>
     set({
-      currentTab: what === 'agent' ? 'agents' : 'workspaces',
+      currentTab: what === 'agent' ? 'dashboard' : 'workspaces',
       pendingCreate: what,
+      pendingCreateType: type ?? null,
     }),
-  clearPendingCreate: () => set({ pendingCreate: null }),
+  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null }),
 
   installListSignal: 0,
-  goToInstallList: () =>
-    set((s) => ({ currentTab: 'install', installListSignal: s.installListSignal + 1 })),
+  installListFilter: 'all',
+  goToInstallList: (filter = 'all') =>
+    set((s) => ({
+      currentTab: 'install',
+      installListSignal: s.installListSignal + 1,
+      installListFilter: filter,
+    })),
 
   settingsSection: null,
   settingsSectionSignal: 0,
@@ -103,6 +134,9 @@ export const useUiStore = create<UiState>((set) => ({
   updateBannerDismissed: null,
   dismissUpdateBanner: (key) => set({ updateBannerDismissed: key }),
   showUpdateBanner: () => set({ updateBannerDismissed: null }),
+
+  updatePromptOpen: false,
+  setUpdatePromptOpen: (open) => set({ updatePromptOpen: open }),
 
   activityLog: [],
   addActivity: (msg) => {

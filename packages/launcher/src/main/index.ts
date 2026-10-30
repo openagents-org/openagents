@@ -12,13 +12,14 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  screen,
   session,
   shell,
 } from "electron"
 import path from "path"
 import fs from "fs"
 import os from "os"
-import { execFile, execFileSync } from "child_process"
+import { execFile } from "child_process"
 import { Store, settingsFilePath } from "./store"
 import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
@@ -46,6 +47,7 @@ import {
   checkForUpdatesOnStartup,
   getUpdaterState,
   installDownloadedUpdate,
+  refreshUpdatePreference,
   applyUpdateFeedUrl,
 } from "./updater"
 import { getGitHubClient, parseGitHubRepo } from "./github-bridge"
@@ -59,7 +61,7 @@ import {
   fetchJsonRacing,
 } from "./download"
 import { t, getMainLanguage, setMainLanguage } from "./i18n"
-import { asPath, asName, asShellCommand } from "./ipc-input"
+import { asPath, asName, asShellCommand, asString } from "./ipc-input"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -75,6 +77,7 @@ import {
   type NotificationPrefs,
 } from "./notifications"
 import { PORTABLE_NODE_DIR } from "./agents/paths"
+import { stopLeftoverDaemon } from "./agents/daemon-process"
 import { bundledCoreDir, readCoreVersion } from "./agents/runtime"
 import {
   markUiReached,
@@ -82,17 +85,27 @@ import {
   slog,
   STARTUP_LOG,
 } from "./bootstrap/startup-log"
+import { migrateLegacyUserData } from "./user-data-migration"
 import { InstallProgress } from "./install-progress"
 import {
   configuredControlPort,
   startControlServer,
 } from "./control-server"
 import { clearRevocation } from "./node-pairing"
+import { registerAccountIpc } from "./auth/ipc"
+import type { ThemeMode } from "../shared/appearance-bridge"
+import {
+  registerWorkspaceScheme,
+  serveWorkspaceBundle,
+} from "./workspace-bundle"
+import { normalizeWorkspaceEndpoint } from "./agents/env-normalize"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
+import { crashLoopGuard, startStallWatchdog } from "./responsiveness"
 import {
   applyDownloadRegion,
   applyProxyFromSettings,
   adoptSystemProxyForChildren,
+  proxyEnvForChildren,
   tuneNpmRegistry,
 } from "./net-config"
 import { hardenWebContents, openExternalSafely } from "./web-security"
@@ -102,6 +115,7 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
+  setChromeSkin,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -110,9 +124,18 @@ import {
   canExecuteNodeBinary,
   downloadNodejs,
   ensureBundledRuntimeFirstOnPath,
+  ensureUserBinDirsOnPath,
   extractTarball,
   findNpmCommand,
+  nodeBinaryIn,
+  nodeBinaryVersion,
 } from "./bootstrap/node-runtime"
+import {
+  NPM_VERSION,
+  needsNodeUpgrade,
+  pinnedNodeVersion,
+} from "./bootstrap/node-version"
+import { finishCarryOver, upgradeNodejs } from "./bootstrap/node-upgrade"
 
 function execFileAsync(
   file: string,
@@ -141,7 +164,24 @@ function execFileAsync(
 }
 
 
-app.setName("OpenAgents Launcher")
+// The app was renamed from "OpenAgents Launcher" to "OpenAgents". Electron
+// derives userData from this name, so the old profile has to be moved across
+// BEFORE the name is set and before anything reads a path from it.
+{
+  const result = migrateLegacyUserData(
+    app.getPath("appData"),
+    "OpenAgents Launcher",
+    "OpenAgents",
+  )
+  if (result !== "skipped") slog(`userData migration: ${result}`)
+}
+app.setName("OpenAgents")
+
+// Before anything can spawn: a GUI process inherits a shell-less PATH, and the
+// core's installer builds its child env from ours. Without this, an agent whose
+// install command is a user-installed tool (OpenWorker's `uv tool install …`)
+// fails with "command not found" on a machine that has the tool.
+ensureUserBinDirsOnPath()
 
 // Stop macOS from popping the "<App> wants to use the keychain Safe Storage"
 // password prompt. That entry is Chromium's OSCrypt key (shared with Electron's
@@ -294,6 +334,16 @@ const RUNTIME_LATEST_TTL = 60_000 * 10
 process.on("uncaughtException", reportStartupError)
 process.on("unhandledRejection", reportStartupError)
 
+// "Not responding" and a white window leave nothing in any log by themselves.
+// A held-up main thread is timed here; a GPU process that keeps dying — the
+// other way a window paints blank — is recorded below.
+startStallWatchdog(slog)
+app.on("child-process-gone", (_e, details) => {
+  slog(
+    `[child-process-gone] ${details.type}: ${details.reason} (exit ${details.exitCode})`,
+  )
+})
+
 
 let _updateSplash:
   | ((msg: string, pct: number, detail?: string) => void)
@@ -429,7 +479,9 @@ async function ensureCoreLibrary(): Promise<void> {
       const npmCmd = findNpmCommand()
       if (npmCmd) {
         try {
-          execFileSync(
+          // Asynchronous: an npm install takes up to two minutes, and a
+          // synchronous one froze the splash for all of it.
+          await execFileAsync(
             npmCmd.bin,
             [
               ...npmCmd.preArgs,
@@ -442,9 +494,8 @@ async function ensureCoreLibrary(): Promise<void> {
               npmRegistryBase(),
             ],
             {
-              stdio: "pipe",
               timeout: 120000,
-              windowsHide: true,
+              maxBuffer: 16 * 1024 * 1024,
               env: withPathEnv(
                 PORTABLE_NODE_DIR +
                   (process.platform === "win32" ? ";" : ":") +
@@ -478,7 +529,7 @@ async function ensureCoreLibrary(): Promise<void> {
     try {
       const npmTgz = path.join(os.tmpdir(), "npm-reinstall.tgz")
       const npmDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadToFile(npmUrls("npm/-/npm-10.9.8.tgz"), npmTgz, {
+      await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
         log: slog,
       })
       fs.mkdirSync(npmDir, { recursive: true })
@@ -501,20 +552,21 @@ async function checkCoreUpdate(): Promise<void> {
   const npmCmd = findNpmCommand()
   if (!npmCmd) return
   try {
-    const latest = execFileSync(
+    // Asynchronous: `npm view` is a registry round-trip behind a second of npm
+    // startup, and done synchronously it froze the window for up to its 15s
+    // timeout — 30s after every launch and every four hours after that.
+    const latest = await execFileAsync(
       npmCmd.bin,
       [...npmCmd.preArgs, "view", CORE_PKG, "version"],
       {
-        encoding: "utf-8",
         timeout: 15000,
-        windowsHide: true,
         env: withPathEnv(
           PORTABLE_NODE_DIR +
             (process.platform === "win32" ? ";" : ":") +
             readPathEnv(),
         ),
       },
-    ).trim()
+    )
 
     if (coreVersion && latest && latest !== coreVersion) {
       if (mainWindow) {
@@ -535,12 +587,17 @@ function createWindow(): void {
     return
   }
 
+  // Capped to the screen the window opens on. A 13" MacBook's work area is
+  // shorter than 800 once the menu bar and Dock are taken out, so a fixed
+  // 1200×800 opened past the bottom edge — and with the minimum set to the same
+  // size, it could not be dragged back inside either.
+  const workArea = screen.getPrimaryDisplay().workAreaSize
   mainWindow = new BrowserWindow({
-    minWidth: 1200,
-    minHeight: 800,
-    width: 1200,
-    height: 800,
-    title: "OpenAgents Launcher",
+    minWidth: Math.min(960, workArea.width),
+    minHeight: Math.min(600, workArea.height),
+    width: Math.min(1200, workArea.width),
+    height: Math.min(800, workArea.height),
+    title: "OpenAgents",
     autoHideMenuBar: true,
     // The app draws its own top edge. The system title bar was a grey plate
     // above a themed app, repeating a name and icon the rail already shows —
@@ -550,15 +607,14 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the reserved strip: (40 - 12) / 2 ≈ 14 from the top,
-          // and far enough in from the left to clear the rail's rounded corner.
-          trafficLightPosition: { x: 16, y: 14 },
+          // Centred in the top bar: (48 - 12) / 2 = 18 from the top.
+          trafficLightPosition: { x: 16, y: 18 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white
     // before the first frame — the frame used to hide that behind its own
     // chrome. Matches `--background`, like the overlay above.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#f2f2f7",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a20" : "#fcfdfe",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -578,6 +634,21 @@ function createWindow(): void {
   // Mirror the renderer console to ~/.openagents/renderer.log — the only
   // trace of renderer errors on machines reached over SSH.
   attachRendererLogging(mainWindow.webContents)
+
+  // A renderer that dies leaves the window blank for as long as the app runs —
+  // nothing else ever reloads it. Bring it back, unless it keeps dying.
+  const shouldReloadRenderer = crashLoopGuard()
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    slog(`[window] renderer gone: ${details.reason} (exit ${details.exitCode})`)
+    if (details.reason === "clean-exit") return
+    if (!shouldReloadRenderer()) {
+      slog("[window] renderer keeps crashing — not reloading it again")
+      return
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload()
+  })
+  mainWindow.on("unresponsive", () => slog("[window] renderer is not responding"))
+  mainWindow.on("responsive", () => slog("[window] renderer is responding again"))
 
   // Forget any dim state at the START of a load, not at the end of one. A
   // reload can strand main holding a dim whose dialog is long gone, so it does
@@ -809,14 +880,24 @@ function updateTrayMenu(): void {
     {
       label: t("trayQuit"),
       click: async () => {
-        const result = await dialog.showMessageBox({
+        const options: Electron.MessageBoxOptions = {
           type: "question",
           buttons: [t("quitConfirm"), t("cancel")],
           defaultId: 1,
+          cancelId: 1,
+          // Without this Windows renders every action as an oversized command
+          // link. A quit confirmation is a conventional modal, so use the
+          // familiar horizontal buttons users see in other desktop apps.
+          noLink: true,
+          normalizeAccessKeys: true,
           title: t("quitTitle"),
           message: t("quitMessage"),
           detail: t("quitDetail"),
-        })
+        }
+        const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+        const result = owner
+          ? await dialog.showMessageBox(owner, options)
+          : await dialog.showMessageBox(options)
         if (result.response === 0) {
           ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
           try {
@@ -884,11 +965,11 @@ function notifyAgentUpdates(
       // Clicking the entry lands on the surface that performs the upgrade —
       // and when the entry names one agent, on that agent's own page rather
       // than on a list the user then has to search. With several there is no
-      // single destination, so `tab` alone sends them to the list.
+      // single destination, so they get the list, narrowed to those updates.
       payload:
         updates.length === 1
           ? { tab: "install", agent: names[0] }
-          : { tab: "install" },
+          : { tab: "install", filter: "updatable" },
       priority: "low",
     })
   } catch {}
@@ -1018,6 +1099,7 @@ async function refreshRuntimeInfo(force = false): Promise<RuntimeInfo> {
 }
 
 function setupIPC(): void {
+  let accountManager: ReturnType<typeof registerAccountIpc> | null = null
   ipcMain.handle("python:status", () => ({
     pythonPath: null,
     pythonFound: true,
@@ -1102,8 +1184,17 @@ function setupIPC(): void {
   ipcMain.handle("agents:add", (_e, config) =>
     requireManager().addAgent(config),
   )
-  ipcMain.handle("agents:remove", (_e, name) =>
-    requireManager().removeAgent(name),
+  ipcMain.handle("agents:remove", (_e, name, opts) =>
+    requireManager().removeAgent(name, {
+      fromWorkspace: !!(opts as { fromWorkspace?: boolean } | undefined)
+        ?.fromWorkspace,
+    }),
+  )
+  ipcMain.handle("agents:rename", (_e, name: string, displayName: string) =>
+    requireManager().renameAgent(
+      asName(name, "agent name"),
+      String(displayName ?? ""),
+    ),
   )
   ipcMain.handle("agents:update", (_e, name, config) =>
     requireManager().updateAgent(name, config),
@@ -1166,18 +1257,23 @@ function setupIPC(): void {
           ? requireManager().updateAgentTypeStreaming(agentType, cb)
           : requireManager().installAgentTypeStreaming(agentType, cb),
       )
+      if (
+        !(result && typeof result === "object" && "success" in result && result.success === false)
+      ) {
+        requireManager().restartAgentInstances(agentType)
+      }
       // installAgentTypeStreaming clears the updates cache. Re-fetch now so
       // the next `checkAgentUpdates()` call (from the post-job refresh) gets
       // fresh data instead of an empty cache — otherwise a just-updated agent
       // could keep showing "Update available" because the renderer overrides
       // its store with the empty list before the hourly background refresh.
-      // Await the refresh before returning so the renderer's follow-up
-      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-      // populated cache instead of the empty value clearCatalogCache() just
-      // wrote. Without the await, the rollback / install / uninstall returns,
-      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-      // disappears even when one is genuinely available.
-      await refreshAgentUpdates().catch(() => {})
+      // Not awaited: it asks the registry about every installed agent, and the
+      // install should not be reported done only after that. Starting it is
+      // enough — the refresh registers itself as the cache's in-flight load
+      // synchronously, so the renderer's follow-up checkAgentUpdates() (no
+      // `force`) waits on it instead of reading the empty cache, and
+      // `agent-updates-changed` is pushed when it lands.
+      void refreshAgentUpdates()
       return result
     } catch (e: unknown) {
       return { success: false, error: (e as Error).message }
@@ -1206,6 +1302,13 @@ function setupIPC(): void {
     }
   })
 
+  // Where "Update" will put the new version — the user's own install, or a
+  // managed copy — so the detail page can say so before it runs.
+  ipcMain.handle("agents:update-target", (_e, agentType: string) =>
+    agentManager
+      ? agentManager.getUpdateTarget(String(agentType))
+      : { kind: "managed" },
+  )
   ipcMain.handle("agents:installed-list", () =>
     agentManager ? agentManager.listInstalledAgents() : [],
   )
@@ -1288,14 +1391,36 @@ function setupIPC(): void {
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
   ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
-  ipcMain.handle("agents:list-models", (_e, agentType, env, path) =>
-    requireManager().listModels(agentType, env, path),
+  ipcMain.handle("agents:list-models", (_e, agentType, env, path, opts) =>
+    requireManager().listModels(agentType, env, path, {
+      refresh: !!(opts && (opts as { refresh?: unknown }).refresh),
+    }),
+  )
+  ipcMain.handle("agents:import-credentials-scan", (_e, agentType) =>
+    requireManager().scanCredentialImports(asName(agentType, "agentType")),
+  )
+  ipcMain.handle("agents:import-credentials-parse", (_e, agentType, text) =>
+    requireManager().parseCredentialImport(
+      asName(agentType, "agentType"),
+      asString(text, "text", { max: 20_000 }),
+    ),
+  )
+  ipcMain.handle("agents:import-credentials-resolve", (_e, agentType, id) =>
+    requireManager().resolveCredentialImport(
+      asName(agentType, "agentType"),
+      asName(id, "id"),
+    ),
   )
   ipcMain.handle("agents:signal-reload", () => requireManager().signalReload())
 
   // ── Chat IPC (Stage 3.1) ──
   ipcMain.handle("workspace:send-message", (_e, input) =>
-    requireManager().sendChatMessage(input),
+    requireManager().sendChatMessage({
+      ...input,
+      // The main process owns the signed-in account. The renderer must not
+      // supply an arbitrary identity for channel membership or push routing.
+      senderEmail: accountManager?.getAccount()?.email,
+    }),
   )
   ipcMain.handle(
     "workspace:get-messages",
@@ -1487,6 +1612,11 @@ function setupIPC(): void {
       agentManager.reloadCore()
     }
     if (key === "startOnBoot") applyStartOnBoot()
+    // Which surface announces an update rides on the updater state, so the
+    // switch in Settings has to reach it — otherwise the banner keeps behaving
+    // as though nothing changed.
+    if (key === "autoUpdate") refreshUpdatePreference()
+    if (key === "skin") setChromeSkin(mainWindow, value)
     // Keep main's notification/tray strings on the language the user picked in
     // Settings — main can't read the renderer's localStorage-backed i18next.
     if (key === "language") {
@@ -2188,6 +2318,14 @@ function setupIPC(): void {
     // would look for it — Gemini opens straight into chat when it remembers an
     // API key, and the Google sign-in is behind its `/auth` command.
     const hint = agentType ? agentManager?.loginHintFor(agentType) || "" : ""
+    // The proxy comes FIRST so a caller's own variable would still win, but in
+    // practice they never overlap. It has to be written into the script because
+    // the macOS terminal is not our child: `osascript` hands the script to the
+    // already-running Terminal.app, which knows nothing of this process's
+    // environment. Without it a machine whose proxy lives in System Settings
+    // completes the browser half of a sign-in and then fails the CLI's token
+    // exchange with a TLS socket disconnect — the CLI went direct.
+    const childEnv = { ...proxyEnvForChildren(), ...(extraEnv || {}) }
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -2247,9 +2385,7 @@ function setupIPC(): void {
           "@echo off",
           "chcp 65001 >nul",
           `set "PATH=${allBins};%PATH%"`,
-          ...Object.entries(extraEnv || {}).map(
-            ([k, v]) => `set "${k}=${v}"`,
-          ),
+          ...Object.entries(childEnv).map(([k, v]) => `set "${k}=${v}"`),
           ...(cwd ? [`cd /d "${cwd}"`] : []),
           ...(hint ? [`echo ${hint.replace(/[&<>|^]/g, " ")}`, "echo."] : []),
           resolvedCmd,
@@ -2296,7 +2432,7 @@ function setupIPC(): void {
         .filter((d, i, all) => !!d && all.indexOf(d) === i)
         .join(":")
       // Quote every part for the shell. The launcher's own bundle dir
-      // ("/Applications/OpenAgents Launcher.app/Contents/MacOS") is on this
+      // ("/Applications/OpenAgents.app/Contents/MacOS") is on this
       // list and contains a space: unquoted, zsh read the tail as a second
       // assignment and failed with "export: not valid in this context" — and
       // worse, it kept the truncated first half, so the user's terminal lost
@@ -2304,9 +2440,7 @@ function setupIPC(): void {
       const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
       const lines = [
         `export PATH=${sq(allBins)}:"$PATH"`,
-        ...Object.entries(extraEnv || {}).map(
-          ([k, v]) => `export ${k}=${sq(v)}`,
-        ),
+        ...Object.entries(childEnv).map(([k, v]) => `export ${k}=${sq(v)}`),
         ...(cwd ? [`cd ${sq(cwd)}`] : []),
         ...(hint ? [`echo ${sq(hint)}`, "echo"] : []),
         resolvedCmd,
@@ -2323,14 +2457,36 @@ function setupIPC(): void {
           `openagents-login-${Date.now()}.sh`,
         )
         fs.writeFileSync(tmpSh, lines.join("\n") + "\n", "utf-8")
+        // `do script` ALWAYS opens a new window, which is right when Terminal
+        // is already up — taking over a window the user is working in would be
+        // worse. But when Terminal is NOT running, launching it makes it open
+        // its own default window first, and `do script` then adds a second one:
+        // the user gets two windows, one of which sits at a bare prompt having
+        // run nothing. So the not-running case targets `window 1`, the one
+        // Terminal just made for itself, instead of opening another.
+        //
+        // `in window 1` fails if the user configured Terminal to open no window
+        // at startup, hence the fallback — without it that configuration would
+        // get no window at all, which is worse than the spare one.
+        const target = `". ${sq(tmpSh)}"`
+        const osa = [
+          'if application "Terminal" is running then',
+          `  tell application "Terminal" to do script ${target}`,
+          "else",
+          '  tell application "Terminal"',
+          "    launch",
+          "    try",
+          `      do script ${target} in window 1`,
+          "    on error",
+          `      do script ${target}`,
+          "    end try",
+          "  end tell",
+          "end if",
+          'tell application "Terminal" to activate',
+        ]
         spawn(
           "osascript",
-          [
-            "-e",
-            `tell app "Terminal" to do script ". ${sq(tmpSh)}"`,
-            "-e",
-            'tell app "Terminal" to activate',
-          ],
+          osa.flatMap((line) => ["-e", line]),
           { detached: true, stdio: "ignore" },
         )
       } catch {}
@@ -2341,6 +2497,10 @@ function setupIPC(): void {
           spawn(term, ["-e", resolvedCmd], {
             detached: true,
             stdio: "ignore",
+            // This branch used to drop `extraEnv` on the floor, so the sign-in
+            // overrides the other two platforms get — Gemini's workspace trust,
+            // CodeBuddy's site — never reached a Linux terminal at all.
+            env: { ...process.env, ...childEnv },
             ...(cwd ? { cwd } : {}),
           })
           return
@@ -2380,9 +2540,16 @@ function setupIPC(): void {
     openTerminal: (cmd, type) => {
       // Gemini opens straight into chat when it remembers an API key, so the
       // sign-in runs in a directory of ours whose workspace settings ask for
-      // the Google flow. Everything else gets the plain terminal.
+      // the Google flow.
       const prep = type === "gemini" ? prepareGeminiSignIn() : null
-      runTerminal(cmd, prep?.cwd, type, prep?.env)
+      // …and a CLI that fronts several services (CodeBuddy's international vs
+      // China sites) has to sign in against the SAME one the agent will run on,
+      // or a sign-in the user watched succeed authenticates nothing.
+      const env = {
+        ...(prep?.env || {}),
+        ...(agentManager?.loginEnvFor(type) || {}),
+      }
+      runTerminal(cmd, prep?.cwd, type, env)
     },
     emit: (ev) => {
       if (mainWindow && !mainWindow.isDestroyed())
@@ -2431,7 +2598,15 @@ function setupIPC(): void {
     // Quote the binary so a space in its path survives the shell; runTerminal
     // re-resolves it through the type, which also routes a `.js` bin (an npm
     // agent with no Windows shim) through node instead of Windows Script Host.
-    runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd, type)
+    // The same site pinning the sign-in terminal gets: this window IS the
+    // agent's own CLI, so it has to reach the service the agent is configured
+    // for rather than the CLI's default one.
+    runTerminal(
+      /\s/.test(binary) ? `"${binary}"` : binary,
+      cwd,
+      type,
+      agentManager.loginEnvFor(type),
+    )
   })
 
   ipcMain.handle("icons:get-dir", () => {
@@ -2451,7 +2626,38 @@ function setupIPC(): void {
     PATH: (process.env.PATH || "").slice(0, 500),
     platform: process.platform,
   }))
+
+  // Account + the embedded workspace view. Registered last and kept in its own
+  // module: signing in gates the workspace half of the app. Earlier handlers
+  // read the manager when invoked, after setup has finished.
+  accountManager = registerAccountIpc({
+    endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
+    getWindow: () => mainWindow,
+    connectNode: (code) => requireManager().connectNode(code),
+    nodeStatus: () => requireManager().refreshNodeStatus(true),
+    ensureDaemon: () => requireManager()._ensureDaemon(),
+    nudgeNode: () => agentManager?.nudgeNodeHeartbeat(),
+    // The launcher's own look and feel, which the hosted workspace shares.
+    // `nativeTheme.themeSource` is already the mode the renderer put there
+    // (see theme:set-source), so main does not keep a second copy of it.
+    appearance: () => ({
+      theme: nativeTheme.themeSource as ThemeMode,
+      language: getMainLanguage(),
+    }),
+    setAppearance: ({ theme, language }) => {
+      // Told BY the workspace. The renderer owns both settings, so this is
+      // relayed rather than applied here; it stores and re-broadcasts them.
+      if (theme) nativeTheme.themeSource = theme
+      if (language) setMainLanguage(language)
+      mainWindow?.webContents.send("appearance:changed", { theme, language })
+    },
+  })
 }
+
+// Before anything waits on `app.whenReady()`: Chromium builds its scheme
+// registry as it starts, and a privileged scheme registered after that is
+// treated as opaque no matter what serves it. See workspace-bundle.ts.
+registerWorkspaceScheme()
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -2473,6 +2679,8 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // The bundled workspace app, served off disk over that scheme.
+  serveWorkspaceBundle()
   // Local control server (--control-port=N / OPENAGENTS_CONTROL_PORT): a
   // curl-able status/driving surface for remote tests and diagnostics. Started
   // FIRST, before the first-run bootstrap (portable Node download can take
@@ -2574,6 +2782,8 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
+  // The window buttons wear the stored skin's rail colour; see setChromeSkin.
+  setChromeSkin(null, store.get("skin"))
 
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app
@@ -2612,9 +2822,9 @@ app.whenReady().then(async () => {
   setupAutoUpdater({
     getWindow: () => mainWindow,
     log: slog,
-    // "Automatic updates" ON (default) = background checks auto-download, and
-    // electron-updater installs on the next quit. OFF = still check and still
-    // notify, but wait for the user to press Download.
+    // "Automatic updates" ON = background checks auto-download. OFF = still
+    // check and still notify, but wait for the user to press Download. Neither
+    // installs anything on its own — installation requires the explicit button.
     isAutoUpdateEnabled: () => store.get("autoUpdate") !== false,
     // Optional mirror of the release feed, for networks where the default
     // origin is slow (mainland China without a proxy). Blank = packaged origin.
@@ -2643,7 +2853,7 @@ app.whenReady().then(async () => {
     onDownloaded: (version) => {
       // A background auto-download finished. Make it discoverable: notify the
       // user and refresh the tray so "Restart to update" appears. The install
-      // itself happens on the next quit, or immediately if the user restarts.
+      // itself happens only when the user chooses "Restart & install".
       // Guard against duplicate notifications: electron-updater re-emits
       // update-downloaded from cache on every subsequent check once a package
       // is staged, so only notify once per version.
@@ -2659,14 +2869,15 @@ app.whenReady().then(async () => {
         pushNotification({
           kind: "update_available",
           title: t("updateReadyTitle"),
+          // The app already shows the update in Settings and the notification
+          // centre; avoid a second, transient system-level update popup.
+          silent: true,
           // "when you restart" was misleading for a tray-resident app: closing
           // the window only hides it, so the install never ran and the prompts
           // piled up. Point at the button that actually performs the install.
           body: t("updateReadyBody", { version }),
           source: "launcher-update",
-          // Clicking the toast (or the entry in the notification centre) has to
-          // lead somewhere that can actually install: the renderer re-shows the
-          // update banner and opens Settings → Updates off this payload.
+          // The notification-centre entry opens Settings → Updates.
           payload: { settingsSection: "updates" },
         })
       } catch {}
@@ -2690,15 +2901,20 @@ app.whenReady().then(async () => {
   // ("此应用无法在你的电脑上运行"), which historically left every install,
   // update and daemon spawn broken forever. Smoke-test up front and wipe
   // anything that fails so the install path re-runs.
+  finishCarryOver(PORTABLE_NODE_DIR, slog)
   const bundledNodePath =
     process.platform === "win32"
       ? path.join(PORTABLE_NODE_DIR, "node.exe")
       : path.join(PORTABLE_NODE_DIR, "node")
   const altUnixNode = path.join(PORTABLE_NODE_DIR, "bin", "node")
   let nodeExists = false
+  // Set when the runtime works but is older than the pin; replaced below.
+  let outdatedNode: string | null = null
   if (fs.existsSync(bundledNodePath)) {
-    if (canExecuteNodeBinary(bundledNodePath)) {
+    const version = nodeBinaryVersion(bundledNodePath)
+    if (version) {
       nodeExists = true
+      if (needsNodeUpgrade(version)) outdatedNode = version
     } else {
       slog(
         `bundled node at ${bundledNodePath} failed smoke test — wiping for re-download`,
@@ -2708,7 +2924,9 @@ app.whenReady().then(async () => {
       } catch {}
     }
   } else if (process.platform !== "win32" && fs.existsSync(altUnixNode)) {
-    nodeExists = canExecuteNodeBinary(altUnixNode)
+    const version = nodeBinaryVersion(altUnixNode)
+    nodeExists = version !== null
+    if (version && needsNodeUpgrade(version)) outdatedNode = version
     if (!nodeExists) {
       slog(
         `bundled node at ${altUnixNode} failed smoke test — wiping for re-download`,
@@ -2748,7 +2966,7 @@ app.whenReady().then(async () => {
     // stuck on a colour nothing else in the app uses.
     const splashHtml = `
       <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:${c.bg};color:${c.title};">
-        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
+        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents</div>
         <div id="msg" style="font-size:14px;color:${c.msg};margin-bottom:20px;">${!nodeExists ? "Preparing first launch..." : "Starting..."}</div>
         <div style="width:240px;height:6px;background:${c.track};border-radius:3px;overflow:hidden;">
           <div id="bar" style="width:10%;height:100%;background:${c.accent};border-radius:3px;transition:width 0.5s;"></div>
@@ -2773,6 +2991,36 @@ app.whenReady().then(async () => {
         )
         .catch(() => {})
     }
+  }
+
+  // Forced upgrade: an older runtime is replaced on launch, whether or not the
+  // user ever opens the agent that needed the newer one. A failed upgrade
+  // keeps the old runtime working and tries again next launch.
+  if (outdatedNode) {
+    const target = pinnedNodeVersion()
+    slog(`Node.js ${outdatedNode} is older than ${target} — upgrading`)
+    updateSplash(
+      "Updating Node.js runtime...",
+      20,
+      `${outdatedNode} → ${target}`,
+    )
+    const upgraded = await upgradeNodejs(
+      PORTABLE_NODE_DIR,
+      (pct, detail) =>
+        updateSplash("Updating Node.js runtime...", 20 + pct * 0.5, detail),
+      {
+        download: downloadNodejs,
+        probe: (dir) => nodeBinaryVersion(nodeBinaryIn(dir)),
+        outdated: (version) => needsNodeUpgrade(version, target),
+        stopRunning: stopLeftoverDaemon,
+        log: slog,
+      },
+    )
+    // Losing both renames leaves no runtime at all; the download below
+    // covers it, and finishCarryOver brings the core back next launch.
+    if (!upgraded)
+      nodeExists = canExecuteNodeBinary(nodeBinaryIn(PORTABLE_NODE_DIR))
+    updateSplash(upgraded ? "Node.js updated" : "Starting...", 70)
   }
 
   if (!nodeExists) {
@@ -2807,10 +3055,9 @@ app.whenReady().then(async () => {
     slog("npm not found — installing...")
     updateSplash("Installing npm...", 55)
     try {
-      const npmVersion = "10.9.8"
-      const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
+      const npmTgz = path.join(os.tmpdir(), `npm-${NPM_VERSION}.tgz`)
       const npmModDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadToFile(npmUrls(`npm/-/npm-${npmVersion}.tgz`), npmTgz, {
+      await downloadToFile(npmUrls(`npm/-/npm-${NPM_VERSION}.tgz`), npmTgz, {
         onProgress: (pct, detail) =>
           updateSplash("Installing npm...", 55 + pct * 0.05, detail),
         log: slog,

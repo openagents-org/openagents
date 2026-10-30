@@ -1,8 +1,5 @@
 {
-  "title": "设置总览",
-  "subtitle": "管理 $t(common.appName)的偏好、连接与系统配置",
-  "searchPlaceholder": "搜索设置",
-  "noSectionMatch": "没有匹配的设置项",
+  "title": "设置",
   "sections": {
     "general": "通用",
     "appearance": "外观",
@@ -13,42 +10,16 @@
     "language": "语言",
     "updates": "更新",
     "runtime": "运行时",
+    "logs": "日志",
     "about": "关于"
   },
-  "overview": {
-    "hint": "选择一个模块查看详情",
-    "back": "返回设置总览",
-    "resetDefaults": "恢复默认"
-  },
   "detail": {
-    "autoSaved": "所有更改会自动保存",
-    "related": "相关设置"
+    "autoSaved": "所有更改会自动保存"
   },
   "groups": {
     "preferences": "应用偏好",
-    "assistants": "智能与通知",
     "connectivity": "连接与数据",
     "system": "系统维护"
-  },
-  "summary": {
-    "startupPage": "启动时打开{{page}}",
-    "trayOn": "托盘运行",
-    "trayOff": "关闭时退出",
-    "accent": "{{color}}主题",
-    "scale": "{{size}}字号",
-    "agentsConfigured": "{{count}} 个已配置",
-    "autoStartOn": "自动启动开启",
-    "autoStartOff": "自动启动关闭",
-    "notificationsOn": "桌面通知开启",
-    "notificationsOff": "桌面通知关闭",
-    "quietHours": "免打扰 {{start}}–{{end}}",
-    "quietHoursOff": "无免打扰时段",
-    "workspaceCustom": "自建工作区",
-    "workspaceHosted": "托管工作区",
-    "proxyOn": "已配置代理",
-    "autoUpdateOn": "自动更新开启",
-    "autoUpdateOff": "自动更新关闭",
-    "core": "核心 {{version}}"
   },
   "pages": {
     "general": {
@@ -62,12 +33,6 @@
       "desc": "自定义界面外观与显示偏好",
       "keywords": "主题 深色 浅色 颜色 强调色 字体 缩放",
       "short": "主题、强调色与界面尺寸"
-    },
-    "agents": {
-      "title": "智能体",
-      "desc": "管理智能体的默认设置与运行策略",
-      "keywords": "智能体 自启动 凭据 密钥",
-      "short": "智能体默认设置与凭据"
     },
     "notifications": {
       "title": "通知",
@@ -150,8 +115,8 @@
     "startupGroup": "启动与行为",
     "startOnBoot": "开机时启动 $t(common.appName)",
     "startOnBootDesc": "登录系统后自动启动",
-    "startupPage": "启动时打开",
-    "startupPageDesc": "启动后默认进入的页面",
+    "startupPage": "本机启动页面",
+    "startupPageDesc": "启动应用后进入“本机”时显示的页面",
     "startupPageLast": "上次使用的页面",
     "minimizeToTray": "最小化到系统托盘",
     "minimizeToTrayDesc": "关闭窗口后保留在托盘中继续运行",
@@ -204,7 +169,7 @@
     "accentLocked": "「{{skin}}」风格自带固定强调色，无法在此更改",
     "skins": {
       "default": {
-        "name": "默认",
+        "name": "经典",
         "desc": "$t(common.appName)原生外观：柔和描边与阴影"
       },
       "openagents": {
@@ -214,17 +179,8 @@
     }
   },
   "agents": {
-    "startupGroup": "启动设置",
     "autoStart": "启动时自动运行智能体",
-    "autoStartDesc": "启动器打开后自动启动所有已配置的智能体",
-    "overviewGroup": "智能体概览",
-    "configured": "已配置智能体",
-    "running": "运行中",
-    "types": "已使用类型",
-    "agentCount": "{{count}} 个",
-    "typeCount": "{{count}} 种",
-    "browseMarketplace": "应用市场",
-    "openAgents": "打开智能体"
+    "autoStartDesc": "$t(common.appName) 打开后自动启动所有已配置的智能体"
   },
   "notifications": {
     "deliveryGroup": "桌面与声音",
@@ -255,14 +211,14 @@
     "workspaceUrlPlaceholder": "https://workspace.openagents.org 或 http://localhost:8000",
     "proxyGroup": "代理设置",
     "httpProxy": "HTTP 代理",
-    "httpProxyDesc": "智能体与启动器进行出站 HTTP 时使用",
+    "httpProxyDesc": "智能体与 $t(common.appName) 进行出站 HTTP 时使用",
     "httpsProxy": "HTTPS 代理",
     "httpsProxyDesc": "出站 HTTPS 代理",
     "proxyPlaceholder": "http://user:pass@host:port",
     "noProxy": "绕过代理",
     "noProxyDesc": "不走代理的主机，以逗号分隔",
     "noProxyPlaceholder": "localhost,127.0.0.1,*.internal",
-    "note": "代理设置保存在启动器配置中，重启启动器后对已运行的智能体生效。",
+    "note": "代理设置保存在 $t(common.appName) 配置中，重启 $t(common.appName) 后对已运行的智能体生效。",
     "testConnection": "测试连接",
     "testOk": "连接正常",
     "testError": {
@@ -288,8 +244,8 @@
     "dangerGroup": "危险操作",
     "resetSettings": "重置所有设置",
     "resetSettingsDesc": "恢复默认值，不会删除智能体与工作区数据",
-    "localGroup": "启动器自身数据",
-    "localGroupDesc": "本应用保存在这台电脑上的缓存文件与界面状态。不影响智能体、工作区与设置。",
+    "localGroup": "$t(common.appName) 自身数据",
+    "localGroupDesc": "本应用保存在此电脑上的缓存文件与界面状态。不影响智能体、工作区与设置。",
     "clearCache": "清除缓存",
     "clearCacheDesc": "清空缓存的网页、图标与图片，需要时会自动重新获取",
     "resetLocal": "重置外观与界面状态",
@@ -308,20 +264,25 @@
   "updates": {
     "settingsGroup": "更新设置",
     "autoUpdate": "自动下载更新",
-    "autoUpdateDesc": "发现新版本后自动下载，完成后提示重启安装。关闭后仍会提示有新版本，但需手动下载",
+    "autoUpdateDesc": "发现新版本后自动下载，完成后提示重启安装。关闭后每个新版本都会先询问你，确认后才开始下载。无论哪种方式，安装前都会先征求你的确认",
+    "offerTitle": "发现新版本 {{version}}",
+    "offerSubtitle": "有新版本可以下载。",
+    "offerWhatsNew": "这个版本带来了什么",
+    "offerNoNotes": "暂时无法获取该版本的更新说明。",
+    "offerLater": "稍后",
     "versionGroup": "版本信息",
     "installedVersion": "当前版本",
     "latestVersion": "最新版本",
     "releaseNotes": "查看发布说明",
     "checkHint": "检查更新不会自动安装，安装前会先征求你的确认。",
+    "bannerWhatsNew": "更新内容",
     "bannerReady": "新版本 {{version}} 已下载完成，可立即安装",
     "bannerAvailable": "发现新版本 {{version}}",
     "bannerDownloading": "正在下载 {{version}} · {{percent}}%",
     "bannerUpdateNow": "立即更新",
-    "bannerViewProgress": "查看进度",
     "bannerInstallFailed": "新版本 {{version}} 自动安装失败",
     "installFailedDesc": "v{{version}} 已下载，但安装程序未能替换应用，当前仍为 v{{current}}。请前往下载页手动安装。",
-    "installerDidNotStart": "安装程序未能在这台电脑上启动",
+    "installerDidNotStart": "安装程序未能在此电脑上启动",
     "bannerDismiss": "稍后",
     "downloadPage": "下载页面",
     "currentVersion": "当前版本 {{version}}",
@@ -357,12 +318,12 @@
     "healthGroup": "资源占用",
     "systemMemory": "系统内存",
     "memoryUsage": "已用 {{used}} / 共 {{total}}",
-    "appMemory": "启动器内存占用",
-    "appCpu": "启动器 CPU 占用",
+    "appMemory": "$t(common.appName) 内存占用",
+    "appCpu": "$t(common.appName) CPU 占用",
     "uptime": "已运行",
     "diagnosticsGroup": "诊断工具",
     "openLogs": "打开日志目录",
-    "openLogsDesc": "在文件管理器中定位启动器日志",
+    "openLogsDesc": "在文件管理器中定位 $t(common.appName) 日志",
     "copyDiagnostics": "复制诊断信息",
     "copyDiagnosticsDesc": "复制版本与系统环境摘要，便于反馈问题",
     "copy": "复制",
@@ -398,7 +359,7 @@
       "appearance": "主题、强调色、皮肤、字号",
       "layout": "侧边栏状态与启动时打开的页面",
       "history": "命令面板历史与已忽略的更新提示",
-      "marketplace": "应用市场的视图、排序与筛选"
+      "marketplace": "智能体市场的视图、排序与筛选"
     },
     "keptTitle": "不受影响",
     "kept": {

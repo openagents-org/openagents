@@ -1,7 +1,7 @@
 {
-  "name": "openagents-launcher",
-  "version": "0.9.26",
-  "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
+  "name": "openagents",
+  "version": "1.1.9",
+  "description": "OpenAgents — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
   "author": {
@@ -22,7 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "build": "electron-vite build",
+    "build": "npm run build:workspace && electron-vite build",
+    "build:workspace": "npm --prefix ../../workspace/frontend run build:desktop && node ./scripts/check-workspace-bundle.mjs",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
     "build:mac:x64": "npm run build && electron-builder --mac --x64 --publish never",
@@ -34,7 +35,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
-    "@openagents-org/agent-launcher": "0.2.177",
+    "@openagents-org/agent-launcher": "0.2.194",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -75,8 +76,8 @@
   },
   "build": {
     "appId": "com.openagents.launcher",
-    "productName": "OpenAgents Launcher",
-    "artifactName": "OpenAgents-Launcher-${version}-${os}-${arch}.${ext}",
+    "productName": "OpenAgents",
+    "artifactName": "OpenAgents-${version}-${os}-${arch}.${ext}",
     "files": [
       "out/**/*",
       "package.json",
@@ -113,6 +114,10 @@
           "tray-icon*.png",
           "icon.ico"
         ]
+      },
+      {
+        "from": "../../workspace/frontend/dist-desktop",
+        "to": "workspace"
       }
     ],
     "directories": {
@@ -169,7 +174,7 @@
       "perMachine": true
     },
     "portable": {
-      "artifactName": "OpenAgents-Launcher-${version}-${os}-${arch}-portable.${ext}"
+      "artifactName": "OpenAgents-${version}-${os}-${arch}-portable.${ext}"
     },
     "linux": {
       "target": [

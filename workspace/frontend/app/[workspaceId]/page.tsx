@@ -1,15 +1,18 @@
 'use client';
 
+import { getApiBaseUrl } from '@/lib/api-base';
+
 import { use, Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
 import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { goToCentralLogin } from '@/lib/auth-redirects';
+import { goToCentralLogin, redirectToLogin } from '@/lib/auth-redirects';
 import { LogIn } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { CampaignMilestoneToasts } from '@/components/campaign/campaign-feedback';
+import { recallWorkspaceToken, rememberWorkspaceToken } from '@/lib/workspace-snapshot';
 
 function WorkspaceLoadingSplash() {
   const t = useT();
@@ -45,9 +48,20 @@ function WorkspaceLoadingSplash() {
   );
 }
 
+// Share the cookie across openagents.org subdomains, but fall back to a
+// host-only cookie anywhere else. A browser silently drops a cookie whose
+// Domain attribute it is not a member of, so hardcoding the attribute means no
+// cookie at all on a self-hosted deployment.
+function workspaceCookieDomain(hostname: string): string {
+  return hostname === 'openagents.org' || hostname.endsWith('.openagents.org')
+    ? ';domain=.openagents.org'
+    : '';
+}
+
 function setWorkspaceCookie(slug: string, token: string) {
   const maxAge = 30 * 24 * 60 * 60;
-  const shared = `path=/;max-age=${maxAge};secure;samesite=lax;domain=.openagents.org`;
+  const domain = workspaceCookieDomain(window.location.hostname);
+  const shared = `path=/;max-age=${maxAge};secure;samesite=lax${domain}`;
   document.cookie = `oa_workspace=${encodeURIComponent(JSON.stringify({ slug, token }))};${shared}`;
   document.cookie = `oa_has_workspace=1;${shared}`;
 }
@@ -79,21 +93,28 @@ type BearerState =
 
 function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToken: string }) {
   const t = useT();
-  const [state, setState] = useState<BearerState>({ kind: 'loading' });
+  // A token this page already resolved opens the workspace straight away; the
+  // lookup below still runs and only replaces it if the account says otherwise.
+  const [state, setState] = useState<BearerState>(() => {
+    const known = recallWorkspaceToken(workspaceId, idToken);
+    return known !== null ? { kind: 'ok', token: known } : { kind: 'loading' };
+  });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setState({ kind: 'loading' });
+    const known = recallWorkspaceToken(workspaceId, idToken);
+    if (known === null) setState({ kind: 'loading' });
     (async () => {
       try {
         const { listAccountWorkspaces } = await import('@/lib/account-api');
         const wss = await listAccountWorkspaces(idToken);
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
-        if (match?.token) {
-          setWorkspaceCookie(match.slug || workspaceId, match.token);
-          setState({ kind: 'ok', token: match.token });
+        if (match) {
+          setWorkspaceCookie(match.slug || workspaceId, match.token || '');
+          rememberWorkspaceToken(workspaceId, idToken, match.token || '');
+          if (known !== (match.token || '')) setState({ kind: 'ok', token: match.token || '' });
           return;
         }
         // Not one of the user's workspaces. Previously we rendered the full
@@ -101,12 +122,14 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         // silently and a nonexistent slug looked like a working (empty)
         // workspace. Probe existence so a typo'd link and a membership gap
         // get distinct, explicit error screens instead.
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+        const apiUrl = getApiBaseUrl();
         const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
         if (cancelled) return;
         setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });
       } catch {
-        if (!cancelled) setState({ kind: 'error' });
+        // Already open on a known token: a failed re-check is not worth
+        // tearing the workspace down for.
+        if (!cancelled && known === null) setState({ kind: 'error' });
       }
     })();
     return () => { cancelled = true; };
@@ -181,6 +204,13 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       );
     }
   }, [workspaceId, token, idToken]);
+
+  useEffect(() => {
+    if (!authLoading && isOpenAgentsDomain && (!user || !idToken)) redirectToLogin();
+  }, [authLoading, isOpenAgentsDomain, user, idToken]);
+
+  // Wait for the person's identity before ever configuring a token-only client.
+  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return <WorkspaceLoadingSplash />;
 
   // Has workspace token in URL — use it directly
   if (token) {

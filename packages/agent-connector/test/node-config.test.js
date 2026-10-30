@@ -110,3 +110,46 @@ describe('node-config clearPairing', () => {
     assert.equal(nodeCfg.loadNode().node_key, 'dev-key');
   });
 });
+
+describe('node-config with an unreadable node.json', () => {
+  // A torn write from the other process, or a file an antivirus scan holds on
+  // Windows. Rebuilding from "nothing" here wiped every pairing and minted a
+  // new device key, so every workspace read as disconnected after a restart.
+  const corrupt = () => {
+    fs.mkdirSync(path.dirname(nodeCfg.NODE_FILE), { recursive: true });
+    fs.writeFileSync(nodeCfg.NODE_FILE, '{"node_key": "dev-key", "pairi');
+  };
+
+  it('reads as no pairings for display', () => {
+    corrupt();
+    assert.deepEqual(nodeCfg.listPairings(), []);
+  });
+
+  it('never overwrites it when asked for the device key', () => {
+    corrupt();
+    assert.throws(() => nodeCfg.getOrCreateNodeKey());
+    assert.equal(fs.readFileSync(nodeCfg.NODE_FILE, 'utf-8'), '{"node_key": "dev-key", "pairi');
+  });
+
+  it('never overwrites it when recording or clearing a pairing', () => {
+    corrupt();
+    assert.throws(() => nodeCfg.recordPairing('dev-key', W1));
+    assert.throws(() => nodeCfg.clearPairing('w1'));
+    assert.equal(fs.readFileSync(nodeCfg.NODE_FILE, 'utf-8'), '{"node_key": "dev-key", "pairi');
+  });
+
+  it('deviceInfo touches no file at all', () => {
+    const info = nodeCfg.deviceInfo();
+    assert.equal(info.nodeKey, undefined);
+    assert.equal(fs.existsSync(nodeCfg.NODE_FILE), false);
+  });
+});
+
+describe('node-config saveNode', () => {
+  it('leaves no temp file behind', () => {
+    nodeCfg.recordPairing('dev-key', W1);
+    const dir = path.dirname(nodeCfg.NODE_FILE);
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), []);
+    assert.equal(nodeCfg.listPairings()[0].workspace_id, 'w1');
+  });
+});

@@ -1,0 +1,61 @@
+{
+  "version": "0.9.27",
+  "date": "2026-09-06",
+  "entries": [
+    {
+      "type": "fix",
+      "title": {
+        "en": "CodeBuddy sign-in now lands on the site you chose",
+        "zh": "CodeBuddy 登录现在会落在你所选择的站点上"
+      },
+      "description": {
+        "en": "CodeBuddy Code fronts two separate services — codebuddy.ai / workbuddy.ai and codebuddy.cn / workbuddy.cn — and keeps only one sign-in on your machine. The launcher used to open the sign-in terminal with nothing to say which site it was for, so it always signed in against the international one. If you had picked the China site, the terminal reported a successful login and every message the agent then sent failed to authenticate, with nothing on screen to explain why. The Login button now opens the CLI on the site the agent's Region setting names, and the launcher reads the sign-in back: a completed login turns the agent Ready on its own, and a session belonging to the other site is reported as such instead of showing a green Ready in front of an agent that cannot run. If you signed in before this release, sign in once more from the Login button. An API key or platform token remains the alternative, and a saved CODEBUDDY_AUTH_TOKEN now counts as configured credentials rather than reading as \"login required\".",
+        "zh": "CodeBuddy Code 面向两套彼此独立的服务 —— codebuddy.ai / workbuddy.ai 与 codebuddy.cn / workbuddy.cn —— 而本机只会保留一份登录态。此前启动器打开登录终端时并未告知它应当面向哪个站点，因此始终登录到国际站。若你选择的是中国站，终端会提示登录成功，而 Agent 随后发出的每一条消息都会认证失败，界面上却没有任何说明。现在「登录」按钮会按该 Agent 的站点设置打开命令行，并由启动器读回登录结果：登录完成后 Agent 会自行变为就绪；若本机的登录态属于另一站点，则会如实指出，而不是在一个根本无法运行的 Agent 前显示绿色就绪。若你在本次更新之前已登录过，请从「登录」按钮重新登录一次。API 密钥与平台令牌仍是可选的另一条路径，且已保存的 CODEBUDDY_AUTH_TOKEN 现在会被正确视为已配置凭据，不再显示为「需要登录」。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "A sign-in terminal now goes through your proxy",
+        "zh": "登录终端现在会走你的代理"
+      },
+      "description": {
+        "en": "Signing in from a terminal could fail with \"Client network socket disconnected before secure TLS connection was established\" on the very machine whose browser had just reported the login as successful. The two halves were taking different routes: the browser went through the proxy the machine is configured with, while the CLI — running in a terminal window the launcher does not own — went direct and was cut off mid-handshake. The launcher now writes the proxy it resolved into the terminal it opens, with your own bypass list preserved and the local address the sign-in completes on kept off the tunnel. On Linux this also restores the per-agent sign-in settings, which that platform's terminal had been dropping entirely.",
+        "zh": "从终端登录时，可能出现「Client network socket disconnected before secure TLS connection was established」，而同一台机器上浏览器那一侧刚刚提示登录成功。原因是两半走了不同的线路：浏览器经由本机配置的代理，而命令行运行在启动器并不拥有的终端窗口中，直连出网并在握手中途被切断。现在启动器会把已解析出的代理写入它所打开的终端，同时保留你自己的绕行列表，并确保登录回调所用的本机地址不被代理。在 Linux 上，这项改动还顺带修复了该平台终端此前完全丢弃各 Agent 登录设置的问题。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Command Code sign-in is read from its own status command",
+        "zh": "Command Code 的登录状态改由其自身的状态命令判定"
+      },
+      "description": {
+        "en": "The launcher asked `command-code whoami` whether you were signed in. That command reports an unreachable account service as an ordinary error on a successful exit, which the launcher could only read as \"signed in\" — so a machine that was merely offline looked authenticated. It now reads `command-code status`, the CLI's own authentication check, which distinguishes signed in from signed out from cannot-tell. An offline machine is left at cannot-tell and the agent keeps working; a genuinely signed-out one is now said so plainly.",
+        "zh": "此前启动器通过 `command-code whoami` 判断登录状态。当账号服务不可达时，该命令会以正常退出码输出一条普通错误，启动器只能将其读作「已登录」，于是仅仅是断网的机器也会显示为已认证。现在改为读取 `command-code status`，即该命令行自带的认证检查，它能够区分已登录、未登录与无法判定三种情形。断网时判定为无法判定，Agent 照常可用；真正未登录时则会明确指出。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "OpenWorker no longer asks for a key it does not need",
+        "zh": "OpenWorker 不再索要它并不需要的密钥"
+      },
+      "description": {
+        "en": "Two of OpenWorker's providers need no API key: a local Ollama server, and reusing an existing ChatGPT sign-in from a state directory. Both were judged on the key anyway, so an agent that ran perfectly well stayed badged \"No model API key\" indefinitely. Either choice now reads as configured, and a reused ChatGPT sign-in is labelled as the sign-in it is.",
+        "zh": "OpenWorker 有两种服务商无需 API 密钥：本地 Ollama 服务，以及复用状态目录中已有的 ChatGPT 登录。此前二者仍按密钥来判定，因此一个运行完全正常的 Agent 会长期显示「缺少模型 API 密钥」。现在这两种选择都会被正确视为已配置，复用的 ChatGPT 登录也会被标注为登录方式而非密钥。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Installs can find the tools you installed yourself",
+        "zh": "安装时能找到你自己装的工具"
+      },
+      "description": {
+        "en": "An agent whose install command is a user-installed tool could fail with \"command not found\" on a machine that has that tool. OpenWorker is the case: it installs with `uv tool install`, uv's own installer puts the binary in ~/.local/bin, and an application started from the Dock inherits none of the PATH a shell profile sets up. The pre-flight check had already looked in the right place and let the install proceed, so the failure arrived several seconds later as a bare exit code. The launcher now puts the standard user tool directories back on its own search path at startup, appended so anything you configured yourself still takes precedence.",
+        "zh": "当某个 Agent 的安装命令本身是一个由用户自行安装的工具时，即便机器上确实装了该工具，安装仍可能以「command not found」失败。OpenWorker 即是如此：它通过 `uv tool install` 安装，而 uv 自身的安装脚本会把可执行文件放在 ~/.local/bin，从程序坞启动的应用则完全继承不到 shell 配置文件所设置的 PATH。安装前的依赖检查恰恰查看了正确的位置并放行，因此失败要等到数秒之后才以一个孤立的退出码呈现。现在启动器会在启动时把标准的用户工具目录补回自身的查找路径，且采用追加方式，你自行配置的路径仍然优先。"
+      }
+    }
+  ]
+}

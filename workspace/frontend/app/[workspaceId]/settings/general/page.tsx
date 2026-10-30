@@ -12,6 +12,7 @@ import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chr
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
+import { shareOrigin } from '@/lib/share-origin';
 
 export default function GeneralSettingsPage() {
   const { workspace, me, refreshWorkspace } = useAdminSettings();
@@ -27,7 +28,7 @@ export default function GeneralSettingsPage() {
   // Deliberately without any ?token= — links we surface for sharing must
   // never carry the workspace machine token (use invite links instead).
   const workspaceUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/${workspace.slug}`
+    ? `${shareOrigin()}/${workspace.slug}`
     : '';
 
   const dirty = name.trim() !== workspace.name || monitorMode !== !!workspace.settings?.monitorMode;
