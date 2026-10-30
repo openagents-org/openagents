@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
-  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, RefreshCw, Search,
+  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -65,12 +65,14 @@ function dmDedupKey(pair: string[], me: string): string {
 
 type FilterTab = 'all' | 'channels' | 'starred' | 'archived' | 'dms';
 
+// Ordered the way people grow into the product: everything, then 1:1 DMs,
+// then channels, then the bookkeeping views.
 const TABS: { id: FilterTab; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'threads.tabAll' },
+  { id: 'dms', labelKey: 'threads.tabDms' },
   { id: 'channels', labelKey: 'threads.tabChannels' },
   { id: 'starred', labelKey: 'threads.tabStarred' },
   { id: 'archived', labelKey: 'threads.tabArchived' },
-  { id: 'dms', labelKey: 'threads.tabDms' },
 ];
 
 type SortOrder = 'recent' | 'oldest' | 'title';
@@ -307,8 +309,9 @@ function ThreadRow({
 
       </div>
 
-      {/* Row actions */}
-      <div className="shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-100 has-data-[state=open]:opacity-100">
+      {/* Row actions. Always shown: a menu that appears only on hover was
+          never found, and DM rows put theirs in this same slot. */}
+      <div className="shrink-0 self-center">
         {actions}
       </div>
     </div>
@@ -325,7 +328,7 @@ export function ThreadList() {
   } = useWorkspace();
   const me = myAddress(currentUser);
   const humanNames = useHumanNames();
-  const { isMobile, openMobileDetail, openNewThread, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
+  const { isMobile, openMobileDetail, openNewThread, openNewChannel, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
   const prompt = usePrompt();
   const confirm = useConfirm();
   const t = useT();
@@ -813,7 +816,7 @@ export function ThreadList() {
             }
           }}
           className={cn(
-            'group/dm flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
+            'flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
             'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
             currentSessionId === dmId
               ? 'rounded-md border-transparent bg-black/5.5 ring-1 ring-inset ring-black/25 dark:bg-white/9 dark:ring-white/30'
@@ -854,13 +857,6 @@ export function ThreadList() {
                     ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
                     : ''}
                 </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild><button type="button" aria-label={t('threads.dmActions')} disabled={pendingDm === dmId} onClick={e => e.stopPropagation()} className="rounded p-1 opacity-0 hover:bg-muted group-hover/dm:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"><MoreVertical className="size-3.5" /></button></DropdownMenuTrigger>
-                  <DropdownMenuContent onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 {signalCount > 0 && <DmUnreadMarker count={signalCount} />}
                 {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
               </div>
@@ -868,6 +864,27 @@ export function ThreadList() {
             <p className={cn('truncate text-xs leading-snug', isUnread ? 'text-foreground/80' : 'text-muted-foreground')}>
               {sender}: {displayHumanMentions(convo.lastMessage.content, humanNames)}
             </p>
+          </div>
+          {/* Same slot and button as the thread rows' menu. */}
+          <div className="shrink-0 self-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  mode="icon" size="sm"
+                  aria-label={t('threads.dmActions')}
+                  disabled={pendingDm === dmId}
+                  className="text-muted-foreground"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <MoreVertical className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       );
@@ -904,6 +921,12 @@ export function ThreadList() {
             {t('threads.newThread')}
           </Button>
         )}
+        {tab === 'channels' && (
+          <Button size="sm" className="gap-1.5" onClick={openNewChannel}>
+            <Plus className="size-3.5" />
+            {t('threads.newChannel')}
+          </Button>
+        )}
       </div>
     );
   };
@@ -921,6 +944,12 @@ export function ThreadList() {
               {unreadCount}
             </Badge>
           )}
+          {/* Primary action sits beside the title, where the eye lands —
+              not in the right corner, where it went unnoticed. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openNewThread}>
+            <Plus className="size-4" />
+            {t('threads.newThread')}
+          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
@@ -969,20 +998,6 @@ export function ThreadList() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon" size="sm"
-                aria-label={t('threads.newThread')}
-                onClick={openNewThread}
-                className="text-muted-foreground"
-              >
-                <MessageSquarePlus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('threads.newThread')}</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
@@ -1070,6 +1085,16 @@ export function ThreadList() {
                 </>
               ) : tab.id === 'starred' ? (
                 starredRows.length === 0 ? emptyState('starred') : starredRows.map((row, idx) => row.kind === 'thread' ? renderSessionRows([row.thread], false, idx) : renderDMRows([row.dm], idx))
+              ) : tab.id === 'channels' && visibleSessions.length > 0 && !isSearching ? (
+                <>
+                  <div className="flex px-1 py-2">
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={openNewChannel}>
+                      <Plus className="size-3.5" />
+                      {t('threads.newChannel')}
+                    </Button>
+                  </div>
+                  {renderSessionRows(visibleSessions, false)}
+                </>
               ) : visibleSessions.length === 0 ? (
                 emptyState(tab.id)
               ) : (

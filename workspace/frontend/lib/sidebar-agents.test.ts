@@ -28,13 +28,13 @@ it('removes a shared agent when its access is revoked without removing owned age
     .map((agent) => agent.agentName)).toEqual(['mine']);
 });
 
-it('bounds each category to five, sorts by DM recency and excludes offline agents from the picker', () => {
+it('shows four of my agents and three shared ones, sorts by DM recency and excludes offline agents from the picker', () => {
   const agents = Array.from({ length: 16 }, (_, i) => ({ agentName: `agent-${i}`, ownerEmail: i < 7 ? 'me@example.com' : 'other@example.com', status: i === 15 ? 'offline' : 'online', canStartThread: true })) as WorkspaceAgent[];
   const conversations = [{ agents: ['human:me@example.com', 'openagents:agent-6'], lastMessage: { timestamp: 10 } }, { agents: ['human:me@example.com', 'openagents:agent-14'], lastMessage: { timestamp: 20 } }] as import('./types').DMConversation[];
   const [mine, shared] = sidebarAgentGroups(agents, 'me@example.com', conversations);
-  expect(mine.shown).toHaveLength(5); expect(shared.shown).toHaveLength(5);
+  expect(mine.shown).toHaveLength(4); expect(shared.shown).toHaveLength(3);
   expect(mine.shown[0].agentName).toBe('agent-6'); expect(shared.shown[0].agentName).toBe('agent-14');
-  expect(mine.moreOnline).toBe(2); expect(shared.moreOnline).toBe(3);
+  expect(mine.moreOnline).toBe(3); expect(shared.moreOnline).toBe(5);
   expect(shared.all.some(agent => agent.agentName === 'agent-15')).toBe(false);
 });
 
@@ -45,4 +45,29 @@ it('groups built-in Yumi with my agents without granting ownership', () => {
   expect(mine.shown.map(agent => agent.agentName)).toEqual(['yumi']);
   expect(others.shown.map(agent => agent.agentName)).toEqual(['shared']);
   expect(isOwnedAgent(yumi, 'me@example.com')).toBe(false);
+});
+
+it('keeps Yumi in view ahead of five of the viewer\'s own online agents', () => {
+  const agents = [
+    ...Array.from({ length: 6 }, (_, i) => ({ agentName: `a-${i}`, ownerEmail: 'me@example.com', status: 'online' })),
+    { agentName: 'yumi', ownerEmail: null, status: 'online', builtin: true, canStartThread: true },
+  ] as WorkspaceAgent[];
+  const conversations = [{ agents: ['human:me@example.com', 'openagents:a-3'], lastMessage: { timestamp: 10 } }] as import('./types').DMConversation[];
+  const [mine] = sidebarAgentGroups(agents, 'me@example.com', conversations);
+  expect(mine.shown[0].agentName).toBe('yumi');
+  expect(mine.shown[1].agentName).toBe('a-3');
+});
+
+it('counts each ownership section, offline agents included, for its heading', () => {
+  const agents = [
+    { agentName: 'yumi', builtin: true, ownerEmail: null, status: 'online', canStartThread: true },
+    { agentName: 'mine-online', ownerEmail: 'me@example.com', status: 'online' },
+    { agentName: 'mine-offline', ownerEmail: 'me@example.com', status: 'offline' },
+    { agentName: 'shared-online', ownerEmail: 'other@example.com', status: 'online', canStartThread: true },
+    { agentName: 'shared-offline', ownerEmail: 'other@example.com', status: 'offline', canStartThread: true },
+    { agentName: 'not-mine', ownerEmail: 'other@example.com', status: 'online', canStartThread: false },
+  ] as WorkspaceAgent[];
+  const [mine, shared] = sidebarAgentGroups(agents, 'me@example.com');
+  expect([mine.all.length, mine.total]).toEqual([2, 3]);
+  expect([shared.all.length, shared.total]).toEqual([1, 2]);
 });

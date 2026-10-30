@@ -8,6 +8,7 @@ import { getAgentColor } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
 import { MermaidBlock } from './mermaid-block';
 import { getMermaidSource, hasOpenMermaidFence } from './mermaid-utils';
+import { MarkdownImage } from './markdown-image';
 
 // Stable plugin arrays — avoids re-creating on every render
 const remarkPlugins = [remarkGfm];
@@ -201,6 +202,9 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     ),
 
     // Inline
+    img: ({ src, alt, title }) => (
+      <MarkdownImage src={src} alt={alt} title={title} className="max-w-full h-auto rounded-md" />
+    ),
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
   // eslint-disable-next-line react-hooks/exhaustive-deps

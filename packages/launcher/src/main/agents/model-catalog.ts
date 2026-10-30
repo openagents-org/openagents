@@ -29,6 +29,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
+import { dshModelsBase } from "./deepseek-harness-base"
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
 import { opencodeRecommendedModel } from "./opencode-signin"
@@ -105,6 +106,8 @@ type ModelSource = {
    * DeepSeek key and come back 401.
    */
   defaultBase?: string
+  /** Maps the configured base to the one that serves the model list. */
+  modelsBase?: (base: string) => string
   /**
    * This endpoint serves `/v1/models` without credentials (a local Ollama or
    * vLLM). Probe it even with an empty key instead of asking for one that does
@@ -477,6 +480,7 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["DEEPSEEK_API_KEY"],
     baseVars: ["DEEPSEEK_BASE_URL"],
     defaultBase: "https://api.deepseek.com/v1",
+    modelsBase: dshModelsBase,
   },
   openclaw: {
     envVar: "LLM_MODEL",
@@ -1003,7 +1007,8 @@ export async function listAgentModels(
     }
 
   const key = pick(env, source.keyVars)
-  const base = pick(env, source.baseVars) || source.defaultBase || ""
+  const configuredBase = pick(env, source.baseVars) || source.defaultBase || ""
+  const base = source.modelsBase ? source.modelsBase(configuredBase) : configuredBase
   // A CLI-only agent (cursor) has no endpoint to query, so the CLI serves both
   // paths — with the form's key on the key path.
   const httpOnlyPath = path === "key" && source.provider !== "none"

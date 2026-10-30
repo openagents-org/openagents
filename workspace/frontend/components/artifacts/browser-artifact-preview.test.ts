@@ -44,3 +44,23 @@ it('does not disclose saved metadata or offer reopen when access fails', async (
   expect(host.textContent).not.toContain('Example Domain');
   expect(host.querySelector('button')).toBeNull();
 });
+
+it('resolves a live link to its closed artifact and reopens only on request', async () => {
+  const liveUrl = 'https://www.browserfabric.com/live/old-session';
+  vi.spyOn(workspaceApi, 'listBrowserTabs').mockResolvedValue({ tabs: [{ ...closed, liveUrl }] } as any);
+  await act(async () => root.render(React.createElement(BrowserArtifactPreview, { tabId: liveUrl, revision: 0 })));
+  expect(workspaceApi.listBrowserTabs).toHaveBeenCalledWith('closed');
+  expect(workspaceApi.getBrowserTab).toHaveBeenCalledWith('tab');
+  expect(host.textContent).toContain('artifactPanel.browserClosed');
+  expect(workspaceApi.reconnectBrowserTab).not.toHaveBeenCalled();
+  await act(async () => host.querySelector('button')!.click());
+  expect(host.querySelector('[data-live-tab="tab"]')).not.toBeNull();
+});
+it('embeds an unmatched shared live link without using it as a tab UUID', async () => {
+  const liveUrl = 'https://www.browserfabric.com/live/shared-session';
+  vi.spyOn(workspaceApi, 'listBrowserTabs').mockResolvedValue({ tabs: [] } as any);
+  await act(async () => root.render(React.createElement(BrowserArtifactPreview, { tabId: liveUrl, revision: 0 })));
+  expect(host.querySelector('iframe')?.getAttribute('src')).toBe(liveUrl + '?embed=1');
+  expect(workspaceApi.getBrowserTab).not.toHaveBeenCalled();
+  expect(workspaceApi.reconnectBrowserTab).not.toHaveBeenCalled();
+});

@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import naming
@@ -34,6 +34,7 @@ from app.database import get_db
 from app.models import (
     Channel,
     ChannelMember,
+    Node,
     User,
     Workspace,
     WorkspaceCollaborator,
@@ -55,6 +56,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 
 AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
+
+PUBLIC_WORKSPACE_SETTINGS = frozenset({
+    "theme", "monitorMode", "browser_enabled", "slack_browser_previews",
+})
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -173,13 +178,16 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
         })
 
     settings = ws.settings or {}
+    # Only documented display/behavior settings cross the API boundary.
+    # Credentials and server-only settings must never ride along in this map.
+    public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,
         "name": ws.name,
         "creatorEmail": ws.creator_email,
         "requireLogin": bool(ws.require_login),
-        "settings": settings,
+        "settings": public_settings,
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
         "browserEnabled": bool(settings.get("browser_enabled", False)),
@@ -191,7 +199,10 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     }
 
 
-def _format_channel(ch: Channel) -> dict:
+def _format_channel(ch: Channel, db=None) -> dict:
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    personal = db is not None and is_personal_channel(db, ch)
+    builtin = db is not None and is_yumi(db, ch.workspace_id, "yumi")
     return {
         "channelId": str(ch.id),
         "workspaceId": str(ch.workspace_id),
@@ -199,7 +210,7 @@ def _format_channel(ch: Channel) -> dict:
         "title": ch.title,
         "titleManuallySet": bool(ch.title_manually_set),
         "createdBy": ch.created_by,
-        "masterAgent": ch.master_agent,
+        "masterAgent": None if builtin and not personal and ch.master_agent == "yumi" else ch.master_agent,
         "orchestrationMode": "workflow" if ch.orchestration_mode == "workflow" else "dynamic",
         "responseMode": ch.response_mode or "proactive",
         "orchestrationInstruction": ch.orchestration_instruction,
@@ -208,8 +219,8 @@ def _format_channel(ch: Channel) -> dict:
         "status": ch.status,
         "starred": bool(ch.starred),
         "isChannel": bool(ch.is_channel),
-        "participants": [p.agent_name for p in (ch.participants or [])],
-        "visibility": "private" if (ch.visibility or "") == "private" else "public",
+        "participants": [p.agent_name for p in (ch.participants or []) if not (builtin and not personal and p.agent_name == "yumi")],
+        "visibility": "private" if personal or (ch.visibility or "") == "private" else "public",
         "ownerEmail": ch.owner_email,
         "participantsCanInvite": bool(ch.participants_can_invite),
         "membersCanAddAgents": bool(ch.members_can_add_agents),
@@ -337,7 +348,7 @@ def create_workspace(
         "slug": workspace.slug,
         "name": workspace.name,
         "token": token,
-        "channel": _format_channel(channel) if channel else None,
+        "channel": _format_channel(channel, db) if channel else None,
     })
 
 
@@ -350,9 +361,25 @@ def list_workspaces(
     creator_email: Optional[str] = Query(None),
     agent_name: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ):
-    """List workspaces, optionally filtered by creator or agent membership."""
-    query = select(Workspace).where(Workspace.status != "deleted")
+    """List only workspaces accessible to the verified human identity.
+
+    Filters narrow that set; an email or agent name is never authorization.
+    Legacy creator/collaborator access matches resolve_user_role without a
+    migration or a membership backfill during this read.
+    """
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    email = user.email.strip().lower()
+    memberships = select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == user.id)
+    collaborations = select(WorkspaceCollaborator.workspace_id).where(func.lower(WorkspaceCollaborator.email) == email)
+    query = select(Workspace).where(
+        Workspace.status != "deleted",
+        or_(Workspace.id.in_(memberships), func.lower(Workspace.creator_email) == email,
+            Workspace.id.in_(collaborations)),
+    )
 
     if creator_email:
         query = query.where(Workspace.creator_email == creator_email)
@@ -366,7 +393,7 @@ def list_workspaces(
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    results = [_format_workspace(ws, ws.members, now) for ws in workspaces]
+    results = [_format_workspace(ws, ws.members, now, authorization=authorization) for ws in workspaces]
 
     return success_response(results)
 
@@ -410,7 +437,15 @@ def get_workspace(
     ).scalars().all()
 
     now = datetime.now(timezone.utc)
-    return success_response(_format_workspace(workspace, members, now, x_workspace_token, authorization))
+    data = _format_workspace(workspace, members, now, x_workspace_token, authorization)
+    # Only expose setup state, not other members' private device connections.
+    # Offline devices and agents still count as an existing setup; Yumi does not.
+    has_agent = any((m.agent_type or "") != "cloud:openagents" for m in members)
+    has_device = db.execute(
+        select(Node.id).where(Node.workspace_id == workspace.id).limit(1)
+    ).first() is not None
+    data["needsFirstDevice"] = not has_agent and not has_device
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +478,12 @@ def update_workspace(
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
-        workspace.settings = body.settings
+        unknown = set(body.settings) - PUBLIC_WORKSPACE_SETTINGS
+        if unknown:
+            return json_response(ResponseCode.BAD_REQUEST, "Unsupported workspace settings; use the dedicated configuration fields")
+        # Clients only receive public settings. Replacing the entire stored map
+        # with that round-trip would silently erase keys and server metadata.
+        workspace.settings = {**(workspace.settings or {}), **body.settings}
     if body.browser_enabled is not None:
         current = dict(workspace.settings or {})
         current["browser_enabled"] = body.browser_enabled
@@ -945,10 +985,12 @@ def generate_member_description(
         model = _get_router_model()
         if provider == "openai":
             resp = client.chat.completions.create(
-                model=model, max_tokens=60,
+                # Reasoning models share this budget with the visible answer;
+                # 60 tokens can be exhausted before any description is emitted.
+                model=model, max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = resp.choices[0].message.content.strip()
+            text = (resp.choices[0].message.content or "").strip()
         else:
             resp = client.messages.create(
                 model=model, max_tokens=60,
@@ -961,6 +1003,9 @@ def generate_member_description(
 
     # Strip stray wrapping quotes / trailing period the model sometimes adds.
     text = text.strip().strip('"').strip("'").rstrip(".").strip()
+    if not text:
+        logger.warning("generate-description returned an empty answer")
+        return json_response(ResponseCode.INTERNAL_ERROR, "Model returned an empty description; please retry")
     return success_response({"agentName": agent_name, "description": text})
 
 
@@ -1516,7 +1561,11 @@ def get_channel(
     if not channel:
         return json_response(ResponseCode.NOT_FOUND, "Channel not found")
 
-    return success_response(_format_channel(channel))
+    from app.services.visibility import resolve_viewer, can_view_channel
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if not can_view_channel(db, str(workspace.id), viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+    return success_response(_format_channel(channel, db))
 
 
 # ---------------------------------------------------------------------------
@@ -1569,6 +1618,9 @@ def update_channel(
         return json_response(ResponseCode.BAD_REQUEST, "Choose proactive, passive, or a workflow; master mode is no longer supported")
     if body.master_agent is not None:
         return json_response(ResponseCode.BAD_REQUEST, "Master mode is no longer supported")
+    from app.services.personal_assistant import require_shareable_channel
+    if body.visibility is not None or body.is_channel or body.director_email is not None:
+        require_shareable_channel(db, channel)
     if body.visibility is not None:
         vis = normalize_visibility(body.visibility)
         if vis not in ("private", "public"):
@@ -1648,7 +1700,7 @@ def update_channel(
 
     db.commit()
     db.refresh(channel)
-    return success_response(_format_channel(channel) | ({"pinned": body.pinned} if body.pinned is not None else {}))
+    return success_response(_format_channel(channel, db) | ({"pinned": body.pinned} if body.pinned is not None else {}))
 
 
 # ---------------------------------------------------------------------------

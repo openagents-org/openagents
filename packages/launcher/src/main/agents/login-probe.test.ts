@@ -109,6 +109,39 @@ describe("credsVerdict — Gemini's sign-in, read off disk", () => {
   })
 })
 
+describe("credsVerdict — Kimi's `kimi login` session", () => {
+  const kimi = DUAL_LOGIN_AGENTS.kimi
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "kimi-home-"))
+    fs.mkdirSync(path.join(home, ".kimi-code", "credentials"), { recursive: true })
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const session = (body: unknown): void =>
+    fs.writeFileSync(
+      path.join(home, ".kimi-code", "credentials", "kimi-code.json"),
+      JSON.stringify(body),
+    )
+
+  it("reads a stored OAuth session as signed in", () => {
+    session({ access_token: "a", refresh_token: "r", token_type: "Bearer" })
+    expect(credsVerdict(kimi, home)).toBe(true)
+  })
+
+  it("says signed out before `kimi login` has written anything", () => {
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+
+  it("does not count a session without a refresh token", () => {
+    session({ access_token: "a" })
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+})
+
 describe("credsVerdict — OpenCode's sign-in store", () => {
   const opencode = DUAL_LOGIN_AGENTS.opencode
   let home: string

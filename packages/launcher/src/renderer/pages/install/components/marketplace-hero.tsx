@@ -89,59 +89,68 @@ export function MarketplaceHero({
           second line pushed the whole marketplace below it down, and the next
           slide pulled it back up. The others stay in place but invisible,
           hidden from screen readers and out of the tab order. */}
-      <div className="relative grid">
-        {slides.map((slide, i) => (
-          <HeroSlide
-            key={slide.name}
-            slide={slide}
-            active={i === index}
-            installed={installed}
-            updates={updates}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
-
-      {/* Outside the slides on purpose — the controls are the one thing that
-          must not move when the slide does. */}
-      {slides.length > 1 && (
-        <div className="relative mt-5 flex items-center gap-2">
-          <button
-            type="button"
+      {/* Arrows either side of the slide and the dots centred under it, the
+          same controls as the recommended agents on Connect Agents, so paging
+          works alike on both pages. They sit outside the slides on purpose —
+          the controls are the one thing that must not move when the slide
+          does. */}
+      <div className="relative flex items-center gap-3">
+        {slides.length > 1 && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="shrink-0 rounded-full bg-card"
             aria-label={t("install.hero.prev")}
             title={t("install.hero.prev")}
             onClick={prev}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
           >
-            <ChevronLeft className="size-4" />
-          </button>
-          <div className="flex items-center gap-1.5">
-            {slides.map((slide, i) => (
-              <button
-                key={slide.name}
-                type="button"
-                aria-current={i === index}
-                aria-label={slide.label || slide.name}
-                title={slide.label || slide.name}
-                onClick={() => select(i)}
-                className={cn(
-                  "h-1.5 rounded-full transition-all duration-300",
-                  i === index
-                    ? "w-6 bg-primary"
-                    : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground",
-                )}
-              />
-            ))}
-          </div>
-          <button
-            type="button"
+            <ChevronLeft />
+          </Button>
+        )}
+        <div className="grid min-w-0 flex-1">
+          {slides.map((slide, i) => (
+            <HeroSlide
+              key={slide.name}
+              slide={slide}
+              active={i === index}
+              installed={installed}
+              updates={updates}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+        {slides.length > 1 && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="shrink-0 rounded-full bg-card"
             aria-label={t("install.hero.next")}
             title={t("install.hero.next")}
             onClick={next}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
           >
-            <ChevronRight className="size-4" />
-          </button>
+            <ChevronRight />
+          </Button>
+        )}
+      </div>
+
+      {slides.length > 1 && (
+        <div className="relative mt-5 flex items-center justify-center gap-1.5">
+          {slides.map((slide, i) => (
+            <button
+              key={slide.name}
+              type="button"
+              aria-current={i === index}
+              aria-label={slide.label || slide.name}
+              title={slide.label || slide.name}
+              onClick={() => select(i)}
+              className={cn(
+                "h-1.5 rounded-full transition-all duration-300",
+                i === index
+                  ? "w-6 bg-primary"
+                  : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground",
+              )}
+            />
+          ))}
         </div>
       )}
     </section>

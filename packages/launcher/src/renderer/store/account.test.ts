@@ -48,9 +48,9 @@ it("routes a shared web request to This Computer and retains it when the session
 })
 
 it("reopens This Computer where it was left unless a destination is given", () => {
-  useUiStore.getState().setCurrentTab("logs")
+  useUiStore.getState().setCurrentTab("github")
   useAccountStore.getState().exitWorkspace()
-  expect(useUiStore.getState().currentTab).toBe("logs")
+  expect(useUiStore.getState().currentTab).toBe("github")
   useAccountStore.getState().exitWorkspace("install")
   expect(useUiStore.getState().currentTab).toBe("install")
 })

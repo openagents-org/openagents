@@ -19,6 +19,24 @@ const CodexAdapter = require('../src/adapters/codex');
 // ---------------------------------------------------------------------------
 
 describe('Codex — live workspace model selection', () => {
+  it('passes a custom Responses provider to the real CLI without exposing its key in arguments', async () => {
+    let invocation;
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: {}, workspaceModel: null, _directModel: 'test-model',
+      _directApiKey: 'test-secret', _directBaseUrl: 'https://relay.example/v1',
+      _customProvider: { baseUrl: 'https://relay.example/v1', reasoningEffort: 'low' },
+      _codexBin: 'codex', _channelThreads: {}, workingDir: '',
+      _buildSystemContext: () => 'system context', _log: () => {},
+      _spawnCodex: async (cmd, env) => { invocation = { cmd, env }; return { responseText: 'ok', exitCode: 0 }; },
+      sendResponse: async () => {},
+    });
+    await fake._handleViaSubprocess('hello', 'general');
+    assert.ok(invocation.cmd.includes('model_providers.openagents.wire_api="responses"'));
+    assert.ok(invocation.cmd.includes('model_providers.openagents.base_url="https://relay.example/v1"'));
+    assert.ok(!invocation.cmd.join(' ').includes('test-secret'));
+    assert.equal(invocation.env.OPENAI_API_KEY, 'test-secret');
+  });
+
   it('uses a model.set selection for the next codex exec invocation', async () => {
     let invocation;
     const fake = Object.assign(Object.create(CodexAdapter.prototype), {
@@ -91,6 +109,36 @@ describe('Codex — failure detail selection', () => {
     const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
     assert.ok(detail.includes('line 9'));
     assert.ok(!detail.includes('line 0'), 'only the tail should be kept');
+  });
+
+  it('drops tracing noise so the CLI\'s own sentence is what reaches the chat', () => {
+    const stderr = [
+      'Reading prompt from stdin...',
+      'Reading additional input from stdin...',
+      '2026-10-27T09:39:59.971283Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with \'..\' must stay inside the skill',
+      '2026-10-27T09:44:46.677023Z  WARN codex_core_plugins::manager: failed to refresh remote installed plugins cache',
+      "You've hit your usage limit. Upgrade to Pro or try again later.",
+      '2026-10-27T09:44:47.000000Z  WARN codex_core::session: shutting down',
+    ].join('\n');
+    const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
+    assert.strictEqual(detail, "You've hit your usage limit. Upgrade to Pro or try again later.");
+  });
+
+  it('falls back to ERROR records, stripped of timestamp and module, when the CLI printed nothing else', () => {
+    const stderr = [
+      'Reading prompt from stdin...',
+      '2026-10-27T04:08:56.500724Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out',
+      '2026-10-27T04:08:56.600000Z  WARN codex_core::client: retrying',
+      '2026-10-27T04:08:57.500724Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out',
+    ].join('\n');
+    const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
+    assert.strictEqual(detail, 'failed to refresh available models: request timed out');
+  });
+
+  it('keeps the raw tail when every line is a warning', () => {
+    const stderr = '2026-10-27T04:08:56.500724Z  WARN codex_core::x: only a warning';
+    const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
+    assert.ok(detail.includes('only a warning'));
   });
 
   it('falls back to the exit code', () => {
@@ -186,6 +234,30 @@ describe('Codex — partial run that then failed', () => {
     const { fake, sent } = fakeAdapter({ responseText: 'Looking…', exitCode: 1, stderr: 'boom' });
     await fake._handleViaSubprocess('fix it', 'general');
     assert.deepStrictEqual(sent.map((m) => m.kind), ['response', 'error']);
+  });
+
+  it('looks the binary up again when the cached path has gone (ENOENT)', async () => {
+    const { fake, sent } = fakeAdapter({ responseText: 'Done.', exitCode: 0 });
+    const spawned = [];
+    fake._codexBin = '/old/runtimes/codex/node_modules/.bin/codex';
+    fake._findCodexBinary = () => '/new/bin/codex';
+    fake._spawnCodex = async (cmd) => {
+      spawned.push(cmd[0]);
+      if (cmd[0].startsWith('/old/')) throw Object.assign(new Error(`spawn ${cmd[0]} ENOENT`), { code: 'ENOENT' });
+      return { responseText: 'Done.', exitCode: 0 };
+    };
+    await fake._handleViaSubprocess('fix it', 'general');
+    assert.deepStrictEqual(spawned, ['/old/runtimes/codex/node_modules/.bin/codex', '/new/bin/codex']);
+    assert.deepStrictEqual(sent.map((m) => m.kind), ['response']);
+  });
+
+  it('says the CLI is gone when no binary can be found any more', async () => {
+    const { fake, sent } = fakeAdapter({});
+    fake._findCodexBinary = () => null;
+    fake._spawnCodex = async () => { throw Object.assign(new Error('spawn codex ENOENT'), { code: 'ENOENT' }); };
+    await fake._handleViaSubprocess('fix it', 'general');
+    assert.equal(sent.length, 1);
+    assert.ok(sent[0].content.includes('no longer installed'));
   });
 
   it('stays quiet when the run reconnected and completed', async () => {

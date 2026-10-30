@@ -82,7 +82,19 @@ it('searches a large roster and preserves selections across filters', async () =
   await act(async () => button('Person 29').click());
   expect(document.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
   await act(async () => button('newThread.start').click());
-  expect(create).toHaveBeenCalledWith({ participants: ['agent-14'], humanParticipants: [], resumeFrom: undefined, visibility: 'private' });
+  expect(create).toHaveBeenCalledWith({ participants: ['agent-14'], humanParticipants: [], resumeFrom: undefined, visibility: 'private', asChannel: false });
 });
 
 vi.mock('@/hooks/use-team-roster', () => ({ useTeamRoster: () => [] }));
+
+
+it('excludes the built-in assistant from new thread participants', async () => {
+  vi.spyOn(workspaceApi, 'listGroups').mockResolvedValue([]);
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(React.createElement(NewThreadDialog, {
+    open: true, onOpenChange: vi.fn(), agents: [
+      agent, { agentName: 'yumi', status: 'online', builtin: true, canStartThread: true } as WorkspaceAgent,
+    ], teammates, onCreateThread: vi.fn(),
+  })));
+  expect(document.body.textContent).not.toContain('yumi');
+});

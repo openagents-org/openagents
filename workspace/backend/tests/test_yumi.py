@@ -263,9 +263,7 @@ class TestAssistantLoop:
 
         data = _create_workspace(client)
         ws_id = data["workspaceId"]
-        # Yumi only speaks in threads it was added to — use one of its own.
-        channel_name = _make_thread(client, data, "Chat", ["yumi"], master="yumi")
-        channel_target = f"channel/{channel_name}"
+        channel_target = "openagents:yumi"
 
         async def fake_chat_completion_tools(**kwargs):
             return {"role": "assistant", "content": "Hi! I'm Yumi, welcome aboard."}
@@ -279,6 +277,7 @@ class TestAssistantLoop:
 
         event_data = {
             "target": channel_target,
+            "source": "human:test@example.com",
             "payload": {"content": "hello", "message_type": "chat"},
             "metadata": {"target_agents": ["yumi"]},
         }
@@ -590,29 +589,60 @@ class TestSpeakerAttribution:
         assert [m["content"] for m in plain] == ["hello team", "on it"]
         assert [m["content"] for m in labelled] == ["[Raphael] hello team", "[agent-alpha] on it"]
 
+    def test_profile_name_beats_email(self, client, yumi_enabled, db, quiet_background):
+        """OA-018: the web client sends only the email (or a login-provider
+        name); the name the user set in their profile must win."""
+        import time
+        from app.models import User
+        from app.services.cloud_agent import _build_conversation_context
+
+        db.add(User(email="cherie@example.com", display_name="Cherie Chen"))
+        db.commit()
+        data = _create_workspace(client)
+        ws, ch = data["workspaceId"], data["channel"]["name"]
+        _post(client, data, ch, "human:cherie@example.com", "hi yumi",
+              sender_name="cherie@example.com", sender_id="cherie@example.com")
+        horizon = int(time.time() * 1000) + 5000
+
+        ev = next(e for e in _events(client, data, ch) if e["source"].startswith("human:"))
+        assert ev["payload"]["sender_display_name"] == "Cherie Chen"
+        labelled = _build_conversation_context(
+            db, ws, f"channel/{ch}", "yumi", before_timestamp=horizon, attribute_speakers=True,
+        )
+        assert labelled[-1]["content"] == "[Cherie Chen] hi yumi"
+
+    def test_label_falls_back_past_email_sender_name(self):
+        from app.services.cloud_agent import speaker_label
+
+        assert speaker_label("human:x", {"sender_name": "Cherie"}) == "Cherie"
+        assert speaker_label("human:x", {"sender_name": "c@example.com", "sender_email": "c@example.com"}) == "c"
+        assert speaker_label("human:x", {"sender_display_name": "Cherie Chen", "sender_name": "c@example.com"}) == "Cherie Chen"
+
 
 class TestDelegationRouting:
     def test_explicit_targets_are_honored_and_invite(self, client, yumi_enabled, quiet_background):
         data = _create_workspace(client)
-        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
+        _join(client, data, "coordinator")
+        ch = _make_thread(client, data, "Coord", ["coordinator", "agent-alpha"], master="agent-alpha")
 
         # A declared hand-off reaches exactly that agent.
-        assert _post(client, data, ch, "openagents:yumi", "@agent-alpha please fix it",
+        assert _post(client, data, ch, "openagents:coordinator", "@agent-alpha please fix it",
                      {"explicit_targets": ["agent-alpha"]}) == ["agent-alpha"]
         # Declared "nobody" wakes nobody — even though the fallback would
         # have routed this agent message to the leader.
-        assert _post(client, data, ch, "openagents:yumi", "talking about agent-alpha",
+        assert _post(client, data, ch, "openagents:coordinator", "talking about agent-alpha",
                      {"explicit_targets": []}) == ["__no_response__"]
         # A hand-off to a non-participant is delivered AND invites it.
         _join(client, data, "agent-beta")
-        assert _post(client, data, ch, "openagents:yumi", "@agent-beta take over",
+        assert _post(client, data, ch, "openagents:coordinator", "@agent-beta take over",
                      {"explicit_targets": ["agent-beta"]}) == ["agent-beta"]
         assert "agent-beta" in _channel(client, data, ch)["participants"]
 
     def test_leading_mention_from_agent_is_honored(self, client, yumi_enabled, quiet_background):
         data = _create_workspace(client)
-        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
-        assert _post(client, data, ch, "openagents:agent-alpha", "@yumi done — fixed in PR #42") == ["yumi"]
+        _join(client, data, "coordinator")
+        ch = _make_thread(client, data, "Coord", ["coordinator", "agent-alpha"], master="agent-alpha")
+        assert _post(client, data, ch, "openagents:agent-alpha", "@coordinator done — fixed in PR #42") == ["coordinator"]
 
 
 class TestManagerTools:
@@ -622,7 +652,7 @@ class TestManagerTools:
         data = _create_workspace(client)
         api = WorkspaceApi(data["workspaceId"], data["token"])
         # Yumi is deliberately NOT the leader: the built-in may still manage membership.
-        ch = _make_thread(client, data, "Plan", ["yumi", "agent-alpha"], master="agent-alpha")
+        ch = _make_thread(client, data, "Plan", ["agent-alpha"], master="agent-alpha")
         _join(client, data, "agent-beta")
 
         res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
@@ -639,7 +669,7 @@ class TestManagerTools:
         assert res["ok"], res
         assert _channel(client, data, ch)["masterAgent"] == "agent-beta"
 
-        ch2 = _make_thread(client, data, "Research", ["yumi", "agent-alpha"], master="agent-alpha")
+        ch2 = _make_thread(client, data, "Research", ["agent-alpha"], master="agent-alpha")
         res = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
                                        {"thread": ch2, "message": "@agent-alpha please review the plan"},
                                        channel_name=ch, allow_delegation=True))
@@ -664,48 +694,28 @@ class TestManagerTools:
 
 
 class TestAssistantDelegation:
-    def _run(self, client, data, db, monkeypatch, ch, source, text, reply):
+    @pytest.mark.parametrize("source", ["human:test@example.com", "openagents:agent-alpha"])
+    def test_legacy_group_never_invokes_personal_assistant(self, client, yumi_enabled, db, monkeypatch, source):
         from app.services import cloud_agent
-
-        async def fake(**kwargs):
-            return {"role": "assistant", "content": reply}
-
-        monkeypatch.setattr(cloud_agent, "chat_completion_tools", fake)
-        cfg = db.execute(select(CloudAgentConfig).where(
-            CloudAgentConfig.workspace_id == data["workspaceId"],
-            CloudAgentConfig.agent_name == "yumi",
-        )).scalar_one()
-        event_data = {
-            "source": source, "target": f"channel/{ch}",
-            "payload": {"content": text, "message_type": "chat", "sender_display_name": "Raphael"},
+        from app.models import Channel, ChannelMember
+        from unittest.mock import AsyncMock
+        data = _create_workspace(client)
+        name = _make_thread(client, data, "Old group", ["agent-alpha"])
+        channel = db.execute(select(Channel).where(Channel.workspace_id == data["workspaceId"], Channel.name == name)).scalar_one()
+        db.add(ChannelMember(channel_id=channel.id, agent_name="yumi"))
+        db.commit()
+        cfg = db.execute(select(CloudAgentConfig).where(CloudAgentConfig.workspace_id == data["workspaceId"], CloudAgentConfig.agent_name == "yumi")).scalar_one()
+        completion = AsyncMock()
+        monkeypatch.setattr(cloud_agent, "chat_completion_tools", completion)
+        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], {
+            "source": source, "target": f"channel/{name}", "payload": {"content": "@yumi help"},
             "metadata": {"target_agents": ["yumi"]},
-        }
-        asyncio.run(cloud_agent._invoke_assistant_agent(db, data["workspaceId"], event_data, cfg, 0))
-        e = next(x for x in _events(client, data, ch) if x["source"] == "openagents:yumi")
-        return (e.get("metadata") or {}).get("target_agents")
-
-    def test_human_triggered_mention_delivers(self, client, yumi_enabled, db, monkeypatch):
-        data = _create_workspace(client)
-        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="yumi")
-        assert self._run(client, data, db, monkeypatch, ch, "human:raphael", "ask alpha to fix it",
-                         "Handing this to @agent-alpha — please fix the login bug.") == ["agent-alpha"]
-
-    def test_agent_triggered_reply_never_redelegates(self, client, yumi_enabled, db, monkeypatch):
-        data = _create_workspace(client)
-        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="yumi")
-        assert self._run(client, data, db, monkeypatch, ch, "openagents:agent-alpha", "@yumi done",
-                         "Thanks! @agent-alpha now also do the tests.") == ["__no_response__"]
-
-    def test_plain_reply_wakes_nobody(self, client, yumi_enabled, db, monkeypatch):
-        data = _create_workspace(client)
-        ch = _make_thread(client, data, "Coord", ["yumi", "agent-alpha"], master="agent-alpha")
-        assert self._run(client, data, db, monkeypatch, ch, "human:raphael", "who is here?",
-                         "agent-alpha is here and online.") == ["__no_response__"]
+        }, cfg, 0))
+        completion.assert_not_awaited()
 
 
 class TestBuiltinPresence:
-    """Yumi is only in the threads a human added it to. Agents can't pull it
-    into a thread by addressing it, and it stays silent where it isn't in."""
+    """Yumi cannot be pulled into team threads, even by direct addressing."""
 
     def test_agent_addressing_does_not_pull_yumi_in(self, client, yumi_enabled, quiet_background):
         data = _create_workspace(client)
@@ -768,6 +778,25 @@ def test_legacy_yumi_chat_row_uses_server_managed_assistant_runtime():
     from app.services.cloud_agent import _invoke_single
     legacy = SimpleNamespace(provider='openagents', category='chat', model='old-model', api_key='obsolete')
     with patch('app.services.cloud_agent._invoke_assistant_agent', new_callable=AsyncMock) as assistant, patch('app.services.cloud_agent._invoke_chat_agent', new_callable=AsyncMock) as chat:
-        asyncio.run(_invoke_single(None, 'workspace', {}, legacy, 0))
+        asyncio.run(_invoke_single(None, 'workspace', {'source': 'human:alice', 'target': 'openagents:yumi'}, legacy, 0))
         assistant.assert_awaited_once()
         chat.assert_not_called()
+
+
+def test_identity_welcome_includes_the_new_user(db, yumi_enabled):
+    from app.access import provision_workspace
+    from app.models import User, Channel, ChannelHumanMember
+    user = User(email='new-onboarding@example.com', display_name='New User')
+    db.add(user)
+    db.flush()
+    ws = provision_workspace(db, user)
+    channel = db.execute(select(Channel).where(Channel.workspace_id == ws.id, Channel.name == 'welcome')).scalar_one()
+    assert channel.owner_email == user.email
+    assert db.get(ChannelHumanMember, (channel.id, user.email)) is not None
+
+
+def test_yumi_does_not_advertise_identity_only_device_pairing():
+    from app.services.yumi import build_tools
+    names = {tool['function']['name'] for tool in build_tools()}
+    assert 'create_pairing_code' not in names
+    assert 'list_nodes' in names

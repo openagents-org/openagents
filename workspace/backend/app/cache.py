@@ -122,7 +122,8 @@ def json_singleflight(key, ttl_seconds, compute, cache_if=None):
     """Share identical cache fills across workers, with a bounded wait.
 
     Redis/lock failures fall through to the database. Never swallow compute
-    errors or cache failed computations. The lock's ownership token prevents
+    errors or cache failed computations. ttl_seconds may be a callable that
+    selects a TTL from the computed value. The lock's ownership token prevents
     an expired leader from releasing a newer leader's lock.
     """
     if key is None:
@@ -158,7 +159,8 @@ def json_singleflight(key, ttl_seconds, compute, cache_if=None):
         value = compute()
         if cache_if is None or cache_if(value):
             try:
-                set_bytes(key, json.dumps(value, default=str, separators=(',', ':')).encode(), ttl_seconds)
+                ttl = ttl_seconds(value) if callable(ttl_seconds) else ttl_seconds
+                set_bytes(key, json.dumps(value, default=str, separators=(',', ':')).encode(), ttl)
             except (TypeError, ValueError):
                 pass
         return value

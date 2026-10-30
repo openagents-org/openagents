@@ -1,0 +1,15 @@
+[Unit]
+Description=Build and deploy isolated OpenAgents preview from develop
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/openagents-preview-track-develop
+TimeoutStartSec=2400
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+Environment=GIT_TERMINAL_PROMPT=0
+UMask=0077

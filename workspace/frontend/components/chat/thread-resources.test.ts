@@ -2,14 +2,14 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ instruct: vi.fn().mockResolvedValue({}), profile: vi.fn(), workspace: {
+const mocks = vi.hoisted(() => ({ instruct: vi.fn().mockResolvedValue({}), profile: vi.fn(), canEdit: { value: true }, workspace: {
   currentSessionId: 'one', sessions: [{ sessionId: 'one', participants: ['scout'] }],
   agents: [{ agentName: 'scout', description: 'Research and verify sources', status: 'online' }, { agentName: 'other', description: 'Elsewhere' }],
   files: [{ id: 'image', filename: 'people/me/photo.png', contentType: 'image/png', size: 30, channelName: 'one' }, { id: 'hidden', filename: 'private.pdf', channelName: 'two' }],
   browserTabs: [{ id: 'live', title: 'XE', url: 'https://www.xe.com', status: 'active', artifactChannels: ['one'], activity: null }],
 } }));
 vi.mock('@/lib/api', () => ({ workspaceApi: { saveThreadCollaboration: mocks.instruct } }));
-vi.mock('./agent-message-access', () => ({ AgentOwnershipBadge: () => null, AgentSharingAction: () => null, useThreadCollaboration: () => ({ roles: {}, supported: true, canEdit: () => true }) }));
+vi.mock('./agent-message-access', () => ({ AgentOwnershipBadge: () => null, AgentSharingAction: () => null, useThreadCollaboration: () => ({ roles: {}, supported: true, canEdit: () => mocks.canEdit.value }) }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, params?: any) => params?.agent ? `${key} ${params.agent}` : key }));
@@ -19,7 +19,7 @@ vi.mock('@/components/files/file-utils', () => ({ FileTile: ({ file }: any) => R
 import { ThreadResources } from './thread-resources';
 let root: Root, host: HTMLDivElement;
 beforeEach(async () => {
-  vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
+  vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks(); mocks.canEdit.value = true;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(React.createElement(ThreadResources)));
 });
@@ -42,6 +42,23 @@ it('defaults to Artifacts first and lets users switch to agent cards to prepare 
   expect(mocks.instruct).not.toHaveBeenCalled();
   await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(mocks.instruct).toHaveBeenCalledWith('one', 'scout', 'Check the exchange rate and cite sources', null);
+});
+it('explains why someone else\'s agent cannot be edited instead of leaving a silent grey Save', async () => {
+  mocks.canEdit.value = false;
+  await act(async () => host.querySelectorAll('[role=tab]')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.instructAgent scout"]')!.click());
+  expect(host.querySelector('textarea')!.readOnly).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true);
+  expect(host.textContent).toContain('threadCollaboration.noPermission');
+  expect(host.textContent).not.toContain('threadCollaboration.onlyHere');
+});
+it('says no reviewer is available when the agent is alone in the thread', async () => {
+  await act(async () => host.querySelectorAll('[role=tab]')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.instructAgent scout"]')!.click());
+  const select = host.querySelector('select')!;
+  expect(select.disabled).toBe(true);
+  expect(select.textContent).toBe('threadCollaboration.noReviewer');
+  expect(host.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
 });
 it('switches to artifact cards and opens the correct browser', async () => {
   const artifacts = Array.from(host.querySelectorAll<HTMLButtonElement>('[role=tab]')).find(el => el.textContent?.includes('artifactPanel.title'))!;
@@ -67,6 +84,15 @@ it('can collapse the shelf without losing the tab controls', async () => {
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.collapse"]')!.click());
   expect(host.querySelector('ul')).toBeNull();
   expect(host.querySelectorAll('[role=tab]')).toHaveLength(2);
+});
+it('includes a legacy live link in the artifact shelf without saved association', async () => {
+  const original = mocks.workspace.browserTabs;
+  mocks.workspace.browserTabs = [{ ...original[0], artifactChannels: [], liveUrl: 'https://browser.example/live/one' } as any];
+  try {
+    const messages = [{ sessionId: 'one', content: 'Watch https://browser.example/live/one', metadata: {} }] as any;
+    await act(async () => root.render(React.createElement(ThreadResources, { messages })));
+    expect(host.querySelector('[data-browser-thumbnail=live]')).not.toBeNull();
+  } finally { mocks.workspace.browserTabs = original; }
 });
 
 const pointer = (target: Element, type: string, x: number, options: { button?: number; buttons?: number; pointerType?: string } = {}) => {
@@ -126,4 +152,17 @@ it('leaves touch and right-button gestures native and cleans up a cancelled drag
   expect(row.style.scrollSnapType).toBe('');
   await act(async () => pointer(row, 'pointermove', 100));
   expect(row.scrollLeft).toBe(120);
+});
+
+it('keeps a shared browser in Artifacts after it leaves the active list', async () => {
+  const url = 'https://www.browserfabric.com/live/closed-session';
+  const messages = [{ sessionId: 'one', senderType: 'agent', senderName: 'scout', messageType: 'chat', content: url }] as any;
+  const opened = vi.fn(); window.addEventListener('workspace:open-artifact', opened);
+  try {
+    await act(async () => root.render(React.createElement(ThreadResources, { messages })));
+    const card = Array.from(host.querySelectorAll('button')).find(el => el.textContent?.includes('threadLiveBrowser.shared'))!;
+    expect(card).toBeTruthy();
+    await act(async () => card.click());
+    expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser', id:url});
+  } finally { window.removeEventListener('workspace:open-artifact', opened); }
 });

@@ -18,6 +18,8 @@ const fakes = vi.hoisted(() => ({
   createPairingCode: vi.fn(),
   nodeStatus: vi.fn(),
   connectNode: vi.fn(),
+  ensureDaemon: vi.fn(),
+  nudgeNode: vi.fn(),
   pushNotification: vi.fn(),
 }))
 vi.mock("electron", () => ({
@@ -44,6 +46,7 @@ vi.mock("../workspace-host", () => ({
     signOut = fakes.hostSignOut; whenCleared = fakes.whenCleared
     sendSession = fakes.sendSession; sendNotice = fakes.sendNotice
     currentSession = () => null
+    scopeFor = () => null
   },
 }))
 import { registerAccountIpc } from "./ipc"
@@ -63,15 +66,26 @@ beforeEach(() => {
   fakes.isWorkspaceSender.mockReturnValue(true)
   fakes.nodeStatus.mockResolvedValue(status)
   fakes.createPairingCode.mockResolvedValue("TEST-CODE")
+  fakes.ensureDaemon.mockReset().mockResolvedValue(true)
   registerAccountIpc({
     appearance: () => ({ theme: "system", language: "en" }),
     setAppearance: fakes.setAppearance, endpoint: () => undefined,
     getWindow: () => ({ webContents: { send: fakes.send } }) as never,
-    connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus,
+    connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus, ensureDaemon: fakes.ensureDaemon,
+    nudgeNode: fakes.nudgeNode,
   })
 })
 
 const bounds = { x: 0, y: 40, width: 1000, height: 700 }
+
+it("nudges this device's heartbeat only for a hosted workspace page", () => {
+  const nudge = fakes.listeners.get("workspace-view:nudge-computer")!
+  nudge({ sender: {} })
+  expect(fakes.nudgeNode).toHaveBeenCalledOnce()
+  fakes.isWorkspaceSender.mockReturnValue(false)
+  nudge({ sender: {} })
+  expect(fakes.nudgeNode).toHaveBeenCalledOnce()
+})
 
 it("shows each hosted agent reply once and rejects other senders", () => {
   const reply = { workspaceId: "team", sessionId: "thread", eventId: "event-1", sender: "Agent", content: "Finished" }
@@ -105,7 +119,7 @@ it("shows the latest workspace request even if an earlier refresh is slower", as
   await fakes.handlers.get("workspace-view:show")!({}, "latest", bounds)
   finish()
   await earlier
-  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null, null)
+  expect(fakes.show).toHaveBeenCalledExactlyOnceWith("latest", bounds, null, null, null)
 })
 
 it("ends the page and wipes its storage however the account ends", () => {
@@ -191,6 +205,15 @@ it("returns only the requested workspace registration and reuses an existing con
   const info = await fakes.handlers.get("workspace-view:connect-computer")!({}, "workspace-a")
   expect(info).toEqual({ hostname: "Review laptop", deviceType: "laptop", nodeId: "node-a", warning: false })
   expect(fakes.createPairingCode).not.toHaveBeenCalled()
+  expect(fakes.ensureDaemon).toHaveBeenCalledOnce()
+})
+
+it("starts the daemon for an existing connection and warns when it cannot", async () => {
+  fakes.nodeStatus.mockResolvedValue({ ...status, workspaces: [{ workspaceId: "workspace-a", nodeId: "node-a", endpoint: "private-a" }] })
+  fakes.ensureDaemon.mockResolvedValue(false)
+  const info = await fakes.handlers.get("workspace-view:connect-computer")!({}, "workspace-a")
+  expect(info).toEqual({ hostname: "Review laptop", deviceType: "laptop", nodeId: "node-a", warning: true })
+  expect(fakes.connectNode).not.toHaveBeenCalled()
 })
 
 it("pairs once for concurrent requests and returns the node id and daemon warning", async () => {

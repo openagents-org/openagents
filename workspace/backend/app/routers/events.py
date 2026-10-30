@@ -11,11 +11,12 @@ import hashlib
 import json as _json
 import logging
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, case, cast, func, or_, select, Text
+from sqlalchemy import and_, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -26,13 +27,28 @@ from app.pipeline_factory import pipeline
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
-from app.services.poll_queries import event_type_filter, resume_cursor, stream_head
+from app.services.read_state import stream_allows as read_state_stream_allows
+from app.services.poll_queries import event_type_filter, poll_generation, resume_cursor, stream_head
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Events"])
+
+POLL_CACHE_TTL_SECONDS = 1.5
+EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS = 10.0
+
+
+def _poll_cache_ttl(event_type, response):
+    # Idle connectors wait two seconds between control polls. Keep empty
+    # answers across that interval; committed events still change the cache
+    # generation immediately. Other responses retain their short freshness bound.
+    data = response.get("data", {}) if isinstance(response, dict) else {}
+    if (event_type == "workspace.agent.control" and isinstance(data, dict) and data.get("events") == []
+            and data.get("has_more") is False):
+        return EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS
+    return POLL_CACHE_TTL_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +63,7 @@ class SendEventRequest(BaseModel):
     metadata: Optional[dict] = None
     visibility: Optional[str] = "channel"
     network: Optional[str] = None   # workspace ID or slug
+    idempotency_key: Optional[UUID] = None
 
 
 # ---------------------------------------------------------------------------
@@ -319,11 +336,16 @@ def _attribute_direct_sender(db, workspace, token, authorization, source, payloa
     return f"human:{viewer.email}", payload
 
 
+@router.get("/events/delivery-capabilities")
+def delivery_capabilities():
+    return success_response({"idempotent_messages": True})
+
+
 @router.post("/events")
 def send_event(
     body: SendEventRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -419,6 +441,30 @@ def send_event(
         token=x_workspace_token,
         bearer_token=_extract_bearer(authorization),
     )
+
+    if body.idempotency_key:
+        if body.type != "workspace.message.posted":
+            return json_response(ResponseCode.BAD_REQUEST, "Idempotency keys are supported only for messages")
+        # A receipt lookup must not bypass auth or let a replaced session keep
+        # posting. Normal first delivery still runs the complete pipeline below.
+        from app.mods.auth import AuthMod
+        if asyncio.run(AuthMod().process(event, context)) is None:
+            return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+        if source.startswith("openagents:"):
+            from app.mods.workspace_mod import _validate_session
+            if _validate_session(db, workspace.id, source[len("openagents:"):], event.metadata.get("session_id")):
+                return json_response(ResponseCode.UNAUTHORIZED, "session_revoked: another client is now running as this agent")
+        from app.services.message_delivery import prepare_delivery
+        try:
+            receipt = prepare_delivery(db, event, body.idempotency_key)
+        except ValueError as exc:
+            return json_response(ResponseCode.CONFLICT, str(exc))
+        if receipt:
+            return success_response({
+                "id": receipt.id, "type": receipt.type, "source": receipt.source,
+                "target": receipt.target, "payload": receipt.payload,
+                "timestamp": receipt.timestamp, "metadata": receipt.metadata_,
+            })
 
     # Run through pipeline (fresh loop in this worker thread — pipeline is
     # async-shaped but contains only sync I/O, nothing bound to the main loop)
@@ -611,6 +657,7 @@ def recall_message(
 
 class RoutingChoiceRequest(BaseModel):
     agent: Optional[str] = None  # null dismisses the pending request
+    reclassify: bool = False  # Explicit sender action on a human-directed message.
 
 
 @router.post("/events/{event_id}/routing")
@@ -619,7 +666,7 @@ def resolve_routing_choice(
     body: RoutingChoiceRequest,
     network: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -644,7 +691,21 @@ def resolve_routing_choice(
         EventRecord.id == event_id, EventRecord.network_id == workspace.id,
         EventRecord.type == "workspace.message.posted",
     ).with_for_update()).scalar_one_or_none()
-    choice = (original.metadata_ or {}).get("routing_choice") if original else None
+    metadata = (original.metadata_ or {}) if original else {}
+    choice = metadata.get("routing_choice")
+    if body.reclassify:
+        if not original or original.source.lower() != f"human:{viewer.email.lower()}":
+            raise HTTPException(403, "Only the message sender can choose an agent")
+        if (not original.target.startswith("channel/") or metadata.get("recalled")
+                or metadata.get("routing_assignment") or metadata.get("approval_id") or metadata.get("approval")
+                or (original.payload or {}).get("message_type", "chat") != "chat"):
+            raise HTTPException(409, "This message cannot be reassigned")
+        # Preserve idempotency when the sender retries the same assignment.
+        already_assigned = isinstance(choice, dict) and choice.get("status") == "assigned"
+        if not already_assigned and (metadata.get("target_agents") != ["__no_response__"] or not body.agent):
+            raise HTTPException(409, "Only human-directed messages can be reassigned")
+        if not already_assigned:
+            choice = {"status": "pending", "requester_email": viewer.email.lower(), "candidates": [body.agent]}
     if not isinstance(choice, dict) or not original.target.startswith("channel/"):
         raise HTTPException(404, "Assignment request not found")
     if viewer.email.lower() != str(choice.get("requester_email", "")).lower():
@@ -664,6 +725,7 @@ def resolve_routing_choice(
         return success_response(updated)
     member = db.get(WorkspaceMember, (str(workspace.id), body.agent))
     if (body.agent not in choice.get("candidates", []) or not member or member.status == "removed"
+            or (body.reclassify and member.status != "online")
             or not db.get(ChannelMember, (channel.id, body.agent))
             or request_access(db, str(workspace.id), channel, member, viewer.email.lower()) == "no"):
         raise HTTPException(403, "This agent is no longer available to you in this thread")
@@ -793,10 +855,28 @@ def poll_events(
     # This is a strict correctness guarantee: we only route to Level 2 when
     # the caller's cursor is EQUAL to the tracked head. Agents that are
     # behind (historical backfill) fall through to Level 1 / DB.
+    #
+    # Both cached answers carry the workspace's event-write generation, which
+    # changes on every committed event write. The enumerated invalidation in
+    # _invalidate_poll_cache only covers workspace-wide filters, so without
+    # the generation a `channel=`/`target=`/`conversation=` poll could be
+    # served a page cached just before a new event landed in its thread.
     cache_key = None
-    at_head_key = None
+    athead_cache_key = None
     head_tracker_key = None
     incoming_after = after or ""
+
+    def refresh_control_composing(response):
+        # Composing changes without an event commit. Don't let an extended
+        # empty-control cache keep a stale typing hint alive (or hide a new one).
+        if (not search and not conversation
+                and _poll_cache_ttl(type, response) == EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS):
+            from app.composing import has_any_composing
+            response["data"].pop("composing", None)
+            if has_any_composing(workspace_id):
+                response["data"]["composing"] = True
+        return response
+
     # `target_agents` is a per-agent filter — every agent sends a distinct
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
@@ -812,6 +892,8 @@ def poll_events(
             key_parts.append(exclude_message_types)
         if dm_scope:
             key_parts.append("viewer=" + dm_scope)
+        generation = poll_generation(workspace_id)
+        key_parts.append("gen=" + generation)
         cache_key = "v1events:full:" + hashlib.sha1(
             "|".join(key_parts).encode("utf-8")
         ).hexdigest()
@@ -825,6 +907,7 @@ def poll_events(
             dm_scope or "",
         )
         head_tracker_key = "v1events:head:" + filter_hash
+        athead_cache_key = "v1events:athead:" + filter_hash + ":" + generation
 
         import json as _json
 
@@ -832,7 +915,7 @@ def poll_events(
         cached = cache.get_bytes(cache_key)
         if cached is not None:
             try:
-                return _json.loads(cached)
+                return refresh_control_composing(_json.loads(cached))
             except Exception:
                 pass
 
@@ -845,11 +928,10 @@ def poll_events(
             if head_id is not None:
                 head_id_str = head_id.decode("utf-8") if isinstance(head_id, bytes) else str(head_id)
                 if head_id_str and head_id_str == incoming_after:
-                    at_head_key = "v1events:athead:" + filter_hash
-                    cached_empty = cache.get_bytes(at_head_key)
+                    cached_empty = cache.get_bytes(athead_cache_key)
                     if cached_empty is not None:
                         try:
-                            return _json.loads(cached_empty)
+                            return refresh_control_composing(_json.loads(cached_empty))
                         except Exception:
                             pass
 
@@ -1070,28 +1152,29 @@ def poll_events(
                             str(newest_id).encode("utf-8"),
                             ttl_seconds=30.0,
                         )
-                    elif not events and incoming_after:
+                    elif not events and incoming_after and before is None:
                         # DB returned empty AND the client had a cursor. This
                         # confirms "after = head" for this filter. Populate
                         # both the head tracker (so other clients can match)
                         # and the shared at-head empty response.
-                        filter_hash = head_tracker_key.split(":")[-1]
                         cache.set_bytes(
                             head_tracker_key,
                             incoming_after.encode("utf-8"),
                             ttl_seconds=30.0,
                         )
                         cache.set_bytes(
-                            "v1events:athead:" + filter_hash,
+                            athead_cache_key,
                             serialized,
-                            ttl_seconds=1.5,
+                            ttl_seconds=_poll_cache_ttl(type, response),
                         )
             except Exception:
                 pass
 
         return response
 
-    return cache.json_singleflight(cache_key, 1.5, load_response, cache_if=lambda value: isinstance(value, dict))
+    response = cache.json_singleflight(cache_key, lambda value: _poll_cache_ttl(type, value),
+                                      load_response, cache_if=lambda value: isinstance(value, dict))
+    return refresh_control_composing(response)
 
 
 # ---------------------------------------------------------------------------
@@ -1135,56 +1218,18 @@ def list_conversations(
     except (ValueError, TypeError):
         return json_response(ResponseCode.BAD_REQUEST, "Invalid DM read markers")
 
-    unread_cutoff = unread_cutoff_ms()
-    # Build a subquery to find the latest event per conversation pair.
-    # Normalize pairs so (A→B) and (B→A) are the same conversation.
-    # Use case() instead of func.least/greatest for SQLite compatibility.
-    lesser = case(
-        (EventRecord.source <= EventRecord.target, EventRecord.source),
-        else_=EventRecord.target,
-    )
-    greater = case(
-        (EventRecord.source > EventRecord.target, EventRecord.source),
-        else_=EventRecord.target,
-    )
-
-    # Direct routing is also used for agent control traffic. Only posted
-    # messages form conversations; the internal system actor is never a DM peer.
-    conversation_events = (
-        EventRecord.network_id == workspace.id,
-        EventRecord.visibility == "direct",
-        EventRecord.type == "workspace.message.posted",
-        func.lower(EventRecord.source) != "human:system",
-        func.lower(EventRecord.target) != "human:system",
-        ~EventRecord.target.startswith("channel/"),
-    )
-    base = (
-        select(
-            lesser.label("agent_a"),
-            greater.label("agent_b"),
-            func.max(EventRecord.timestamp).label("last_ts"),
-            func.count().label("msg_count"),
-        )
-        .where(*conversation_events)
-    )
-
-    if agent:
-        base = base.where(
-            or_(EventRecord.source == agent, EventRecord.target == agent)
-        )
-
-    # DM privacy: a person lists only the pairs they are part of, plus
-    # agent↔agent / legacy unattributed pairs. Machines see every pair.
+    from app.services.conversation_queries import conversation_pairs_query, conversation_detail_queries
     from app.services.visibility import resolve_viewer
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
-    if _dm_viewer_scope(viewer):
-        base = base.where(_dm_privacy_clause(_dm_addresses(viewer)))
-
-    base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
-
-    pairs = db.execute(base).all()
+    visibility_filters = [_dm_privacy_clause(_dm_addresses(viewer))] if _dm_viewer_scope(viewer) else []
+    pairs = db.execute(conversation_pairs_query(workspace.id, limit, agent, visibility_filters)).all()
 
     from app.models import DirectThreadLink, DirectThreadPreference
+    # Stored per-person markers (shared across devices) merge with the ones
+    # older clients still send from local storage; the newer one wins.
+    from app.services.read_state import merged_for_viewer
+    read_markers = merged_for_viewer(db, workspace.id, viewer, read_markers, keep=lambda key: key.startswith('dm:'))
+
     preferences = {}
     if viewer.is_human and viewer.email:
         preferences = {key: pref for key, pref in db.execute(
@@ -1192,46 +1237,19 @@ def list_conversations(
                 DirectThreadPreference, DirectThreadPreference.thread_id == DirectThreadLink.id
             ).where(DirectThreadLink.workspace_id == workspace.id, DirectThreadPreference.user_email == viewer.email)
         ).all()}
-    # For each pair, fetch the actual latest event
+    latest_query, unread_query = conversation_detail_queries(
+        workspace.id, pairs, read_markers, (_dm_addresses(viewer) or []) + ["human:user"], unread_cutoff_ms())
+    latest_by_pair = {(r.agent_a, r.agent_b): r for r in db.execute(latest_query)} if latest_query is not None else {}
+    unread_by_pair = {(r.agent_a, r.agent_b): r.unread_count for r in db.execute(unread_query)} if unread_query is not None else {}
     conversations = []
     for row in pairs:
-        latest_event = db.execute(
-            select(EventRecord)
-            .where(
-                *conversation_events,
-                EventRecord.timestamp == row.last_ts,
-                or_(
-                    and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
-                    and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
-                ),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-
+        key = (row.agent_a, row.agent_b)
+        latest_event = latest_by_pair.get(key)
         if latest_event:
             payload = latest_event.payload or {}
             session_id = f"dm:{row.agent_a},{row.agent_b}"
             last_read = read_markers.get(session_id)
-            own_addresses = (_dm_addresses(viewer) or []) + ["human:user"]
-            unread_count = None
-            if last_read is not None:
-                unread_count = db.scalar(select(func.count()).select_from(EventRecord).where(
-                    EventRecord.network_id == workspace.id,
-                    EventRecord.visibility == "direct",
-                    EventRecord.type == "workspace.message.posted",
-                    or_(
-                        EventRecord.payload["message_type"].as_string().is_(None),
-                        EventRecord.payload["message_type"].as_string().notin_(["thinking", "status", "todos"]),
-                    ),
-                    EventRecord.timestamp > last_read,
-                    EventRecord.timestamp >= unread_cutoff,
-                    EventRecord.target.in_(own_addresses),
-                    ~EventRecord.source.in_(own_addresses),
-                    or_(
-                        and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
-                        and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
-                    ),
-                )) or 0
+            unread_count = unread_by_pair.get(key, 0) if last_read is not None else None
             conversations.append({
                 "agents": [row.agent_a, row.agent_b],
                 "pinned": bool(preferences.get(session_id) and preferences[session_id].pinned),
@@ -1448,6 +1466,10 @@ async def stream_events(
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
 
     async def event_generator():
+        # Flush headers immediately, even when the workspace is quiet. Without
+        # a first chunk, compression/proxies can hold the response until the
+        # 30s keepalive; worker recycling before then turns an idle SSE into 500.
+        yield ": connected\n\n"
         keepalive_interval = 30
         last_keepalive = asyncio.get_event_loop().time()
 
@@ -1466,7 +1488,9 @@ async def stream_events(
                     event = _json.loads(data)
                     if stream_filter is not None:
                         await stream_filter.maybe_refresh(event)
-                    if stream_filter is not None and not stream_filter.allows(event):
+                    if not read_state_stream_allows(event, viewer):
+                        pass
+                    elif stream_filter is not None and not stream_filter.allows(event):
                         pass
                     elif not (target_prefix and event.get("target", "") != target_prefix):
                         event_id = event.get("id", "")

@@ -5,6 +5,7 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 import { isKeyboardDriven } from "@renderer/lib/input-modality"
 import { ROW_CHECKED, ROW_HOVER, ROW_OPEN } from "@renderer/lib/row-states"
 import { cn } from "@renderer/lib/utils"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function DropdownMenu({
   ...props
@@ -37,6 +38,9 @@ function DropdownMenuContent({
   onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content

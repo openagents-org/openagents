@@ -1,9 +1,10 @@
 'use client';
 import { MoreAgents } from './more-agents';
+import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, Users } from 'lucide-react';
+import { ChevronDown, Plus, Users } from 'lucide-react';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -11,13 +12,15 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints } from '@/components/agents/agent-roster-hints'; // v1.1 M1
-import { cn } from '@/lib/utils';
+import { cn, hasTruncatedLabel } from '@/lib/utils';
 import { agentLabel } from '@/lib/helpers';
 import { sidebarAgents, isOwnedAgent, isMySidebarAgent, sidebarAgentGroups } from '@/lib/sidebar-agents';
-import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
+import { agentAvailability, availabilityDotClass, availabilityLabel, displayNameFromEmail } from '@/lib/collab'; // v1.1 M3
+import { useHumanNames } from '@/hooks/use-team-roster';
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmSessionId, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
@@ -33,16 +36,22 @@ import { useLayout } from './layout-context';
  * parked over the very panel the tap just opened.
  */
 export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
-  const { setSelectedAgentName, openMobileDetail, openView, setThreadFilter } = useLayout();
+  const { setSelectedAgentName, openMobileDetail, openView, openAddAgent, setThreadFilter } = useLayout();
   const { agents, onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations, pendingApprovalsByAgent } = useWorkspace();
   const t = useT();
   const [open, setOpen] = useState(true);
+  // Expanded, a row repeats its name in a tooltip only when the name is cut off.
+  const { state: sidebarState } = useSidebar();
+  const [truncatedAgent, setTruncatedAgent] = useState<string | null>(null);
 
   const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
   const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
   const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
+  const humanNames = useHumanNames();
+  // Shared agents carry their owner's name, so they never pass for the viewer's own.
+  const ownerName = (email: string | null | undefined) => email ? humanNames[email.toLowerCase()] || displayNameFromEmail(email) : '';
 
   if (recentAgents.length === 0 && onlineUsers.length === 0) return null;
 
@@ -50,15 +59,17 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {recentAgents.length > 0 && (
         <SidebarGroup>
+          <div className="flex items-center">
           <SidebarGroupLabel
             asChild
-            className="w-full cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+            className="min-w-0 flex-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
           >
             <button
               type="button"
               onClick={() => setOpen((prev) => !prev)}
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
+              title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
             >
               {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
               <ChevronDown
@@ -69,6 +80,17 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               />
             </button>
           </SidebarGroupLabel>
+          {/* Same "+" as the Members header: straight to the add-agent gallery. */}
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:hidden"
+            aria-label={t('nav.addAgent')}
+            title={t('nav.addAgent')}
+            onClick={() => { openAddAgent(); onNavigate?.(); }}
+          >
+            <Plus className="size-3.5" />
+          </button>
+          </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}
           <SidebarGroupContent
@@ -83,14 +105,13 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                 const label = availabilityLabel(t, availability, agent.queueDepth ?? 0);
                 return (
                   <Fragment key={agent.agentName}>
-                    {index === firstSharedIndex && <li role="separator" aria-label={t('collab.sharedByOthers')} className="mx-2 flex items-center gap-2">
-                        <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
-                      <span className="shrink-0 text-center text-[10px] leading-5 text-muted-foreground group-data-[collapsible=icon]:hidden">{t('collab.sharedByOthers')}</span>
-                      <span className="h-px min-w-0 flex-1 bg-sidebar-border" />
-                    </li>}
+                    {(index === 0 || index === firstSharedIndex) && <AgentSectionLabel owned={index !== firstSharedIndex} online={groups[index === firstSharedIndex ? 1 : 0].all.length} total={groups[index === firstSharedIndex ? 1 : 0].total} first={index === 0} labelClassName="group-data-[collapsible=icon]:hidden" />}
                   <SidebarMenuItem>
                     <SidebarMenuButton
-                      tooltip={`${agentLabel(agent)} · ${label}`}
+                      // Collapsed, the only place the name shows; open, only for a
+                      // name cut off by the ellipsis.
+                      tooltip={{ children: `${agentLabel(agent)} · ${label}`, hidden: sidebarState !== 'collapsed' && truncatedAgent !== agent.agentName }}
+                      onPointerEnter={(e) => setTruncatedAgent(hasTruncatedLabel(e.currentTarget) ? agent.agentName : null)}
                       onClick={() => {
                         // Same as the desktop rail: a person-click opens the DM
                         // (the profile is one more tap away via the overlay).
@@ -103,7 +124,9 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         onNavigate?.();
                       }}
                     >
-                      <span className="relative shrink-0" title={label} aria-label={label}>
+                      {/* No title: the row's tooltip already gives the status,
+                          and a native one on top showed two hints at once. */}
+                      <span className="relative shrink-0" aria-label={label}>
                         <AgentAvatar
                           name={agent.agentName}
                           size={20}
@@ -116,9 +139,10 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                           )}
                         />
                       </span>
-                      <span className="min-w-0 truncate">{agentLabel(agent)}</span>
+                      <span className="min-w-0 truncate" data-truncatable>{agentLabel(agent)}</span>
+                      {!isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
-                      {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="ml-auto" />}
+                      {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -555,6 +555,41 @@ def resource_for_agent(member: WorkspaceMember) -> Resource:
     return Resource("agent", member.agent_name, owner, None, obj=member)
 
 
+def _builtin_assistant_names(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
+    """Each signed-in member can use the server-managed assistant personally.
+
+    Check both the provisioned member and its server-managed config; an agent
+    merely calling itself Yumi or declaring a cloud type must not qualify.
+    This grants use only, never management or access to other resources.
+    """
+    from app.models import CloudAgentConfig
+    from app.services.yumi import YUMI_AGENT_NAME, YUMI_AGENT_TYPE, YUMI_PROVIDER
+    wid = str(workspace_id)
+    if principal.workspace_id != wid:
+        return set()
+    if principal.kind == "human":
+        ws = db.get(Workspace, wid)
+        if not principal.email or ws is None or not role_for_email(db, ws, principal.email):
+            return set()
+    elif principal.kind == "agent":
+        caller = db.get(WorkspaceMember, (wid, principal.agent_name))
+        if caller is None or caller.status == "removed":
+            return set()
+    else:
+        return set()
+    return set(db.execute(select(WorkspaceMember.agent_name).join(
+        CloudAgentConfig,
+        (CloudAgentConfig.workspace_id == WorkspaceMember.workspace_id)
+        & (CloudAgentConfig.agent_name == WorkspaceMember.agent_name),
+    ).where(
+        WorkspaceMember.workspace_id == wid,
+        WorkspaceMember.agent_name == YUMI_AGENT_NAME,
+        WorkspaceMember.agent_type == YUMI_AGENT_TYPE,
+        WorkspaceMember.status != "removed",
+        CloudAgentConfig.provider == YUMI_PROVIDER,
+    )).scalars().all())
+
+
 def resource_for_file(record: FileRecord) -> Resource:
     owner = record.owner or record.uploaded_by
     vis = normalize_visibility(record.visibility, None)
@@ -656,6 +691,13 @@ def create_grant(db: Session, workspace_id: str, *, resource_kind: str, resource
                  scope=None, expires_at: Optional[datetime] = None, budget=None,
                  granted_by: Optional[str] = None, note: Optional[str] = None) -> Tuple[ResourceGrant, bool]:
     """Idempotent on (resource, grantee, rights): returns (grant, created)."""
+    from app.services.personal_assistant import require_group_agent, require_shareable_channel
+    if resource_kind == "agent":
+        require_group_agent(db, workspace_id, resource_id)
+    elif resource_kind == "channel":
+        resource = load_resource(db, workspace_id, "channel", resource_id)
+        if resource is not None:
+            require_shareable_channel(db, resource.obj)
     if grantee_kind == "human":
         grantee_id = _norm(grantee_id) or grantee_id
     rights = normalize_rights(rights)
@@ -799,8 +841,18 @@ def explain(db: Session, principal: Principal, resource: Resource, right: str = 
     if principal.machine:
         return Explanation(True, "machine", "Machine credential without agent identity (legacy full access).")
 
+    from app.services.personal_assistant import is_personal_channel, is_yumi
+    if resource.kind == "channel" and resource.obj is not None and is_personal_channel(db, resource.obj):
+        own = principal.kind == "human" and principal.email == _norm(resource.obj.owner_email)
+        assistant = principal.kind == "agent" and principal.agent_name == "yumi"
+        return Explanation(bool((own or assistant) and right in ("read", "act")), "personal", "This is a personal Yumi conversation.")
+    if resource.kind == "agent" and is_yumi(db, wid, resource.id):
+        usable = principal.kind == "human" and resource.id in _builtin_assistant_names(db, wid, principal)
+        return Explanation(bool(usable and right in ("read", "act")), "personal", "Yumi is a personal assistant and cannot be shared.")
+
     if _owner_matches(db, wid, principal, resource.owner):
         return Explanation(True, "owner", "You own this.")
+
 
     if resource.visibility == "public" and right in ("read", "act"):
         return Explanation(True, "public", "This is public to everyone in the workspace.")
@@ -861,6 +913,11 @@ def can_manage(db: Session, principal: Principal, resource: Resource, workspace_
     """May the principal change visibility / grants of this resource: owner,
     admin, machine, or a holder of the `share` right."""
     wid = str(workspace_id or principal.workspace_id or "")
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    if resource.kind == "agent" and is_yumi(db, wid, resource.id):
+        return False
+    if resource.kind == "channel" and resource.obj is not None and is_personal_channel(db, resource.obj):
+        return False
     if resource.kind in ("agent", "service"):
         return _owner_matches(db, wid, principal, resource.owner)
     if principal.machine or (principal.kind == "human" and principal.is_admin):
@@ -894,8 +951,14 @@ def hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -
             Channel.visibility == "private",
         )
     ).all()
+    from app.services.personal_assistant import personal_channels
+    personal = personal_channels(db, wid)
+    personal_hidden = {c.name for c in personal if not (
+        principal.kind == "human" and principal.email == _norm(c.owner_email)
+        or principal.kind == "agent" and principal.agent_name == "yumi"
+    )}
     if not private:
-        return set()
+        return personal_hidden
     visible_ids: Set[str] = set()
     visible_names: Set[str] = set()
     emails = set()
@@ -925,7 +988,7 @@ def hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -
     for g in grants_for_pairs(db, wid, pairs, "channel"):
         if _has_right(g.rights, "read"):
             visible_names.add(g.resource_id)
-    return {name for cid, name, _ in private if cid not in visible_ids and name not in visible_names}
+    return personal_hidden | {name for cid, name, _ in private if cid not in visible_ids and name not in visible_names}
 
 
 def can_start_agent_thread(db, workspace_id, principal, member):
@@ -963,6 +1026,8 @@ def hidden_agent_names(db: Session, workspace_id: str, principal: Principal,
     if principal.kind == "agent" and principal.owner_email:
         emails.add(principal.owner_email)
     granted: Set[str] = thread_shared_agent_names(db, wid, principal)
+    if any(m.agent_name == "yumi" for m in members):
+        granted.update(_builtin_assistant_names(db, wid, principal))
     pairs = _identity_pairs(db, wid, principal)
     for g in grants_for_pairs(db, wid, pairs, "agent", [m.agent_name for m in members]):
         if _has_right(g.rights, "read"):
@@ -1124,6 +1189,9 @@ def channel_participant_emails(db: Session, channel: Channel) -> Set[str]:
 
 
 def add_channel_participant(db: Session, channel: Channel, email: str) -> bool:
+    from app.services.personal_assistant import require_shareable_channel
+    if _norm(email) != _norm(channel.owner_email):
+        require_shareable_channel(db, channel)
     email = _norm(email)
     if not email:
         return False
@@ -1156,6 +1224,9 @@ def remove_channel_participant(db: Session, channel: Channel, email: str) -> boo
 
 
 def add_channel_agent(db: Session, channel: Channel, agent_name: str) -> bool:
+    from app.services.personal_assistant import require_group_agent, require_shareable_channel
+    require_group_agent(db, channel.workspace_id, agent_name)
+    require_shareable_channel(db, channel)
     existing = db.execute(
         select(ChannelMember).where(ChannelMember.channel_id == channel.id, ChannelMember.agent_name == agent_name)
     ).scalar_one_or_none()

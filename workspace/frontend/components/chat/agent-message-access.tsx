@@ -64,7 +64,7 @@ export function AgentOwnershipBadge({ agent, compact = false }: { agent: Workspa
   const context = useContext(Context);
   const { currentUser } = useWorkspace();
   const t = useT();
-  if (!context) return null;
+  if (!context || agent.builtin) return null;
   const access = context.agents.find(item => item.agent_name === agent.agentName);
   const owner = access?.owner_email || agent.ownerEmail;
   if (!owner) return null;

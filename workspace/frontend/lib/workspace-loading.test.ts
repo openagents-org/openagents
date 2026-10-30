@@ -3,6 +3,8 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceProvider, useWorkspace } from './workspace-context';
+import { ApiError } from './api';
+import { clearWorkspaceSnapshots } from './workspace-snapshot';
 
 const api = vi.hoisted(() => Object.fromEntries([
   'configure', 'getWorkspace', 'discover', 'listFiles', 'listTrash',
@@ -11,7 +13,9 @@ const api = vi.hoisted(() => Object.fromEntries([
   'listConversations', 'latestPerChannel', 'listApprovals',
 ].map((name) => [name, vi.fn()])));
 
-vi.mock('./api', () => ({ workspaceApi: api }));
+vi.mock('./api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./api')>(), workspaceApi: api,
+}));
 vi.mock('./analytics', () => ({ capture: vi.fn(), group: vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('./openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: null }) }));
@@ -40,10 +44,10 @@ function View() {
   return React.createElement('div', null, state.loading ? 'Loading' : state.error || state.workspace?.name);
 }
 
-async function render(workspaceId = 'one') {
+async function render(workspaceId = 'one', bearerToken?: string) {
   await act(async () => {
     root.render(React.createElement(WorkspaceProvider, {
-      workspaceId, token: 'test-token', children: React.createElement(View),
+      workspaceId, token: 'test-token', bearerToken, children: React.createElement(View),
     }));
   });
 }
@@ -66,6 +70,7 @@ beforeEach(() => {
     removeItem: (key: string) => storage.delete(key),
   });
   state = undefined;
+  clearWorkspaceSnapshots();
   for (const method of Object.values(api)) {
     method.mockReset().mockImplementation(() => new Promise(() => {}));
   }
@@ -127,7 +132,7 @@ describe('workspace initial loading', () => {
     essentials();
     api.discover.mockRejectedValueOnce(new Error('Service busy'));
     await render();
-    expect(state?.workspaceLoadError).toBe('Service busy');
+    expect(state?.workspaceLoadError).toEqual({ message: 'Service busy', status: null });
     expect(state?.agents).toEqual([]);
     await act(async () => state?.retryWorkspace());
     expect(state?.workspaceLoadError).toBeNull();
@@ -135,6 +140,49 @@ describe('workspace initial loading', () => {
     expect(state?.agents[0].agentName).toBe('helper');
     expect(state?.sessions[0].sessionId).toBe('general');
     expect(api.getWorkspace).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([401, 403, 404, 503])('preserves HTTP %s and recovers after changing identity on the same link', async (status) => {
+    essentials();
+    api.discover.mockRejectedValueOnce(new ApiError(status, '{"message":"Denied"}'));
+    await render('one', 'old-identity');
+    expect(state?.workspaceLoadError?.status).toBe(status);
+    expect(api.latestPerChannel).not.toHaveBeenCalled();
+
+    await render('one', 'new-identity');
+    expect(api.configure).toHaveBeenLastCalledWith('one', 'test-token', 'new-identity');
+    expect(state?.workspaceLoadError).toBeNull();
+    expect(state?.workspace?.name).toBe('Workspace one');
+    expect(api.discover).toHaveBeenCalledTimes(2);
+  });
+
+  it('paints a workspace it already opened at once and refreshes it underneath', async () => {
+    essentials();
+    await render();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+
+    const workspace = deferred<{ name: string }>();
+    api.getWorkspace.mockReturnValue(workspace.promise);
+    await render();
+    expect(state?.loading).toBe(false);
+    expect(container.textContent).toBe('Workspace one');
+    expect(state?.agents[0].agentName).toBe('helper');
+
+    await act(async () => workspace.resolve({ name: 'Workspace renamed' }));
+    expect(container.textContent).toBe('Workspace renamed');
+  });
+
+  it('keeps the painted workspace when its background refresh fails in passing', async () => {
+    essentials();
+    await render();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+
+    api.discover.mockRejectedValueOnce(new ApiError(503, '{"message":"Busy"}'));
+    await render();
+    expect(container.textContent).toBe('Workspace one');
+    expect(state?.workspaceLoadError).toBeNull();
   });
 
   it('clears old optional data and ignores late responses after switching workspaces', async () => {

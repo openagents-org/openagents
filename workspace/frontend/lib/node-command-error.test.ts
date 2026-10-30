@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { nodeCommandErrorKey } from './node-command-error';
+import { deviceNameClash, nodeCommandErrorKey } from './node-command-error';
 
 const body = (message: string) => JSON.stringify({ code: 403, message });
 
@@ -13,4 +13,9 @@ it('asks to sign in again on 401 and leaves other failures to their own message'
   expect(nodeCommandErrorKey('API 401: {}')).toBe('connect.nodeCommandSignIn');
   expect(nodeCommandErrorKey('API 500: timeout after 4013ms')).toBeNull();
   expect(nodeCommandErrorKey('Network error')).toBeNull();
+});
+it('picks the clashing name out of a device create failure', () => {
+  expect(deviceNameClash("Error: Agent 'deepseek' already exists\n")).toBe('deepseek');
+  expect(deviceNameClash('connect failed')).toBeNull();
+  expect(deviceNameClash(null)).toBeNull();
 });

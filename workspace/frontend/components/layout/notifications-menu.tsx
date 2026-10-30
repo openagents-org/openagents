@@ -5,7 +5,7 @@ import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NotificationCard } from '@/components/inbox/inbox-view';
-import { inboxSessionTarget } from '@/lib/inbox';
+import { useOpenNotification } from '@/components/inbox/use-open-notification';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { NotificationItem } from '@/lib/types';
@@ -27,8 +27,6 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
     markNotificationRead,
     markAllNotificationsRead,
     dismissNotification,
-    setCurrentSessionId,
-    sessions,
   } = useWorkspace();
   const { openView } = useLayout();
   const t = useT();
@@ -48,13 +46,9 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
     return [...unread, ...read].slice(0, 12);
   }, [notifications]);
 
+  const openNotification = useOpenNotification();
   const handleNavigate = (notification: NotificationItem) => {
-    if (!notification.isRead) markNotificationRead(notification.id);
-    const target = inboxSessionTarget(notification, (id) => sessions.some((s) => s.sessionId === id));
-    if (target) {
-      setCurrentSessionId(target);
-      openView('threads');
-    }
+    openNotification(notification);
     setOpen(false);
   };
 

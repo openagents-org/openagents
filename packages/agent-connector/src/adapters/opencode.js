@@ -82,7 +82,8 @@ const FAILURE_MESSAGES = {
   timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
   stream_parse_error: 'OpenCode produced output this version could not parse. Update to a supported OpenCode version, or open diagnostics.',
   empty_response: 'OpenCode finished without producing a final reply. Retry; if it persists, open diagnostics.',
-  incomplete_run: 'OpenCode stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off. If this keeps happening, that tool call itself is failing (on Windows, prefer single-line commands over multi-line PowerShell).',
+  incomplete_run: 'OpenCode stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off. Check the tool error or permission request before retrying.',
+  permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
@@ -97,7 +98,7 @@ class OpenCodeAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the system prompt.
+    // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
     // Agent home directory: ~/.openagents/agents/{agentName}/ — scratch storage
@@ -156,7 +157,9 @@ class OpenCodeAdapter extends BaseAdapter {
   _buildRunArgs({ runCwd, model, sessionId }) {
     // Preflight guarantees a resolvable model; pin it explicitly — without it
     // opencode hangs waiting for interactive provider/model selection.
-    const args = ['run', '--format', 'json', '--dir', runCwd, '--model', model];
+    // Connected agents run unattended: let the CLI resolve permission prompts
+    // automatically instead of rejecting tools outside the working directory.
+    const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--dir', runCwd, '--model', model];
     if (sessionId) args.push('--session', sessionId);
     return args;
   }
@@ -569,6 +572,10 @@ class OpenCodeAdapter extends BaseAdapter {
       if (responseState) {
         responseState.finalText = '';
         responseState.lastTool = OpenCodeAdapter._toolNameFromEvent(event);
+        const item = event.part || event.item || event;
+        if (item.state?.status === 'error' && /reject.*permission|permission.*reject|permission.*denied/i.test(item.state.error || '')) {
+          responseState.permissionDenied = true;
+        }
       }
       await this.sendStatus(msgChannel, status);
       return;
@@ -1008,6 +1015,10 @@ class OpenCodeAdapter extends BaseAdapter {
     const lastTool = state.lastTool || null;
     const endedOnTool = !!lastTool && !(state.finalText || '').trim();
 
+    if (state.permissionDenied && !(state.finalText || '').trim()) {
+      return { failure: { category: 'permission_denied', diagnostic: `permission rejected for ${lastTool}`,
+        detail: `Tool: \`${lastTool}\`` } };
+    }
     if (endedOnTool) {
       if (stdoutErr) {
         const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });

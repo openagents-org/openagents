@@ -145,6 +145,20 @@ function isCliLogin(agentEnv) {
 }
 
 /**
+ * Set on an agent's own env when its model is cleared from the workspace, so
+ * it runs on its CLI's default. A cleared model used to be dropped from the
+ * agent's env alone, and a model left in <type>.env (earlier versions saved
+ * workspace models there) filled the gap again at the agent's next start. A
+ * model in the agent's own env still wins; this only keeps the type's out.
+ */
+const MODEL_MODE_KEY = 'OPENAGENTS_MODEL_MODE';
+const MODEL_DEFAULT = 'default';
+
+function usesDefaultModel(agentEnv) {
+  return !!agentEnv && agentEnv[MODEL_MODE_KEY] === MODEL_DEFAULT;
+}
+
+/**
  * Keys and endpoints a CLI reads under a name of its own that no registry
  * field or readiness check declares (the launcher's auth-specs.ts offers the
  * endpoints). Named per type rather than by suffix: the env stripped is the
@@ -203,15 +217,40 @@ function modelKeys(agentType, registry) {
 }
 
 /**
- * The part of <type>.env an agent runs on. All of it for an agent on a key.
- * A signed-in agent takes none of its keys, and none of its model either:
- * that model was picked for the key's endpoint (a relay's
- * openai-gpt-oss-20b), which the account behind a sign-in does not serve.
- * Its model is the one in its own env, else the CLI's default.
+ * Whether the agent's own env carries a key (not just an endpoint).
+ */
+function hasOwnKey(agentType, registry, agentEnv) {
+  if (!agentEnv) return false;
+  for (const key of credentialKeys(agentType, registry)) {
+    if (/BASE_URL$/.test(key)) continue;
+    if (String(agentEnv[key] == null ? '' : agentEnv[key]).trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * The part of <type>.env an agent runs on. All of it for an agent that brings
+ * no credentials of its own.
+ *
+ * A signed-in agent, or one with a key of its own, takes none of the type's
+ * keys or endpoints, and none of its model either: that model was picked for
+ * the type key's endpoint (a relay's openai-gpt-oss-20b), which neither the
+ * account behind a sign-in nor the agent's own provider serves. Resolution
+ * maps the generic LLM_* names over the provider ones, so a relay left in
+ * <type>.env used to override an agent configured for DeepSeek: its
+ * LLM_BASE_URL and LLM_MODEL became PI_BASE_URL and PI_MODEL, and the agent's
+ * key went to the relay. An agent whose model was cleared (MODEL_MODE_KEY)
+ * takes no model from it either. Its model is the one in its own env, else the
+ * CLI's default.
  */
 function typeEnvFor(agentType, typeEnv, registry, agentEnv) {
-  if (!isCliLogin(agentEnv)) return typeEnv;
-  const out = stripForCliLogin(agentType, typeEnv, registry, agentEnv);
+  const signedIn = isCliLogin(agentEnv);
+  const ownKey = hasOwnKey(agentType, registry, agentEnv);
+  if (!signedIn && !ownKey && !usesDefaultModel(agentEnv)) return typeEnv;
+  const out = { ...typeEnv };
+  if (signedIn || ownKey) {
+    for (const key of credentialKeys(agentType, registry)) delete out[key];
+  }
   for (const key of modelKeys(agentType, registry)) delete out[key];
   return out;
 }
@@ -242,5 +281,6 @@ function normalizeAnthropicBase(url) {
 }
 
 module.exports = {
-  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, isCliLogin, credentialKeys, modelKeys, stripForCliLogin, typeEnvFor,
+  EnvManager, AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, isCliLogin, credentialKeys, modelKeys,
+  stripForCliLogin, typeEnvFor,
 };

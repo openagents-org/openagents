@@ -258,8 +258,10 @@ def redeem_pairing_code(body: NodeRedeemRequest, db: Session = Depends(get_db)):
     node.device_type = body.device_type or node.device_type or "unknown"
     node.os = body.os or node.os
     node.launcher_version = body.launcher_version or node.launcher_version
-    node.status = "online"
-    node.last_heartbeat = now
+    # Liveness is left to the daemon's own heartbeat. Stamping one here showed
+    # a just-paired device online for a minute whether or not its daemon ever
+    # came up, so setup moved on to adding agents and the device then dropped
+    # offline. A re-paired device keeps the heartbeats it already sends.
     db.flush()
 
     pc.redeemed_at = now

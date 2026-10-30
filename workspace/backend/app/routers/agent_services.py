@@ -102,7 +102,7 @@ def update_service(sid: str, body: ServiceInput, network: str, db: Session = Dep
     return success_response(serialize(_save(db, ctx, body, _get(db, ctx.wid, sid)), ctx.viewer.email))
 
 @router.post("/{sid}/requests")
-def start_service_request(sid: str, body: RequestInput, network: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+def start_service_request(sid: str, body: RequestInput, network: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     ctx, err = _load(db, network, x_workspace_token, authorization)
     if err: return err
     err = _person_only(ctx)

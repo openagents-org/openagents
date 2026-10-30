@@ -5,13 +5,13 @@
  * A fake `dsh` CLI for the DeepSeekAdapter tests.
  *
  * Speaks the real headless contract as captured from @deepseek-ai/dsh
- * 0.1.0-rc.6: `-V` prints a bare version, `--dump-config` composes and exits 0,
+ * 0.2.1-rc.2: `-V` prints a bare version, `--dump-config` composes and exits 0,
  * and a headless run prints the final assistant text on stdout and exits 0 —
  * or writes a diagnostic to stderr and exits non-zero. Nothing is streamed.
  *
  * Driven entirely by environment variables so one script covers every scenario:
  *   FAKE_SCENARIO      which behaviour to play (see below)
- *   FAKE_DSH_VERSION   what `-V` prints (default 0.1.0-rc.6)
+ *   FAKE_DSH_VERSION   what `-V` prints (default 0.2.1-rc.2)
  *   FAKE_ARGV_LOG      file to write { argv, cwd, env, taskFile, taskBody }
  *   FAKE_STDOUT        text printed by the `answer` scenario (empty is honoured)
  *   FAKE_BOOTSTRAP_FAIL  make `--dump-config` fail instead of the run
@@ -35,7 +35,7 @@ const fs = require('fs');
 const argv = process.argv.slice(2);
 
 if (argv.includes('-V') || argv.includes('--version')) {
-  process.stdout.write((process.env.FAKE_DSH_VERSION || '0.1.0-rc.6') + '\n');
+  process.stdout.write((process.env.FAKE_DSH_VERSION || '0.2.1-rc.2') + '\n');
   process.exit(0);
 }
 

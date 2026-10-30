@@ -15,11 +15,15 @@ import { isCliLoginDetected, modelsForTab, preferredAuthTab } from "@renderer/li
 import { isCliLogin } from "../../../shared/agent-auth-mode"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types"
 import { throwIfInstallFailed } from "@renderer/utils/installErrors"
+import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
+import { SetupAside } from "./components/setup-aside"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
-export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage }: {
+export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChanged, onManage }: {
   agent?: Agent
+  /** Open on this type's form instead of the type picker (a recommended card). */
+  initialType?: string
   onBack: () => void
   onCreated: (name: string) => void
   onManage: (agent: { name: string; type: string }) => void
@@ -31,6 +35,8 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
   const [attempt, setAttempt] = useState(0)
   const [authBusy, setAuthBusy] = useState(false)
   const [configReady, setConfigReady] = useState(false)
+  // Bumped by the header's "Sign in" link; the configuration below answers it.
+  const [signInRequest, setSignInRequest] = useState(0)
   const config = useRef<LocalConfiguration | null>(null)
   const locale = i18n.language.startsWith("zh") ? "zh-CN" : "en-US"
 
@@ -60,23 +66,36 @@ export function LocalAgentSetup({ agent, onBack, onCreated, onChanged, onManage 
   }
   useEffect(() => { let active = true; setError(""); void refresh().catch((err) => { if (active) setError(String(err)) }); return () => { active = false } }, [attempt])
 
-  const api = useMemo<AgentSetupApi>(() => createLocalSetupApi(window.api, () => config.current), [])
+  // A create that waits on an install reports back after this form may be gone, so it reads the latest host callbacks.
+  const host = useRef({ onCreated, onChanged, t })
+  host.current = { onCreated, onChanged, t }
+  const api = useMemo<AgentSetupApi>(() => createLocalSetupApi(window.api, () => config.current, {
+    onCreated: (name) => {
+      showGlobalToast(host.current.t("agents.shared.addedAfterInstall", { name }), "success")
+      host.current.onChanged()
+      host.current.onCreated(name)
+    },
+    onFailed: (name, message) => showGlobalToast(host.current.t("agents.shared.addAfterInstallFailed", { name, message }), "error"),
+  }), [])
   const current = agent && data?.node.agents.find((a) => a.name === agent.name)
   const loadError = error || (data && agent && !current ? t("agents.shared.agentUnavailable") : "")
   return <section className="h-full overflow-y-auto">
     {loadError ? <div className="p-8 space-y-4"><p role="alert">{loadError}</p><Button onClick={() => setAttempt((n) => n + 1)}>{t("common.retry")}</Button><Button variant="ghost" onClick={onBack}>{t("common.back")}</Button></div>
       : !data ? <div className="p-12 flex justify-center"><Spinner /></div>
       : <I18nProvider key={locale} initialLocale={locale} hasStoredLocale>
-        <AgentSetup key={agent?.name || "new"} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
+        <AgentSetup key={agent?.name || `new:${initialType || ""}`} initialType={initialType} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
           contextLabel={<>{t("agents.shared.runsHere")}{agent?.networkName || agent?.network ? ` · ${agent.networkName || agent.network}` : ` · ${t("agents.shared.localOnly")}`}</>}
           onBack={onBack} onChanged={() => { void refresh().catch((err) => { if (mounted.current) setError(String(err)) }); onChanged() }}
           onQueued={({ name }) => onCreated(name)}
-          extensions={{ local: true, headerActions: true, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
+          extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: t("nav.items.dashboard.label"),
+            aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
+              workspace={agent?.networkName || agent?.network || null} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },
+            signIn: (type) => data.raw.find((entry) => entry.name === type)?.check_ready?.login_command ? () => setSignInRequest((n) => n + 1) : undefined,
             configuration: ({ type, name, onChanged: changed }) => <LocalConfigurationFields key={`${type}:${name || ""}`} type={type} name={name}
-              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy}
+              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy} signInRequest={signInRequest}
               onChange={(next) => { config.current = next; setConfigReady(!!next) }} />,
           }} />
       </I18nProvider>}
@@ -88,8 +107,10 @@ export function toCatalogEntry(entry: CatalogEntry): AgentCatalogEntry {
     homepage: entry.homepage || "", tags: entry.tags || [], builtin: !!entry.builtin }
 }
 
-export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy }: {
+export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy, signInRequest = 0 }: {
   type: string; name?: string; catalog: CatalogEntry[]; onChange: (config: LocalConfiguration | null) => void; onChanged: () => void; onBusy: (busy: boolean) => void
+  /** Changes when the user asks to sign in from outside this form. */
+  signInRequest?: number
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [fields, setFields] = useState<EnvField[]>([])
@@ -112,6 +133,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const instanceEnv = useRef<Record<string, string>>({})
   const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">("idle")
   const [testing, setTesting] = useState(false)
+  // A required field the last save stopped on; its message sits under it and it takes focus.
+  const [invalid, setInvalid] = useState<{ name: string; nonce: number } | null>(null)
+  const reveal = (field: string): void => setInvalid((prev) => ({ name: field, nonce: (prev?.nonce ?? 0) + 1 }))
   const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
   const entry = catalog.find((item) => item.name === type)
   const loginCmd = entry?.check_ready?.login_command || null
@@ -123,7 +147,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     return reason ? t(`agents.credentials.endpointMismatch.${reason}`) : undefined
   }
   const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
-    blocked: blockedBy(next), authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
+    blocked: blockedBy(next), reveal, authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
   const modelNames = (fs: EnvField[]): string[] => fs.filter((field) => hasModelPicker(type, field.name)).map((field) => field.name)
   // What a tab shows once chosen: the sign-in tab drops a model that came with the type's key.
   const shownFor = (tab: "cli" | "key", next: Record<string, string>, fs = fields): Record<string, string> =>
@@ -167,7 +191,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     return () => { active = false; callback.current(null) }
   }, [type, name])
   // Built from and written back to the ref, not the render's `values`: confirmLogin can resume before the next render.
-  const change = (key: string, value: string): void => { const next = { ...valuesRef.current, [key]: value }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
+  const change = (key: string, value: string): void => { const next = { ...valuesRef.current, [key]: value }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null); setInvalid((prev) => prev?.name === key ? null : prev) }
   const importValues = (imported: Record<string, string>): void => { const next = { ...valuesRef.current, ...imported }; valuesRef.current = next; edits.current++; setValues(next); publish(next); setTestResult(null) }
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult(null)
@@ -182,6 +206,20 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     }
     catch (err) { setTestResult({ kind: "error", message: String(err) }) } finally { setTesting(false) }
   }
+  const chooseTab = (tab: "cli" | "key"): void => {
+    decided.current = true; selectTab(tab)
+    const next = shownFor(tab, valuesRef.current); valuesRef.current = next; setValues(next); publish(next, fields, tab)
+  }
+  // "Sign in" beside the header's Needs login: open the sign-in tab and start it, which opens the provider's login page.
+  const loginBlock = useRef<HTMLDivElement>(null)
+  const answered = useRef(signInRequest)
+  useEffect(() => {
+    if (loading || !loginCmd || signInRequest === answered.current) return
+    answered.current = signInRequest
+    if (fields.length > 0 && tabRef.current !== "cli") chooseTab("cli")
+    requestAnimationFrame(() => loginBlock.current?.scrollIntoView({ behavior: "smooth", block: "center" }))
+    if (installed && !loggedIn && !login.active) void login.start()
+  }, [signInRequest, loading])
   if (loading) return <Spinner />
   const keyForm = !loginCmd || authTab === "key"
   const loginModels = keyForm ? [] : fields.filter((field) => hasModelPicker(type, field.name))
@@ -191,27 +229,24 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
-    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => {
-      const tab = value as "cli" | "key"
-      decided.current = true; selectTab(tab)
-      const next = shownFor(tab, valuesRef.current); valuesRef.current = next; setValues(next); publish(next, fields, tab)
-    }}>
+    {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => chooseTab(value as "cli" | "key")}>
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="cli" data-testid="auth-tab-cli">{t("agents.list.health.cliLogin")}</TabsTrigger>
         <TabsTrigger value="key" data-testid="auth-tab-key">{t("agents.shared.apiKey")}</TabsTrigger>
       </TabsList>
     </Tabs>}
-    {loginCmd && authTab === "cli" && <CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
-      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")} />}
-    {loginCmd && authTab === "cli" && !installed && <Button disabled={installing} onClick={() => {
-      setInstalling(true); setError("")
-      void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
-        setHealth(next); onChanged(); void login.start()
-      }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
-    }}>{installing ? t("agents.shared.installing") : t("agents.shared.installAndSignIn")}</Button>}
+    {loginCmd && authTab === "cli" && <div ref={loginBlock}><CliLoginBlock agentType={type} loginCmd={loginCmd} loggedIn={loggedIn} loginPhase={loginPhase}
+      notInstalled={!installed} login={login} onStartLogin={(options) => void login.start(options)} onConfirmLogin={confirmLogin} onCancelAwaiting={() => setLoginPhase("idle")}
+      installing={installing} onInstall={() => {
+        setInstalling(true); setError("")
+        void window.api.installAgentTypeStreaming(type).then((result) => { throwIfInstallFailed(result); return window.api.refreshLogin(type) }).then((next) => {
+          setHealth(next); onChanged(); void login.start()
+        }).catch((err) => setError(String(err))).finally(() => setInstalling(false))
+      }} /></div>}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
-      values={values} onChange={change} onImport={keyForm ? importValues : undefined} />
+      values={values} onChange={change} onImport={keyForm ? importValues : undefined}
+      focusField={invalid} errors={invalid ? { [invalid.name]: t("agents.envFields.required", { name: invalid.name }) } : undefined} />
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
     </p>}
