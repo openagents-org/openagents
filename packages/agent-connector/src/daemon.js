@@ -797,11 +797,15 @@ class Daemon {
       ? ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'LLM_API_KEY']
       : ['LLM_API_KEY', ...rules.filter((r) => r && r.from === 'LLM_API_KEY').map((r) => r.to), 'OPENAI_API_KEY'];
     const keyVar = keyVars.find((k) => k && String(env[k] || '').trim());
-    return {
-      baseUrl: this._configuredBaseUrl(a, typeEnv),
-      apiKey: keyVar ? String(env[keyVar]).trim() : '',
-      protocol,
-    };
+    const apiKey = keyVar ? String(env[keyVar]).trim() : '';
+    const baseUrl = this._configuredBaseUrl(a, typeEnv);
+    if (a.type === 'deepseek') {
+      // dsh's URL names its Messages API, or is blank for DeepSeek's own; the
+      // model list lives elsewhere, so list where that endpoint keeps it.
+      const { dshModelsEndpoint } = require('./adapters/deepseek-runtime');
+      return { ...dshModelsEndpoint(baseUrl), apiKey };
+    }
+    return { baseUrl, apiKey, protocol };
   }
 
   /**

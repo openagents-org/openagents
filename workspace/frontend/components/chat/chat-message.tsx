@@ -22,8 +22,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { approvalFromMetadata } from '@/lib/approvals';
 import { ReplyCitation, type ReplyCitationData } from './reply-citation';
-import { MessageAudience } from './message-audience';
-import { RoutingChoiceCard } from './routing-choice-card';
+import { MessageAudience, CompletionAudience } from './message-audience';
 import { ApprovalCard } from './approval-card';
 import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
 import { isHtmlAttachment } from '@/lib/brief';
@@ -162,7 +161,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // "@to request…" as plain text and the same record in metadata.handoff;
   // the card renders the record so the sections stay readable.
   const handoff = !approval ? handoffFromMessage(message.metadata) : null;
-  const continuation = message.metadata?.orchestration as { action?: string; agent?: string; task?: string; reason?: string } | undefined;
   const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const [copied, setCopied] = useState(false);
 
@@ -252,7 +250,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
-              {!approval && <MessageAudience message={message} isSender={isCurrentUser} />}
               {/* v1.1 M5 — information vs execution in directed threads */}
               {message.metadata?.informational === true && (
                 <span
@@ -278,7 +275,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                 <Attachments items={attachments} />
               </>}
             </div>
-            {!approval && !message.metadata.recalled && <RoutingChoiceCard message={message} agents={agents} />}
+            {!approval && !message.metadata.recalled && <MessageAudience message={message} isSender={isCurrentUser} agents={agents} />}
             {!approval && !message.metadata.recalled && <MessageReactions messageId={message.messageId}
               onReply={onReply ? () => onReply(message) : undefined}
               onRecall={isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
@@ -327,12 +324,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               </>
             )}
 
-            {!approval && continuation?.action === 'next' && typeof continuation.agent === 'string' && <p role="status" className="mt-2 text-xs text-muted-foreground">
-              {t('routing.continuing', { agent: agentLabels[continuation.agent] || continuation.agent })}
-              {typeof continuation.task === 'string' && <> · {continuation.task}</>}
-            </p>}
-            {!approval && continuation?.action === 'wait' && typeof continuation.reason === 'string' && <p role="status" className="mt-2 text-xs text-muted-foreground">{continuation.reason}</p>}
-            {!approval && <RoutingChoiceCard message={message} agents={agents} />}
+            {!approval && <CompletionAudience message={message} agents={agents} />}
 
             {review && <div className="mt-2 text-xs text-muted-foreground" role="status">
               {Array.isArray(review.reviewers) && review.reviewers.length > 0 && <p>{t('reviewHandoff.sent', { agents: review.reviewers.map(name => agentLabels[name] || name).join(', ') })}</p>}

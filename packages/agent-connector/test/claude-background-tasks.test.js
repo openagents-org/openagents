@@ -61,7 +61,7 @@ const settle = async (pp) => { await tick(); await pp.pendingLines; await tick()
 describe('plan nudge vs background work', () => {
   it('holds the nudge while background tasks run', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 1 };
 
     await adapter._queueTodoNudge('general', { content: 'do the work' });
@@ -71,7 +71,7 @@ describe('plan nudge vs background work', () => {
 
   it('nudges as before when nothing runs in the background', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 0 };
 
     await adapter._queueTodoNudge('general', { content: 'do the work' });
@@ -82,7 +82,7 @@ describe('plan nudge vs background work', () => {
 
   it('never queues two nudges for the same channel', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'x', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'x', status: 'in_progress' }];
 
     await adapter._queueTodoNudge('general', { content: 'a' });
     await adapter._queueTodoNudge('general', { content: 'b' });
@@ -92,7 +92,7 @@ describe('plan nudge vs background work', () => {
 
   it('resumes the plan as its own turn once background work finishes on an idle channel', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 0 };
     const started = [];
     adapter._channelWorker = (ch, msg) => { started.push([ch, msg]); };
@@ -106,7 +106,7 @@ describe('plan nudge vs background work', () => {
 
   it('queues the resumed plan behind a busy channel instead of starting a second worker', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge', status: 'in_progress' }];
     adapter._channelBusy.add('general');
     let workers = 0;
     adapter._channelWorker = () => { workers++; };
@@ -132,7 +132,7 @@ describe('stream handling (fake CLI)', () => {
 
   it('tracks background_tasks_changed and holds then resumes the plan', async () => {
     const adapter = mkAdapter();
-    const remaining = [{ content: 'merge and deploy', status: 'pending' }];
+    const remaining = [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter.getRemainingTodos = async () => remaining;
     const started = [];
     adapter._channelWorker = (ch, msg) => { started.push(msg); };

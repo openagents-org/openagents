@@ -337,3 +337,17 @@ html {
   background: transparent;
   padding: 0;
 }
+
+/* Proactive routing: keep the approved traveling signal and arrival ripple. */
+.routing-flow { position: relative; display: inline-block; width: 32px; height: 16px; flex-shrink: 0; }
+.routing-flow-source, .routing-flow-destination { position: absolute; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .35; }
+.routing-flow-source { left: 0; animation: routing-source 2.4s ease-in-out infinite; }
+.routing-flow-destination { right: 0; animation: routing-destination 2.4s ease-in-out infinite; }
+.routing-flow-track { position: absolute; left: 6px; right: 6px; top: 7.5px; height: 1px; background: currentColor; opacity: .15; }
+.routing-flow-signal { position: absolute; left: 4px; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: routing-travel 2.4s cubic-bezier(.45,0,.25,1) infinite; }
+.routing-flow-signal::before { content: ''; position: absolute; right: 2px; top: 1px; width: 7px; height: 2px; border-radius: 3px; background: linear-gradient(90deg, transparent, currentColor); opacity: .4; }
+.routing-flow::after { content: ''; position: absolute; right: -4px; top: 2px; width: 12px; height: 12px; border: 1px solid currentColor; border-radius: 50%; opacity: 0; animation: routing-arrival 2.4s ease-out infinite; }
+@keyframes routing-travel { 0%,12% { transform: translateX(0); opacity: 0; } 20% { opacity: .8; } 65% { transform: translateX(23px); opacity: .8; } 74%,100% { transform: translateX(23px); opacity: 0; } }
+@keyframes routing-source { 0%,100% { opacity: .35; transform: scale(1); } 15%,28% { opacity: .8; transform: scale(1.13); } 45% { opacity: .35; transform: scale(1); } }
+@keyframes routing-destination { 0%,48%,100% { opacity: .35; transform: scale(1); } 65%,75% { opacity: .8; transform: scale(1.15); } 90% { opacity: .35; transform: scale(1); } }
+@keyframes routing-arrival { 0%,58% { opacity: 0; transform: scale(.5); } 66% { opacity: .35; transform: scale(.7); } 92%,100% { opacity: 0; transform: scale(1.4); } }

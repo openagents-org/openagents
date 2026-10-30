@@ -437,6 +437,22 @@ describe('probeAgentType', () => {
     assert.ok(r.guidance.some((l) => /expired/.test(l) && /claude login/.test(l)), JSON.stringify(r.guidance));
   });
 
+  it('looks past Codex\'s fallback-metadata warning to the real error', async () => {
+    const warning = 'warning: Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.';
+    const entry = {
+      name: 'codex', label: 'Codex',
+      probe: {
+        args: ['-e', `console.error(${JSON.stringify(warning)}); console.error("stream error: unexpected status 502 Bad Gateway"); process.exit(1)`],
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codex');
+    assert.equal(r.ok, false);
+    assert.ok(!/Model metadata/.test(r.message), r.message);
+    assert.ok(/502 Bad Gateway/.test(r.message), r.message);
+  });
+
   it('does not count the unknown-model notice alone as a reply', async () => {
     const entry = {
       name: 'claude', label: 'Claude',
@@ -472,6 +488,53 @@ describe('probeAgentType', () => {
     const r = await probeAgentType(c, 'claude');
     assert.equal(r.ok, false);
     assert.equal(r.code, CODE.EMPTY_RESPONSE);
+  });
+
+  it('counts an answer from a CLI that then fails to exit as a pass', async () => {
+    const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', 'console.log("Hi! What can I help you with?"); setTimeout(()=>{}, 60000)'] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude', { timeoutMs: 500 });
+    assert.equal(r.ok, true);
+    assert.equal(r.code, CODE.OK);
+    assert.match(r.message, /did not exit within/);
+    assert.equal(r.reply, 'Hi! What can I help you with?');
+  });
+
+  it('still reports a timeout when what it printed is an error or a retry', async () => {
+    for (const line of ['Attempt 1 failed with status 503. Retrying with backoff...', 'API Error: 401 unauthorized']) {
+      const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', `console.log(${JSON.stringify(line)}); setTimeout(()=>{}, 60000)`] } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const r = await probeAgentType(c, 'claude', { timeoutMs: 500 });
+      assert.equal(r.ok, false, line);
+    }
+  });
+
+  it('drops codex housekeeping from the timeout message', async () => {
+    const stderr = [
+      'Reading additional input from stdin...',
+      '2026-10-28T08:48:54.592712Z  WARN codex_core::plugins: failed to refresh plugin cache',
+      '2026-10-28T08:48:54.592712Z ERROR codex_skills_extension::host_service: failed to install system skills',
+    ].join('\n');
+    const entry = { name: 'codex', label: 'Codex', probe: { args: ['-e', `console.error(${JSON.stringify(stderr)}); setTimeout(()=>{}, 60000)`] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codex', { timeoutMs: 500 });
+    assert.equal(r.ok, false);
+    assert.doesNotMatch(r.message, /Reading additional input|WARN/);
+    assert.match(r.message, /failed to install system skills/);
+  });
+
+  it('drops Node process warnings that come ahead of the real error', async () => {
+    const stderr = [
+      '(node:18244) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities',
+      '(Use `node --trace-warnings ...` to show where the warning was created)',
+      '401 Authentication required. Please use /login command to sign in to your account',
+    ].join('\n');
+    const entry = { name: 'codebuddy', label: 'CodeBuddy', probe: { args: ['-e', `console.error(${JSON.stringify(stderr)}); process.exit(1)`] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codebuddy', { timeoutMs: 5000 });
+    assert.equal(r.ok, false);
+    assert.doesNotMatch(r.message, /DeprecationWarning|trace-warnings/);
+    assert.match(r.message, /401 Authentication required/);
   });
 
   it('kills and reports a hanging CLI as timeout', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getApiBaseUrl } from './api-base';
+import { getApiBaseUrl, getProjectPreviewUrl } from './api-base';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,5 +33,29 @@ describe('workspace API transport', () => {
   it('keeps server-side resolution absolute', () => {
     vi.stubGlobal('window', undefined);
     expect(getApiBaseUrl('')).toBe('https://workspace-endpoint.openagents.org');
+  });
+});
+
+describe('web project preview transport', () => {
+  const path = '/v1/project-preview/test-ticket/pages/index.html';
+
+  it('loads hosted previews directly so relative assets match the backend CSP', () => {
+    vi.stubGlobal('window', { location: { protocol: 'https:' } });
+    const base = getApiBaseUrl('https://workspace-endpoint.openagents.org');
+    expect(base).toBe('/wsapi');
+    const preview = getProjectPreviewUrl(path, base);
+    expect(preview).toBe('https://workspace-endpoint.openagents.org' + path);
+    expect(new URL('../assets/chart.svg', preview).href).toBe(
+      'https://workspace-endpoint.openagents.org/v1/project-preview/test-ticket/assets/chart.svg',
+    );
+  });
+
+  it.each([
+    'https://workspace-preview.openagents.org',
+    'https://internal.example/api',
+    'http://localhost:8000',
+    'https://workspace-endpoint.openagents.org',
+  ])('preserves the configured direct endpoint %s', base => {
+    expect(getProjectPreviewUrl(path, base)).toBe(base + path);
   });
 });

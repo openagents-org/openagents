@@ -303,6 +303,16 @@ describe("testLLMConnection routing", () => {
     expect(calls[0].url).toBe("https://relay.example.com/anthropic/v1/messages")
   })
 
+  it("probes a versioned DeepSeek Harness gateway over chat completions", async () => {
+    script = [ok(CHAT_OK("deepseek-v4-flash"))]
+    await testLLMConnection({
+      DEEPSEEK_API_KEY: "sk-oa",
+      DEEPSEEK_BASE_URL: "https://api-gateway.openagents.org/v1",
+      DEEPSEEK_MODEL: "deepseek-v4-flash",
+    })
+    expect(calls[0].url).toBe("https://api-gateway.openagents.org/v1/chat/completions")
+  })
+
   it("probes Aider's endpoint once its provider is named", async () => {
     script = [ok(CHAT_OK())]
     const r = await testLLMConnection({

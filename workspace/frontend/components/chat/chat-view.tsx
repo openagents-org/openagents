@@ -39,7 +39,7 @@ import { eventToMessage } from '@/lib/types';
 import type { RoutineItem, WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { acknowledgeMessage, pendingMessagesForDisplay } from '@/lib/optimistic-messages';
-import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
+import { pendingResponderName, expectsAgentResponse, needsProactiveRouting } from '@/lib/pending-responder';
 import { useBrief } from './work-brief';
 import { subscribeComposerPrefill } from './composer-prefill';
 import { useMe } from '@/hooks/use-me';
@@ -559,6 +559,12 @@ export function ChatView() {
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
       const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
+      const routingPending = needsProactiveRouting({
+        content, mentions, mentionedHumans,
+        participants: currentSession?.participants || [], humanCount: currentSession?.humanCount,
+        responseMode: currentSession?.responseMode || 'proactive',
+        direct: !threadPrivacyApplies(currentSessionId) || currentSessionId.startsWith('routines:') || currentSessionId.startsWith('task:'),
+      });
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId: currentSessionId,
@@ -570,7 +576,8 @@ export function ChatView() {
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: replyingTo ? { reply_to: citationFor(replyingTo) } : {},
+        metadata: { ...(replyingTo ? { reply_to: citationFor(replyingTo) } : {}),
+          ...(routingPending && !files.length ? { _routingPending: true } : {}) },
       };
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
@@ -639,6 +646,11 @@ export function ChatView() {
           }));
         }
 
+        // Uploading is separate from classification. Start routing feedback
+        // only when the message is ready to reach the router.
+        if (routingPending && files.length) setOptimisticMessages(previous => previous.map(message =>
+          message.messageId === userOptimisticMsg.messageId
+            ? { ...message, metadata: { ...message.metadata, _routingPending: true } } : message));
         const sent = await workspaceApi.sendMessage(
           currentSessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
@@ -650,7 +662,6 @@ export function ChatView() {
           replyingTo?.messageId,
         );
         // The server can also suppress replies (for example, the director rule).
-        if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
         setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
@@ -688,7 +699,7 @@ export function ChatView() {
         }
       }
     },
-    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
+    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode, currentSession?.humanCount]
   );
 
   const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
@@ -830,18 +841,18 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle — its label says what a click does; an icon
-              alone went unnoticed */}
+          {/* All steps toggle */}
           {hasCollapsibleSteps && (
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
               onClick={() => setShowAllSteps((prev) => !prev)}
-              className="gap-1.5 h-7 text-xs font-medium"
+              className="size-7 shrink-0"
               aria-pressed={showAllSteps}
+              aria-label={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              title={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             >
-              <ListTree className="size-3.5" />
-              {showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              <ListTree aria-hidden="true" className="size-3.5" />
             </Button>
           )}
 

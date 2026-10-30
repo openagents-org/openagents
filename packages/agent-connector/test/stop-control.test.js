@@ -589,7 +589,7 @@ describe('agent stop control', () => {
     // Cancelling belongs to the stop path, which runs it before the notice;
     // doing it here would post the todo list after "Execution stopped".
     adapter.cleanupTodos = async () => { throw new Error('the stop path cancels todos'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
     adapter._stoppingChannels.add('thread');
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
@@ -605,7 +605,7 @@ describe('agent stop control', () => {
       agentName: 'claude',
     });
     adapter.cleanupTodos = async () => { throw new Error('must not cancel a live plan'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
 
