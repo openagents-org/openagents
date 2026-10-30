@@ -32,6 +32,7 @@ from app.firebase_auth import verify_identity_token
 from app.models import (
     ChannelHumanMember,
     DeviceToken,
+    User,
     Workspace,
     WorkspaceCollaborator,
     WorkspaceMembership,
@@ -75,6 +76,11 @@ def list_account_workspaces(
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
 
+    # One list request per user at a time past this point. The client retries a
+    # request that is slow to answer, and two first-run requests side by side
+    # could each see no membership and each provision a workspace.
+    db.execute(select(User.id).where(User.id == user.id).with_for_update()).first()
+
     # Migration bridge: pull legacy email-keyed access into memberships.
     reconcile_memberships(db, user)
 
@@ -104,12 +110,9 @@ def list_account_workspaces(
             "workspaceId": str(ws.id),
             "name": ws.name,
             "slug": ws.slug,
-            # Shared workspace access token (password_hash stores the raw token,
-            # compared by equality in app.access.verify_workspace_access). May be
-            # null for an open workspace with no token set. Withheld from viewers
-            # so they open the workspace bearer-only (read access) and can't use
-            # the token to bypass the read-only role.
-            "token": None if role == "viewer" else ws.password_hash,
+            # Machine credentials bypass human role checks when used alone.
+            # Members and viewers must use their own identity, never this token.
+            "token": ws.password_hash if role in ("owner", "admin") else None,
             "role": role,
             "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
         }

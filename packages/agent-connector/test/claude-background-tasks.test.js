@@ -39,7 +39,6 @@ function mkAdapter() {
   adapter.getBrowserEnabled = async () => false;
   adapter._resetIdleTimer = () => {};
   adapter._titledSessions.add('general');
-  adapter._fetchDecisionLog = async () => ({ available: false });
   adapter._fetchGlossary = async () => ({ available: false });
   return adapter;
 }
@@ -62,7 +61,7 @@ const settle = async (pp) => { await tick(); await pp.pendingLines; await tick()
 describe('plan nudge vs background work', () => {
   it('holds the nudge while background tasks run', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 1 };
 
     await adapter._queueTodoNudge('general', { content: 'do the work' });
@@ -72,7 +71,7 @@ describe('plan nudge vs background work', () => {
 
   it('nudges as before when nothing runs in the background', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 0 };
 
     await adapter._queueTodoNudge('general', { content: 'do the work' });
@@ -83,7 +82,7 @@ describe('plan nudge vs background work', () => {
 
   it('never queues two nudges for the same channel', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'x', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'x', status: 'in_progress' }];
 
     await adapter._queueTodoNudge('general', { content: 'a' });
     await adapter._queueTodoNudge('general', { content: 'b' });
@@ -93,7 +92,7 @@ describe('plan nudge vs background work', () => {
 
   it('resumes the plan as its own turn once background work finishes on an idle channel', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter._persistentProcs.general = { alive: true, backgroundTasks: 0 };
     const started = [];
     adapter._channelWorker = (ch, msg) => { started.push([ch, msg]); };
@@ -107,7 +106,7 @@ describe('plan nudge vs background work', () => {
 
   it('queues the resumed plan behind a busy channel instead of starting a second worker', async () => {
     const adapter = mkAdapter();
-    adapter.getRemainingTodos = async () => [{ content: 'merge', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'merge', status: 'in_progress' }];
     adapter._channelBusy.add('general');
     let workers = 0;
     adapter._channelWorker = () => { workers++; };
@@ -133,7 +132,7 @@ describe('stream handling (fake CLI)', () => {
 
   it('tracks background_tasks_changed and holds then resumes the plan', async () => {
     const adapter = mkAdapter();
-    const remaining = [{ content: 'merge and deploy', status: 'pending' }];
+    const remaining = [{ content: 'merge and deploy', status: 'in_progress' }];
     adapter.getRemainingTodos = async () => remaining;
     const started = [];
     adapter._channelWorker = (ch, msg) => { started.push(msg); };
@@ -159,6 +158,30 @@ describe('stream handling (fake CLI)', () => {
     assert.equal(started[0]._todoNudge, true);
     adapter._stopWatchdog(pp);
     if (pp.idleTimer) clearTimeout(pp.idleTimer);
+  });
+
+  it('does not replay the completed answer when a background task reports later', async () => {
+    const adapter = mkAdapter();
+    adapter.getRemainingTodos = async () => [];
+    const { pp, proc } = attach(adapter);
+    try {
+      const turn = adapter._sendToPersistentProc(pp, 'Fix the issue');
+      proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'The fix is committed.' }] } });
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await turn;
+      await adapter._postTurnOutcome(pp, 'general', adapter._composeFinalResponse(pp));
+      // No new user message resets the buffer before this background turn.
+      proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'The background search timed out.' }] } });
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await settle(pp);
+      assert.deepEqual(adapter.responses, ['The fix is committed.', 'The background search timed out.']);
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await settle(pp);
+      assert.equal(adapter.responses.length, 2);
+    } finally {
+      adapter._stopWatchdog(pp);
+      if (pp.idleTimer) clearTimeout(pp.idleTimer);
+    }
   });
 
   it('waits past an empty leftover result after resume instead of posting an error', async () => {

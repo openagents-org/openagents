@@ -4,6 +4,8 @@ const https = require('https');
 const http = require('http');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+// Agent progress noise that never belongs in a conversation transcript.
+const RECENT_MESSAGES_EXCLUDED_TYPES = 'status,thinking,todos,loading';
 
 /**
  * The error a request deadline produces. Every request carries a hard
@@ -72,8 +74,34 @@ function rejectOnTruncatedResponse(res, reject) {
  * auth headers (X-Workspace-Token), same request/response shapes.
  */
 class WorkspaceClient {
-  constructor(endpoint) {
+  /**
+   * @param {string} [endpoint]
+   * @param {{ agentName?: string }} [opts] — when the client acts for ONE
+   *   agent, pass its name: every request then carries `X-Agent-Name` so the
+   *   workspace can apply that agent's permissions (permission model v1.1 §3)
+   *   instead of treating the call as an anonymous machine. Machine-level
+   *   clients (daemon device heartbeat, pairing redeem, workspace removal)
+   *   pass nothing and send no agent identity.
+   */
+  constructor(endpoint, { agentName } = {}) {
     this.endpoint = (endpoint || DEFAULT_ENDPOINT).replace(/\/$/, '');
+    this.agentName = typeof agentName === 'string' && agentName.trim() ? agentName.trim() : null;
+  }
+
+  /** A client for the same endpoint that acts as `agentName` (or none). */
+  withAgent(agentName) {
+    return new WorkspaceClient(this.endpoint, { agentName });
+  }
+
+  /**
+   * Request headers + the agent identity header. Applied in every transport
+   * helper (_get/_getRaw/_post/_put/_patch/_delete) so no call site can forget
+   * it. Returns a copy — callers' header objects are never mutated.
+   */
+  _withAgent(headers) {
+    const out = { ...(headers || {}) };
+    if (this.agentName && !out['X-Agent-Name']) out['X-Agent-Name'] = this.agentName;
+    return out;
   }
 
   /**
@@ -241,14 +269,78 @@ class WorkspaceClient {
    *   If the server's current session for this agent differs, _post()
    *   throws SessionRevokedError and the caller should stop its adapter.
    */
-  async heartbeat(workspaceId, agentName, token, sessionId) {
+  async heartbeat(workspaceId, agentName, token, sessionId, presence) {
     const body = {
       agent_name: agentName,
       network: workspaceId,
     };
     if (sessionId) body.session_id = sessionId;
+    // v1.1 M3 — busy/queued detail ({ presence_state, busy_channels,
+    // queue_depth }, see BaseAdapter.buildPresenceFields). Optional so older
+    // callers keep sending the legacy body.
+    if (presence && typeof presence === 'object') {
+      if (presence.presence_state !== undefined) body.presence_state = presence.presence_state;
+      if (Array.isArray(presence.busy_channels)) body.busy_channels = presence.busy_channels;
+      if (Number.isFinite(presence.queue_depth)) body.queue_depth = presence.queue_depth;
+    }
     const data = await this._post('/v1/heartbeat', body, this._wsHeaders(token));
     return data.data || data;
+  }
+
+  // ── Agent profile / presence (v1.1 M3/M4) ────────────────────────────────
+
+  /** GET /v1/agents/{agent}/availability → { status, presence_state,
+   * busy_channels, queue_depth, runtime_status, runtime_name, reason }. */
+  async getAgentAvailability(workspaceId, token, agentName) {
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/availability?network=${encodeURIComponent(workspaceId)}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /** GET /v1/agents/{agent}/profile — the specialist card. */
+  async getAgentProfile(workspaceId, token, agentName) {
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/profile?network=${encodeURIComponent(workspaceId)}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /**
+   * GET /v1/agents/{agent}/shared-context — what THIS agent's run may use when
+   * the request comes from a teammate rather than its owner. Machine-only.
+   * Returns { apply, owner_email, requester_email, shared_instructions,
+   * allowed_knowledge: [{ slug, title, content }], cost_owner }.
+   */
+  async getSharedContext(workspaceId, token, agentName, { requesterEmail, channel, timeout } = {}) {
+    const params = new URLSearchParams({ network: workspaceId });
+    if (requesterEmail) params.set('requester_email', requesterEmail);
+    if (channel) params.set('channel', channel);
+    const data = await this._get(
+      `/v1/agents/${encodeURIComponent(agentName)}/shared-context?${params}`,
+      this._wsHeaders(token),
+      timeout || 5000,
+    );
+    return data.data || data;
+  }
+
+  /**
+   * Raw message events of a channel (newest first by default) — for callers
+   * that need payload/metadata fields _eventToMessage drops (e.g. hand-offs).
+   */
+  async getChannelEvents(workspaceId, channelName, token, { limit = 100, sort = 'desc' } = {}) {
+    const params = new URLSearchParams({
+      network: workspaceId,
+      channel: channelName,
+      type: 'workspace.message',
+      sort,
+      limit: String(Math.min(Math.max(1, limit), 500)),
+    });
+    const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
+    const result = data.data || data;
+    return (result && result.events) || [];
   }
 
   /**
@@ -279,10 +371,24 @@ class WorkspaceClient {
   }
 
   /**
-   * Send a chat message to a workspace channel.
+   * Detect safe retry support before using a durable message outbox.
    */
+  async supportsMessageDelivery() {
+    if (this._messageDeliverySupported !== undefined && Date.now() < this._messageDeliveryCheckUntil) return this._messageDeliverySupported;
+    try {
+      const result = await this._get('/v1/events/delivery-capabilities');
+      this._messageDeliverySupported = (result.data || result).idempotent_messages === true;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      this._messageDeliverySupported = false;
+    }
+    this._messageDeliveryCheckUntil = Date.now() + 60000;
+    return this._messageDeliverySupported;
+  }
+
+  /** Send a chat message, optionally with a stable delivery key. */
   async sendMessage(workspaceId, channelName, token, content, {
-    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId,
+    senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId, idempotencyKey,
   } = {}) {
     const sourcePrefix = senderType === 'agent' ? 'openagents' : 'human';
     const source = senderName ? `${sourcePrefix}:${senderName}` : `${sourcePrefix}:unknown`;
@@ -303,6 +409,7 @@ class WorkspaceClient {
       }
       return this.sendEvent(workspaceId, {
         type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         source,
         target: counterpart,
         payload,
@@ -313,6 +420,7 @@ class WorkspaceClient {
 
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       source,
       target: `channel/${channelName}`,
       payload,
@@ -346,8 +454,16 @@ class WorkspaceClient {
    * to rebuild context for a fresh Claude Code session when --resume of the
    * previous session fails (the channel's chat history is the only thing
    * that survives a session-storage rotation).
+   *
+   * Agent status/thinking/todos/loading events are dropped server-side by
+   * default: one tool-heavy agent turn posts dozens of them into the same
+   * channel, and filtering only after the fetch left a "100 event" window
+   * holding a handful of real chat messages (OA-026). Pass
+   * `excludeMessageTypes: ''` to get every event.
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc' } = {}) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, {
+    sort = 'desc', before, timeout, throwOnError = false, excludeMessageTypes = RECENT_MESSAGES_EXCLUDED_TYPES,
+  } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
@@ -356,14 +472,17 @@ class WorkspaceClient {
         sort,
         limit: String(limit),
       });
-      const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
+      if (before) params.set('before', before);
+      if (excludeMessageTypes) params.set('exclude_message_types', excludeMessageTypes);
+      const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token), timeout);
       const result = data.data || data;
       const events = (result && result.events) || [];
       // A desc window arrives newest-first; reverse so the caller always gets
       // chronological order. An asc window is already chronological.
       const ordered = sort === 'asc' ? events.slice() : events.slice().reverse();
       return ordered.map((e) => this._eventToMessage(e));
-    } catch {
+    } catch (error) {
+      if (throwOnError) throw error;
       return [];
     }
   }
@@ -611,8 +730,17 @@ class WorkspaceClient {
   /**
    * Upload a file via POST /v1/files/base64.
    */
+  async publishWebProject(workspaceId, token, project, projectId) {
+    const body = { ...project, network: workspaceId };
+    const route = '/v1/web-projects' + (projectId ? '/' + encodeURIComponent(projectId) : '');
+    const data = projectId
+      ? await this._put(route, body, this._wsHeaders(token), 60000)
+      : await this._post(route, body, this._wsHeaders(token), 60000);
+    return data.data || data;
+  }
+
   async uploadFile(workspaceId, token, filename, contentBase64, {
-    contentType = 'application/octet-stream', source = 'human:user', channelName,
+    contentType = 'application/octet-stream', source = 'human:user', channelName, visibility,
   } = {}) {
     const body = {
       filename,
@@ -622,6 +750,7 @@ class WorkspaceClient {
       source,
     };
     if (channelName) body.channel_name = channelName;
+    if (visibility) body.visibility = visibility;
 
     const data = await this._post('/v1/files/base64', body, this._wsHeaders(token), 60000);
     return data.data || data;
@@ -699,8 +828,8 @@ class WorkspaceClient {
   /**
    * Open a new browser tab via POST /v1/browser/tabs.
    */
-  async browserOpenTab(workspaceId, token, { url = 'about:blank', source = 'human:user', context_id } = {}) {
-    const body = { url, network: workspaceId, source };
+  async browserOpenTab(workspaceId, token, { url = 'about:blank', source = 'human:user', context_id, channel } = {}) {
+    const body = { url, network: workspaceId, source, channel };
     if (context_id) body.context_id = context_id;
     const data = await this._post('/v1/browser/tabs', body, this._wsHeaders(token));
     return data.data || data;
@@ -718,24 +847,24 @@ class WorkspaceClient {
   /**
    * Navigate a browser tab via POST /v1/browser/tabs/{tabId}/navigate.
    */
-  async browserNavigate(workspaceId, token, tabId, url) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/navigate`, { url }, this._wsHeaders(token));
+  async browserNavigate(workspaceId, token, tabId, url, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/navigate`, { url, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
   /**
    * Click an element via POST /v1/browser/tabs/{tabId}/click.
    */
-  async browserClick(workspaceId, token, tabId, selector) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/click`, { selector }, this._wsHeaders(token));
+  async browserClick(workspaceId, token, tabId, selector, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/click`, { selector, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
   /**
    * Type text via POST /v1/browser/tabs/{tabId}/type.
    */
-  async browserType(workspaceId, token, tabId, selector, text) {
-    const data = await this._post(`/v1/browser/tabs/${tabId}/type`, { selector, text }, this._wsHeaders(token));
+  async browserType(workspaceId, token, tabId, selector, text, { source, channel } = {}) {
+    const data = await this._post(`/v1/browser/tabs/${tabId}/type`, { selector, text, source, channel }, this._wsHeaders(token));
     return data.data || data;
   }
 
@@ -743,16 +872,22 @@ class WorkspaceClient {
    * Get screenshot via GET /v1/browser/tabs/{tabId}/screenshot.
    * @returns {Buffer}
    */
-  async browserScreenshot(workspaceId, token, tabId) {
-    return this._getRaw(`/v1/browser/tabs/${tabId}/screenshot`, this._wsHeaders(token), 30000);
+  async browserScreenshot(workspaceId, token, tabId, { source, channel } = {}) {
+    const query = new URLSearchParams();
+    if (source) query.set('source', source);
+    if (channel) query.set('channel', channel);
+    return this._getRaw(`/v1/browser/tabs/${tabId}/screenshot?${query}`, this._wsHeaders(token), 30000);
   }
 
   /**
    * Get accessibility snapshot via GET /v1/browser/tabs/{tabId}/snapshot.
    * @returns {string}
    */
-  async browserSnapshot(workspaceId, token, tabId) {
-    const buf = await this._getRaw(`/v1/browser/tabs/${tabId}/snapshot`, this._wsHeaders(token));
+  async browserSnapshot(workspaceId, token, tabId, { source, channel } = {}) {
+    const query = new URLSearchParams();
+    if (source) query.set('source', source);
+    if (channel) query.set('channel', channel);
+    const buf = await this._getRaw(`/v1/browser/tabs/${tabId}/snapshot?${query}`, this._wsHeaders(token));
     return buf.toString('utf-8');
   }
 
@@ -799,10 +934,11 @@ class WorkspaceClient {
     return data.data || data;
   }
 
-  async getTodos(workspaceId, channelName, token, { agent, all } = {}) {
+  async getTodos(workspaceId, channelName, token, { agent, all, source } = {}) {
     const params = new URLSearchParams({ network: workspaceId });
     if (channelName) params.set('channel', channelName);
     if (agent) params.set('agent', agent);
+    if (source) params.set('source', source);
     if (all) params.set('all', 'true');
     const data = await this._get(`/v1/todos?${params}`, this._wsHeaders(token));
     return data.data || data;
@@ -859,6 +995,30 @@ class WorkspaceClient {
     const params = new URLSearchParams({ network: workspaceId });
     if (channelName) params.set('channel', channelName);
     const data = await this._get(`/v1/routines?${params}`, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  /**
+   * Edit a routine in place. Only the fields passed are changed; the schedule
+   * keeps the same either/or rule as creation (`interval_minutes`, or
+   * `hour`/`minute`/`days`). `status` is 'active' | 'paused' — cancelling
+   * still goes through `cancelRoutine`.
+   */
+  async updateRoutine(workspaceId, token, routineId, { name, message, context, hour, minute, days, interval_minutes, source, status } = {}) {
+    const body = { network: workspaceId };
+    if (name != null) body.name = name;
+    if (message != null) body.message = message;
+    if (context != null) body.context = context;
+    if (source != null) body.source = source;
+    if (status != null) body.status = status;
+    if (interval_minutes != null) {
+      body.interval_minutes = interval_minutes;
+    } else {
+      if (hour != null) body.hour = hour;
+      if (minute != null) body.minute = minute;
+      if (days != null) body.days = days;
+    }
+    const data = await this._patch(`/v1/routines/${routineId}`, body, this._wsHeaders(token));
     return data.data || data;
   }
 
@@ -967,11 +1127,25 @@ class WorkspaceClient {
       sessionId,
       senderType: isHuman ? 'human' : 'agent',
       senderName,
+      senderDisplayName: payload.sender_display_name || (event.metadata || {}).sender_display_name || null,
       content: (payload.content || event.content || ''),
       mentions: payload.mentions || [],
       messageType: payload.message_type || 'chat',
       metadata: event.metadata || {},
     };
+    // The person behind a human message (v1.1): mobile puts it in the
+    // payload, the Launcher in metadata, the web app uses its email as the
+    // sender id. Used to fetch the owner-reviewed shared context for a
+    // teammate's request and to tell the owner who asked.
+    if (isHuman) {
+      const meta = event.metadata || {};
+      const email = [payload.sender_email, meta.sender_email, payload.sender_id]
+        .find((v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+$/.test(v.trim()));
+      if (email) msg.senderEmail = email.trim().toLowerCase();
+    }
+    if (payload.handoff && typeof payload.handoff === 'object') {
+      msg.handoff = payload.handoff;
+    }
     if (ts) {
       msg.createdAt = new Date(ts).toISOString();
     }
@@ -979,6 +1153,60 @@ class WorkspaceClient {
       msg.attachments = payload.attachments;
     }
     return msg;
+  }
+
+  // ── Approvals ─────────────────────────────────────────────────────────────
+
+  /** File an approval request (POST /v1/approvals). Returns the record; its
+   * `status` may already be approved/rejected when policy auto-decided. */
+  async createApproval(workspaceId, token, {
+    channel, kind, action, details, risk, source, assignee_email, requester_email,
+  } = {}) {
+    const body = {
+      network: workspaceId,
+      channel,
+      kind: kind || 'other',
+      action,
+      source: source || 'openagents:unknown',
+    };
+    if (details) body.details = String(details).slice(0, 4000);
+    if (risk) body.risk = risk;
+    if (assignee_email) body.assignee_email = assignee_email;
+    if (requester_email) body.requester_email = requester_email;
+    const data = await this._post('/v1/approvals', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  async getApproval(workspaceId, token, approvalId) {
+    const params = new URLSearchParams({ network: workspaceId });
+    const data = await this._get(`/v1/approvals/${encodeURIComponent(approvalId)}?${params}`, this._wsHeaders(token));
+    return data.data || data;
+  }
+
+  // ── Work brief (v1.1 M5) ──────────────────────────────────────────────────
+
+  /** Read a thread's shared work brief (GET /v1/channels/{channel}/brief).
+   * Empty fields come back null / [] when nothing has been written yet. */
+  async getBrief(workspaceId, token, channelName) {
+    const params = new URLSearchParams({ network: workspaceId });
+    const data = await this._get(
+      `/v1/channels/${encodeURIComponent(channelName)}/brief?${params}`,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
+  }
+
+  /** Partial upsert of a thread's brief (PUT /v1/channels/{channel}/brief).
+   * Only the keys present in `fields` change; `source` is recorded as the
+   * writer ("openagents:<agent>"). */
+  async putBrief(workspaceId, token, channelName, fields = {}, { source } = {}) {
+    const body = { network: workspaceId, source: source || 'openagents:unknown', ...fields };
+    const data = await this._put(
+      `/v1/channels/${encodeURIComponent(channelName)}/brief`,
+      body,
+      this._wsHeaders(token),
+    );
+    return data.data || data;
   }
 
   _wsHeaders(token) {
@@ -989,6 +1217,7 @@ class WorkspaceClient {
   }
 
   _get(urlPath, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath;
 
     return new Promise((resolve, reject) => {
@@ -1039,6 +1268,7 @@ class WorkspaceClient {
   }
 
   _getRaw(urlPath, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath;
 
     return new Promise((resolve, reject) => {
@@ -1071,6 +1301,7 @@ class WorkspaceClient {
   }
 
   _post(urlPath, body, headers = {}, timeout = 30000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1110,7 +1341,9 @@ class WorkspaceClient {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            const err = new Error(`Invalid response (HTTP ${res.statusCode})`);
+            err.status = res.statusCode;
+            reject(err);
           }
         });
       });
@@ -1123,6 +1356,7 @@ class WorkspaceClient {
   }
 
   _put(urlPath, body, headers = {}, timeout = 30000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1167,6 +1401,7 @@ class WorkspaceClient {
   }
 
   _patch(urlPath, body, headers = {}, timeout = 15000) {
+    headers = this._withAgent(headers);
     if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const jsonBody = JSON.stringify(body);
     const fullUrl = this.endpoint + urlPath;
@@ -1206,6 +1441,7 @@ class WorkspaceClient {
   }
 
   _delete(urlPath, headers = {}, network) {
+    headers = this._withAgent(headers);
     const fullUrl = this.endpoint + urlPath + (network ? `?network=${network}` : '');
 
     return new Promise((resolve, reject) => {
@@ -1225,12 +1461,20 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
+              // Callers act on it: removeAgentFromWorkspace takes a 404 as
+              // "already gone". Without it that check never matched, and an
+              // agent whose membership was already removed could not be
+              // deleted at all ("Member not found").
+              err.status = res.statusCode;
+              reject(err);
             } else {
               resolve(parsed);
             }
           } catch {
-            reject(new Error(`Invalid response: ${data.slice(0, 200)}`));
+            const err = new Error(`Invalid response: ${data.slice(0, 200)}`);
+            if (res.statusCode >= 400) err.status = res.statusCode;
+            reject(err);
           }
         });
       });

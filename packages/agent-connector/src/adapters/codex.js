@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -50,7 +50,7 @@ class CodexAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the system prompt.
+    // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
     const env = this.agentEnv || process.env;
@@ -79,10 +79,27 @@ class CodexAdapter extends BaseAdapter {
     const isOpenAiNative = !this._directBaseUrl ||
       this._directBaseUrl.includes('api.openai.com');
 
-    if (this._codexBin && (isOpenAiNative || !this._directApiKey)) {
-      // CLI mode: either OpenAI native API or subscription auth (no API key)
+    // A third-party endpoint that speaks the Responses API can drive the
+    // real CLI (tools, sandbox, resume) instead of the tool-less direct
+    // mode. Opt in with CODEX_WIRE_API=responses; the provider is passed to
+    // codex as `-c` overrides, so nothing is written to ~/.codex/config.toml.
+    this._customProvider = null;
+    if (this._codexBin && !isOpenAiNative && this._directApiKey &&
+        String(env.CODEX_WIRE_API || '').toLowerCase() === 'responses') {
+      this._customProvider = {
+        baseUrl: this._directBaseUrl,
+        reasoningEffort: String(env.CODEX_REASONING_EFFORT || '').toLowerCase() || null,
+      };
+    }
+
+    if (this._codexBin && (isOpenAiNative || !this._directApiKey || this._customProvider)) {
+      // CLI mode: OpenAI native API, subscription auth (no API key), or a
+      // Responses-compatible custom provider.
       this._useCliMode = true;
-      this._log(`CLI mode: ${this._codexBin}${!this._directApiKey ? ' (subscription auth)' : ''}`);
+      const how = this._customProvider
+        ? ` (custom Responses provider ${this._customProvider.baseUrl})`
+        : (!this._directApiKey ? ' (subscription auth)' : '');
+      this._log(`CLI mode: ${this._codexBin}${how}`);
     } else if (this._directApiKey && this._directBaseUrl) {
       this._directMode = true;
       if (this._codexBin) {
@@ -184,6 +201,71 @@ class CodexAdapter extends BaseAdapter {
     // installed in their distro is a real install, and the marked path it comes
     // back as is what the spawn bridge in ../wsl turns into a wsl.exe run.
     return resolveWslBinary('codex');
+  }
+
+  /**
+   * How to spawn `bin`: `{ file, args, shell }`, with `args` going before the
+   * codex arguments. On Windows an npm `.cmd` shim is resolved to
+   * `[node, <entry>.js]` (or the native `.exe` it forwards to) and spawned
+   * without a shell. Handing the shim to cmd.exe instead joined everything
+   * into one unquoted command line, so a profile folder with a space in it
+   * (`C:\Users\Windows 用户\…`) was cut at the space and the run died with
+   * "'C:\Users\Windows' 不是内部或外部命令".
+   */
+  _resolveExec(bin, isWindows = IS_WINDOWS) {
+    const lower = String(bin).toLowerCase();
+    if (/\.[cm]?js$/.test(lower)) return { file: this._findNodeBin(), args: [bin], shell: false };
+    if (!isWindows || !/\.(cmd|bat)$/.test(lower)) return { file: bin, args: [], shell: false };
+    try {
+      const content = fs.readFileSync(bin, 'utf-8');
+      // Both npm shim styles: `"%dp0%\x.js"` and the older `"%~dp0\x.js"`.
+      const js = content.match(/%~?dp0%?\\([^\s"*?]+\.[cm]?js)/i);
+      if (js) {
+        return { file: this._findNodeBin(), args: [path.resolve(path.dirname(bin), js[1])], shell: false };
+      }
+      const exe = content.match(/%~?dp0%?\\([^\s"*?]+\.exe)/i);
+      if (exe) return { file: path.resolve(path.dirname(bin), exe[1]), args: [], shell: false };
+    } catch {}
+    // A shim we can't read through still has to run under cmd.exe. Build that
+    // command line here (see _spawnArgv): `shell: true` would join the
+    // arguments unquoted, cutting a working dir or relay flag at a space.
+    return { file: process.env.ComSpec || 'cmd.exe', args: [], shell: false, cmdShim: bin };
+  }
+
+  /**
+   * argv + spawn options for `exec` running `rest`. A `cmdShim` goes through
+   * `cmd /d /s /c "<line>"` with every part quoted (`/s` strips only the
+   * outer pair), passed verbatim so Node adds no quoting of its own.
+   */
+  _spawnArgv(exec, rest) {
+    if (!exec.cmdShim) return { argv: [...exec.args, ...rest], windowsVerbatimArguments: false };
+    const quote = (a) => `"${String(a).replace(/"/g, '""')}"`;
+    const line = [exec.cmdShim, ...rest].map(quote).join(' ');
+    return { argv: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true };
+  }
+
+  _findNodeBin() {
+    const home = os.homedir();
+    const candidates = IS_WINDOWS
+      ? [path.join(home, '.openagents', 'nodejs', 'node.exe')]
+      : [path.join(home, '.openagents', 'nodejs', 'bin', 'node'),
+         path.join(home, '.openagents', 'nodejs', 'node')];
+    for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
+    return process.execPath || 'node';
+  }
+
+  static _dirExists(p) {
+    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * Decode CLI output. Codex writes UTF-8, but text that came from Windows
+   * itself (cmd.exe, a system error) is in the console code page, which on a
+   * Chinese system is GBK and showed up in chat as rows of "�". Fall back to
+   * GB18030 only when UTF-8 fails and GB18030 reads the bytes cleanly.
+   */
+  static _decodeOutput(buf, isWindows = IS_WINDOWS) {
+    return decodeConsoleOutput(buf, isWindows);
   }
 
   _buildSystemContext(channelName) {
@@ -297,6 +379,18 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _handleViaSubprocess(content, msgChannel, attachments = []) {
+    // A missing cwd fails the spawn itself, and Node blames the shell for it
+    // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
+    // user can fix. A configured folder that was never made (or was cleaned
+    // up) is simply created; only one that cannot be is named instead.
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      try { fs.mkdirSync(this.workingDir, { recursive: true }); } catch {}
+    }
+    if (this.workingDir && !CodexAdapter._dirExists(this.workingDir)) {
+      await this.sendError(msgChannel, `Working directory does not exist: ${this.workingDir}`);
+      return;
+    }
+
     const env = { ...(this.agentEnv || process.env) };
     const effectiveModel = this._effectiveModel();
 
@@ -309,6 +403,7 @@ class CodexAdapter extends BaseAdapter {
     const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
 
     // Run up to 2 attempts: first with resume, then fresh if stale
+    let relocated = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
 
@@ -317,6 +412,23 @@ class CodexAdapter extends BaseAdapter {
       // Model override
       if (effectiveModel) {
         cmd.push('-m', effectiveModel);
+      }
+
+      // Custom Responses-API provider (see constructor). TOML values for
+      // `-c` must be quoted; the key itself travels in env (env_key), never
+      // on the command line.
+      if (this._customProvider) {
+        const q = (v) => JSON.stringify(String(v));
+        cmd.push(
+          '-c', 'model_provider=openagents',
+          '-c', `model_providers.openagents.name=${q('openagents')}`,
+          '-c', `model_providers.openagents.base_url=${q(this._customProvider.baseUrl)}`,
+          '-c', `model_providers.openagents.env_key=${q('OPENAI_API_KEY')}`,
+          '-c', `model_providers.openagents.wire_api=${q('responses')}`,
+        );
+        if (this._customProvider.reasoningEffort) {
+          cmd.push('-c', `model_reasoning_effort=${q(this._customProvider.reasoningEffort)}`);
+        }
       }
 
       // Working directory
@@ -342,7 +454,9 @@ class CodexAdapter extends BaseAdapter {
         if (result.stopped) return;
 
         if (result.responseText) {
-          await this.sendResponse(msgChannel, result.responseText);
+          await this.sendResponse(msgChannel, result.responseText, {
+            statusKind: CodexAdapter._endedEarly(result) ? 'error' : 'completed',
+          });
           // A run that said something and then died (turn.failed, non-zero
           // exit) used to post only that opening line as the finished reply,
           // so it read as "Codex says one sentence and stops" with the real
@@ -365,6 +479,22 @@ class CodexAdapter extends BaseAdapter {
           return;
         }
       } catch (e) {
+        // The binary was looked up once, when the adapter started. A reinstall
+        // or update since then can move or remove it, and every turn failed
+        // with "spawn …/.bin/codex ENOENT" until the agent was restarted.
+        // Look again and rerun this attempt once.
+        if (e && e.code === 'ENOENT' && !relocated) {
+          relocated = true;
+          const found = this._findCodexBinary();
+          if (found) {
+            this._log(`Codex binary moved: ${this._codexBin} → ${found}`);
+            this._codexBin = found;
+            attempt--;
+            continue;
+          }
+          await this.sendError(msgChannel, "⚠️ **Codex couldn't run** — the Codex CLI is no longer installed on this device. Reinstall it from OpenAgents Launcher (Agents → Codex), then try again.");
+          return;
+        }
         this._log(`Error in subprocess: ${e.message}`);
         await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
         return;
@@ -376,26 +506,29 @@ class CodexAdapter extends BaseAdapter {
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(msgChannel)) return { stopped: true, responseText: '', exitCode: null };
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd[0], cmd.slice(1), {
+      const exec = this._resolveExec(cmd[0]);
+      const { argv, windowsVerbatimArguments } = this._spawnArgv(exec, cmd.slice(1));
+      const proc = spawn(exec.file, argv, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env,
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
-        shell: IS_WINDOWS,
+        shell: exec.shell,
+        windowsVerbatimArguments,
       });
       this._channelProcesses[msgChannel] = proc;
 
       const responseTexts = [];
       let hasToolUseSinceLastText = false;
       let lineBuffer = '';
-      let stderrBuf = '';
+      const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
-        proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+        proc.stderr.on('data', (chunk) => { stderrChunks.push(chunk); });
       }
 
       if (proc.stdin) {
@@ -482,6 +615,7 @@ class CodexAdapter extends BaseAdapter {
 
         delete this._channelProcesses[msgChannel];
 
+        const stderrBuf = CodexAdapter._decodeOutput(Buffer.concat(stderrChunks));
         if (code !== 0) {
           this._log(`Codex CLI exited with code ${code}`);
           if (stderrBuf.trim()) {
@@ -613,12 +747,41 @@ class CodexAdapter extends BaseAdapter {
    * turn.failed / error event message → stderr tail → exit code. Redacted.
    */
   static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
-    const stderrTail = String(stderr || '').trim().split('\n').slice(-5).join('\n').trim();
     const raw = String(errorMessage || '').trim()
-      || stderrTail
+      || CodexAdapter._stderrReason(stderr)
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
     return CodexAdapter._redact(detail).slice(0, 500).trim();
+  }
+
+  /**
+   * The part of codex's stderr that says why the run died.
+   *
+   * codex logs through `tracing` on stderr — `2026-10-27T04:08:56.500Z  WARN
+   * codex_skills::interface: …` — and echoes "Reading prompt from stdin..."
+   * (or "Reading additional input from stdin...").
+   * A plain tail of the last lines was mostly that noise, so a usage limit or
+   * a model the account cannot use reached the chat buried under plugin-cache
+   * and skill-icon warnings. Lines the CLI printed for a person win; failing
+   * those, the ERROR records with their timestamp and module stripped; only
+   * when neither exists does the raw tail stand.
+   */
+  static _stderrReason(stderr) {
+    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    const TRACE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
+    const plain = [];
+    const errors = [];
+    for (const line of lines) {
+      const m = line.match(TRACE);
+      if (!m) {
+        if (!/^Reading (prompt|additional input) from stdin/i.test(line)) plain.push(line);
+      } else if (m[1] === 'ERROR' && m[2] && !errors.includes(m[2])) {
+        errors.push(m[2]);
+      }
+    }
+    const picked = plain.length ? plain : errors;
+    return (picked.length ? picked : lines).slice(-5).join('\n').trim();
   }
 
   /**

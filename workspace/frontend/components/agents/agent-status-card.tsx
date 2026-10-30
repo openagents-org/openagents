@@ -5,7 +5,9 @@ import { MoreHorizontal, Crown, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { DeviceOfflineHint, PersonalBadge } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { agentLabel } from '@/lib/helpers';
+import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { SectionHeader } from '@/components/sessions/section-header';
 import {
   DropdownMenu,
@@ -26,11 +28,18 @@ interface AgentStatusCardProps {
 }
 
 export function AgentStatusCard({ agents }: AgentStatusCardProps) {
-  const { refreshAgents } = useWorkspace();
+  const { refreshAgents, sessions, pendingApprovalsByAgent } = useWorkspace();
   const confirm = useConfirm();
   const t = useT();
   const { timeAgo } = useFormatters();
   const [busy, setBusy] = useState(false);
+
+  // v1.1 M3: busy channels arrive as channel ids; show the thread's title
+  // when we know it so "working in #…" reads like the thread list.
+  const threadName = (channel: string) => {
+    const title = sessions.find((s) => s.sessionId === channel)?.title?.trim();
+    return `#${title || channel}`;
+  };
 
   const handlePromote = async (agentName: string) => {
     setBusy(true);
@@ -70,8 +79,12 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
       <SectionHeader label={t('agents.label')} />
       <div className="space-y-1.5">
         {agents.map((agent) => {
-          const isOnline = agent.status === 'online';
           const isMaster = agent.role === 'master';
+          // v1.1 M3: the same availability vocabulary as the roster/directory
+          // instead of a binary online/offline.
+          const availability = agentAvailability(agent, pendingApprovalsByAgent[agent.agentName] ?? 0);
+          const busyChannels = agent.busyChannels ?? [];
+          const queueDepth = agent.queueDepth ?? 0;
 
           return (
             <div
@@ -80,15 +93,31 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
             >
               <AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{agentLabel(agent)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {agent.agentType && <span className="capitalize">{agent.agentType} · </span>}
-                  {isOnline
-                    ? t('agents.online')
-                    : agent.lastHeartbeatAt
-                      ? t('agents.lastSeen', { time: timeAgo(agent.lastHeartbeatAt) })
-                      : t('agents.offline')}
+                <p className="flex items-center gap-1.5 text-sm font-medium truncate">
+                  <span className="truncate">{agentLabel(agent)}</span>
+                  {/* v1.1 M1: personal agents carry their owner */}
+                  <PersonalBadge agent={agent} />
                 </p>
+                <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                  {agent.agentType && <span className="capitalize">{agent.agentType} · </span>}
+                  {availability === 'device_offline' ? (
+                    // v1.1 M1: the device is down — not the same as a quiet agent
+                    <DeviceOfflineHint agent={agent} withLabel />
+                  ) : (
+                    <span className="inline-flex items-center gap-1">
+                      <span className={cn('size-1.5 rounded-full', availabilityDotClass(availability))} />
+                      {availabilityLabel(t, availability, queueDepth)}
+                    </span>
+                  )}
+                  {availability === 'offline' && agent.lastHeartbeatAt && (
+                    <span>· {t('agents.lastSeen', { time: timeAgo(agent.lastHeartbeatAt) })}</span>
+                  )}
+                </p>
+                {busyChannels.length > 0 && (
+                  <p className="truncate text-[11px] text-muted-foreground" title={busyChannels.map(threadName).join(', ')}>
+                    {t('collab.presence.workingIn', { threads: busyChannels.map(threadName).join(', ') })}
+                  </p>
+                )}
               </div>
               <span className={cn(
                 'text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-medium',

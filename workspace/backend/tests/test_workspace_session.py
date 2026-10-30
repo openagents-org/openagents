@@ -49,6 +49,7 @@ class TestMintVerify:
             "email": "wei@example.com",
             "firebase_uid": "uid-123",
             "display_name": "Wei",
+            "email_verified": False,
         }
 
     def test_mint_requires_secret(self, monkeypatch):

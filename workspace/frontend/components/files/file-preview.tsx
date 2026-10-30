@@ -1,6 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
+import { DocxStage } from './docx-stage';
+import { ProjectPreview } from '@/components/artifacts/project-preview';
+import { useFileObjectUrl } from '@/hooks/use-file-object-url';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -8,12 +12,14 @@ import {
   ExternalLink,
   Loader2,
   PanelRight,
+  Pencil,
+  Save,
   Trash2,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
-import { workspaceApi } from '@/lib/api';
+import { ApiError, workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
@@ -32,6 +38,10 @@ import {
   type FileKind,
 } from './file-utils';
 import { useFormatters, useT } from '@/lib/i18n';
+import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
+import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
+import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { AccessExplainer } from '@/components/sharing/access-explainer';
 
 /** Text we're willing to pull into the browser and lay out. Past this a
  *  preview is slower and less useful than the download button. */
@@ -247,10 +257,57 @@ function UnsupportedStage({
   );
 }
 
+/** Hex SHA-256 of the bytes as served — what the save route compares against
+ *  to tell whether the file moved on while it was open. Undefined where the
+ *  browser has no SubtleCrypto (plain-http origins); the save then skips the check. */
+async function sha256Hex(data: ArrayBuffer): Promise<string | undefined> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) return undefined;
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Markdown source on the left, the rendered result on the right — the right
+ *  pane drops away where there's no room for two. */
+function MarkdownEditStage({
+  draft,
+  onChange,
+  onSave,
+}: {
+  draft: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex h-full min-h-0">
+      <textarea
+        value={draft}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            onSave();
+          }
+        }}
+        autoFocus
+        spellCheck={false}
+        aria-label={t('files.editMarkdown')}
+        className="h-full min-w-0 flex-1 resize-none bg-transparent p-5 font-mono text-sm leading-6 text-foreground outline-none"
+      />
+      <div className="hidden h-full min-w-0 flex-1 overflow-auto border-l border-border/60 lg:block">
+        <p className="px-5 pt-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('files.editPreview')}</p>
+        <div className="p-5 pt-2 text-sm">
+          <MarkdownContent content={draft} agentNames={[]} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
 export function FilePreview() {
-  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath } = useWorkspace();
+  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath, refreshFiles } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
   const { formatFileSize } = useFormatters();
@@ -261,13 +318,20 @@ export function FilePreview() {
   /** Whether the stages that have a metadata column are showing it. Kept here
    *  rather than per stage so the choice survives moving between files. */
   const [infoOpen, setInfoOpen] = useState(true);
+  /** Hash of the markdown as loaded, sent back on save so an edit made
+   *  meanwhile (say, by an agent) isn't silently overwritten. */
+  const [contentHash, setContentHash] = useState<string | undefined>();
+  /** The text being edited; null when the file is just being viewed. */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const file = files.find((f) => f.id === selectedFileId);
   const contentType = file?.contentType || '';
   const filename = file?.filename || '';
   const kind = file ? getFileKind(contentType, filename) : 'unknown';
   const strategy = file ? loadStrategyFor(kind, contentType, filename) : 'none';
-  const sourceUrl = file ? workspaceApi.getFileUrl(file.id) : '';
+  const media = useFileObjectUrl(strategy === 'url' ? file?.id : undefined);
+  const sourceUrl = strategy === 'url' ? (media.url || '') : (file ? workspaceApi.getFileUrl(file.id) : '');
   // Images don't have one — the picture wants the width, and its footer says
   // everything a column would have.
   const hasInfoPanel = kind === 'audio' || kind === 'video';
@@ -296,6 +360,8 @@ export function FilePreview() {
   // media straight off the download route.
   useEffect(() => {
     setContent(null);
+    setContentHash(undefined);
+    setDraft(null);
     setError(null);
     setBlobUrl(null);
 
@@ -314,16 +380,17 @@ export function FilePreview() {
     let objectUrl: string | null = null;
     setLoading(true);
 
-    const headers: Record<string, string> = {};
-    const token = (workspaceApi as unknown as { token: string }).token;
-    if (token) headers['X-Workspace-Token'] = token;
-
-    fetch(workspaceApi.getFileUrl(file.id), { headers })
+    workspaceApi.fetchFile(file.id)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (strategy === 'text') {
-          const text = await res.text();
-          if (!cancelled) setContent(text);
+          const bytes = await res.arrayBuffer();
+          const text = new TextDecoder().decode(bytes);
+          const hash = kind === 'markdown' ? await sha256Hex(bytes).catch(() => undefined) : undefined;
+          if (!cancelled) {
+            setContent(text);
+            setContentHash(hash);
+          }
         } else {
           const data = await res.blob();
           // Force the type: the browser only opens its PDF viewer when the
@@ -345,8 +412,48 @@ export function FilePreview() {
     };
   }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const dirty = draft !== null && draft !== content;
+
+  // Closing the tab with unsaved edits asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const handleSave = useCallback(async () => {
+    if (!file || draft === null || saving) return;
+    if (!dirty) {
+      setDraft(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      const saved = draft;
+      await workspaceApi.updateFileContent(file.id, saved, contentHash);
+      const bytes = new TextEncoder().encode(saved);
+      setContent(saved);
+      setContentHash(await sha256Hex(bytes.buffer as ArrayBuffer).catch(() => undefined));
+      setDraft(null);
+      toast.success(t('files.fileSaved', { name: basename(file.filename) }));
+      void refreshFiles();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) toast.error(t('files.editConflict'));
+      else if (err instanceof ApiError && err.status === 403) toast.error(t('files.noEditPermission'));
+      else toast.error(err instanceof ApiError && err.serverMessage ? err.serverMessage : t('files.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [file, draft, saving, dirty, contentHash, refreshFiles, t]);
+
+  const cancelEdit = () => {
+    if (dirty && !window.confirm(t('files.discardEdits'))) return;
+    setDraft(null);
+  };
+
   if (!file) {
-    return <FileGrid />;
+    return selectedFileId ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t("resourceLinks.unavailable")}</p><Button variant="outline" onClick={() => setSelectedFileId(null)}>{t("files.backToFiles")}</Button></div> : <FileGrid />;
   }
 
   const folderSegments = dirname(filename) ? dirname(filename).split('/') : [];
@@ -358,9 +465,7 @@ export function FilePreview() {
   };
 
   const handleDownload = () => {
-    // We can't attach headers to an <a download>, so the tokenised URL opens
-    // in a new tab and the route's Content-Disposition does the rest.
-    window.open(sourceUrl, '_blank');
+    void workspaceApi.downloadFile(file.id, filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
 
   const handleDelete = async () => {
@@ -373,7 +478,8 @@ export function FilePreview() {
   };
 
   const renderBody = () => {
-    if (loading) {
+    if (contentType === WEB_PROJECT_TYPE) return <ProjectPreview id={file.id} />;
+    if (loading || (strategy === 'url' && !media.url && !media.failed)) {
       return (
         <div className="flex h-full items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -381,12 +487,12 @@ export function FilePreview() {
       );
     }
 
-    if (error) {
+    if (error || (strategy === 'url' && media.failed)) {
       return (
         <UnsupportedStage
           filename={filename}
           contentType={contentType}
-          reason={error}
+          reason={error || t('files.loadFailed')}
           onDownload={handleDownload}
         />
       );
@@ -448,9 +554,13 @@ export function FilePreview() {
           />
         );
 
+      case 'doc':
+        if (/\.docx$/i.test(filename)) return <DocxStage key={file.id} fileId={file.id} filename={basename(filename)} size={file.size} onDownload={handleDownload} />;
+        return <UnsupportedStage filename={filename} contentType={contentType} onDownload={handleDownload} />;
+
       case 'pdf':
         return blobUrl ? (
-          <iframe src={blobUrl} title={basename(filename)} className="h-full w-full border-0" />
+          <iframe src={blobUrl} title={projectDisplayName(basename(filename),contentType)} className="h-full w-full border-0" />
         ) : null;
 
       case 'web':
@@ -458,7 +568,7 @@ export function FilePreview() {
           return (
             <iframe
               src={sourceUrl}
-              title={basename(filename)}
+              title={projectDisplayName(basename(filename),contentType)}
               className="h-full w-full border-0 bg-white"
               sandbox="allow-scripts allow-same-origin"
             />
@@ -474,7 +584,9 @@ export function FilePreview() {
         );
 
       case 'markdown':
-        return content === null ? null : (
+        if (content === null) return null;
+        if (draft !== null) return <MarkdownEditStage draft={draft} onChange={setDraft} onSave={handleSave} />;
+        return (
           <div className="mx-auto max-w-3xl p-5 text-sm">
             <MarkdownContent content={content} agentNames={[]} />
           </div>
@@ -554,7 +666,7 @@ export function FilePreview() {
             {folderSegments.length > 0 && <ChevronRight className="size-3.5 shrink-0 opacity-40" />}
             <span className="flex min-w-0 items-center gap-1.5 px-1.5">
               {getFileIcon(contentType, filename)}
-              <p className="truncate text-sm font-medium text-foreground">{basename(filename)}</p>
+              <p className="truncate text-sm font-medium text-foreground">{projectDisplayName(basename(filename),contentType)}</p>
             </span>
           </div>
         }
@@ -564,6 +676,44 @@ export function FilePreview() {
           {formatFileSize(file.size)} · {t(getFileTypeMeta(contentType, filename).labelKey)} ·{' '}
           {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
         </span>
+        {/* Permission model v1.1 — owner + visibility, then Share… */}
+        {(file.owner || file.visibility) && (
+          <span className="hidden items-center gap-1.5 lg:inline-flex">
+            <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} />
+            <ArtifactVisibilityBadge kind="file" visibility={file.visibility} effectiveVisibility={file.effectiveVisibility} />
+            <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
+          </span>
+        )}
+        {kind === 'markdown' && content !== null && (draft === null ? (
+          <Button variant="outline" size="sm" onClick={() => setDraft(content)}>
+            <Pencil className="size-3.5" />
+            {t('files.editMarkdown')}
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {t('common.save')}
+            </Button>
+          </>
+        ))}
+        <CopyResourceLink view="files" id={file.id} />
+        <ArtifactSharePopover
+          kind="file"
+          id={file.id}
+          name={projectDisplayName(basename(filename),contentType)}
+          visibility={file.visibility}
+          effectiveVisibility={file.effectiveVisibility}
+          canManage={file.canManage}
+          canInherit={!!file.channelName}
+          onVisibilityChange={async (v) => {
+            await workspaceApi.updateFileVisibility(file.id, v);
+            await refreshFiles();
+          }}
+        />
         {/* Only the stages that have a metadata column get the switch, and only
             at the width where that column exists — a toggle for something the
             viewport has already hidden is a button that does nothing. */}
@@ -642,7 +792,7 @@ export function FilePreview() {
       <div
         className={cn(
           'flex-1',
-          kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'web'
+          kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'web' || draft !== null
             ? 'overflow-hidden'
             : 'overflow-auto',
         )}

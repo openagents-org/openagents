@@ -12,9 +12,18 @@ const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
 const { supportsCliModels } = require('./cli-models');
-const { AUTH_MODE_KEY, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor } = require('./env');
+const {
+  AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
+} = require('./env');
+const { configuredModel } = require('./agent-model');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 const { LogWriter } = require('./log-writer');
+const { redactDiagnostic } = require('./adapters/health-status');
+const { installCommandFor } = require('./probe');
+
+/** Types whose endpoint is one device-wide config file of their own. OpenClaw
+ *  left it: each keyed agent gets a private store (adapters/openclaw.js). */
+const SHARED_NATIVE_CONFIG = new Set(['hermes']);
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -24,6 +33,11 @@ const CLI_MODELS_MAX_AGE_MS = 3600 * 1000;
 // may have failed for a passing reason (a slow start, an update mid-way). A
 // little under the 10-minute sweep, so the next pass retries it.
 const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
+// Runtime detection runs as this many CLI children side by side, each checking
+// its share of the catalog, and a child still running after the limit is
+// stopped. A few rather than one per type: each child loads the whole core.
+const RUNTIME_DETECT_GROUPS = 4;
+const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -99,6 +113,27 @@ function _sentKey(args) {
 }
 
 /**
+ * The reason `agn create --install` gave for a failed runtime install, or null.
+ * The create itself still succeeds (exit 0) — the agent exists either way.
+ */
+function installFailureOf(stdout) {
+  const m = /Warning: install failed: ([\s\S]*)$/.exec(String(stdout || ''));
+  return m ? m[1].trim() || 'unknown error' : null;
+}
+
+/**
+ * One line that says why a crashed `agn probe` child died. Node's stack dump
+ * starts with "node:internal/modules/cjs/loader:1433 / throw err; / ^", which
+ * is all a 400-char head of it ever showed; the line that names the problem
+ * ("Error: Cannot find module '…'") comes after.
+ */
+function probeCrashSummary(stderr) {
+  const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const telling = lines.find((l) => /^\w*Error\b|Cannot find module/.test(l));
+  return telling || lines.join('\n') || 'probe failed';
+}
+
+/**
  * Whether a node heartbeat failure is the workspace saying the node is gone:
  * a 404 carrying the backend's own message (routers/nodes.py), not any 404.
  */
@@ -122,7 +157,7 @@ class Daemon {
     this._cmdInterval = null;
     this._nodeHeartbeatInterval = null;  // device-level heartbeat (connect-a-node)
     this._displayNameInterval = null;    // pulls workspace-side renames back
-    this._nodeClients = new Map();       // workspace_id -> WorkspaceClient, one per pairing
+    this._nodeClients = new Map();       // node_id -> WorkspaceClient, one per private connection
     this._runningCommands = new Set();   // node-command ids currently executing
     this._runtimes = [];                 // detected agent runtimes for the node view
     this._runtimesInterval = null;
@@ -184,11 +219,22 @@ class Daemon {
       let parsed = null;
       try { parsed = JSON.parse(r.stdout.trim()); } catch {}
       if (!parsed || typeof parsed !== 'object') {
+        // The probe process itself died before it could answer — a fault on
+        // this device's OpenAgents install, not in the agent.
         parsed = {
           type, ok: false, method: 'none', code: 'probe_error',
-          message: (r.stderr || 'probe failed').slice(0, 400),
-          guidance: [], at: new Date().toISOString(),
+          message: redactDiagnostic(probeCrashSummary(r.stderr), 400),
+          guidance: [
+            'The OpenAgents test could not start on this device. Restart OpenAgents and test again; if it keeps failing, reinstall OpenAgents.',
+          ],
+          at: new Date().toISOString(),
         };
+      }
+      // Still not installed after a failed install: keep the reason the
+      // install gave, which says far more than "Not installed".
+      const prev = this._probes[name];
+      if (parsed.code === 'not_installed' && prev && prev.code === 'install_failed') {
+        parsed = { ...prev, at: parsed.at || new Date().toISOString() };
       }
       parsed.agent = name;
       this._probes[name] = parsed;
@@ -197,6 +243,25 @@ class Daemon {
     } finally {
       this._probeInFlight.delete(name);
     }
+  }
+
+  /** Report a runtime install that failed while creating `name`, as its probe result. */
+  _recordInstallFailure(name, type, error) {
+    let install = null;
+    try {
+      const entry = this.registry && this.registry.getEntry(type);
+      install = entry ? installCommandFor(entry) : null;
+    } catch {}
+    this._probes[name] = {
+      type, agent: name, ok: false, method: 'install', code: 'install_failed',
+      message: redactDiagnostic(error, 400),
+      guidance: [
+        'Installing the agent on this device failed. Install it from the launcher\'s Install page to see the full log.',
+        ...(install ? [`Or install manually: ${install}`] : []),
+      ],
+      at: new Date().toISOString(),
+    };
+    this._saveProbes();
   }
 
   /**
@@ -237,11 +302,14 @@ class Daemon {
    * their own env says otherwise (a token or a config dir of their own), so
    * those with the same env share an answer: a device with nine Claude agents
    * starts the CLI once, not nine times. The model each runs is left out, it
-   * does not change what the account is offered. Hashed, since that env can
-   * hold a token.
+   * does not change what the account is offered, and so is the sign-in
+   * marker: an agent is only asked while it runs on the sign-in, marked or
+   * not, and then its CLI gets the same env either way. Hashed, since that
+   * env can hold a token.
    */
   _cliModelsKey(a) {
     const skip = modelKeys(a.type, this.registry);
+    skip.add(AUTH_MODE_KEY);
     const own = Object.entries(a.env || {})
       .filter(([k]) => !skip.has(k))
       .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
@@ -249,16 +317,57 @@ class Daemon {
   }
 
   /**
+   * The agent the workspace's add form creates for `type` when "sign in on
+   * the device" is picked: none of its own env but the sign-in marker. It
+   * does not exist yet, so the form has no roster entry to read a list from;
+   * its list rides the runtime entry for the type instead (see
+   * _heartbeatRuntimes). Every agent on the device's sign-in shares its key.
+   */
+  _signInAgent(type) {
+    return { name: null, type, env: { [AUTH_MODE_KEY]: CLI_LOGIN } };
+  }
+
+  /** Whether this device is paired to any workspace, whose add form could ask. */
+  _isPaired() {
+    try {
+      return require('./node-config').listPairings().some((p) => p && p.node_id && p.token);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Types whose CLI is installed here and can list what its sign-in is
+   * offered. Only on a paired device: nothing else reads these lists.
+   */
+  _signInTypes() {
+    const installed = (this._runtimes || [])
+      .filter((rt) => rt && rt.installed && supportsCliModels(rt.type))
+      .map((rt) => rt.type);
+    return installed.length && this._isPaired() ? installed : [];
+  }
+
+  /** Whether the list kept under `key` is missing or has aged out. */
+  _cliModelsStale(key) {
+    const last = this._cliModels[key];
+    if (!last) return true;
+    const maxAge = last.models ? CLI_MODELS_MAX_AGE_MS : CLI_MODELS_RETRY_MS;
+    return Date.now() - last.askedAt >= maxAge;
+  }
+
+  /**
    * Ask an agent's CLI for its models via a child `agn models <name> --json`
-   * (off the event loop, and on that agent's own env, like a probe).
-   * Resolves true when the list it keeps for that sign-in changed.
+   * (off the event loop, and on that agent's own env, like a probe), or for
+   * a type's device sign-in (`_signInAgent`) via `agn models <type> --json
+   * --sign-in`. Resolves true when the list it keeps for that sign-in changed.
    */
   async _listCliModels(a) {
     const key = this._cliModelsKey(a);
     if (this._cliModelsInFlight.has(key)) return false;
     this._cliModelsInFlight.add(key);
     try {
-      const r = await this._runAgn(['models', a.name, '--json']);
+      const args = a.name ? ['models', a.name, '--json'] : ['models', a.type, '--json', '--sign-in'];
+      const r = await this._runAgn(args);
       let parsed = null;
       try { parsed = JSON.parse(r.stdout.trim()); } catch {}
       const models = parsed && parsed.ok && Array.isArray(parsed.models) ? parsed.models : [];
@@ -286,24 +395,64 @@ class Daemon {
 
   /**
    * Periodic sweep: ask for every sign-in whose list is missing or has aged
-   * out, and forget the ones no agent is on any more. Sequential, like the
-   * probe sweep: there is no hurry.
+   * out, and forget the ones no agent is on any more. Besides the agents',
+   * that is each installed type's device sign-in, which the add form shows
+   * before an agent exists. Sequential, like the probe sweep: there is no
+   * hurry.
    */
   async _refreshCliModels() {
     const signIns = new Set();
+    const ask = async (a) => {
+      const key = this._cliModelsKey(a);
+      if (signIns.has(key)) return;
+      signIns.add(key);
+      if (!this._cliModelsStale(key)) return;
+      try { await this._listCliModels(a); } catch {}
+    };
     for (const a of this.config.getAgents()) {
       if (!a.network || !this._onCliSignIn(a)) continue;
-      const key = this._cliModelsKey(a);
-      if (signIns.has(key)) continue;
-      signIns.add(key);
-      const last = this._cliModels[key];
-      const maxAge = last && last.models ? CLI_MODELS_MAX_AGE_MS : CLI_MODELS_RETRY_MS;
-      if (last && Date.now() - last.askedAt < maxAge) continue;
-      try { await this._listCliModels(a); } catch {}
+      await ask(a);
     }
+    for (const type of this._signInTypes()) await ask(this._signInAgent(type));
     for (const key of Object.keys(this._cliModels)) {
       if (!signIns.has(key)) delete this._cliModels[key];
     }
+  }
+
+  /**
+   * Re-ask a type's device sign-in once its CLI was installed, upgraded,
+   * signed in or out: what it is offered changes with each (Claude Code
+   * lists four aliases signed out and eleven models on a Max account; an
+   * older Codex is not offered the newest ones), and the add form should not show
+   * the old answer for the next hour. The list on hand stays until the new
+   * one is in.
+   */
+  _cliModelsAfterDetection(previous) {
+    const sig = (rt) => (rt ? JSON.stringify([
+      !!rt.installed, rt.version || null, !!rt.ready, rt.authStatus || null, (rt.auth && rt.auth.mode) || null,
+    ]) : null);
+    let changed = false;
+    for (const rt of this._runtimes || []) {
+      if (!rt || !supportsCliModels(rt.type) || sig(rt) === sig(previous.get(rt.type))) continue;
+      const kept = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
+      if (kept) kept.askedAt = 0;
+      changed = true;
+    }
+    if (changed) this._refreshCliModels().catch(() => {});
+  }
+
+  /**
+   * The runtime list as the heartbeat sends it: each type whose CLI can list
+   * its sign-in's models carries that list, for the add form's model picker.
+   * Null until the CLI has answered, and from devices too old to ask, where
+   * the form keeps the catalog's list.
+   */
+  _heartbeatRuntimes() {
+    return (this._runtimes || []).map((rt) => {
+      if (!rt || !rt.installed || !supportsCliModels(rt.type)) return rt;
+      const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
+      return { ...rt, cliModels: (listed && listed.models) || null };
+    });
   }
 
   /**
@@ -325,7 +474,7 @@ class Daemon {
     if (!pairings.length) return;  // no node connected
     // deviceInfo, not gatherDeviceInfo: the heartbeat sends no device key, and
     // must never be the thing that writes node.json.
-    const info = { ...nodeCfg.deviceInfo(), runtimes: this._runtimes || [], fs: this._buildFs() };
+    const info = { ...nodeCfg.deviceInfo(), runtimes: this._heartbeatRuntimes(), fs: this._buildFs() };
     await Promise.all(pairings.map((p) => this._nodeHeartbeatOne(nodeCfg, p, info)));
   }
 
@@ -347,7 +496,7 @@ class Daemon {
       if (!info || !info.networkRef || info._credRestartPending) continue;
       if (!this._adapters || !this._adapters[name]) continue;
       let fresh = null;
-      try { fresh = this._resolveAgentNetwork(info.networkRef); } catch { /* keep running on the current token */ }
+      try { fresh = this._resolveAgentNetwork(info.networkRef, info.connectionId); } catch { /* keep running on the current token */ }
       if (!fresh || !fresh.token || fresh.token === info.credentialToken) continue;
       // Flag on the CURRENT info object: restartAgent replaces it with a fresh
       // one on relaunch, so the flag cannot wedge the watch permanently.
@@ -362,10 +511,10 @@ class Daemon {
 
   /** The WorkspaceClient for one pairing, created on first use and reused. */
   _nodeClientFor(n) {
-    let client = this._nodeClients.get(n.workspace_id);
+    let client = this._nodeClients.get(n.node_id);
     if (!client) {
       client = new WorkspaceClient(n.endpoint);
-      this._nodeClients.set(n.workspace_id, client);
+      this._nodeClients.set(n.node_id, client);
     }
     return client;
   }
@@ -389,8 +538,8 @@ class Daemon {
       // is unreachable, and taking that as the workspace's word unpaired every
       // workspace on the device at once.
       if (_nodeGone(err)) {
-        try { nodeCfg.clearPairing(n.workspace_id); } catch {}
-        this._nodeClients.delete(n.workspace_id);
+        try { nodeCfg.clearPairing(n.workspace_id, n.node_id); } catch {}
+        this._nodeClients.delete(n.node_id);
         this._log(`node ${n.node_id} no longer recognized by workspace ${n.workspace_slug || n.workspace_id} — pairing cleared`);
       }
       return;  // nothing more to do for this pairing this tick
@@ -459,7 +608,13 @@ class Daemon {
    */
   _agentOnNodeWorkspace(a, node) {
     if (!a || !a.network || !node) return false;
-    return a.network === node.workspace_slug || a.network === node.workspace_id;
+    if (a.network !== node.workspace_slug && a.network !== node.workspace_id) return false;
+    if (a.node_id) return a.node_id === node.node_id;
+    // Legacy agents may bind automatically only when the workspace is unambiguous.
+    const candidates = require('./node-config').listPairings().filter(
+      (p) => p.workspace_id === node.workspace_id && p.workspace_id,
+    );
+    return candidates.length <= 1;
   }
 
   /**
@@ -480,15 +635,21 @@ class Daemon {
       for (const a of this.config.getAgents()) {
         if (!this._agentOnNodeWorkspace(a, node)) continue;
         const proc = this._processes[a.name];
-        // Model/key: per-agent env override, else the type-level saved env.
-        // Both power the workspace agent cards; the key goes out MASKED only,
-        // so the edit form can show a key is configured without the secret
-        // ever leaving the device. The endpoint goes out as a hostname, so
-        // the workspace can tell a relay from the vendor its model list is for.
+        // Model/key: what the agent is launched on (its own env over the
+        // type's), read where its adapter reads them. LLM_MODEL/LLM_API_KEY
+        // alone missed every agent set up in the launcher, which saves
+        // CODEX_MODEL and OPENAI_API_KEY: its edit form showed no model and
+        // no key, and a save from it wiped the model it never showed. Both
+        // power the workspace agent cards; the key goes out MASKED only, so
+        // the edit form can show a key is configured without the secret ever
+        // leaving the device. The endpoint goes out as a hostname, so the
+        // workspace can tell a relay from the vendor its model list is for.
         let typeEnv = {};
         try { typeEnv = typeEnvFor(a.type, this.envManager.load(a.type) || {}, this.registry, a.env); } catch {}
-        const model = (a.env && a.env.LLM_MODEL) || typeEnv.LLM_MODEL || null;
-        const apiKey = (a.env && a.env.LLM_API_KEY) || typeEnv.LLM_API_KEY || null;
+        let env = {};
+        try { env = this._buildAgentEnv(a); } catch {}
+        const model = configuredModel(a.type, env, this.registry);
+        const apiKey = this._agentKey(a.type, env);
         // What the agent's own CLI says its signed-in account can run. Null
         // for an agent on a key or a relay, and until its CLI has answered.
         const listed = supportsCliModels(a.type) ? this._cliModels[this._cliModelsKey(a)] : null;
@@ -499,7 +660,9 @@ class Daemon {
           model: model || null,
           workingDir: a.path || null,
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
+          authMode: this._agentAuthMode(a, apiKey),
           baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
+          codexWireApi: a.type === 'codex' ? ((a.env && a.env.CODEX_WIRE_API) || typeEnv.CODEX_WIRE_API || 'chat') : null,
           cliModels: listed && listed.models && this._onCliSignIn(a) ? listed.models : null,
           probe: this._probes[a.name] || null,
         });
@@ -508,6 +671,61 @@ class Daemon {
       // best-effort
     }
     return roster;
+  }
+
+  /**
+   * The key an agent runs on, from the env it is launched on: any of its
+   * type's key variables (OPENAI_API_KEY for codex, KIMI_API_KEY, …), not
+   * LLM_API_KEY alone. Empty for a signed-in agent, whose env has none.
+   */
+  _agentKey(type, env) {
+    let keys = [];
+    try { keys = [...credentialKeys(type, this.registry)].filter((k) => !/BASE_URL$/.test(k)); } catch {}
+    const found = keys.find((k) => String((env && env[k]) || '').trim());
+    return found ? String(env[found]).trim() : '';
+  }
+
+  /**
+   * How an agent authenticates, for the workspace to show: 'api_key' when it
+   * runs on a key, 'cli_login' when it runs on its CLI's own sign-in (marked
+   * so, or keyless on a type that has one), null for neither. A device holds
+   * one sign-in per CLI and any number of keys, and "which one is this agent
+   * on" could only be answered from daemon.log.
+   */
+  _agentAuthMode(a, apiKey) {
+    if (isCliLogin(a.env)) return CLI_LOGIN;
+    if (apiKey) return 'api_key';
+    return this._hasCliSignIn(a.type) ? CLI_LOGIN : null;
+  }
+
+  /**
+   * Whether a key, endpoint, model and the type's own credential fields the
+   * workspace sends for one agent stay on that agent alone, rather than also
+   * going to <type>.env, which every agent of the type without settings of
+   * its own runs on. Sharing turned signed-in agents into key agents (add a
+   * codex agent on a relay key, and every keyless codex agent ran on that key
+   * from its next restart, tool-less, in direct mode), and it moved agents
+   * set up in the launcher onto another one's key, endpoint and model: add a
+   * second DeepSeek or CodeArts agent from the workspace, and the first one
+   * ran on the new one's settings from its next restart.
+   * Hermes keeps sharing: its endpoint lives in one config file of its own
+   * for the whole device, which only a save to <type>.env updates (index.js
+   * _configureNativeAuth), so a key kept on the agent would never reach it.
+   * OpenClaw writes each keyed agent's private openclaw.json from the agent's
+   * own env when it starts, so it keeps its key on the agent like the rest.
+   */
+  _keepsKeysPerAgent(type) {
+    return !SHARED_NATIVE_CONFIG.has(type);
+  }
+
+  /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */
+  _hasCliSignIn(type) {
+    try {
+      const entry = this.registry.getEntry(type);
+      return !!(entry && entry.check_ready && entry.check_ready.login_command);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -551,11 +769,15 @@ class Daemon {
       ? ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'LLM_API_KEY']
       : ['LLM_API_KEY', ...rules.filter((r) => r && r.from === 'LLM_API_KEY').map((r) => r.to), 'OPENAI_API_KEY'];
     const keyVar = keyVars.find((k) => k && String(env[k] || '').trim());
-    return {
-      baseUrl: this._configuredBaseUrl(a, typeEnv),
-      apiKey: keyVar ? String(env[keyVar]).trim() : '',
-      protocol,
-    };
+    const apiKey = keyVar ? String(env[keyVar]).trim() : '';
+    const baseUrl = this._configuredBaseUrl(a, typeEnv);
+    if (a.type === 'deepseek') {
+      // dsh's URL names its Messages API, or is blank for DeepSeek's own; the
+      // model list lives elsewhere, so list where that endpoint keeps it.
+      const { dshModelsEndpoint } = require('./adapters/deepseek-runtime');
+      return { ...dshModelsEndpoint(baseUrl), apiKey };
+    }
+    return { baseUrl, apiKey, protocol };
   }
 
   /**
@@ -615,6 +837,12 @@ class Daemon {
    */
   _saveNodeAgentEnv(name, type, args) {
     const changes = {};
+    if (type === 'codex' && args.codexWireApi !== undefined) {
+      if (!['responses', 'chat'].includes(args.codexWireApi)) {
+        throw new Error('Choose Responses or Chat Completions for Codex');
+      }
+      changes.CODEX_WIRE_API = args.codexWireApi;
+    }
     if (_sentKey(args)) {
       changes.LLM_API_KEY = args.apiKey;
       // A key sent for the agent means it runs on that key: a sign-in marker
@@ -622,6 +850,30 @@ class Daemon {
       changes[AUTH_MODE_KEY] = '';
     }
     if (args.baseUrl !== undefined) changes.LLM_BASE_URL = args.baseUrl;
+    if (!_sentKey(args) && args.authMode === CLI_LOGIN && this._hasCliSignIn(type)) {
+      // "Sign in on the device" in the workspace form. Marked, the agent
+      // takes no key from <type>.env or the daemon's environment (env.js),
+      // so a key saved for its type no longer turns it into a key agent.
+      // Unmarked it did, from its next restart: the workspace offered the
+      // sign-in, and the agent quietly ran on whatever key the device held.
+      // An agent switching over from a key gives up what came with it: the
+      // key and endpoint, and a model it is not being sent now (a relay's
+      // model id, which the account behind the sign-in does not serve). One
+      // already signed in keeps its own model; this only pins the marker.
+      const existing = this.config.getAgent(name) || {};
+      const own = existing.env || {};
+      let hadKey = false;
+      try { hadKey = !isCliLogin(own) && !!this._agentKey(type, this._buildAgentEnv(existing)); } catch {}
+      changes[AUTH_MODE_KEY] = CLI_LOGIN;
+      for (const key of credentialKeys(type, this.registry)) {
+        if (key in own || key in changes) changes[key] = '';
+      }
+      if (hadKey && args.model === undefined) {
+        for (const key of Object.keys(own)) {
+          if (key === 'MODEL' || key.endsWith('_MODEL')) changes[key] = '';
+        }
+      }
+    }
     if (args.model !== undefined) {
       const existing = this.config.getAgent(name);
       if (!existing) throw new Error(`Agent '${name}' not found after create`);
@@ -633,8 +885,16 @@ class Daemon {
       changes.LLM_MODEL = String(args.model || '');
       const nativeVar = { claude: 'ANTHROPIC_MODEL', gemini: 'GEMINI_MODEL' }[type] || this._nativeModelVar(type);
       if (nativeVar) changes[nativeVar] = String(args.model || '');
+      // Cleared means the CLI's default, not whatever <type>.env still holds.
+      changes[MODEL_MODE_KEY] = String(args.model || '').trim() ? '' : MODEL_DEFAULT;
     }
     if (Object.keys(changes).length) this.config.updateAgentEnv(name, changes);
+    // Hermes reads its endpoint from config.yaml, not the agent env: without
+    // this a Hermes agent moved to the sign-in kept calling the relay
+    // (AgentConnector._configureAgentNativeAuth does the same for agn).
+    if (type === 'hermes' && changes[AUTH_MODE_KEY] === CLI_LOGIN) {
+      try { require('./adapters/hermes').restoreNativeAuth(); } catch {}
+    }
   }
 
   /**
@@ -658,16 +918,51 @@ class Daemon {
     }
   }
 
-  async _refreshRuntimes() {
-    try {
-      const r = await this._runAgn(['runtimes', '--json']);
-      if (r.code === 0 && r.stdout) {
-        const parsed = JSON.parse(r.stdout.trim());
-        if (Array.isArray(parsed)) this._runtimes = parsed;
-      }
-    } catch {
-      // keep the previous snapshot on failure
+  /**
+   * Re-detect the installed/logged-in runtimes. A call made while one is
+   * already running joins it, so start-up, the periodic refresh and a
+   * workspace's Re-detect never run side by side.
+   */
+  _refreshRuntimes() {
+    if (!this._runtimesInFlight) {
+      this._runtimesInFlight = this._detectRuntimes()
+        .catch(() => {})
+        .finally(() => { this._runtimesInFlight = null; });
     }
+    return this._runtimesInFlight;
+  }
+
+  /**
+   * Detection checks each type with blocking CLI calls (--version, a login
+   * check), one after another. Run over the whole catalog in one child, a
+   * single CLI that hung held every result back, and the workspace sat on
+   * "Detecting…". The catalog is split over a few children run side by side,
+   * each with a time limit; a group that runs out keeps its last results.
+   */
+  async _detectRuntimes() {
+    let types = [];
+    try { types = this.registry.getCatalogSync().map((e) => e.name); } catch {}
+    const groups = types.length
+      ? Array.from({ length: Math.min(RUNTIME_DETECT_GROUPS, types.length) }, (_, i) =>
+        types.filter((_, j) => j % RUNTIME_DETECT_GROUPS === i))
+      : [null];
+    const found = new Map();
+    await Promise.all(groups.map(async (group) => {
+      const args = group ? ['runtimes', '--json', '--types', group.join(',')] : ['runtimes', '--json'];
+      try {
+        const r = await this._runAgn(args, { timeoutMs: RUNTIME_DETECT_TIMEOUT_MS });
+        if (r.code !== 0 || !r.stdout) return;
+        const parsed = JSON.parse(r.stdout.trim());
+        if (Array.isArray(parsed)) for (const rt of parsed) if (rt && rt.type) found.set(rt.type, rt);
+      } catch {
+        // this group keeps its previous snapshot
+      }
+    }));
+    if (!found.size) return;
+    const previous = new Map((this._runtimes || []).map((rt) => [rt.type, rt]));
+    const order = types.length ? types : [...found.keys()];
+    this._runtimes = order.map((type) => found.get(type) || previous.get(type)).filter(Boolean);
+    this._cliModelsAfterDetection(previous);
   }
 
   /**
@@ -682,8 +977,13 @@ class Daemon {
    * (Credential contract: config flows down transiently, secrets persist
    * only here, in the device's env store.)
    */
-  async _applyConfigMap(type, config) {
-    if (!config || typeof config !== 'object') return;
+  async _applyConfigMap(type, config, name) {
+    // Returns the keys saved to <type>.env. A type that keeps them on the
+    // agent (_keepsKeysPerAgent) gets them on `name` instead, and none back.
+    const applied = [];
+    const own = {};
+    const perAgent = !!name && this._keepsKeysPerAgent(type);
+    if (!config || typeof config !== 'object') return applied;
     let allowed = null;
     try {
       const entry = this.registry.getEntry(type);
@@ -691,7 +991,7 @@ class Daemon {
         ((entry && entry.env_config) || []).map((f) => f.name).filter(Boolean)
       );
     } catch {
-      return; // no registry entry — refuse everything rather than guess
+      return applied; // no registry entry — refuse everything rather than guess
     }
     for (const [key, value] of Object.entries(config)) {
       if (!allowed.has(key)) {
@@ -699,8 +999,15 @@ class Daemon {
         continue;
       }
       if (value === null || value === undefined) continue;
-      await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+      if (perAgent) { own[key] = String(value); continue; }
+      const r = await this._runAgn(['env', type, '--set', `${key}=${String(value)}`]);
+      // Stop here rather than count it: the caller drops the agent's own copy
+      // of what was applied, which would leave it with no credential at all.
+      if (r.code !== 0) throw new Error(r.stderr || r.stdout || `Could not save ${key}`);
+      applied.push(key);
     }
+    if (Object.keys(own).length) this.config.updateAgentEnv(name, own);
+    return applied;
   }
 
 async _runNodeCommand(n, cmd) {
@@ -710,6 +1017,8 @@ async _runNodeCommand(n, cmd) {
     let ok = false;
     let message = '';
     let data = null;
+    // An agent this create_agent wrote to config but did not finish setting up.
+    let halfCreated = null;
     // SECURITY: a workspace may only act on agents bound to it. Reject commands
     // that target an existing agent connected to a different workspace, so a
     // newly-paired workspace can't start/stop/remove/reconfigure agents that
@@ -732,38 +1041,56 @@ async _runNodeCommand(n, cmd) {
         try { fs.mkdirSync(workingDir, { recursive: true }); } catch {}
         const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
         if (r1.code !== 0) throw new Error(r1.stderr || r1.stdout || 'create failed');
+        const installError = installFailureOf(r1.stdout);
+        halfCreated = name;
         // Optional credentials for API-key agents (generic → provider mapping
         // happens in env resolution). `useDeviceCredentials` means the device
         // already holds them — nothing to write.
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model) await this._setModelEnv(type, args.model);
-        if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
-        await this._applyConfigMap(type, args.config);
+        if (!this._keepsKeysPerAgent(type)) {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model) await this._setModelEnv(type, args.model);
+          if (args.baseUrl) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        }
+        await this._applyConfigMap(type, args.config, name);
         this._saveNodeAgentEnv(name, type, args);
         // Attach to this node's workspace BY SLUG: the daemon already knows
         // which workspace this command came from, so there is no token to
         // pass and no /v1/token/resolve round-trip to fail (the outage class
         // that used to break remote installs).
         const r2 = await this._runAgn([
-          'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+          'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
         ]);
         if (r2.code !== 0) throw new Error(r2.stderr || r2.stdout || 'connect failed');
+        halfCreated = null;
         ok = true;
         message = `Agent '${name}' created`;
-        // First-connect smoke test, in the background (a probe can take its
-        // full timeout — never hold the create result hostage). The outcome
-        // reaches the workspace via the heartbeat's agents[].probe.
-        this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        if (installError) {
+          // The agent exists and is connected, but its runtime did not install.
+          // Say why on the card: a probe now could only answer "Not installed".
+          message = `Agent '${name}' created, but installing ${type} failed: ${installError}`;
+          this._recordInstallFailure(name, type, installError);
+          this._nodeHeartbeat();
+        } else {
+          // First-connect smoke test, in the background (a probe can take its
+          // full timeout — never hold the create result hostage). The outcome
+          // reaches the workspace via the heartbeat's agents[].probe.
+          this._probeAgent(name).then(() => this._nodeHeartbeat()).catch(() => {});
+        }
         this._askCliModels(name);
-      } else if (action === 'start_agent') {
-        const r = await this._runAgn(['start', name]);
-        ok = r.code === 0;
-        message = ok ? `Agent '${name}' started` : (r.stderr || r.stdout || 'start failed');
-      } else if (action === 'stop_agent') {
-        const r = await this._runAgn(['stop', name]);
-        ok = r.code === 0;
-        message = ok ? `Agent '${name}' stopped` : (r.stderr || r.stdout || 'stop failed');
+      } else if (action === 'start_agent' || action === 'stop_agent') {
+        // In-process, not via `agn start|stop`: that spawned a whole CLI just to
+        // drop a line into daemon.cmd for THIS process to poll back up, and the
+        // new state then waited for the next 10s heartbeat. A Stop clicked in
+        // the workspace could sit at "running" for half a minute. Report the
+        // new state as soon as it is set instead; stopAgent flips it to
+        // 'stopped' before it starts waiting on the agent to exit.
+        const settled = action === 'stop_agent' ? this.stopAgent(name) : this._startAgentIfIdle(name);
+        this._nodeHeartbeat();
+        await settled;
+        this._nodeHeartbeat();
+        ok = true;
+        message = `Agent '${name}' ${action === 'stop_agent' ? 'stopped' : 'started'}`;
       } else if (action === 'remove_agent') {
         const r = await this._runAgn(['remove', name]);
         ok = r.code === 0;
@@ -773,27 +1100,40 @@ async _runNodeCommand(n, cmd) {
         // restart it so the change takes effect. Working-dir changes require a
         // recreate (agn has no in-place path change) at the new path.
         const type = (args.type || '').trim();
-        if (_sentKey(args))
-          await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
-        if (args.model !== undefined) await this._setModelEnv(type, args.model);
-        if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
-        await this._applyConfigMap(type, args.config);
+        if (!this._keepsKeysPerAgent(type)) {
+          if (_sentKey(args))
+            await this._runAgn(['env', type, '--set', `LLM_API_KEY=${args.apiKey}`]);
+          if (args.model !== undefined) await this._setModelEnv(type, args.model);
+          if (args.baseUrl !== undefined) await this._runAgn(['env', type, '--set', `LLM_BASE_URL=${args.baseUrl}`]);
+        }
+        const applied = await this._applyConfigMap(type, args.config, name);
+        // Those just went to the type env (Hermes, OpenClaw), which a copy on
+        // the agent itself (one the launcher saved) outranks at launch: drop
+        // that copy, or the agent keeps running on the old key while the save
+        // says ok.
+        const unshadow = Object.fromEntries(applied.map((key) => [key, '']));
         const newDir = (args.workingDir || '').trim();
         if (newDir && newDir !== (args.currentWorkingDir || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
+          // The agent's own env goes with the entry remove/create replace, and
+          // for a type that keeps its key on the agent that is the key, the
+          // endpoint and the model. The form sends only what changed, so carry
+          // the rest over before applying this command.
+          const ownEnv = { ...((this.config.getAgent(name) || {}).env || {}) };
           await this._runAgn(['remove', name]);
           const rc = await this._runAgn(['create', name, '--type', type, '--install', '--path', newDir]);
           if (rc.code !== 0) throw new Error(rc.stderr || rc.stdout || 'recreate failed');
+          if (Object.keys(ownEnv).length) this.config.updateAgentEnv(name, { ...ownEnv, ...unshadow });
           this._saveNodeAgentEnv(name, type, args);
           const rc2 = await this._runAgn([
-            'connect', name, '--workspace', n.workspace_slug || n.workspace_id,
+            'connect', name, '--workspace', n.workspace_slug || n.workspace_id, '--connection', n.node_id,
           ]);
           if (rc2.code !== 0) throw new Error(rc2.stderr || rc2.stdout || 'connect failed');
         } else {
           // Restart in-process. `agn stop` + `agn start` both round-trip
-          // through daemon.cmd, and writeCommand() OVERWRITES that file — the
-          // start could clobber the unread stop (agent keeps the stale env) or
-          // interleave with the poll so the agent stops and never restarts.
+          // through daemon.cmd, and the pair can interleave with the poll so
+          // the agent stops and never restarts.
+          if (applied.length) this.config.updateAgentEnv(name, unshadow);
           this._saveNodeAgentEnv(name, type, args);
           await this.restartAgent(name);
         }
@@ -848,6 +1188,12 @@ async _runNodeCommand(n, cmd) {
     } catch (e) {
       ok = false;
       message = e.message || String(e);
+      // Undo a create that failed after `agn create`: the entry stays in config
+      // without this workspace's binding, so no roster here shows it, the
+      // workspace's failed card cannot remove it, and every retry under the
+      // same name hit "Agent '…' already exists". Only an entry this command
+      // made is removed — a create refused for a taken name never sets it.
+      if (halfCreated) await this._runAgn(['remove', halfCreated]);
     }
     try {
       // Report back to the workspace that issued the command — with several
@@ -858,8 +1204,11 @@ async _runNodeCommand(n, cmd) {
     }
   }
 
-  /** Run this launcher's own CLI as a child process, capturing output. */
-  _runAgn(cliArgs) {
+  /**
+   * Run this launcher's own CLI as a child process, capturing output. With
+   * `timeoutMs`, a child still running then is killed and reported as failed.
+   */
+  _runAgn(cliArgs, { timeoutMs } = {}) {
     return new Promise((resolve) => {
       let bin;
       try {
@@ -872,6 +1221,9 @@ async _runNodeCommand(n, cmd) {
         // Run from home so a created agent's default working dir is sensible
         // (not the ~/.openagents config dir).
         cwd: os.homedir(),
+        // A timed detection owns its process group, so its CLI descendants
+        // can be stopped too without signalling the daemon itself.
+        detached: !!timeoutMs && !IS_WINDOWS,
         // The daemon has no console of its own (it is spawned DETACHED), so a
         // child without this gets a fresh console window — the blank black box
         // that used to appear every time _refreshRuntimes() ran.
@@ -879,10 +1231,32 @@ async _runNodeCommand(n, cmd) {
       });
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = timeoutMs ? setTimeout(() => {
+        if (IS_WINDOWS && child.pid) {
+          // Killing only node.exe leaves the CLI (and its shell) running.
+          const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
+            windowsHide: true, stdio: 'ignore', timeout: 5000,
+          });
+          const fallback = () => { try { child.kill('SIGKILL'); } catch {} };
+          killer.on('error', fallback);
+          killer.on('close', (code) => { if (code !== 0) fallback(); });
+        } else {
+          try { process.kill(-child.pid, 'SIGKILL'); }
+          catch { try { child.kill('SIGKILL'); } catch {} }
+        }
+        finish({ code: 1, stdout, stderr: `${stderr}timed out after ${timeoutMs}ms`, timedOut: true });
+      }, timeoutMs) : null;
       child.stdout.on('data', (d) => { stdout += d.toString(); });
       child.stderr.on('data', (d) => { stderr += d.toString(); });
-      child.on('error', (e) => resolve({ code: 1, stdout, stderr: stderr || e.message }));
-      child.on('close', (code) => resolve({ code, stdout, stderr }));
+      child.on('error', (e) => finish({ code: 1, stdout, stderr: stderr || e.message }));
+      child.on('close', (code) => finish({ code, stdout, stderr }));
     });
   }
 
@@ -970,8 +1344,9 @@ async _runNodeCommand(n, cmd) {
     );
 
     // Detect installed/logged-in agent runtimes for the Add-agent gallery. Runs
-    // in a child process (off the event loop), refreshed periodically.
-    this._refreshRuntimes();
+    // in a child process (off the event loop), refreshed periodically. The
+    // first result goes up at once rather than on the next 10s heartbeat.
+    this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
     this._runtimesInterval = setInterval(() => this._refreshRuntimes(), 120000);
 
     // Smoke-test configured agent types periodically (each probe spends one
@@ -1082,6 +1457,31 @@ async _runNodeCommand(n, cmd) {
       delete this._adapters[agentName];
     }
     this._writeStatus();
+  }
+
+  /**
+   * Start an agent unless it is already running.
+   *
+   * 'start' must be idempotent. The launcher sends start:<name> right after
+   * (re)spawning the daemon, but the daemon's own start() already launched
+   * every configured agent. A blind restart here tears down the just-joined
+   * workspace session and re-joins as the same agent; the server revokes the
+   * first session and the agent then stops the moment it next touches the
+   * workspace (e.g. the first user message → "thinking..." status). Only
+   * (re)launch when it isn't running.
+   */
+  async _startAgentIfIdle(agentName) {
+    const running =
+      (this._adapters && this._adapters[agentName]) ||
+      ['running', 'starting'].includes(
+        this._processes[agentName] && this._processes[agentName].state
+      );
+    if (running) {
+      this._log(`Command: start ${agentName} — already running, skipping`);
+      return;
+    }
+    this._log(`Command: start ${agentName}`);
+    await this.restartAgent(agentName);
   }
 
   /**
@@ -1292,15 +1692,18 @@ async _runNodeCommand(n, cmd) {
    * fallback. Fields from the network entry win for display (name), the
    * pairing wins for credentials (token/endpoint).
    */
-  _resolveAgentNetwork(ref) {
+  _resolveAgentNetwork(ref, nodeId) {
     const network =
       this.config.getNetworks().find((n) => n.slug === ref || n.id === ref) ||
       null;
     let pairing = null;
     try {
-      pairing = require('./node-config')
-        .listPairings()
-        .find((p) => p.workspace_slug === ref || p.workspace_id === ref) || null;
+      const candidates = require('./node-config').listPairings()
+        .filter((p) => p.workspace_slug === ref || p.workspace_id === ref);
+      pairing = candidates.find((p) => !nodeId || p.node_id === nodeId) || null;
+      if ((nodeId && !pairing) || (!nodeId && candidates.length > 1)) {
+        return { ...(network || {}), token: null };
+      }
     } catch {}
     if (!network && !pairing) return null;
     return {
@@ -1344,7 +1747,7 @@ async _runNodeCommand(n, cmd) {
     // Workspace-connected agents use the adapter loop (poll + CLI per message).
     // Local-only agents use the spawn loop (long-running child process).
     const network = agentCfg.network
-      ? this._resolveAgentNetwork(agentCfg.network)
+      ? this._resolveAgentNetwork(agentCfg.network, agentCfg.node_id)
       : null;
 
     if (network && !network.token) {
@@ -1363,6 +1766,7 @@ async _runNodeCommand(n, cmd) {
       // Remember which credential this adapter runs with, so the rotation
       // watch can restart it when a re-pair hands the workspace a new token.
       info.networkRef = agentCfg.network;
+      info.connectionId = agentCfg.node_id;
       info.credentialToken = network.token;
       this._adapterLoop(name, agentCfg, info, network);
     } else {
@@ -1503,6 +1907,7 @@ async _runNodeCommand(n, cmd) {
         agentName: name,
         endpoint,
         agentType,
+        configDir: this.config.configDir,
         openclawAgentId: agentCfg.openclaw_agent_id || 'main',
         disabledModules: skillsToDisabledModules(agentCfg.skills),
         agentEnv: this._buildAgentEnv(agentCfg),
@@ -1690,7 +2095,10 @@ async _runNodeCommand(n, cmd) {
     const type = agentCfg.type || 'openclaw';
     const merged = this.envManager.getForAgent(type, this.registry, agentCfg.env);
     // A signed-in agent drops every key, the launcher's own environment's too.
-    return stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    const env = stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agentCfg.env);
+    return type === 'openclaw'
+      ? require('./adapters/openclaw').instanceEnv(agentCfg.name, env, this.config.configDir)
+      : env;
   }
 
   _agentConfigFingerprint(agentCfg) {
@@ -1768,25 +2176,7 @@ async _runNodeCommand(n, cmd) {
           this._log(`Command: stop ${agentName}`);
           this.stopAgent(agentName);
         } else if (cmd.startsWith('start:')) {
-          const agentName = cmd.slice(6).trim();
-          // 'start' must be idempotent. The launcher sends start:<name> right
-          // after (re)spawning the daemon, but the daemon's own start() already
-          // launched every configured agent. A blind restart here tears down
-          // the just-joined workspace session and re-joins as the same agent;
-          // the server revokes the first session and the agent then stops the
-          // moment it next touches the workspace (e.g. the first user message →
-          // "thinking..." status). Only (re)launch when it isn't running.
-          const running =
-            (this._adapters && this._adapters[agentName]) ||
-            ['running', 'starting'].includes(
-              this._processes[agentName] && this._processes[agentName].state
-            );
-          if (running) {
-            this._log(`Command: start ${agentName} — already running, skipping`);
-          } else {
-            this._log(`Command: start ${agentName}`);
-            this.restartAgent(agentName);
-          }
+          this._startAgentIfIdle(cmd.slice(6).trim());
         } else if (cmd.startsWith('restart:')) {
           const agentName = cmd.slice(8).trim();
           this._log(`Command: restart ${agentName}`);
@@ -1794,6 +2184,16 @@ async _runNodeCommand(n, cmd) {
         } else if (cmd === 'reload') {
           this._log('Command: reload');
           this._reload();
+        } else if (cmd === 'detect') {
+          // The launcher just saw a sign-in finish (or a key saved): re-detect
+          // and report, so the workspace doesn't keep "Needs login" until the
+          // next 2-minute refresh. A run already in flight is joined.
+          this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
+        } else if (cmd === 'heartbeat') {
+          // A workspace page in the launcher just queued a command for this
+          // device: heartbeat now so it is picked up, instead of on the next
+          // 10s tick. Not logged — it carries nothing worth a line.
+          this._nodeHeartbeat().catch(() => {});
         }
       }
     } catch {}
@@ -1866,9 +2266,17 @@ async _runNodeCommand(n, cmd) {
       }
     }
 
+    // A type's reported readiness is judged with its agents' env too (agn
+    // runtimes), so adding an agent or saving a key on one changes what the
+    // workspace should show. Report it now rather than on the 2-minute tick.
+    const agentsChanged = newNames.size !== oldNames.size
+      || [...newNames].some((n) => (oldConfigs[n] || '') !== newConfigs[n]);
     this._cachedAgentNames = newNames;
     this._cachedAgentConfigs = newConfigs;
     this._writeStatus();
+    if (agentsChanged && this._runtimesInterval) {
+      this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
+    }
   }
 
   /**

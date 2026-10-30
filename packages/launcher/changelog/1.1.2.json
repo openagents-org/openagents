@@ -1,0 +1,72 @@
+{
+  "version": "1.1.2",
+  "date": "2026-10-20",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Keep working while an agent installs",
+        "zh": "安装智能体期间可继续其他操作"
+      },
+      "description": {
+        "en": "When adding an agent requires an install, you can return to the agent list right away. The install continues in the background and the agent is added once it finishes.",
+        "zh": "添加智能体需要先安装时，可立即返回智能体列表。安装在后台继续进行，完成后自动添加该智能体。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer names for workspaces and this computer",
+        "zh": "工作区与本机相关入口名称更清晰"
+      },
+      "description": {
+        "en": "The top switch now reads Workspace and Device, the button listing your account's workspaces is now All Workspaces, and the sidebar shows Device Overview and Joined Workspaces, so workspaces you belong to and workspaces this computer has joined are easier to tell apart.",
+        "zh": "顶部切换改为「工作区」与「本机管理」，列出账号下全部工作区的按钮改为「全部工作区」，侧边栏改为「设备概览」与「本机加入的工作区」，便于区分账号所属的工作区与本机加入的工作区。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "API keys entered when adding OpenClaw or Hermes now take effect",
+        "zh": "添加 OpenClaw 或 Hermes 时填写的 API 密钥现可正常生效"
+      },
+      "description": {
+        "en": "An agent added with a custom endpoint now uses the key and endpoint you entered, instead of failing with an authentication error after the connection test had passed.",
+        "zh": "使用自定义接口添加的智能体会直接使用所填写的密钥与接口地址，不再出现连接测试通过、实际对话却返回认证错误的情况。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Kimi Code CLI recognizes account sign-in",
+        "zh": "Kimi Code CLI 可识别账号登录状态"
+      },
+      "description": {
+        "en": "After you finish `kimi login` in the browser, the app now shows Kimi as signed in and lets you continue adding the agent.",
+        "zh": "在浏览器中完成 `kimi login` 后，应用会显示 Kimi 已登录，并可继续添加智能体。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Agent status reflects saved API keys",
+        "zh": "智能体状态正确反映已保存的 API 密钥"
+      },
+      "description": {
+        "en": "Agents such as Pi that are set up with an API key no longer show \"Login required\" on their cards.",
+        "zh": "Pi 等使用 API 密钥配置的智能体，卡片上不再错误显示“需要登录”。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Clearer agent setup form",
+        "zh": "添加智能体页面更清晰"
+      },
+      "description": {
+        "en": "Switching to a different agent type now suggests a matching name instead of keeping the previous one, and the link beside the status badge is labeled as documentation.",
+        "zh": "切换智能体类型时会按新类型生成默认名称，不再沿用上一个名称；状态标签旁的链接已明确标注为使用文档。"
+      }
+    }
+  ]
+}

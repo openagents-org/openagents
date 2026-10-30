@@ -1,11 +1,10 @@
 import { useMemo } from "react"
 import {
+  Bot,
   Cpu,
-  Download,
   FileText,
   Folder,
   Github,
-  LayoutDashboard,
   Layers,
   Monitor,
   Moon,
@@ -37,8 +36,8 @@ export interface Command {
 // unreachable from the UI. Re-add here, in SHORTCUT_TABS and in the Settings →
 // Agents section when it ships.
 const NAV_TABS: Array<[id: string, icon: LucideIcon]> = [
-  ["dashboard", LayoutDashboard],
-  ["install", Download],
+  // Connect Agents. The marketplace has no entry: it is reached from there.
+  ["dashboard", Bot],
   ["workspaces", Layers],
   // `connections` is hidden alongside its rail entry until the platform
   // options actually work (see nav-config.ts).

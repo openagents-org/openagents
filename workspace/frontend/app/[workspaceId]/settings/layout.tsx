@@ -4,14 +4,14 @@ import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, CircleUser, Gift, Globe, KeyRound, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
+  ArrowLeft, CircleUser, ClipboardCheck, Gift, Globe, KeyRound, Lock, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { AdminSettingsContext, type AdminSettingsValue } from '@/components/settings/admin-context';
+import { AdminSettingsContext, canAdminister, canAccessSettingsSection, type AdminSettingsValue } from '@/components/settings/admin-context';
 import { workspaceApi } from '@/lib/api';
 import type { Workspace, WorkspaceMe } from '@/lib/types';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { goToCentralLogin } from '@/lib/auth-redirects';
+import { goToCentralLogin, redirectToLogin } from '@/lib/auth-redirects';
 import { roleLabel } from '@/lib/roles';
 import { useT } from '@/lib/i18n';
 
@@ -28,20 +28,13 @@ function readCookieToken(workspaceId: string): string | null {
   return null;
 }
 
-/** The token that needs no network to find, or null if it must be looked up. */
-function localToken(urlToken: string | null, workspaceId: string): string | null {
-  return urlToken || readCookieToken(workspaceId) || workspaceApi.tokenFor(workspaceId);
-}
-
-/** The last workspace + caller role each workspace's settings loaded, for this
- * page session only. Keyed by workspace, and only reused under the same token. */
-const shellCache = new Map<string, { token: string; workspace: Workspace; me: WorkspaceMe }>();
-
 const SECTIONS = [
   { slug: 'profile', labelKey: 'admin.navProfile', icon: CircleUser },
   { slug: 'general', labelKey: 'admin.navGeneral', icon: Settings2 },
   { slug: 'members', labelKey: 'admin.navMembers', icon: Users },
   { slug: 'security', labelKey: 'admin.navSecurity', icon: ShieldCheck },
+  { slug: 'approvals', labelKey: 'admin.navApprovals', icon: ClipboardCheck },
+  { slug: 'private-threads', labelKey: 'adminThreads.navLabel', icon: Lock }, // v1.1 permission model (admin)
   { slug: 'devices', labelKey: 'admin.navDevices', icon: MonitorSmartphone },
   { slug: 'model-access', labelKey: 'admin.navModelAccess', icon: KeyRound },
   { slug: 'integrations', labelKey: 'admin.navIntegrations', icon: Globe },
@@ -58,16 +51,13 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   const urlToken = searchParams.get('token');
   const query = urlToken ? `?token=${encodeURIComponent(urlToken)}` : '';
 
-  // ── Credential resolution: ?token= → oa_workspace cookie → the token the
-  // workspace view already configured → account lookup ──
+  // ── Credential resolution: ?token= → oa_workspace cookie → account lookup ──
   // null = still resolving; '' = no workspace token (bearer-only or anonymous).
-  // Everything but the account lookup is local, so it is read on the first
-  // render rather than an effect later: opening settings from the workspace
-  // should not wait on a network round-trip it does not need.
-  const [token, setToken] = useState<string | null>(() => localToken(urlToken, workspaceId));
+  const [token, setToken] = useState<string | null>(null);
   useEffect(() => {
-    const local = localToken(urlToken, workspaceId);
-    if (local) { setToken(local); return; }
+    if (urlToken) { setToken(urlToken); return; }
+    const fromCookie = readCookieToken(workspaceId);
+    if (fromCookie) { setToken(fromCookie); return; }
     if (authLoading) return;
     if (idToken) {
       let cancelled = false;
@@ -85,21 +75,20 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   }, [urlToken, workspaceId, idToken, authLoading]);
 
   // ── Load workspace + caller role once credentials are settled ──
-  // A repeat visit renders straight from the last load and refreshes behind it.
-  const cached = token !== null ? shellCache.get(workspaceId) : undefined;
-  const warm = cached?.token === token ? cached : undefined;
-  const [workspace, setWorkspace] = useState<Workspace | null>(warm?.workspace ?? null);
-  const [me, setMe] = useState<WorkspaceMe | null>(warm?.me ?? null);
+  const credentialKey = `${workspaceId}:${idToken || ''}:${token ?? ''}`;
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [me, setMe] = useState<WorkspaceMe | null>(null);
   const [error, setError] = useState<'denied' | 'load' | null>(null);
 
   useEffect(() => {
-    if (token === null) return;
+    if (token === null || authLoading || (isOpenAgentsDomain && (!user || !idToken))) return;
     workspaceApi.configure(workspaceId, token, idToken || undefined);
     let cancelled = false;
     Promise.all([workspaceApi.getWorkspace(), workspaceApi.getMe()])
       .then(([ws, meData]) => {
         if (cancelled) return;
-        shellCache.set(workspaceId, { token, workspace: ws, me: meData });
+        setLoadedFor(credentialKey);
         setWorkspace(ws);
         setMe(meData);
         setError(null);
@@ -110,19 +99,21 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
         setError(msg.includes('API 401') || msg.includes('API 403') ? 'denied' : 'load');
       });
     return () => { cancelled = true; };
-  }, [token, workspaceId, idToken]);
+  }, [token, workspaceId, idToken, authLoading, isOpenAgentsDomain, user, credentialKey]);
 
   const refreshWorkspace = useCallback(async () => {
-    const ws = await workspaceApi.getWorkspace();
-    const entry = shellCache.get(workspaceId);
-    if (entry) shellCache.set(workspaceId, { ...entry, workspace: ws });
-    setWorkspace(ws);
-  }, [workspaceId]);
+    setWorkspace(await workspaceApi.getWorkspace());
+  }, []);
 
   const ctxValue = useMemo<AdminSettingsValue | null>(() => {
-    if (!workspace || !me) return null;
+    if (!workspace || !me || loadedFor !== credentialKey) return null;
     return { workspaceId, workspace, me, token: token || '', refreshWorkspace, query };
-  }, [workspaceId, workspace, me, token, refreshWorkspace, query]);
+  }, [workspaceId, workspace, me, token, refreshWorkspace, query, loadedFor, credentialKey]);
+
+  useEffect(() => {
+    if (!authLoading && isOpenAgentsDomain && (!user || !idToken)) redirectToLogin();
+  }, [authLoading, isOpenAgentsDomain, user, idToken]);
+  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return null;
 
   if (error === 'denied') {
     // A signed-out visitor on the hosted domain may simply need to log in.
@@ -173,6 +164,8 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
     );
   }
 
+  const section = pathname?.split('/settings/')[1]?.split('/')[0] || '';
+  const sectionAllowed = !section || canAccessSettingsSection(ctxValue.me, section);
   const roleBadge = ctxValue.me.role
     ? roleLabel(t, ctxValue.me.role)
     : ctxValue.me.tokenAccess
@@ -194,7 +187,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-sm font-semibold">
                 {ctxValue.workspace.name}
-                <span className="ms-2 font-normal text-muted-foreground">· {t('admin.title')}</span>
+                <span className="ms-2 font-normal text-muted-foreground">· {canAdminister(ctxValue.me) ? t('admin.title') : t('userMenu.personalSettings')}</span>
               </h1>
             </div>
             {roleBadge && (
@@ -208,7 +201,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
 
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:gap-10">
           <nav className="flex shrink-0 gap-1 overflow-x-auto md:w-48 md:flex-col md:overflow-visible">
-            {SECTIONS.map(({ slug, labelKey, icon: Icon }) => {
+            {SECTIONS.filter(({ slug }) => canAccessSettingsSection(ctxValue.me, slug)).map(({ slug, labelKey, icon: Icon }) => {
               const href = `/${workspaceId}/settings/${slug}${query}`;
               const active = pathname?.endsWith(`/settings/${slug}`);
               return (
@@ -227,7 +220,13 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
               );
             })}
           </nav>
-          <main className="min-w-0 flex-1 pb-16">{children}</main>
+          <main className="min-w-0 flex-1 pb-16">{sectionAllowed ? children : (
+            <div className="space-y-3 py-6">
+              <h2 className="text-lg font-semibold">{t('admin.accessDeniedTitle')}</h2>
+              <p className="text-sm text-muted-foreground">{t('admin.adminRequired')}</p>
+              <Button variant="outline" asChild><Link href={`/${workspaceId}/settings/profile${query}`}>{t('userMenu.personalSettings')}</Link></Button>
+            </div>
+          )}</main>
         </div>
       </div>
     </AdminSettingsContext.Provider>

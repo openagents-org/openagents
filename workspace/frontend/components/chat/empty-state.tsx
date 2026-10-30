@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
+import { MessageCircle, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { capture } from '@/lib/analytics';
 import { useLayout } from '@/components/layout/layout-context';
@@ -11,6 +11,21 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { AgentCatalogEntry } from '@/lib/types';
+
+export function EmptyConversation({ name, human = false, self = false }: { name?: string; human?: boolean; self?: boolean }) {
+  const t = useT();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+      <div className="rounded-full bg-muted p-4">
+        <MessageCircle className="size-8 text-muted-foreground" />
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold">{self ? t('peopleMessaging.selfDmTitle') : name ? t('onboarding.conversationWith', { name }) : t('onboarding.allSetTitle')}</h3>
+        <p className="max-w-sm text-sm text-muted-foreground">{t(self ? 'peopleMessaging.selfDmBody' : human ? 'onboarding.humanConversationBody' : 'onboarding.allSetBody')}</p>
+      </div>
+    </div>
+  );
+}
 
 export function EmptyState() {
   const { agents, token } = useWorkspace();
@@ -60,21 +75,7 @@ export function EmptyState() {
     setTimeout(() => setTokenCopied(false), 2000);
   };
 
-  if (hasOnlineAgent) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
-        <div className="flex items-center p-4 rounded-full bg-emerald-500/10">
-          <Rocket className="size-8 text-emerald-500" />
-        </div>
-        <div className="space-y-2">
-          <h3 className="text-lg font-semibold">{t('onboarding.allSetTitle')}</h3>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            {t('onboarding.allSetBody')}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (hasOnlineAgent) return <EmptyConversation />;
 
   return (
     <div className="flex flex-col items-center h-full overflow-y-auto p-6 sm:p-8">

@@ -1,18 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { FilterX, SearchX } from "lucide-react"
+import { ArrowLeft, ChevronRight, FilterX, SearchX } from "lucide-react"
 
-import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Skeleton } from "@renderer/components/ui/skeleton"
 import { EmptyState } from "@renderer/components/ui-kit"
-import SetupWizard from "@renderer/components/setup-wizard"
 import AgentDetail from "./detail"
 import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
 import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
 import { useUiStore } from "@renderer/store/ui"
-import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
   useMarketplace,
@@ -40,9 +37,6 @@ interface InstallProps {
 export default function Install({ showToast }: InstallProps): React.JSX.Element {
   const { t } = useTranslation()
   const [selectedName, setSelectedName] = useState<string | null>(null)
-  const [wizardEntry, setWizardEntry] = useState<CatalogEntry | null>(null)
-  // Bumped when the wizard closes, so the detail page re-reads the sign-in.
-  const [authRefresh, setAuthRefresh] = useState(0)
 
   const market = useMarketplace()
   const { prefs, setView, setSort, setCategory } = market.prefs
@@ -53,12 +47,13 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     loadAll: market.loadAll,
     showToast,
     onSelect: setSelectedName,
-    onOpenWizard: setWizardEntry,
   })
 
   const installFocusAgent = useUiStore((s) => s.installFocusAgent)
   const setInstallFocusAgent = useUiStore((s) => s.setInstallFocusAgent)
   const installListSignal = useUiStore((s) => s.installListSignal)
+  const installListFilter = useUiStore((s) => s.installListFilter)
+  const setCurrentTab = useUiStore((s) => s.setCurrentTab)
 
   // Tray menu / Dashboard banner deep-link: open straight into a specific
   // agent's detail page, then clear the request flag so a subsequent tab click
@@ -84,7 +79,8 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     if (installListSignal === lastListSignal.current) return
     lastListSignal.current = installListSignal
     setSelectedName(null)
-  }, [installListSignal])
+    market.setStatusFilter(installListFilter)
+  }, [installListSignal, installListFilter, market.setStatusFilter])
 
   const counts = useMemo(
     () => ({
@@ -144,52 +140,51 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
                 )
               }
               market.loadAll()
-              if (!installedList.find((r) => r.name === e.name))
-                actions.maybeOpenWizard(e)
             }}
-            onOpenWizard={setWizardEntry}
-            authRefresh={authRefresh}
+            onAddAgent={(e) => useUiStore.getState().requestCreate("agent", e.name)}
             showToast={showToast}
           />
         </div>
-        <SetupWizard
-          entry={wizardEntry}
-          open={!!wizardEntry}
-          onClose={() => {
-            setWizardEntry(null)
-            market.refreshAgentsStore()
-            // The wizard is where a sign-in usually happens, and its terminal
-            // fallback reports nothing back — so tell the page underneath to
-            // re-read the sign-in instead of leaving it on a stale verdict.
-            setAuthRefresh((n) => n + 1)
-          }}
-          showToast={showToast}
-        />
       </section>
     )
   }
 
   return (
     <section className="flex h-full flex-col">
-      <PageHeader
-        title={t("install.topbar.title")}
-        subtitle={t("install.topbar.subtitle")}
-        actions={
-          market.loading ? null : (
-            <MarketplaceStats
-              counts={counts}
-              active={market.statusFilter}
-              onSelect={selectStatusFilter}
-            />
-          )
-        }
-      />
+      {/* One row: the way back and the title as a breadcrumb, the counts on
+          the right. The list has no tab of its own — it opens from Connect
+          Agents, so that is where the crumb leads. It used to take three rows
+          (back link, title, subtitle) of fixed space above a scrolling page. */}
+      <header className="flex shrink-0 items-center justify-between gap-4 px-9 pt-5 pb-1">
+        <div className="flex min-w-0 items-center gap-1">
+          <Button size="sm" variant="ghost" className="-ml-2 text-muted-foreground"
+            onClick={() => setCurrentTab("dashboard")} title={t("install.topbar.back")}
+            data-testid="marketplace-back">
+            <ArrowLeft />
+            {t("nav.items.dashboard.label")}
+          </Button>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          {/* Crumb-sized, told apart from the link only by weight. A span, not
+              an h1: the brand skin sets every h1 at weight 800, which is a
+              page title's voice, not a breadcrumb's. */}
+          <span aria-current="page" className="truncate pl-1 text-sm font-semibold">{t("install.topbar.title")}</span>
+        </div>
+        {market.loading ? null : (
+          <MarketplaceStats
+            counts={counts}
+            active={market.statusFilter}
+            onSelect={selectStatusFilter}
+          />
+        )}
+      </header>
 
       {/* A block container, not a flex column: flex children default to
           `shrink: 1`, so inside a scroll box with a definite height they get
           squashed instead of overflowing — which flattened the banner to a
           sliver. `space-y` gives the same rhythm without the shrinking. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-9 py-6">
+      {/* No scroll-edge fade here: the filter row below sticks to the top of
+          this box, and the fade would wash it out with everything else. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-9 pt-4 pb-6">
         <MarketplaceHero
           catalog={market.catalog}
           installed={installedList}
@@ -197,20 +192,27 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           onOpen={setSelectedName}
         />
 
-        <MarketplaceToolbar
-          search={market.search}
-          onSearchChange={market.setSearch}
-          sort={prefs.sort}
-          onSortChange={setSort}
-          view={prefs.view}
-          onViewChange={setView}
-        />
-
-        <MarketplaceCategories
-          catalog={market.catalog}
-          category={prefs.category}
-          onCategoryChange={setCategory}
-        />
+        {/* Categories and search in one row that sticks while the catalog
+            scrolls: browsing a long list, these are what gets reached for,
+            and they used to scroll away with the banner. Bled to the box's
+            edges so cards pass under an opaque band. `-top-4` cancels the
+            box's `pt-4`: a sticky element stops at the padding edge, which
+            left a strip of cards showing above it. */}
+        <div className="sticky -top-4 z-10 -mx-9 flex h-14 items-center justify-between gap-6 bg-background px-9">
+          <MarketplaceCategories
+            catalog={market.catalog}
+            category={prefs.category}
+            onCategoryChange={setCategory}
+          />
+          <MarketplaceToolbar
+            search={market.search}
+            onSearchChange={market.setSearch}
+            sort={prefs.sort}
+            onSortChange={setSort}
+            view={prefs.view}
+            onViewChange={setView}
+          />
+        </div>
 
         {market.loading ? (
           <div className={GRID}>
@@ -276,13 +278,6 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         entry={actions.confirmInstall?.entry || null}
         onConfirm={actions.acceptInstall}
         onCancel={actions.cancelInstall}
-      />
-
-      <SetupWizard
-        entry={wizardEntry}
-        open={!!wizardEntry}
-        onClose={() => setWizardEntry(null)}
-        showToast={showToast}
       />
     </section>
   )

@@ -1,5 +1,7 @@
 'use client';
 
+import { getApiBaseUrl } from '@/lib/api-base';
+
 /**
  * "Send feedback" dialog — bug reports and feature requests, straight from
  * the user menu to POST /v1/feedback (stored server-side and forwarded to
@@ -16,7 +18,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 
 export function FeedbackDialog({ onClose }: { onClose: () => void }) {
   const t = useT();

@@ -6,6 +6,7 @@ import {
   signInWithCustomToken,
   signOut,
   onAuthStateChanged,
+  onIdTokenChanged,
   type User,
 } from 'firebase/auth';
 
@@ -47,6 +48,25 @@ export async function signOutUser() {
 
 export function onAuthChange(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
+}
+
+/**
+ * Like onAuthChange, but also fires whenever the SDK refreshes the ID token
+ * (hourly while the page is open). Use this for anything that sends the token:
+ * a token captured once at sign-in expires after an hour, and since Workspace
+ * v1.1 the backend rejects writes that carry an expired identity rather than
+ * falling back to the workspace token.
+ */
+export function onIdTokenChange(callback: (user: User | null) => void) {
+  return onIdTokenChanged(auth, callback);
+}
+
+/** The current ID token, refreshed by the SDK if it has expired. `force`
+ *  mints a new one regardless (used after the server rejected the old one). */
+export async function getFreshIdToken(force = false): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken(force);
 }
 
 export async function getIdToken(): Promise<string | null> {

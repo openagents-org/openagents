@@ -98,7 +98,7 @@ function recordPairing(nodeKey, pairing) {
   const stamped = { ...pairing, paired_at: new Date().toISOString() };
   const pairings = [
     stamped,
-    ...pairingsOf(readNode()).filter((p) => p.workspace_id !== pairing.workspace_id),
+    ...pairingsOf(readNode()).filter((p) => pairing.node_id && p.node_id ? p.node_id !== pairing.node_id : p.workspace_id !== pairing.workspace_id),
   ];
   saveNode({ node_key: nodeKey, ...stamped, pairings });
 }
@@ -116,17 +116,19 @@ function recordPairing(nodeKey, pairing) {
  * @param workspaceId which pairing to drop; defaults to the top-level one.
  * @returns the pairing that was dropped, or null if there was no such pairing.
  */
-function clearPairing(workspaceId) {
+function clearPairing(workspaceId, nodeId) {
   const record = readNode();
   if (!record) return null;
   const target = workspaceId || record.workspace_id;
   if (!target) return null;
 
   const pairings = pairingsOf(record);
-  const dropped = pairings.find((p) => p.workspace_id === target);
+  const candidates = pairings.filter((p) => p.workspace_id === target);
+  if (!nodeId && candidates.length > 1) throw new Error("Choose a specific device connection");
+  const dropped = candidates.find((p) => !nodeId || p.node_id === nodeId);
   if (!dropped) return null;
 
-  const remaining = pairings.filter((p) => p.workspace_id !== target);
+  const remaining = pairings.filter((p) => p !== dropped);
   saveNode({ node_key: record.node_key, ...remaining[0], pairings: remaining });
   return {
     node_id: dropped.node_id,

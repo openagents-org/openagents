@@ -65,6 +65,9 @@ def notify(
     link_url: str | None = None,
     reason: str | None = None,
     push: bool = True,
+    recipient_email: str | None = None,
+    kind: str | None = None,
+    action_ref: str | None = None,
 ) -> NotificationRecord:
     """File an inbox notification and (unless `push=False`) send it.
 
@@ -84,6 +87,9 @@ def notify(
         channel_name=channel_name,
         thread_id=thread_id,
         link_url=link_url,
+        recipient_email=(recipient_email or "").strip().lower() or None,
+        kind=kind,
+        action_ref=action_ref,
     )
     db.add(record)
     # Needed before the hook is armed: the id is what the phone uses to open
@@ -105,6 +111,10 @@ def notify(
         "channel_name": channel_name or "",
         "source": source,
         "reason": reason or _reason_for(priority),
+        # Addressed notifications push only to their recipient's devices, and
+        # never to the sender's own (see push.fanout_for_notification).
+        "recipient_email": record.recipient_email or "",
+        "sender_email": _sender_email_from_source(source) or "",
     }
     sa_event.listen(
         db,
@@ -113,6 +123,14 @@ def notify(
         once=True,
     )
     return record
+
+
+def _sender_email_from_source(source) -> str | None:
+    """`human:<email>` → email; agents, systems and `human:user` → None."""
+    if not isinstance(source, str) or not source.startswith("human:"):
+        return None
+    email = source[len("human:"):].strip().lower()
+    return email if "@" in email else None
 
 
 def _reason_for(priority: str) -> str:

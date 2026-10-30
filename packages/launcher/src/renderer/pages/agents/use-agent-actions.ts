@@ -59,10 +59,10 @@ export function useAgentActions(
           t("agents.list.toast.stoppingAgent", { name: agent.name }),
           "info",
         )
-        // Fast initial polls — the daemon now processes stop commands within
-        // ~200ms, so checking quickly catches the state flip without making
-        // the user stare at a "Stopping…" toast for 3+ seconds.
-        const stopWaits = [400, 800, 1500, 2500, 3000, 3000]
+        // Fast initial polls — the daemon picks commands up within ~200ms and
+        // writes the stopped state straight away, so a tight first second
+        // catches the flip; the tail covers an adapter slow to let go.
+        const stopWaits = [250, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000]
         for (const w of stopWaits) {
           await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
@@ -85,8 +85,12 @@ export function useAgentActions(
           t("agents.list.toast.startingAgent", { name: agent.name }),
           "info",
         )
+        // Same shape as stop: most agents report running within a second or
+        // two, and the old 500/1000/1500 steps alone added up to 3s of waiting
+        // on top of that.
         const startWaits = [
-          500, 1000, 1500, 2500, 3000, 3000, 3000, 3000, 3000, 3000,
+          300, 300, 400, 500, 500, 750, 1000, 1000, 1500, 2000, 3000, 3000,
+          3000, 3000, 3000,
         ]
         for (const w of startWaits) {
           await new Promise((r) => setTimeout(r, w))
@@ -236,7 +240,7 @@ export function useAgentActions(
       // instead of sending the user out to a browser tab.
       const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
       if (ws && opensInApp(ws, configured, signedIn, memberOf)) {
-        useAccountStore.getState().openWorkspace({ slug, token: ws.token ?? null })
+        useAccountStore.getState().openWorkspace({ slug, name: ws.name, token: ws.token ?? null })
         return
       }
       // Signed in, yet sent to the browser: say why, or it looks like the

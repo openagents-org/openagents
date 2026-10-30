@@ -4,6 +4,7 @@ import { Select as SelectPrimitive } from "radix-ui"
 
 import { ROW_CHECKED, ROW_HOVER } from "@renderer/lib/row-states"
 import { cn } from "@renderer/lib/utils"
+import { useActivityVisible } from "@renderer/hooks/useActivityVisible"
 
 function Select({
   ...props
@@ -80,6 +81,9 @@ function SelectContent({
 }: React.ComponentProps<typeof SelectPrimitive.Content> & {
   size?: SelectSize
 }) {
+  // Its page can be hidden mid-way through the closing animation; see useActivityVisible.
+  const visible = useActivityVisible()
+  if (!visible) return null
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content

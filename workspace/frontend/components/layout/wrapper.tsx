@@ -1,7 +1,15 @@
 'use client';
+import { workspaceApi } from '@/lib/api';
+import { ArtifactPanel } from '@/components/artifacts/artifact-panel';
+import { useThreadArtifactPreview } from '@/components/artifacts/thread-artifact-controller';
+import { resourcePath } from '@/lib/resource-link';
+import { threadPath, messagePath, requestedThreadId, requestedMessageId } from '@/lib/thread-link';
+import { desktopHost } from '@/lib/desktop-host';
 
-import { Activity, useEffect, useRef } from 'react';
+import { Activity, useEffect, useRef, useState } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
+import { useSignalNotifications } from './use-signal-notifications';
+import { useDesktopThreadLinks } from './use-desktop-thread-links';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
@@ -18,16 +26,19 @@ import { BrowserView } from '@/components/browser/browser-view';
 import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/connect-agent-view';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
-import { TasksView } from '@/components/tasks/tasks-view';
+import { IssuesView } from '@/components/issues/issues-view';
 import { WorkflowsView } from '@/components/workflows/workflows-view';
 import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
 import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { KnowledgeList } from '@/components/knowledge/knowledge-list';
+import { AgentDirectoryView } from '@/components/agents/agent-directory-view'; // v1.1 M2
 import { useWorkspace } from '@/lib/workspace-context';
+import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
+import { WorkspaceLoadError } from './workspace-load-error';
 
 function WorkspaceLoadingScreen() {
   const t = useT();
@@ -65,13 +76,53 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
+  const t = useT();
+  useThreadArtifactPreview();
   useDesktopWorkspaceState();
+  useSignalNotifications();
+  useDesktopThreadLinks();
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
-    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName,
+    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName, openView,
   } = useLayout();
-  const { monitorMode, agents, loading, sessions, currentSessionId } = useWorkspace();
+
+  // v1.1 M2: `#?agent=<name>` (where an agent invite lands) opens the agent
+  // directory; the directory itself picks the agent out of the hash.
+  useEffect(() => {
+    const hash = window.location.hash;
+    const q = hash.indexOf('?');
+    if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const { workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  // Resolve a stable identity before writing the URL; never expose DM participants.
+  useEffect(() => {
+    if (loading || workspaceLoadError || desktopHost()) return;
+    let active = true;
+    const update = async () => {
+      const url = new URL(window.location.href);
+      const workspaceSlug = decodeURIComponent(url.pathname.split('/')[1]);
+      if (viewMode === 'issues' || viewMode === 'tasks') return;
+      if (viewMode === 'files' || viewMode === 'knowledge') {
+        url.pathname = resourcePath(workspaceSlug, viewMode, viewMode === 'files' ? selectedFileId : selectedKnowledgeId);
+      } else if (viewMode === 'threads' && currentSessionId) {
+        try {
+          const link = await workspaceApi.getThreadLink(currentSessionId);
+          if (!active) return;
+          const linkedThread = requestedThreadId(url.href);
+          const messageId = linkedThread === link.id || linkedThread === currentSessionId ? requestedMessageId(url.href) : null;
+          url.pathname = messageId ? messagePath(workspaceSlug, link.id, messageId) : threadPath(workspaceSlug, link.id);
+        } catch { return; }
+      } else if (viewMode !== 'threads') {
+        url.pathname = `/${encodeURIComponent(workspaceSlug)}`;
+      }
+      for (const key of ['thread', 'issue', 'knowledge', 'file', 'message']) url.searchParams.delete(key);
+      if (active && url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+    };
+    void update();
+    return () => { active = false; };
+  }, [loading, workspaceLoadError, currentSessionId, viewMode, selectedFileId, selectedKnowledgeId, currentUser.id]);
   const visitedViews = useRef(new Set([viewMode]));
   visitedViews.current.add(viewMode);
 
@@ -87,10 +138,10 @@ export function Wrapper() {
       prevNavRef.current.session !== currentSessionId || prevNavRef.current.view !== viewMode;
     prevNavRef.current = { session: currentSessionId, view: viewMode };
     if (!navChanged || !selectedAgentName) return;
-    const pair = ['human:user', `openagents:${selectedAgentName}`].sort();
-    const agentDm = `dm:${pair[0]},${pair[1]}`;
-    if (viewMode !== 'threads' || currentSessionId !== agentDm) setSelectedAgentName(null);
-  }, [currentSessionId, viewMode, selectedAgentName, setSelectedAgentName]);
+    // Either the viewer's own DM id or a legacy `human:user` one with this agent.
+    const isAgentDm = dmCounterpart(currentSessionId, myAddress(currentUser)) === `openagents:${selectedAgentName}`;
+    if (viewMode !== 'threads' || !isAgentDm) setSelectedAgentName(null);
+  }, [currentSessionId, viewMode, selectedAgentName, setSelectedAgentName, currentUser]);
   // "Real agent" = a non-builtin agent that the sidebar would actually show
   // (online or seen within the last hour). A long-offline leftover agent is
   // hidden from the sidebar, so it must not silently block onboarding either —
@@ -113,11 +164,15 @@ export function Wrapper() {
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
     !currentSessionId?.startsWith('dm:');
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
+  }
+
+  if (workspaceLoadError) {
+    return <WorkspaceLoadError status={workspaceLoadError.status} onRetry={retryWorkspace} />;
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──
@@ -129,15 +184,17 @@ export function Wrapper() {
           {/* Full-screen views (no list/detail split) */}
           {showOnboarding ? (
             <div className="h-full bg-background overflow-hidden">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
               <ConnectAgentView />
             </div>
+          ) : viewMode === 'issues' ? (
+            <div className="h-full bg-background overflow-hidden"><IssuesView /></div>
           ) : viewMode === 'tasks' ? (
             <div className="h-full bg-background overflow-hidden">
-              <TasksView />
+              <IssuesView initialWork />
             </div>
           ) : viewMode === 'workflows' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -151,11 +208,17 @@ export function Wrapper() {
             <div className="h-full bg-background overflow-hidden">
               <SkillsView />
             </div>
+          ) : viewMode === 'agents' ? (
+            <div className="h-full bg-background overflow-hidden">
+              <AgentDirectoryView />
+            </div>
           ) : viewMode === 'browser' ? (
             /* The cloud browser has no list pane: its tab strip is the tab switcher */
             <div className="relative h-full bg-background overflow-hidden">
               <BrowserView />
             </div>
+          ) : viewMode === 'threads' && showBrowserPreview ? (
+            <div className="h-full overflow-hidden bg-background"><ArtifactPanel /></div>
           ) : mobilePane === 'list' ? (
             /* List pane — full width */
             <div className="flex h-full flex-col bg-background overflow-hidden">
@@ -236,7 +299,7 @@ export function Wrapper() {
             /* No agents yet: guided first-run onboarding (choose node vs local,
                node recommended) → hands off to the Connect view. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <FirstRunOnboarding />
+              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */
@@ -245,7 +308,7 @@ export function Wrapper() {
               {isAgentPanelOpen && <AgentProfilePanel />}
             </div>
           ) : viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
-            /* Split view: chat + browser side by side */
+            /* Split view: conversation + artifact side by side */
             <div className="flex flex-1 min-w-0">
               <div className="relative flex-1 min-w-0 overflow-hidden border-e border-border bg-background">
                 <div className="h-full">
@@ -254,7 +317,7 @@ export function Wrapper() {
                 {isAgentPanelOpen && <AgentProfilePanel />}
               </div>
               <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-                <BrowserView />
+                <ArtifactPanel />
               </div>
             </div>
           ) : (
@@ -273,10 +336,12 @@ export function Wrapper() {
               {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
               {visitedViews.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserView /></Activity>}
               {visitedViews.current.has('connect') && <Activity mode={viewMode === 'connect' ? 'visible' : 'hidden'}><ConnectAgentView /></Activity>}
-              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><TasksView /></Activity>}
+              {visitedViews.current.has('issues') && <Activity mode={viewMode === 'issues' ? 'visible' : 'hidden'}><IssuesView /></Activity>}
+              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><IssuesView initialWork /></Activity>}
               {visitedViews.current.has('workflows') && <Activity mode={viewMode === 'workflows' ? 'visible' : 'hidden'}><WorkflowsView /></Activity>}
               {visitedViews.current.has('inbox') && <Activity mode={viewMode === 'inbox' ? 'visible' : 'hidden'}><InboxView /></Activity>}
               {visitedViews.current.has('skills') && <Activity mode={viewMode === 'skills' ? 'visible' : 'hidden'}><SkillsView /></Activity>}
+              {visitedViews.current.has('agents') && <Activity mode={viewMode === 'agents' ? 'visible' : 'hidden'}><AgentDirectoryView /></Activity>}
               {visitedViews.current.has('knowledge') && <Activity mode={viewMode === 'knowledge' ? 'visible' : 'hidden'}><KnowledgeView /></Activity>}
 
               {/* Agent profile slide-over (non-chat views keep the overlay) */}

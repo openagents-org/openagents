@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react"
 import {
   Search,
-  Clock,
+  Files,
   FolderOpen,
   Folder,
   FolderPlus,
@@ -12,6 +12,9 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react"
+import { personalFolder } from '@/lib/personal-files'
+import { useTeamRoster } from '@/hooks/use-team-roster'
+import { HumanAvatar } from '@/components/chat/human-avatar'
 import { useWorkspace } from "@/lib/workspace-context"
 import { useLayout } from "@/components/layout/layout-context"
 import { useConfirm, usePrompt } from "@/components/ui/dialogs-provider"
@@ -23,11 +26,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useT } from "@/lib/i18n"
@@ -67,6 +65,7 @@ export function FileList() {
   const confirm = useConfirm()
   const prompt = usePrompt()
   const t = useT()
+  const team = useTeamRoster()
   const [search, setSearch] = useState("")
 
   /**
@@ -101,14 +100,14 @@ export function FileList() {
         }
       }
     }
-    return Array.from(fileCounts.entries())
+    return Array.from(fileCounts.entries()).filter(([path]) => path !== "people" && !team.some(person => personalFolder(person.email) === path))
       .map(([path, fileCount]) => ({
         path,
         count: fileCount + (childFolders.get(path)?.size || 0),
         depth: path.split("/").length - 1,
       }))
       .sort((a, b) => a.path.localeCompare(b.path))
-  }, [files])
+  }, [files, team])
 
   const folders = useMemo(() => {
     if (!search) return allFolders
@@ -283,26 +282,12 @@ export function FileList() {
             counts the files you're actually looking at. */}
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm leading-relaxed font-semibold">{t("files.title")}</span>
-        </div>
-
-        {/* This panel owns the folder structure; uploading a file belongs to
-            the folder you're looking at, so it lives in the detail toolbar. */}
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon"
-                size="sm"
-                aria-label={t("files.newTopLevelFolder")}
-                onClick={() => handleCreateFolder()}
-                className="text-muted-foreground"
-              >
-                <FolderPlus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("files.newTopLevelFolder")}</TooltipContent>
-          </Tooltip>
+          {/* This panel owns the folder structure; uploading a file belongs to
+              the folder you're looking at, so it lives in the detail toolbar. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => handleCreateFolder()}>
+            <FolderPlus className="size-4" />
+            {t("folders.newFolder")}
+          </Button>
         </div>
       </div>
 
@@ -344,12 +329,22 @@ export function FileList() {
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
             )}
           >
-            <Clock className="size-4 shrink-0 text-muted-foreground" />
+            <Files className="size-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate text-[13px] font-medium">
-              {t("files.recentFiles")}
+              {t("files.allFiles")}
             </span>
           </button>
         )}
+
+        <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t('files.personalFolders')}</div>
+        {team.filter(person => !search || `${person.displayName || ''} ${person.email}`.toLowerCase().includes(search.toLowerCase())).map(person => {
+          const path = personalFolder(person.email)
+          return <button key={person.email} type="button" onClick={() => openFolder(path)} title={person.email}
+            className={cn('flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted', currentFilePath === path && filesSection === 'folders' && 'bg-muted')}>
+            <HumanAvatar email={person.email} className="size-5" />
+            <span className="truncate">{person.displayName || person.email}</span>
+          </button>
+        })}
 
         <div
           className={cn(

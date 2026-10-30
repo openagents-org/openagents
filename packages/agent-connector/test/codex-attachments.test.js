@@ -17,6 +17,7 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
+const os = require('os');
 
 const CodexAdapter = require('../src/adapters/codex');
 const { formatAttachmentsForPrompt } = require('../src/adapters/utils');
@@ -424,12 +425,14 @@ describe('Codex Direct API mode — a stalled or broken connection', () => {
 // ---------------------------------------------------------------------------
 
 describe('Codex CLI mode — resuming a thread', () => {
+  // A folder that exists: a missing one is refused before anything spawns.
+  const WORK_DIR = os.tmpdir();
   function runWith({ threadId, results = [{ responseText: 'ok', exitCode: 0 }] }) {
     const calls = [];
     const adapter = fakeAdapter({
       _useCliMode: true,
       _codexBin: 'codex',
-      workingDir: '/tmp/agent-work',
+      workingDir: WORK_DIR,
       _directModel: 'gpt-5',
       _channelThreads: threadId ? { general: threadId } : {},
       _spawnCodex: async (cmd) => {
@@ -447,7 +450,7 @@ describe('Codex CLI mode — resuming a thread', () => {
     assert.deepStrictEqual(cmd.slice(-2), ['resume', 'thread-1']);
     // -C after `resume` is what the CLI rejected with "unexpected argument".
     assert.ok(cmd.indexOf('-C') < cmd.indexOf('resume'), '-C must come before resume');
-    assert.strictEqual(cmd[cmd.indexOf('-C') + 1], '/tmp/agent-work');
+    assert.strictEqual(cmd[cmd.indexOf('-C') + 1], WORK_DIR);
     assert.ok(cmd.indexOf('-m') < cmd.indexOf('resume'), '-m must come before resume');
     assert.ok(cmd.indexOf('--json') < cmd.indexOf('resume'));
   });

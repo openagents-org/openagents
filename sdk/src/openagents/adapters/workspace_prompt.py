@@ -50,9 +50,10 @@ def build_browser_directive(browser_enabled: bool) -> str:
         "- `mcp__openagents-workspace__workspace_browser_list_tabs`\n"
         "- `mcp__openagents-workspace__workspace_browser_close`\n"
         "\n"
-        "Shared browser tabs are a limited per-workspace resource: close your "
-        "tab (`workspace_browser_close`) as soon as you are done with it. Idle "
-        "tabs are auto-closed after a few minutes.\n\n"
+        "All cloud tabs are saved and reusable. List and reuse the current thread tab "
+        "by its stable tab ID. Do not close it after a task or to free capacity; "
+        "BrowserFabric handles idle sleep. Close only when the user requests it. "
+        "Live-view links may expire; refresh the tab to get its current live_url.\n\n"
         "If you don't have these MCP tools, use `Bash` + `curl` against "
         "`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n"
         "**FORBIDDEN — do NOT call any of these:**\n"
@@ -239,7 +240,13 @@ def build_api_skills_prompt(
 
     # ── Browser ──
     if "browser" not in _disabled:
-        s = "\n### Shared Browser\n\n"
+        s = ("\n### Shared Browser\n\n"
+             "All cloud tabs are saved and reusable. List and reuse the current thread tab "
+             "by its stable tab ID. Do not close it after a task or to free capacity; "
+             "BrowserFabric handles idle sleep. Close only when the user requests it. "
+             "If closed, reopen with its saved context_id. Refresh expired live_url links "
+             "from the tab instead of creating a new tab. Include the current channel "
+             "on open and navigation requests so the live preview appears in this thread.\n\n")
 
         if not is_plan:
             s += (
@@ -251,8 +258,6 @@ def build_api_skills_prompt(
                 f'"source":"openagents:{agent_name}"}}\'\n'
                 f"Step 2 — read content: "
                 f'curl -s -H "{h}" {base_url}/v1/browser/tabs/TAB_ID/snapshot\n'
-                f"Step 3 — close tab: "
-                f'curl -s -X DELETE -H "{h}" {base_url}/v1/browser/tabs/TAB_ID\n'
                 f"(Replace TAB_ID with the id from step 1 response)\n\n"
             )
 
@@ -284,7 +289,7 @@ def build_api_skills_prompt(
                 f"`curl -s -X POST -H \"{h}\" -H \"Content-Type: application/json\""
                 f" {base_url}/v1/browser/tabs/{{tab_id}}/type"
                 f" -d '{{\"selector\":\"CSS_SELECTOR\",\"text\":\"TEXT\"}}'`\n\n"
-                "**Close tab:**\n"
+                "**Close tab (only on user request):**\n"
                 f"`curl -s -X DELETE -H \"{h}\" {base_url}/v1/browser/tabs/{{tab_id}}`\n"
             )
 
@@ -528,7 +533,13 @@ def _build_opencode_api_skills_prompt(
 
     # ── Browser ──
     if "browser" not in _disabled:
-        s = "\n### Shared Browser\n\n"
+        s = ("\n### Shared Browser\n\n"
+             "All cloud tabs are saved and reusable. List and reuse the current thread tab "
+             "by its stable tab ID. Do not close it after a task or to free capacity; "
+             "BrowserFabric handles idle sleep. Close only when the user requests it. "
+             "If closed, reopen with its saved context_id. Refresh expired live_url links "
+             "from the tab instead of creating a new tab. Include the current channel "
+             "on open and navigation requests so the live preview appears in this thread.\n\n")
 
         if not is_plan:
             s += (
@@ -547,11 +558,7 @@ def _build_opencode_api_skills_prompt(
                 f'"source":"openagents:{agent_name}"}}\'\n'
                 f"Step 2 — read content: "
                 f'curl -s -H "{h}" {base_url}/v1/browser/tabs/TAB_ID/snapshot\n'
-                f"Step 3 — close tab: "
-                f'curl -s -X DELETE -H "{h}" {base_url}/v1/browser/tabs/TAB_ID\n'
                 f"(Replace TAB_ID with the id from step 1 response)\n"
-                "Tabs are a limited per-workspace resource — always close yours when done; "
-                "idle tabs are auto-closed after a few minutes.\n\n"
             )
 
         s += (
@@ -582,7 +589,7 @@ def _build_opencode_api_skills_prompt(
                 f'`curl -s -X POST -H "{h}" -H "Content-Type: application/json"'
                 f" {base_url}/v1/browser/tabs/{{tab_id}}/type"
                 f' -d \'{{"selector":"CSS_SELECTOR","text":"TEXT"}}\'`\n\n'
-                "**Close tab:**\n"
+                "**Close tab (only on user request):**\n"
                 f'`curl -s -X DELETE -H "{h}" {base_url}/v1/browser/tabs/{{tab_id}}`\n'
             )
 

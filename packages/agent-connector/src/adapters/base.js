@@ -18,13 +18,16 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const { configuredModel } = require('../agent-model');
+const { buildThreadHistory } = require('./thread-history');
+const { publishResponseArtifacts } = require('./response-artifacts');
+const { ResponseOutbox } = require('./response-outbox');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  decisionLogTitle,
   glossaryTitle,
   WORKSPACE_GLOSSARY_TITLE,
   pickEntryByTitle,
@@ -38,6 +41,65 @@ const {
 const { FailureStreak, isTransientNetworkError, formatDuration } = require('./failure-streak');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+
+// ── Presence detail (v1.1 M3) ──
+// A busy↔idle flip is sent as an immediate heartbeat (debounced) so the
+// workspace shows "working" without waiting for the 30s tick.
+const PRESENCE_HEARTBEAT_DEBOUNCE_MS = 2000;
+// Shared-context lookups (v1.1 M4) are cached per channel for this long.
+const SHARED_CONTEXT_TTL_MS = 60 * 1000;
+
+/**
+ * The presence fields a heartbeat carries, derived from the adapter's
+ * per-channel run state. Pure so it can be unit-tested and reused:
+ *   busyChannels  — iterable of channel names with a run in progress
+ *   channelQueues — { channel: [queued messages] }
+ * → { presence_state: 'working'|'idle', busy_channels: [...], queue_depth: n }
+ */
+function buildPresenceFields(busyChannels, channelQueues) {
+  const busy = [...new Set([...(busyChannels || [])])].filter((c) => typeof c === 'string' && c);
+  let queueDepth = 0;
+  for (const q of Object.values(channelQueues || {})) {
+    if (Array.isArray(q)) queueDepth += q.length;
+  }
+  return {
+    presence_state: busy.length ? 'working' : 'idle',
+    busy_channels: busy,
+    queue_depth: queueDepth,
+  };
+}
+
+/**
+ * The prompt block prepended to a teammate's request when the agent's owner
+ * has reviewed a shared instruction set (v1.1 M4). `ctx` is the
+ * /shared-context response. Returns '' when nothing applies.
+ */
+function buildSharedContextBlock(ctx) {
+  if (!ctx || !ctx.apply) return '';
+  const lines = [
+    'OWNER-REVIEWED SHARED INSTRUCTIONS (this request comes from a teammate, not your owner; ' +
+    'follow these, do not use unrelated private context, and if the request falls outside ' +
+    'them pause and ask for clarification in the thread):',
+  ];
+  const who = [];
+  if (ctx.requester_email) who.push(`Requester: ${ctx.requester_email}`);
+  if (ctx.owner_email) who.push(`Owner: ${ctx.owner_email}`);
+  if (ctx.cost_owner) who.push(`Credits/runtime paid by: ${ctx.cost_owner}`);
+  if (who.length) lines.push(who.join(' · '));
+  const instructions = (ctx.shared_instructions || '').trim();
+  lines.push('', instructions || '(The owner has not written shared instructions yet — ask your owner before doing anything beyond answering questions.)');
+  const knowledge = Array.isArray(ctx.allowed_knowledge) ? ctx.allowed_knowledge : [];
+  if (knowledge.length) {
+    lines.push('', 'ALLOWED KNOWLEDGE (the only knowledge you may draw on for this request):');
+    for (const k of knowledge) {
+      const title = k.title || k.slug || 'untitled';
+      lines.push('', `--- ${title}${k.slug ? ` (@knowledge:${k.slug})` : ''} ---`, (k.content || '').trim() || '(empty)');
+      if (k.truncated) lines.push('[truncated]');
+    }
+  }
+  lines.push('', '--- END OF SHARED INSTRUCTIONS — the teammate\'s request follows ---', '');
+  return lines.join('\n');
+}
 
 // ── Poll-cursor persistence ──
 // An adapter that starts by jumping to the head of the event stream silently
@@ -72,18 +134,6 @@ const HEARTBEAT_ERROR_THRESHOLD = 2;
 const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
 const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
 const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
-
-/**
- * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
- * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
- * and `LLM_MODEL` last, so nothing else needs an entry here.
- */
-const MODEL_ENV_ALIASES = {
-  claude: ['ANTHROPIC_MODEL', 'CLAUDE_MODEL'],
-  gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
-  antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
-  codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
-};
 
 /**
  * Wrap an adapter's `_channelProcesses` so registering a child for a turn that
@@ -141,7 +191,8 @@ class BaseAdapter {
     // Set when the user explicitly stops this adapter (vs an error/revoke), so a
     // clean stop is never mislabeled as an error.
     this._stopRequested = false;
-    this.client = new WorkspaceClient(this.endpoint);
+    // Acts for this one agent: X-Agent-Name on every request (permission model v1.1).
+    this.client = new WorkspaceClient(this.endpoint, { agentName: this.agentName });
     this._lastEventId = null;
     this._cursorFile = this._cursorFilePath();
     this._lastPersistedCursor = null;
@@ -176,6 +227,8 @@ class BaseAdapter {
     // adapter can tell "a stop landed while I was preparing this turn" from
     // "this turn started after the stop and is meant to run".
     this._channelRunGeneration = {};
+    this._channelRequestContent = {};
+    this._channelTriggerId = {};
     // Channels a user stopped whose next turn has not started yet. Everything
     // the send* helpers would post there is dropped: output a killed run was
     // still flushing lands after the stop notice otherwise, and the workspace
@@ -192,12 +245,11 @@ class BaseAdapter {
     // workspace flag must reconnect/restart to pick up the change (matches
     // the Python adapter behavior in workspace_prompt.py).
     this._browserEnabledCache = null;
-    // ── Knowledge pinning (decision log + glossary) ──
+    // ── Knowledge pinning (glossary) ──
     // Entry-id caches make the steady state a single GET per pinned entry;
     // reads happen on EVERY message, so they get a hard short deadline
     // instead of the client's default 15s — a workspace hiccup must cost the
     // turn a couple of seconds, not half a minute.
-    this._decisionEntryIds = {}; // channel → knowledge entry id of its decision log
     this._glossaryEntryIds = {}; // channel → knowledge entry id of its glossary
     this._DECISION_FETCH_TIMEOUT_MS = 2000;
     this._warnedKnowledgeDisabled = false;
@@ -207,7 +259,15 @@ class BaseAdapter {
     // every _handleMessage call. Adapters with their own pinning flow
     // (Claude) fetch directly instead and leave it false.
     this._usesPinnedContext = false;
-    this._pinnedContext = {}; // channel → { decisions, glossary }
+    this._pinnedContext = {}; // channel → { glossary }
+    // ── v1.1 M3/M4 ──
+    // Debounce handle for the busy↔idle presence heartbeat.
+    this._presenceHeartbeatTimer = null;
+    // channel → { fetchedAt, requesterEmail, ctx } from /shared-context.
+    this._sharedContext = {};
+    // channel → email of the person whose message is being handled (so the
+    // per-run MCP server can tell the owner who asked).
+    this._requesterEmail = {};
     // Wall-clock timestamp of adapter init, used by the `status` control
     // action to report uptime back to the channel. Reset on reinstantiation
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
@@ -227,6 +287,30 @@ class BaseAdapter {
     // The control poller (Stop, mode changes) fails silently otherwise: its
     // errors are caught so the loop keeps going, and nothing else logs them.
     this._controlFailures = new FailureStreak();
+  }
+
+  // ------------------------------------------------------------------
+  // Redaction of text quoted into the channel
+  // ------------------------------------------------------------------
+
+  /**
+   * The exact values this agent must never quote back: the credentials in the
+   * environment its CLI runs with, and its own workspace token. A CLI that
+   * fails on auth tends to echo the key it was handed, in whatever format the
+   * provider issues — matching by value catches it where no pattern would.
+   */
+  _knownSecrets() {
+    return secretValues(this.agentEnv, [this.token]);
+  }
+
+  /**
+   * Redact CLI or exception text on its way to the channel: this agent's own
+   * secrets by value first, then anything shaped like a credential. For quoted
+   * text only — authored guidance names variables ("set GEMINI_API_KEY") that
+   * the shape rules would rewrite.
+   */
+  _redact(text) {
+    return redactSecrets(text, this._knownSecrets());
   }
 
   // ------------------------------------------------------------------
@@ -326,17 +410,7 @@ class BaseAdapter {
   modelLabel() {
     const fromWorkspace = String(this.workspaceModel || '').trim();
     if (fromWorkspace) return fromWorkspace;
-    const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-    const candidates = [
-      ...(type ? [`${type}_MODEL`] : []),
-      ...(MODEL_ENV_ALIASES[this.agentType] || []),
-      'LLM_MODEL',
-    ];
-    for (const key of candidates) {
-      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
-      if (value) return value;
-    }
-    return null;
+    return configuredModel(this.agentType, this.agentEnv);
   }
 
   async run() {
@@ -372,6 +446,8 @@ class BaseAdapter {
     // /status responsive immediately after join.
     await this._skipExistingControlEvents();
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+    const responseInterval = setInterval(() => this._flushResponses(), 10000);
+    void this._flushResponses();
     const controlPoller = this._controlPollerLoop();
 
     try {
@@ -387,6 +463,8 @@ class BaseAdapter {
       this._running = false;
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
+      clearInterval(responseInterval);
+      if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
@@ -478,9 +556,30 @@ class BaseAdapter {
   // Heartbeat
   // ------------------------------------------------------------------
 
+  /** Presence fields for the next heartbeat (see buildPresenceFields). */
+  presenceFields() {
+    return buildPresenceFields(this._channelBusy, this._channelQueues);
+  }
+
+  /**
+   * A channel just went busy or idle (or its queue changed): send a heartbeat
+   * soon so the roster flips promptly instead of on the next 30s tick. Bursts
+   * collapse into one send.
+   */
+  _schedulePresenceHeartbeat() {
+    if (!this._running) return;
+    if (this._presenceHeartbeatTimer) return;
+    this._presenceHeartbeatTimer = setTimeout(() => {
+      this._presenceHeartbeatTimer = null;
+      if (!this._running) return;
+      this._heartbeat().catch(() => {});
+    }, PRESENCE_HEARTBEAT_DEBOUNCE_MS);
+    if (typeof this._presenceHeartbeatTimer.unref === 'function') this._presenceHeartbeatTimer.unref();
+  }
+
   async _heartbeat() {
     try {
-      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId, this.presenceFields());
       this._heartbeatFailStreak = 0;
       const recovered = this._heartbeatFailures.succeed();
       if (recovered) {
@@ -1001,8 +1100,8 @@ class BaseAdapter {
   }
 
   /**
-   * Post a markdown table of the agent's active routines back to the
-   * requesting channel. Used by the `/routines` slash command. Each agent
+   * Post a markdown table of the agent's routines (active and paused) back
+   * to the requesting channel. Used by the `/routines` slash command. Each agent
    * reports only routines it owns (created_by === openagents:<agentName>)
    * so the user sees a clear "my routines" view per agent, mirroring how
    * /status reports per-agent uptime.
@@ -1036,15 +1135,18 @@ class BaseAdapter {
 
     let content;
     if (!routines.length) {
-      content = `**Routines for \`${this.agentName}\`**\n\n_No active routines._`;
+      content = `**Routines for \`${this.agentName}\`**\n\n_No routines._`;
     } else {
       const rows = routines.map((r) => {
         const schedule = (r.schedule_interval_minutes != null)
           ? `every ${r.schedule_interval_minutes} min`
           : `${String(r.schedule_hour ?? 0).padStart(2, '0')}:${String(r.schedule_minute ?? 0).padStart(2, '0')} UTC` +
             (r.schedule_days ? ` (days [${r.schedule_days.join(',')}])` : ' daily');
-        const next = r.next_fires_at || '—';
-        const name = String(r.name || '').replace(/\|/g, '\\|');
+        // A paused routine keeps its last next_fires_at, which is stale (often
+        // in the past) — show that it's paused instead of a time it won't fire.
+        const paused = r.status && r.status !== 'active';
+        const next = paused ? '—' : (r.next_fires_at || '—');
+        const name = String(r.name || '').replace(/\|/g, '\\|') + (paused ? ` [${r.status}]` : '');
         const id = String(r.id || '').slice(0, 8);
         return `| \`${id}\` | ${name} | ${schedule} | ${next} |`;
       });
@@ -1275,6 +1377,7 @@ class BaseAdapter {
       msg._queueId = queueId;
       msg._acceptedGeneration = this._stopGenerationFor(channel);
       this._channelQueues[channel].push(msg);
+      this._schedulePresenceHeartbeat();
       try {
         await this.sendStatus(channel, 'message queued — will process after current task', {
           queued_message: (msg.content || '').slice(0, 200),
@@ -1305,6 +1408,7 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
+    this._schedulePresenceHeartbeat();
     // Messages an adapter queues for itself (Claude's todo nudge) carry no
     // generation; they belong to the turn that queued them.
     const startGeneration = msg._acceptedGeneration !== undefined
@@ -1324,6 +1428,17 @@ class BaseAdapter {
         }
         // Pinned entries may have changed while this message waited.
         await this._prefetchPinnedContext(channel);
+        this._channelRequestContent[channel] = current.originalContent ?? current.content;
+        if (channel && !channel.startsWith('dm:') && current.messageId
+            && typeof this.client?.getRecentMessages === 'function') {
+          await this._applyThreadHistory(channel, current);
+        }
+        // A teammate's request runs under the owner-reviewed shared
+        // instructions (v1.1 M4); the block is prepended to the message.
+        // Gated synchronously so messages it cannot apply to (agents,
+        // anonymous humans, system) add no extra tick before the stop check.
+        this._applyThreadCollaboration(channel, current);
+        if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
         if (generation !== this._stopGenerationFor(channel)) {
@@ -1334,13 +1449,16 @@ class BaseAdapter {
           this._mutedChannels.delete(channel);
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
+          this._channelTriggerId[channel] = current.messageId || null;
           await this._handleMessage(current);
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        try { await this.sendError(channel, `Agent error: ${this._redact(e.message)}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
+      delete this._channelRequestContent[channel];
+      delete this._channelTriggerId[channel];
       first = false;
 
       const queue = this._channelQueues[channel];
@@ -1348,10 +1466,109 @@ class BaseAdapter {
     }
     if (dropped) this._log(`Stop in ${channel} — dropped ${dropped} message(s) accepted before it`);
     this._channelBusy.delete(channel);
+    delete this._requesterEmail[channel];
+    this._schedulePresenceHeartbeat();
   }
 
   // ------------------------------------------------------------------
-  // Knowledge pinning (decision log + glossary)
+  // Shared context for teammates' requests (v1.1 M4)
+  // ------------------------------------------------------------------
+
+  /** The email of the person whose request this channel is running, if known. */
+  requesterEmailFor(channel) {
+    return this._requesterEmail[channel] || null;
+  }
+
+  /**
+   * Fetch (cached 60s per channel + requester) the owner-reviewed shared
+   * context for this run. Returns the /shared-context payload or null.
+   */
+  async _fetchSharedContext(channel, requesterEmail) {
+    const cached = this._sharedContext[channel];
+    const now = Date.now();
+    if (cached && cached.requesterEmail === requesterEmail && (now - cached.fetchedAt) < SHARED_CONTEXT_TTL_MS) {
+      return cached.ctx;
+    }
+    if (!this.client || typeof this.client.getSharedContext !== 'function') return null;
+    try {
+      const ctx = await this.client.getSharedContext(this.workspaceId, this.token, this.agentName, {
+        requesterEmail, channel,
+      });
+      this._sharedContext[channel] = { fetchedAt: now, requesterEmail, ctx };
+      return ctx;
+    } catch (e) {
+      this._log(`Shared-context fetch failed (${e && e.message ? e.message : e}) — running without it`);
+      // Keep a stale-but-recent answer rather than flip-flopping on a blip.
+      return cached && cached.requesterEmail === requesterEmail ? cached.ctx : null;
+    }
+  }
+
+  /**
+   * When the triggering message comes from an identified person, look up the
+   * shared context and, if it applies, prepend the instruction block to the
+   * message the adapter will turn into its prompt. Records the requester for
+   * the per-run MCP server. Never throws.
+   */
+  _sharedContextEmail(msg) {
+    if (!msg) return null;
+    const continuation = msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+    if (msg.senderType !== 'human' && !continuation) return null;
+    // Continuations retain the authenticated original requester so the next
+    // agent applies the same owner-reviewed shared context and tool identity.
+    const raw = continuation ? (msg.metadata.requester_email || '')
+      : (msg.senderEmail || (msg.metadata && msg.metadata.sender_email) || '');
+    const email = String(raw).trim().toLowerCase();
+    return email && email.includes('@') ? email : null;
+  }
+
+  _sharedContextCandidate(msg) {
+    return this._sharedContextEmail(msg) !== null;
+  }
+
+  _applyThreadCollaboration(channel, msg) {
+    if (msg._threadCollaborationApplied || !channel || channel.startsWith('dm:')) return;
+    const instructions = msg.metadata?.thread_agent_instructions?.[this.agentName];
+    if (typeof instructions !== 'string' || !instructions.trim()) return;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = `COLLABORATION INSTRUCTIONS FOR THIS THREAD ONLY (do not carry these into other threads; existing owner restrictions still apply):\n${instructions.slice(0, 10000)}\nEND THREAD INSTRUCTIONS\n\n${msg.content || ''}`;
+    msg._threadCollaborationApplied = true;
+  }
+
+  async _applySharedContext(channel, msg) {
+    const email = this._sharedContextEmail(msg);
+    if (!email) return false;
+    this._requesterEmail[channel] = email;
+    if (msg._sharedContextApplied) return true;
+    const ctx = await this._fetchSharedContext(channel, email);
+    const block = buildSharedContextBlock(ctx);
+    if (!block) return false;
+    if (msg.originalContent === undefined) msg.originalContent = msg.content;
+    msg.content = block + '\n' + (msg.content || '');
+    msg._sharedContextApplied = true;
+    this._log(`Shared context applied for ${email} in ${channel} (owner: ${ctx.owner_email || '?'})`);
+    return true;
+  }
+
+  async _applyThreadHistory(channel, msg) {
+    // DMs have separate peer sessions. Synthetic nudges have no event boundary.
+    if (!channel || channel.startsWith('dm:') || !msg.messageId || msg._threadHistoryApplied) return;
+    if (typeof this.client?.getRecentMessages !== 'function') return;
+    try {
+      const messages = await this.client.getRecentMessages(this.workspaceId, channel, this.token, 100, {
+        before: msg.messageId, timeout: 5000, throwOnError: true,
+      });
+      const block = buildThreadHistory(messages, channel, msg);
+      if (!block) return;
+      if (msg.originalContent === undefined) msg.originalContent = msg.content;
+      msg.content = block + (msg.content || '');
+      msg._threadHistoryApplied = true;
+    } catch (e) {
+      this._log(`Recent thread history unavailable for ${channel}: ${e.message}`);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Knowledge pinning (glossary)
   // ------------------------------------------------------------------
 
   /**
@@ -1378,8 +1595,7 @@ class BaseAdapter {
       if (!this._warnedKnowledgeDisabled) {
         this._warnedKnowledgeDisabled = true;
         this._log(
-          'Knowledge module is disabled — decision-log pinning is INACTIVE. ' +
-          'Confirmed decisions will not survive context compaction or session resets.'
+          'Knowledge module is disabled — glossary pinning is INACTIVE.'
         );
       }
       if (!this._pinnedStatusWarned.has(channel)) {
@@ -1387,9 +1603,9 @@ class BaseAdapter {
         try {
           await this.sendStatus(
             channel,
-            'Decision pinning inactive: the knowledge module is disabled for ' +
-            'this agent, so confirmed decisions and the shared glossary ' +
-            'cannot be pinned across session resets.'
+            'Glossary pinning inactive: the knowledge module is disabled for ' +
+            'this agent, so the shared glossary cannot be pinned across ' +
+            'session resets.'
           );
         } catch {}
       }
@@ -1463,11 +1679,6 @@ class BaseAdapter {
     }
   }
 
-  /** Read the channel's decision log. See _fetchPinnedEntry for the contract. */
-  async _fetchDecisionLog(channel) {
-    return this._fetchPinnedEntry(channel, [decisionLogTitle(channel)], this._decisionEntryIds, 'Decision log');
-  }
-
   /**
    * Read the channel's glossary — the channel-specific entry when it exists,
    * else the workspace-wide fallback. See _fetchPinnedEntry for the contract.
@@ -1486,11 +1697,10 @@ class BaseAdapter {
     return res;
   }
 
-  /** Fetch everything pinnable for a channel: { decisions, glossary }. */
+  /** Fetch everything pinnable for a channel: { glossary }. */
   async _fetchPinnedContext(channel) {
-    const decisions = await this._fetchDecisionLog(channel);
     const glossary = await this._fetchGlossary(channel);
-    return { decisions, glossary };
+    return { glossary };
   }
 
   /**
@@ -1506,9 +1716,6 @@ class BaseAdapter {
       const fresh = await this._fetchPinnedContext(channel);
       const prev = this._pinnedContext[channel];
       if (prev) {
-        if (fresh.decisions && fresh.decisions.error && prev.decisions && !prev.decisions.error) {
-          fresh.decisions = prev.decisions;
-        }
         if (fresh.glossary && fresh.glossary.error && prev.glossary && !prev.glossary.error) {
           fresh.glossary = prev.glossary;
         }
@@ -1520,7 +1727,7 @@ class BaseAdapter {
   }
 
   /**
-   * Prompt-builder options ({ decisionLog, glossary }) derived from the last
+   * Prompt-builder options ({ glossary }) derived from the last
    * prefetch for the channel. Sync, so prompt builders can call it inline;
    * returns {} when nothing was prefetched or nothing is usable.
    */
@@ -1528,15 +1735,6 @@ class BaseAdapter {
     const ctx = this._pinnedContext[channel];
     if (!ctx) return {};
     const opts = {};
-    const d = ctx.decisions;
-    if (d && d.available) {
-      opts.decisionLog = {
-        enabled: true,
-        state: d.state,
-        entryId: d.entryId,
-        content: d.error ? '' : (d.content || ''),
-      };
-    }
     const g = ctx.glossary;
     if (g && g.available && g.state === 'found' && g.content) {
       opts.glossary = { enabled: true, entryId: g.entryId, content: g.content, scope: g.scope || 'channel' };
@@ -1551,7 +1749,7 @@ class BaseAdapter {
   async _autoTitleChannel(channel, content) {
     if (this._titledSessions.has(channel)) return;
     this._titledSessions.add(channel);
-    const title = generateSessionTitle(content);
+    const title = generateSessionTitle(this._channelRequestContent[channel] ?? content);
     if (!title) return;
     try {
       const info = await this.client.getSession(this.workspaceId, channel, this.token);
@@ -1614,28 +1812,63 @@ class BaseAdapter {
    * structured field: an earlier attempt matched the word "completed" in the
    * message text and fired on every bash for-loop that ended in `done`.
    */
-  async sendResponse(channel, content) {
+  async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
     if (this._isMuted(channel)) return;
     try {
-      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
-        senderType: 'agent',
-        senderName: this.agentName,
-        metadata: { status_kind: 'completed' },
-        sessionId: this._sessionId,
+      await this._replyOutbox().enqueue({
+        channel, content,
+        metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
       });
     } catch (e) {
-      if (e instanceof SessionRevokedError) {
-        this._onSessionRevoked();
-        return;
-      }
+      this._log('Could not save or deliver the final reply; check the local response outbox and disk permissions.', 'error');
       throw e;
     }
+  }
+
+  _replyOutbox() {
+    if (!this._responseOutbox) this._responseOutbox = new ResponseOutbox({
+      endpoint: this.endpoint, workspaceId: this.workspaceId, agentName: this.agentName,
+      directory: this._responseOutboxDirectory,
+      log: (message, level) => this._log(message, level),
+      onRevoked: () => this._onSessionRevoked(),
+      prepare: async (entry) => {
+        // Old/custom servers may not support idempotency. Never blindly retry
+        // an ambiguous send against one of those servers.
+        const safeRetry = this.client.supportsMessageDelivery
+          ? await this.client.supportsMessageDelivery() : false;
+        let published = { content: entry.content, attachments: [] };
+        if (!(this.disabledModules || new Set()).has('files') && entry.channel && !entry.channel.startsWith('dm:') && this.client.uploadFile) {
+          published = await publishResponseArtifacts({
+            content: entry.content, workingDir: this.workingDir,
+            upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
+              contentType, source: `openagents:${this.agentName}`, channelName: entry.channel, visibility: 'inherit',
+            }),
+            onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
+          });
+        }
+        return { ...published, safeRetry };
+      },
+      send: async (entry) => {
+        if (this._isMuted(entry.channel)) throw new Error('Channel is muted');
+        return this.client.sendMessage(this.workspaceId, entry.channel, this.token, entry.content, {
+          attachments: entry.attachments, senderType: 'agent', senderName: this.agentName,
+          metadata: entry.metadata, sessionId: this._sessionId,
+          idempotencyKey: entry.safeRetry ? entry.id : undefined,
+        });
+      },
+    });
+    return this._responseOutbox;
+  }
+
+  async _flushResponses() {
+    try { await this._replyOutbox().flush(); }
+    catch { this._log('Could not drain the response outbox; saved replies retained.', 'error'); }
   }
 
   async cleanupTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
       const hasActive = todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -1656,10 +1889,13 @@ class BaseAdapter {
   async getRemainingTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
-      return todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      // Defend against older endpoints returning the entire channel's list.
+      return todos.filter((t) => (!t.created_by || t.created_by === `openagents:${this.agentName}`)
+        && (!t.assignee || t.assignee === this.agentName || t.assignee === `openagents:${this.agentName}`)
+        && (t.status === 'pending' || t.status === 'in_progress'));
     } catch {
       return [];
     }
@@ -1760,3 +1996,7 @@ class BaseAdapter {
 module.exports = BaseAdapter;
 module.exports.STALE_MESSAGE_MAX_AGE_MS = STALE_MESSAGE_MAX_AGE_MS;
 module.exports.CURSOR_RESUME_MAX_AGE_MS = CURSOR_RESUME_MAX_AGE_MS;
+module.exports.PRESENCE_HEARTBEAT_DEBOUNCE_MS = PRESENCE_HEARTBEAT_DEBOUNCE_MS;
+module.exports.SHARED_CONTEXT_TTL_MS = SHARED_CONTEXT_TTL_MS;
+module.exports.buildPresenceFields = buildPresenceFields;
+module.exports.buildSharedContextBlock = buildSharedContextBlock;

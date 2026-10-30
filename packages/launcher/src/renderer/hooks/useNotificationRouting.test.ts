@@ -84,8 +84,13 @@ describe("routeNotification", () => {
   })
 
   it("routes a plain tab", () => {
+    expect(routeNotification(notif({ payload: { tab: "workspaces" } }))).toBe(true)
+    expect(useUiStore.getState().currentTab).toBe("workspaces")
+  })
+
+  it("sends the retired Logs tab to Settings → Logs", () => {
     expect(routeNotification(notif({ payload: { tab: "logs" } }))).toBe(true)
-    expect(useUiStore.getState().currentTab).toBe("logs")
+    expect(useUiStore.getState()).toMatchObject({ currentTab: "settings", settingsSection: "logs" })
   })
 
   it("reports going nowhere for an informational entry", () => {

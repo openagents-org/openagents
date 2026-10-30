@@ -12,12 +12,14 @@ import WorkspacePage from '@/app/[workspaceId]/page';
 import SettingsLayout from '@/app/[workspaceId]/settings/layout';
 import SettingsIndex from '@/app/[workspaceId]/settings/page';
 import SettingsApiCredits from '@/app/[workspaceId]/settings/api-credits/page';
+import SettingsApprovals from '@/app/[workspaceId]/settings/approvals/page';
 import SettingsDevices from '@/app/[workspaceId]/settings/devices/page';
 import SettingsGeneral from '@/app/[workspaceId]/settings/general/page';
 import SettingsIntegrations from '@/app/[workspaceId]/settings/integrations/page';
 import SettingsMembers from '@/app/[workspaceId]/settings/members/page';
 import SettingsModelAccess from '@/app/[workspaceId]/settings/model-access/page';
 import SettingsPreferences from '@/app/[workspaceId]/settings/preferences/page';
+import SettingsPrivateThreads from '@/app/[workspaceId]/settings/private-threads/page';
 import SettingsProfile from '@/app/[workspaceId]/settings/profile/page';
 import SettingsSecurity from '@/app/[workspaceId]/settings/security/page';
 import InvitePage from '@/app/invite/[token]/page';
@@ -148,14 +150,80 @@ const ROUTES: RouteTable = [
   },
   settingsRoute('/:workspaceId/settings', SettingsIndex),
   settingsRoute('/:workspaceId/settings/api-credits', SettingsApiCredits),
+  settingsRoute('/:workspaceId/settings/approvals', SettingsApprovals),
   settingsRoute('/:workspaceId/settings/devices', SettingsDevices),
   settingsRoute('/:workspaceId/settings/general', SettingsGeneral),
   settingsRoute('/:workspaceId/settings/integrations', SettingsIntegrations),
   settingsRoute('/:workspaceId/settings/members', SettingsMembers),
   settingsRoute('/:workspaceId/settings/model-access', SettingsModelAccess),
   settingsRoute('/:workspaceId/settings/preferences', SettingsPreferences),
+  settingsRoute('/:workspaceId/settings/private-threads', SettingsPrivateThreads),
   settingsRoute('/:workspaceId/settings/profile', SettingsProfile),
   settingsRoute('/:workspaceId/settings/security', SettingsSecurity),
+  {
+    pattern: '/:workspaceId/files',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/files/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/knowledge',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/knowledge/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/issues',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/issues/:resourceId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/threads/:threadId/messages/:messageId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
+  {
+    pattern: '/:workspaceId/threads/:threadId',
+    render: (params) => (
+      <Page params={params}>
+        {(promise) => <WorkspacePage params={promise as Promise<{ workspaceId: string }>} />}
+      </Page>
+    ),
+  },
   {
     pattern: '/:workspaceId',
     mountKey: workspaceKey,

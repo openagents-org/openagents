@@ -67,9 +67,9 @@ export function ConfirmDialog({
               Destructive prompts with no glyph of their own get a warning mark
               — it reads as "this one is different" before the copy is. */}
           {icon ? (
-            <AlertDialogMedia>{icon}</AlertDialogMedia>
+            <AlertDialogMedia className="mb-0 size-12">{icon}</AlertDialogMedia>
           ) : destructive ? (
-            <AlertDialogMedia className="size-11 bg-destructive/10 text-destructive">
+            <AlertDialogMedia className="mb-0 size-11 bg-destructive/10 text-destructive">
               <TriangleAlert className="size-5" />
             </AlertDialogMedia>
           ) : null}

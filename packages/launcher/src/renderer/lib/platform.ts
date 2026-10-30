@@ -35,3 +35,9 @@ export const REGISTRY_PLATFORM: "macos" | "linux" | "windows" =
     : window.api?.platform === "win32"
       ? "windows"
       : "linux"
+
+/**
+ * ⌘K on macOS, Ctrl+K elsewhere — the label only; the palette's own handler
+ * already takes either modifier.
+ */
+export const PALETTE_SHORTCUT = window.api?.platform === "darwin" ? "⌘K" : "Ctrl+K"

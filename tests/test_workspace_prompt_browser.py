@@ -127,3 +127,24 @@ class TestOpencodeSystemPrompt:
         )
         assert "Browser Use (MANDATORY)" in prompt
         assert "mcp__browsermcp__*" in prompt
+
+
+@pytest.mark.parametrize('builder_name', ['build_api_skills_prompt', 'build_openclaw_skill_md', 'build_opencode_skill_md'])
+def test_browser_instructions_preserve_tabs_between_tasks(builder_name):
+    from openagents.adapters import workspace_prompt
+    prompt = getattr(workspace_prompt, builder_name)(
+        endpoint='https://api.example.com', workspace_id='ws-1', token='tok',
+        agent_name='agent-1', channel_name='thread-1',
+    )
+    assert 'All cloud tabs are saved and reusable' in prompt
+    assert 'stable tab ID' in prompt
+    assert 'Close only when the user requests it' in prompt
+    assert 'Step 3 — close tab' not in prompt
+    assert 'auto-closed' not in prompt
+    assert 'always close yours' not in prompt
+
+
+def test_mandatory_browser_directive_preserves_tabs():
+    prompt = build_browser_directive(True)
+    assert 'All cloud tabs are saved and reusable' in prompt
+    assert 'as soon as you are done' not in prompt

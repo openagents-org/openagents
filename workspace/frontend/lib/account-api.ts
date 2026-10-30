@@ -1,10 +1,11 @@
+import { getApiBaseUrl } from '@/lib/api-base';
 // Membership Home API — the signed-in user's workspaces, keyed to their
 // verified identity (Firebase/Apple bearer), served by the workspace backend's
 // GET /v1/account/workspaces. That endpoint also reconciles legacy email-based
 // access into memberships and auto-provisions an empty workspace for brand-new
 // users, so a freshly signed-in user always has at least one entry.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const API_URL = getApiBaseUrl();
 
 export interface AccountWorkspace {
   workspaceId: string;
@@ -33,8 +34,8 @@ async function bearerFetch<T>(path: string, idToken: string, options: RequestIni
 }
 
 /** List the signed-in user's workspaces (Membership Home). */
-export function listAccountWorkspaces(idToken: string): Promise<AccountWorkspace[]> {
-  return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken);
+export function listAccountWorkspaces(idToken: string, signal?: AbortSignal): Promise<AccountWorkspace[]> {
+  return bearerFetch<AccountWorkspace[]>('/v1/account/workspaces', idToken, { signal });
 }
 
 /** Email the caller a "finish setup on your computer" link for a workspace —
@@ -146,8 +147,17 @@ export interface CampaignStatus {
   } | null;
 }
 
-export function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
-  return bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+/** Window event carrying every fresh CampaignStatus, whoever fetched it. */
+export const CAMPAIGN_STATUS_EVENT = 'oa:campaign-status';
+
+export async function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
+  const status = await bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+  // The milestone toasts, the credits page and the sidebar card each ask on
+  // their own schedule; sharing each answer keeps them showing the same count.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<CampaignStatus>(CAMPAIGN_STATUS_EVENT, { detail: status }));
+  }
+  return status;
 }
 
 /** Model ids available on the campaign gateway (proxied by the backend). */

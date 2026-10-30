@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Tests for BrowserManager.probe_session liveness classification.
+"""Provider failures remain unknown until BF has a structured lifecycle contract.
 
-The probe must only report "dead" when Browser Fabric definitively says the
-session is gone. Transient transport errors (timeout / 5xx) must classify as
-"unknown" so a slow get_page_info on a heavy SPA cannot tear down a healthy,
-logged-in tab (the 2026-09-29 Lark incident).
+A generic missing-session message or endpoint 404 must not authorize closing a
+browser. Sleeping-session metadata still counts as alive and probes never wake.
 """
 
 import asyncio
@@ -38,10 +36,10 @@ def test_probe_alive():
     assert out["title"] == "Y"
 
 
-def test_probe_dead_on_no_active_session():
+def test_probe_unknown_on_no_active_session():
     mgr = _cloud_manager()
     mgr._bf_call = AsyncMock(side_effect=RuntimeError("Browser Fabric error: No active session for id"))
-    assert asyncio.run(mgr.probe_session(TAB))["status"] == "dead"
+    assert asyncio.run(mgr.probe_session(TAB))["status"] == "unknown"
 
 
 def test_probe_unknown_on_other_app_error():
@@ -62,10 +60,10 @@ def test_probe_unknown_on_5xx():
     assert asyncio.run(mgr.probe_session(TAB))["status"] == "unknown"
 
 
-def test_probe_dead_on_404():
+def test_probe_unknown_on_404():
     mgr = _cloud_manager()
     mgr._bf_call = AsyncMock(side_effect=_http_error(404))
-    assert asyncio.run(mgr.probe_session(TAB))["status"] == "dead"
+    assert asyncio.run(mgr.probe_session(TAB))["status"] == "unknown"
 
 
 def test_probe_dead_when_no_session_mapping():

@@ -5,11 +5,11 @@
  * so the adapter itself stays a thin subprocess driver. The split mirrors
  * cline-stream.js / pi-stream.js.
  *
- * Verified against @deepseek-ai/dsh 0.1.0-rc.6 (bin `dsh` -> lib/bin.js, ESM).
+ * Verified against @deepseek-ai/dsh 0.2.1-rc.2 (bin `dsh` -> lib/bin.js, ESM).
  *
  * Three things here exist because dsh is unlike every other CLI in this repo:
  *
- *  1. It is a PREVIEW release (`0.1.0-rc.6`) and upstream says compatibility may
+ *  1. It is a PREVIEW release (`0.2.1-rc.2`) and upstream says compatibility may
  *     break between previews, so the gate is exact equality — not a floor. The
  *     two version comparators already in this repo (installer.js's
  *     `compareVersions`, pi-stream.js's `parseVersion`) both DROP the `-rc.N`
@@ -45,7 +45,7 @@ const path = require('path');
  * from there and only falls back here when the registry entry cannot be read at
  * all. Mirrors pi-stream.js's MIN_PI_VERSION rationale.
  */
-const SUPPORTED_DSH_VERSION = '0.1.0-rc.6';
+const SUPPORTED_DSH_VERSION = '0.2.1-rc.2';
 
 /**
  * dsh's Node requirement, from the upstream repository's root package.json:
@@ -66,9 +66,19 @@ const NODE_MIN_22 = [22, 19, 0];
 const ROW = {
   AGENT_DEFAULT_MODEL: 'agent-default-model',
   APPROVAL: 'approval',
+  LLM_PI_AI: 'llm-pi-ai',
   PERMISSION: 'permission',
   USER_QUESTIONS: 'user-questions',
 };
+
+/** The pi-ai route an OpenAI-compatible gateway is served through. */
+const GATEWAY_PROVIDER = 'openai-gateway';
+
+/** The model a gateway route runs when none is configured. */
+const DEFAULT_GATEWAY_MODEL = 'deepseek-v4-flash';
+
+/** Where DeepSeek's own model list is read (its OpenAI-style root). */
+const DEEPSEEK_MODELS_BASE = 'https://api.deepseek.com/v1';
 
 /** Permission modes dsh's `permission-presets` row declares. */
 const PERMISSION_MODES = ['read-only', 'workspace-write', 'danger-full-access'];
@@ -380,12 +390,14 @@ function yamlScalar(value) {
  *     `never` is what gives non-interactive execution that is still confined to
  *     the workspace for writes. (Reads are not confined in any mode.)
  *  3. The model/provider override, since `agent-default-model` is a composition
- *     row rather than an environment variable.
+ *     row rather than an environment variable. For an OpenAI-compatible
+ *     gateway (`gatewayBaseUrl`) that is a pi-ai chat-completions route plus
+ *     the default model pointing at it — see classifyDshEndpoint.
  *
  * A patch REPLACES the targeted row's whole `config`, so each row below is
  * written out complete rather than as a partial merge.
  */
-function buildPrivatePatch({ model, provider, permissionMode } = {}) {
+function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl } = {}) {
   const mode = normalizePermissionMode(permissionMode) || 'workspace-write';
   const sandboxFor = (m) => (m === 'read-only' ? 'read-only' : m === 'danger-full-access' ? 'danger-full-access' : 'workspace-write');
 
@@ -412,7 +424,28 @@ function buildPrivatePatch({ model, provider, permissionMode } = {}) {
     lines.push('        approval: never');
   }
 
-  if (model || provider) {
+  if (gatewayBaseUrl) {
+    // An OpenAI-compatible gateway has no Messages API for dsh's DeepSeek
+    // provider to call, so the run goes through dsh's pi-ai provider instead,
+    // as a chat-completions route of its own. pi-ai needs the model listed
+    // on the route, so the model is never left to the harness default here.
+    const gatewayModel = model || DEFAULT_GATEWAY_MODEL;
+    lines.push('');
+    lines.push(`- id: ${ROW.LLM_PI_AI}`);
+    lines.push('  config:');
+    lines.push('    providers:');
+    lines.push(`      ${GATEWAY_PROVIDER}:`);
+    lines.push('        api: openai-completions');
+    lines.push(`        baseURL: ${yamlScalar(gatewayBaseUrl)}`);
+    lines.push('        apiKeyEnv: DEEPSEEK_API_KEY');
+    lines.push('        models:');
+    lines.push(`          - id: ${yamlScalar(gatewayModel)}`);
+    lines.push('');
+    lines.push(`- id: ${ROW.AGENT_DEFAULT_MODEL}`);
+    lines.push('  config:');
+    lines.push(`    provider: ${GATEWAY_PROVIDER}`);
+    lines.push(`    model: ${yamlScalar(gatewayModel)}`);
+  } else if (model || provider) {
     lines.push('');
     lines.push(`- id: ${ROW.AGENT_DEFAULT_MODEL}`);
     lines.push('  config:');
@@ -422,6 +455,61 @@ function buildPrivatePatch({ model, provider, permissionMode } = {}) {
 
   lines.push('');
   return { text: lines.join('\n'), mode };
+}
+
+// ---------------------------------------------------------------------------
+// Base URL
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether `url` is DeepSeek's own API root rather than a gateway.
+ *
+ * dsh talks to DeepSeek over the Anthropic Messages API and defaults to
+ * `https://api.deepseek.com/anthropic`. The OpenAI-style roots people copy
+ * from DeepSeek's docs (and that other agents' setup forms prefill) —
+ * `https://api.deepseek.com` and `…/v1` — answer that API with a 404, so the
+ * adapter drops them and lets dsh use its default.
+ */
+function isOfficialDeepseekRoot(url) {
+  let parsed;
+  try { parsed = new URL(String(url || '').trim()); } catch { return false; }
+  if (parsed.hostname.toLowerCase() !== 'api.deepseek.com') return false;
+  const p = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+  return p === '' || p === '/v1';
+}
+
+/**
+ * Which API dsh should use for a configured base URL.
+ *
+ *  - `native`: blank, or one of DeepSeek's own OpenAI-style roots. dsh uses
+ *    its default, `https://api.deepseek.com/anthropic`.
+ *  - `openai`: an OpenAI-compatible gateway — a base ending in a version
+ *    segment (`…/v1`), which is how OpenAI-style relays (OpenAgents credits
+ *    included) are written. These serve chat completions and no Messages
+ *    API, so dsh's DeepSeek provider got a 404 from every one of them.
+ *  - `anthropic`: anything else, used as given for the Messages API.
+ */
+function classifyDshEndpoint(url) {
+  const raw = String(url || '').trim();
+  if (!raw || isOfficialDeepseekRoot(raw)) return 'native';
+  let parsed;
+  try { parsed = new URL(raw); } catch { return 'anthropic'; }
+  const p = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+  return /\/v\d+$/.test(p) ? 'openai' : 'anthropic';
+}
+
+/**
+ * Where to list the models a DeepSeek Harness agent can run, and over which
+ * protocol. DeepSeek's own host serves its list on the OpenAI-style root
+ * whichever form of its URL was configured, a blank base included (the
+ * agent always holds a DeepSeek key).
+ */
+function dshModelsEndpoint(url) {
+  const raw = String(url || '').trim();
+  let host = '';
+  try { host = new URL(raw).hostname.toLowerCase(); } catch {}
+  if (!raw || host === 'api.deepseek.com') return { baseUrl: DEEPSEEK_MODELS_BASE, protocol: 'openai' };
+  return { baseUrl: raw, protocol: classifyDshEndpoint(raw) === 'openai' ? 'openai' : 'anthropic' };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,6 +703,11 @@ module.exports = {
 
   yamlScalar,
   buildPrivatePatch,
+
+  isOfficialDeepseekRoot,
+  classifyDshEndpoint,
+  dshModelsEndpoint,
+  GATEWAY_PROVIDER,
 
   normalizePermissionMode,
   resolvePermissionMode,

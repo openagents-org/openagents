@@ -1,4 +1,6 @@
 export interface Workspace {
+  /** Workspace-wide setup state; absent until a compatible backend responds. */
+  needsFirstDevice?: boolean;
   workspaceId: string;
   slug: string;
   name: string;
@@ -61,9 +63,14 @@ export interface NodeAgent {
   workingDir?: string | null;
   /** Masked API key (e.g. "sk-1...cdef") when one is configured on the node; the full secret never leaves the device. */
   apiKeyMasked?: string | null;
+  /** How the agent authenticates: on a key, or on its CLI's own sign-in
+   * (`codex login`). Absent: a launcher too old to report it. */
+  authMode?: 'api_key' | 'cli_login' | null;
   /** Hostname of the endpoint the agent is configured to call. Null or absent:
    * its CLI's default, or a launcher too old to report it. */
   baseUrlHost?: string | null;
+  /** Custom Codex endpoint mode, reported by launcher 0.2.197+. */
+  codexWireApi?: 'responses' | 'chat' | null;
   /** Models the agent's own CLI offers the account it is signed in to (a
    * ChatGPT or Claude subscription). Null or absent: the agent runs on a key
    * or a relay, its CLI has not answered, or the launcher is too old to ask. */
@@ -95,6 +102,11 @@ export interface NodeRuntime {
   reason: string | null;
   message: string | null;
   authStatus?: string | null;
+  /** Models the type's CLI offers the device's own sign-in (a ChatGPT or
+   * Claude subscription): what an agent added with "sign in on the device"
+   * can run. Null or absent: the CLI cannot be asked, has not answered yet,
+   * or the launcher is too old to ask. */
+  cliModels?: AgentCatalogModel[] | null;
   probe?: NodeProbe | null;
 }
 
@@ -216,16 +228,24 @@ export interface WorkspaceCustomSkill {
 }
 
 export interface WorkspaceSession {
+  icon?: string | null;
+  humanCount?: number;
+  unreadCount?: number;
+  readAt?: number;
+  completionAt?: number | null;
   sessionId: string;
   workspaceId: string;
   createdBy: string | null;
   title: string;
   status: string;
   starred: boolean;
+  pinned?: boolean;
+  isChannel?: boolean;
   participants: string[];
   master: string | null;
   // Multi-agent collaboration mode: 'dynamic' | 'master' | 'workflow'
   orchestrationMode: string;
+  responseMode?: 'proactive' | 'passive';
   // Legacy free-text collaboration plan (superseded by structured workflows)
   orchestrationInstruction: string | null;
   // Structured workflow driving this thread (when orchestrationMode === 'workflow')
@@ -238,6 +258,8 @@ export interface WorkspaceMessage {
   messageId: string;
   sessionId: string;
   senderId?: string | null;
+  /** Full sender address (`human:<email>`, `human:user`, `openagents:<name>`). */
+  senderAddress?: string | null;
   senderType: string;
   senderName: string;
   content: string;
@@ -288,6 +310,15 @@ export interface WorkspaceFile {
   channelName: string | null;
   status: string;
   createdAt: string | null;
+  /** Permission model v1.1 — "human:<email>" | "openagents:<agent>" | null (legacy rows). */
+  owner: string | null;
+  ownerLabel: string | null;
+  /** null = inherits from the thread the file is attached to. */
+  visibility: ArtifactVisibility | null;
+  /** What the backend resolved the null case to; null when unknown. */
+  effectiveVisibility: ArtifactVisibility | null;
+  /** Caller may change visibility / share (owner, admin, or share right). */
+  canManage: boolean;
 }
 
 /** A file held by a trash entry — a preview of what a restore brings back. */
@@ -322,6 +353,8 @@ export interface TrashEntry {
 }
 
 export interface KnowledgeEntry {
+  folderPath?: string;
+  path?: string;
   id: string;
   slug: string;
   title: string;
@@ -332,6 +365,13 @@ export interface KnowledgeEntry {
   status: string;
   createdAt: string | null;
   updatedAt: string | null;
+  /** Permission model v1.1 — "human:<email>" | "openagents:<agent>" | null (legacy rows). */
+  owner: string | null;
+  ownerLabel: string | null;
+  /** Knowledge has no thread to inherit from; null only for legacy rows. */
+  visibility: ArtifactVisibility | null;
+  effectiveVisibility: ArtifactVisibility | null;
+  canManage: boolean;
 }
 
 /**
@@ -351,6 +391,7 @@ export interface BrowserTabActivity {
 }
 
 export interface BrowserTab {
+  artifactChannels?: string[];
   id: string;
   url: string;
   title: string | null;
@@ -367,6 +408,7 @@ export interface BrowserTab {
   lastActiveAt: string | null;
   /** BrowserFabric has put this tab to sleep (idle); it wakes on the next action. */
   asleep?: boolean;
+  connectionStatus?: 'alive' | 'dead' | 'unknown';
 }
 
 /** Live-tab quota, as enforced by BrowserFabric for the workspace's key. */
@@ -452,6 +494,22 @@ export interface TimerItem {
   createdAt: string | null;
 }
 
+/**
+ * The fields a routine is created or edited with. Shared by the dialog, the
+ * workspace context and the API client so the three can't drift apart.
+ * Schedule is either/or: `interval_minutes`, or `hour`/`minute`/`days`.
+ */
+export interface RoutineDraft {
+  name: string;
+  message: string;
+  source: string;
+  hour?: number;
+  minute?: number;
+  days?: number[];
+  interval_minutes?: number;
+  conversation_history?: string;
+}
+
 export interface RoutineItem {
   id: string;
   name: string;
@@ -464,7 +522,8 @@ export interface RoutineItem {
   timezone: string;
   nextFiresAt: string;
   lastFiredAt: string | null;
-  status: string;
+  /** `paused` routines stay listed but never fire; `cancelled` is terminal. */
+  status: 'active' | 'paused' | 'cancelled';
   createdBy: string;
   channelName: string;
   createdAt: string | null;
@@ -489,6 +548,7 @@ export interface TaskRunInfo {
 }
 
 export interface KanbanTask {
+  issueId?: string | null;
   id: string;
   title: string;
   description: string;
@@ -552,6 +612,74 @@ export interface Workflow {
 // Inbox / Notifications
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Approvals — agents act, humans approve where it matters
+// ---------------------------------------------------------------------------
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+export type ApprovalKind =
+  | 'deploy' | 'spend' | 'external_send' | 'repo_read' | 'repo_write' | 'data_delete' | 'shell' | 'other';
+/** Who may resolve a paused request. `any` = any human member (not viewers). */
+export type ApprovalRequiredRole = 'any' | 'admin' | 'owner';
+/** Card class of a request (v1.1 escalation rides on the approvals table). */
+export type ApprovalKindClass = 'approval';
+/** What policy says about an action kind. */
+export type ApprovalPolicyVerdict = 'allow' | 'any' | 'admin' | 'owner' | 'block' | 'member';
+
+export interface PolicyRequirements {
+  members: string[];
+  approved_by: string[];
+  role_required: ApprovalRequiredRole | null;
+  role_approved: boolean;
+}
+
+export interface ApprovalRequest {
+  policyRequirements?: PolicyRequirements | null;
+  id: string;
+  channelName: string;
+  requestedBy: string;            // bare agent name
+  kind: ApprovalKind | string;
+  /** Approval card presentation. */
+  kindClass: ApprovalKindClass;
+  action: string;
+  details: string | null;
+  risk: 'low' | 'medium' | 'high' | null;
+  requiredRole: ApprovalRequiredRole;
+  /** The person this is addressed to (explicitly selected reviewer). */
+  assigneeEmail: string | null;
+  /** The requesting agent's owner, if any. */
+  ownerEmail: string | null;
+  /** The teammate whose message the agent was handling — only in the thread snapshot. */
+  requesterEmail: string | null;
+  status: ApprovalStatus;
+  /** Approver email, "token" (legacy open workspace), or "policy" (auto). */
+  resolvedBy: string | null;
+  resolvedByRole: string | null;
+  resolvedAt: string | null;
+  note: string | null;
+  requestEventId: string | null;
+  resolutionEventId: string | null;
+  createdAt: string | null;
+}
+
+export interface ApprovalPolicyRule {
+  approver_email?: string;
+  description?: string;
+  kind: ApprovalKind | string;
+  label: string;
+  policy: ApprovalPolicyVerdict;
+  /** Where the verdict comes from: built-in default, workspace row, or channel row. */
+  source: 'default' | 'workspace' | 'channel';
+}
+
+export interface ApprovalPolicy {
+  scope: string;                   // "*" = workspace default, else a channel name
+  rules: ApprovalPolicyRule[];
+  workspaceRules: { kind: string; policy: ApprovalPolicyVerdict; description?: string }[];
+  channelRules: { kind: string; policy: ApprovalPolicyVerdict; description?: string }[];
+  policies: ApprovalPolicyVerdict[];
+}
+
 export interface NotificationItem {
   id: string;
   title: string;
@@ -563,6 +691,13 @@ export interface NotificationItem {
   threadId: string | null;
   linkUrl: string | null;
   status: string;
+  /** What the row is about (approval | ...); null = plain notice. */
+  kind: string | null;
+  /** Id of the thing to act on (e.g. an approval id) — makes the row actionable. */
+  actionRef: string | null;
+  approvalStatus?: string | null;
+  /** Who it is addressed to; null = the whole workspace. */
+  recipientEmail: string | null;
   createdAt: string | null;
   readAt: string | null;
 }
@@ -729,10 +864,16 @@ export interface NetworkAgent {
 }
 
 export interface NetworkChannel {
+  icon?: string | null;
+  human_count?: number;
+  unread_count?: number;
+  read_at?: number;
+  completion_at?: number | null;
   address: string;
   title: string | null;
   master: string | null;
   orchestration_mode?: string;
+  response_mode?: 'proactive' | 'passive';
   orchestration_instruction?: string | null;
   workflow_id?: string | null;
   participants: string[];
@@ -740,6 +881,8 @@ export interface NetworkChannel {
   last_event_at: number | null;
   status: string;
   starred: boolean;
+  pinned?: boolean;
+  is_channel?: boolean;
 }
 
 export interface NetworkDiscovery {
@@ -789,9 +932,13 @@ export interface MessagePollResponse {
 }
 
 export interface DMConversation {
+  pinned?: boolean;
+  starred?: boolean;
   agents: [string, string];
   lastMessage: { content: string; sender: string; timestamp: number };
   messageCount: number;
+  unreadCount?: number | null;
+  readAt?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -807,6 +954,7 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   return {
     messageId: event.id,
     senderId: (payload.sender_id as string) || null,
+    senderAddress: event.source || null,
     sessionId: event.target.replace(/^channel\//, ''),
     senderType: isHuman ? 'human' : 'agent',
     senderName,
@@ -818,6 +966,9 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
       ...(event.metadata || {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.todos ? { todos: payload.todos } : {}),
+      recalled_message_id: event.type === 'workspace.message.recalled' ? payload.recalled_message_id : undefined,
+      // Approval request / resolution — the chat renders a card from this.
+      ...(payload.approval ? { approval: payload.approval } : {}),
     },
     createdAt: new Date(event.timestamp).toISOString(),
   };
@@ -840,6 +991,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,
     builtin: agent.builtin ?? false,
+    ...collabAgentFields(agent),  // v1.1 M1: ownership / visibility / runtime
   };
 }
 
@@ -863,12 +1015,475 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     title: ch.title || defaultSessionTitle(ch.participants),
     status: ch.status || 'active',
     starred: ch.starred || false,
+    pinned: ch.pinned || false,
+    icon: ch.icon,
+    humanCount: ch.human_count,
+    isChannel: ch.is_channel || false,
     participants: ch.participants,
     master: ch.master,
     orchestrationMode: ch.orchestration_mode || 'dynamic',
+    responseMode: ch.response_mode || 'proactive',
     orchestrationInstruction: ch.orchestration_instruction ?? null,
     workflowId: ch.workflow_id ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
+    unreadCount: ch.unread_count,
+    readAt: ch.read_at,
+    completionAt: ch.completion_at,
+    ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
+    ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
 }
+
+// ── v1.1 M5 ── thread brief + inline artifacts
+/** The persistent shared work brief of a thread (GET/PUT /v1/channels/{channel}/brief). */
+export interface ChannelBrief {
+  channel: string;
+  objective: string | null;
+  /** "openagents:<agent>" or "human:<email>" — who owns the next step. */
+  owner: string | null;
+  latestResult: string | null;
+  openQuestions: string[];
+  nextStep: string | null;
+  updatedBy: string | null;
+  updatedAt: string | null;
+  /** Who directs the thread (Channel.director_email); null when undirected. */
+  directorEmail: string | null;
+  /** Whether the caller may edit (machine, admin+, or thread participant). */
+  canEdit: boolean;
+}
+
+export type ChannelBriefPatch = Partial<
+  Pick<ChannelBrief, 'objective' | 'owner' | 'latestResult' | 'nextStep' | 'openQuestions'>
+>;
+// ── v1.1 M1/M2 — ownership, visibility, sharing ──────────────────────────────
+// Roadmap v1.1 "mixed human–agent collaboration". The wire shapes below extend
+// the existing discover/session/agent records by interface merging so the
+// additions stay grouped here; the two mappers above spread
+// `collabAgentFields` / `collabChannelFields` to carry them across.
+
+export type AgentVisibility = 'team' | 'personal';
+/** 'public' is what the permission-model API outputs; 'workspace' is the legacy alias (read as public). */
+export type ChannelVisibility = 'workspace' | 'private' | 'public';
+/** Whose credits a shared request burns. Null = not declared (treated as owner). */
+export type CostOwner = 'owner' | 'workspace' | 'requester';
+/** Derived from the agent's node: null for cloud agents / unknown. */
+export type AgentRuntimeStatus = 'online' | 'offline' | null;
+
+export interface NetworkAgent {
+  can_start_thread?: boolean;
+  is_shared?: boolean;
+  owner_email?: string | null;
+  visibility?: AgentVisibility;
+  purpose?: string | null;
+  example_requests?: string[];
+  required_inputs?: string | null;
+  cost_owner?: CostOwner | null;
+  presence_state?: string | null;
+  busy_channels?: string[];
+  queue_depth?: number;
+  runtime_status?: AgentRuntimeStatus;
+  runtime_name?: string | null;
+}
+
+export interface NetworkChannel {
+  visibility?: ChannelVisibility;
+  director_email?: string | null;
+  created_by?: string | null;
+}
+
+export interface WorkspaceAgent {
+  canStartThread?: boolean;
+  isShared?: boolean;
+  ownerEmail?: string | null;
+  visibility?: AgentVisibility;
+  purpose?: string | null;
+  exampleRequests?: string[];
+  requiredInputs?: string | null;
+  costOwner?: CostOwner | null;
+  presenceState?: string | null;
+  busyChannels?: string[];
+  queueDepth?: number;
+  runtimeStatus?: AgentRuntimeStatus;
+  runtimeName?: string | null;
+}
+
+export interface WorkspaceSession {
+  visibility?: ChannelVisibility;
+  directorEmail?: string | null;
+  createdByEmail?: string | null;
+}
+
+export function collabAgentFields(agent: NetworkAgent): Pick<WorkspaceAgent,
+  'isShared' | 'canStartThread' | 'ownerEmail' | 'visibility' | 'purpose' | 'exampleRequests' | 'requiredInputs' | 'costOwner'
+  | 'presenceState' | 'busyChannels' | 'queueDepth' | 'runtimeStatus' | 'runtimeName'> {
+  return {
+    canStartThread: agent.can_start_thread,
+    isShared: agent.is_shared,
+    ownerEmail: agent.owner_email ?? null,
+    visibility: agent.visibility === 'personal' ? 'personal' : 'team',
+    purpose: agent.purpose ?? null,
+    exampleRequests: agent.example_requests ?? [],
+    requiredInputs: agent.required_inputs ?? null,
+    costOwner: agent.cost_owner ?? null,
+    presenceState: agent.presence_state ?? null,
+    busyChannels: agent.busy_channels ?? [],
+    queueDepth: agent.queue_depth ?? 0,
+    runtimeStatus: agent.runtime_status ?? null,
+    runtimeName: agent.runtime_name ?? null,
+  };
+}
+
+export function collabChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'visibility' | 'directorEmail' | 'createdByEmail'> {
+  return {
+    visibility: ch.visibility === 'private' ? 'private' : 'workspace',
+    directorEmail: ch.director_email ?? null,
+    createdByEmail: ch.created_by ?? null,
+  };
+}
+
+/** GET /v1/channels/{channel}/participants */
+export interface ChannelParticipants {
+  channel: string;
+  visibility: ChannelVisibility;
+  director_email: string | null;
+  humans: { email: string; display_name: string | null; joined_at: string | null }[];
+  agents: { agent_name: string; display_name: string | null; owner_email: string | null; owner_display_name?: string | null; visibility: AgentVisibility; request_access?: 'yes' | 'approval' | 'no'; can_request_sharing?: boolean; sharing_requested?: boolean; thread_access_requested?: boolean }[];
+}
+
+/** POST /v1/channels/{channel}/participants — either joined right away or
+ * (not a workspace member yet) an invite link to hand over. */
+export type ParticipantAddResult =
+  | { added: true; email: string }
+  | { added: false; invited: true; invite_token: string; invite_url: string };
+
+/** GET /v1/channels/{channel}/share-preview — exactly what becomes visible. */
+export interface SharePreview {
+  channel: string;
+  title: string | null;
+  visibility: ChannelVisibility;
+  director_email: string | null;
+  humans: string[];
+  agents: string[];
+  message_count: number;
+  files: { id: string; filename: string }[];
+  knowledge_refs: string[];
+  snapshot_available: boolean;
+}
+
+/** One card in GET /v1/agents/directory. */
+export interface AgentDirectoryEntry {
+  agent_name: string;
+  display_name: string | null;
+  agent_type: string | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  visibility: AgentVisibility;
+  purpose: string | null;
+  example_requests: string[];
+  required_inputs: string | null;
+  cost_owner: CostOwner | null;
+  status: string;
+  presence_state: string | null;
+  busy_channels: string[];
+  queue_depth: number;
+  runtime_status: AgentRuntimeStatus;
+  runtime_name: string | null;
+  pinned: boolean;
+  grant_count: number;
+  can_manage: boolean;
+  my_recent_requests: { channel: string; title: string | null; last_event_at: number | string | null }[];
+  /** Permission model v1.1 — who holds an `act` grant. Missing on older backends. */
+  usable_by?: AgentUsableBy | null;
+}
+
+export interface AgentGrant {
+  email: string;
+  display_name: string | null;
+  granted_by: string | null;
+  note: string | null;
+  created_at: string | null;
+}
+
+export type AgentGrantResult =
+  | { granted: true }
+  | { granted: false; invited: true; invite_url: string };
+
+/** Editable profile fields (PATCH members). Owner/admin — or a member claiming
+ * an unowned agent by setting owner_email to themselves. */
+export interface AgentProfileUpdate {
+  request_approver_email?: string;
+  owner_email?: string;
+  visibility?: AgentVisibility;
+  purpose?: string;
+  example_requests?: string[];
+  required_inputs?: string;
+  shared_instructions?: string;
+  allowed_knowledge?: string[];
+  cost_owner?: CostOwner;
+}
+
+export type InviteTargetKind = 'agent' | 'channel' | 'task';
+
+// ── v1.1 permission model — security groups, grants, thread access ───────────
+// Spec: workspace/docs/permission-model-v1.md §4/§5. Wire shapes are snake_case
+// exactly as the API returns them; only the session mapper camel-cases.
+
+export type GranteeKind = 'human' | 'agent' | 'group';
+
+/** A principal picked in the GranteePicker: a person (id = email), an agent
+ * (id = agent_name) or a security group (id = group id). */
+export interface Grantee {
+  kind: GranteeKind;
+  id: string;
+  label: string;
+}
+
+export type SecurityGroupKind = 'everyone' | 'guest' | 'custom';
+
+/** GET /v1/groups */
+export interface SecurityGroup {
+  id: string;
+  name: string;
+  slug: string;
+  kind: SecurityGroupKind;
+  /** Derived for the builtin groups (everyone = all collaborators, guest = guests). */
+  member_count: number;
+  builtin: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export type GroupPrincipalKind = 'human' | 'agent';
+
+/** GET /v1/groups/{id}/members */
+export interface GroupMember {
+  principal_kind: GroupPrincipalKind;
+  /** lowercase email | agent_name */
+  principal_id: string;
+  display_name: string | null;
+  added_by: string | null;
+  created_at: string | null;
+}
+
+/** DELETE /v1/groups/{id}?dry_run=1 */
+export interface GroupDeleteImpact {
+  affected_grants: number;
+  members: number;
+}
+
+export type ResourceKind = 'service' | 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
+export type GrantRight = 'read' | 'act' | 'share';
+
+/** GET /v1/grants */
+export interface ResourceGrant {
+  id: string;
+  resource_kind: ResourceKind;
+  resource_id: string;
+  grantee_kind: GranteeKind;
+  grantee_id: string;
+  /** Display name resolved server-side (person / agent / group name). */
+  grantee_label: string | null;
+  rights: GrantRight[];
+  scope: Record<string, unknown> | null;
+  expires_at: string | null;
+  budget: number | null;
+  granted_by: string | null;
+  note: string | null;
+  created_at: string | null;
+}
+
+/** POST /v1/grants body (network added by the api wrapper). */
+export interface GrantCreateInput {
+  resource_kind: ResourceKind;
+  resource_id: string;
+  grantee_kind: GranteeKind;
+  grantee_id: string;
+  rights?: GrantRight[];
+  scope?: Record<string, unknown>;
+  /** ISO-8601; agent grants may expire. */
+  expires_at?: string;
+  budget?: number;
+  note?: string;
+}
+
+/** GET /v1/grants/preview — what becomes accessible if the grant is made. */
+export interface GrantPreviewItem {
+  kind: string;
+  id: string;
+  title: string;
+}
+
+export interface GrantPreview {
+  items: GrantPreviewItem[];
+}
+
+export type AccessReason =
+  | 'owner' | 'public' | 'participant' | 'grant' | `group:${string}`
+  | 'inherited_from_owner' | 'inherited_from_channel' | 'admin_metadata' | 'machine' | 'denied';
+
+/** GET /v1/access/explain — "why can I see this?" for the caller. */
+export interface AccessExplanation {
+  allowed: boolean;
+  reason: AccessReason;
+  text: string;
+}
+
+/** GET /v1/admin/private-threads — metadata only, never content. */
+export interface PrivateThreadMeta {
+  name: string;
+  title: string | null;
+  owner_email: string | null;
+  participant_count: number;
+  message_count: number;
+  last_activity_at: string | null;
+}
+
+/** PATCH /v1/channels/{name} — the owner-facing access fields. */
+export interface ChannelAccessUpdate {
+  icon?: string | null;
+  visibility?: 'private' | 'public';
+  participantsCanInvite?: boolean;
+  membersCanAddAgents?: boolean;
+  /** Hand over (owner) or force a transfer (admin). */
+  ownerEmail?: string;
+}
+
+// The thread records gain an owner and the participants-can-invite switch.
+// Interface merging keeps the additions grouped here; the session mapper
+// spreads `accessChannelFields` to carry them across.
+export interface NetworkChannel {
+  owner_email?: string | null;
+  participants_can_invite?: boolean;
+  members_can_add_agents?: boolean;
+}
+
+export interface WorkspaceSession {
+  ownerEmail?: string | null;
+  participantsCanInvite?: boolean;
+  membersCanAddAgents?: boolean;
+}
+
+export interface ChannelParticipants {
+  collaboration_supported?: boolean;
+  collaboration?: Record<string, { instructions: string; review_after: string | null }>;
+  thread_access_requests_supported?: boolean;
+  can_manage?: boolean;
+  can_add_people?: boolean;
+  can_add_agents?: boolean;
+  is_participant?: boolean;
+  sharing_my_agents?: boolean;
+  agent_sharing_mode?: 'no' | 'yes' | 'approval';
+  own_agent_count?: number;
+  owner_email?: string | null;
+  participants_can_invite?: boolean;
+  members_can_add_agents?: boolean;
+}
+
+export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 'ownerEmail' | 'participantsCanInvite' | 'membersCanAddAgents'> {
+  return {
+    ownerEmail: ch.owner_email ?? null,
+    participantsCanInvite: !!ch.participants_can_invite,
+    membersCanAddAgents: ch.members_can_add_agents !== false,
+  };
+}
+
+// ── v1.1 M4 — specialist profile (GET /v1/agents/{agent}/profile) ────────────
+// Owners/admins get the full shared instruction set and knowledge list;
+// teammates get a summary (first SUMMARY_CHARS) and a count.
+export interface AgentProfileView {
+  request_approver_email?: string | null;
+  agent_name: string;
+  display_name: string | null;
+  agent_type: string | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  visibility: AgentVisibility;
+  purpose: string | null;
+  example_requests: string[];
+  required_inputs: string | null;
+  cost_owner: CostOwner | null;
+  grant_count: number;
+  availability: Record<string, unknown>;
+  can_manage: boolean;
+  /** can_manage view only */
+  shared_instructions?: string | null;
+  allowed_knowledge?: { slug: string; title: string }[];
+  /** teammate view only */
+  shared_instructions_summary?: string | null;
+  allowed_knowledge_count?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Permission model v1.1 — artifact access (files, knowledge) and agent usability
+// ---------------------------------------------------------------------------
+
+/** Two levels only. Files additionally allow `null` = inherit from the thread. */
+export type ArtifactVisibility = 'private' | 'public';
+
+/** `usable_by` on a directory entry: everyone switch + grant tallies. */
+export interface AgentUsableBy {
+  everyone: boolean;
+  groups: { id: string; name: string }[];
+  people: number;
+  agents: number;
+}
+
+// Shared team issues. Wire fields match the issue API's persisted records.
+export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
+export interface WorkspaceIssue {
+  linked_channels?: string[];
+  due_date?: string | null;
+  knowledge_ids?: string[];
+  file_ids?: string[];
+  id: string;
+  title: string;
+  description: string;
+  status: IssueStatus;
+  assignee?: string | null;
+  assignee_name?: string | null;
+  labels?: string[];
+  created_by: string;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  comment_count?: number;
+}
+export interface IssueComment {
+  reply_channel_name?: string | null;
+  dispatch_error?: string;
+  channel_name?: string;
+  id: string;
+  author: string;
+  author_name?: string | null;
+  content: string;
+  kind: 'comment' | 'status' | 'result' | 'activity' | 'approval' | 'due_date';
+  approval?: ApprovalRequest;
+  source_event_id: string | null;
+  created_at: string;
+}
+export interface IssueReply { id: string; author: string; content: string }
+export interface IssueThread {
+  channel_name: string;
+  title: string;
+  status: string;
+  agents: string[];
+  latest_reply: IssueReply | null;
+}
+export interface IssueDetail extends WorkspaceIssue {
+  attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
+  knowledge?: { id: string; title: string }[];
+  agent_sharing_mode?: 'no' | 'yes' | 'approval';
+  comments: IssueComment[];
+  threads: IssueThread[];
+  participants: { source: string; name: string; owner_email?: string | null; owner_name?: string | null; request_access?: 'yes' | 'approval' | 'no' }[];
+}
+
+export interface AgentService {
+  id: string; agent_name: string; owner_email: string; name: string; description: string;
+  instructions?: string; example_requests: string[]; required_inputs: string | null;
+  request_approver_email: string | null; can_manage: boolean;
+}
+export type AgentServiceInput = Pick<AgentService, 'agent_name' | 'name' | 'description' | 'example_requests' | 'required_inputs' | 'request_approver_email'> & { instructions: string };
+
+export type MessageReaction = { emoji: string; count: number; mine: boolean };
