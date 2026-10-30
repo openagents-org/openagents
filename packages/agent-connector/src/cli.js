@@ -1121,6 +1121,9 @@ async function cmdLogin(connector, flags, positional) {
   if (plan.headless && plan.args.includes('--device-auth')) {
     print('No browser on this machine: open the link below on any device and enter the code.');
   }
+  if (!process.stdin.isTTY) {
+    print('Warning: this is not an interactive terminal. The sign-in may need one to take input; if it stalls, run this command in a terminal.');
+  }
   print('');
   // The CLI owns the terminal until it is done. Ctrl+C reaches it too, and it
   // decides what that means; this process waits to report the result.

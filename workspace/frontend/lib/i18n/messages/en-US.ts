@@ -1652,6 +1652,7 @@ export const messages = {
 
     agentConfigure: 'Configure {name}',
     agentAddTitle: "Add an agent",
+    agentAddAnyway: "Add anyway",
     agentRunsOn: "Runs on: {device}",
     agentNameInvalid: "Use letters, numbers, dashes, or underscores for the agent name.",
     agentDisplayNameLabel: 'Display name',
@@ -1908,7 +1909,7 @@ export const messages = {
     byokProviderNone: 'Log in on the device — or configure later',
     byokDeviceSignIn: 'Use the account signed in on the device ({command})',
     byokNotSignedInHint: 'This device is not signed in yet. After adding, sign in or add a key before the agent can work.',
-    byokNotSignedInRequired: 'This device is not signed in yet. Sign in on the device, or add or pick a key, before adding this agent. Already signed in?',
+    byokNotSignedInRequired: 'This device is not signed in yet, so this agent cannot answer until you sign in on the device or add or pick a key. You can still add it now and do that later. Already signed in?',
     byokDeviceSignInHint: 'This agent runs on {label}\'s own sign-in on the device, never on an API key saved there. Not signed in yet? Run {command} on the device.',
     byokSwitchToSignInHint: 'Saving switches it off its current key and endpoint.',
     byokKeepCurrent: 'Current: API key {detail}',

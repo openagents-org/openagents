@@ -135,13 +135,29 @@ const submit = async () => {
 const created = (api: AgentSetupApi) => (api.enqueueNodeCommand as ReturnType<typeof vi.fn>).mock.calls
   .filter((c) => c[1] === 'create_agent');
 
-it('blocks adding when nothing is signed in and no key is picked', async () => {
+it('warns, then lets the agent be added anyway when nothing is signed in and no key is picked', async () => {
   const api = await open('codex');
+  const button = () => host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!;
   expect(notSignedIn()!.textContent).toContain(t('connect.byokNotSignedInRequired'));
   expect(notSignedIn()!.getAttribute('role')).toBeNull();
+  expect(button().disabled).toBe(false);
+  expect(button().textContent).toBe(t('connect.agentAddTitle'));
+  // The first click points at the warning instead of adding.
   await submit();
   expect(created(api)).toEqual([]);
   expect(notSignedIn()!.getAttribute('role')).toBe('alert');
+  expect(button().textContent).toBe(t('connect.agentAddAnyway'));
+  // The second adds it, on the device's sign-in to be done later.
+  await submit();
+  expect(created(api)).toHaveLength(1);
+});
+
+it('shows agn login in the sign-in choice and its hint on a device that has it', async () => {
+  await open('codex', { loginCommand: 'agn login codex' });
+  expect(host.querySelector('[data-testid="agent-setup-signin-hint"]')!.textContent)
+    .toContain(t('connect.byokDeviceSignInHint', { label: codexEntry.label, command: 'agn login codex' }));
+  expect(host.textContent).toContain(t('connect.byokDeviceSignIn', { command: 'agn login codex' }));
+  expect(host.textContent).not.toContain('(codex login)');
 });
 
 it('offers to re-detect, for someone who has just signed in', async () => {

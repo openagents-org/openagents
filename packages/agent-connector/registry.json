@@ -54,7 +54,7 @@
       "creds_file": "~/.claude/.credentials.json",
       "creds_key": "claudeAiOauth",
       "keychain_service": "Claude Code-credentials",
-      "not_ready_message": "Not logged in. Run: claude login",
+      "not_ready_message": "Not logged in. Run: claude auth login",
       "login_command": "claude auth login",
       "alt_check": "claude --print hi",
       "status_args": [

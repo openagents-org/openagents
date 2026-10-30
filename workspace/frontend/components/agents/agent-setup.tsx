@@ -739,14 +739,16 @@ export function AgentSetup({
   const [modelError, setModelError] = useState<string | null>(null);
   const modelFieldRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
-  // A new agent on a device with no sign-in for its type must be given a key:
-  // added as is, it would sit there unable to answer. An agent not installed
-  // yet is let through, since its CLI cannot be signed in before it exists.
+  // A new agent on a device with no sign-in for its type cannot answer until
+  // it is signed in or given a key. The first Add points at the warning and
+  // turns the button into "Add anyway"; the second adds it (the detection can
+  // be wrong, and signing in later is a fine plan). An agent not installed
+  // yet gets no warning, since its CLI cannot be signed in before it exists.
   const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
     && !byokAccessId && !keepCurrent && !apiKey.trim();
   const [credsError, setCredsError] = useState(false);
   const credsFieldRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (!credsMissing) setCredsError(false); }, [credsMissing]);
+  useEffect(() => { setCredsError(false); }, [credsMissing, selected]);
 
   const failModel = (message: string) => {
     // No model field on screen yet (the key's model list is still loading):
@@ -863,7 +865,7 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
-    if (credsMissing) {
+    if (credsMissing && !credsError) {
       setCredsError(true);
       requestAnimationFrame(() => {
         credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
@@ -992,7 +994,7 @@ export function AgentSetup({
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
-        {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
+        {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
@@ -1118,9 +1120,6 @@ export function AgentSetup({
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
                   <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
-                  {byok && !isEdit && selectedStatus === 'needs_login' && (
-                    <span className="font-normal text-destructive">* {t('connect.requiredMark')}</span>
-                  )}
                 </span>
                 {byokTest.state === 'ok' && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -1162,7 +1161,7 @@ export function AgentSetup({
                     )}
                     <SelectItem value={NO_ACCESS}>
                       {signInType && loginCommand
-                        ? t('connect.byokDeviceSignIn', { command: loginCommand })
+                        ? t('connect.byokDeviceSignIn', { command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })
                         : t('connect.byokProviderNone')}
                     </SelectItem>
                     {byokAccessOptions.map((a) => (
@@ -1175,7 +1174,8 @@ export function AgentSetup({
               </div>
 
               {/* No key picked on a device with no sign-in either. Adding is
-                  blocked (credsMissing); editing an existing agent only warns.
+                  first points here, then lets it through as "Add anyway"
+                  (credsMissing); editing an existing agent only warns.
                   Re-detect is the way back for someone who just signed in. */}
               {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
                 <p
@@ -1196,7 +1196,7 @@ export function AgentSetup({
                   CLI's own account and never a key saved on the device. */}
               {signInChosen && (
                 <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
-                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: loginCommand })}
+                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })}
                   {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}
                 </p>
               )}
