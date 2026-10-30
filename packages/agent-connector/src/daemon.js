@@ -11,7 +11,7 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
-const { supportsCliModels } = require('./cli-models');
+const { supportsCliModels, cliModelsWithKey } = require('./cli-models');
 const { agnLoginCommand, loginCommandOf } = require('./agent-login');
 const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
@@ -294,6 +294,8 @@ class Daemon {
    */
   _onCliSignIn(a) {
     if (!supportsCliModels(a.type)) return false;
+    // A Qoder token IS the account: the CLI lists the same models either way.
+    if (cliModelsWithKey(a.type)) return true;
     const endpoint = this._agentEndpoint(a);
     return !endpoint.baseUrl && !endpoint.apiKey;
   }
