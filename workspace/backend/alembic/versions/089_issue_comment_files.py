@@ -5,8 +5,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 # Additive column with a default; old application versions ignore it.
 deployment_backward_compatible = True
-revision = "087"
-down_revision = "086"
+revision = "089"
+down_revision = "088"
 branch_labels = None
 depends_on = None
 

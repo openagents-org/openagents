@@ -1082,6 +1082,30 @@ def test_comment_attachments_are_saved_and_shown(client, workspace, db, two_memb
     assert missing.status_code == 404
 
 
+def test_comment_attachments_reject_foreign_and_unreadable_files(client, workspace, db, two_members):
+    from app.models import FileRecord
+    data = client.post("/v1/workspaces", json={"name": "Other", "agent_name": "other-agent"}).json()["data"]
+    db.add_all([
+        FileRecord(id='foreign', workspace_id=data['workspaceId'], filename='x.png', content_type='image/png',
+                   size=3, storage_key='k', uploaded_by='human:ann@acme.test', owner='ann@acme.test',
+                   visibility='public'),
+        FileRecord(id='bens', workspace_id=workspace['id'], filename='y.png', content_type='image/png',
+                   size=3, storage_key='k', uploaded_by='human:ben@acme.test', owner='ben@acme.test',
+                   visibility='private'),
+    ])
+    db.commit()
+    issue = create(client, workspace)
+    for file_id in ('foreign', 'bens'):
+        response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+            json={'content': 'see', 'file_ids': [file_id]})
+        assert response.status_code == 404, file_id
+    assert db.get(FileRecord, 'bens').visibility == 'private'
+    too_many = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': 'see', 'file_ids': [f'f{i}' for i in range(21)]})
+    assert too_many.status_code == 422
+    assert not [c for c in detail(client, workspace, issue)['comments'] if c['kind'] == 'comment']
+
+
 def test_agent_request_carries_comment_attachments(client, workspace, db, cloud_dispatch):
     from app.models import FileRecord
     db.add(FileRecord(id='clip', workspace_id=workspace['id'], filename='bug.mp4', content_type='video/mp4',
