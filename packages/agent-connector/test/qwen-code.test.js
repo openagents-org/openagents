@@ -92,6 +92,18 @@ process.stdin.on('end', () => {
     result({ subtype: 'error_during_execution', is_error: true, error: { message: msg } });
     process.exit(1);
   }
+  if (scenario === 'echo_key') {
+    // A provider that quotes the rejected key back, in a format no shape rule knows.
+    init();
+    const msg = '[API Error: 401 Incorrect API key provided: ' + process.env.OPENAI_API_KEY + ']';
+    say({ type: 'text', text: msg });
+    result({ subtype: 'error_during_execution', is_error: true, error: { message: msg } });
+    process.exit(1);
+  }
+  if (scenario === 'echo_key_stderr') {
+    process.stderr.write('Error: DashScope rejected credential ' + process.env.DASHSCOPE_API_KEY + '\\n');
+    process.exit(1);
+  }
   if (scenario === 'legacy_auth') {
     init();
     const msg = '[API Error: 401 Incorrect API key provided.]';
@@ -363,6 +375,26 @@ describe('QwenCodeAdapter — replies', () => {
     assert.match(a._captured.error[0], /Incorrect API key provided/);
   });
 
+  it("masks the agent's own key by value when the CLI quotes it back", async () => {
+    const key = 'mykey-ABC123xyz789';
+    const a = makeAdapter({ scenario: 'echo_key', agentEnv: { OPENAI_API_KEY: key } });
+    await send(a);
+    assert.equal(a._captured.error.length, 1);
+    assert.match(a._captured.error[0], /rejected the API key/);
+    assert.ok(!a._captured.error[0].includes(key), a._captured.error[0]);
+    assert.ok(!a._captured.logs.some((l) => l.includes(key)));
+  });
+
+  it('masks a key from the agent env in a startup failure notice', async () => {
+    const key = 'mykey-DEF456uvw012';
+    const a = makeAdapter({ scenario: 'echo_key_stderr', agentEnv: { DASHSCOPE_API_KEY: key } });
+    await send(a);
+    assert.equal(a._captured.error.length, 1);
+    assert.match(a._captured.error[0], /DashScope rejected credential/);
+    assert.ok(!a._captured.error[0].includes(key), a._captured.error[0]);
+    assert.ok(!a._captured.logs.some((l) => l.includes(key)));
+  });
+
   it('reports a legacy CLI auth error even when its result and exit code say success', async () => {
     const a = makeAdapter({ scenario: 'legacy_auth' });
     await send(a);
@@ -393,10 +425,9 @@ describe('QwenCodeAdapter — replies', () => {
 });
 
 describe('QwenCodeAdapter — pinned channel context', () => {
-  it('refreshes decisions and glossary in the system prompt on a resumed turn', async () => {
+  it('refreshes the glossary in the system prompt on a resumed turn', async () => {
     const a = makeAdapter();
     const entries = [
-      { id: 'decisions-id', title: 'Decisions for channel thread', content: 'Use endpoint A.' },
       { id: 'glossary-id', title: 'Glossary for channel thread', content: 'Widget means a local task.' },
     ];
     a.client.listKnowledge = async () => ({ entries });
@@ -404,17 +435,16 @@ describe('QwenCodeAdapter — pinned channel context', () => {
 
     await a._channelWorker('thread', { content: 'first turn', sessionId: 'thread' });
     const first = argAfter(readCapture(a), '--append-system-prompt');
-    assert.ok(first.includes('Use endpoint A.'));
     assert.ok(first.includes('Widget means a local task.'));
-    assert.ok(first.includes('decisions-id'));
+    assert.ok(first.includes('glossary-id'));
 
-    entries[0].content = 'Use endpoint B.';
+    entries[0].content = 'Widget means a remote job.';
     await a._channelWorker('thread', { content: 'next turn', sessionId: 'thread' });
     const cap = readCapture(a);
     const next = argAfter(cap, '--append-system-prompt');
     assert.equal(argAfter(cap, '--resume'), 'sess-abc');
-    assert.ok(next.includes('Use endpoint B.'));
-    assert.ok(!next.includes('Use endpoint A.'));
+    assert.ok(next.includes('Widget means a remote job.'));
+    assert.ok(!next.includes('Widget means a local task.'));
   });
 });
 
@@ -526,6 +556,28 @@ describe('QwenCodeAdapter — binary resolution', () => {
     const plan = a._spawnPlan(outer, ['--version']);
     assert.equal(plan.command, node);
     assert.equal(plan.args[0], path.join(root, 'lib', 'cli-entry.js'));
+  });
+
+  it('refuses to put a turn through cmd.exe when no Node can bypass the .cmd shim', async () => {
+    const shim = path.join(tmpRoot, 'npm', 'qwen.cmd');
+    fs.mkdirSync(path.dirname(shim), { recursive: true });
+    fs.writeFileSync(shim, '@echo off\r\nnode "%~dp0\\node_modules\\x\\cli.js" %*\r\n');
+    const a = makeAdapter();
+    a._isWindows = true;
+    a._findNodeBin = () => null;
+    // The fixed --version probe may still go through cmd.exe ...
+    assert.equal(a._spawnPlan(shim, ['--version'], { shellSafe: true }).command, 'cmd.exe');
+    // ... a real turn, carrying the system prompt, may not.
+    const plan = a._spawnPlan(shim, ['--append-system-prompt', 'say "a" & b']);
+    assert.ok(plan.error);
+    assert.equal(plan.command, undefined);
+    assert.match(plan.error, /Node\.js >= 22/);
+
+    a._findQwenBinary = () => shim;
+    a._checkVersion = () => ({ version: '0.25.1', supported: true });
+    await send(a);
+    assert.equal(a._captured.error.length, 1);
+    assert.match(a._captured.error[0], /Node\.js >= 22/);
   });
 
   it("runs an npm install's entry script under Node, not through its shim", () => {
@@ -646,6 +698,27 @@ describe('QwenCodeAdapter — preflight', () => {
     a._findQwenBinary = () => null;
     await send(a);
     assert.match(a._captured.error[0], /npm install -g @qwen-code\/qwen-code/);
+  });
+
+  it('preflight reports a missing CLI as runtime_missing', () => {
+    const a = makeAdapter();
+    a._findQwenBinary = () => null;
+    const r = a.preflight();
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'runtime_missing');
+    assert.match(r.message, /npm install -g @qwen-code\/qwen-code/);
+  });
+
+  it('preflight reports a CLI below the minimum as version_incompatible', () => {
+    const a = makeAdapter({ fakeVersion: '0.15.0' });
+    const r = a.preflight();
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'version_incompatible');
+    assert.match(r.message, /0\.15\.0.*0\.16\.0/);
+  });
+
+  it('preflight passes a supported CLI', () => {
+    assert.deepEqual(makeAdapter().preflight(), { ok: true });
   });
 
   it('refuses to run against a working directory that does not exist', async () => {

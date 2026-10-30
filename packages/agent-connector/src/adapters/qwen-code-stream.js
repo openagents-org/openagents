@@ -36,6 +36,8 @@
 
 'use strict';
 
+const { maskSecretValues } = require('./utils');
+
 // Supported floor: the first release that accepts every flag buildQwenArgs()
 // passes. 0.15.0 rejects `--mcp-config` as an unknown argument; 0.16.0 takes
 // the whole argv (verified by running each release with it).
@@ -105,10 +107,16 @@ const SECRET_PATTERNS = [
   /\b(api[_-]?key|token|secret|password|authorization)\b\s*[:=]\s*["']?[A-Za-z0-9._-]{8,}["']?/gi,
 ];
 
-/** Redact obvious secret material from free text before it is logged or posted. */
-function redactSecrets(text) {
+/**
+ * Redact free text before it is logged or posted: the agent's own secrets by
+ * value first (`secrets`, from BaseAdapter._knownSecrets()), so a key in a
+ * format no pattern knows is still caught, then anything shaped like a
+ * credential. Named apart from utils.redactSecrets, whose broader shape rules
+ * would rewrite the CLI's own error wording.
+ */
+function redactQwenText(text, secrets) {
   if (text == null) return text;
-  let out = String(text);
+  let out = maskSecretValues(text, secrets);
   for (const re of SECRET_PATTERNS) {
     out = out.replace(re, (m) => {
       const eq = m.match(/\s*[:=]\s*/);
@@ -424,16 +432,16 @@ function parseFrame(line) {
  * A short, human-readable preview of a tool call's input, for the channel's
  * activity ticker.
  */
-function toolInputPreview(input) {
+function toolInputPreview(input, secrets) {
   if (input == null) return '';
-  if (typeof input !== 'object') return truncate(redactSecrets(String(input)), 150);
+  if (typeof input !== 'object') return truncate(redactQwenText(String(input), secrets), 150);
   const first = input.command || input.file_path || input.absolute_path || input.path
     || input.pattern || input.query || input.url || input.prompt || input.description;
-  if (typeof first === 'string' && first) return truncate(redactSecrets(first), 150);
-  if (typeof input.content === 'string') return truncate(redactSecrets(input.content), 100);
+  if (typeof first === 'string' && first) return truncate(redactQwenText(first, secrets), 150);
+  if (typeof input.content === 'string') return truncate(redactQwenText(input.content, secrets), 100);
   try {
     const json = JSON.stringify(input);
-    return json === '{}' ? '' : truncate(redactSecrets(json), 150);
+    return json === '{}' ? '' : truncate(redactQwenText(json, secrets), 150);
   } catch {
     return '';
   }
@@ -453,14 +461,14 @@ function shortToolName(name) {
  * not activity worth announcing, and the wrapper is announced as the tool it
  * actually ran.
  */
-function describeToolUse(block) {
+function describeToolUse(block, secrets) {
   const name = typeof block.name === 'string' ? block.name : '';
   const input = block.input && typeof block.input === 'object' ? block.input : {};
   if (name === 'tool_search') return null;
   if (name === 'tool_call' && typeof input.name === 'string' && input.name) {
-    return { name: shortToolName(input.name), preview: toolInputPreview(input.arguments) };
+    return { name: shortToolName(input.name), preview: toolInputPreview(input.arguments, secrets) };
   }
-  return { name: shortToolName(name), preview: toolInputPreview(input) };
+  return { name: shortToolName(name), preview: toolInputPreview(input, secrets) };
 }
 
 // An API failure is streamed as assistant text before the result frame
@@ -476,9 +484,11 @@ const IGNORED_FRAMES = new Set(['user', 'stream_event']);
 /**
  * Normalize one parsed frame into something the adapter can act on.
  *
+ * @param {object} frame
+ * @param {string[]} [secrets]  exact values to mask in any text kept from it
  * @returns {{kind: string, [k: string]: any}}
  */
-function interpretQwenFrame(frame) {
+function interpretQwenFrame(frame, secrets) {
   if (!frame || typeof frame !== 'object') return { kind: 'ignored' };
 
   if (frame.type === 'result') {
@@ -486,7 +496,7 @@ function interpretQwenFrame(frame) {
     const text = typeof frame.result === 'string' ? frame.result : '';
     // 0.16.0 wraps provider failures in a success result and exits 0.
     const legacyError = frame.is_error !== true && API_ERROR_TEXT_RE.test(text.trim())
-      ? redactSecrets(text) : '';
+      ? redactQwenText(text, secrets) : '';
     return {
       kind: 'result',
       subtype: typeof frame.subtype === 'string' ? frame.subtype : '',
@@ -494,7 +504,7 @@ function interpretQwenFrame(frame) {
       // `result` is present on success and absent on failure; always a string
       // here so callers never have to guard it.
       text: legacyError ? '' : text,
-      errorMessage: err && typeof err.message === 'string' ? redactSecrets(err.message) : legacyError,
+      errorMessage: err && typeof err.message === 'string' ? redactQwenText(err.message, secrets) : legacyError,
       sessionId: typeof frame.session_id === 'string' ? frame.session_id : null,
       numTurns: Number.isFinite(frame.num_turns) ? frame.num_turns : null,
       durationMs: Number.isFinite(frame.duration_ms) ? frame.duration_ms : null,
@@ -534,10 +544,10 @@ function interpretQwenFrame(frame) {
       if (!block || typeof block !== 'object') continue;
       if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
         const text = block.text.trim();
-        if (API_ERROR_TEXT_RE.test(text)) apiErrors.push(redactSecrets(text));
+        if (API_ERROR_TEXT_RE.test(text)) apiErrors.push(redactQwenText(text, secrets));
         else texts.push(text);
       } else if (block.type === 'tool_use') {
-        const tool = describeToolUse(block);
+        const tool = describeToolUse(block, secrets);
         if (tool) tools.push(tool);
       }
       // `thinking` blocks are the model's private reasoning; the Claude
@@ -549,7 +559,7 @@ function interpretQwenFrame(frame) {
 
   if (IGNORED_FRAMES.has(frame.type)) return { kind: 'ignored' };
 
-  return { kind: 'unknown', raw: truncate(redactSecrets(String(frame.type || '')), 80) };
+  return { kind: 'unknown', raw: truncate(redactQwenText(String(frame.type || ''), secrets), 80) };
 }
 
 // ---------------------------------------------------------------------------
@@ -606,9 +616,9 @@ const ERROR_RULES = [
   },
 ];
 
-function messageFor(text) {
+function messageFor(text, secrets) {
   const raw = String(text || '').trim();
-  const detail = truncate(redactSecrets(raw.replace(/^\[API Error:\s*/i, '').replace(/\]$/, '')), 300);
+  const detail = truncate(redactQwenText(raw.replace(/^\[API Error:\s*/i, '').replace(/\]$/, ''), secrets), 300);
   for (const rule of ERROR_RULES) {
     if (rule.re.test(raw)) {
       return {
@@ -638,22 +648,23 @@ const STALE_SESSION_RE = /No saved session found/i;
  * @param {string|null} [o.signal]  terminating signal, if any
  * @param {string} [o.stderr]       captured stderr
  * @param {string[]} [o.apiErrors]  API error texts streamed before the result
+ * @param {string[]} [o.secrets]    exact values to mask in any quoted CLI text
  * @returns {{kind: string, ok: boolean, userMessage: string|null}}
  */
-function classifyQwenRun({ result = null, code = null, signal = null, stderr = '', apiErrors = [] } = {}) {
+function classifyQwenRun({ result = null, code = null, signal = null, stderr = '', apiErrors = [], secrets = [] } = {}) {
   if (result && !result.isError) {
     return { kind: 'success', ok: true, userMessage: null };
   }
 
   if (result && result.isError) {
     const text = result.errorMessage || (apiErrors && apiErrors[0]) || '';
-    const known = messageFor(text);
+    const known = messageFor(text, secrets);
     if (known) return { ...known, ok: false };
     return {
       kind: 'run_error',
       ok: false,
       userMessage: text
-        ? `Qwen Code could not finish the run: ${truncate(redactSecrets(text), 400)}`
+        ? `Qwen Code could not finish the run: ${truncate(redactQwenText(text, secrets), 400)}`
         : 'Qwen Code could not finish the run. Check the daemon log for details, then retry.',
     };
   }
@@ -675,7 +686,7 @@ function classifyQwenRun({ result = null, code = null, signal = null, stderr = '
   }
   const streamed = apiErrors && apiErrors[0];
   if (streamed) {
-    const known = messageFor(streamed);
+    const known = messageFor(streamed, secrets);
     if (known) return { ...known, ok: false };
   }
   if (err) {
@@ -683,7 +694,7 @@ function classifyQwenRun({ result = null, code = null, signal = null, stderr = '
     return {
       kind: 'startup_error',
       ok: false,
-      userMessage: `Qwen Code stopped before answering: ${truncate(redactSecrets(firstLine), 400)}`,
+      userMessage: `Qwen Code stopped before answering: ${truncate(redactQwenText(firstLine, secrets), 400)}`,
     };
   }
 
@@ -704,7 +715,7 @@ module.exports = {
   parseQwenVersion,
   compareVersions,
   classifyQwenVersion,
-  redactSecrets,
+  redactQwenText,
   redactArgs,
   truncate,
   resolveQwenCredentials,

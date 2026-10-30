@@ -50,6 +50,7 @@ const { spawn } = require('../wsl');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
+const { REASON } = require('./health-status');
 const { defaultAgentWorkdir, whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const {
   buildQwenArgs,
@@ -63,7 +64,6 @@ const {
   qwenSystemDefaultsSource,
   qwenSystemSettingsSource,
   redactArgs,
-  redactSecrets,
   resolveQwenCredentials,
   sameQwenSettings,
   truncate,
@@ -91,6 +91,9 @@ const VERSION_PROBE_TTL_MS = 60000;
 const STOP_GRACE_MS = 3000;
 
 const INSTALL_HINT = 'npm install -g @qwen-code/qwen-code';
+const NO_NODE_FOR_SHIM = `Qwen Code needs Node.js >= ${MIN_NODE_MAJOR} to run on Windows, and none was found ` +
+  '(its .cmd shim cannot carry the workspace briefing safely). Install Node.js 22 or newer, ' +
+  'or reinstall Qwen Code from the Install page.';
 const PACKAGE_DIR = ['@qwen-code', 'qwen-code'];
 
 class QwenCodeAdapter extends BaseAdapter {
@@ -139,7 +142,7 @@ class QwenCodeAdapter extends BaseAdapter {
         }
       }
     } catch {
-      this._log('Could not load Qwen Code sessions file, starting fresh');
+      this._log('Could not load Qwen Code sessions file, starting fresh', 'warn');
     }
   }
 
@@ -299,10 +302,10 @@ class QwenCodeAdapter extends BaseAdapter {
    * Locate the Qwen Code CLI.
    *
    * The isolated runtime prefix is checked first so the version the launcher
-   * installed wins over anything else on PATH. Tier 3 covers the official
-   * standalone installer (install-qwen-standalone.sh / .ps1), which bundles
-   * its own Node and puts a wrapper in ~/.local/bin or
-   * %LOCALAPPDATA%\qwen-code\bin.
+   * installed wins over anything else on PATH. The official standalone
+   * installer's wrapper dirs (~/.local/bin, %LOCALAPPDATA%\qwen-code\bin,
+   * QWEN_INSTALL_BIN_DIR / QWEN_INSTALL_ROOT) are known bin dirs in paths.js,
+   * so the PATH lookup and the deep scan already reach them.
    */
   _findQwenBinary() {
     const home = os.homedir();
@@ -334,27 +337,7 @@ class QwenCodeAdapter extends BaseAdapter {
     const nearNode = path.join(path.dirname(process.execPath), `qwen${ext}`);
     if (fs.existsSync(nearNode)) return nearNode;
 
-    // Tier 3: common install locations, the standalone installer's included.
-    const env = process.env;
-    const candidates = [];
-    if (env.QWEN_INSTALL_BIN_DIR) candidates.push(path.join(env.QWEN_INSTALL_BIN_DIR, `qwen${ext}`));
-    if (env.QWEN_INSTALL_ROOT) candidates.push(path.join(env.QWEN_INSTALL_ROOT, 'bin', `qwen${ext}`));
-    if (this._isWindows) {
-      candidates.push(
-        path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'qwen-code', 'bin', 'qwen.cmd'),
-        path.join(env.APPDATA || '', 'npm', 'qwen.cmd'),
-      );
-    } else {
-      candidates.push(
-        path.join(home, '.local', 'bin', 'qwen'),
-        path.join(home, '.npm-global', 'bin', 'qwen'),
-        '/opt/homebrew/bin/qwen',
-        '/usr/local/bin/qwen',
-      );
-    }
-    for (const c of candidates) if (fs.existsSync(c)) return c;
-
-    // Tier 4: deep scan of every known bin dir (nvm/fnm/volta/homebrew/…).
+    // Tier 3: deep scan of every known bin dir (nvm/fnm/volta/homebrew/…).
     return whichBinary('qwen') || null;
   }
 
@@ -466,9 +449,11 @@ class QwenCodeAdapter extends BaseAdapter {
    *   - a standalone install runs on its own bundled Node, with the launcher
    *     path its shim would have exported;
    *   - an npm install runs on the launcher's Node (>= 22);
-   *   - anything else is spawned as found.
+   *   - anything else is spawned as found, except a Windows .cmd shim with no
+   *     Node to bypass it: that returns { error } unless `shellSafe` says the
+   *     argv is fixed and harmless (the `--version` probe).
    */
-  _spawnPlan(binPath, args) {
+  _spawnPlan(binPath, args, { shellSafe = false } = {}) {
     const root = this._findStandaloneRoot(binPath);
     if (root) {
       return {
@@ -480,6 +465,10 @@ class QwenCodeAdapter extends BaseAdapter {
     const resolved = this._resolveToNodeCmd(binPath);
     if (resolved) return { command: resolved[0], args: [resolved[1], ...args], env: {} };
     if (this._isWindows && binPath.toLowerCase().endsWith('.cmd')) {
+      // Only a fixed, harmless argv may go through cmd.exe. A real turn carries
+      // the system prompt, whose glossary text can hold `"` or `&` that cmd.exe
+      // would reinterpret — and the whole line is capped at 8191 characters.
+      if (!shellSafe) return { error: NO_NODE_FOR_SHIM };
       return { command: 'cmd.exe', args: ['/c', binPath, ...args], env: {} };
     }
     return { command: binPath, args, env: {} };
@@ -489,10 +478,37 @@ class QwenCodeAdapter extends BaseAdapter {
   // Version preflight (cached; HARD minimum QWEN_MIN_VERSION)
   // ------------------------------------------------------------------
 
+  /**
+   * Health check run before the adapter takes work: a missing CLI or one below
+   * QWEN_MIN_VERSION is reported here instead of failing every message. An
+   * unreadable version passes, as it does at run time.
+   */
+  preflight() {
+    const bin = this._findQwenBinary();
+    if (!bin) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `Qwen Code CLI not found — install it with: ${INSTALL_HINT}`,
+      };
+    }
+    const ver = this._checkVersion(bin);
+    if (ver.supported === false) {
+      return {
+        ok: false,
+        reason: REASON.VERSION_INCOMPATIBLE,
+        message: `Qwen Code ${ver.version} is below the minimum supported version ${QWEN_MIN_VERSION}. ` +
+          `Upgrade with: ${INSTALL_HINT}`,
+      };
+    }
+    this._log(`Qwen Code CLI resolved: ${bin}${ver.version ? ` (v${ver.version})` : ''}`);
+    return { ok: true };
+  }
+
   /** Run `--version` and return raw output. Isolated for testing. */
   _readVersionRaw(bin) {
     try {
-      const plan = this._spawnPlan(bin, ['--version']);
+      const plan = this._spawnPlan(bin, ['--version'], { shellSafe: true });
       return execFileSync(plan.command, plan.args, {
         encoding: 'utf-8',
         timeout: 15000,
@@ -537,7 +553,7 @@ class QwenCodeAdapter extends BaseAdapter {
         try {
           existing = JSON.parse(fs.readFileSync(source, 'utf-8'));
         } catch {
-          this._log(`Could not parse ${source}; leaving Qwen Code's system defaults as they are`);
+          this._log(`Could not parse ${source}; leaving Qwen Code's system defaults as they are`, 'warn');
           return null;
         }
       }
@@ -556,7 +572,7 @@ class QwenCodeAdapter extends BaseAdapter {
       }
       return target;
     } catch (e) {
-      this._log(`Could not write the Qwen Code settings layer: ${redactSecrets(e && e.message)}`);
+      this._log(`Could not write the Qwen Code settings layer: ${this._redact(e && e.message)}`, 'warn');
       return null;
     }
   }
@@ -610,7 +626,7 @@ class QwenCodeAdapter extends BaseAdapter {
 
       const resolved = this._resolveMcpServerCmd(mcpArgs);
       if (!resolved) {
-        this._log('Could not find the openagents binary — workspace MCP tools are unavailable this run');
+        this._log('Could not find the openagents binary — workspace MCP tools are unavailable this run', 'warn');
         return null;
       }
 
@@ -631,7 +647,7 @@ class QwenCodeAdapter extends BaseAdapter {
       try { fs.chmodSync(file, 0o600); } catch {}
       return file;
     } catch (e) {
-      this._log(`Could not write the MCP config: ${redactSecrets(e && e.message)}`);
+      this._log(`Could not write the MCP config: ${this._redact(e && e.message)}`, 'warn');
       return null;
     }
   }
@@ -722,6 +738,10 @@ class QwenCodeAdapter extends BaseAdapter {
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     return new Promise((resolve) => {
       const plan = this._spawnPlan(bin, args);
+      if (plan.error) {
+        resolve({ code: null, signal: null, result: null, sessionId: null, anyOutput: false, userStopped: false, refused: plan.error });
+        return;
+      }
       this._log(`Spawning: ${path.basename(plan.command)} ${redactArgs(plan.args).join(' ')} (cwd=${workingDir})`);
 
       let proc;
@@ -752,6 +772,8 @@ class QwenCodeAdapter extends BaseAdapter {
       // run whose result frame came back empty.
       let lastAssistantText = '';
       const apiErrors = [];
+      // Masked by value in every error text kept from the stream.
+      const secrets = this._knownSecrets();
       let lastFrameAt = Date.now();
       let silences = 0;
       let lastToolLabel = null;
@@ -775,7 +797,7 @@ class QwenCodeAdapter extends BaseAdapter {
         silences = 0;
         anyOutput = true;
 
-        const ev = interpretQwenFrame(frame);
+        const ev = interpretQwenFrame(frame, secrets);
         if (ev.kind === 'result') {
           result = ev;
           if (ev.sessionId) sessionId = ev.sessionId;
@@ -787,7 +809,7 @@ class QwenCodeAdapter extends BaseAdapter {
           if (ev.sessionId) sessionId = ev.sessionId;
           for (const s of ev.mcpServers) {
             if (s.status && s.status !== 'connected') {
-              this._log(`MCP server ${s.name} is ${s.status} — its tools are unavailable this run`);
+              this._log(`MCP server ${s.name} is ${s.status} — its tools are unavailable this run`, 'warn');
             }
           }
           return;
@@ -837,7 +859,7 @@ class QwenCodeAdapter extends BaseAdapter {
           lastAssistantText,
           apiErrors,
           userStopped,
-          stderr: redactSecrets(stderrBuf),
+          stderr: stderrBuf,
         });
       };
 
@@ -854,7 +876,7 @@ class QwenCodeAdapter extends BaseAdapter {
         while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
           const line = stdoutBuf.slice(0, nl);
           stdoutBuf = stdoutBuf.slice(nl + 1);
-          try { onFrame(line); } catch (e) { this._log(`Frame handling failed: ${redactSecrets(e && e.message)}`); }
+          try { onFrame(line); } catch (e) { this._log(`Frame handling failed: ${this._redact(e && e.message)}`, 'warn'); }
         }
       });
 
@@ -886,7 +908,7 @@ class QwenCodeAdapter extends BaseAdapter {
           void this.sendStatus(channel, 'still working...').catch(() => {});
         }
         if (silences >= WATCHDOG_MAX) {
-          this._log('No output for ~5 minutes — killing a wedged run');
+          this._log('No output for ~5 minutes — killing a wedged run', 'warn');
           killedByWatchdog = true;
           void this._stopProcess(proc);
         }
@@ -897,7 +919,7 @@ class QwenCodeAdapter extends BaseAdapter {
         proc.stdin.write(prompt, 'utf-8');
         proc.stdin.end();
       } catch (e) {
-        this._log(`Could not write the prompt to stdin: ${redactSecrets(e && e.message)}`);
+        this._log(`Could not write the prompt to stdin: ${this._redact(e && e.message)}`, 'warn');
       }
     });
   }
@@ -916,7 +938,7 @@ class QwenCodeAdapter extends BaseAdapter {
     const channel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(channel);
     const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${channel}: ${redactSecrets(truncate(content, 80))}`);
+    this._log(`Processing message from ${sender} in ${channel}: ${truncate(this._redact(content), 80)}`);
 
     // Resolve the working directory up front. Never silently fall back to the
     // launcher/repo dir — a wrong cwd is a destructive surprise, not a default.
@@ -936,7 +958,7 @@ class QwenCodeAdapter extends BaseAdapter {
     // undetermined version (supported === null) proceeds leniently.
     const ver = this._checkVersion(bin);
     if (ver.supported === false) {
-      this._log(`Refusing to start: Qwen Code ${ver.version} < minimum ${QWEN_MIN_VERSION}`);
+      this._log(`Refusing to start: Qwen Code ${ver.version} < minimum ${QWEN_MIN_VERSION}`, 'warn');
       await this.sendError(channel,
         `Qwen Code ${ver.version} is below the minimum supported version ${QWEN_MIN_VERSION} ` +
         `(the first release that accepts --mcp-config). Upgrade with: ${INSTALL_HINT}`);
@@ -1005,7 +1027,8 @@ class QwenCodeAdapter extends BaseAdapter {
       try {
         if (creds.apiKey) runSettingsPath = this._writeRunSettings();
       } catch (e) {
-        await this.sendError(channel, `Could not prepare Qwen Code settings: ${redactSecrets(e.message)}`);
+        this._log(`Could not prepare Qwen Code settings: ${this._redact(e.message)}`, 'error');
+        await this.sendError(channel, `Could not prepare Qwen Code settings: ${this._redact(e.message)}`);
         return;
       }
 
@@ -1046,18 +1069,25 @@ class QwenCodeAdapter extends BaseAdapter {
         return;
       }
 
-      if (run.spawnError) {
-        await this.sendError(channel,
-          `Qwen Code CLI could not be started (${redactSecrets(run.spawnError)}). Reinstall it with: ${INSTALL_HINT}`);
+      if (run.refused) {
+        this._log(`Refusing to start: ${run.refused}`, 'error');
+        await this.sendError(channel, run.refused);
         return;
       }
 
-      const verdict = classifyQwenRun(run);
+      if (run.spawnError) {
+        this._log(`Could not start Qwen Code: ${this._redact(run.spawnError)}`, 'error');
+        await this.sendError(channel,
+          `Qwen Code CLI could not be started (${this._redact(run.spawnError)}). Reinstall it with: ${INSTALL_HINT}`);
+        return;
+      }
+
+      const verdict = classifyQwenRun({ ...run, secrets: this._knownSecrets() });
 
       // A resume the CLI could not find is the stale-session case: drop the
       // binding and retry once from scratch.
       if (resumeId && attempt === 0 && (verdict.kind === 'stale_session' || (!verdict.ok && !run.anyOutput))) {
-        this._log(`Resume of session ${resumeId} failed (${verdict.kind}) — clearing and retrying fresh`);
+        this._log(`Resume of session ${resumeId} failed (${verdict.kind}) — clearing and retrying fresh`, 'warn');
         this._clearSession(channel);
         continue;
       }
@@ -1080,12 +1110,12 @@ class QwenCodeAdapter extends BaseAdapter {
       // step failed) delivers the text with the reason appended rather than
       // replacing an answer the user can use.
       if (finalText) {
-        this._log(`Run reported ${verdict.kind} but returned text; text delivered`);
+        this._log(`Run reported ${verdict.kind} but returned text; text delivered`, 'warn');
         try { await this.sendResponse(channel, `${finalText}\n\n_${verdict.userMessage}_`); } catch {}
         return;
       }
 
-      this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${redactSecrets(truncate(run.stderr || '', 300))}`);
+      this._log(`Run failed (${verdict.kind}, exit ${run.code}): ${truncate(this._redact(run.stderr || ''), 300)}`, 'error');
       try { await this.sendError(channel, verdict.userMessage); } catch {}
       return;
     }

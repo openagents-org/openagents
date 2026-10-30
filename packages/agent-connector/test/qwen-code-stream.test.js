@@ -18,7 +18,7 @@ const {
   qwenSystemDefaultsSource,
   redactArgs,
   sameQwenSettings,
-  redactSecrets,
+  redactQwenText,
   resolveQwenCredentials,
 } = require('../src/adapters/qwen-code-stream');
 
@@ -198,7 +198,7 @@ describe('qwen-code argv', () => {
   });
 
   it('redacts keys from free text', () => {
-    assert.ok(!redactSecrets('key sk-ws-H.PHMLRHM.gozS.abcdef12345').includes('PHMLRHM'));
+    assert.ok(!redactQwenText('key sk-ws-H.PHMLRHM.gozS.abcdef12345').includes('PHMLRHM'));
   });
 });
 
