@@ -94,3 +94,17 @@ it('only predicts leading mentions while thread response routing is pending', ()
 it('does not show an agent reply placeholder for @all', () => {
   expect(expectsAgentResponse({ content: '@All hello', mentions: [], mentionedHumans: [] })).toBe(false);
 });
+
+import { needsProactiveRouting } from './pending-responder';
+it('shows routing for ambiguous proactive threads, including one agent with several people', () => {
+  const opts = { content: 'did you open the page', mentions: [], mentionedHumans: [], participants: ['writer', 'reviewer'], responseMode: 'proactive' as const };
+  expect(needsProactiveRouting(opts)).toBe(true);
+  expect(needsProactiveRouting({ ...opts, participants: ['writer'], humanCount: 2 })).toBe(true);
+  expect(needsProactiveRouting({ ...opts, participants: ['writer'], humanCount: 1 })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, participants: [] })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, direct: true })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, responseMode: 'passive' })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, mentions: ['writer'] })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, mentionedHumans: ['ann@test.com'] })).toBe(false);
+  expect(needsProactiveRouting({ ...opts, content: '@all hello' })).toBe(false);
+});

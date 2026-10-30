@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
  * Polls window.api.listAgents() and writes results into the agents store.
  * Dedup via inFlight ref — only one request runs at a time.
  *
- * Daemon liveness is derived from the agent list in useDaemonStatus(), so
+ * The footer's agent summary is derived from the agent list (useAgentsSummary), so
  * this hook does not call a separate IPC for it — matches the legacy launcher.
  */
 export function useAgents(intervalMs = 5000): void {

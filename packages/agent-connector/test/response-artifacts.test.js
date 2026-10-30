@@ -48,6 +48,7 @@ test('upload failures preserve the answer and original link',async t=>{
 });
 test('final response attaches the published artifact and honors the disabled files module',async t=>{
   const root=await fixture(t);const a=new BaseAdapter({workspaceId:'ws',channelName:'general',token:'token',agentName:'bot',workingDir:root});
+  a._responseOutboxDirectory = path.join(root, 'outbox');
   const sent=[];let uploads=0;
   a.client={uploadFile:async()=>{uploads++;return{id:'file-1'};},sendMessage:async(...args)=>sent.push(args)};
   await a.sendResponse('general','[Report](report.html)');

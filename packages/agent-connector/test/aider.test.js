@@ -322,6 +322,20 @@ describe('Aider adapter — execution', () => {
     assert.ok(error && /code 1|exit/i.test(error));
   });
 
+  it('redacts the line it quotes when nothing classifies the failure', async () => {
+    // Aider's last line on a provider failure quotes the request it made.
+    spawnImpl = makeFakeSpawn(
+      ['working…'], 1,
+      'Traceback (most recent call last):\nRuntimeError: POST https://bob:hunter2pass@relay.example/v1 with Authorization: Bearer abcDEF1234567890xyz and kz-91Ab_x7.Qm4 gave 500',
+    );
+    const a = makeAdapter({ agentEnv: { AIDER_MODEL: 'gpt-4o', LLM_API_KEY: 'kz-91Ab_x7.Qm4' } });
+    const { error } = await a._spawnAider(['/usr/bin/aider'], 'general');
+    assert.match(error, /^Aider exited with code 1\. RuntimeError: POST https:\/\/\[REDACTED\]@relay\.example\/v1/);
+    for (const secret of ['hunter2pass', 'abcDEF1234567890xyz', 'kz-91Ab_x7.Qm4']) {
+      assert.ok(!error.includes(secret), error);
+    }
+  });
+
   it('classifies an authentication failure', async () => {
     spawnImpl = makeFakeSpawn(['litellm.AuthenticationError: invalid api key'], 1);
     const a = makeAdapter();

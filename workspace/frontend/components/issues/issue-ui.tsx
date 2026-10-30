@@ -3,6 +3,7 @@ import { Circle, CircleCheck, CircleDot, CirclePause } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import type { IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 
@@ -69,7 +70,7 @@ export function StatusBadge({ status }: { status: IssueStatus }) {
   );
 }
 
-/** Humans have quiet initial avatars; agents keep their workspace identity. */
+/** Match the human and agent identities used throughout the workspace. */
 export function IssueAvatar({
   name,
   source,
@@ -79,6 +80,8 @@ export function IssueAvatar({
   source?: string;
   size?: number;
 }) {
+  if (source?.startsWith('human:'))
+    return <span title={name} className="inline-flex shrink-0" style={{ width: size, height: size }}><HumanAvatar email={source.slice(6)} className="size-full [&_svg]:size-3" /></span>;
   if (source?.startsWith('openagents:'))
     return (
       <span title={name} className="shrink-0">

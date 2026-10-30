@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { nodeCommandErrorKey } from '@/lib/node-command-error';
+import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
 import { uniqueAgentName } from '@/lib/agent-name';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
+import { desktopHost } from '@/lib/desktop-host';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
 import { SmokeTestPanel } from './smoke-test-panel';
 
@@ -56,6 +58,20 @@ export interface AgentSetupExtensions {
   aside?: (props: { type: string }) => React.ReactNode;
 }
 
+/** What an add was submitted with — enough to reopen the form when it fails on the device. */
+export interface AgentDraft {
+  name: string;
+  type: string;
+  workingDir?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  modelAccessId?: string;
+  codexWireApi?: 'responses' | 'chat';
+  /** The agent's own credential fields (e.g. CodeArts AK/SK). */
+  config?: Record<string, string>;
+}
+
 /** Where the host's agent catalog load stands — the gallery is empty until it lands. */
 export interface CatalogState {
   status: 'loading' | 'ready' | 'error';
@@ -88,11 +104,20 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 }
 
 const NO_ACCESS = '__none__';
+// Editing an agent that runs on a key: keep it as it is. The form cannot pick
+// the saved access it came from, and a key saved on the device (the launcher
+// saves them there) has none.
+const KEEP_CURRENT = '__keep_current__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
 /** How long "Detecting…" may stay up before it gives way to a retry. */
 const DETECT_DEADLINE_MS = 45_000;
 const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** Types whose endpoint is one device-wide config file of their own, so every
+ *  agent of the type on a device runs on the same key, endpoint and model.
+ *  Mirrors SHARED_NATIVE_CONFIG in packages/agent-connector/src/daemon.js;
+ *  every other type keeps what this form sends on the agent alone. */
+const SHARED_CONFIG_TYPES = new Set(['hermes']);
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
@@ -130,6 +155,90 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
     default:
       return { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-zinc-400', text: 'text-muted-foreground' };
   }
+}
+
+/**
+ * CLIs that sign in to an account although the registry gives them no
+ * `login_command`. Declaring one there would also change how the form and the
+ * device treat their keys and models, so they are named here for the hint only.
+ * A device with `agn login` reports that command instead (EXTRA_LOGIN_COMMANDS
+ * in the connector's agent-login.js); this is what an older one is shown.
+ */
+const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> = {
+  // In `opencode auth login` (1.19.5) OpenAI offers a ChatGPT Plus/Pro sign-in
+  // and GitHub Copilot a GitHub one; every other provider only takes a key.
+  opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
+};
+
+const HINT_CODE = 'font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5';
+const CODE_MARK = '\u0000';
+
+/** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
+function withCode(text: string, codes: string[]): React.ReactNode[] {
+  return text.split(CODE_MARK).flatMap((part, i) =>
+    i < codes.length ? [part, <code key={i} className={HINT_CODE}>{codes[i]}</code>] : [part]);
+}
+
+/**
+ * What to do about an agent installed with no credentials: an API key always
+ * works; an agent whose CLI signs in to an account (a subscription) can also be
+ * signed in on its device — from the desktop app, or for a device paired from
+ * the command line, with `command` in a terminal there.
+ */
+function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
+  const t = useT();
+  // Already in the desktop app: no point offering to download it.
+  const downloads = desktopHost() ? [] : desktopDownloads(t);
+  // The CLI's own command (a device too old for `agn login`) relies on the
+  // terminal's PATH, which often lacks where the CLI really is — an npm global
+  // folder or OpenAgents' own. `agn runtimes`, which old devices have, prints
+  // that path; PowerShell needs `&` to run a quoted one.
+  const bare = !!command && !command.startsWith('agn ');
+  const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
+  return (
+    <div data-testid="agent-setup-needs-credentials" className="space-y-2">
+      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
+      <div>
+        <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
+        <p>{t('connect.nodeNeedsLoginKeyStep')}</p>
+      </div>
+      {command && (
+        <div>
+          <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
+          {note && <p className="mb-1">{t(note)}</p>}
+          <ol className="list-decimal space-y-1.5 pl-4">
+            <li>
+              {t('connect.nodeNeedsLoginDesktop', { device, label })}
+              {downloads.length > 0 && (
+                <span className="mt-1.5 flex flex-wrap gap-1.5">
+                  {downloads.map((d) => (
+                    <a
+                      key={d.os}
+                      href={d.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
+                    >
+                      <Download className="size-3" />{d.os}
+                    </a>
+                  ))}
+                </span>
+              )}
+            </li>
+            <li>
+              {t('connect.nodeNeedsLoginCli')}{' '}
+              <code className={HINT_CODE}>{command}</code>
+              {bare && (
+                <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
+                  {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}
+                </span>
+              )}
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
@@ -368,6 +477,8 @@ export function AgentSetup({
   contextLabel,
   editAgent,
   initialType,
+  draft,
+  draftFailure,
   onManageAgent,
   onBack,
   onChanged,
@@ -384,10 +495,14 @@ export function AgentSetup({
   editAgent?: import('@/lib/types').NodeAgent;
   /** Open straight on this type's form rather than the gallery. Ignored when editing. */
   initialType?: string;
+  /** Reopen the add form filled in from a failed add; the name stays editable. */
+  draft?: AgentDraft;
+  /** Why the device refused `draft`. */
+  draftFailure?: string | null;
   onManageAgent?: (agent: import('@/lib/types').NodeAgent) => void;
   onBack: () => void;
   onChanged: () => void;
-  onQueued?: (agent: { name: string; type: string; commandId?: string }) => void;
+  onQueued?: (agent: { name: string; type: string; commandId?: string; draft?: AgentDraft }) => void;
 }) {
   const t = useT();
   const isEdit = !!editAgent;
@@ -395,9 +510,9 @@ export function AgentSetup({
     () => new Set([...node.agents.map((agent) => agent.name), ...(extensions?.takenNames ?? [])]),
     [node.agents, extensions?.takenNames],
   );
-  const startType = editAgent ? null : initialType ?? null;
+  const startType = editAgent ? null : draft?.type ?? initialType ?? null;
   const [selected, setSelected] = useState<string | null>(editAgent?.type ?? startType);
-  const [name, setName] = useState(editAgent?.name ?? (startType ? uniqueAgentName(startType, takenNames) : ''));
+  const [name, setName] = useState(editAgent?.name ?? draft?.name ?? (startType ? uniqueAgentName(startType, takenNames) : ''));
   // The label people see, editable after creation — unlike `name`, which is the
   // agent's identity (config, env files, @mentions) and stays fixed.
   const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');
@@ -405,21 +520,21 @@ export function AgentSetup({
   // A typed name belongs to the type it was typed for: re-picking that type keeps
   // it (a typed "claudecbd" must not revert to "claude"), but switching to a
   // different type reseeds — otherwise "kimi-1019" lands on a DeepSeek agent.
-  const nameTouchedFor = useRef<string | null>(null);
-  const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
-  const [apiKey, setApiKey] = useState('');
+  const nameTouchedFor = useRef<string | null>(draft?.type ?? null);
+  const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? draft?.workingDir ?? '');
+  const [apiKey, setApiKey] = useState(draft?.apiKey ?? '');
   // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
   // only usable against an agent's built-in providers — for hermes (whose key
   // is meaningless without an endpoint) the form was a dead end. The daemon's
   // create/configure commands have always accepted baseUrl; the form just
   // never sent it.
-  const [baseUrl, setBaseUrl] = useState('');
-  const [model, setModel] = useState(editAgent?.model ?? '');
-  const [codexWireApi, setCodexWireApi] = useState<'responses' | 'chat'>(editAgent ? (editAgent.codexWireApi || 'chat') : 'responses');
+  const [baseUrl, setBaseUrl] = useState(draft?.baseUrl ?? '');
+  const [model, setModel] = useState(editAgent?.model ?? draft?.model ?? '');
+  const [codexWireApi, setCodexWireApi] = useState<'responses' | 'chat'>(editAgent ? (editAgent.codexWireApi || 'chat') : (draft?.codexWireApi ?? 'responses'));
   // When editing an agent that has a key on the node, open the credentials
   // section up front so the masked key (and the keep-if-blank rule) is visible
   // — otherwise the collapsed section reads as "no key saved".
-  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked);
+  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked || !!draft?.apiKey || !!draft?.baseUrl);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
@@ -477,6 +592,16 @@ export function AgentSetup({
       {t('connect.agentSignIn')}<ArrowRight className="size-3" />
     </button>
   );
+
+  // Say a name is taken while it is typed, not after the device refuses it. A
+  // name the device refused last time stays flagged on retry: that agent is
+  // not in this roster, so nothing else here knows about it.
+  const trimmedName = name.trim();
+  const nameClash = isEdit || !trimmedName ? null
+    : node.agents.some((agent) => agent.name === trimmedName) ? t('connect.agentNameExists')
+    : takenNames.has(trimmedName) ? t('connect.agentNameTaken', { name: trimmedName })
+    : deviceNameClash(draftFailure) === trimmedName ? t('connect.agentNameOnDevice', { name: trimmedName })
+    : null;
 
   const pick = (typeName: string) => {
     setSelected(typeName);
@@ -546,8 +671,14 @@ export function AgentSetup({
       : (detail?.env_config || []).filter((f) => f.password && f.required && !f.name.startsWith('LLM_'))),
     [detail, extensions?.configuration],
   );
-  const [nativeValues, setNativeValues] = useState<Record<string, string>>({});
-  useEffect(() => { setNativeValues({}); }, [selected]);
+  const [nativeValues, setNativeValues] = useState<Record<string, string>>(draft?.config ?? {});
+  // Picking another type starts these empty; a retry opens with its own.
+  const nativeValuesFor = useRef(selected);
+  useEffect(() => {
+    if (nativeValuesFor.current === selected) return;
+    nativeValuesFor.current = selected;
+    setNativeValues({});
+  }, [selected]);
   // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
@@ -557,14 +688,79 @@ export function AgentSetup({
       ? ['anthropic', 'custom-anthropic', 'tokenpay'].includes(a.provider)
       : a.provider !== 'custom-anthropic',
   );
-  const [byokAccessId, setByokAccessId] = useState('');
-  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || editAgent?.baseUrlHost);
+  const [byokAccessId, setByokAccessId] = useState(draft?.modelAccessId ?? '');
+  // An agent on a key opens on that key, not on "sign in on the device": the
+  // select showed the sign-in for an agent running on a relay key, which is
+  // exactly how nobody could tell which of a device's two codex setups an
+  // agent was on. Devices that do not report authMode say so by a key or an
+  // endpoint of their own.
+  const editOnKey = !!editAgent && (editAgent.authMode !== undefined
+    ? editAgent.authMode === 'api_key'
+    : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
+  const [keepCurrent, setKeepCurrent] = useState(editOnKey);
+  // A type whose CLI has its own sign-in (codex login, claude login…): the
+  // no-key choice means that sign-in, and the device is told so (authMode),
+  // or the agent would run on whatever key the device saved for its type.
+  const signInType = byok && !!detail?.check_ready?.login_command;
+  const signInChosen = signInType && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const loginCommand = detail?.check_ready?.login_command || '';
+  // The models the device's own CLI offers its sign-in (a ChatGPT or Claude
+  // subscription), for an agent that will run on that sign-in ("sign in on
+  // the device" picked) rather than on a key. The catalog's list is the
+  // vendor's line-up, kept by hand: it offered models the account behind the
+  // sign-in is not served, and missed ones it is. The edited agent's own
+  // answer comes first; a new agent gets what its type's CLI said for the
+  // device. Null on a launcher too old to ask and until the CLI has
+  // answered: the catalog stands in.
+  const accountModels = useMemo(() => {
+    if (!signInChosen || !selected || baseUrl.trim()) return null;
+    // The device sends an agent's own list only while it is on its sign-in.
+    if (editAgent?.type === selected && editAgent.cliModels?.length) return editAgent.cliModels;
+    const runtime = runtimeByType[selected];
+    return runtime?.cliModels?.length ? runtime.cliModels : null;
+  }, [signInChosen, selected, baseUrl, editAgent, runtimeByType]);
+  const pickerModels = useMemo(
+    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : modelOptions),
+    [accountModels, modelOptions],
+  );
+  // A model the list does not hold (one saved before, or one the account is
+  // no longer offered) is still shown as the one picked, not as a blank.
+  const unlistedModel = model.trim() && pickerModels && !pickerModels.some((m) => m.id === model.trim()) ? model.trim() : null;
+  const currentKeyDetail = [editAgent?.apiKeyMasked, editAgent?.baseUrlHost].filter(Boolean).join(' · ');
+  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || (editAgent?.baseUrlHost && keepCurrent));
   const launcherParts = (node.launcherVersion || '').replace(/^v/, '').split('.').map(Number);
   const supportsCodexMode = launcherParts[0] > 0 || launcherParts[1] > 2 || (launcherParts[1] === 2 && launcherParts[2] >= 197);
   const [byokCustomModel, setByokCustomModel] = useState(false);
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
+  // A model the form cannot save without is reported under the model field,
+  // which takes focus, rather than on the line beside the buttons.
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  // A new agent on a device with no sign-in for its type cannot answer until
+  // it is signed in or given a key. The first Add points at the warning and
+  // turns the button into "Add anyway"; the second adds it (the detection can
+  // be wrong, and signing in later is a fine plan). An agent not installed
+  // yet gets no warning, since its CLI cannot be signed in before it exists.
+  const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
+    && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const [credsError, setCredsError] = useState(false);
+  const credsFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setCredsError(false); }, [credsMissing, selected]);
+
+  const failModel = (message: string) => {
+    // No model field on screen yet (the key's model list is still loading):
+    // the form-wide line is the only place left to say it.
+    if (!modelFieldRef.current) { setError(message); return; }
+    setModelError(message);
+    requestAnimationFrame(() => {
+      const field = modelFieldRef.current?.querySelector<HTMLElement>('input, button');
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      field?.focus({ preventScroll: true });
+    });
+  };
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
   // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
@@ -581,8 +777,8 @@ export function AgentSetup({
     setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
   };
 
-  const loadByokModels = async (accessId: string) => {
-    if (!accessId) return;
+  const loadByokModels = async (accessId: string): Promise<{ id: string; label: string }[] | null> => {
+    if (!accessId) return null;
     setByokLoading(true); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
     try {
       const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
@@ -592,6 +788,7 @@ export function AgentSetup({
       if (r.keyOk === false) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
+        return null;
       } else {
         const models = (r.models || [])
           .filter((m) => m.category !== 'image' && m.category !== 'audio')
@@ -604,13 +801,26 @@ export function AgentSetup({
         setByokModelsSource(r.source || 'live');
         setByokProbeError(!models.length && r.error ? r.error : null);
         if (!models.length) setByokCustomModel(true);
+        return models;
       }
     } catch (err) {
       setByokKeyError(err instanceof Error ? err.message : String(err));
+      return null;
     } finally {
       setByokLoading(false);
     }
   };
+
+  // A retry reopens on the access it was submitted with. Load that key's
+  // models once the agent's protocol is known, keeping the model picked then.
+  const draftAccessLoaded = useRef(false);
+  useEffect(() => {
+    if (!byok || !draft?.modelAccessId || draftAccessLoaded.current) return;
+    draftAccessLoaded.current = true;
+    void loadByokModels(draft.modelAccessId).then((models) => {
+      if (draft.model && models?.length && !models.some((m) => m.id === draft.model)) setByokCustomModel(true);
+    });
+  }, [byok]);
 
   const pickAccess = (accessId: string) => {
     setByokAccessId(accessId);
@@ -655,8 +865,16 @@ export function AgentSetup({
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
-    if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
-    if (byok && byokAccessId && !model.trim()) { setError(t('connect.byokChooseModel')); return; }
+    if (credsMissing && !credsError) {
+      setCredsError(true);
+      requestAnimationFrame(() => {
+        credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        credsFieldRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
+    if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
@@ -680,12 +898,16 @@ export function AgentSetup({
         await api.enqueueNodeCommand(node.nodeId, 'configure_agent', {
           name: n,
           type: selected,
-          model: model.trim(),                       // '' clears → Auto
+          // Only a model that was changed: one this form never showed (a
+          // launcher-saved CODEX_MODEL on an older device) went out blank and
+          // wiped the model the agent ran on. '' still clears → Auto.
+          ...(model.trim() !== (editAgent?.model ?? '').trim() ? { model: model.trim() } : {}),
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // After the configuration, so a label the workspace refuses (too long,
@@ -703,6 +925,7 @@ export function AgentSetup({
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // Optimistically show it spinning up in the node card. The commandId
@@ -711,7 +934,19 @@ export function AgentSetup({
         if (cmd?.deferred) {
           toast.success(t('connect.agentAddedAfterInstall', { name: n }));
         } else {
-          onQueued?.({ name: n, type: selected, commandId: cmd?.commandId });
+          onQueued?.({
+            name: n, type: selected, commandId: cmd?.commandId,
+            draft: {
+              name: n, type: selected,
+              workingDir: workingDir.trim() || undefined,
+              apiKey: apiKey.trim() || undefined,
+              baseUrl: baseUrl.trim() || undefined,
+              model: model.trim() || undefined,
+              modelAccessId: (byok && byokAccessId) || undefined,
+              codexWireApi: customCodex ? codexWireApi : undefined,
+              config: configArg.config,
+            },
+          });
           toast.success(extensions?.local ? t('connect.agentAdded') : t('connect.nodeCommandQueued', { node: node.name }));
         }
       }
@@ -759,7 +994,7 @@ export function AgentSetup({
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
-        {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
+        {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
@@ -789,7 +1024,16 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : t('connect.nodeNeedsLoginHint'))}
+              : <NeedsCredentialsHint
+                  label={selectedEntry?.label || selected || ''}
+                  device={node.name || node.hostname || ''}
+                  // A device new enough to have `agn login` says so; an older
+                  // one gets the CLI's own command.
+                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand
+                    || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || ''}
+                  note={selected ? HINT_ONLY_SIGN_IN[selected]?.note : undefined}
+                  os={node.os}
+                />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
@@ -843,9 +1087,15 @@ export function AgentSetup({
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
-            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!nameError} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
-            {nameError && <p role="alert" data-testid="agent-setup-name-error" className="text-xs text-destructive">{nameError}</p>}
+            <Label className="text-xs font-medium">
+              {t('connect.nodeAgentNameLabel')}
+              {/* Locked when editing, so only a new agent asks for it. */}
+              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
+            </Label>
+            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            {nameError || nameClash
+              ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
+              : !isEdit && <p className="text-xs text-muted-foreground">{t('connect.agentNameUniqueHint')}</p>}
             {/* Always on, not a tooltip: a second agent of a type someone
                 already runs is a different name away, nothing more. */}
             {!isEdit && selected && (
@@ -857,6 +1107,12 @@ export function AgentSetup({
           </div>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
+
+          {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
+            <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
+              {t('connect.agentSharedConfigHint', { label: selectedEntry.label })}
+            </p>
+          )}
 
           {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (
@@ -872,17 +1128,42 @@ export function AgentSetup({
                 )}
               </div>
 
-              {/* Saved model access + add-new */}
-              <div className="flex gap-2">
+              {/* Add-new + saved model access */}
+              <div ref={credsFieldRef} className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-48">
+                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
+                </Button>
                 <Select
-                  value={byokAccessId || NO_ACCESS}
-                  onValueChange={(v) => pickAccess(v === NO_ACCESS ? '' : v)}
+                  value={byokAccessId || (keepCurrent ? KEEP_CURRENT : NO_ACCESS)}
+                  onValueChange={(v) => {
+                    if (v === KEEP_CURRENT) {
+                      setKeepCurrent(true);
+                      setByokAccessId('');
+                      setModel(editAgent?.model ?? '');
+                      setByokCustomModel(false);
+                      resetByokChecks();
+                      return;
+                    }
+                    setKeepCurrent(false);
+                    pickAccess(v === NO_ACCESS ? '' : v);
+                  }}
                 >
-                  <SelectTrigger className="h-10 min-w-0 flex-1">
+                  <SelectTrigger aria-label={t('connect.byokTitle')} className="h-10 min-w-0 flex-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_ACCESS}>{t('connect.byokProviderNone')}</SelectItem>
+                    {editOnKey && (
+                      <SelectItem value={KEEP_CURRENT}>
+                        {currentKeyDetail
+                          ? t('connect.byokKeepCurrent', { detail: currentKeyDetail })
+                          : t('connect.byokKeepCurrentPlain')}
+                      </SelectItem>
+                    )}
+                    <SelectItem value={NO_ACCESS}>
+                      {signInType && loginCommand
+                        ? t('connect.byokDeviceSignIn', { command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })
+                        : t('connect.byokProviderNone')}
+                    </SelectItem>
                     {byokAccessOptions.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.label} · {a.apiKeyMasked}
@@ -890,10 +1171,48 @@ export function AgentSetup({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
-                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
-                </Button>
               </div>
+
+              {/* No key picked on a device with no sign-in either. Adding is
+                  first points here, then lets it through as "Add anyway"
+                  (credsMissing); editing an existing agent only warns.
+                  Re-detect is the way back for someone who just signed in. */}
+              {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
+                <p
+                  data-testid="agent-setup-not-signed-in"
+                  role={credsError ? 'alert' : undefined}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-amber-700 dark:text-amber-500')}
+                >
+                  {t(isEdit ? 'connect.byokNotSignedInHint' : 'connect.byokNotSignedInRequired')}{' '}
+                  <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
+                    <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                    {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+                  </button>
+                </p>
+              )}
+
+              {/* Which credential the agent will run on, in words: the select
+                  alone did not say that "sign in on the device" means this
+                  CLI's own account and never a key saved on the device. */}
+              {signInChosen && (
+                <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
+                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })}
+                  {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}
+                </p>
+              )}
+              {keepCurrent && !byokAccessId && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
+                  <Input
+                    aria-label={t('connect.nodeModel')}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={t('connect.nodeAgentModelOptional')}
+                    className="h-10 text-sm font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">{t('connect.byokKeepCurrentModelHint')}</p>
+                </div>
+              )}
 
               {/* One-click promo credits — OpenAI-protocol agents the campaign
                   gateway can back. Selects (or creates) the gateway access. */}
@@ -920,9 +1239,15 @@ export function AgentSetup({
                     <p className="text-xs text-red-600 dark:text-red-400">{byokKeyError}</p>
                   )}
 
-                  {/* Model — the ones this key can actually use */}
+                  {/* Model — the ones this key can actually use. Marked
+                      required up here: the only other word of it was the
+                      footer error, out of sight below a tall form. */}
                   {byokModels && (
-                    <div className="space-y-1.5">
+                    <div ref={modelFieldRef} className="space-y-1.5">
+                      <Label className="text-xs font-medium">
+                        {t('connect.byokModelLabel')}{' '}
+                        <span className="text-destructive">* {t('connect.requiredMark')}</span>
+                      </Label>
                       <Select
                         value={byokCustomModel ? CUSTOM_MODEL : model || undefined}
                         onValueChange={(v) => {
@@ -931,7 +1256,7 @@ export function AgentSetup({
                           setByokTest({ state: 'idle' });
                         }}
                       >
-                        <SelectTrigger className="h-10 w-full">
+                        <SelectTrigger aria-invalid={!!modelError} className="h-10 w-full">
                           <SelectValue placeholder={t('connect.byokChooseModel')} />
                         </SelectTrigger>
                         <SelectContent>
@@ -946,11 +1271,13 @@ export function AgentSetup({
                       {byokCustomModel && (
                         <Input
                           value={model}
+                          aria-invalid={!!modelError}
                           onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
                           placeholder="claude-sonnet-4-6"
                           className="h-10 text-sm font-mono"
                         />
                       )}
+                      {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
                       <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
@@ -1021,23 +1348,31 @@ export function AgentSetup({
 
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
-          {!extensions?.configuration && modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && (
+          {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+              <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
-                value={model || AUTO_MODEL}
+                value={model.trim() || AUTO_MODEL}
                 onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
               >
-                <SelectTrigger className="h-10 w-full">
+                <SelectTrigger aria-label={t('connect.nodeModel')} className="h-10 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
-                  {modelOptions.map((m) => (
+                  {pickerModels.map((m) => (
                     <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                   ))}
+                  {unlistedModel && (
+                    <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {accountModels && (
+                <p data-testid="agent-setup-account-models" className="text-xs text-muted-foreground">
+                  {t('connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+                </p>
+              )}
             </div>
           )}
 
@@ -1080,7 +1415,7 @@ export function AgentSetup({
                 </div>
               ))}
               <p className="text-xs text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
-              {!modelOptions && (
+              {!pickerModels && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>
@@ -1121,8 +1456,11 @@ export function AgentSetup({
               )}
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
-              {(!modelOptions || !!baseUrl.trim()) && (
-                <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+              {(!pickerModels || !!baseUrl.trim()) && (
+                <div ref={modelFieldRef} className="space-y-1.5">
+                  <Input data-testid="agent-setup-model" aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} aria-invalid={!!modelError} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                  {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                </div>
               )}
             </div>
           )}
@@ -1193,7 +1531,7 @@ export function AgentSetup({
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
           <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+            <div className="text-sm text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
 
             {/* Agent hero */}
             <div className="flex items-center gap-4">

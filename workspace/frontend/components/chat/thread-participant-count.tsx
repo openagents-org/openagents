@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
-import { Bot, Users } from 'lucide-react';
+import { Bot, Users, UserPlus, Plus } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -11,6 +11,8 @@ import { threadPrivacyApplies } from './thread-privacy-control';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { displayNameFromEmail } from '@/lib/collab';
+import { AddThreadParticipants } from './add-thread-participants';
+import { Button } from '@/components/ui/button';
 import type { ChannelParticipants } from '@/lib/types';
 
 /** Count joined people and all thread agents, including offline agents. */
@@ -25,7 +27,8 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
   const [roster, setRoster] = useState<{ key: string; participants: ChannelParticipants } | null>(null);
   const [openList, setOpenList] = useState<'people' | 'agents' | null>(null);
 
-  useEffect(() => { setOpenList(null); }, [key]);
+  const [addKind, setAddKind] = useState<'human' | 'agent' | null>(null);
+  useEffect(() => { setOpenList(null); setAddKind(null); }, [key]);
 
   useEffect(() => {
     if (!applicable) return;
@@ -85,6 +88,11 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
               ))}
             </ul>
           ) : <p className="px-1 text-sm text-muted-foreground">{t('header.noThreadPeople')}</p>}
+          {roster.participants.can_add_people && <div className="border-t pt-2">
+            <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={() => { setOpenList(null); setAddKind('human'); }}>
+              <UserPlus className="size-4" aria-hidden="true" />{t('threadAccess.addMember')}
+            </Button>
+          </div>}
         </PopoverContent>
       </Popover>
       <Popover open={openList === 'agents'} onOpenChange={(open) => setOpenList(open ? 'agents' : null)}>
@@ -109,8 +117,14 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
               ))}
             </ul>
           ) : <p className="px-1 text-sm text-muted-foreground">{t('header.noThreadAgents')}</p>}
+          {roster.participants.can_add_agents && <div className="border-t pt-2">
+            <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={() => { setOpenList(null); setAddKind('agent'); }}>
+              <Plus className="size-4" aria-hidden="true" />{t('threadAccess.addAgent')}
+            </Button>
+          </div>}
         </PopoverContent>
       </Popover>
+      {addKind && <AddThreadParticipants key={`${key}:${addKind}`} channelName={channelName} kind={addKind} open hideTrigger onOpenChange={(open) => { if (!open) setAddKind(null); }} />}
     </span>
   );
 }

@@ -7,6 +7,7 @@ import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { inboxDestination, threadFilterFor } from '@/lib/inbox';
+import { requestedResource } from '@/lib/resource-link';
 import { currentRouteSearch } from '@/lib/route-search';
 import type { NotificationItem, WorkspaceSession } from '@/lib/types';
 
@@ -23,7 +24,7 @@ export function useOpenNotification() {
   const t = useT();
   const router = useRouter();
   const { workspace, sessions, setCurrentSessionId, markNotificationRead, refreshAgents } = useWorkspace();
-  const { openView, openMobileDetail, setPendingTaskChannel, threadFilter, setThreadFilter } = useLayout();
+  const { openView, openMobileDetail, setPendingTaskChannel, setPendingIssueId, threadFilter, setThreadFilter } = useLayout();
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
 
   const showThread = useCallback((sessionId: string, filter: typeof threadFilter) => {
@@ -60,6 +61,11 @@ export function useOpenNotification() {
     const dest = inboxDestination(notification);
     if (!dest) return;
     switch (dest.kind) {
+      case 'issue':
+        setPendingIssueId(requestedResource(dest.path)?.id ?? null);
+        openView('issues');
+        openMobileDetail();
+        return;
       case 'credits':
         if (workspace?.slug) router.push(`/${workspace.slug}/settings/api-credits${currentRouteSearch()}`);
         return;
@@ -82,5 +88,5 @@ export function useOpenNotification() {
         void refreshAgents();
       }
     }
-  }, [markNotificationRead, workspace?.slug, router, setPendingTaskChannel, openView, showThread, sessions, openSession, refreshAgents]);
+  }, [markNotificationRead, workspace?.slug, router, setPendingTaskChannel, setPendingIssueId, openView, openMobileDetail, showThread, sessions, openSession, refreshAgents]);
 }

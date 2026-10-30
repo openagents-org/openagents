@@ -42,17 +42,17 @@ export function MarketplaceToolbar({
   const { t } = useTranslation()
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <SearchInput
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
         onClear={() => onSearchChange("")}
         placeholder={t("install.search.placeholder")}
-        wrapperClassName="min-w-60 flex-1"
+        wrapperClassName="w-64"
       />
 
       <Select value={sort} onValueChange={(v) => onSortChange(v as MarketplaceSort)}>
-        <SelectTrigger className="w-40" aria-label={t("install.sort.ariaLabel")}>
+        <SelectTrigger className="w-36" aria-label={t("install.sort.ariaLabel")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

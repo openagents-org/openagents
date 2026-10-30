@@ -1,5 +1,5 @@
 # OpenAgents Workspace Backend
-fastapi>=0.115.0
+fastapi>=0.121.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
 sqlalchemy>=2.0.0,<2.1  # 2.1 (2026-09-24) makes postgresql:// resolve to psycopg3, which is not installed -> Railway deploys crash at import

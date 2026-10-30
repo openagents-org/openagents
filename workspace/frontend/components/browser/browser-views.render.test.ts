@@ -115,7 +115,7 @@ describe('BrowserView', () => {
     expect(out).toContain('Scout is clicking');
     expect(out).toContain('Take over');
     // embedded chrome-less live view
-    expect(html).toContain('browserfabric.com/live/abc?embed=1');
+    expect(html).toContain('browserfabric.com/live/abc?embed=1&amp;q=high');
     noMissingKeys();
   });
 

@@ -28,6 +28,35 @@
 export const TERMINAL_ONLY_LOGIN = new Set(["hermes", "gemini", "opencode"])
 
 /**
+ * Agents whose printed sign-in URL the launcher opens itself, even though the
+ * CLI's wording claims a browser (see BROWSER_CLAIMED), with the environment
+ * their piped login runs in.
+ *
+ *   mimo-code  `mimo providers login -p xiaomi` prints "Browser didn't open?
+ *              Use the url below to sign in:" whatever happened, and opens the
+ *              browser itself only through `xdg-open` — so on macOS and Windows
+ *              nothing opens. CI=1 stops it trying on Linux too, so every
+ *              platform gets the one tab, on the printed URL: the variant whose
+ *              page shows a code to paste back, which the code prompt takes.
+ */
+export const LAUNCHER_OPENS_LOGIN_URL: Record<string, Record<string, string>> = {
+  "mimo-code": { CI: "1" },
+}
+
+/**
+ * Agents whose login exits 0 when it did NOT sign anyone in, so only the
+ * CLI's own success line counts — not the exit code, and not the sign-in
+ * probe, which a sign-in made before this login satisfies just as well.
+ *
+ *   mimo-code  gives up with "Decryption failed, max retries reached" — in the
+ *              language MiMo picks from the time zone (zh, ja, ru, fr, es, …),
+ *              so no pattern catches every wording — and exits 0 without
+ *              writing a credential. "Login successful", which every success
+ *              path prints, is always English.
+ */
+export const LOGIN_EXIT_ZERO_UNPROVEN: ReadonlySet<string> = new Set(["mimo-code"])
+
+/**
  * `"claude auth login"` → `["auth", "login"]`. The binary token is dropped: the
  * orchestrator spawns the ABSOLUTE resolved path instead, so the login never
  * depends on the PATH a GUI-launched Electron process happened to inherit (the

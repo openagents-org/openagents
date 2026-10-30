@@ -95,6 +95,8 @@ describe('OpenCode — working directory (#435)', () => {
     const a = makeAdapter({ workingDir: '/tmp/proj-435' });
     const spawn = await captureRun(a);
     assert.ok(spawn, 'opencode was spawned');
+    assert.ok(spawn.args.includes('--dangerously-skip-permissions'), 'unattended runs must not auto-reject native prompts');
+    assert.equal(spawn.opts.env.OPENAGENTS_OPENCODE_BRIDGE, undefined);
     const dirIdx = spawn.args.indexOf('--dir');
     assert.ok(dirIdx >= 0, '--dir is on the command line');
     assert.equal(spawn.args[dirIdx + 1], '/tmp/proj-435', '--dir is the configured workingDir');
@@ -107,6 +109,12 @@ describe('OpenCode — working directory (#435)', () => {
     const dirIdx = spawn.args.indexOf('--dir');
     assert.equal(spawn.args[dirIdx + 1], a.agentHome);
     assert.equal(spawn.opts.cwd, a.agentHome);
+  });
+
+  it('keeps unattended permissions when resuming an existing session', () => {
+    const args = makeAdapter()._buildRunArgs({ runCwd: '/tmp/project', model: 'provider/model', sessionId: 'ses_existing' });
+    assert.ok(args.includes('--dangerously-skip-permissions'));
+    assert.equal(args[args.indexOf('--session') + 1], 'ses_existing');
   });
 
   it('scopes the persisted session store per working dir', () => {

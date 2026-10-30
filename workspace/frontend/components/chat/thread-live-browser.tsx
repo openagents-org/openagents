@@ -8,7 +8,7 @@ import { isAgentActor, tabHasFreshAgentActivity } from '@/components/browser/age
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
-import { browserFabricLiveUrl, resolveThreadBrowserLink, threadBrowserLinks, threadBrowserTabs } from '@/lib/thread-browser';
+import { agentReferencedBrowserTabs, browserFabricLiveUrl, resolveThreadBrowserLink, threadBrowserLinks, threadBrowserTabs } from '@/lib/thread-browser';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import type { WorkspaceMessage } from '@/lib/types';
 
@@ -23,17 +23,18 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   const [visible, setVisible] = useState(true);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const agentReferences = agentReferencedBrowserTabs(browserTabs, currentSessionId || '', messages);
   const tab = currentSessionId ? threadBrowserTabs(browserTabs, currentSessionId, messages)
-    .find(tab => !tab.asleep && (isAgentActor(tab.activity?.actor) || isAgentActor(tab.createdBy))) : undefined;
+    .find(tab => isAgentActor(tab.activity?.actor) || isAgentActor(tab.createdBy) || agentReferences.has(tab.id)) : undefined;
   // Do not follow a known tab being driven in another thread. Unknown live links
   // remain accessible as shared browser artifacts, including closed sessions.
   const link = threadBrowserLinks(messages, currentSessionId || '').find(url => !browserTabs.some(tab =>
     browserFabricLiveUrl(tab.liveUrl || '') === url && tab.artifactChannels?.length && tab.artifactChannels[0] !== currentSessionId));
   const selectedRef = selectedArtifact?.kind === 'browser' ? selectedArtifact.id : null;
   const selected = selectedRef ? resolveThreadBrowserLink(selectedRef, browserTabs, currentSessionId || '', messages)?.id || selectedRef : null;
-  const automatic = tab?.id || link;
+  const automatic = tab?.id || (link ? resolveThreadBrowserLink(link, browserTabs, currentSessionId || '', messages)?.id || link : null);
   const id = selected || (dismissed !== automatic ? automatic : null);
-  const interactive = !!selected || !tab;
+  const interactive = !!selected || !tab || !!tab.asleep || agentReferences.has(tab.id);
   const working = !!currentSessionId && activeSessionIds.has(currentSessionId);
 
   useEffect(() => { setMinimized(false); setFullscreen(false); setFrameFailed(null); }, [id]);

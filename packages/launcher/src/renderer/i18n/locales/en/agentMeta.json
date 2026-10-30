@@ -21,7 +21,11 @@
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
     "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
-    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key.",
+    "mimo-code": "Xiaomi's MiMo Code terminal coding agent, driven headlessly with a MiMo API key or any OpenAI-compatible endpoint — one session per channel.",
+    "qoder": "Qoder's terminal coding agent, driven headlessly on a Qoder account sign-in or a personal access token — one session per channel.",
+    "qoder-cn": "The China edition of Qoder's terminal coding agent (qoder.com.cn), driven headlessly on a Qoder CN account sign-in or a personal access token — one session per channel.",
+    "qwen-code": "Alibaba's Qwen Code terminal coding agent, driven headlessly with a Model Studio or Coding Plan key — one session per channel."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -248,7 +252,7 @@
     },
     "DEEPSEEK_MODEL": {
       "label": "DeepSeek model",
-      "hint": "Model id, e.g. deepseek-v4-flash. Leave blank to use the default."
+      "hint": "Pick from the models your API key can use, or type a model id. Leave blank to use the DeepSeek Harness default."
     },
     "DSH_PERMISSION_MODE": {
       "label": "Filesystem permission",

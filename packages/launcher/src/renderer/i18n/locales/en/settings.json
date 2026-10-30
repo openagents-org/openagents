@@ -169,7 +169,7 @@
     "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
     "skins": {
       "default": {
-        "name": "Default",
+        "name": "Classic",
         "desc": "$t(common.appName)’s native look — soft borders and shadows"
       },
       "openagents": {

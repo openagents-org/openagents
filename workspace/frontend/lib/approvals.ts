@@ -53,6 +53,19 @@ export function approvalKindClass(kindClass: unknown, kind: unknown): ApprovalKi
 const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
   Boolean(a && b) && a!.trim().toLowerCase() === b!.trim().toLowerCase();
 
+/** Older or provider-specific records may carry flags without reviewer arrays. */
+export function normalizePolicyRequirements(value: unknown): ApprovalRequest['policyRequirements'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((item): item is string => typeof item === 'string') : [];
+  return {
+    members: strings(raw.members),
+    approved_by: strings(raw.approved_by),
+    role_required: raw.role_required === 'any' || raw.role_required === 'admin' || raw.role_required === 'owner' ? raw.role_required : null,
+    role_approved: raw.role_approved === true,
+  };
+}
+
 /**
  * Can this caller act on *this* request? On top of the role bar
  * (`canDecideApproval`), a request addressed to someone (`assigneeEmail` —
@@ -65,7 +78,7 @@ export function canActOnApproval(
   approval: Pick<ApprovalRequest, 'requiredRole' | 'assigneeEmail' | 'policyRequirements'>,
   requireLogin: boolean,
 ): boolean {
-  const requirements = approval.policyRequirements;
+  const requirements = normalizePolicyRequirements(approval.policyRequirements);
   if (requirements?.members.length) {
     const email = me?.email?.trim().toLowerCase();
     if (!email || !me?.role || ROLE_RANK[me.role] < ROLE_RANK.member || requirements.approved_by.includes(email)) return false;
@@ -86,7 +99,7 @@ export function approvalActionBlockedReason(
   requireLogin: boolean,
 ): 'signIn' | 'role' | 'assignee' | null {
   if (canActOnApproval(me, approval, requireLogin)) return null;
-  if (approval.policyRequirements?.members.length) return 'assignee';
+  if (normalizePolicyRequirements(approval.policyRequirements)?.members.length) return 'assignee';
   return approvalBlockedReason(me, approval.requiredRole, requireLogin) ?? 'assignee';
 }
 
@@ -106,7 +119,7 @@ export function approvalFromMetadata(metadata: Record<string, unknown> | undefin
     risk: (raw.risk as ApprovalRequest['risk']) ?? null,
     requiredRole: (raw.required_role as ApprovalRequiredRole) ?? 'any',
     assigneeEmail: (raw.assignee_email as string) ?? null,
-    policyRequirements: (raw.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+    policyRequirements: normalizePolicyRequirements(raw.policy_requirements),
     ownerEmail: (raw.owner_email as string) ?? null,
     requesterEmail: (raw.requester_email as string) ?? null,
     status: (raw.status as ApprovalRequest['status']) ?? 'pending',

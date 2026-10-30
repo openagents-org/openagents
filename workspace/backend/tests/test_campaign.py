@@ -544,3 +544,94 @@ def test_an_existing_key_is_never_taken_away(db, campaign_on, gateway):
     db.commit()
     assert campaign.ensure_account(db, b).api_key == "sk-b"
     assert campaign.status_payload(db, b)["apiKey"] == "sk-b"
+
+
+@pytest.mark.parametrize("reply_today", [False, True])
+def test_reconcile_completed_lifetime_only_checks_today(db, campaign_on, gateway, monkeypatch, reply_today):
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)
+    for key in ("first_agent", "second_agent", "first_conversation", "second_agent_response"):
+        assert campaign.grant(db, user.id, key, campaign.MILESTONE_AMOUNTS[key])
+    connected = MagicMock(side_effect=AssertionError("Completed agent milestones must not be rechecked"))
+    human = MagicMock(side_effect=AssertionError("Completed conversations must not be rescanned"))
+    responding = MagicMock(return_value={"codex"} if reply_today else set())
+    monkeypatch.setattr(campaign, "_connected_agent_types", connected)
+    monkeypatch.setattr(campaign, "_human_spoke_in_owned", human)
+    monkeypatch.setattr(campaign, "_responding_agent_types", responding)
+
+    campaign.reconcile(db, user.id)
+
+    connected.assert_not_called()
+    human.assert_not_called()
+    responding.assert_called_once()
+    midnight = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    assert responding.call_args.kwargs == {"min_ts_ms": midnight}
+    daily_key = "daily:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert (daily_key in milestones) is reply_today
+    assert campaign.total_granted(db, user.id) == 50 + (config.CAMPAIGN_DAILY_GRANT_USD if reply_today else 0)
+
+
+def test_status_recovers_after_reconcile_aborts_transaction(db, campaign_on, gateway, monkeypatch):
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)
+    email = user.email
+
+    def aborted_query(*args, **kwargs):
+        # A real failed flush leaves this Session unusable until rollback, just
+        # like PostgreSQL does after cancelling the history scan on timeout.
+        db.add(User(email=email))
+        db.flush()
+
+    monkeypatch.setattr(campaign, "_responding_agent_types", aborted_query)
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True
+    assert payload["apiKey"] == "sk-demo-test"
+    assert payload["totalGrantedUsd"] == 5.0
+    assert db.query(User).count() == 1
+    assert db.query(CampaignGrant).count() == 1
+
+
+def test_reconcile_does_no_history_queries_when_all_rewards_complete(db, campaign_on, gateway, monkeypatch):
+    user = _mk_user(db)
+    campaign.ensure_account(db, user)
+    for key in ("first_agent", "second_agent", "first_conversation", "second_agent_response"):
+        campaign.grant(db, user.id, key, campaign.MILESTONE_AMOUNTS[key])
+    campaign.grant(db, user.id, "daily:" + datetime.now(timezone.utc).strftime("%Y-%m-%d"), config.CAMPAIGN_DAILY_GRANT_USD)
+    responding = MagicMock()
+    connected = MagicMock()
+    monkeypatch.setattr(campaign, "_responding_agent_types", responding)
+    monkeypatch.setattr(campaign, "_connected_agent_types", connected)
+    campaign.reconcile(db, user.id)
+    responding.assert_not_called()
+    connected.assert_not_called()
+
+
+@pytest.mark.parametrize("second_already_granted", [False, True])
+def test_message_hook_only_scans_for_unearned_reward(db, campaign_on, gateway, monkeypatch, second_already_granted):
+    user = _mk_user(db)
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "codexbot", "codex")
+    _mk_message(db, ws, "human:test@example.com")
+    campaign.ensure_account(db, user)
+    campaign.grant(db, user.id, "first_conversation", campaign.MILESTONE_AMOUNTS["first_conversation"])
+    if second_already_granted:
+        campaign.grant(db, user.id, "second_agent_response", campaign.MILESTONE_AMOUNTS["second_agent_response"])
+    responding = MagicMock(return_value={"codex", "claude"})
+    monkeypatch.setattr(campaign, "_responding_agent_types", responding)
+    monkeypatch.setattr(campaign, "_notify_grant", MagicMock())
+    monkeypatch.setattr(campaign, "SessionLocal", lambda: _NoCloseSession(db))
+
+    campaign.on_agent_message(str(ws.id), "openagents:codexbot")
+    assert responding.call_count == (0 if second_already_granted else 1)
+    daily_key = "daily:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    milestones = {g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id)}
+    assert {"first_conversation", "second_agent_response", daily_key} <= milestones
+    total = campaign.total_granted(db, user.id)
+    responding.reset_mock()
+
+    # Subsequent messages after today's grant cannot re-scan history or mint
+    # more credit. The durable grant ledger, not an in-process cache, gates it.
+    campaign.on_agent_message(str(ws.id), "openagents:codexbot")
+    responding.assert_not_called()
+    assert campaign.total_granted(db, user.id) == total

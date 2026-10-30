@@ -121,6 +121,8 @@ export function AttachmentPicker({
   const { files } = useWorkspace();
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadingRef = useRef(false);
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
   // Files uploaded in this dialog session — the workspace `files` list may not
   // have refreshed yet, so keep our own record for names/thumbnails.
   const [uploaded, setUploaded] = useState<WorkspaceFile[]>([]);
@@ -160,7 +162,36 @@ export function AttachmentPicker({
   const remove = (id: string) => onChange(value.filter((x) => x !== id));
 
   return (
-    <div className="space-y-1.5">
+    <div
+      className={cn('space-y-1.5 rounded-md transition-colors', dragging && !disabled && pending.length === 0 && 'bg-primary/5 outline outline-2 outline-primary/50 outline-offset-4')}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepth.current += 1;
+        if (!disabled && !uploadingRef.current) setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = disabled || uploadingRef.current ? 'none' : 'copy';
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepth.current = 0;
+        setDragging(false);
+        void addFiles(e.dataTransfer.files);
+      }}
+    >
       <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <Paperclip className="size-3.5" />
         {t('tasks.fieldAttachments')}
@@ -221,7 +252,7 @@ export function AttachmentPicker({
         className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
       >
         <Paperclip className="size-3.5" />
-        {t('tasks.attachAdd')}
+        {t(dragging && !disabled && pending.length === 0 ? 'tasks.attachDrop' : 'tasks.attachAdd')}
       </button>
       <input
         disabled={disabled || pending.length > 0}

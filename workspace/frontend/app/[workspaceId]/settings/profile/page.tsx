@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Loader2, LogIn, X } from 'lucide-react';
+import { Camera, Check, Loader2, LogIn, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,6 +52,15 @@ export default function ProfileSettingsPage() {
   // null = untouched; '' = cleared; 'data:...' = newly picked.
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Briefly true after a save, so the button confirms it instead of just
+  // greying out again.
+  const [justSaved, setJustSaved] = useState(false);
+
+  useEffect(() => {
+    if (!justSaved) return;
+    const id = window.setTimeout(() => setJustSaved(false), 2000);
+    return () => window.clearTimeout(id);
+  }, [justSaved]);
 
   useEffect(() => {
     if (!idToken) return;
@@ -121,6 +130,7 @@ export default function ProfileSettingsPage() {
       window.dispatchEvent(new Event('workspace-profile-updated'));
       setName(updated.displayName || '');
       setAvatarDraft(null);
+      setJustSaved(true);
       toast.success(t('profile.saved'));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('settings.saveFailed'));
@@ -186,8 +196,20 @@ export default function ProfileSettingsPage() {
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={save} disabled={saving || !dirty || !name.trim()}>
-          {saving ? t('common.saving') : t('common.save')}
+        {/* Solid only while there is something to save; a faded solid button
+            read as "still grey" whether or not anything had changed. */}
+        <Button
+          variant={dirty || saving ? 'primary' : 'secondary'}
+          onClick={save}
+          disabled={saving || !dirty || !name.trim()}
+        >
+          {saving ? (
+            <><Loader2 className="size-4 animate-spin" />{t('common.saving')}</>
+          ) : justSaved && !dirty ? (
+            <><Check className="size-4" />{t('common.saved')}</>
+          ) : (
+            t('common.save')
+          )}
         </Button>
       </div>
     </div>

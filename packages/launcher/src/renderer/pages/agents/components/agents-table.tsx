@@ -67,7 +67,7 @@ export function AgentsTable({
     // or the header would stick to it rather than under the page's toolbar.
     <div className="overflow-clip rounded-lg border bg-card">
       <Table containerClassName="overflow-x-clip">
-        <TableHeader className="sticky top-14 z-5 bg-card">
+        <TableHeader className="sticky top-12 z-5 bg-card">
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead

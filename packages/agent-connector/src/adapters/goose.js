@@ -143,7 +143,7 @@ class GooseAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-    // Pin the channel's decision log + glossary into the per-turn --system
+    // Pin the channel's glossary into the per-turn --system
     // prompt (read-only: Goose gets no workspace API commands, so it can
     // only SEE the pinned knowledge, not update it).
     this._usesPinnedContext = true;
@@ -258,7 +258,6 @@ class GooseAdapter extends BaseAdapter {
       + buildPinnedSections({
         channelName,
         mode: this._mode,
-        decisionLog: pinned.decisionLog ? { ...pinned.decisionLog, writeAccess: false } : null,
         glossary: pinned.glossary ? { ...pinned.glossary, writeAccess: false } : null,
       }).join('\n');
     if (this.workingDir) {

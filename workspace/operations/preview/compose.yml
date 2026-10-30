@@ -1,0 +1,76 @@
+name: openagents-preview-isolated
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - path: ./secrets/postgres.env
+        format: raw
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U openagents_preview -d openagents_preview']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [preview]
+    mem_limit: 1g
+  backend:
+    image: openagents-preview-backend:${PREVIEW_SHA:?Set PREVIEW_SHA}
+    env_file:
+      - path: ./secrets/backend.env
+        format: raw
+    environment:
+      DATABASE_URL: ${PREVIEW_DATABASE_URL:?Set the local preview database URL}
+      FILE_STORAGE_BACKEND: local
+      FILE_STORAGE_PATH: /data/files
+      BACKGROUND_JOBS_ENABLED: 'true'
+      DB_POOL_SIZE: '6'
+      DB_MAX_OVERFLOW: '0'
+      THREADPOOL_TOKENS: '6'
+      WEB_CONCURRENCY: '2'
+      REDIS_URL: ''
+      FRONTEND_BASE_URL: https://workspace-preview.openagents.org
+      PUBLIC_API_BASE: https://workspace-preview.openagents.org
+      CORS_ORIGINS: https://workspace-preview.openagents.org
+      ANALYTICS_ENABLED: 'false'
+      CAMPAIGN_ENABLED: 'false'
+    entrypoint: [uvicorn, 'app.main:app', --host, 0.0.0.0, --port, '8000', --workers, '2', --no-access-log]
+    volumes:
+      - files:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/ready", timeout=8)']
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    networks: [preview]
+    mem_limit: 2g
+  frontend:
+    image: openagents-preview-frontend-develop:${PREVIEW_SHA:?Set PREVIEW_SHA}
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+    depends_on: [backend]
+    restart: unless-stopped
+    networks: [preview]
+    mem_limit: 1g
+  nginx:
+    image: nginx:alpine
+    ports:
+      - '${PREVIEW_HTTP_BIND:-127.0.0.1:8081}:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./proxy_headers.inc:/etc/nginx/conf.d/proxy_headers.inc:ro
+    depends_on: [backend, frontend]
+    restart: unless-stopped
+    networks: [preview]
+networks:
+  preview:
+volumes:
+  postgres_data:
+  files:

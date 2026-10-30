@@ -26,11 +26,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useT } from "@/lib/i18n"
@@ -287,26 +282,12 @@ export function FileList() {
             counts the files you're actually looking at. */}
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm leading-relaxed font-semibold">{t("files.title")}</span>
-        </div>
-
-        {/* This panel owns the folder structure; uploading a file belongs to
-            the folder you're looking at, so it lives in the detail toolbar. */}
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon"
-                size="sm"
-                aria-label={t("files.newTopLevelFolder")}
-                onClick={() => handleCreateFolder()}
-                className="text-muted-foreground"
-              >
-                <FolderPlus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("files.newTopLevelFolder")}</TooltipContent>
-          </Tooltip>
+          {/* This panel owns the folder structure; uploading a file belongs to
+              the folder you're looking at, so it lives in the detail toolbar. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => handleCreateFolder()}>
+            <FolderPlus className="size-4" />
+            {t("folders.newFolder")}
+          </Button>
         </div>
       </div>
 

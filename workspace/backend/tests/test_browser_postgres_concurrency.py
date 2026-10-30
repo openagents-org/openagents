@@ -129,3 +129,111 @@ def test_outcome_write_dropped_when_session_swapped(pg_engine):
         assert row.session_id == "sess-new"
         assert row.close_status == "open"
         assert row.session_closed is False
+
+
+def test_explicit_recovery_serializes_two_workers_and_rejects_stale_retry(pg_engine, monkeypatch):
+    """Exercise the actual endpoint with separate connections/process caches.
+
+    Worker A pauses during provider creation while B tries to replace the same
+    session. B must fail NOWAIT, and a later retry with the old ID must fail CAS
+    validation rather than closing A's new session.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+    from app.models import BrowserTab
+    from app.routers import browser
+
+    ws_id = str(uuid.uuid4())
+    tab_id = _insert_close_failed_tab(pg_engine, ws_id)
+    with pg_engine.begin() as conn:
+        conn.execute(text("UPDATE browser_tabs SET status='active', close_status='open' WHERE id=:id"), {'id': tab_id})
+
+    local = threading.local()
+    entered, release = threading.Event(), threading.Event()
+    calls, outcomes = [], []
+    monkeypatch.setattr(browser, '_verify_workspace_access', lambda *a: True)
+    monkeypatch.setattr(browser, '_resolve_bf_key', AsyncMock(return_value=('test-key', 'global')))
+    monkeypatch.setattr(browser, '_attach_saved_context', AsyncMock())
+    monkeypatch.setattr(browser, 'resolve_tab_key', lambda *a: 'test-key')
+    monkeypatch.setattr(browser.BrowserManager, 'get', lambda: local.manager)
+
+    def make_manager():
+        manager = MagicMock()
+        manager.reconnect = AsyncMock()
+        manager.get_session_id.return_value = 'sess-new'
+        manager.get_live_url.return_value = 'new-link'
+
+        async def close(*args, **kwargs):
+            calls.append(('close', kwargs['session_id_hint']))
+            return True, None
+
+        async def create(*args, **kwargs):
+            calls.append(('create', 'sess-new'))
+            entered.set()
+            assert await asyncio.to_thread(release.wait, 5), 'contender did not finish'
+            return {'url': 'https://example.com', 'title': 'Restored',
+                    'session_id': 'sess-new', 'live_url': 'new-link'}
+
+        manager.close_tab = close
+        manager.open_tab = create
+        return manager
+
+    def run_worker():
+        local.manager = make_manager()
+        with Session(pg_engine, autoflush=False) as db:
+            try:
+                response = asyncio.run(browser.reconnect_tab(
+                    tab_id, reopen=False, confirm_replace=True, expected_session_id='sess-race',
+                    x_workspace_token='x', authorization=None, db=db,
+                ))
+                outcomes.append(response.status_code if hasattr(response, "status_code") else 200)
+            except HTTPException as exc:
+                outcomes.append(exc.status_code)
+            except BaseException as exc:
+                outcomes.append(exc)
+
+    first = threading.Thread(target=run_worker)
+    first.start()
+    assert entered.wait(5), 'first worker never reached provider creation'
+    second = threading.Thread(target=run_worker)
+    second.start()
+    second.join(5)
+    try:
+        assert not second.is_alive(), 'second worker blocked instead of returning conflict'
+        assert outcomes == [409]
+    finally:
+        release.set()
+        first.join(5)
+    assert all(isinstance(value, int) for value in outcomes), outcomes
+    assert sorted(outcomes) == [200, 409]
+    assert calls == [('close', 'sess-race'), ('create', 'sess-new')]
+
+    # After A has committed, the same old request still must not replace A.
+    run_worker()
+    assert outcomes[-1] == 409
+    assert calls == [('close', 'sess-race'), ('create', 'sess-new')]
+    with Session(pg_engine) as db:
+        assert db.get(BrowserTab, tab_id).session_id == 'sess-new'
+
+
+def test_recovery_mapping_cas_drops_stale_write_on_postgres(pg_engine):
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+    from app.models import BrowserTab
+    from app.routers.browser import _replace_session_mapping
+
+    tab_id = _insert_close_failed_tab(pg_engine, str(uuid.uuid4()))
+    with Session(pg_engine, autoflush=False) as stale:
+        tab = stale.get(BrowserTab, tab_id)
+        with pg_engine.begin() as conn:
+            conn.execute(text("UPDATE browser_tabs SET session_id='current-session' WHERE id=:id"), {'id': tab_id})
+        with pytest.raises(HTTPException) as exc:
+            _replace_session_mapping(stale, tab, 'sess-race', 'closed', 'stale-replacement', 'stale-link')
+        assert exc.value.status_code == 409
+        stale.rollback()
+        assert stale.get(BrowserTab, tab_id).session_id == 'current-session'

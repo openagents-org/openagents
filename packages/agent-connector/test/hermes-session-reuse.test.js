@@ -208,7 +208,9 @@ describe('Hermes: a session that is gone', () => {
     await say(a, 'hello');
 
     assert.deepEqual(savedSessions(a), {});
-    assert.deepEqual(seen.errors, ['Error processing message: hermes exited with code 1: No inference provider configured']);
+    assert.equal(seen.errors.length, 1);
+    assert.match(seen.errors[0], /^Hermes has no inference provider configured\. Set LLM_API_KEY/);
+    assert.match(seen.errors[0], /Details: No inference provider configured$/);
   });
 
   it('a Hermes that cannot start at all does not cost the thread its session', async () => {

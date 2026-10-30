@@ -661,3 +661,51 @@ class TestPollResolveCache:
         other.status = 'deleted'
         db.commit()
         assert client.get('/v1/events', params={'network':other.id}, headers=headers).status_code == 401
+
+
+class TestPollCacheFreshness:
+    """A new event must never be hidden by a cached poll answer for a scoped
+    filter. Per-thread clients poll with `channel=` and re-poll on each SSE
+    signal; a stale cached empty page would hide the reply until the next
+    event arrives."""
+
+    def _use_memory_cache(self, monkeypatch):
+        from app import cache as _cache
+        store = {}
+        monkeypatch.setattr(_cache, "get_bytes", lambda k: store.get(k))
+        monkeypatch.setattr(_cache, "set_bytes", lambda k, v, ttl_seconds=0.0: store.__setitem__(k, v))
+        monkeypatch.setattr(_cache, "delete_key", lambda k: store.pop(k, None))
+        return store
+
+    def _post(self, client, workspace, content, type="workspace.message.posted"):
+        resp = client.post("/v1/events", json={
+            "type": type,
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{workspace['channel']['name']}",
+            "payload": {"content": content},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("scope", ["channel", "target"])
+    def test_scoped_poll_sees_event_posted_within_ttl(self, client, workspace, monkeypatch, scope):
+        store = self._use_memory_cache(monkeypatch)
+        channel_name = workspace["channel"]["name"]
+        headers = {"X-Workspace-Token": workspace["token"]}
+        params = {"network": workspace["id"], "type": "workspace.message", "sort": "asc", "limit": 50}
+        params.update({"channel": channel_name} if scope == "channel" else {"target": f"channel/{channel_name}"})
+
+        self._post(client, workspace, "hello")
+        first = client.get("/v1/events", params=params, headers=headers).json()["data"]
+        cursor = first["newest_id"]
+        assert cursor
+
+        # Caught up: the empty answer is cached (exact key and at-head marker).
+        caught_up = client.get("/v1/events", params={**params, "after": cursor}, headers=headers).json()["data"]
+        assert caught_up["events"] == []
+        assert any(k.startswith("v1events:athead:") for k in store)
+
+        # The reply lands inside the cache TTL; the same poll must return it.
+        self._post(client, workspace, "reply")
+        after = client.get("/v1/events", params={**params, "after": cursor}, headers=headers).json()["data"]
+        assert [e["payload"]["content"] for e in after["events"]] == ["reply"]

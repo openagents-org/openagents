@@ -244,6 +244,22 @@ describe('classifyAgyFailure', () => {
     assert.match(message, /GEMINI_API_KEY/);
   });
 
+  it('strips secrets out of the stderr it quotes', () => {
+    const { kind, message } = classifyAgyFailure({
+      code: 1,
+      stderr:
+        'request to https://bob:hunter2pass@proxy.example failed\n'
+        + 'sent Authorization: Bearer abcDEF1234567890xyz with kz-91Ab_x7.Qm4\n'
+        + 'Agent execution terminated due to error.',
+      secrets: ['kz-91Ab_x7.Qm4'],
+    });
+    assert.equal(kind, 'unknown');
+    for (const secret of ['hunter2pass', 'abcDEF1234567890xyz', 'kz-91Ab_x7.Qm4']) {
+      assert.ok(!message.includes(secret), message);
+    }
+    assert.match(message, /Agent execution terminated due to error/);
+  });
+
   it('strips colour codes agy writes into the pipe', () => {
     const { message } = classifyAgyFailure({
       code: 1,

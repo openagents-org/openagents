@@ -15,8 +15,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="group toaster [&_[data-type=success]>[data-icon]]:text-success [&_[data-type=success]_[data-title]]:text-success [&_[data-type=info]_[data-title]]:text-info [&_[data-type=error]>[data-icon]]:text-destructive [&_[data-type=error]_[data-title]]:text-destructive"
       toastOptions={{
         classNames: {
+          // Padding and border are sonner's own, but the cascade-layers
+          // flattening (postcss.config.cjs) lifts Tailwind's preflight reset
+          // above sonner's injected styles, leaving the toast with neither.
+          // Utilities are lifted further, so restate them here.
           toast:
-            'group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground! group-[.toaster]:border-border group-[.toaster]:shadow-lg has-[[role=alert]]:border-0! has-[[role=alert]]:shadow-none! has-[[role=alert]]:bg-transparent!',
+            'group toast group-[.toaster]:border group-[.toaster]:p-4 group-[.toaster]:bg-background group-[.toaster]:text-foreground! group-[.toaster]:border-border group-[.toaster]:shadow-lg has-[[role=alert]]:border-0! has-[[role=alert]]:shadow-none! has-[[role=alert]]:bg-transparent!',
           description: 'group-[.toast]:text-muted-foreground',
           actionButton:
             'group-[.toast]:rounded-md! group-[.toast]:bg-primary group-[.toast]:text-primary-foreground!',

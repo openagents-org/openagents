@@ -1,12 +1,11 @@
 /**
  * Pure helpers for knowledge pinning ("constraint pinning").
  *
- * Two kinds of knowledge entries get pinned into agent prompts:
- * - The decision log: a per-channel entry recording every decision the user
- *   has confirmed.
- * - The glossary: a per-channel (or workspace-wide) entry defining shared
- *   terms and fields, so agents collaborating on the same spec cannot drift
- *   into different readings of the same name.
+ * The glossary — a per-channel (or workspace-wide) entry defining shared
+ * terms and fields — is pinned into agent prompts, so agents collaborating
+ * on the same spec cannot drift into different readings of the same name.
+ * (Agents used to keep a per-channel "Decisions for channel …" log too; that
+ * was removed because it created a knowledge page for nearly every thread.)
  *
  * Adapters re-read the pinned entries on every message and inject them into
  * the prompt — the only position that survives both auto-compaction and a
@@ -25,17 +24,9 @@ const RECAP_LINE_MAX_CHARS = 2000;
 const PINNED_DECISIONS_MAX_CHARS = 4000;
 
 /**
- * Canonical knowledge-entry title for a channel's decision log. The slug the
+ * Canonical knowledge-entry title for a channel's glossary. The slug the
  * backend derives from it is NOT stable (collisions get a numeric suffix), so
  * lookups must match on this exact title, never on the slug.
- */
-function decisionLogTitle(channelName) {
-  return `Decisions for channel ${channelName}`;
-}
-
-/**
- * Canonical knowledge-entry title for a channel's glossary. Same exact-title
- * matching rules as the decision log.
  */
 function glossaryTitle(channelName) {
   return `Glossary for channel ${channelName}`;
@@ -99,11 +90,6 @@ function pickEntryByTitle(entries, title) {
     return ka < kb ? -1 : ka > kb ? 1 : 0;
   });
   return { entry: sorted[0], duplicates: matches.length - 1 };
-}
-
-/** Back-compat wrapper: pick a channel's decision-log entry by its title. */
-function pickDecisionEntry(entries, channelName) {
-  return pickEntryByTitle(entries, decisionLogTitle(channelName));
 }
 
 /**
@@ -209,12 +195,10 @@ module.exports = {
   PINNED_DECISIONS_MAX_CHARS,
   RECAP_LINE_MAX_CHARS,
   WORKSPACE_GLOSSARY_TITLE,
-  decisionLogTitle,
   glossaryTitle,
   hashDecisions,
   decisionFingerprint,
   pinnedFingerprint,
-  pickDecisionEntry,
   pickEntryByTitle,
   renderPinnedDecisions,
   isRecapEligible,

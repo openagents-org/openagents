@@ -34,15 +34,20 @@ export const CAMPAIGN_SOURCE = 'system:campaign';
 /** Where clicking a row takes the reader. */
 export type InboxDestination =
   | { kind: 'credits' }
+  | { kind: 'issue'; path: string }
   | { kind: 'task'; channel: string }
   | { kind: 'dm'; channel: string }
   | { kind: 'thread'; channel: string };
 
 export function inboxDestination(
-  n: Pick<NotificationItem, 'channelName' | 'createdBy'>,
+  n: Pick<NotificationItem, 'channelName' | 'createdBy'> & Partial<Pick<NotificationItem, 'kind' | 'linkUrl'>>,
 ): InboxDestination | null {
   // Credit unlocks are not about any thread: they open the checklist.
   if (n.createdBy === CAMPAIGN_SOURCE) return { kind: 'credits' };
+  // Only app-relative issue paths are navigable from completion notices.
+  if (n.kind === 'issue_completed' && n.linkUrl && /^\/[^/?#]+\/issues\/[^/?#]+$/.test(n.linkUrl)) {
+    return { kind: 'issue', path: n.linkUrl };
+  }
   const channel = n.channelName;
   if (!channel) return null;
   if (channel.startsWith('task:')) return { kind: 'task', channel };

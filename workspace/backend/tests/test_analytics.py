@@ -65,3 +65,35 @@ def test_track_message_posted_only_for_humans(monkeypatch):
     d, e, p = seen[0]
     assert (d, e) == ("eve@z.io", "message_posted")
     assert p["workspace_id"] == "ws1" and p["target_kind"] == "channel" and p["has_mentions"] is True
+
+
+def test_default_configuration_cannot_emit_to_the_hosted_project():
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in {'POSTHOG_API_KEY', 'ANALYTICS_ENABLED'}}
+    result = subprocess.run(
+        [sys.executable, '-c', 'from app.config import config; assert not config.POSTHOG_API_KEY; assert not config.ANALYTICS_ENABLED'],
+        env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_reserved_fixture_accounts_never_emit_even_when_enabled(monkeypatch):
+    monkeypatch.setattr(config, 'ANALYTICS_ENABLED', True)
+    monkeypatch.setattr(config, 'POSTHOG_API_KEY', 'phc_test')
+    sent = []
+    monkeypatch.setattr(analytics, '_post', lambda body: sent.append(body) or True)
+    for domain in ['example.com', 'example.org', 'example.net', 'localhost', 'dev.test', 'dev.invalid', 'dev.localhost']:
+        assert not analytics.capture(f'alice@{domain}', 'workspace_created', blocking=True)
+    assert not sent
+    # A customer's name containing "test" is not grounds for discarding them.
+    assert analytics.capture('test.manager@customer.io', 'workspace_created', blocking=True)
+    assert len(sent) == 1
+
+
+def test_explicit_enable_without_key_is_still_disabled(monkeypatch):
+    monkeypatch.setattr(config, 'ANALYTICS_ENABLED', True)
+    monkeypatch.setattr(config, 'POSTHOG_API_KEY', '')
+    assert not analytics.analytics_enabled()

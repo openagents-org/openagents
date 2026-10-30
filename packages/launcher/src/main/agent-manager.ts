@@ -38,7 +38,7 @@ import {
   launcherAuthFields,
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
-import { deriveAgentModel } from "../shared/agent-model"
+import { listedAgentModel } from "../shared/agent-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -52,6 +52,7 @@ import {
   type CliRunFailure,
   type ModelListPath,
   type ModelListResult,
+  withDefaultBase,
 } from "./agents/model-catalog"
 import {
   CredentialImportService,
@@ -184,7 +185,16 @@ export class AgentManager extends EventEmitter {
   private _lastHealthRefreshAt = 0
   private _healthQueue: string[] = []
   private _healthProcessing = false
-  private _agentsCache: { value: unknown[]; at: number } = { value: [], at: 0 }
+  /**
+   * The built list, and the status snapshot it was built from. A list is only
+   * reused while that snapshot is still the current one: start and stop change
+   * nothing but the state, and serving a list built before the click left the
+   * row on its old state until the renderer's next 5s poll.
+   */
+  private _agentsCache: { value: unknown[]; at: number; status?: unknown } = {
+    value: [],
+    at: 0,
+  }
   private _catalogCache: {
     value: unknown[] | null
     at: number
@@ -361,7 +371,8 @@ export class AgentManager extends EventEmitter {
     const now = Date.now()
     if (
       this._agentsCache.value.length > 0 &&
-      now - this._agentsCache.at < 1500
+      now - this._agentsCache.at < 1500 &&
+      this._agentsCache.status === this.getAllStatus()
     ) {
       return this._agentsCache.value
     }
@@ -431,7 +442,7 @@ export class AgentManager extends EventEmitter {
         // list showed "—" for an agent that was configured correctly, and a
         // user with no way to check what it was running had to take the
         // agent's word for it (it guessed, and guessed wrong).
-        model: deriveAgentModel(typeEnv(type), a.env as Record<string, string> | undefined),
+        model: listedAgentModel(typeEnv(type), a as { env?: Record<string, string>; instanceEnv?: Record<string, string> }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
@@ -439,7 +450,7 @@ export class AgentManager extends EventEmitter {
         hasCli: !!this.resolveBinary(type),
       }
     })
-    this._agentsCache = { value, at: now }
+    this._agentsCache = { value, at: now, status }
     return value
   }
 
@@ -721,6 +732,7 @@ export class AgentManager extends EventEmitter {
   async refreshHostedLogin(type: string): Promise<unknown> {
     if (!this._login.specFor(type)) return this.healthCheck(type)
     await this._login.refresh(type, true)
+    this.nudgeRuntimeDetect()
     // Pure hosted-login → login-only verdict. Dual-auth (Claude) → the combined
     // health, now reflecting the just-refreshed sign-in probe.
     if (HOSTED_LOGIN_AGENTS[type]) return this._health.hostedLoginHealth(type)
@@ -876,7 +888,14 @@ export class AgentManager extends EventEmitter {
           "This version of the agent core cannot remove a workspace membership. Update the core, or remove the agent from the workspace directly.",
         )
       }
-      await drop.call(this._connector, name)
+      try {
+        await drop.call(this._connector, name)
+      } catch (e) {
+        // The membership is already gone — the goal state. Cores before
+        // 0.2.204 lost the 404 on the way up and threw it as an error, which
+        // left the agent impossible to delete; match the server's message.
+        if (!/member not found/i.test((e as Error)?.message || "")) throw e
+      }
     }
     try {
       await this.stopAgent(name)
@@ -1271,6 +1290,7 @@ export class AgentManager extends EventEmitter {
     // stale cache would keep showing the previous one for up to its lifetime.
     this._agentsCache = { value: [], at: 0 }
     this.signalReload()
+    this.nudgeRuntimeDetect()
     return { success: true }
   }
 
@@ -1289,7 +1309,10 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
-  async testLLM(env: Record<string, string>): Promise<LLMTestResult> {
+  async testLLM(
+    env: Record<string, string>,
+    agentType?: string,
+  ): Promise<LLMTestResult> {
     // Amp signs in against Sourcegraph's own service — there's no OpenAI-style
     // endpoint to probe — so when the user supplies an AMP_API_KEY we verify it
     // the way Amp itself does: run the installed CLI's `amp usage`. (Browser
@@ -1301,8 +1324,9 @@ export class AgentManager extends EventEmitter {
     // testLLM: the core that ships on a user's machine is often older and only
     // probes the OpenAI-compatible path, so Claude/Gemini keys come back as
     // "No API key provided". testLLMConnection covers every provider and works
-    // even before the core is installed.
-    return testLLMConnection(env)
+    // even before the core is installed. A blank base URL is the agent's own
+    // default endpoint, as when it runs — not OpenAI's.
+    return testLLMConnection(agentType ? withDefaultBase(agentType, env) : env)
   }
 
   /** Keys on this machine this agent's form can take — see credential-import. */
@@ -2667,6 +2691,39 @@ export class AgentManager extends EventEmitter {
     return { success: true, message: `Stop command sent for ${name}` }
   }
 
+  /**
+   * Ask the daemon to heartbeat now. The workspace queues device commands
+   * (a Start or Stop clicked on a workspace page) for the next heartbeat,
+   * which is up to 10s away; this collapses that wait to the daemon's 200ms
+   * command poll. A daemon too old to know the line ignores it.
+   */
+  nudgeNodeHeartbeat(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "heartbeat")
+    } catch {
+      // Nothing lost: the regular heartbeat still picks the command up.
+    }
+  }
+
+  /**
+   * Ask the daemon to re-detect its runtimes and report them now. The
+   * workspace's Ready / Needs login badges come from that report, refreshed
+   * every 2 minutes; after a sign-in or a saved key the launcher already says
+   * Ready, and without this the workspace kept saying Needs login meanwhile.
+   * A daemon too old to know the line ignores it.
+   */
+  nudgeRuntimeDetect(): void {
+    if (!this._getLiveDaemonPid() || !this._connector) return
+    const sendCmd = this._connector.sendDaemonCommand as (cmd: string) => void
+    try {
+      sendCmd.call(this._connector, "detect")
+    } catch {
+      // Nothing lost: the periodic detection still catches up.
+    }
+  }
+
   async startAll(): Promise<unknown> {
     const ready = await this._ensureDaemon()
     if (!ready)
@@ -2698,7 +2755,8 @@ export class AgentManager extends EventEmitter {
 
   getAllStatus(): unknown {
     const now = Date.now()
-    if (this._statusCache.value && now - this._statusCache.at < 1000) {
+    // Short on purpose: the file is small, and this is what start/stop wait on.
+    if (this._statusCache.value && now - this._statusCache.at < 300) {
       return this._statusCache.value
     }
     let value: unknown = {}

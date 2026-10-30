@@ -30,7 +30,7 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
       if (!active) return;
       setOptions([
         ...team.map((person) => ({ kind: 'human' as const, id: person.email.toLowerCase(), label: person.displayName || person.email, detail: person.email })),
-        ...discovery.agents.filter((agent) => agent.status === 'online').map((agent) => {
+        ...discovery.agents.filter((agent) => !agent.builtin && agent.status === 'online').map((agent) => {
           const id = agent.address.replace(/^openagents:/, '');
           return { kind: 'agent' as const, id, label: agent.display_name?.trim() || id, detail: t('newThread.agent') };
         }),

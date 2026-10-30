@@ -1,10 +1,11 @@
 # Workspace development and deployment
 
-The preview site at workspace-preview.openagents.org is configured to share the production PostgreSQL database and file storage. Treat preview activity as activity on live production data.
+Preview at workspace-preview.openagents.org follows `develop` and has its own frontend, backend, PostgreSQL database and file storage on droplet 164.92.127.159. The user authorized this isolation and automated preview database migrations on October 26, 2026.
 
-- Put preview/beta features on `codex/preview`, based on the deployed production release. Do not deploy preview changes to production as part of beta work.
-- Before any database schema change, migration, backfill, bulk data repair or change to database infrastructure, explain the proposed change to the user and wait for their agreement. The user explicitly requested this coordination on October 15, 2026. Do not run migrations as a routine deployment step.
-- Keep automatic migrations and background jobs disabled on the preview backend. Do not restore the former preview migration service, demo-login service or simulated persona traffic against production.
-- The preview backend uses a pinned production-compatible image; frontend sources remain editable for beta development. Backend changes need a reviewed compatible image. Do not mount older branch backend code over the running production-compatible image.
-- Keep credentials out of repository files, logs and tool output. The deployment template references a protected host-only environment file.
-- See docs/preview-production-data.md and deploy/preview-production.compose.yml for the configuration and rollback procedure.
+- Merge preview work into `develop`; the droplet’s `openagents-preview-develop.timer` checks the public branch every two minutes, builds both images from the same commit and deploys the isolated stack automatically. Production continues to follow `release` through the existing promotion workflow.
+- Preview's active configuration lives at `/opt/openagents-preview-isolated/`. Its database is `openagents_preview` on the private Compose `postgres` service, with a dedicated named volume. Files use a separate local volume. Never configure preview to use production database or storage credentials.
+- Preview migrations are permitted only after the deployment guard validates that local database target, and after a local backup. Deployments stop app writers for migrations and restore the local backup and previous images on failure.
+- Production schema changes, migrations, backfills, bulk repair or database infrastructure changes still require explaining the proposed change and waiting for the user's agreement. Preview authorization does not authorize production changes.
+- Secrets stay in root-only files on the host. The tracker reads public Git without a repository token; never print or commit secrets.
+- The previous shared-production-data stack at `/opt/openagents-preview/` is retained stopped for recovery. Do not start it or use its `production-beta.env` for preview.
+- See `docs/preview-environment.md` and `operations/preview/` for setup, deployment and recovery.

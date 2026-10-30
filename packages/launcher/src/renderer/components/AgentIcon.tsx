@@ -19,12 +19,16 @@ const BUNDLED_SLUGS = new Set([
   "goose",
   "hermes",
   "kimi",
+  "mimo-code",
   "nanoclaw",
   "openai",
   "openclaw",
   "opencode",
   "openworker",
   "pi",
+  "qoder",
+  "qoder-cn",
+  "qwen-code",
   "yaml-agent",
 ])
 

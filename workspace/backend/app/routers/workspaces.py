@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import naming
@@ -56,6 +56,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 
 AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
+
+PUBLIC_WORKSPACE_SETTINGS = frozenset({
+    "theme", "monitorMode", "browser_enabled", "slack_browser_previews",
+})
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -174,13 +178,16 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
         })
 
     settings = ws.settings or {}
+    # Only documented display/behavior settings cross the API boundary.
+    # Credentials and server-only settings must never ride along in this map.
+    public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,
         "name": ws.name,
         "creatorEmail": ws.creator_email,
         "requireLogin": bool(ws.require_login),
-        "settings": settings,
+        "settings": public_settings,
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
         "browserEnabled": bool(settings.get("browser_enabled", False)),
@@ -192,7 +199,10 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     }
 
 
-def _format_channel(ch: Channel) -> dict:
+def _format_channel(ch: Channel, db=None) -> dict:
+    from app.services.personal_assistant import is_yumi, is_personal_channel
+    personal = db is not None and is_personal_channel(db, ch)
+    builtin = db is not None and is_yumi(db, ch.workspace_id, "yumi")
     return {
         "channelId": str(ch.id),
         "workspaceId": str(ch.workspace_id),
@@ -200,7 +210,7 @@ def _format_channel(ch: Channel) -> dict:
         "title": ch.title,
         "titleManuallySet": bool(ch.title_manually_set),
         "createdBy": ch.created_by,
-        "masterAgent": ch.master_agent,
+        "masterAgent": None if builtin and not personal and ch.master_agent == "yumi" else ch.master_agent,
         "orchestrationMode": "workflow" if ch.orchestration_mode == "workflow" else "dynamic",
         "responseMode": ch.response_mode or "proactive",
         "orchestrationInstruction": ch.orchestration_instruction,
@@ -209,8 +219,8 @@ def _format_channel(ch: Channel) -> dict:
         "status": ch.status,
         "starred": bool(ch.starred),
         "isChannel": bool(ch.is_channel),
-        "participants": [p.agent_name for p in (ch.participants or [])],
-        "visibility": "private" if (ch.visibility or "") == "private" else "public",
+        "participants": [p.agent_name for p in (ch.participants or []) if not (builtin and not personal and p.agent_name == "yumi")],
+        "visibility": "private" if personal or (ch.visibility or "") == "private" else "public",
         "ownerEmail": ch.owner_email,
         "participantsCanInvite": bool(ch.participants_can_invite),
         "membersCanAddAgents": bool(ch.members_can_add_agents),
@@ -338,7 +348,7 @@ def create_workspace(
         "slug": workspace.slug,
         "name": workspace.name,
         "token": token,
-        "channel": _format_channel(channel) if channel else None,
+        "channel": _format_channel(channel, db) if channel else None,
     })
 
 
@@ -351,9 +361,25 @@ def list_workspaces(
     creator_email: Optional[str] = Query(None),
     agent_name: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
 ):
-    """List workspaces, optionally filtered by creator or agent membership."""
-    query = select(Workspace).where(Workspace.status != "deleted")
+    """List only workspaces accessible to the verified human identity.
+
+    Filters narrow that set; an email or agent name is never authorization.
+    Legacy creator/collaborator access matches resolve_user_role without a
+    migration or a membership backfill during this read.
+    """
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
+    email = user.email.strip().lower()
+    memberships = select(WorkspaceMembership.workspace_id).where(WorkspaceMembership.user_id == user.id)
+    collaborations = select(WorkspaceCollaborator.workspace_id).where(func.lower(WorkspaceCollaborator.email) == email)
+    query = select(Workspace).where(
+        Workspace.status != "deleted",
+        or_(Workspace.id.in_(memberships), func.lower(Workspace.creator_email) == email,
+            Workspace.id.in_(collaborations)),
+    )
 
     if creator_email:
         query = query.where(Workspace.creator_email == creator_email)
@@ -367,7 +393,7 @@ def list_workspaces(
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    results = [_format_workspace(ws, ws.members, now) for ws in workspaces]
+    results = [_format_workspace(ws, ws.members, now, authorization=authorization) for ws in workspaces]
 
     return success_response(results)
 
@@ -452,7 +478,12 @@ def update_workspace(
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
-        workspace.settings = body.settings
+        unknown = set(body.settings) - PUBLIC_WORKSPACE_SETTINGS
+        if unknown:
+            return json_response(ResponseCode.BAD_REQUEST, "Unsupported workspace settings; use the dedicated configuration fields")
+        # Clients only receive public settings. Replacing the entire stored map
+        # with that round-trip would silently erase keys and server metadata.
+        workspace.settings = {**(workspace.settings or {}), **body.settings}
     if body.browser_enabled is not None:
         current = dict(workspace.settings or {})
         current["browser_enabled"] = body.browser_enabled
@@ -954,10 +985,12 @@ def generate_member_description(
         model = _get_router_model()
         if provider == "openai":
             resp = client.chat.completions.create(
-                model=model, max_tokens=60,
+                # Reasoning models share this budget with the visible answer;
+                # 60 tokens can be exhausted before any description is emitted.
+                model=model, max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = resp.choices[0].message.content.strip()
+            text = (resp.choices[0].message.content or "").strip()
         else:
             resp = client.messages.create(
                 model=model, max_tokens=60,
@@ -970,6 +1003,9 @@ def generate_member_description(
 
     # Strip stray wrapping quotes / trailing period the model sometimes adds.
     text = text.strip().strip('"').strip("'").rstrip(".").strip()
+    if not text:
+        logger.warning("generate-description returned an empty answer")
+        return json_response(ResponseCode.INTERNAL_ERROR, "Model returned an empty description; please retry")
     return success_response({"agentName": agent_name, "description": text})
 
 
@@ -980,6 +1016,7 @@ def generate_member_description(
 
 class SkillInstallRequest(BaseModel):
     skill_id: str
+    version_id: Optional[str] = None
 
 
 class SkillStatusRequest(BaseModel):
@@ -988,6 +1025,7 @@ class SkillStatusRequest(BaseModel):
     path: Optional[str] = None
     error: Optional[str] = None
     partial: Optional[bool] = None  # SKILL.md fetched but bundled files missing
+    version_id: Optional[str] = None
 
 
 _VALID_SKILL_STATES = {"installing", "installed", "failed", "uninstalled"}
@@ -1004,6 +1042,11 @@ class CustomSkillRegisterRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     filename: Optional[str] = None      # original name, for display metadata only
+
+
+class CustomSkillVersionRequest(BaseModel):
+    file_id: str = Field(max_length=128)
+    changelog: str = Field(default="", max_length=4000)
 
 
 def _custom_skills_map(workspace) -> dict:
@@ -1089,6 +1132,49 @@ def _set_skill_status(skills_data: dict, skill_id: str, state: str,
     return skills_data
 
 
+def _resolve_registry_skill(db: Session, skill_id: str) -> tuple[Optional[object], Optional[object]]:
+    """Resolve a Registry skill from either its UUID or an upstream catalog slug.
+
+    Mirrored UGC is always addressed by UUID. Built-in skills report install
+    state under their historical catalog slug, so fall back to a slug lookup
+    restricted to upstream pointers — an unrelated user skill that happens to
+    share a slug must never match.
+    """
+    from app.models import RegistrySkill, RegistrySkillVersion
+
+    registry_skill = db.get(RegistrySkill, skill_id)
+    if registry_skill is not None:
+        version = db.get(RegistrySkillVersion, registry_skill.latest_published_version_id)
+        return registry_skill, version
+    row = db.execute(
+        select(RegistrySkill, RegistrySkillVersion)
+        .join(
+            RegistrySkillVersion,
+            RegistrySkillVersion.id == RegistrySkill.latest_published_version_id,
+        )
+        .where(
+            RegistrySkill.slug == skill_id,
+            RegistrySkillVersion.source_mode == "upstream_pointer",
+        )
+    ).first()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def _registry_status_aliases(db: Session, skill_id: str) -> tuple[set[str], Optional[object]]:
+    """Return compatible status keys for an upstream Registry pointer.
+
+    Built-in skills historically used their catalog slug in ``enabled_skills``.
+    One Registry build briefly used the Registry UUID instead. Treat both as
+    aliases for upstream pointers so uninstall can clean either representation;
+    mirrored UGC remains UUID-only to avoid collisions with unrelated slugs.
+    """
+    registry_skill, version = _resolve_registry_skill(db, skill_id)
+    aliases = {skill_id}
+    if registry_skill is not None and version is not None and version.source_mode == "upstream_pointer":
+        aliases.update({registry_skill.id, registry_skill.slug})
+    return aliases, registry_skill
+
+
 @router.post("/{workspace_id}/members/{agent_name}/skills/install")
 def install_skill(
     workspace_id: str,
@@ -1127,10 +1213,54 @@ def install_skill(
     if denied is not None:
         return denied
 
-    # Built-in catalog first; then fall back to this workspace's custom skills.
+    # Built-in catalog first; then workspace-private skills, then a public
+    # registry UUID. New clients pin an immutable registry version.
     skill = find_skill(body.skill_id)
-    custom = None if skill else _custom_skills_map(workspace).get(body.skill_id)
-    if not skill and not custom:
+    custom = None
+    registry_skill = None
+    registry_version = None
+    if not skill:
+        from app.models import RegistrySkill, RegistrySkillVersion, WorkspaceSkill, WorkspaceSkillVersion
+        from app.skill_registry import materialize_legacy_workspace_skills
+        materialize_legacy_workspace_skills(db, workspace)
+        # Normalized versions are authoritative. Legacy JSON remains only as a
+        # fallback for rows that could not yet be materialized (for example a
+        # missing historical file), so v2/v3 installs can never silently use
+        # the first uploaded file.
+        local_skill = db.execute(select(WorkspaceSkill).where(
+            WorkspaceSkill.workspace_id == workspace.id,
+            WorkspaceSkill.slug == body.skill_id,
+            WorkspaceSkill.status == "active",
+        )).scalar_one_or_none()
+        if local_skill:
+            local_version = db.get(WorkspaceSkillVersion, local_skill.latest_version_id)
+            if local_version:
+                custom = {
+                    "id": local_skill.slug,
+                    "name": local_skill.name,
+                    "description": local_skill.summary,
+                    "source_type": "workspace_file",
+                    "file_id": local_version.file_id,
+                    "filename": f"{local_skill.slug}.{local_version.package_type}",
+                    "package_type": local_version.package_type,
+                    "version_id": local_version.id,
+                }
+        if not custom:
+            custom = _custom_skills_map(workspace).get(body.skill_id)
+        if not custom:
+            registry_skill = db.execute(select(RegistrySkill).where(
+                RegistrySkill.id == body.skill_id,
+                RegistrySkill.visibility == "public",
+                RegistrySkill.status == "active",
+            )).scalar_one_or_none()
+            if registry_skill:
+                target_version_id = body.version_id or registry_skill.latest_published_version_id
+                registry_version = db.execute(select(RegistrySkillVersion).where(
+                    RegistrySkillVersion.id == target_version_id,
+                    RegistrySkillVersion.skill_id == registry_skill.id,
+                    RegistrySkillVersion.status == "published",
+                )).scalar_one_or_none()
+    if not skill and not custom and not registry_version:
         return json_response(ResponseCode.NOT_FOUND, f"Unknown skill: {body.skill_id}")
 
     # For a custom skill, confirm its backing upload still exists and belongs to
@@ -1151,8 +1281,15 @@ def install_skill(
                 "This skill's uploaded file was deleted. Please re-upload the skill.",
             )
 
+    if registry_version and registry_version.source_mode == "mirrored" and (member.agent_type or "").lower() not in {"claude", "cursor", "codex"}:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Registry MVP does not yet support agent type '{member.agent_type or 'unknown'}'",
+        )
+
+    status_skill_id = registry_skill.id if registry_skill else body.skill_id
     skills_data = dict(member.enabled_skills or {})
-    skills_data = _set_skill_status(skills_data, body.skill_id, "installing")
+    skills_data = _set_skill_status(skills_data, status_skill_id, "installing")
     member.enabled_skills = skills_data
 
     if custom:
@@ -1169,8 +1306,28 @@ def install_skill(
                 "filename": custom.get("filename"),
                 "content_type": custom.get("content_type"),
                 "package_type": custom.get("package_type"),
+                "version_id": custom.get("version_id"),
             },
         })
+    elif registry_version:
+        event_skill = {
+            "id": registry_skill.slug,
+            "registry_skill_id": registry_skill.id,
+            "version_id": registry_version.id,
+            "name": registry_skill.name,
+            "description": registry_skill.summary,
+            "package_type": registry_version.package_type,
+            "content_sha256": registry_version.content_sha256,
+        }
+        if registry_version.source_mode == "mirrored":
+            event_skill["source_type"] = "registry"
+        else:
+            event_skill.update({
+                "source_type": "registry_upstream",
+                "source_repo": registry_version.source_repo,
+                "source_path": registry_version.source_path,
+            })
+        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {"skill": event_skill})
     else:
         # Carry the catalog metadata the launcher needs to fetch the skill.
         _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
@@ -1182,15 +1339,37 @@ def install_skill(
                 "source_path": skill.get("source_path", ""),
             },
         })
+    from app.models import AgentSkillInstallation
+    selected_version_id = (
+        registry_version.id if registry_version
+        else custom.get("version_id") if custom
+        else None
+    )
+    installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, status_skill_id))
+    if installation is None:
+        installation = AgentSkillInstallation(
+            workspace_id=workspace.id,
+            agent_name=agent_name,
+            skill_id=status_skill_id,
+            version_id=selected_version_id,
+            state="installing",
+        )
+        db.add(installation)
+    else:
+        installation.version_id = selected_version_id or installation.version_id
+        installation.state = "installing"
+        installation.error = None
+        installation.updated_at = datetime.now(timezone.utc)
     db.commit()
 
     logger.info(
         "install_skill: queued install of '%s' for agent '%s' in workspace %s",
-        body.skill_id, agent_name, workspace.id,
+        status_skill_id, agent_name, workspace.id,
     )
     return success_response({
         "agentName": agent_name,
-        "skillId": body.skill_id,
+        "skillId": status_skill_id,
+        "versionId": selected_version_id,
         "action": "installing",
         "state": "installing",
         "installedSkills": list(skills_data.get("installed", [])),
@@ -1247,6 +1426,48 @@ def report_skill_status(
             skills_data, body.skill_id, body.state, body.path, body.error, body.partial
         )
     member.enabled_skills = skills_data
+
+    from app.models import AgentSkillInstallation
+    installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, body.skill_id))
+    previous_state = installation.state if installation else None
+    if body.state == "uninstalled":
+        if installation:
+            db.delete(installation)
+    else:
+        if installation is None:
+            installation = AgentSkillInstallation(
+                workspace_id=workspace.id,
+                agent_name=agent_name,
+                skill_id=body.skill_id,
+                version_id=body.version_id,
+                state=body.state,
+            )
+            db.add(installation)
+        installation.version_id = body.version_id or installation.version_id
+        installation.state = body.state
+        installation.install_path = body.path
+        installation.error = body.error
+        installation.updated_at = datetime.now(timezone.utc)
+        if body.state == "installed":
+            installation.installed_at = datetime.now(timezone.utc)
+            if previous_state != "installed":
+                # Built-ins report under their catalog slug, mirrored UGC under
+                # the Registry UUID — resolve both so popularity is comparable
+                # across the two source modes.
+                registry_skill, _ = _resolve_registry_skill(db, body.skill_id)
+                if registry_skill:
+                    from app.skill_registry import record_skill_activity
+                    event = record_skill_activity(
+                        db, registry_skill, "install",
+                        workspace_id=workspace.id,
+                        agent_name=agent_name,
+                        version_id=body.version_id,
+                    )
+                    # Search orders by install_count, so it needs the same abuse
+                    # rules as the leaderboard: a reinstall loop or an author
+                    # installing their own skill must not move it up the list.
+                    if event is not None and not event.self_authored:
+                        registry_skill.install_count = (registry_skill.install_count or 0) + 1
     db.commit()
 
     if body.state == "failed":
@@ -1334,23 +1555,37 @@ def uninstall_skill(
     if denied is not None:
         return denied
 
+    aliases, alias_registry_skill = _registry_status_aliases(db, body.skill_id)
     skills_data = dict(member.enabled_skills or {})
-    installed = [s for s in skills_data.get("installed", []) if s != body.skill_id]
+    installed = [s for s in skills_data.get("installed", []) if s not in aliases]
     skills_data["installed"] = installed
     status_map = dict(skills_data.get("skill_status", {}))
-    status_map.pop(body.skill_id, None)
+    for alias in aliases:
+        status_map.pop(alias, None)
     skills_data["skill_status"] = status_map
     member.enabled_skills = skills_data
 
-    skill = find_skill(body.skill_id) or {"id": body.skill_id}
+    from app.models import AgentSkillInstallation
+    # `_registry_status_aliases` already resolved by UUID first, then by
+    # upstream slug — no second lookup needed here.
+    registry_skill = alias_registry_skill
+    skill = find_skill(body.skill_id) or {
+        "id": registry_skill.slug if registry_skill else body.skill_id,
+        "name": registry_skill.name if registry_skill else body.skill_id,
+    }
     _emit_agent_control_event(db, workspace, agent_name, "skill.uninstall", {
         "skill": {
             "id": skill["id"],
+            "registry_skill_id": registry_skill.id if registry_skill else None,
             "name": skill.get("name", skill["id"]),
             "source_repo": skill.get("source_repo", ""),
             "source_path": skill.get("source_path", ""),
         },
     })
+    for alias in aliases:
+        installation = db.get(AgentSkillInstallation, (workspace.id, agent_name, alias))
+        if installation:
+            db.delete(installation)
     db.commit()
 
     return success_response({
@@ -1382,7 +1617,64 @@ def list_custom_skills(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
-    return success_response({"skills": list(_custom_skills_map(workspace).values())})
+    from app.models import FileRecord, WorkspaceSkill, WorkspaceSkillVersion
+    from app.skill_registry import materialize_legacy_workspace_skills
+
+    materialize_legacy_workspace_skills(db, workspace)
+    # Listing is the one lazy-migration call site that has no later write, so
+    # it explicitly owns and commits the conversion transaction.
+    db.commit()
+    skills = db.execute(
+        select(WorkspaceSkill).where(
+            WorkspaceSkill.workspace_id == workspace.id,
+            WorkspaceSkill.status == "active",
+        ).order_by(WorkspaceSkill.created_at.desc())
+    ).scalars().all()
+    from app.models import RegistrySkill
+
+    payload = []
+    for skill in skills:
+        version = db.get(WorkspaceSkillVersion, skill.latest_version_id) if skill.latest_version_id else None
+        file_rec = db.get(FileRecord, version.file_id) if version else None
+        # An unlisted skill is gone from public search, so the author's own copy
+        # is the only place left that can surface — and undo — that state.
+        published = db.get(RegistrySkill, skill.registry_skill_id) if skill.registry_skill_id else None
+        payload.append({
+            "public_visibility": published.visibility if published else None,
+            "id": skill.slug,
+            "workspace_skill_id": skill.id,
+            "name": skill.name,
+            "description": skill.summary,
+            "category": skill.category,
+            "tags": skill.tags or [],
+            "author": skill.created_by,
+            "source_type": "workspace_file",
+            "file_id": version.file_id if version else None,
+            "filename": os.path.basename(file_rec.filename) if file_rec else None,
+            "content_type": file_rec.content_type if file_rec else None,
+            "package_type": version.package_type if version else None,
+            "version": version.version if version else None,
+            "version_id": version.id if version else None,
+            "registry_skill_id": skill.registry_skill_id,
+            "forked_from_version_id": skill.forked_from_version_id,
+            "unavailable": not bool(file_rec and file_rec.status == "active"),
+            "created_at": skill.created_at.isoformat() if skill.created_at else None,
+        })
+    normalized_slugs = {skill.slug for skill in skills}
+    legacy = _custom_skills_map(workspace)
+    for legacy_id, entry in legacy.items():
+        legacy_slug = entry.get("id") or legacy_id
+        if legacy_slug in normalized_slugs:
+            continue
+        file_rec = db.get(FileRecord, entry.get("file_id")) if entry.get("file_id") else None
+        payload.append({
+            **entry,
+            "id": legacy_slug,
+            "workspace_skill_id": None,
+            "source_type": "workspace_file",
+            "unavailable": not bool(file_rec and file_rec.status == "active"),
+        })
+    return success_response({"skills": payload})
 
 
 @router.post("/{workspace_id}/skills/custom")
@@ -1408,7 +1700,8 @@ def register_custom_skill(
         inspect_package,
         is_valid_skill_id,
     )
-    from app.models import FileRecord
+    from app.models import FileRecord, WorkspaceSkill
+    from app.skill_registry import create_workspace_version, materialize_legacy_workspace_skills
     from app.skill_catalog import find_skill
     from app.storage import get_file_store
 
@@ -1444,8 +1737,14 @@ def register_custom_skill(
         return json_response(
             ResponseCode.CONFLICT, f"'{skill_id}' conflicts with a built-in catalog skill",
         )
+    materialize_legacy_workspace_skills(db, workspace)
     existing = _custom_skills_map(workspace)
-    if skill_id in existing:
+    duplicate = db.execute(select(WorkspaceSkill.id).where(
+        WorkspaceSkill.workspace_id == workspace.id,
+        WorkspaceSkill.slug == skill_id,
+        WorkspaceSkill.status == "active",
+    )).first()
+    if skill_id in existing or duplicate:
         return json_response(
             ResponseCode.CONFLICT, f"A custom skill '{skill_id}' already exists in this workspace",
         )
@@ -1477,6 +1776,28 @@ def register_custom_skill(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # The normalized tables are the new source of truth.  Keep the legacy JSON
+    # mirror for one compatibility window because older launchers/UI builds
+    # still read it; all new endpoints prefer the rows above.
+    local_skill = WorkspaceSkill(
+        workspace_id=workspace.id,
+        slug=skill_id,
+        name=entry["name"],
+        summary=entry["description"],
+        category=CUSTOM_SKILL_CATEGORY,
+        tags=[],
+        created_by=file_rec.uploaded_by,
+    )
+    db.add(local_skill)
+    db.flush()
+    local_version = create_workspace_version(
+        db, local_skill, file_rec, data, pkg["package_type"], file_rec.uploaded_by,
+        "Initial workspace version",
+    )
+    entry["workspace_skill_id"] = local_skill.id
+    entry["version"] = local_version.version
+    entry["version_id"] = local_version.id
+
     # Persist via copy-then-reassign: SQLAlchemy does not detect in-place edits
     # of a JSONB column (no MutableDict here), so we rebuild and reassign the
     # whole settings dict. The copy also preserves any other custom skills.
@@ -1493,6 +1814,100 @@ def register_custom_skill(
         skill_id, entry["package_type"], workspace.id,
     )
     return success_response(entry)
+
+
+@router.get("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")
+def list_custom_skill_versions(
+    workspace_id: str,
+    workspace_skill_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Return a private skill's version timeline, newest first."""
+    from app.models import WorkspaceSkill, WorkspaceSkillVersion
+
+    workspace = db.execute(select(Workspace).where(_workspace_filter(workspace_id))).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    skill = db.execute(select(WorkspaceSkill).where(
+        WorkspaceSkill.id == workspace_skill_id,
+        WorkspaceSkill.workspace_id == workspace.id,
+        WorkspaceSkill.status == "active",
+    )).scalar_one_or_none()
+    if not skill:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace skill not found")
+    versions = db.execute(
+        select(WorkspaceSkillVersion)
+        .where(WorkspaceSkillVersion.workspace_skill_id == skill.id)
+        .order_by(WorkspaceSkillVersion.version_seq.desc())
+    ).scalars().all()
+    return success_response({
+        "workspace_skill_id": skill.id,
+        "latest_version_id": skill.latest_version_id,
+        "versions": [{
+            "version_id": v.id,
+            "version": v.version,
+            "version_seq": v.version_seq,
+            "package_type": v.package_type,
+            "changelog": v.changelog,
+            "file_id": v.file_id,
+            "content_sha256": v.content_sha256,
+            "created_by": v.created_by,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        } for v in versions],
+    })
+
+
+@router.post("/{workspace_id}/skills/custom/{workspace_skill_id}/versions")
+def create_custom_skill_version(
+    workspace_id: str,
+    workspace_skill_id: str,
+    body: CustomSkillVersionRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Create a new immutable private version from an uploaded workspace file."""
+    from app.custom_skills import CustomSkillError, inspect_package
+    from app.models import FileRecord, WorkspaceSkill
+    from app.skill_registry import create_workspace_version
+    from app.storage import get_file_store
+
+    workspace = db.execute(select(Workspace).where(_workspace_filter(workspace_id))).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    skill = db.execute(select(WorkspaceSkill).where(
+        WorkspaceSkill.id == workspace_skill_id,
+        WorkspaceSkill.workspace_id == workspace.id,
+        WorkspaceSkill.status == "active",
+    )).scalar_one_or_none()
+    if not skill:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace skill not found")
+    file_rec = db.get(FileRecord, body.file_id)
+    if not file_rec or file_rec.status != "active" or str(file_rec.workspace_id) != str(workspace.id):
+        return json_response(ResponseCode.NOT_FOUND, "File not found in this workspace")
+    try:
+        data = get_file_store().read(file_rec.storage_key)
+        pkg = inspect_package(data, file_rec.filename)
+    except (OSError, CustomSkillError) as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
+    version = create_workspace_version(
+        db, skill, file_rec, data, pkg["package_type"], file_rec.uploaded_by,
+        body.changelog.strip(),
+    )
+    db.commit()
+    return success_response({
+        "workspace_skill_id": skill.id,
+        "id": skill.slug,
+        "version_id": version.id,
+        "version": version.version,
+        "changelog": version.changelog,
+    }, "Skill version created")
 
 
 # ---------------------------------------------------------------------------
@@ -1525,7 +1940,11 @@ def get_channel(
     if not channel:
         return json_response(ResponseCode.NOT_FOUND, "Channel not found")
 
-    return success_response(_format_channel(channel))
+    from app.services.visibility import resolve_viewer, can_view_channel
+    viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    if not can_view_channel(db, str(workspace.id), viewer, channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
+    return success_response(_format_channel(channel, db))
 
 
 # ---------------------------------------------------------------------------
@@ -1578,6 +1997,9 @@ def update_channel(
         return json_response(ResponseCode.BAD_REQUEST, "Choose proactive, passive, or a workflow; master mode is no longer supported")
     if body.master_agent is not None:
         return json_response(ResponseCode.BAD_REQUEST, "Master mode is no longer supported")
+    from app.services.personal_assistant import require_shareable_channel
+    if body.visibility is not None or body.is_channel or body.director_email is not None:
+        require_shareable_channel(db, channel)
     if body.visibility is not None:
         vis = normalize_visibility(body.visibility)
         if vis not in ("private", "public"):
@@ -1657,7 +2079,7 @@ def update_channel(
 
     db.commit()
     db.refresh(channel)
-    return success_response(_format_channel(channel) | ({"pinned": body.pinned} if body.pinned is not None else {}))
+    return success_response(_format_channel(channel, db) | ({"pinned": body.pinned} if body.pinned is not None else {}))
 
 
 # ---------------------------------------------------------------------------

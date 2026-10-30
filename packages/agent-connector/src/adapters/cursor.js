@@ -19,6 +19,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { classifyRunFailure } = require('./run-failure');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -27,6 +28,23 @@ const { resolveCursorNodeEntry } = require('./cursor-node-entry');
 const IS_WINDOWS = process.platform === 'win32';
 // How long cursor-agent gets to exit by itself after emitting its `result`.
 const RESULT_EXIT_GRACE_MS = 3000;
+
+// What a failed `cursor-agent` run should tell the channel, per cause. The
+// classifier appends the CLI's own words, redacted; see run-failure.js.
+const CURSOR_GUIDANCE = {
+  auth:
+    'Cursor CLI could not authenticate. Set CURSOR_API_KEY for this agent, or ' +
+    'run `cursor-agent login` on the device.',
+  quota:
+    'Cursor is rate-limiting this agent, or the plan is out of requests. Wait ' +
+    'and try again, or check the usage on the Cursor account.',
+  network:
+    "Cursor CLI could not reach Cursor's API from this device. Check the " +
+    "device's network, or its proxy.",
+  model:
+    'Cursor rejected the requested model. Check CURSOR_MODEL for this agent, or ' +
+    'clear it to use the CLI default.',
+};
 
 class CursorAdapter extends BaseAdapter {
   constructor(opts) {
@@ -494,6 +512,8 @@ class CursorAdapter extends BaseAdapter {
       let postedThinking = false;
       let everPostedAnything = false;
       let stderrBuf = '';
+      // Set from a result event with is_error — see the exit handler.
+      let resultError = null;
       let lineBuffer = '';
       let _pendingLines = Promise.resolve();
 
@@ -574,7 +594,10 @@ class CursorAdapter extends BaseAdapter {
               this._saveSessions();
             }
             if (event.is_error) {
-              this._log(`Cursor error: ${String(event.result || '').slice(0, 200)}`);
+              // Kept for the exit handler: an errored result is the only place
+              // Cursor says WHY, and it used to be logged and dropped.
+              resultError = String(event.result || '') || 'Cursor reported an error';
+              this._log(`Cursor error: ${resultError.slice(0, 200)}`);
             }
             // `result` ends the turn, but cursor-agent -p does not always exit
             // after it. The reply is sent from the exit handler, so a CLI left
@@ -615,7 +638,10 @@ class CursorAdapter extends BaseAdapter {
             // BaseAdapter._handleUserStop cancels the plan before announcing.
           } else if (!msg._todoNudge) {
             try {
-              const remaining = await this.getRemainingTodos(msgChannel);
+              // Pending includes work waiting for a human or an earlier step.
+              // Only explicitly active work is eligible for automatic continuation.
+              const remaining = (await this.getRemainingTodos(msgChannel))
+                .filter((todo) => todo.status === 'in_progress');
               if (remaining.length > 0) {
                 const items = remaining.map((t) => `- ${t.content}`).join('\n');
                 const nudge = `You have ${remaining.length} remaining task(s) from your plan:\n${items}\n\nPlease continue working on them.`;
@@ -630,9 +656,8 @@ class CursorAdapter extends BaseAdapter {
                 });
               }
             } catch {}
-          } else {
-            try { await this.cleanupTodos(msgChannel); } catch {}
           }
+          // Finishing a reminder does not cancel tasks waiting for user input.
 
           if (stoppedByUser) {
             this._stoppingChannels.delete(msgChannel);
@@ -644,6 +669,25 @@ class CursorAdapter extends BaseAdapter {
           if (code !== 0 && stderrBuf.trim()) {
             this._log(`stderr: ${stderrBuf.trim().slice(0, 500)}`);
           }
+
+          // Why the run failed, if it did — from the errored result event, or
+          // from stderr and the exit code when the CLI died before one.
+          const failure = (code !== 0 || resultError)
+            ? classifyRunFailure({
+              code,
+              stderr: stderrBuf,
+              error: resultError,
+              cli: 'Cursor CLI',
+              guidance: CURSOR_GUIDANCE,
+              skip: ['session'],
+              secrets: this._knownSecrets(),
+            })
+            : null;
+          if (failure) this._log(`Run failed (${failure.kind})`, 'error');
+          // Only a failure nothing explains is worth a fresh session. Clearing
+          // it for a bad key or an exhausted quota throws the channel's history
+          // away and buys a second helping of the same error.
+          const worthRetrying = !failure || failure.kind === 'unknown';
 
           if (lastResponseText.length > 0) {
             const fullResponse = lastResponseText.join('\n').trim();
@@ -658,11 +702,14 @@ class CursorAdapter extends BaseAdapter {
             } else {
               resolve(false);
             }
-          } else if (this._channelSessions[msgChannel] && !everPostedAnything) {
+          } else if (this._channelSessions[msgChannel] && !everPostedAnything && worthRetrying) {
             this._log(`Stale session detected for ${msgChannel}, clearing and retrying without resume`);
             delete this._channelSessions[msgChannel];
             this._saveSessions();
             resolve(true);
+          } else if (failure) {
+            try { await this.sendError(msgChannel, failure.message); } catch {}
+            resolve(false);
           } else {
             if (!everPostedAnything) {
               try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
@@ -689,7 +736,7 @@ class CursorAdapter extends BaseAdapter {
       });
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendError(msgChannel, `Error processing message: ${this._redact(e.message)}`);
       break;
     }
     if (!_shouldRetry) break;

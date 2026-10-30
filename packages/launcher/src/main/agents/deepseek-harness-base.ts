@@ -20,6 +20,22 @@ function isDeepseekHost(base: string): boolean {
   }
 }
 
+/**
+ * A gateway written with a version segment (`…/v1`) is OpenAI-compatible:
+ * the harness reaches it over chat completions through its pi-ai provider,
+ * since such gateways (OpenAgents credits included) serve no Messages API.
+ * Mirrors the connector's classifyDshEndpoint.
+ */
+export function dshUsesOpenAiGateway(base: string): boolean {
+  const trimmed = (base || "").trim()
+  if (!trimmed || isDeepseekHost(trimmed)) return false
+  try {
+    return /\/v\d+$/.test(new URL(trimmed).pathname.replace(/\/+$/, "").toLowerCase())
+  } catch {
+    return false
+  }
+}
+
 /** Where the harness sends `/v1/messages`: blank or DeepSeek's own host → its Anthropic endpoint. */
 export function dshMessagesBase(base: string): string {
   const trimmed = (base || "").trim()

@@ -17,16 +17,18 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const { configuredModel } = require('../agent-model');
 const { buildThreadHistory } = require('./thread-history');
 const { publishResponseArtifacts } = require('./response-artifacts');
+const { ResponseOutbox } = require('./response-outbox');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  decisionLogTitle,
   glossaryTitle,
   WORKSPACE_GLOSSARY_TITLE,
   pickEntryByTitle,
@@ -133,18 +135,6 @@ const HEARTBEAT_ERROR_THRESHOLD = 2;
 const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
 const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
 const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
-
-/**
- * Model variables whose name does not follow `<TYPE>_MODEL`. Only the ones an
- * adapter really reads — see `modelLabel`, which tries `<TYPE>_MODEL` first
- * and `LLM_MODEL` last, so nothing else needs an entry here.
- */
-const MODEL_ENV_ALIASES = {
-  claude: ['ANTHROPIC_MODEL', 'CLAUDE_MODEL'],
-  gemini: ['GEMINI_MODEL', 'GOOGLE_GEMINI_MODEL'],
-  antigravity: ['ANTIGRAVITY_MODEL', 'AGY_MODEL'],
-  codex: ['CODEX_MODEL', 'OPENCLAW_MODEL'],
-};
 
 /**
  * Wrap an adapter's `_channelProcesses` so registering a child for a turn that
@@ -256,12 +246,11 @@ class BaseAdapter {
     // workspace flag must reconnect/restart to pick up the change (matches
     // the Python adapter behavior in workspace_prompt.py).
     this._browserEnabledCache = null;
-    // ── Knowledge pinning (decision log + glossary) ──
+    // ── Knowledge pinning (glossary) ──
     // Entry-id caches make the steady state a single GET per pinned entry;
     // reads happen on EVERY message, so they get a hard short deadline
     // instead of the client's default 15s — a workspace hiccup must cost the
     // turn a couple of seconds, not half a minute.
-    this._decisionEntryIds = {}; // channel → knowledge entry id of its decision log
     this._glossaryEntryIds = {}; // channel → knowledge entry id of its glossary
     this._DECISION_FETCH_TIMEOUT_MS = 2000;
     this._warnedKnowledgeDisabled = false;
@@ -271,7 +260,7 @@ class BaseAdapter {
     // every _handleMessage call. Adapters with their own pinning flow
     // (Claude) fetch directly instead and leave it false.
     this._usesPinnedContext = false;
-    this._pinnedContext = {}; // channel → { decisions, glossary }
+    this._pinnedContext = {}; // channel → { glossary }
     // ── v1.1 M3/M4 ──
     // Debounce handle for the busy↔idle presence heartbeat.
     this._presenceHeartbeatTimer = null;
@@ -299,6 +288,30 @@ class BaseAdapter {
     // The control poller (Stop, mode changes) fails silently otherwise: its
     // errors are caught so the loop keeps going, and nothing else logs them.
     this._controlFailures = new FailureStreak();
+  }
+
+  // ------------------------------------------------------------------
+  // Redaction of text quoted into the channel
+  // ------------------------------------------------------------------
+
+  /**
+   * The exact values this agent must never quote back: the credentials in the
+   * environment its CLI runs with, and its own workspace token. A CLI that
+   * fails on auth tends to echo the key it was handed, in whatever format the
+   * provider issues — matching by value catches it where no pattern would.
+   */
+  _knownSecrets() {
+    return secretValues(this.agentEnv, [this.token]);
+  }
+
+  /**
+   * Redact CLI or exception text on its way to the channel: this agent's own
+   * secrets by value first, then anything shaped like a credential. For quoted
+   * text only — authored guidance names variables ("set GEMINI_API_KEY") that
+   * the shape rules would rewrite.
+   */
+  _redact(text) {
+    return redactSecrets(text, this._knownSecrets());
   }
 
   // ------------------------------------------------------------------
@@ -398,17 +411,7 @@ class BaseAdapter {
   modelLabel() {
     const fromWorkspace = String(this.workspaceModel || '').trim();
     if (fromWorkspace) return fromWorkspace;
-    const type = String(this.agentType || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-    const candidates = [
-      ...(type ? [`${type}_MODEL`] : []),
-      ...(MODEL_ENV_ALIASES[this.agentType] || []),
-      'LLM_MODEL',
-    ];
-    for (const key of candidates) {
-      const value = String((this.agentEnv && this.agentEnv[key]) || '').trim();
-      if (value) return value;
-    }
-    return null;
+    return configuredModel(this.agentType, this.agentEnv);
   }
 
   async run() {
@@ -444,6 +447,8 @@ class BaseAdapter {
     // /status responsive immediately after join.
     await this._skipExistingControlEvents();
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+    const responseInterval = setInterval(() => this._flushResponses(), 10000);
+    void this._flushResponses();
     const controlPoller = this._controlPollerLoop();
 
     try {
@@ -459,6 +464,7 @@ class BaseAdapter {
       this._running = false;
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
+      clearInterval(responseInterval);
       if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
       try {
@@ -942,6 +948,8 @@ class BaseAdapter {
     const installer = require('../skill-installer');
     const skill = (payload && payload.skill) || null;
     const skillId = skill && (skill.id || skill.skill_id);
+    const reportSkillId = skill && (skill.registry_skill_id || skill.registrySkillId) || skillId;
+    const versionId = skill && (skill.version_id || skill.versionId);
     if (!skillId) {
       this._log('skill.install: missing skill metadata in payload — ignoring');
       return;
@@ -952,7 +960,7 @@ class BaseAdapter {
     // initial DB write from the request hasn't propagated to this client.
     try {
       await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-        skillId, state: 'installing',
+        skillId: reportSkillId, state: 'installing', versionId,
       });
     } catch (e) {
       this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`, 'warn');
@@ -976,6 +984,22 @@ class BaseAdapter {
           workingDir: this.workingDir,
           log: (m) => this._log(`skill.install: ${m}`),
         });
+      } else if (sourceType === 'registry') {
+        if (!versionId) throw new Error('registry skill is missing version_id');
+        this._log(`skill.install: downloading registry version ${versionId}`);
+        const buffer = await this.client.readRegistryVersion(versionId, this.token);
+        if (!buffer || buffer.length === 0) throw new Error('registry artifact is empty');
+        const expected = skill.content_sha256 || skill.contentSha256;
+        const actual = crypto.createHash('sha256').update(buffer).digest('hex');
+        if (!expected || actual !== expected) {
+          throw new Error(`registry artifact sha256 mismatch (expected ${expected || 'missing'}, got ${actual})`);
+        }
+        result = installer.installUploadedSkill({
+          skill, buffer,
+          agentType: this.agentType,
+          workingDir: this.workingDir,
+          log: (m) => this._log(`skill.install: ${m}`),
+        });
       } else {
         result = installer.installSkill({
           skill,
@@ -986,7 +1010,8 @@ class BaseAdapter {
       }
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'installed', path: result.path, partial: result.partial === true,
+          skillId: reportSkillId, state: 'installed', path: result.path,
+          partial: result.partial === true, versionId,
         });
       } catch (e) {
         this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`, 'warn');
@@ -998,7 +1023,7 @@ class BaseAdapter {
       this._log(`skill.install: FAILED "${skillId}": ${msg}`, 'error');
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'failed', error: msg,
+          skillId: reportSkillId, state: 'failed', error: msg, versionId,
         });
       } catch (e2) {
         this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`, 'warn');
@@ -1013,6 +1038,7 @@ class BaseAdapter {
     const installer = require('../skill-installer');
     const skill = (payload && payload.skill) || null;
     const skillId = skill && (skill.id || skill.skill_id);
+    const reportSkillId = skill && (skill.registry_skill_id || skill.registrySkillId) || skillId;
     if (!skillId) {
       this._log('skill.uninstall: missing skill metadata in payload — ignoring');
       return;
@@ -1027,7 +1053,7 @@ class BaseAdapter {
       this._log(`skill.uninstall: "${skillId}" removed=${result.removed}`);
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'uninstalled',
+          skillId: reportSkillId, state: 'uninstalled',
         });
       } catch (e) {
         this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`, 'warn');
@@ -1095,8 +1121,8 @@ class BaseAdapter {
   }
 
   /**
-   * Post a markdown table of the agent's active routines back to the
-   * requesting channel. Used by the `/routines` slash command. Each agent
+   * Post a markdown table of the agent's routines (active and paused) back
+   * to the requesting channel. Used by the `/routines` slash command. Each agent
    * reports only routines it owns (created_by === openagents:<agentName>)
    * so the user sees a clear "my routines" view per agent, mirroring how
    * /status reports per-agent uptime.
@@ -1130,15 +1156,18 @@ class BaseAdapter {
 
     let content;
     if (!routines.length) {
-      content = `**Routines for \`${this.agentName}\`**\n\n_No active routines._`;
+      content = `**Routines for \`${this.agentName}\`**\n\n_No routines._`;
     } else {
       const rows = routines.map((r) => {
         const schedule = (r.schedule_interval_minutes != null)
           ? `every ${r.schedule_interval_minutes} min`
           : `${String(r.schedule_hour ?? 0).padStart(2, '0')}:${String(r.schedule_minute ?? 0).padStart(2, '0')} UTC` +
             (r.schedule_days ? ` (days [${r.schedule_days.join(',')}])` : ' daily');
-        const next = r.next_fires_at || '—';
-        const name = String(r.name || '').replace(/\|/g, '\\|');
+        // A paused routine keeps its last next_fires_at, which is stale (often
+        // in the past) — show that it's paused instead of a time it won't fire.
+        const paused = r.status && r.status !== 'active';
+        const next = paused ? '—' : (r.next_fires_at || '—');
+        const name = String(r.name || '').replace(/\|/g, '\\|') + (paused ? ` [${r.status}]` : '');
         const id = String(r.id || '').slice(0, 8);
         return `| \`${id}\` | ${name} | ${schedule} | ${next} |`;
       });
@@ -1446,7 +1475,7 @@ class BaseAdapter {
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        try { await this.sendError(channel, `Agent error: ${this._redact(e.message)}`); } catch {}
       }
       delete this._channelRunGeneration[channel];
       delete this._channelRequestContent[channel];
@@ -1560,7 +1589,7 @@ class BaseAdapter {
   }
 
   // ------------------------------------------------------------------
-  // Knowledge pinning (decision log + glossary)
+  // Knowledge pinning (glossary)
   // ------------------------------------------------------------------
 
   /**
@@ -1587,8 +1616,7 @@ class BaseAdapter {
       if (!this._warnedKnowledgeDisabled) {
         this._warnedKnowledgeDisabled = true;
         this._log(
-          'Knowledge module is disabled — decision-log pinning is INACTIVE. ' +
-          'Confirmed decisions will not survive context compaction or session resets.'
+          'Knowledge module is disabled — glossary pinning is INACTIVE.'
         );
       }
       if (!this._pinnedStatusWarned.has(channel)) {
@@ -1596,9 +1624,9 @@ class BaseAdapter {
         try {
           await this.sendStatus(
             channel,
-            'Decision pinning inactive: the knowledge module is disabled for ' +
-            'this agent, so confirmed decisions and the shared glossary ' +
-            'cannot be pinned across session resets.'
+            'Glossary pinning inactive: the knowledge module is disabled for ' +
+            'this agent, so the shared glossary cannot be pinned across ' +
+            'session resets.'
           );
         } catch {}
       }
@@ -1672,11 +1700,6 @@ class BaseAdapter {
     }
   }
 
-  /** Read the channel's decision log. See _fetchPinnedEntry for the contract. */
-  async _fetchDecisionLog(channel) {
-    return this._fetchPinnedEntry(channel, [decisionLogTitle(channel)], this._decisionEntryIds, 'Decision log');
-  }
-
   /**
    * Read the channel's glossary — the channel-specific entry when it exists,
    * else the workspace-wide fallback. See _fetchPinnedEntry for the contract.
@@ -1695,11 +1718,10 @@ class BaseAdapter {
     return res;
   }
 
-  /** Fetch everything pinnable for a channel: { decisions, glossary }. */
+  /** Fetch everything pinnable for a channel: { glossary }. */
   async _fetchPinnedContext(channel) {
-    const decisions = await this._fetchDecisionLog(channel);
     const glossary = await this._fetchGlossary(channel);
-    return { decisions, glossary };
+    return { glossary };
   }
 
   /**
@@ -1715,9 +1737,6 @@ class BaseAdapter {
       const fresh = await this._fetchPinnedContext(channel);
       const prev = this._pinnedContext[channel];
       if (prev) {
-        if (fresh.decisions && fresh.decisions.error && prev.decisions && !prev.decisions.error) {
-          fresh.decisions = prev.decisions;
-        }
         if (fresh.glossary && fresh.glossary.error && prev.glossary && !prev.glossary.error) {
           fresh.glossary = prev.glossary;
         }
@@ -1729,7 +1748,7 @@ class BaseAdapter {
   }
 
   /**
-   * Prompt-builder options ({ decisionLog, glossary }) derived from the last
+   * Prompt-builder options ({ glossary }) derived from the last
    * prefetch for the channel. Sync, so prompt builders can call it inline;
    * returns {} when nothing was prefetched or nothing is usable.
    */
@@ -1737,15 +1756,6 @@ class BaseAdapter {
     const ctx = this._pinnedContext[channel];
     if (!ctx) return {};
     const opts = {};
-    const d = ctx.decisions;
-    if (d && d.available) {
-      opts.decisionLog = {
-        enabled: true,
-        state: d.state,
-        entryId: d.entryId,
-        content: d.error ? '' : (d.content || ''),
-      };
-    }
     const g = ctx.glossary;
     if (g && g.available && g.state === 'found' && g.content) {
       opts.glossary = { enabled: true, entryId: g.entryId, content: g.content, scope: g.scope || 'channel' };
@@ -1826,39 +1836,60 @@ class BaseAdapter {
   async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
     if (this._isMuted(channel)) return;
     try {
-      let attachments = [];
-      if (!(this.disabledModules || new Set()).has('files') && channel && !channel.startsWith('dm:') && this.client.uploadFile) {
-        const published = await publishResponseArtifacts({
-          content,
-          workingDir: this.workingDir,
-          upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
-            contentType, source: `openagents:${this.agentName}`, channelName: channel, visibility: 'inherit',
-          }),
-          onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
-        });
-        content = published.content;
-        attachments = published.attachments;
-      }
-      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
-        attachments,
-        senderType: 'agent',
-        senderName: this.agentName,
+      await this._replyOutbox().enqueue({
+        channel, content,
         metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
-        sessionId: this._sessionId,
       });
     } catch (e) {
-      if (e instanceof SessionRevokedError) {
-        this._onSessionRevoked();
-        return;
-      }
+      this._log('Could not save or deliver the final reply; check the local response outbox and disk permissions.', 'error');
       throw e;
     }
+  }
+
+  _replyOutbox() {
+    if (!this._responseOutbox) this._responseOutbox = new ResponseOutbox({
+      endpoint: this.endpoint, workspaceId: this.workspaceId, agentName: this.agentName,
+      directory: this._responseOutboxDirectory,
+      log: (message, level) => this._log(message, level),
+      onRevoked: () => this._onSessionRevoked(),
+      prepare: async (entry) => {
+        // Old/custom servers may not support idempotency. Never blindly retry
+        // an ambiguous send against one of those servers.
+        const safeRetry = this.client.supportsMessageDelivery
+          ? await this.client.supportsMessageDelivery() : false;
+        let published = { content: entry.content, attachments: [] };
+        if (!(this.disabledModules || new Set()).has('files') && entry.channel && !entry.channel.startsWith('dm:') && this.client.uploadFile) {
+          published = await publishResponseArtifacts({
+            content: entry.content, workingDir: this.workingDir,
+            upload: (filename, bytes, contentType) => this.client.uploadFile(this.workspaceId, this.token, filename, bytes, {
+              contentType, source: `openagents:${this.agentName}`, channelName: entry.channel, visibility: 'inherit',
+            }),
+            onError: () => this._log('Could not attach a linked document; leaving its original link in the reply.'),
+          });
+        }
+        return { ...published, safeRetry };
+      },
+      send: async (entry) => {
+        if (this._isMuted(entry.channel)) throw new Error('Channel is muted');
+        return this.client.sendMessage(this.workspaceId, entry.channel, this.token, entry.content, {
+          attachments: entry.attachments, senderType: 'agent', senderName: this.agentName,
+          metadata: entry.metadata, sessionId: this._sessionId,
+          idempotencyKey: entry.safeRetry ? entry.id : undefined,
+        });
+      },
+    });
+    return this._responseOutbox;
+  }
+
+  async _flushResponses() {
+    try { await this._replyOutbox().flush(); }
+    catch { this._log('Could not drain the response outbox; saved replies retained.', 'error'); }
   }
 
   async cleanupTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
       const hasActive = todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -1879,10 +1910,13 @@ class BaseAdapter {
   async getRemainingTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
-      return todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      // Defend against older endpoints returning the entire channel's list.
+      return todos.filter((t) => (!t.created_by || t.created_by === `openagents:${this.agentName}`)
+        && (!t.assignee || t.assignee === this.agentName || t.assignee === `openagents:${this.agentName}`)
+        && (t.status === 'pending' || t.status === 'in_progress'));
     } catch {
       return [];
     }

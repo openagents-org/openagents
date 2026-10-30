@@ -9,7 +9,7 @@ import { NotificationBell } from "./notification-bell"
 
 /**
  * One quiet line along the bottom of This Computer: which machine this is,
- * whether its daemon is up, the app version, and the theme and notification
+ * what its agents are doing, the app version, and the theme and notification
  * controls.
  */
 export function StatusFooter(): React.JSX.Element {
@@ -24,7 +24,7 @@ export function StatusFooter(): React.JSX.Element {
       <span className="truncate text-foreground">{hostname || t("agents.shared.thisComputer")}</span>
       <span aria-hidden>·</span>
       {/* `stopped` is a deliberate state, not a fault — StatusDot renders it in
-          the same muted tone as offline, which is the intent. */}
+          the same muted tone as no agents at all, which is the intent. */}
       <StatusDot state={status} />
       <span className="truncate">{statusLabel}</span>
       <span className="ml-auto shrink-0 font-mono">{version}</span>

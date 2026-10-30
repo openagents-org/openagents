@@ -10,7 +10,10 @@ as push.py.
 import asyncio
 import json as _json
 import logging
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,6 +30,17 @@ from app.services.cloud_providers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Keep blocking ORM work (including channel lock waits) off the HTTP loop.
+# Bound concurrent invocations and queue excess work before opening a session.
+_cloud_executor = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("CLOUD_AGENT_WORKERS", "2")),
+    thread_name_prefix="cloud-agent",
+)
+# Follow-up hooks can invoke another cloud agent. They must outlive the current
+# invocation loop, whose default executor asyncio.run() joins on shutdown.
+_followup_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud-followup")
+_in_cloud_worker = ContextVar("in_cloud_worker", default=False)
 
 # The image prompt composer only needs enough history to resolve references
 # like "the brief above" and runs on a small router model, so it gets a much
@@ -57,8 +71,9 @@ def _reply_route(target: str, trigger_source: Optional[str]) -> Optional[tuple[s
 def speaker_label(source: str, payload: Optional[dict] = None) -> str:
     """Short author label for speaker-attributed context.
 
-    Agents by agent name; humans by the display name / email local part the
-    client put in the payload. Flattened to one short token run so a name
+    Agents by agent name; humans by their profile name (stamped on the
+    payload server-side), else the client-sent name, else the email local
+    part. Flattened to one short token run so a name
     can never inject extra transcript lines or fake labels.
     """
     import re as _re
@@ -73,6 +88,12 @@ def speaker_label(source: str, payload: Optional[dict] = None) -> str:
         name = source
     else:
         name = (payload.get("sender_display_name") or "").strip()
+        if not name:
+            # Older messages carry no server-stamped name; the client's
+            # sender_name is usable unless it is just the email again.
+            name = (payload.get("sender_name") or "").strip()
+            if "@" in name or name.lower() in ("user", "unknown"):
+                name = ""
         if not name:
             email = (payload.get("sender_email") or "").strip()
             name = email.split("@", 1)[0] if email else ""
@@ -93,6 +114,26 @@ def _coordinated_handoff(metadata):
 
 async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     """Background task: invoke any cloud agents targeted by a message event."""
+    if _in_cloud_worker.get():
+        # A coordinated handoff stays on its current worker. Re-queueing it
+        # could deadlock when all workers are awaiting their next handoff.
+        await _invoke_cloud_agents(workspace_id, event_data)
+        return
+    await asyncio.get_running_loop().run_in_executor(
+        _cloud_executor, copy_context().run, _run_cloud_invocation, workspace_id, event_data,
+    )
+
+
+def _run_cloud_invocation(workspace_id: str, event_data: dict) -> None:
+    token = _in_cloud_worker.set(True)
+    try:
+        # Session creation, use, and closure all belong to this worker thread.
+        asyncio.run(_invoke_cloud_agents(workspace_id, event_data))
+    finally:
+        _in_cloud_worker.reset(token)
+
+
+async def _invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
     metadata = event_data.get("metadata") or {}
     target_agents = metadata.get("target_agents") or []
 
@@ -152,6 +193,10 @@ async def _invoke_single(
 ) -> None:
     """Invoke a single cloud agent and post the response."""
     from app.services.yumi import YUMI_PROVIDER
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        logger.info("Yumi: ignoring invocation outside a personal conversation")
+        return
     if cloud_config.provider == YUMI_PROVIDER or cloud_config.category == "assistant":
         await _invoke_assistant_agent(db, workspace_id, event_data, cloud_config, depth)
     elif cloud_config.category == "image":
@@ -275,6 +320,9 @@ async def _invoke_assistant_agent(
     final answer, which is posted as a normal chat message.
     """
     from app.services import yumi
+    from app.services.personal_assistant import may_invoke
+    if cloud_config.provider == yumi.YUMI_PROVIDER and not may_invoke(db, workspace_id, event_data):
+        return
 
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
@@ -1018,8 +1066,7 @@ async def _post_response(
             "payload": event.payload,
             "metadata": event.metadata,
         }
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             advance_workflow,
             workspace_id,
             wf_event,
@@ -1030,12 +1077,9 @@ async def _post_response(
     # Cloud replies bypass POST /v1/events, so the route's Slack/Telegram
     # relay hook never sees them either — schedule it here the same way.
     try:
-        import asyncio as _asyncio
-
         from app.services.integrations import relay_for_event
 
-        _asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             relay_for_event,
             workspace_id,
             snapshot,
@@ -1048,8 +1092,7 @@ async def _post_response(
     try:
         from app.services.watches import notify_watchers
 
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        _followup_executor.submit(
             notify_watchers,
             workspace_id,
             snapshot,

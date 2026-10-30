@@ -1,4 +1,5 @@
-import { getApiBaseUrl } from '@/lib/api-base';
+import { normalizePolicyRequirements } from './approvals';
+import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -32,6 +33,8 @@ import type {
   ONMEvent,
   IntegrationBinding,
   PairingCode,
+  RoutineDraft,
+  RoutineItem,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -42,6 +45,9 @@ import type {
   WorkspaceAgent,
   WorkspaceCollaborator,
   WorkspaceCustomSkill,
+  WorkspaceSkillVersion,
+  RegistryLeaderboardEntry,
+  RegistrySkill,
   WorkspaceFile,
   WorkspaceInvitation,
   WorkspaceMe,
@@ -97,6 +103,13 @@ function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
     contentType: (raw.content_type || raw.contentType) as string | undefined,
     packageType: (raw.package_type || raw.packageType || 'md') as 'md' | 'zip',
     createdAt: (raw.created_at || raw.createdAt) as string | undefined,
+    workspaceSkillId: (raw.workspace_skill_id || raw.workspaceSkillId) as string | undefined,
+    version: raw.version as string | undefined,
+    versionId: (raw.version_id || raw.versionId) as string | undefined,
+    registrySkillId: (raw.registry_skill_id || raw.registrySkillId) as string | undefined,
+    forkedFromVersionId: (raw.forked_from_version_id || raw.forkedFromVersionId) as string | undefined,
+    unavailable: Boolean(raw.unavailable),
+    publicVisibility: (raw.public_visibility || raw.publicVisibility) as 'public' | 'unlisted' | undefined,
   };
 }
 
@@ -182,6 +195,26 @@ export class ApiError extends Error {
     try { msg = (JSON.parse(body) as { message?: string })?.message || ''; } catch { /* not JSON */ }
     this.serverMessage = msg;
   }
+}
+
+function toRoutineItem(raw: Record<string, unknown>): RoutineItem {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    message: raw.message as string,
+    context: (raw.context || null) as string | null,
+    scheduleHour: (raw.schedule_hour || 0) as number,
+    scheduleMinute: (raw.schedule_minute || 0) as number,
+    scheduleDays: (raw.schedule_days || null) as number[] | null,
+    scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
+    timezone: (raw.timezone || 'UTC') as string,
+    nextFiresAt: (raw.next_fires_at || '') as string,
+    lastFiredAt: (raw.last_fired_at || null) as string | null,
+    status: (raw.status || 'active') as RoutineItem['status'],
+    createdBy: (raw.created_by || '') as string,
+    channelName: (raw.channel_name || '') as string,
+    createdAt: (raw.created_at || null) as string | null,
+  };
 }
 
 class WorkspaceApi {
@@ -518,10 +551,10 @@ class WorkspaceApi {
     return this.request<import('./types').SkillCatalogEntry[]>('/v1/workspaces/skill-catalog');
   }
 
-  async installSkill(agentName: string, skillId: string): Promise<unknown> {
+  async installSkill(agentName: string, skillId: string, versionId?: string): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}/skills/install`, {
       method: 'POST',
-      body: JSON.stringify({ skill_id: skillId }),
+      body: JSON.stringify({ skill_id: skillId, version_id: versionId }),
     });
   }
 
@@ -578,6 +611,118 @@ class WorkspaceApi {
       name: meta.name,
       description: meta.description,
       filename: file.name,
+    });
+  }
+
+  /** Rolling install+fork ranking. Public, like the rest of registry reads. */
+  async getRegistryLeaderboard(
+    board: 'community' | 'official',
+    window: 7 | 30,
+  ): Promise<RegistryLeaderboardEntry[]> {
+    const params = new URLSearchParams({ board, window: String(window), limit: '10' });
+    const raw = await this.request<{ entries: RegistryLeaderboardEntry[] }>(
+      `/v1/registry/leaderboard?${params}`,
+    );
+    return raw.entries || [];
+  }
+
+  /** A private skill's version timeline, newest first. */
+  async getCustomSkillVersions(workspaceSkillId: string): Promise<WorkspaceSkillVersion[]> {
+    const raw = await this.request<{ versions: Record<string, unknown>[] }>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+    );
+    return (raw.versions || []).map(v => ({
+      versionId: v.version_id as string,
+      version: v.version as string,
+      versionSeq: v.version_seq as number,
+      packageType: v.package_type as 'md' | 'zip',
+      changelog: (v.changelog as string) || '',
+      fileId: v.file_id as string,
+      createdBy: v.created_by as string | undefined,
+      createdAt: v.created_at as string | undefined,
+    }));
+  }
+
+  /** Upload a file and pin it as the skill's next immutable private version. */
+  async createCustomSkillVersion(
+    workspaceSkillId: string,
+    file: File,
+    changelog: string,
+  ): Promise<WorkspaceSkillVersion> {
+    const uploaded = await this.uploadFile(file);
+    const raw = await this.request<Record<string, unknown>>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+      { method: 'POST', body: JSON.stringify({ file_id: uploaded.id, changelog }) },
+    );
+    return {
+      versionId: raw.version_id as string,
+      version: raw.version as string,
+      versionSeq: 0,
+      packageType: 'md',
+      changelog: (raw.changelog as string) || '',
+      fileId: uploaded.id,
+    };
+  }
+
+  /** Take a published skill off the registry, or list it again. */
+  async setRegistrySkillVisibility(skillId: string, visibility: 'public' | 'unlisted'): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/visibility`, {
+      method: 'POST',
+      body: JSON.stringify({ visibility }),
+    });
+  }
+
+  /** Withdraw one published version; it stays visible in the public history. */
+  async yankRegistryVersion(skillId: string, versionId: string): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/versions/${versionId}/yank`, { method: 'POST' });
+  }
+
+  /** Search public skills. The endpoint is intentionally usable without login. */
+  async getRegistrySkills(query = '', category?: string): Promise<RegistrySkill[]> {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category && category !== 'all' && category !== 'custom') params.set('category', category);
+    params.set('limit', '100');
+    const raw = await this.request<{ skills: RegistrySkill[] }>(`/v1/registry/skills?${params}`);
+    return raw.skills || [];
+  }
+
+  async getRegistrySkill(namespace: string, slug: string): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/registry/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`,
+    );
+  }
+
+  async publishWorkspaceSkill(
+    workspaceSkillId: string,
+    options: { license: string; version?: string; changelog?: string },
+  ): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/${workspaceSkillId}/publish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          license_spdx: options.license,
+          version: options.version,
+          changelog: options.changelog || 'Initial public release',
+        }),
+      },
+    );
+  }
+
+  async forkRegistrySkill(skillId: string, versionId?: string): Promise<WorkspaceCustomSkill> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/registry/skills/${skillId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: this.requireWorkspace(), version_id: versionId }),
+    });
+    // The fork response is intentionally compact. Refreshing getCustomSkills()
+    // supplies the full file and version metadata to the UI.
+    return mapCustomSkill({
+      ...raw,
+      id: raw.slug,
+      workspace_skill_id: raw.id,
+      package_type: 'md',
+      source_type: 'workspace_file',
     });
   }
 
@@ -1155,6 +1300,7 @@ class WorkspaceApi {
       createdAt: (t.created_at as string) || null,
       lastActiveAt: (t.last_active_at as string) || null,
       asleep: Boolean(t.asleep),
+      connectionStatus: t.connection_status as BrowserTab['connectionStatus'],
     };
   }
 
@@ -1232,10 +1378,28 @@ class WorkspaceApi {
     return this.mapTab(result);
   }
 
-  /** Validate a browser tab session — auto-reconnects if expired. */
+  /** Probe a browser session without waking or replacing it. */
   async validateBrowserTab(tabId: string): Promise<BrowserTab> {
     const result = await this.request<Record<string, unknown>>(
       `/v1/browser/tabs/${tabId}?validate=true`,
+    );
+    return this.mapTab(result);
+  }
+
+  /** Wake the existing saved session and refresh its live-view URL. */
+  async reactivateBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reactivate`, { method: 'POST' },
+    );
+    return this.mapTab(result);
+  }
+
+  /** Explicit replacement, guarded against replacing a newer session. */
+  async replaceBrowserTab(tabId: string, expectedSessionId: string | null): Promise<BrowserTab> {
+    const query = new URLSearchParams({ confirm_replace: 'true' });
+    if (expectedSessionId) query.set('expected_session_id', expectedSessionId);
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reconnect?${query}`, { method: 'POST' },
     );
     return this.mapTab(result);
   }
@@ -1736,12 +1900,19 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
       ...(input.status ? { status: input.status } : {}),
+      ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
+      ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueLabels(): Promise<string[]> {
+    const result = await this.request<{ labels: string[] }>(this.issuePath('/labels'));
+    return result.labels;
   }
 
   async getIssue(id: string): Promise<IssueDetail> {
@@ -1759,11 +1930,11 @@ class WorkspaceApi {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { content?: string; source_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
@@ -1918,7 +2089,7 @@ class WorkspaceApi {
       risk: (a.risk as ApprovalRequest['risk']) ?? null,
       requiredRole: (a.required_role as ApprovalRequest['requiredRole']) ?? 'any',
       assigneeEmail: (a.assignee_email as string) ?? null,
-      policyRequirements: (a.policy_requirements as ApprovalRequest['policyRequirements']) ?? null,
+      policyRequirements: normalizePolicyRequirements(a.policy_requirements),
       ownerEmail: (a.owner_email as string) ?? null,
       requesterEmail: (a.requester_email as string) ?? null,
       status: a.status as ApprovalRequest['status'],
@@ -2081,40 +2252,13 @@ class WorkspaceApi {
     });
   }
 
-  async listRoutines(): Promise<{ routines: import('./types').RoutineItem[] }> {
+  async listRoutines(): Promise<{ routines: RoutineItem[] }> {
     const params = new URLSearchParams({ network: this.workspaceId });
     const raw = await this.request<{ routines: Record<string, unknown>[] }>(`/v1/routines?${params}`);
-    return {
-      routines: (raw.routines || []).map((r) => ({
-        id: r.id as string,
-        name: r.name as string,
-        message: r.message as string,
-        context: (r.context || null) as string | null,
-        scheduleHour: (r.schedule_hour || 0) as number,
-        scheduleMinute: (r.schedule_minute || 0) as number,
-        scheduleDays: (r.schedule_days || null) as number[] | null,
-        scheduleIntervalMinutes: (r.schedule_interval_minutes || null) as number | null,
-        timezone: (r.timezone || 'UTC') as string,
-        nextFiresAt: (r.next_fires_at || '') as string,
-        lastFiredAt: (r.last_fired_at || null) as string | null,
-        status: (r.status || 'active') as string,
-        createdBy: (r.created_by || '') as string,
-        channelName: (r.channel_name || '') as string,
-        createdAt: (r.created_at || null) as string | null,
-      })),
-    };
+    return { routines: (raw.routines || []).map(toRoutineItem) };
   }
 
-  async createRoutine(params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }): Promise<import('./types').RoutineItem> {
+  async createRoutine(params: RoutineDraft): Promise<RoutineItem> {
     const raw = await this.request<Record<string, unknown>>('/v1/routines', {
       method: 'POST',
       body: JSON.stringify({
@@ -2122,23 +2266,26 @@ class WorkspaceApi {
         network: this.workspaceId,
       }),
     });
-    return {
-      id: raw.id as string,
-      name: raw.name as string,
-      message: raw.message as string,
-      context: (raw.context || null) as string | null,
-      scheduleHour: (raw.schedule_hour || 0) as number,
-      scheduleMinute: (raw.schedule_minute || 0) as number,
-      scheduleDays: (raw.schedule_days || null) as number[] | null,
-      scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
-      timezone: (raw.timezone || 'UTC') as string,
-      nextFiresAt: (raw.next_fires_at || '') as string,
-      lastFiredAt: (raw.last_fired_at || null) as string | null,
-      status: (raw.status || 'active') as string,
-      createdBy: (raw.created_by || '') as string,
-      channelName: (raw.channel_name || '') as string,
-      createdAt: (raw.created_at || null) as string | null,
-    };
+    return toRoutineItem(raw);
+  }
+
+  /**
+   * Edit a routine in place. Omitted fields keep their current value; the
+   * schedule follows the same either/or rule as creation (`interval_minutes`
+   * or `hour`/`minute`/`days`).
+   */
+  async updateRoutine(
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ): Promise<RoutineItem> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/routines/${routineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...params,
+        network: this.workspaceId,
+      }),
+    });
+    return toRoutineItem(raw);
   }
 
   async cancelRoutine(routineId: string): Promise<void> {
@@ -2199,6 +2346,19 @@ class WorkspaceApi {
       notifications: (raw.notifications || []).map((n) => this.mapNotification(n)),
       unreadCount: raw.unread_count || 0,
     };
+  }
+
+  /**
+   * Store the signed-in person's read markers ({sessionId: readAtMs}) so their
+   * other devices see the thread / DM as read. Markers only move forward; the
+   * result is the stored marker per session (empty for token-only callers).
+   */
+  async markRead(markers: Record<string, number>): Promise<Record<string, number>> {
+    const raw = await this.request<{ markers?: Record<string, number> }>('/v1/read-state', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), markers }),
+    });
+    return raw?.markers ?? {};
   }
 
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */
@@ -2568,7 +2728,7 @@ class WorkspaceApi {
   }
   async previewWebProject(id: string): Promise<ProjectPreview> {
     const result = await this.request<ProjectPreview>(`/v1/web-projects/${encodeURIComponent(id)}/preview?network=${encodeURIComponent(this.requireWorkspace())}`, {method:'POST'});
-    return {...result,preview_path:API_URL + result.preview_path};
+    return {...result,preview_path:getProjectPreviewUrl(result.preview_path, API_URL)};
   }
 
   async getThreadArtifact(channel: string): Promise<ThreadArtifactSetting> {
@@ -2632,6 +2792,16 @@ class WorkspaceApi {
     const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ network: this.requireWorkspace(), visibility }),
+    });
+    return mapFileResponse(raw);
+  }
+
+  /** Save an edited markdown file in place. `baseSha256` is the hash of the
+   *  text the editor opened; the server answers 409 if the file moved on. */
+  async updateFileContent(fileId: string, content: string, baseSha256?: string): Promise<WorkspaceFile> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/files/${encodeURIComponent(fileId)}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.requireWorkspace(), content, base_sha256: baseSha256 }),
     });
     return mapFileResponse(raw);
   }

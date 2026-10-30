@@ -94,16 +94,24 @@ function completionResult(res, { isAnthropic, model }) {
  * Supports OpenAI-compatible and Anthropic APIs.
  *
  * @param {object} env - Env vars (LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, etc.)
+ * @param {object} [opts]
+ * @param {string} [opts.model] - The model the agent runs on, when the caller
+ *   knows it. Each type keeps it under its own variable (CODEX_MODEL,
+ *   ANTHROPIC_MODEL), which `env` alone does not say; see agent-model.js.
+ * @param {string} [opts.baseUrl] - The endpoint, when the caller knows it from
+ *   a variable of the agent's own (DEEPSEEK_BASE_URL); see probe.js.
+ * @param {'anthropic'|'openai'} [opts.protocol] - The API to speak, when the
+ *   agent's config names it (Pi's PI_API_FORMAT) rather than its env shape.
  * @returns {Promise<{success: boolean, model?: string, response?: string, error?: string}>}
  */
-async function testLLMConnection(env) {
+async function testLLMConnection(env, opts = {}) {
   const hasKimiConfig = !!(env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env.KIMI_BASE_URL || env.KIMI_MODEL);
   const apiKey = env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env.LLM_API_KEY || env.OPENAI_API_KEY
     || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
   if (!apiKey) return { success: false, error: 'No API key provided' };
 
-  let baseUrl = (env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
-  const model = env.KIMI_MODEL || env.LLM_MODEL || env.OPENCLAW_MODEL || '';
+  let baseUrl = (opts.baseUrl || env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
+  const model = String(opts.model || env.KIMI_MODEL || env.LLM_MODEL || env.OPENCLAW_MODEL || '').trim();
   // An agent configured the Anthropic way is Anthropic-shaped wherever it
   // points. Reading only the URL missed every relay whose host says nothing
   // about the protocol it speaks — the common case for Claude Code, which is
@@ -111,7 +119,9 @@ async function testLLMConnection(env) {
   // default endpoint with an Anthropic key.
   const hasAnthropicConfig = !hasKimiConfig && !env.LLM_API_KEY && !env.OPENAI_API_KEY
     && !!(env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY);
-  const isAnthropic = hasAnthropicConfig || baseUrl.includes('anthropic');
+  const isAnthropic = opts.protocol
+    ? opts.protocol === 'anthropic'
+    : hasAnthropicConfig || baseUrl.includes('anthropic');
 
   if (!isAnthropic && !baseUrl.endsWith('/v1')) {
     baseUrl += '/v1';
@@ -121,7 +131,9 @@ async function testLLMConnection(env) {
     // The configured endpoint, not the official one: a relay IS the API as
     // far as this agent is concerned, and testing api.anthropic.com would
     // report on a service the agent never talks to.
-    const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
+    // The caller's endpoint first, then the generic one: a relay named only
+    // in LLM_BASE_URL was skipped for the official host.
+    const base = (opts.baseUrl || env.ANTHROPIC_BASE_URL || env.LLM_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
     const url = /\/v1$/.test(base) ? `${base}/messages` : `${base}/v1/messages`;
     const token = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || apiKey;
     const headers = {

@@ -13,7 +13,8 @@ def manager(monkeypatch):
     value.is_cloud_for.return_value = True
     value.get_session_id.return_value = 'saved-session'
     value.get_live_url.return_value = 'https://browserfabric.com/live/saved'
-    value.open_tab = AsyncMock(return_value={'url': 'https://example.com', 'title': 'Example'})
+    value.open_tab = AsyncMock(return_value={'url': 'https://example.com', 'title': 'Example',
+                                             'session_id': 'saved-session', 'live_url': 'https://browserfabric.com/live/saved'})
     value.create_bb_context = AsyncMock(return_value='bf-saved-context')
     value.close_tab = AsyncMock(return_value=(True, None))
     value.reconnect = AsyncMock()
@@ -61,8 +62,8 @@ def test_reconnect_reuses_saved_login_and_stable_tab_id(client, db, workspace, m
     headers = {'X-Workspace-Token': workspace['token']}
     original = client.post('/v1/browser/tabs', headers=headers, json={'network': workspace['id']}).json()['data']
     manager.open_tab.reset_mock()
-    manager.get_session_id.return_value = 'resumed-session'
-    response = client.post(f"/v1/browser/tabs/{original['id']}/reconnect", headers=headers)
+    manager.open_tab.return_value['session_id'] = 'resumed-session'
+    response = client.post(f"/v1/browser/tabs/{original['id']}/reconnect?confirm_replace=true&expected_session_id=saved-session", headers=headers)
     assert response.status_code == 200, response.json()
     assert response.json()['data']['id'] == original['id']
     assert response.json()['data']['context_id'] == original['context_id']
@@ -78,7 +79,7 @@ def test_legacy_reconnect_save_failure_does_not_close_current_session(client, db
     db.commit()
     manager.create_bb_context.side_effect = RuntimeError('unavailable')
     manager.close_tab.reset_mock()
-    response = client.post(f"/v1/browser/tabs/{tab.id}/reconnect", headers=headers)
+    response = client.post(f"/v1/browser/tabs/{tab.id}/reconnect?confirm_replace=true&expected_session_id=saved-session", headers=headers)
     assert response.status_code == 400
     manager.close_tab.assert_not_awaited()
     assert db.get(BrowserTab, tab.id).session_id == 'saved-session'

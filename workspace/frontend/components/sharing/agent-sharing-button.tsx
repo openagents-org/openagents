@@ -14,7 +14,7 @@ export function AgentSharingButton({ agentName }: { agentName: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const agent = agents.find(item => item.agentName === agentName);
-  if (!me?.email || agent?.ownerEmail?.toLowerCase() !== me.email.toLowerCase()) return null;
+  if (agent?.builtin || !me?.email || agent?.ownerEmail?.toLowerCase() !== me.email.toLowerCase()) return null;
   return <>
     <Button size="sm" variant="outline" onClick={() => setOpen(true)}><Users className="size-3.5" />{t('services.agentSharing')}</Button>
     <Dialog open={open} onOpenChange={setOpen}>

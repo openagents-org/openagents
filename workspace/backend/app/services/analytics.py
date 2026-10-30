@@ -87,6 +87,12 @@ def capture(
     distinct_id = (distinct_id or "").strip().lower()
     if not distinct_id:
         return False
+    # RFC-reserved fixture domains cannot represent real customer accounts.
+    # This also protects production if an integration test targets the API.
+    domain = distinct_id.rpartition("@")[2]
+    reserved_domain = domain in {"example.com", "example.org", "example.net", "localhost"}
+    if reserved_domain or domain.endswith((".test", ".invalid", ".localhost")):
+        return False
     payload = build_payload(distinct_id, event, properties, set_props)
     if blocking:
         return _post(payload)

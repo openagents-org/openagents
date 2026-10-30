@@ -50,3 +50,20 @@ export function pendingResponderName(opts: {
     ''
   );
 }
+
+/** Show routing only where proactive audience/recipient selection is needed. */
+export function needsProactiveRouting(opts: {
+  content: string;
+  mentions: readonly string[];
+  mentionedHumans: readonly string[];
+  participants: readonly string[];
+  humanCount?: number;
+  responseMode?: 'proactive' | 'passive';
+  direct?: boolean;
+}): boolean {
+  const participants = opts.participants.filter(name => !name.startsWith('__'));
+  if (opts.direct || opts.responseMode !== 'proactive' || !participants.length || opts.mentions.length) return false;
+  if (hasAllMention(opts.content) || opts.mentionedHumans.length ||
+      /(?<![\w.@-])@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(opts.content)) return false;
+  return participants.length > 1 || (opts.humanCount ?? 1) > 1;
+}

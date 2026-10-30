@@ -107,6 +107,7 @@ describe('claude system prompt (skills mode)', () => {
       toolMode: 'skills',
     });
     assert.ok(prompt.includes('openagents-workspace-qiyue-bot skill'));
+    assert.ok(prompt.includes('.claude/skills/openagents-workspace-qiyue-bot/SKILL.md'));
     assert.ok(!/openagents-workspace skill/.test(prompt), 'must not reference the shared legacy skill name');
   });
 });
@@ -287,6 +288,10 @@ describe('ClaudeAdapter._buildSkillsCmd', () => {
       // Simulate a stale shared file written by ANOTHER agent (pre-fix layout).
       const legacy = path.join(skillDir, 'openagents-workspace.md');
       fs.writeFileSync(legacy, 'source: openagents:cherie-bot');
+      const flat = path.join(skillDir, 'openagents-workspace-qiyue-bot.md');
+      fs.writeFileSync(flat, 'obsolete skill');
+      fs.mkdirSync(path.join(skillDir, 'openagents-workspace-cherie-bot'));
+      fs.writeFileSync(path.join(skillDir, 'openagents-workspace-cherie-bot', 'SKILL.md'), 'other agent');
 
       const adapter = new ClaudeAdapter({
         workspaceId: 'ws-1',
@@ -300,7 +305,10 @@ describe('ClaudeAdapter._buildSkillsCmd', () => {
 
       const { skillFile } = adapter._buildSkillsCmd(['claude'], 'general');
 
-      assert.strictEqual(path.basename(skillFile), 'openagents-workspace-qiyue-bot.md');
+      assert.strictEqual(skillFile, path.join(skillDir, 'openagents-workspace-qiyue-bot', 'SKILL.md'));
+      if (process.platform !== 'win32') assert.equal(fs.statSync(skillFile).mode & 0o777, 0o600);
+      assert.ok(!fs.existsSync(flat));
+      assert.equal(fs.readFileSync(path.join(skillDir, 'openagents-workspace-cherie-bot', 'SKILL.md'), 'utf8'), 'other agent');
       const content = fs.readFileSync(skillFile, 'utf-8');
       assert.ok(content.includes('openagents:qiyue-bot'));
       assert.ok(!content.includes('cherie-bot'));
@@ -321,4 +329,15 @@ describe('saved browser lifecycle instructions', () => {
       assert.ok(!/auto-closed|always close yours|temporary\*\* by default|Step 3 — close tab/.test(md));
     });
   }
+});
+
+describe('durable browser previews', () => {
+  it('teaches both MCP and REST agents to share saved tab links', () => {
+    const system = buildClaudeSystemPrompt({...COMMON, agentName: 'browser-agent', browserEnabled: true});
+    const skill = buildClaudeSkillMd({...COMMON, agentName: 'browser-agent', browserEnabled: true});
+    for (const prompt of [system, skill]) {
+      assert.ok(prompt.includes('[Open browser](/v1/browser/tabs/{tab_id})'));
+      assert.ok(prompt.includes('human-created') || prompt.includes('opened by a person'));
+    }
+  });
 });

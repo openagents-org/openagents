@@ -42,6 +42,14 @@ describe('ClaudeAdapter._buildChildEnv — SDK-harness stripping', () => {
     assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, 'sk-ant-oat01-abc');
   });
 
+  // Users with more than one Claude account point each at its own config dir.
+  // Stripping it sent the agent to the default ~/.claude, so it ran without
+  // the user's global CLAUDE.md and memory (OA-024).
+  test('keeps CLAUDE_CONFIG_DIR — the global memory lives there', () => {
+    const env = build({ CLAUDE_CONFIG_DIR: '/home/u/.claude-work' });
+    assert.strictEqual(env.CLAUDE_CONFIG_DIR, '/home/u/.claude-work');
+  });
+
   test('does not mutate the env it was handed', () => {
     const input = { CLAUDECODE: '1', ANTHROPIC_API_KEY: 'k' };
     build(input);
@@ -86,5 +94,27 @@ describe('ClaudeAdapter._buildChildEnv — relay Bearer auth', () => {
   test('no key means nothing to mirror', () => {
     const env = build({ ANTHROPIC_BASE_URL: 'https://relay.example' });
     assert.strictEqual(env.ANTHROPIC_AUTH_TOKEN, undefined);
+  });
+});
+
+describe('ClaudeAdapter._buildChildEnv — tool search behind a relay', () => {
+  test('turns tool search off for a third-party relay', () => {
+    const env = build({ ANTHROPIC_API_KEY: 'sk-relay', ANTHROPIC_BASE_URL: 'https://relay.example' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'false');
+  });
+
+  test('also for a relay reached with an auth token only', () => {
+    const env = build({ ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_BASE_URL: 'https://relay.example' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'false');
+  });
+
+  test('leaves the official endpoint and the default (no base URL) alone', () => {
+    assert.strictEqual(build({ ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }).ENABLE_TOOL_SEARCH, undefined);
+    assert.strictEqual(build({ ANTHROPIC_API_KEY: 'sk' }).ENABLE_TOOL_SEARCH, undefined);
+  });
+
+  test('keeps a value the user chose', () => {
+    const env = build({ ANTHROPIC_BASE_URL: 'https://relay.example', ENABLE_TOOL_SEARCH: 'auto' });
+    assert.strictEqual(env.ENABLE_TOOL_SEARCH, 'auto');
   });
 });

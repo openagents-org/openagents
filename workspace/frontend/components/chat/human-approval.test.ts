@@ -66,3 +66,14 @@ it('uses the current profile photo for your thread messages', async () => {
   await act(async () => root.render(React.createElement(ChatMessage, { message: chat })));
   expect(host.querySelector('img')?.getAttribute('src')).toBe('https://images.example.com/maya.png');
 });
+
+
+it.each([{}, { require_human: true, resume_in_place: true }, { members: ['maya@example.com'] }])('renders incomplete approval metadata without crashing the thread: %j', async policy => {
+  const approval = { ...raw, policy_requirements: policy };
+  const msg = eventToMessage({ id: 'partial-approval', source: 'openagents:gpu-ca1', target: 'channel/general', timestamp: 1,
+    payload: { message_type: 'approval', content: 'request', approval } } as any);
+  mocks.pending = [{ ...approvalFromMetadata({ approval }), policyRequirements: policy }];
+  await act(async () => root.render(React.createElement(ChatMessage, { message: msg })));
+  expect(host.textContent).toContain(raw.action);
+  expect(host.textContent).not.toContain('Application error');
+});

@@ -19,6 +19,7 @@ const fakes = vi.hoisted(() => ({
   nodeStatus: vi.fn(),
   connectNode: vi.fn(),
   ensureDaemon: vi.fn(),
+  nudgeNode: vi.fn(),
   pushNotification: vi.fn(),
 }))
 vi.mock("electron", () => ({
@@ -71,10 +72,20 @@ beforeEach(() => {
     setAppearance: fakes.setAppearance, endpoint: () => undefined,
     getWindow: () => ({ webContents: { send: fakes.send } }) as never,
     connectNode: fakes.connectNode, nodeStatus: fakes.nodeStatus, ensureDaemon: fakes.ensureDaemon,
+    nudgeNode: fakes.nudgeNode,
   })
 })
 
 const bounds = { x: 0, y: 40, width: 1000, height: 700 }
+
+it("nudges this device's heartbeat only for a hosted workspace page", () => {
+  const nudge = fakes.listeners.get("workspace-view:nudge-computer")!
+  nudge({ sender: {} })
+  expect(fakes.nudgeNode).toHaveBeenCalledOnce()
+  fakes.isWorkspaceSender.mockReturnValue(false)
+  nudge({ sender: {} })
+  expect(fakes.nudgeNode).toHaveBeenCalledOnce()
+})
 
 it("shows each hosted agent reply once and rejects other senders", () => {
   const reply = { workspaceId: "team", sessionId: "thread", eventId: "event-1", sender: "Agent", content: "Finished" }

@@ -51,12 +51,10 @@ interface NewThreadDialogProps {
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammates = [], defaultAsChannel = false, onCreateThread }: NewThreadDialogProps) {
   const t = useT();
   // Only show online agents in the picker
-  const availableAgents = agents.filter(a => a.canStartThread !== false);
+  const availableAgents = agents.filter(a => !a.builtin && a.canStartThread !== false);
   const onlineAgents = availableAgents.filter((a) => a.status === 'online');
   const offlineAgentCount = availableAgents.length - onlineAgents.length;
-  // "Select all" covers the user's own agents. The built-in assistant (Yumi)
-  // is only ever added to a thread when picked deliberately, so it stays out
-  // of the bulk toggle (it remains individually selectable).
+  // Personal assistants are only available through direct conversations.
   const agentNames = onlineAgents.map((a) => a.agentName);
   const bulkNames = onlineAgents.filter((a) => !a.builtin).map((a) => a.agentName);
 

@@ -10,7 +10,7 @@
 import os from "os"
 
 /** The runtime every supported platform gets. */
-export const NODE_VERSION = "v24.21.0"
+export const NODE_VERSION = "v24.22.1"
 
 /**
  * Node 24 needs macOS 13.5, while the launcher itself still runs on macOS 12,

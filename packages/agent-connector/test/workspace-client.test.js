@@ -80,6 +80,24 @@ describe('WorkspaceClient', () => {
     }
   });
 
+  it('removeMember rejects with the HTTP status, so a 404 reads as already gone', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 404, message: 'Member not found' }));
+    });
+    await new Promise((r) => server.listen(0, r));
+    const port = server.address().port;
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+      await assert.rejects(
+        () => client.removeMember('ws1', 'tok', 'gone-agent'),
+        (e) => e.status === 404 && e.message === 'Member not found',
+      );
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it('sendEvent embeds session_id in event.metadata when provided', () => {
     const client = new WorkspaceClient('http://127.0.0.1:19999');
     // Capture what _post receives by stubbing it
@@ -152,6 +170,32 @@ describe('WorkspaceClient', () => {
 
       const { cursor } = await client.pollPending('ws-1', 'bary-bot', 'tok', {});
       assert.equal(cursor, 'e9');
+    });
+  });
+
+  describe('getRecentMessages', () => {
+    // OA-026: agent progress events must not eat the history window.
+    it('excludes agent progress events server-side by default', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 100, { before: 'e5' });
+
+      const params = new URL(capturedPath, 'http://x').searchParams;
+      assert.equal(params.get('exclude_message_types'), 'status,thinking,todos,loading');
+      assert.equal(params.get('before'), 'e5');
+      assert.equal(params.get('limit'), '100');
+    });
+
+    it('sends no exclusion when excludeMessageTypes is empty', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => { capturedPath = path; return { data: { events: [] } }; };
+
+      await client.getRecentMessages('ws-1', 'c', 'tok', 30, { excludeMessageTypes: '' });
+
+      assert.ok(!capturedPath.includes('exclude_message_types'), capturedPath);
     });
   });
 });
@@ -255,4 +299,68 @@ describe('WorkspaceClient request deadlines', () => {
       });
     }
   }
+});
+
+describe('WorkspaceClient.updateRoutine', () => {
+  const capture = () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    const seen = {};
+    client._patch = async (path, body) => {
+      seen.path = path;
+      seen.body = body;
+      return { data: { id: 'r1' } };
+    };
+    return { client, seen };
+  };
+
+  it('PATCHes the routine and sends only the fields given', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { name: 'Renamed' });
+    assert.equal(seen.path, '/v1/routines/r1');
+    assert.deepEqual(seen.body, { network: 'ws-1', name: 'Renamed' });
+  });
+
+  it('keeps the schedule modes exclusive', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { interval_minutes: 30, hour: 9, minute: 0 });
+    assert.equal(seen.body.interval_minutes, 30);
+    assert.ok(!('hour' in seen.body), 'hour must not ride along in interval mode');
+    assert.ok(!('minute' in seen.body), 'minute must not ride along in interval mode');
+  });
+
+  it('sends a days-only edit without inventing a time', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { days: [0, 4] });
+    assert.deepEqual(seen.body, { network: 'ws-1', days: [0, 4] });
+  });
+
+  it('forwards a pause', async () => {
+    const { client, seen } = capture();
+    await client.updateRoutine('ws-1', 'tok', 'r1', { status: 'paused' });
+    assert.deepEqual(seen.body, { network: 'ws-1', status: 'paused' });
+  });
+});
+
+describe('reliable message delivery', () => {
+  it('preserves HTTP status for HTML 503 responses', async () => {
+    const server = http.createServer((req, res) => { res.writeHead(503, { 'Content-Type': 'text/html' }); res.end('<html>Unavailable</html>'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const client = new WorkspaceClient(`http://127.0.0.1:${server.address().port}`);
+      await assert.rejects(client.sendMessage('ws', 'general', 'token', 'answer'), e => e.status === 503);
+    } finally { server.close(); }
+  });
+  it('includes delivery keys for channel messages and DMs', async () => {
+    const client = new WorkspaceClient(); const events = [];
+    client.sendEvent = async (ws, event) => events.push(event);
+    for (const channel of ['general', 'dm:human:person@example.com']) {
+      await client.sendMessage('ws', channel, 'token', 'answer', { idempotencyKey: 'key' });
+    }
+    assert.ok(events.every(e => e.idempotency_key === 'key'));
+  });
+  it('detects old servers without assuming safe retry support', async () => {
+    const client = new WorkspaceClient();
+    client._get = async () => { throw Object.assign(new Error('Not Found'), { status: 404 }); };
+    assert.equal(await client.supportsMessageDelivery(), false);
+  });
 });

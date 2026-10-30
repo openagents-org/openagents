@@ -2,6 +2,7 @@ import { installErrorMessage, throwIfInstallFailed } from "@renderer/utils/insta
 import type { AgentSetupApi } from "@/components/agents/agent-setup"
 import type { EnvField } from "@renderer/types"
 import { envForAuthTab } from "@renderer/lib/agent-auth"
+import i18n from "@renderer/i18n"
 
 export interface LocalConfiguration {
   type: string
@@ -13,6 +14,8 @@ export interface LocalConfiguration {
   blocked?: string
   /** The auth tab of an agent offering both a CLI sign-in and a key; absent when it offers one. */
   authTab?: "cli" | "key"
+  /** Points the form at a required field left empty, so the message shows under it. */
+  reveal?: (field: string) => void
 }
 
 /** Reports an agent whose create waited on its runtime install, after the form has already closed. */
@@ -44,7 +47,10 @@ export function createLocalSetupApi(api: Window["api"], configuration: () => Loc
       if (!config || config.type !== type || (action === "configure_agent" && config.name !== name)) throw new Error("Wait for the agent configuration to load.")
       if (config.blocked) throw new Error(config.blocked)
       const missing = config.fields.find((field) => field.required && !(config.values[field.name] || field.default || "").trim())
-      if (missing) throw new Error(`${missing.description || missing.name} is required.`)
+      if (missing) {
+        config.reveal?.(missing.name)
+        throw new Error(i18n.t("agents.envFields.required", { name: missing.name }))
+      }
       if (pending.has(name)) throw new Error("This agent is already being saved.")
       pending.add(name)
       const values = config.authTab ? envForAuthTab(config.authTab, config.fields, config.values) : config.values

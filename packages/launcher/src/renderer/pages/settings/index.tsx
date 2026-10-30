@@ -114,62 +114,64 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           </div>
         ) : (
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* The header is fixed chrome; only the module's own controls scroll. */}
-          <DetailHeader section={section} />
-
-          <div className="scroll-edge min-h-0 flex-1 overflow-y-auto px-9 pt-4 pb-6">
-            {section === "general" && (
-              <GeneralSection values={values} update={update} />
-            )}
-            {section === "appearance" && <AppearanceSection />}
-            {section === "notifications" && <NotificationsSection />}
-            {section === "network" && (
-              <NetworkSection
-                values={values}
-                update={update}
-                setLocal={setLocal}
-                persist={persist}
-              />
-            )}
-            {section === "data" && (
-              <DataSection
-                paths={paths}
-                exportSettings={exportSettings}
-                importSettings={importSettings}
-                openReset={openReset}
-                clearingCache={clearingCache}
-                clearCache={clearCache}
-                openLocalReset={openLocalReset}
-              />
-            )}
-            {section === "language" && <LanguageSection />}
-            {section === "updates" && (
-              <UpdatesSection
-                values={values}
-                update={update}
-                launcherVersion={launcherVersion}
-                updater={updater}
-                checkUpdate={checkUpdate}
-                downloadUpdate={downloadUpdate}
-                installUpdate={installUpdate}
-              />
-            )}
-            {section === "runtime" && (
-              <RuntimeSection
-                runtimeInfo={runtimeInfo}
-                systemInfo={systemInfo}
-                paths={paths}
-                launcherVersion={launcherVersion}
-                showToast={showToast}
-              />
-            )}
-            {section === "about" && (
-              <AboutSection
-                launcherVersion={launcherVersion}
-                runtimeInfo={runtimeInfo}
-                systemInfo={systemInfo}
-              />
-            )}
+          {/* The header scrolls away with the module: the nav beside it already
+              says where the user is, so pinning it only costs room. */}
+          <div className="min-h-0 flex-1 overflow-y-auto pb-6">
+            <DetailHeader section={section} />
+            <div className="px-9 pt-4">
+              {section === "general" && (
+                <GeneralSection values={values} update={update} />
+              )}
+              {section === "appearance" && <AppearanceSection />}
+              {section === "notifications" && <NotificationsSection />}
+              {section === "network" && (
+                <NetworkSection
+                  values={values}
+                  update={update}
+                  setLocal={setLocal}
+                  persist={persist}
+                />
+              )}
+              {section === "data" && (
+                <DataSection
+                  paths={paths}
+                  exportSettings={exportSettings}
+                  importSettings={importSettings}
+                  openReset={openReset}
+                  clearingCache={clearingCache}
+                  clearCache={clearCache}
+                  openLocalReset={openLocalReset}
+                />
+              )}
+              {section === "language" && <LanguageSection />}
+              {section === "updates" && (
+                <UpdatesSection
+                  values={values}
+                  update={update}
+                  launcherVersion={launcherVersion}
+                  updater={updater}
+                  checkUpdate={checkUpdate}
+                  downloadUpdate={downloadUpdate}
+                  installUpdate={installUpdate}
+                />
+              )}
+              {section === "runtime" && (
+                <RuntimeSection
+                  runtimeInfo={runtimeInfo}
+                  systemInfo={systemInfo}
+                  paths={paths}
+                  launcherVersion={launcherVersion}
+                  showToast={showToast}
+                />
+              )}
+              {section === "about" && (
+                <AboutSection
+                  launcherVersion={launcherVersion}
+                  runtimeInfo={runtimeInfo}
+                  systemInfo={systemInfo}
+                />
+              )}
+            </div>
           </div>
         </div>
         )}

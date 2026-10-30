@@ -5,6 +5,7 @@ import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMe } from '@/hooks/use-me';
 import { ApiError, workspaceApi } from './api';
+import { StopRequestTracker, confirmsStop } from './stop-requests';
 import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
@@ -19,11 +20,13 @@ import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { dmCounterpart, isMyAddress, myAddress } from './dm';
 import { dmUnreadCounts } from './dm-unread';
 import { threadUnreadState } from './thread-unread';
+import { adoptRemoteMarkers, queueRead } from './read-state';
 import { unreadCutoffMs } from './unread-window';
 import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
+import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorkspaceSnapshot, type WorkspaceSnapshot } from './workspace-snapshot';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 import type { ChannelVisibility } from './types'; // v1.1 M1
 import type { ArtifactVisibility } from './types'; // permission model v1.1
 
@@ -134,6 +137,8 @@ interface LastMessageInfo {
   content: string;
   senderName: string;
   isStatus?: boolean;
+  /** Sender is an agent. Only an agent's message can confirm a stop. */
+  isAgent?: boolean;
 }
 
 interface WorkspaceContextValue {
@@ -158,7 +163,7 @@ interface WorkspaceContextValue {
   monitorMode: boolean;
   acknowledgeCompletion: (sessionId: string) => void;
   agentModes: Record<string, string>;
-  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean) => void;
+  updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
@@ -249,16 +254,11 @@ interface WorkspaceContextValue {
   deleteWorkflow: (id: string) => Promise<void>;
   routines: RoutineItem[];
   refreshRoutines: () => Promise<void>;
-  createRoutine: (params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }) => Promise<void>;
+  createRoutine: (params: RoutineDraft) => Promise<void>;
+  updateRoutine: (
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ) => Promise<void>;
   knowledge: KnowledgeEntry[];
   refreshKnowledge: () => Promise<void>;
   createKnowledge: (params: { title: string; content: string; folderPath?: string; description?: string; visibility?: ArtifactVisibility }) => Promise<KnowledgeEntry>;
@@ -312,6 +312,14 @@ interface WorkspaceContextValue {
   openSessionByChannel: (channel: string) => Promise<void>;
 }
 
+/**
+ * How long a Stop waits for the agent to acknowledge before the UI stops
+ * believing it. The agent normally answers within a second or two; past this
+ * the session is treated as "stop unconfirmed" and the button becomes
+ * clickable again rather than staying disabled forever.
+ */
+const STOP_ACK_TIMEOUT_MS = 12_000;
+
 /** localStorage key for the DM / mention sound (next to `oa_notification_sound`). */
 export const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 
@@ -321,6 +329,11 @@ export function useWorkspace() {
   const ctx = useContext(WorkspaceContext);
   if (!ctx) throw new Error('useWorkspace must be used within WorkspaceProvider');
   return ctx;
+}
+
+/** The person is looking at this window (visible and focused). */
+function windowAttentive(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
 }
 
 export function WorkspaceProvider({
@@ -357,9 +370,10 @@ export function WorkspaceProvider({
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
 
   // ── Thread read state ──
-  // The backend has no per-thread read marker, so unread is derived client-side:
-  // a thread is unread when its lastEventAt is newer than the last time the user
-  // had it open. Persisted so a reload doesn't mark everything read again.
+  // A thread is unread when it has messages newer than the last time the user
+  // had it open. The signed-in person's markers are stored on the server and
+  // shared by all their devices; this local copy (keyed per workspace) is the
+  // per-device cache, and also the baseline for threads never read anywhere.
   const readKey = `oa-read-${workspaceId}`;
   const [lastReadBySession, setLastReadBySession] = useState<Record<string, number>>(() => {
     if (typeof window === 'undefined') return {};
@@ -373,15 +387,71 @@ export function WorkspaceProvider({
   lastReadRef.current = lastReadBySession;
 
   const persistRead = useCallback((next: Record<string, number>) => {
+    // Updated eagerly so back-to-back merges (discovery, then DMs) build on
+    // each other instead of the last render's markers.
+    lastReadRef.current = next;
     setLastReadBySession(next);
     try {
       localStorage.setItem(readKey, JSON.stringify(next));
     } catch { /* storage full */ }
   }, [readKey]);
 
+  // Reads (never baselines) are reported for the signed-in person, so their
+  // other devices clear the same badge. Batched briefly: opening a thread and
+  // its first streamed messages become one request. The server keeps the
+  // newest marker and clamps future times to its own clock.
+  const pendingReadsRef = useRef<Record<string, number>>({});
+  const readFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canReportReads = !!identityUser.isAuthenticated;
+  const reportRead = useCallback((sessionId: string, at: number) => {
+    if (!canReportReads) return;
+    pendingReadsRef.current = queueRead(pendingReadsRef.current, sessionId, at);
+    if (readFlushTimerRef.current) return;
+    readFlushTimerRef.current = setTimeout(() => {
+      readFlushTimerRef.current = null;
+      const batch = pendingReadsRef.current;
+      pendingReadsRef.current = {};
+      if (Object.keys(batch).length === 0 || !workspaceApi.isConfigured()) return;
+      workspaceApi.markRead(batch).catch(() => {
+        // Keep them for the next read rather than dropping them.
+        for (const [id, readAt] of Object.entries(batch)) pendingReadsRef.current = queueRead(pendingReadsRef.current, id, readAt);
+      });
+    }, 1_000);
+  }, [canReportReads]);
+  useEffect(() => () => {
+    // Never send one workspace's pending reads to another.
+    if (readFlushTimerRef.current) clearTimeout(readFlushTimerRef.current);
+    readFlushTimerRef.current = null;
+    pendingReadsRef.current = {};
+  }, [workspaceId]);
+
   const markSessionRead = useCallback((sessionId: string) => {
     const now = Date.now();
     persistRead({ ...lastReadRef.current, [sessionId]: now });
+    reportRead(sessionId, now);
+  }, [persistRead, reportRead]);
+
+  // A thread left open in a background window keeps its local marker current,
+  // but that is only a read for the person's other devices once they look.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onAttention = () => {
+      const sid = currentSessionIdRef.current;
+      const at = sid ? lastReadRef.current[sid] : undefined;
+      if (sid && at !== undefined && windowAttentive()) reportRead(sid, at);
+    };
+    window.addEventListener('focus', onAttention);
+    document.addEventListener('visibilitychange', onAttention);
+    return () => {
+      window.removeEventListener('focus', onAttention);
+      document.removeEventListener('visibilitychange', onAttention);
+    };
+  }, [reportRead]);
+
+  /** Adopt reads made on the person's other devices (newer server markers). */
+  const adoptRemoteReads = useCallback((remote: Iterable<readonly [string, number | null | undefined]>) => {
+    const next = adoptRemoteMarkers(lastReadRef.current, remote);
+    if (next) persistRead(next);
   }, [persistRead]);
   // Set by setCurrentSessionId({ skipFocus: true }) and consumed by ChatView's
   // auto-focus effect, so keyboard-driven thread switches (1-9) don't steal
@@ -421,6 +491,10 @@ export function WorkspaceProvider({
   const [stoppingSessionIds, setStoppingSessionIds] = useState<Set<string>>(new Set());
   const stoppingSessionIdsRef = useRef(stoppingSessionIds);
   stoppingSessionIdsRef.current = stoppingSessionIds;
+  // Ownership of each session's in-flight Stop. Its retry and give-up timers
+  // only act while the session still belongs to that Stop, so a first click's
+  // timers cannot clear the state of a second, unrelated click.
+  const stopRequestsRef = useRef(new StopRequestTracker());
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -451,6 +525,10 @@ export function WorkspaceProvider({
   const [selectedBrowserContextId, setSelectedBrowserContextId] = useState<string | null>(null);
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
+  const receiveDMConversations = useCallback((conversations: DMConversation[]) => {
+    adoptRemoteReads(conversations.map((c) => [`dm:${c.agents[0]},${c.agents[1]}`, c.readAt] as const));
+    setDMConversations(conversations);
+  }, [adoptRemoteReads]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -624,8 +702,12 @@ export function WorkspaceProvider({
     };
   }, [currentUser.id, currentUser.name]);
 
-  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
-    if (!isStatus || /stopped|stopping failed/i.test(content)) {
+  const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => {
+    // Only the agent can confirm a stop. Treating any non-status message as
+    // confirmation let the user's own just-sent message clear the latch and
+    // cancel the retry and give-up timers, with nothing actually stopped.
+    if (confirmsStop({ isAgent, isStatus, content })) {
+      stopRequestsRef.current.release(sessionId);
       setStoppingSessionIds((prev) => {
         if (!prev.has(sessionId)) return prev;
         const next = new Set(prev);
@@ -669,6 +751,21 @@ export function WorkspaceProvider({
       : Array.from(activeSessionIds);
     if (sessionIds.length === 0) return;
 
+    const session = targetSessionId ? sessions.find((s) => s.sessionId === targetSessionId) : null;
+    const participants = session?.participants || [];
+    // Deliberately NOT falling back to every agent when the participant list is
+    // missing. Several adapters still ignore the channel a stop names and stop
+    // everything they are running, so broadcasting would let one thread's Stop
+    // kill an uninvolved agent's work in another thread.
+    const targetAgents = targetSessionId
+      ? agents.filter((a) => participants.includes(a.agentName))
+      : agents;
+
+    // Resolved BEFORE anything is shown as stopping. With no agent to ask,
+    // nothing would ever acknowledge, and flipping the UI first would strand
+    // the thread with no Stop button and a preview frozen at "Stopping...".
+    if (targetAgents.length === 0) return;
+
     setStoppingSessionIds((prev) => {
       const next = new Set(prev);
       sessionIds.forEach((sid) => next.add(sid));
@@ -687,12 +784,7 @@ export function WorkspaceProvider({
       return next;
     });
 
-    const targetAgents = targetSessionId
-      ? agents.filter((a) => {
-          const session = sessions.find((s) => s.sessionId === targetSessionId);
-          return session && (session.participants || []).includes(a.agentName);
-        })
-      : agents;
+    const generation = stopRequestsRef.current.claim(sessionIds);
 
     const sendStop = () => Promise.allSettled(
       targetAgents.map((a) => {
@@ -702,26 +794,55 @@ export function WorkspaceProvider({
     );
     await sendStop();
 
+    /** Sessions this particular Stop still owns — a later Stop takes them over. */
+    const stillOurs = () => stopRequestsRef.current.owned(sessionIds, generation);
+
     window.setTimeout(() => {
+      const ours = stillOurs();
+      if (ours.length === 0) return;
       setStoppingSessionIds((prevStopping) => {
-        const stillStopping = sessionIds.filter((sid) => prevStopping.has(sid));
+        const stillStopping = ours.filter((sid) => prevStopping.has(sid));
         if (stillStopping.length > 0) void sendStop();
         return prevStopping;
       });
     }, 3000);
+
+    window.setTimeout(() => {
+      const ours = stillOurs();
+      if (ours.length === 0) return;
+      ours.forEach((sid) => stopRequestsRef.current.release(sid));
+      // Read once, before either setState — the ref tracks rendered state, so
+      // deciding this inside an updater would depend on commit ordering.
+      const unconfirmed = ours.filter((sid) => stoppingSessionIdsRef.current.has(sid));
+      if (unconfirmed.length === 0) return;
+      // The stop was never acknowledged. Release the latch AND put the session
+      // back to active: clearing the latch alone would just hide the button,
+      // since it renders on active-or-stopping. This returns it to a clickable
+      // "Stop" so the user can retry.
+      setStoppingSessionIds((prev) => {
+        const next = new Set(prev);
+        unconfirmed.forEach((sid) => next.delete(sid));
+        return next;
+      });
+      setActiveSessionIds((prev) => {
+        const next = new Set(prev);
+        unconfirmed.forEach((sid) => next.add(sid));
+        return next;
+      });
+    }, STOP_ACK_TIMEOUT_MS);
   }, [activeSessionIds, agents, sessions]);
 
   // Configure API client on mount
   useEffect(() => {
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
     setApiReady(true);
-    // Tie all subsequent events to this workspace so they line up with the
-    // website + launcher funnel stages for the same workspace ID.
-    if (workspaceId) {
-      group('workspace', workspaceId);
-      capture('workspace_opened', { workspace_id: workspaceId });
-    }
   }, [workspaceId, token, bearerToken]);
+
+  // Group changes follow workspace changes, not credential refreshes. The
+  // successful workspace load below emits the single workspace_opened event.
+  useEffect(() => {
+    if (workspaceId) group('workspace', workspaceId);
+  }, [workspaceId]);
 
   // In the desktop app this page is one tab among several; give the tab the
   // workspace's real name and both of the names it can be routed by.
@@ -782,6 +903,7 @@ export function WorkspaceProvider({
       const updated = discovery.channels.map((ch) =>
         networkChannelToSession(ch, workspaceId)
       );
+      adoptRemoteReads(updated.map((s) => [s.sessionId, s.readAt] as const));
 
       setSessions((prev) => {
         const existingIds = new Set(prev.map((s) => s.sessionId));
@@ -900,7 +1022,8 @@ export function WorkspaceProvider({
                   content: reply.payload?.content as string,
                 });
               }
-              return { sessionId: ch.sessionId, senderName: sender, content, isStatus };
+              const isAgent = (pick.source || '').startsWith('openagents:');
+              return { sessionId: ch.sessionId, senderName: sender, content, isStatus, isAgent };
             } catch { /* ignore */ }
             return null;
           })
@@ -909,7 +1032,7 @@ export function WorkspaceProvider({
         for (let i = 0; i < previews.length; i++) {
           const p = previews[i];
           if (p && p.content) {
-            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus };
+            batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus, isAgent: p.isAgent };
           }
           // Mark timestamp as known only after successful fetch (so failures retry next poll)
           if (p) {
@@ -929,6 +1052,7 @@ export function WorkspaceProvider({
               if (info.isStatus) {
                 if (isStopping) {
                   if (/stopped|stopping failed/i.test(info.content)) {
+                    stopRequestsRef.current.release(sid);
                     setStoppingSessionIds((s) => {
                       if (!s.has(sid)) return s;
                       const next = new Set(s);
@@ -941,12 +1065,15 @@ export function WorkspaceProvider({
                   newActive.add(sid);
                 }
               } else {
-                setStoppingSessionIds((s) => {
-                  if (!s.has(sid)) return s;
-                  const next = new Set(s);
-                  next.delete(sid);
-                  return next;
-                });
+                if (confirmsStop({ isAgent: info.isAgent, isStatus: false, content: info.content })) {
+                  stopRequestsRef.current.release(sid);
+                  setStoppingSessionIds((s) => {
+                    if (!s.has(sid)) return s;
+                    const next = new Set(s);
+                    next.delete(sid);
+                    return next;
+                  });
+                }
                 // Latest event is a real message — session is not working.
                 // Always clear active so the shimmer doesn't stick when the
                 // status→chat transition happens between polls or while
@@ -972,7 +1099,7 @@ export function WorkspaceProvider({
       workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); }).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
-      workspaceApi.listConversations(undefined, lastReadRef.current).then((c) => setDMConversations(c)).catch(() => {});
+      workspaceApi.listConversations(undefined, lastReadRef.current).then(receiveDMConversations).catch(() => {});
       workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
       workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
       workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {});
@@ -991,7 +1118,7 @@ export function WorkspaceProvider({
     } catch {
       // Non-critical — keep existing state
     }
-  }, [workspaceId, stoppingSessionIds, commitFiles]);
+  }, [workspaceId, stoppingSessionIds, commitFiles, adoptRemoteReads, receiveDMConversations]);
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
@@ -1107,16 +1234,7 @@ export function WorkspaceProvider({
     }
   }, []);
 
-  const createRoutine = useCallback(async (params: {
-    name: string;
-    message: string;
-    source: string;
-    hour?: number;
-    minute?: number;
-    days?: number[];
-    interval_minutes?: number;
-    conversation_history?: string;
-  }) => {
+  const createRoutine = useCallback(async (params: RoutineDraft) => {
     await workspaceApi.createRoutine(params);
     await refreshRoutines();
   }, [refreshRoutines]);
@@ -1130,6 +1248,14 @@ export function WorkspaceProvider({
       // Non-critical
     }
   }, []);
+
+  const updateRoutine = useCallback(async (
+    routineId: string,
+    params: Partial<RoutineDraft> & { status?: 'active' | 'paused' },
+  ) => {
+    await workspaceApi.updateRoutine(routineId, params);
+    await refreshRoutines();
+  }, [refreshRoutines]);
 
   const refreshNotifications = useCallback(async () => {
     try {
@@ -1430,11 +1556,11 @@ export function WorkspaceProvider({
   const refreshDMConversations = useCallback(async () => {
     try {
       const convos = await workspaceApi.listConversations(undefined, lastReadRef.current);
-      setDMConversations(convos);
+      receiveDMConversations(convos);
     } catch {
       // Non-critical
     }
-  }, []);
+  }, [receiveDMConversations]);
 
   // Only workspace metadata and discovery gate initial rendering.
   useEffect(() => {
@@ -1444,8 +1570,13 @@ export function WorkspaceProvider({
         if (!cancelled) apply(result);
       }).catch(() => {});
     };
+    // Coming back to a workspace this page already opened: paint the roster it
+    // had at once and refresh it underneath, instead of holding the full-page
+    // loader over a second fetch of the same data.
+    const key = snapshotKey(workspaceId, token, bearerToken);
+    const snapshot = readWorkspaceSnapshot(key);
     (async () => {
-      setLoading(true);
+      setLoading(!snapshot);
       setError(null);
       setWorkspaceLoadError(null);
       // Don't display the previous workspace's optional data while these load.
@@ -1471,34 +1602,24 @@ export function WorkspaceProvider({
       setDMConversations([]);
       lastKnownEventAtRef.current = {};
       lastKnownLatestRef.current = {};
-      try {
-        const [ws, discovery] = await Promise.all([
-          workspaceApi.getWorkspace(),
-          // Read markers trigger historical unread aggregation. Fetch only
-          // the roster here; background discovery fills in accurate counts.
-          workspaceApi.discover(),
-        ]);
-        if (cancelled) return;
-
+      const applyRoster = ({ workspace: ws, discovery }: WorkspaceSnapshot) => {
         setWorkspace(ws);
-        const wsAgents = discovery.agents.map(networkAgentToWorkspaceAgent);
-        setAgents(wsAgents);
-        capture('workspace_opened', {
-          workspace_id: workspaceId,
-          agent_count: wsAgents.length,
-          agent_types: wsAgents.map((a) => a.agentName),
-        });
-
+        setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
         const channelSessions = discovery.channels.map((ch) =>
           networkChannelToSession(ch, workspaceId)
         );
         setSessions(channelSessions);
-
         // Initialize last-known event timestamps so first discovery poll doesn't re-fetch all
         for (const ch of channelSessions) {
           lastKnownEventAtRef.current[ch.sessionId] = ch.lastEventAt;
         }
+        return channelSessions;
+      };
 
+      // Picks the thread to open and starts the panels that fill in later.
+      // Runs once per open — on the snapshot when there is one, otherwise on
+      // the fresh roster — so a background refresh never moves the selection.
+      const openWith = async (channelSessions: WorkspaceSession[]) => {
         // Auto-select the most-recently-updated thread, mirroring the sidebar's
         // default (non-search) list order so the opened thread === sidebar's
         // first row. Two distinct sets:
@@ -1577,7 +1698,7 @@ export function WorkspaceProvider({
           setNotificationsLoaded(true);
           setUnreadNotificationCount(r.unreadCount);
         });
-        loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), setDMConversations);
+        loadOptional(workspaceApi.listConversations(undefined, lastReadRef.current), receiveDMConversations);
         void refreshSignals();
 
         // Bulk fetch latest message per channel (1 request instead of N).
@@ -1601,11 +1722,39 @@ export function WorkspaceProvider({
             localStorage.setItem(cacheKey, JSON.stringify(batch));
           } catch { /* storage full */ }
         });
+      };
+
+      try {
+        if (snapshot) {
+          await openWith(applyRoster(snapshot));
+          if (cancelled) return;
+          setLoading(false);
+        }
+        const [ws, discovery] = await Promise.all([
+          workspaceApi.getWorkspace(),
+          // Read markers trigger historical unread aggregation. Fetch only
+          // the roster here; background discovery fills in accurate counts.
+          workspaceApi.discover(),
+        ]);
+        if (cancelled) return;
+        writeWorkspaceSnapshot(key, { workspace: ws, discovery });
+        const channelSessions = applyRoster({ workspace: ws, discovery });
+        capture('workspace_opened', {
+          workspace_id: workspaceId,
+          agent_count: discovery.agents.length,
+          agent_types: discovery.agents.map((a) => networkAgentToWorkspaceAgent(a).agentName),
+        });
+        if (!snapshot) await openWith(channelSessions);
       } catch (e) {
-        if (!cancelled) {
+        const status = e instanceof ApiError ? e.status : null;
+        // Behind a snapshot, a passing network failure leaves the page as it
+        // is; only a lost workspace or lost access takes it over.
+        const lost = status === 401 || status === 403 || status === 404;
+        if (lost) forgetWorkspaceSnapshot(key);
+        if (!cancelled && (!snapshot || lost)) {
           const message = e instanceof Error ? e.message : 'Failed to load workspace';
           setError(message);
-          setWorkspaceLoadError({ message, status: e instanceof ApiError ? e.status : null });
+          setWorkspaceLoadError({ message, status });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -1707,10 +1856,12 @@ export function WorkspaceProvider({
       const at = convo.lastMessage.timestamp || 0;
       if (known[id] === undefined || (id === currentSessionId && known[id] < at)) {
         additions[id] = Math.max(at, id === currentSessionId ? Date.now() : 0);
+        // Only the open DM was read; a first-seen baseline is not a read.
+        if (id === currentSessionId && windowAttentive()) reportRead(id, additions[id]);
       }
     }
     if (Object.keys(additions).length > 0) persistRead({ ...known, ...additions });
-  }, [dmConversations, currentSessionId, persistRead]);
+  }, [dmConversations, currentSessionId, persistRead, reportRead]);
 
   // Baseline threads we've never seen a read marker for, and keep the open
   // thread marked read as messages stream into it.
@@ -1725,11 +1876,13 @@ export function WorkspaceProvider({
     const open = sessions.find((s) => s.sessionId === currentSessionId);
     if (open && (known[open.sessionId] || 0) < activityAt(open)) {
       additions[open.sessionId] = activityAt(open);
+      // Server time, so other devices see everything shown here as read.
+      if (windowAttentive()) reportRead(open.sessionId, activityAt(open));
     }
     if (Object.keys(additions).length > 0) {
       persistRead({ ...known, ...additions });
     }
-  }, [sessions, currentSessionId, persistRead, activityAt]);
+  }, [sessions, currentSessionId, persistRead, activityAt, reportRead]);
 
   // Opening a thread / DM reads its signals. New signals for the open one are
   // read on arrival only while the window is focused — otherwise they stay
@@ -1781,12 +1934,9 @@ export function WorkspaceProvider({
     // leader, so threads created from the picker start with none — a leader can
     // be assigned later from the thread's agent menu.
     const masterAgent = opts?.master;
-    // The default roster excludes the built-in assistant: Yumi joins a thread
-    // only when the user picks it explicitly. (If Yumi is the only agent, a
-    // direct chat with it is the only thread possible, so keep it then.)
-    const nonBuiltin = agents.filter((a) => !a.builtin);
+    // Personal assistants stay in DMs, never in a thread's default roster.
     const participants = opts?.participants
-      || (nonBuiltin.length > 0 ? nonBuiltin : agents).map((a) => a.agentName);
+      || agents.filter((a) => !a.builtin).map((a) => a.agentName);
 
     const session = await workspaceApi.createChannel({
       title: opts?.title,
@@ -2127,6 +2277,7 @@ export function WorkspaceProvider({
         routines,
         refreshRoutines,
         createRoutine,
+        updateRoutine,
         knowledge,
         refreshKnowledge,
         createKnowledge,

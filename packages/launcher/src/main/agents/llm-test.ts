@@ -7,7 +7,7 @@
  * env carries and covers every provider the launcher can honestly probe.
  */
 import { net } from "electron"
-import { dshMessagesBase } from "./deepseek-harness-base"
+import { dshMessagesBase, dshUsesOpenAiGateway } from "./deepseek-harness-base"
 import { isOfficialAnthropicBase } from "./env-normalize"
 import {
   GOOSE_COMPAT_BASES,
@@ -267,6 +267,7 @@ const HOSTED_PLATFORMS: Array<{ vars: string[]; reason: string }> = [
   { vars: ["AMP_API_KEY"], reason: "amp" },
   { vars: ["CURSOR_API_KEY"], reason: "cursor" },
   { vars: ["CODEARTS_CLI_AK", "CODEARTS_CLI_SK"], reason: "codearts" },
+  { vars: ["QODER_PERSONAL_ACCESS_TOKEN", "QODERCN_PERSONAL_ACCESS_TOKEN"], reason: "qoder" },
 ]
 
 type OpenAIProbe = {
@@ -760,8 +761,10 @@ export async function testLLMConnection(
       const miniSwe =
         !!pick("DEEPSEEK_API_BASE") || Object.keys(env).some((k) => k.startsWith("MSWEA_") && !!pick(k))
       if (miniSwe) return await probeOpenAI({ ...dsProbe, base: dsBaseInput || "https://api.deepseek.com" })
-      // dsh speaks the Anthropic Messages API, so its probe does too —
+      // Probe the API the harness will call: chat completions on an
+      // OpenAI-compatible gateway, else the Anthropic Messages API —
       // DeepSeek's OpenAI-style root would pass here and then 404 in the agent.
+      if (dshUsesOpenAiGateway(dsBaseInput)) return await probeOpenAI({ ...dsProbe, base: dsBaseInput })
       return await probeAnthropic({ ...dsProbe, base: dshMessagesBase(dsBaseInput) })
     }
 

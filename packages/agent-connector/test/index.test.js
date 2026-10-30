@@ -251,3 +251,61 @@ describe('AgentConnector native auth on add', () => {
     });
   }
 });
+
+describe('AgentConnector native auth for a Hermes sign-in', () => {
+  function stubHermes() {
+    const adapter = require('../src/adapters/hermes');
+    const saved = { configure: adapter.configureNativeAuth, restore: adapter.restoreNativeAuth };
+    const calls = { configure: [], restore: 0 };
+    adapter.configureNativeAuth = (env) => { calls.configure.push(env); };
+    adapter.restoreNativeAuth = () => { calls.restore++; };
+    const undo = () => {
+      adapter.configureNativeAuth = saved.configure;
+      adapter.restoreNativeAuth = saved.restore;
+    };
+    return { calls, undo };
+  }
+
+  it('does not push a key saved on the type for an agent added on the sign-in tab', () => {
+    const { calls, undo } = stubHermes();
+    try {
+      const connector = new AgentConnector({ configDir: tmpDir });
+      connector.env.save('hermes', { LLM_API_KEY: 'sk-old', LLM_BASE_URL: 'https://relay.example/v1' });
+      connector.addAgent({ name: 'h', type: 'hermes', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+      assert.equal(calls.configure.length, 1);
+      assert.equal(calls.configure[0].LLM_API_KEY, undefined);
+      assert.equal(calls.configure[0].LLM_BASE_URL, undefined);
+      assert.equal(calls.restore, 1);
+    } finally {
+      undo();
+    }
+  });
+
+  it('restores Hermes\'s own provider when an agent moves to the sign-in', () => {
+    const { calls, undo } = stubHermes();
+    try {
+      const connector = new AgentConnector({ configDir: tmpDir });
+      connector.addAgent({ name: 'h', type: 'hermes', env: { LLM_API_KEY: 'sk-own', LLM_BASE_URL: 'https://relay.example/v1' } });
+      assert.equal(calls.restore, 0);
+      connector.saveAgentInstanceEnv('h', { OPENAGENTS_AUTH_MODE: 'cli_login', LLM_API_KEY: '', LLM_BASE_URL: '' });
+      assert.equal(calls.restore, 1);
+      assert.equal(calls.configure.at(-1).LLM_BASE_URL, undefined);
+    } finally {
+      undo();
+    }
+  });
+
+  it('a keyed agent pushes its own endpoint, not the one saved on the type', () => {
+    const { calls, undo } = stubHermes();
+    try {
+      const connector = new AgentConnector({ configDir: tmpDir });
+      connector.env.save('hermes', { LLM_API_KEY: 'sk-type', LLM_BASE_URL: 'https://type-relay.example/v1' });
+      connector.addAgent({ name: 'h', type: 'hermes', env: { LLM_API_KEY: 'sk-own' } });
+      assert.equal(calls.configure[0].LLM_API_KEY, 'sk-own');
+      assert.equal(calls.configure[0].LLM_BASE_URL, undefined);
+      assert.equal(calls.restore, 0);
+    } finally {
+      undo();
+    }
+  });
+});

@@ -20,7 +20,7 @@ import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Pencil, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu, X } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { ThreadPrivacyControl, threadPrivacyApplies } from './thread-privacy-control';
 import { ThreadParticipantCount } from './thread-participant-count';
@@ -34,12 +34,12 @@ import { cn } from '@/lib/utils';
 import { DmAvatars } from './dm-avatars';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
-import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
+import { RoutineDialog } from '@/components/routines/routine-dialog';
 import { eventToMessage } from '@/lib/types';
-import type { WorkspaceMessage } from '@/lib/types';
+import type { RoutineItem, WorkspaceMessage } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { acknowledgeMessage, pendingMessagesForDisplay } from '@/lib/optimistic-messages';
-import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
+import { pendingResponderName, expectsAgentResponse, needsProactiveRouting } from '@/lib/pending-responder';
 import { useBrief } from './work-brief';
 import { subscribeComposerPrefill } from './composer-prefill';
 import { useMe } from '@/hooks/use-me';
@@ -171,15 +171,22 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
+  // Snapshot on open: polling replaces routine objects, and the dialog resets
+  // its form whenever the routine it is given changes.
+  const [editingRoutine, setEditingRoutine] = useState<RoutineItem | null>(null);
+  // An open routine queue is edited right here, not only from the Routines list.
+  const currentRoutine = currentSessionId ? routines.find((r) => r.channelName === currentSessionId) ?? null : null;
 
   // Per-agent smoke-test results ride the node heartbeat's roster. A failing
   // probe means a participant will likely never answer even though it shows
   // online — surface it in the thread BEFORE the user invests in a message.
   // Probes refresh hourly on the device, so a slow poll here is plenty.
   const [agentProbes, setAgentProbes] = useState<Map<string, { probe: import('@/lib/types').NodeProbe; nodeId: string }>>(new Map());
+  // Dismiss only this result in this thread; a new health check can warn again.
+  const [dismissedProbes, setDismissedProbes] = useState<Set<string>>(new Set());
   const [retesting, setRetesting] = useState<Set<string>>(new Set());
   const loadProbes = useCallback(async () => {
     const nodes = await workspaceApi.listNodes();
@@ -415,6 +422,10 @@ export function ChatView() {
         : dmPairAddrs.map(dmAddrLabel).join(' ↔ '))
     : null;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
+  const personalAssistantConversation = agents.some(agent => agent.builtin && (
+    isDM ? dmCounterpart === `openagents:${agent.agentName}`
+      : currentSession?.participants?.length === 1 && currentSession.participants[0] === agent.agentName
+  ));
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   useEffect(() => { setProfileEmail(null); }, [currentSessionId, viewMode]);
 
@@ -494,9 +505,9 @@ export function ChatView() {
         lastMsg.messageType === 'thinking' ||
         lastMsg.messageType === 'loading'
       );
-      updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking);
+      updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking, lastMsg.senderType === 'agent');
     } else {
-      updateLastMessage(currentSessionId, '', '');
+      updateLastMessage(currentSessionId, '', '', false, false);
     }
   }, [currentSessionId, displayMessages, updateLastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -548,6 +559,12 @@ export function ChatView() {
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
       const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
+      const routingPending = needsProactiveRouting({
+        content, mentions, mentionedHumans,
+        participants: currentSession?.participants || [], humanCount: currentSession?.humanCount,
+        responseMode: currentSession?.responseMode || 'proactive',
+        direct: !threadPrivacyApplies(currentSessionId) || currentSessionId.startsWith('routines:') || currentSessionId.startsWith('task:'),
+      });
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId: currentSessionId,
@@ -559,7 +576,8 @@ export function ChatView() {
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: replyingTo ? { reply_to: citationFor(replyingTo) } : {},
+        metadata: { ...(replyingTo ? { reply_to: citationFor(replyingTo) } : {}),
+          ...(routingPending && !files.length ? { _routingPending: true } : {}) },
       };
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
@@ -628,6 +646,11 @@ export function ChatView() {
           }));
         }
 
+        // Uploading is separate from classification. Start routing feedback
+        // only when the message is ready to reach the router.
+        if (routingPending && files.length) setOptimisticMessages(previous => previous.map(message =>
+          message.messageId === userOptimisticMsg.messageId
+            ? { ...message, metadata: { ...message.metadata, _routingPending: true } } : message));
         const sent = await workspaceApi.sendMessage(
           currentSessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
@@ -639,7 +662,6 @@ export function ChatView() {
           replyingTo?.messageId,
         );
         // The server can also suppress replies (for example, the director rule).
-        if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
         setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
@@ -677,7 +699,7 @@ export function ChatView() {
         }
       }
     },
-    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode]
+    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode, currentSession?.humanCount]
   );
 
   const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
@@ -819,18 +841,18 @@ export function ChatView() {
             </button>
           )}
 
-          {/* All steps toggle — its label says what a click does; an icon
-              alone went unnoticed */}
+          {/* All steps toggle */}
           {hasCollapsibleSteps && (
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
               onClick={() => setShowAllSteps((prev) => !prev)}
-              className="gap-1.5 h-7 text-xs font-medium"
+              className="size-7 shrink-0"
               aria-pressed={showAllSteps}
+              aria-label={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              title={showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
             >
-              <ListTree className="size-3.5" />
-              {showAllSteps ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
+              <ListTree aria-hidden="true" className="size-3.5" />
             </Button>
           )}
 
@@ -849,8 +871,21 @@ export function ChatView() {
             </div>
           )}
 
-          {/* Share conversation */}
-          <Button
+          {currentRoutine && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingRoutine(currentRoutine)}
+              title={t('routines.edit')}
+              className="gap-1.5 h-7 text-xs font-medium"
+            >
+              <Pencil className="size-3.5" />
+              <span className="hidden sm:inline">{t('routines.edit')}</span>
+            </Button>
+          )}
+
+          {/* Personal assistant conversations cannot be shared. */}
+          {!personalAssistantConversation && <Button
             variant="ghost"
             size="sm"
             onClick={() => setShareDialogOpen(true)}
@@ -858,7 +893,7 @@ export function ChatView() {
             title={t('chat.shareConversation')}
           >
             <Share2 className="size-3.5" />
-          </Button>
+          </Button>}
           {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
             <ThreadSettings key={`thread-settings:${currentSessionId}`} session={currentSession} />
           )}
@@ -887,8 +922,8 @@ export function ChatView() {
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
-          notice (the backend also posts an inline "no agent online" message on
-          send). Shown for single-agent threads too, not just groups. */}
+          notice; this banner is the only one, the backend posts nothing into
+          the thread for it. Shown for single-agent threads too, not just groups. */}
       {(() => {
         const participants = currentSession?.participants || [];
         if (participants.length === 0) return null;
@@ -925,10 +960,13 @@ export function ChatView() {
           own guidance so the user can fix it before starting a conversation. */}
       {(() => {
         const participants = currentSession?.participants || [];
+        const probeKey = (name: string, nodeId: string, at: string) =>
+          JSON.stringify([workspaceKey, currentSessionId, nodeId, name, at]);
         const failing = participants
           .map((name) => ({ name, entry: agentProbes.get(name) }))
           .filter((x): x is { name: string; entry: { probe: import('@/lib/types').NodeProbe; nodeId: string } } =>
-            !!x.entry && x.entry.probe.ok === false && x.entry.probe.code !== 'static_only');
+            !!x.entry && x.entry.probe.ok === false && x.entry.probe.code !== 'static_only')
+          .filter(({ name, entry }) => !dismissedProbes.has(probeKey(name, entry.nodeId, entry.probe.at)));
         if (failing.length === 0) return null;
         return (
           <div className="px-2 lg:px-4 py-2 border-b shrink-0 bg-red-50 dark:bg-red-950/25 text-red-800 dark:text-red-300 space-y-1.5">
@@ -950,6 +988,15 @@ export function ChatView() {
                     >
                       <RefreshCw className={`size-3 ${busy ? 'animate-spin' : ''}`} />
                       {busy ? t('chat.probeRetesting') : t('chat.probeRetest')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedProbes((previous) => new Set(previous).add(probeKey(name, entry.nodeId, entry.probe.at)))}
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      aria-label={t('common.close')}
+                      title={t('common.close')}
+                    >
+                      <X className="size-3.5" aria-hidden="true" />
                     </button>
                   </div>
                   {(entry.probe.guidance || []).slice(0, 3).map((line, i) => (
@@ -1046,7 +1093,7 @@ export function ChatView() {
 
         <HumanProfile email={profileEmail} onClose={() => setProfileEmail(null)} />
 
-        <CreateRoutineDialog
+        <RoutineDialog
           open={showCreateRoutine}
           onOpenChange={setShowCreateRoutine}
           agents={agents}
@@ -1058,6 +1105,17 @@ export function ChatView() {
           })()}
           onCreateRoutine={createRoutine}
         />
+
+        {editingRoutine && (
+          <RoutineDialog
+            open
+            onOpenChange={(open) => { if (!open) setEditingRoutine(null); }}
+            agents={agents}
+            routine={editingRoutine}
+            onCreateRoutine={createRoutine}
+            onUpdateRoutine={updateRoutine}
+          />
+        )}
 
         {currentSessionId && (
           <ShareDialog

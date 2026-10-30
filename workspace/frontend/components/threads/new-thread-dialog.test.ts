@@ -86,3 +86,15 @@ it('searches a large roster and preserves selections across filters', async () =
 });
 
 vi.mock('@/hooks/use-team-roster', () => ({ useTeamRoster: () => [] }));
+
+
+it('excludes the built-in assistant from new thread participants', async () => {
+  vi.spyOn(workspaceApi, 'listGroups').mockResolvedValue([]);
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(React.createElement(NewThreadDialog, {
+    open: true, onOpenChange: vi.fn(), agents: [
+      agent, { agentName: 'yumi', status: 'online', builtin: true, canStartThread: true } as WorkspaceAgent,
+    ], teammates, onCreateThread: vi.fn(),
+  })));
+  expect(document.body.textContent).not.toContain('yumi');
+});

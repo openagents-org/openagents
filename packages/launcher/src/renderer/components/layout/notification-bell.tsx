@@ -9,7 +9,6 @@ import {
   PopoverTrigger,
 } from "@renderer/components/ui/popover"
 import { Button } from "@renderer/components/ui/button"
-import { ScrollArea } from "@renderer/components/ui/scroll-area"
 import { useNotificationsStore } from "@renderer/store/notifications"
 import {
   canRouteNotification,
@@ -70,9 +69,15 @@ export function NotificationBell({
       </PopoverTrigger>
 
       {/* The bell sits at the right of the status footer, so the list rises
-          above it, aligned to its right edge. */}
-      <PopoverContent align="end" side="top" className="w-85 p-0">
-        <div className="flex items-center justify-between border-b px-3 py-2.5">
+          above it, aligned to its right edge. Capped at the room above the
+          bell: past it the last rows spilled over the footer. */}
+      <PopoverContent
+        align="end"
+        side="top"
+        data-panel="notifications"
+        className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-85 flex-col p-0"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b px-3 py-2.5">
           <div className="text-sm font-semibold">
             {t("nav.notifications.title")}
             {unread > 0 && (
@@ -105,7 +110,9 @@ export function NotificationBell({
             {t("nav.notifications.empty")}
           </p>
         ) : (
-          <ScrollArea className="max-h-115">
+          // The list scrolls, the header stays. A ScrollArea capped with
+          // max-height never clipped: its viewport grew with the list.
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <ul className="m-0 list-none p-0">
               {items.slice(0, MAX_VISIBLE).map((r) => {
                 // Only the rows that lead somewhere look like they do. An
@@ -132,7 +139,7 @@ export function NotificationBell({
                 )
               })}
             </ul>
-          </ScrollArea>
+          </div>
         )}
       </PopoverContent>
     </Popover>

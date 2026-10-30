@@ -123,6 +123,37 @@ class TestExistenceOnly:
         assert _plugin({"creds_file": str(path)}).check_ready()[0] is True
 
 
+class TestMacKeychain:
+    """Presence only: the stored secret is never asked for (no ``-w``)."""
+
+    def _run(self, monkeypatch, returncode):
+        import subprocess
+
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, returncode)
+
+        monkeypatch.setattr(loader.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        return calls
+
+    def test_an_existing_item_is_signed_in_without_reading_it(self, monkeypatch):
+        calls = self._run(monkeypatch, 0)
+        cfg = {"keychain_service": "Claude Code-credentials", "creds_key": "claudeAiOauth"}
+        assert _plugin(cfg).check_ready()[0] is True
+        argv, kwargs = calls[0]
+        assert argv == ["security", "find-generic-password", "-s", "Claude Code-credentials"]
+        assert "-w" not in argv and "-g" not in argv
+        assert kwargs.get("shell") is not True
+
+    def test_a_missing_item_is_not(self, monkeypatch):
+        self._run(monkeypatch, 44)
+        cfg = {"keychain_service": "Claude Code-credentials", "not_ready_message": "Sign in"}
+        assert _plugin(cfg).check_ready() == (False, "Sign in")
+
+
 class TestRegistryDeclarations:
     def test_gemini_names_the_account_field(self):
         data = next(

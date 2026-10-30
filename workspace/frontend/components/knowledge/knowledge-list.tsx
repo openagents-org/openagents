@@ -108,6 +108,12 @@ export function KnowledgeList() {
               {knowledge.length}
             </Badge>
           )}
+          {/* Primary action sits beside the title, where the eye lands —
+              not in the right corner, where it went unnoticed. */}
+          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openNew}>
+            <Plus className="size-4" />
+            {t('knowledge.newEntry')}
+          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
@@ -125,21 +131,6 @@ export function KnowledgeList() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('common.refresh')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                mode="icon"
-                size="sm"
-                aria-label={t('knowledge.newEntry')}
-                onClick={openNew}
-                className="text-muted-foreground"
-              >
-                <Plus className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('knowledge.newEntry')}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -173,7 +164,7 @@ export function KnowledgeList() {
       <div className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground">
         {folder && <Button variant="ghost" mode="icon" size="sm" aria-label={t('knowledge.parentFolder')} onClick={() => { setFolder(folder.split('/').slice(0,-1).join('/')); setSelectedKnowledgeId(null); setQuery(''); }}><ArrowLeft className="size-3.5" /></Button>}
         <span className="min-w-0 flex-1 truncate" title={'/' + folder}>{folder ? '/' + folder : t('knowledge.rootFolder')}</span>
-        <Button variant="ghost" mode="icon" size="sm" title={t('knowledge.newFolder')} aria-label={t('knowledge.newFolder')} onClick={() => setNewFolderOpen(true)}><FolderPlus className="size-4" /></Button>
+        <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setNewFolderOpen(true)}><FolderPlus className="size-4" />{t('knowledge.newFolder')}</Button>
       </div>
       {/* Rows */}
       <ScrollArea className="min-h-0 flex-1" viewportClassName="[&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">

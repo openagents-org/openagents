@@ -28,7 +28,7 @@ describe('browser links from connectors without thread association', () => {
     const stable = { ...tab, id: '9fab4574-be88-4a5f-8b68-17504e4e2712' };
     const step = { ...message(`Bash curl https://workspace.example/v1/browser/tabs/${stable.id}/snapshot`), messageType: 'status', senderType: 'agent', senderAddress: stable.createdBy };
     expect(threadBrowserTabs([stable], 'paper-review', [step])).toEqual([stable]);
-    expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, senderAddress: 'openagents:other' }])).toEqual([]);
+    expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, senderAddress: 'openagents:other' }])).toEqual([stable]);
     expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, sessionId: 'other' }])).toEqual([]);
     expect(threadBrowserTabs([stable], 'paper-review', [{ ...step, messageType: 'chat' }])).toEqual([]);
   });
@@ -56,4 +56,42 @@ it('follows a rotated link only through an unambiguous stable tab in this thread
   expect(resolveThreadBrowserLink(oldLink, [{...current, artifactChannels:['other']}], 'paper-review', [published, tool])).toBeUndefined();
   const second = {...current, id:'second', artifactChannels:['paper-review']};
   expect(resolveThreadBrowserLink(oldLink, [current, second], 'paper-review', [published, tool])).toBeUndefined();
+});
+
+it('recovers a human-created tab from explicit shell activity and follows its rotated URL', () => {
+  const reused = { ...tab, id: '3100acd9-8150-4729-a2ff-af059d440335', createdBy: 'human:user', liveUrl: 'https://www.browserfabric.com/live/reconnected' };
+  const step = { ...message(`Bash › TAB=${reused.id} curl -X POST "$B/v1/browser/tabs/$TAB/navigate" -d '{"url":"https://example.com"}'`), senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'status' };
+  const reply = { ...message('https://www.browserfabric.com/live/expired'), senderType: 'agent', senderAddress: 'openagents:bot', messageType: 'chat' };
+  expect(threadBrowserArtifacts([reused], 'paper-review', [step])).toEqual([reused]);
+  expect(resolveThreadBrowserLink(reply.content, [reused], 'paper-review', [step, reply])).toEqual(reused);
+  expect(resolveThreadBrowserLink(reply.content, [reused], 'paper-review', [{ ...step, senderAddress: 'openagents:other' }, reply])).toBeUndefined();
+  for (const content of [`TAB=${reused.id}; TAB=unknown; curl /v1/browser/tabs/$TAB/snapshot`, `curl /v1/browser/tabs/$TAB/snapshot; TAB=${reused.id}`, `TAB=${reused.id}; echo unrelated`]) {
+    expect(threadBrowserTabs([reused], 'paper-review', [{...step,content}])).toEqual([]);
+  }
+  expect(threadBrowserTabs([], 'paper-review', [step])).toEqual([]);
+  expect(threadBrowserTabs([reused], 'other', [step])).toEqual([]);
+});
+
+it('binds a rotated reply to the last preceding browser action in a multi-browser thread', () => {
+  const older = { ...tab, id: 'b74094a9-d5c9-4680-9c7a-1b694bc8ef51', createdBy: 'human:user', lastActiveAt: '2026-10-27T09:00:00Z' };
+  const current = { ...tab, id: 'a4d76856-7089-46fd-a4c9-a3a9447e277f', lastActiveAt: '2026-10-27T08:40:00Z' };
+  const expired = 'https://www.browserfabric.com/live/rotated';
+  const step = (id: string, createdAt: string, extra = {}) => ({ ...message(`T=${id}; curl /v1/browser/tabs/$T/evaluate`), createdAt, senderType: 'agent', messageType: 'status', senderAddress: 'openagents:bot', ...extra });
+  const reply = { ...message(expired), createdAt: '2026-10-27T08:44:00Z', senderType: 'agent', messageType: 'chat', senderAddress: 'openagents:bot' };
+  const earlier = step(older.id, '2026-10-27T08:40:00Z');
+  const latest = step(current.id, '2026-10-27T08:43:00Z');
+  const messages = [reply, earlier, latest];
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', messages)).toEqual(current);
+  expect(threadBrowserTabs([older, current], 'paper-review', messages)).toEqual([current, older]);
+  // Later jobs and another agent's activity cannot reinterpret this reply.
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [...messages, step(older.id, '2026-10-27T08:45:00Z'), step(older.id, '2026-10-27T08:43:30Z', {senderAddress:'openagents:other'})])).toEqual(current);
+  expect(resolveThreadBrowserLink(expired, [older], 'paper-review', messages)).toBeUndefined();
+  expect(resolveThreadBrowserLink(expired, [older, {...current, artifactChannels:['other']}], 'paper-review', messages)).toBeUndefined();
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [...messages, step(older.id, latest.createdAt)])).toBeUndefined();
+  const ambiguous = {...latest, content: `/v1/browser/tabs/${older.id}/snapshot /v1/browser/tabs/${current.id}/snapshot`};
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', [earlier, ambiguous, reply])).toBeUndefined();
+  const nextReply = {...reply, content:'https://www.browserfabric.com/live/next-job', createdAt:'2026-10-27T08:46:00Z'};
+  const subsequentJob = [...messages, step(older.id, '2026-10-27T08:45:00Z'), nextReply];
+  expect(resolveThreadBrowserLink(expired, [older, current], 'paper-review', subsequentJob)).toEqual(current);
+  expect(resolveThreadBrowserLink(nextReply.content, [older, current], 'paper-review', subsequentJob)).toEqual(older);
 });

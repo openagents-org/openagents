@@ -35,7 +35,6 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
   const [folderPath, setFolderPath] = useState('');
   useEffect(() => { if (open) workspaceApi.listKnowledgeFolders().then(setFolders).catch(() => toast.error(t('knowledge.loadFailed'))); }, [open, t]);
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
   // Permission model v1.1 — new entries are private by default (spec §4).
   const [visibility, setVisibility] = useState<ArtifactVisibility>('private');
@@ -48,12 +47,10 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
       setFolderPath(entry ? entry.folderPath || '' : defaultFolder);
       if (entry) {
         setTitle(entry.title);
-        setDescription(entry.description || '');
         setContent(entry.content || '');
         setVisibility(entry.visibility ?? 'public');
       } else {
         setTitle('');
-        setDescription('');
         setContent('');
         setVisibility('private');
       }
@@ -69,7 +66,6 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
           title: title.trim(),
           folderPath,
           content: content.trim(),
-          description: description.trim() || undefined,
           // Only owners/admins may flip visibility — send it only when changed.
           ...(visibility !== (entry.visibility ?? 'public') ? { visibility } : {}),
         });
@@ -78,7 +74,6 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
           title: title.trim(),
           folderPath,
           content: content.trim(),
-          description: description.trim() || undefined,
           visibility,
         });
       }
@@ -111,16 +106,6 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('knowledge.fieldTitlePlaceholder')}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="kb-description">{t('knowledge.fieldDescription')}</Label>
-            <Input
-              id="kb-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('knowledge.fieldDescriptionPlaceholder')}
             />
           </div>
 

@@ -460,7 +460,7 @@ def telegram_webhook(
     binding_id: str,
     update: dict,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     x_telegram_bot_api_secret_token: Optional[str] = Header(None),
 ):
     binding = db.get(IntegrationBinding, binding_id)
@@ -600,7 +600,7 @@ async def slack_events(
     binding_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ):
     """Events endpoint for bring-your-own Slack apps (per-binding secret)."""
     raw = await request.body()
@@ -634,7 +634,7 @@ async def slack_events(
 async def slack_events_shared(
     request: Request,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ):
     """Shared events endpoint for the OFFICIAL OpenAgents Slack app.
 
@@ -733,7 +733,7 @@ async def lark_events(
     binding_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ):
     """Event subscription endpoint for Lark (larksuite.com) / Feishu (feishu.cn)
     custom apps. Handles the url_verification challenge, optional AES event

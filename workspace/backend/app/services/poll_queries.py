@@ -25,6 +25,13 @@ def _generation_key(workspace_id):
     return 'v1events:head-generation:' + str(workspace_id)
 
 
+def poll_generation(workspace_id):
+    """Current event-write generation of *workspace_id* (changes on every
+    committed event write). Poll caches fold it into their keys so a page
+    cached before a write is never served after it, whatever the filter."""
+    return (cache.get_bytes(_generation_key(workspace_id)) or b'0').hex()
+
+
 @event.listens_for(Session, 'before_flush')
 def _remember_event_writes(session, flush_context, instances):
     for row in session.new.union(session.dirty).union(session.deleted):
@@ -50,9 +57,8 @@ def _discard_rolled_back_heads(session):
 
 
 def stream_head(db, workspace_id, prefix, channel=None, target=None):
-    generation = cache.get_bytes(_generation_key(workspace_id)) or b'0'
     scope = json.dumps([str(workspace_id), prefix, channel, target], separators=(',', ':'))
-    key = 'v1events:stream-head:' + hashlib.sha256(scope.encode()).hexdigest() + ':' + generation.hex()
+    key = 'v1events:stream-head:' + hashlib.sha256(scope.encode()).hexdigest() + ':' + poll_generation(workspace_id)
 
     def fetch():
         query = select(EventRecord.id, EventRecord.timestamp).where(EventRecord.network_id == workspace_id)

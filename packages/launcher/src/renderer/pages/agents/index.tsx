@@ -188,7 +188,9 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         actions={catalogLoading ? null : <MarketplaceStats counts={typeCounts} onSelect={openMarketplace} />}
       />
 
-      <div className="scroll-edge flex-1 overflow-y-auto px-9 pt-2 pb-6">
+      {/* No scroll-edge fade: the sticky toolbar inside is what rows pass
+          under, and the fade would wash it out along with them. */}
+      <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
         <RecommendedAgents
           // Full panel for a first agent; one row once there are agents to
           // list (and while they load, so a returning user's page doesn't jump).

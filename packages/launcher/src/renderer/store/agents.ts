@@ -1,7 +1,8 @@
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import type { Agent } from '../types'
 
-export type DaemonState = 'running' | 'starting' | 'stopped' | 'offline'
+export type AgentsSummaryState = 'running' | 'starting' | 'error' | 'stopped' | 'none'
 
 interface AgentsState {
   agents: Agent[]
@@ -43,17 +44,38 @@ export const useAgentsStore = create<AgentsState>((set) => ({
   setCoreUpdateInfo: (info) => set({ coreUpdateInfo: info }),
 }))
 
-// Derive daemon liveness from the agent list, matching the legacy launcher.
-// running   — any agent is online/running/idle
-// starting  — any agent is starting/reconnecting
-// stopped   — agents exist but none are running
-// offline   — no agents configured
-export function useDaemonStatus(): DaemonState {
-  return useAgentsStore((s) => {
-    const agents = s.agents
-    if (agents.some((a) => a.state === 'online' || a.state === 'running' || a.state === 'idle')) return 'running'
-    if (agents.some((a) => a.state === 'starting' || a.state === 'reconnecting')) return 'starting'
-    if (agents.length > 0) return 'stopped'
-    return 'offline'
-  })
+/**
+ * What this computer's agents are doing, as one line for the status footer.
+ *
+ * It describes the agents, not the daemon, because the agent list is all it
+ * reads. It used to be worded as daemon health, so a device whose only agent
+ * had failed said "Daemon stopped" while the daemon ran fine.
+ *
+ * running  — `count` agents are online/running/idle
+ * starting — none running, `count` starting/reconnecting
+ * error    — none running or starting, `count` in error
+ * stopped  — agents exist, none of the above
+ * none     — no agents on this computer
+ */
+export interface AgentsSummary {
+  state: AgentsSummaryState
+  count: number
+}
+
+const RUNNING = ['online', 'running', 'idle']
+const STARTING = ['starting', 'reconnecting']
+
+export function summarizeAgents(agents: Pick<Agent, 'state'>[]): AgentsSummary {
+  const count = (states: string[]): number => agents.filter((a) => states.includes(a.state)).length
+  const running = count(RUNNING)
+  if (running > 0) return { state: 'running', count: running }
+  const starting = count(STARTING)
+  if (starting > 0) return { state: 'starting', count: starting }
+  const failed = count(['error'])
+  if (failed > 0) return { state: 'error', count: failed }
+  return { state: agents.length > 0 ? 'stopped' : 'none', count: 0 }
+}
+
+export function useAgentsSummary(): AgentsSummary {
+  return useAgentsStore(useShallow((s) => summarizeAgents(s.agents)))
 }

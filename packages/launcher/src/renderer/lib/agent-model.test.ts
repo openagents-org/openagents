@@ -19,6 +19,10 @@ describe("deriveModel", () => {
     )
   })
 
+  it("takes the main process's 'no model' as the answer, not the merged env's", () => {
+    expect(deriveModel(agent({ model: null, env: { CODEX_MODEL: "old-type-model" } }))).toBeNull()
+  })
+
   it("reports nothing when neither knows", () => {
     expect(deriveModel(agent({}))).toBeNull()
   })

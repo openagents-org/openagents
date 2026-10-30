@@ -128,21 +128,23 @@ def _ensure_channel(db, workspace, binding: IntegrationBinding,
         platform_label = "Feishu" if (binding.config or {}).get("domain", "feishu") == "feishu" else "Lark"
     else:
         platform_label = "Telegram"
+    from app.services.personal_assistant import is_yumi
+    default_agent = None if is_yumi(db, workspace.id, binding.default_agent) else binding.default_agent
     channel = Channel(
         workspace_id=str(workspace.id),
         name=name,
         title=f"{platform_label}: {chat_title}" if chat_title else f"{platform_label} chat",
         created_by=f"system:integration-{binding.platform}",
-        master_agent=binding.default_agent,
+        master_agent=default_agent,
         status="active",
     )
     db.add(channel)
     db.flush()
-    if binding.default_agent:
+    if default_agent:
         # Append via the relationship (not a bare db.add) so the routing
         # mod's membership auto-add — which reads channel.participants —
         # sees this row and doesn't insert a duplicate.
-        channel.participants.append(ChannelMember(agent_name=binding.default_agent))
+        channel.participants.append(ChannelMember(agent_name=default_agent))
         db.flush()
     return channel
 

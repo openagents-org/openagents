@@ -471,7 +471,7 @@ def test_builtin_yumi_is_usable_without_private_agent_grants(db, world, monkeypa
     for name in ('mia', 'vic', 'gus'):
         principal = world[name]
         assert am.explain(db, principal, resource, 'act', world['wid']).allowed
-        assert request_access(db, world['wid'], welcome, yumi, principal.email) == 'yes'
+        assert request_access(db, world['wid'], welcome, yumi, principal.email) == 'no'
         assert 'yumi' not in am.hidden_agent_names(db, world['wid'], principal, [yumi])
         assert not am.can_manage(db, principal, resource, world['wid'])
     outsider = am.Principal('human', email='outsider@acme.test', workspace_id=world['wid'])

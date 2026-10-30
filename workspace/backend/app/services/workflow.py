@@ -351,6 +351,9 @@ def _emit(db, workspace, channel_name: str, content: str, metadata: Optional[dic
 
 
 def _ensure_member(db, channel: Channel, agent: str) -> None:
+    from app.services.personal_assistant import require_group_agent, require_shareable_channel
+    require_group_agent(db, channel.workspace_id, agent)
+    require_shareable_channel(db, channel)
     exists = db.execute(
         select(ChannelMember).where(
             ChannelMember.channel_id == channel.id,

@@ -41,12 +41,6 @@
       "description": "应用设置与偏好"
     }
   },
-  "daemon": {
-    "running": "守护进程运行中",
-    "starting": "守护进程启动中",
-    "stopped": "守护进程已停止",
-    "offline": "守护进程离线"
-  },
   "notifications": {
     "tooltip": "通知",
     "title": "通知",
@@ -60,5 +54,12 @@
   "modeSwitch": "在工作区与本机管理之间切换",
   "modeLauncher": "本机管理",
   "modeWorkspace": "工作区",
-  "pages": "本机管理页面"
+  "pages": "本机管理页面",
+  "agentsSummary": {
+    "running": "{{count}} 个智能体运行中",
+    "starting": "{{count}} 个智能体启动中",
+    "error": "{{count}} 个智能体异常",
+    "stopped": "智能体均未运行",
+    "none": "尚未添加智能体"
+  }
 }

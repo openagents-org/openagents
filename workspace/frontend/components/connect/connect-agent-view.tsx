@@ -11,10 +11,10 @@ import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
-import { nodeCommandErrorKey } from '@/lib/node-command-error';
+import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
 import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
-import { AgentSetup, CatalogStateNotice, type CatalogState } from '@/components/agents/agent-setup';
+import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ExpandableError } from './expandable-error';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -73,6 +74,10 @@ const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
   openworker: { bg: 'bg-blue-600',   text: 'text-white' },
   codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
   codearts:  { bg: 'bg-red-600',     text: 'text-white' },
+  'mimo-code': { bg: 'bg-orange-500', text: 'text-white' },
+  qoder:     { bg: 'bg-emerald-500', text: 'text-white' },
+  'qoder-cn': { bg: 'bg-emerald-500', text: 'text-white' },
+  'qwen-code': { bg: 'bg-violet-700', text: 'text-white' },
 };
 
 const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
@@ -646,11 +651,7 @@ function PairingPanel({
           )}
           <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
           <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
-            {([
-              { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
-              { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
-              { os: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-            ]).map((d) => (
+            {desktopDownloads(t).map((d) => (
               <a
                 key={d.os}
                 href={d.href}
@@ -766,6 +767,8 @@ interface PendingAgent {
   commandId?: string;
   cmdStatus?: 'pending' | 'running' | 'done' | 'error';
   cmdMessage?: string | null;
+  /** What the add was submitted with, so a failed one can be edited and retried. */
+  draft?: AgentDraft;
 }
 
 function NodeCard({
@@ -777,6 +780,7 @@ function NodeCard({
   onAddAgent,
   onEditAgent,
   onDismissPending,
+  onRetryPending,
   onChanged,
 }: {
   node: WorkspaceNode;
@@ -789,6 +793,8 @@ function NodeCard({
   onEditAgent: (agent: import('@/lib/types').NodeAgent) => void;
   /** Drop a placeholder whose create failed — nothing was made on the device. */
   onDismissPending: (name: string) => void;
+  /** Reopen the add form from a failed placeholder, to fix it and try again. */
+  onRetryPending: (pending: PendingAgent) => void;
   onChanged: () => void;
 }) {
   const t = useT();
@@ -926,9 +932,16 @@ function NodeCard({
         return Object.keys(next).length === Object.keys(prev).length ? prev : next;
       });
     };
-    const id = setInterval(tick, 2000);
+    // 1s: on this computer the command now lands within a second (see
+    // nudge below), and a 2s tick alone could add most of that again.
+    const id = setInterval(tick, 1000);
     return () => { cancelled = true; clearInterval(id); };
   }, [togglingNames.join('|'), node.nodeId]);
+
+  // The device picks queued commands up on its heartbeat, every 10s. When it
+  // is the computer this desktop app runs on, the app can make it check in
+  // straight away, which is most of the wait behind a Start or Stop.
+  const nudge = () => { if (isThisComputer) desktopHost()?.nudgeComputer?.(); };
 
   const togglingRef = useRef(toggling);
   togglingRef.current = toggling;
@@ -939,6 +952,7 @@ function NodeCard({
     setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], phase: 'starting', commandId: undefined, at: Date.now() } } : prev));
     try {
       const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'start_agent', { name });
+      nudge();
       setToggling((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {
@@ -956,6 +970,7 @@ function NodeCard({
     setToggling((prev) => ({ ...prev, [agent.name]: { action, from: agent.status, at: Date.now(), ...(restart ? { phase: 'stopping' as const } : {}) } }));
     try {
       const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, restart ? 'stop_agent' : action, { name: agent.name });
+      nudge();
       setToggling((prev) => (prev[agent.name] ? { ...prev, [agent.name]: { ...prev[agent.name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
       setToggling((prev) => {
@@ -1111,6 +1126,7 @@ function NodeCard({
               {/* Pending: agents being spun up, not yet in the roster */}
               {pendingAgents.map((p) => {
                 const failed = isFailed(p);
+                const clash = failed ? deviceNameClash(p.cmdMessage) : null;
                 const installing = isInFlight(p);
                 const stalled = isStalled(p);
                 const chip = failed
@@ -1138,12 +1154,19 @@ function NodeCard({
                   {failed ? (
                     <>
                       <ExpandableError
-                        message={p.cmdMessage || t('connect.nodeAgentFailedHint')}
+                        message={clash ? t('connect.agentNameOnDevice', { name: clash }) : p.cmdMessage || t('connect.nodeAgentFailedHint')}
                         className="text-xs text-red-600 dark:text-red-400"
                       />
-                      {/* Same action row as a live agent card, so the delete
-                          sits in the same bottom-right corner. */}
+                      {/* Same action row as a live agent card, so Edit and the
+                          delete sit where they do there. Edit reopens the form
+                          as it was submitted — the only way back used to be
+                          deleting the card and filling everything in again. */}
                       <div className="mt-auto flex items-center gap-1 pt-1 border-t">
+                        {p.draft && (
+                          <Button size="sm" variant="ghost" onClick={() => onRetryPending(p)}>
+                            <Pencil className="size-3.5 mr-1" />{t('connect.nodeEdit')}
+                          </Button>
+                        )}
                         <span className="flex-1" />
                         <button
                           onClick={() => onDismissPending(p.name)}
@@ -1202,6 +1225,13 @@ function NodeCard({
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground/70">{t('connect.nodeModelDefault')}:</span>
                       <span className="font-mono truncate">{a.model || t('connect.nodeModelAutoShort')}</span>
+                      {/* Sign-in or key: two agents of one type on one device
+                          can run on either, and nothing else here says which. */}
+                      {a.authMode && (
+                        <span data-testid="node-agent-auth" className="shrink-0 rounded-full bg-muted px-1.5 py-0.5">
+                          {t(a.authMode === 'api_key' ? 'connect.agentAuthApiKey' : 'connect.agentAuthCliLogin')}
+                        </span>
+                      )}
                     </div>
 
                     {/* Failing smoke test — the agent will likely not answer */}
@@ -1321,6 +1351,7 @@ function NodesTab({
 
   const [addingNodeId, setAddingNodeId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
+  const [retrying, setRetrying] = useState<{ nodeId: string; pending: PendingAgent } | null>(null);
   // Optimistic "spinning up" agents per node, until the real roster reports
   // them. `at` is the creation timestamp; `commandId` ties the placeholder to
   // the create_agent command so its display tracks the REAL install/config
@@ -1329,7 +1360,7 @@ function NodesTab({
   // off to debug a healthy device).
   const [pending, setPending] = useState<Record<string, PendingAgent[]>>({});
 
-  const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string }) => {
+  const addPending = (nodeId: string, agent: { name: string; type: string; commandId?: string; draft?: AgentDraft }) => {
     setExpandedNodeId(nodeId);
     setPending((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []).filter((p) => p.name !== agent.name), { ...agent, at: Date.now() }] }));
   };
@@ -1465,6 +1496,34 @@ function NodesTab({
     );
   }
 
+  // Edit on a failed placeholder: the add form, filled in as it was submitted.
+  // The retry replaces the failed card (under its new name, if renamed).
+  const retryingNode = retrying ? nodes.find((n) => n.nodeId === retrying.nodeId) : null;
+  if (retrying && retryingNode && retrying.pending.draft) {
+    return (
+      <WorkspaceAgentSetup
+        key={`retry-${retrying.pending.name}-${retrying.pending.at}`}
+        node={retryingNode}
+        catalog={catalog}
+        catalogState={catalogState}
+        cloudProviders={cloudProviders}
+        draft={retrying.pending.draft}
+        draftFailure={retrying.pending.cmdMessage}
+        onManageAgent={(agent) => { setRetrying(null); setEditing({ nodeId: retryingNode.nodeId, agent }) }}
+        onBack={() => setRetrying(null)}
+        onChanged={onRefresh}
+        onQueued={(agent) => {
+          removePending(retryingNode.nodeId, retrying.pending.name);
+          addPending(retryingNode.nodeId, agent);
+          capture('agent_created', { agent_type: agent.type, source: 'workspace_ui', retry: true });
+          // Onboarding waits for the first agent by name — a renamed retry is
+          // the one that will join, not the name that failed.
+          if (autoAddAgent) onFirstAgentCreated?.(agent.name);
+        }}
+      />
+    );
+  }
+
   const editingNode = editing ? nodes.find((n) => n.nodeId === editing.nodeId) : null;
   if (editing && editingNode) {
     return (
@@ -1556,6 +1615,7 @@ function NodesTab({
               onAddAgent={() => { setExpandedNodeId(node.nodeId); setAddingNodeId(node.nodeId); }}
               onEditAgent={(agent) => setEditing({ nodeId: node.nodeId, agent })}
               onDismissPending={(name) => removePending(node.nodeId, name)}
+              onRetryPending={(p) => setRetrying({ nodeId: node.nodeId, pending: p })}
               onChanged={onRefresh}
             />
           ))}

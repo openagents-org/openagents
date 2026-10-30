@@ -6,6 +6,7 @@ require('./win-console').installWindowsHideDefault();
 
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
+const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -366,16 +367,33 @@ async function cmdRuntimes(connector, flags) {
       ? new Set(flags.types.split(',').map((s) => s.trim()).filter(Boolean))
       : null;
     const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
+    let agents = [];
+    try { agents = connector.config.getAgents() || []; } catch {}
     const runtimes = catalog.map((e) => {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
+      // The workspace's Configure saves a key on the AGENT (daemon.yaml), never
+      // in <type>.env, so judged on the type alone a Kimi or Pi agent that
+      // answered fine read "Needs login" in the workspace while the launcher,
+      // which judges the type again with its agents' env, said Ready. Judge it
+      // the way the daemon launches it: a type is ready when one of its agents
+      // is.
+      let agentEnv = null;
+      if (h.installed && !h.ready) {
+        for (const a of agents) {
+          if ((a.type || 'openclaw') !== e.name) continue;
+          let ah;
+          try { ah = connector.healthCheck(e.name, { cliLogin: isCliLogin(a.env), agentEnv: a.env || {} }); } catch { continue; }
+          if (ah && ah.ready) { h = { ...h, ...ah, installed: true }; agentEnv = a.env || {}; break; }
+        }
+      }
       // Credential contract, upward half: STATUS goes up, the secret stays on
       // this device. `mode` says how the type authenticates today
       // (subscription = CLI/OAuth login, api_key = a stored key, none = not
       // configured); keyMasked shows only the key's tail.
       let keyMasked = null;
       try {
-        const env = connector.env.load(e.name) || {};
+        const env = { ...(connector.env.load(e.name) || {}), ...(agentEnv || {}) };
         const key = env.LLM_API_KEY || null;
         if (key && key.length > 7) keyMasked = `…${key.slice(-4)}`;
         else if (key) keyMasked = '…';
@@ -1052,18 +1070,117 @@ async function cmdProbe(connector, flags, positional) {
   }
 }
 
+/**
+ * `agn login <type|agent>` — run the agent CLI's own sign-in on this device.
+ * See agent-login.js for why this is more than the bare login command.
+ */
+async function cmdLogin(connector, flags, positional) {
+  const target = (positional[0] || '').trim();
+  if (!target) {
+    print('Usage: agn login <type|agent>');
+    print("Signs the agent's own CLI in to its account on this device, e.g. agn login codex");
+    process.exitCode = 1;
+    return;
+  }
+  // A type first: the first agent of a type is often named after it.
+  let type = target;
+  let entry = connector.registry.getEntry(target);
+  if (!entry) {
+    const agent = connector.config.getAgent(target);
+    if (agent) {
+      type = agent.type || 'openclaw';
+      entry = connector.registry.getEntry(type);
+    }
+  }
+  if (!entry) {
+    print(`Unknown agent type or agent '${target}'. See: agn search`);
+    process.exitCode = 1;
+    return;
+  }
+  const label = entry.label || type;
+  const { loginPlan } = require('./agent-login');
+  const plan = loginPlan(entry);
+  if (!plan) {
+    print(`${label} has no sign-in of its own. Give it an API key instead, in the workspace or with: agn env ${type} --set <KEY>=<value>`);
+    process.exitCode = 1;
+    return;
+  }
+  const bin = connector.installer.which(type);
+  if (!bin) {
+    print(`${label} is not installed on this device. Install it first: agn install ${type}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // wsl.spawn: a CLI installed inside a WSL distro signs in over there.
+  const { spawn } = require('./wsl');
+  const { getEnhancedEnv } = require('./paths');
+  const { shouldUseShellForBinary } = require('./adapters/health-status');
+  const shell = shouldUseShellForBinary(bin);
+  print(`Signing in ${label}: ${[plan.command.split(/\s+/)[0], ...plan.args].join(' ')}`);
+  if (plan.headless && plan.args.includes('--device-auth')) {
+    print('No browser on this machine: open the link below on any device and enter the code.');
+  }
+  if (!process.stdin.isTTY) {
+    print('Warning: this is not an interactive terminal. The sign-in may need one to take input; if it stalls, run this command in a terminal.');
+  }
+  print('');
+  // The CLI owns the terminal until it is done. Ctrl+C reaches it too, and it
+  // decides what that means; this process waits to report the result.
+  const ignoreInterrupt = () => {};
+  process.on('SIGINT', ignoreInterrupt);
+  const code = await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(shell ? `"${bin}"` : bin, plan.args, {
+        stdio: 'inherit',
+        env: getEnhancedEnv(),
+        shell,
+      });
+    } catch (e) {
+      print(`Could not start ${bin}: ${e.message}`);
+      resolve(1);
+      return;
+    }
+    child.on('error', (e) => { print(`Could not start ${bin}: ${e.message}`); resolve(1); });
+    child.on('exit', (c) => resolve(c == null ? 1 : c));
+  });
+  process.removeListener('SIGINT', ignoreInterrupt);
+
+  // The CLI's word is not enough (some exit 0 on a cancelled login): ask the
+  // same readiness check the daemon uses, with keys not counting.
+  let ready = false;
+  try { ready = !!connector.installer.healthCheck(type, { cliLogin: true }).ready; } catch {}
+  // Have a running daemon re-detect and report, so the workspace updates now.
+  try { connector.sendDaemonCommand('detect'); } catch {}
+  print('');
+  if (ready) {
+    print(`✓ ${label} is signed in on this device. The workspace will show it as ready shortly.`);
+  } else {
+    print(`✗ ${label} is still not signed in${code ? ` (the login exited with code ${code})` : ''}.`);
+    process.exitCode = 1;
+  }
+}
+
 async function cmdModels(connector, flags, positional) {
   const target = positional[0];
-  if (!target) { print('Usage: agn models <type|agent> [--json]'); return; }
+  if (!target) { print('Usage: agn models <type|agent> [--json] [--sign-in]'); return; }
 
   // Accept an agent name, as `agn probe` does: its CLI is asked on that
   // agent's own env, so a signed-in agent answers for its sign-in.
+  // --sign-in: the target is a type, asked on the device's own sign-in with
+  // no key at all, as an agent added with "sign in on the device" runs. Not
+  // looked up as an agent: the first agent of a type is often named after it.
   let type = target;
   let agentEnv;
-  try {
-    const agent = connector.config.getAgent(target);
-    if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
-  } catch {}
+  if (flags && flags['sign-in']) {
+    agentEnv = { [AUTH_MODE_KEY]: CLI_LOGIN };
+  } else {
+    try {
+      const agent = connector.config.getAgent(target);
+      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+    } catch {}
+  }
 
   const result = await connector.listCliModels(type, { agentEnv });
 
@@ -1143,6 +1260,7 @@ Commands:
   stop <name>                 Stop a single agent
   install <type>              Install an agent runtime
   uninstall <type>            Uninstall an agent runtime
+  login <type|agent>          Sign the agent's own CLI in to its account (e.g. agn login codex)
   search [query]              Browse agent catalog
   runtimes                    List installed runtimes
   device connect <code>       Pair this device (formerly "node") to a workspace with a pairing code
@@ -1156,6 +1274,7 @@ Commands:
   test-llm <type>             Test LLM connection
   probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
   models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
+                              (--sign-in: a type, on the device's own sign-in)
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token
@@ -1249,6 +1368,7 @@ async function main() {
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),
     models: () => cmdModels(connector, flags, positional),
+    login: () => cmdLogin(connector, flags, positional),
     update: () => cmdUpdate(connector),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
