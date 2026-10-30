@@ -185,7 +185,15 @@ def test_disabled_feature_preserves_existing_assignee_guard(db, setup, monkeypat
     model.assert_not_awaited()
 
 
-@pytest.mark.parametrize('raw,action', [('{"action":"next","agent":"worker","task":"Review"}', 'next'), ('not json', 'wait'), ('[]', 'wait'), ('{"action":"dance"}', 'wait')])
+@pytest.mark.parametrize('raw,action', [
+    ('{"action":"next","human_input_required":false,"agent":"worker","task":"Review"}', 'next'),
+    ('{"action":"ask","human_input_required":false,"task":"Review"}', 'ask'),
+    ('{"action":"ask","human_input_required":true,"task":"Close the other tabs?"}', 'wait'),
+    ('{"action":"next","human_input_required":true,"agent":"worker","task":"Close tabs"}', 'wait'),
+    ('{"action":"ask","human_input_required":"false"}', 'wait'),
+    ('{"action":"next","agent":"worker","task":"Review"}', 'wait'),
+    ('not json', 'wait'), ('[]', 'wait'), ('{"action":"dance"}', 'wait'),
+])
 def test_model_contract(monkeypatch, raw, action):
     monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
     monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'test')
@@ -195,6 +203,29 @@ def test_model_contract(monkeypatch, raw, action):
     monkeypatch.setattr('app.mods.workspace_mod._get_llm_client', lambda: (model, 'anthropic'))
     assert asyncio.run(routing.decide({'request': 'Review'}))['action'] == action
     assert model.messages.create.call_args.kwargs['timeout'] == 15
+
+
+def test_completed_answer_awaiting_human_confirmation_has_no_agent_chooser(db, setup, monkeypatch):
+    ws, ch, root, _ = setup
+    root.payload = {'content': 'Close all browser tabs.'}
+    monkeypatch.setattr(routing, 'decide', decide_original)
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'test')
+    model = MagicMock()
+    model.with_options.return_value = model
+    model.messages.create.return_value = _mock_anthropic_response(
+        '{"action":"ask","human_input_required":true,'
+        '"task":"Should the remaining shared tabs be closed?",'
+        '"reason":"The user must confirm closing other agents tabs."}')
+    monkeypatch.setattr('app.mods.workspace_mod._get_llm_client', lambda: (model, 'anthropic'))
+    event = completion(ws, ch, content=(
+        'I closed my four tabs. The other seven belong to other agents and may '
+        'still be in use. Tell me if you want them closed too and I can do it.'))
+    assert route(db, setup, event) == ['__no_response__']
+    assert event.metadata['orchestration']['action'] == 'wait'
+    assert 'routing_choice' not in event.metadata
+    assert event.metadata.get('routing_decision') != 'ask'
+    assert root.metadata_['orchestration_state']['finished'] is True
 
 
 @pytest.mark.parametrize('change', ['stop', 'permission', 'new-message'])
