@@ -813,7 +813,7 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code',
 ];
 
 function fakeProc(pid) {
@@ -1082,6 +1082,18 @@ const START_RUN = {
       a._resolveModel = () => 'openai/gpt-4o';
       a._ensureWorkspaceSkill = () => {};
       a._buildSystemContext = () => '';
+      return a._runOpencode('p', ch);
+    },
+    stopped: '',
+  },
+  'mimo-code': {
+    start: (a, ch) => {
+      a._preflight = () => ({ ok: true });
+      a._opencodeBinary = MISSING_BIN;
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._resolveModel = () => 'xiaomi/mimo-v2.5-pro';
+      a.getBrowserEnabled = async () => false;
+      a._writeInstructions = () => {};
       return a._runOpencode('p', ch);
     },
     stopped: '',

@@ -46,6 +46,8 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    mimo-code.js      MiMoCodeAdapter — Xiaomi MiMo Code CLI (`mimo run --format json`, an OpenCode fork; extends OpenCodeAdapter). Provider, key, workspace MCP server and briefing go in per run through MIMOCODE_CONFIG_CONTENT, pinned to one provider; Stop kills the whole process tree
+    mimo-code-runtime.js  Pure helpers for MiMoCodeAdapter (key/base URL/model routing, the per-run config, run argv, process-tree walk, stderr error-line reading) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)

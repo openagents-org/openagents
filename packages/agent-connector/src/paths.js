@@ -525,6 +525,11 @@ function _addAgentInstallerPaths(dirs) {
   // keeps off PATH.
   _push(dirs, path.join(HOME, '.codeartsdoer', 'installers'));
 
+  // mimo — Xiaomi's install.sh / install.ps1 drop the binary into
+  // ~/.mimocode/bin (mimo.exe on Windows) and reach PATH through a shell rc
+  // edit or the user `Path` value, neither of which a GUI launch sees.
+  _push(dirs, path.join(HOME, '.mimocode', 'bin'));
+
   // claude — `claude install` (the native, non-npm build) relocates the CLI to
   // ~/.claude/local and reaches it through a shell alias, which a GUI process
   // inherits no more than it inherits an rc-file PATH edit.
@@ -544,6 +549,8 @@ function _addAgentInstallerPaths(dirs) {
   if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
   if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
   if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+  // mimo — install.ps1 installs into MIMOCODE_INSTALL_DIR when it is set.
+  if (process.env.MIMOCODE_INSTALL_DIR) _push(dirs, process.env.MIMOCODE_INSTALL_DIR);
 
   // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
   // the executable into uv's bin dir, which reaches PATH through a shell rc
