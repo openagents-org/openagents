@@ -522,6 +522,41 @@ describe("listAgentModels — CodeArts Agent, per access key", () => {
   })
 })
 
+describe("listAgentModels — MiMo Code", () => {
+  const LIST = [
+    "xiaomi/mimo-v2.5 — window 1.05M, compacts at 944K",
+    "xiaomi/mimo-v2.5-pro — window 1.05M, compacts at 944K",
+    "xiaomi/mimo-v2.6-pro — window 1.05M, compacts at 944K",
+    "",
+  ].join("\n")
+
+  it("lists the sign-in's models from `mimo models xiaomi`, ignoring any key in the form", async () => {
+    const runCli = vi.fn().mockResolvedValue(LIST)
+    const r = await listAgentModels("mimo-code", { LLM_API_KEY: "sk-form" }, { runCli }, "login")
+    expect(runCli).toHaveBeenCalledWith("mimo-code", ["models", "xiaomi"], undefined)
+    expect(r.source).toBe("cli")
+    expect(r.models.map((m) => m.id)).toEqual([
+      "xiaomi/mimo-v2.5",
+      "xiaomi/mimo-v2.5-pro",
+      "xiaomi/mimo-v2.6-pro",
+    ])
+    expect(r.recommended).toBe("xiaomi/mimo-v2.5-pro")
+  })
+
+  it("does not tell a signed-out user to sign in when the CLI fails — it lists signed out", async () => {
+    const runCli = vi.fn().mockResolvedValue({ failed: "exit", detail: "boom" })
+    const r = await listAgentModels("mimo-code", {}, { runCli }, "login")
+    expect(r.code).toBe("cli_failed")
+  })
+
+  it("keeps the key path on the endpoint: no key, no CLI run", async () => {
+    const runCli = vi.fn()
+    const r = await listAgentModels("mimo-code", {}, { runCli }, "key")
+    expect(runCli).not.toHaveBeenCalled()
+    expect(r.code).toBe("need_key")
+  })
+})
+
 describe("listAgentModels — an empty sign-in list only says 'sign in' when that's the problem", () => {
   const noCache = (): Record<string, string> => ({
     CODEX_HOME: path.join(home, "nope"),

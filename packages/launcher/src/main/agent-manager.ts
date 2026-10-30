@@ -52,6 +52,7 @@ import {
   type CliRunFailure,
   type ModelListPath,
   type ModelListResult,
+  withDefaultBase,
 } from "./agents/model-catalog"
 import {
   CredentialImportService,
@@ -1308,7 +1309,10 @@ export class AgentManager extends EventEmitter {
     return { success: true }
   }
 
-  async testLLM(env: Record<string, string>): Promise<LLMTestResult> {
+  async testLLM(
+    env: Record<string, string>,
+    agentType?: string,
+  ): Promise<LLMTestResult> {
     // Amp signs in against Sourcegraph's own service — there's no OpenAI-style
     // endpoint to probe — so when the user supplies an AMP_API_KEY we verify it
     // the way Amp itself does: run the installed CLI's `amp usage`. (Browser
@@ -1320,8 +1324,9 @@ export class AgentManager extends EventEmitter {
     // testLLM: the core that ships on a user's machine is often older and only
     // probes the OpenAI-compatible path, so Claude/Gemini keys come back as
     // "No API key provided". testLLMConnection covers every provider and works
-    // even before the core is installed.
-    return testLLMConnection(env)
+    // even before the core is installed. A blank base URL is the agent's own
+    // default endpoint, as when it runs — not OpenAI's.
+    return testLLMConnection(agentType ? withDefaultBase(agentType, env) : env)
   }
 
   /** Keys on this machine this agent's form can take — see credential-import. */

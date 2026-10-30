@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 
 from app.config import config
-from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
+from app.routers import web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -438,6 +438,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("LIFESPAN: database import failed: %s", e)
 
+    # Sync the curated Skill catalog once at boot, never from anonymous GET
+    # requests. The bootstrap takes a PostgreSQL advisory transaction lock, so
+    # rolling deploys and multi-worker startup cannot race on unique slugs.
+    try:
+        from app.skill_registry import bootstrap_builtin_registry
+        await asyncio.to_thread(bootstrap_builtin_registry)
+    except Exception as e:
+        # Keep the rest of Workspace available if a deployment starts before
+        # migration 087 is applied; Registry endpoints will simply be empty.
+        logger.error("LIFESPAN: skill registry bootstrap failed: %s", e)
+
     background_tasks = []
     # Additional HTTP replicas can share the database/cache without adding
     # schedulers. At least one deployment must retain background jobs.
@@ -659,6 +670,7 @@ app.include_router(nodes.devices_router)  # /v1/devices/* alias — must stay af
 app.include_router(notifications.router)
 app.include_router(onboarding.router)
 app.include_router(read_state.router)
+app.include_router(registry.router)
 app.include_router(routines.router)
 app.include_router(search.router)
 app.include_router(shares.router)

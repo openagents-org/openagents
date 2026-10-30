@@ -1202,7 +1202,10 @@ class ClaudeAdapter extends BaseAdapter {
       return null;
     }
     try {
-      const remaining = await this.getRemainingTodos(msgChannel);
+      // Pending includes work waiting for a human or an earlier step.
+      // Only explicitly active work is eligible for automatic continuation.
+      const remaining = (await this.getRemainingTodos(msgChannel))
+        .filter((todo) => todo.status === 'in_progress');
       if (remaining.length === 0) return null;
       const items = remaining.map((t) => `- ${t.content}`).join('\n');
       return {

@@ -107,6 +107,24 @@ function parseClaudeModels(text) {
 }
 
 /**
+ * `qodercli --list-models`: a "MODEL" header, then one model per line — the
+ * display name for Qoder's own tiers (which `-m` accepts as is) and
+ * "Name (key)" for a bring-your-own-key model, which `-m` takes by its key.
+ */
+function parseQoderModels(text) {
+  const seen = new Map();
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line === 'MODEL') continue;
+    const custom = line.match(/^(.*\S)\s+\(([^()]+)\)$/);
+    const id = cleanId(custom ? custom[2] : line);
+    if (!id || seen.has(id)) continue;
+    seen.set(id, { id, label: cleanLabel(custom ? custom[1] : line, id) });
+  }
+  return [...seen.values()].slice(0, MAX_MODELS);
+}
+
+/**
  * How each CLI is asked. Claude Code has no command for it; its SDK control
  * protocol does, and a run that is sent the request and then end-of-input
  * answers and exits without a prompt ever reaching a model.
@@ -123,11 +141,36 @@ const LISTERS = {
     parse: parseClaudeModels,
     timeoutMs: 45_000,
   },
+  // Qoder's personal access token signs in to the same account a browser
+  // sign-in would, so a token in the env is no reason not to ask (`withKey`).
+  // NO_RC keeps a first-ever start from editing the user's shell rc files.
+  qoder: {
+    args: ['--list-models'],
+    parse: parseQoderModels,
+    timeoutMs: 45_000,
+    withKey: true,
+    env: { QODER_NO_RC: '1' },
+  },
+  'qoder-cn': {
+    args: ['--list-models'],
+    parse: parseQoderModels,
+    timeoutMs: 45_000,
+    withKey: true,
+    env: { QODERCN_NO_RC: '1' },
+  },
 };
 
 /** Whether this agent type's CLI can be asked for its account's models. */
 function supportsCliModels(agentType) {
   return Object.prototype.hasOwnProperty.call(LISTERS, agentType);
+}
+
+/**
+ * Whether the CLI's list still applies with a key configured: true where the
+ * key is a token for the same account, not another endpoint's credential.
+ */
+function cliModelsWithKey(agentType) {
+  return supportsCliModels(agentType) && LISTERS[agentType].withKey === true;
 }
 
 /**
@@ -226,7 +269,7 @@ async function listCliModels(connector, type, opts = {}) {
     const resolved = connector.resolveAgentEnv(type, saved) || {};
     agentEnv = { ...saved, ...resolved };
   } catch {}
-  const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
+  const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv, ...(lister.env || {}) }, connector.registry, opts.agentEnv);
 
   const res = await runCli(binary, lister.args, {
     env,
@@ -241,4 +284,4 @@ async function listCliModels(connector, type, opts = {}) {
   return fail(res.error || 'The CLI listed no models.');
 }
 
-module.exports = { listCliModels, supportsCliModels, parseCodexModels, parseClaudeModels };
+module.exports = { listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels };

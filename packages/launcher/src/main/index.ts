@@ -1390,7 +1390,9 @@ function setupIPC(): void {
   ipcMain.handle("agents:save-instance-env", (_e, agentName, env) =>
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
-  ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
+  ipcMain.handle("agents:test-llm", (_e, env, agentType) =>
+    requireManager().testLLM(env, typeof agentType === "string" ? agentType : undefined),
+  )
   ipcMain.handle("agents:list-models", (_e, agentType, env, path, opts) =>
     requireManager().listModels(agentType, env, path, {
       refresh: !!(opts && (opts as { refresh?: unknown }).refresh),

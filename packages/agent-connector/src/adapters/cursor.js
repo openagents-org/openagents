@@ -638,7 +638,10 @@ class CursorAdapter extends BaseAdapter {
             // BaseAdapter._handleUserStop cancels the plan before announcing.
           } else if (!msg._todoNudge) {
             try {
-              const remaining = await this.getRemainingTodos(msgChannel);
+              // Pending includes work waiting for a human or an earlier step.
+              // Only explicitly active work is eligible for automatic continuation.
+              const remaining = (await this.getRemainingTodos(msgChannel))
+                .filter((todo) => todo.status === 'in_progress');
               if (remaining.length > 0) {
                 const items = remaining.map((t) => `- ${t.content}`).join('\n');
                 const nudge = `You have ${remaining.length} remaining task(s) from your plan:\n${items}\n\nPlease continue working on them.`;
@@ -653,9 +656,8 @@ class CursorAdapter extends BaseAdapter {
                 });
               }
             } catch {}
-          } else {
-            try { await this.cleanupTodos(msgChannel); } catch {}
           }
+          // Finishing a reminder does not cancel tasks waiting for user input.
 
           if (stoppedByUser) {
             this._stoppingChannels.delete(msgChannel);

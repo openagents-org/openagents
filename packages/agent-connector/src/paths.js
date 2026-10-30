@@ -525,6 +525,11 @@ function _addAgentInstallerPaths(dirs) {
   // keeps off PATH.
   _push(dirs, path.join(HOME, '.codeartsdoer', 'installers'));
 
+  // mimo — Xiaomi's install.sh / install.ps1 drop the binary into
+  // ~/.mimocode/bin (mimo.exe on Windows) and reach PATH through a shell rc
+  // edit or the user `Path` value, neither of which a GUI launch sees.
+  _push(dirs, path.join(HOME, '.mimocode', 'bin'));
+
   // claude — `claude install` (the native, non-npm build) relocates the CLI to
   // ~/.claude/local and reaches it through a shell alias, which a GUI process
   // inherits no more than it inherits an rc-file PATH edit.
@@ -533,6 +538,14 @@ function _addAgentInstallerPaths(dirs) {
   // hermes — the Unix installer's own bin dir. Its Windows counterparts are in
   // _addWindowsPaths; this is the half nothing covered.
   _push(dirs, path.join(HOME, '.hermes', 'bin'));
+
+  // qoder / qoder-cn — the official install scripts keep the binary in
+  // ~/.qoder/bin/qodercli (~/.qoder-cn/bin/qoderclicn). On Windows that dir
+  // holds qodercli.exe and reaches PATH only through the user `Path` registry
+  // value; on Unix it holds the versioned builds and the CLI is linked from
+  // ~/.local/bin, which is searched already.
+  _push(dirs, path.join(HOME, '.qoder', 'bin', 'qodercli'));
+  _push(dirs, path.join(HOME, '.qoder-cn', 'bin', 'qoderclicn'));
 
   // Installers that let the user choose the install dir. Each of these CLIs
   // reads an env var for its target, and a user who set one has their ONLY copy
@@ -544,6 +557,11 @@ function _addAgentInstallerPaths(dirs) {
   if (process.env.GOOSE_BIN_DIR) _push(dirs, process.env.GOOSE_BIN_DIR);
   if (process.env.HERMES_INSTALL_DIR) _push(dirs, process.env.HERMES_INSTALL_DIR);
   if (process.env.HERMES_HOME) _push(dirs, path.join(process.env.HERMES_HOME, 'bin'));
+  // mimo — install.ps1 installs into MIMOCODE_INSTALL_DIR when it is set.
+  if (process.env.MIMOCODE_INSTALL_DIR) _push(dirs, process.env.MIMOCODE_INSTALL_DIR);
+  // qwen — install-qwen-standalone.sh / .ps1 read these for a custom target.
+  if (process.env.QWEN_INSTALL_BIN_DIR) _push(dirs, process.env.QWEN_INSTALL_BIN_DIR);
+  if (process.env.QWEN_INSTALL_ROOT) _push(dirs, path.join(process.env.QWEN_INSTALL_ROOT, 'bin'));
 
   // uv — `uv tool install X` builds a venv at <uv tool dir>/X and only COPIES
   // the executable into uv's bin dir, which reaches PATH through a shell rc
@@ -587,6 +605,9 @@ function _addAgentInstallerPaths(dirs) {
     _push(dirs, path.join(lad, 'Programs', 'cursor-agent'));
     // codebuddy's native Windows install.
     _push(dirs, path.join(lad, 'CodeBuddy', 'bin'));
+    // qwen — install-qwen-standalone.ps1 puts its qwen.cmd wrapper here and
+    // edits the user Path; on Unix the same installer uses ~/.local/bin.
+    _push(dirs, path.join(lad, 'qwen-code', 'bin'));
     // winget's shim dir — how GitHub Copilot CLI arrives on Windows for anyone
     // who didn't take the npm route. The copilot adapter knew it; nothing else did.
     _push(dirs, path.join(lad, 'Microsoft', 'WinGet', 'Links'));

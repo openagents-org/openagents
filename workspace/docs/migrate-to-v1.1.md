@@ -28,6 +28,7 @@ The earlier [permission-model specification](permission-model-v1.md) describes a
 - Inventory agent grants and confirm who should retain direct access after automatic grants are removed. Check the special `070` conversion below before proceeding.
 - Keep the existing authentication project, session signing secret, storage configuration and database endpoint. Configure `NEXT_PUBLIC_API_URL` before building the frontend; it is a build-time value. Confirm `CORS_ORIGINS` includes the deployed UI origin.
 - For proactive routing, configure `ROUTER_LLM_ENABLED=true` and a working provider, model and key using `ROUTER_LLM_PROVIDER`, `ROUTER_LLM_MODEL`, `ROUTER_LLM_API_KEY` and, when needed, `ROUTER_LLM_BASE_URL`. The Anthropic key is a fallback. Validate the configured model on representative conversations; the feature flag alone does not prove routing works.
+- To use a separate OpenAI-compatible classifier for human messages, set all three of `MESSAGE_ROUTER_MODEL`, `MESSAGE_ROUTER_BASE_URL`, and `MESSAGE_ROUTER_API_KEY`. This classifier uses 500 output tokens and temperature 0. Leaving the model unset preserves the existing router. Completion handoffs, workflow planning, titles, and approvals continue using `ROUTER_LLM_*`; they require capabilities beyond the classifier's `next:<agent>`, `stop`, and `ask` labels. Store keys only in the deployment's secret environment file.
 
 Use the deployment's normal secret injection. Do not paste credentials into this document or commit them with an owner mapping.
 

@@ -164,6 +164,17 @@ class OpenCodeAdapter extends BaseAdapter {
     return args;
   }
 
+  /**
+   * The text sent on stdin for one turn. A new session carries the workspace
+   * context ahead of the message; a resumed one already holds it.
+   */
+  _composePrompt(content, msgChannel, sessionId) {
+    if (sessionId) return content;
+    this._ensureWorkspaceSkill(msgChannel);
+    const context = this._buildSystemContext(msgChannel);
+    return `${context}\n\n---\n\n${content}`;
+  }
+
   /** Environment the CLI is spawned with. */
 
   /** Test seam for the inactivity watchdog. */
@@ -422,8 +433,8 @@ class OpenCodeAdapter extends BaseAdapter {
         return;
       }
       const category = (e && e.category) ? e.category : this._classifyErrno(e);
-      const diagnostic = OpenCodeAdapter._redact((e && (e.diagnostic || e.message)) || '');
-      this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`);
+      const diagnostic = this._redact((e && (e.diagnostic || e.message)) || '');
+      this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`, 'error');
       await this._sendClassifiedError(msgChannel, category, e && e.detail);
     }
   }
@@ -850,20 +861,12 @@ class OpenCodeAdapter extends BaseAdapter {
     }
     const model = this._resolveModel();
     const sessionId = this._channelSessions[msgChannel];
-    const args = this._buildRunArgs({ runCwd, model, sessionId });
-
-    let fullPrompt;
-    if (sessionId) {
-      fullPrompt = content;
-    } else {
-      this._ensureWorkspaceSkill(msgChannel);
-      const context = this._buildSystemContext(msgChannel);
-      fullPrompt = `${context}\n\n---\n\n${content}`;
-    }
+    const args = this._buildRunArgs({ runCwd, model, sessionId, channel: msgChannel });
+    const fullPrompt = this._composePrompt(content, msgChannel, sessionId);
 
     this._log(`CLI: ${binary} ${args.join(' ')}`);
 
-    const spawnEnv = this._spawnEnv();
+    const spawnEnv = this._spawnEnv(msgChannel);
 
     let spawnBinary = binary;
     let spawnArgs = args;
@@ -981,7 +984,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
         if (code !== 0) {
           const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          this._log(`opencode exited code ${code} → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
+          this._log(`opencode exited code ${code} → [${cls.category}]: ${this._redact(cls.diagnostic).slice(0, 300)}`);
           return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
         }
 
@@ -990,7 +993,7 @@ class OpenCodeAdapter extends BaseAdapter {
         const outcome = this.constructor._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
         if (outcome.text) return finish(resolve, outcome.text);
         const f = outcome.failure;
-        this._log(`opencode exit 0 → [${f.category}]: ${OpenCodeAdapter._redact(f.diagnostic).slice(0, 300)}`);
+        this._log(`opencode exit 0 → [${f.category}]: ${this._redact(f.diagnostic).slice(0, 300)}`);
         return finish(reject, this._failure(f.category, f.diagnostic, f.detail));
       });
     });
@@ -1232,7 +1235,9 @@ class OpenCodeAdapter extends BaseAdapter {
     if (this._isMuted(channel)) return;
     const messages = this._failureMessages();
     const base = messages[category] || messages.unknown_error;
-    const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
+    // The instance redaction: this agent's own secrets by value (whatever their
+    // format), then the credential shapes the static pass already took.
+    const safe = detail ? this._redact(detail).trim() : '';
     const body = safe ? `${base}\n\n> ${safe}` : base;
     const label = this._cliLabel();
     const headline = category === 'incomplete_run' ? `${label} stopped mid-task` : `${label} couldn't run`;

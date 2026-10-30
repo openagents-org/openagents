@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The model picker for an agent on the device's own sign-in ("sign in on the
- * device": `codex login`, `claude login`): it offers what the device's CLI
+ * device": `codex login`, `claude auth login`): it offers what the device's CLI
  * says that account can run, not the vendor line-up from the catalog, which
  * the account may not be served. Read off the real registry entries, so the
  * form is tested on what the catalog really says about each type.
@@ -114,7 +114,7 @@ it('offers a new claude agent on the device sign-in the models its account can r
     runtime: { cliModels: [{ id: 'opus', label: 'Opus 5.5' }, { id: 'sonnet', label: 'Sonnet 5.5' }] },
   });
   // Claude has the sign-in choice too: its registry entry maps LLM_* and has a login.
-  expect(credentials().selectedOptions[0].textContent).toBe(t('connect.byokDeviceSignIn', { command: 'claude login' }));
+  expect(credentials().selectedOptions[0].textContent).toBe(t('connect.byokDeviceSignIn', { command: 'claude auth login' }));
   expect(offered()).toEqual(['opus', 'sonnet']);
   expect(accountHint()?.textContent).toBe(t('connect.nodeModelAccountHint', { label: claudeEntry.label }));
 

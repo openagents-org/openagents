@@ -524,6 +524,12 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'Create or update your to-do list to track progress. The entire list ' +
       'is replaced each time (send the full list with current statuses).\n\n' +
       '**Status values:** `pending`, `in_progress`, `completed`\n\n' +
+      'Use `in_progress` only for work you can actively execute now. Before ending a turn, ' +
+      'move tasks waiting for human input, approval, login, or dependencies back to `pending`. ' +
+      'Set the actual assignee when another person or agent owns the next action. ' +
+      'Only your own `in_progress` tasks may automatically continue after a reply; ' +
+      'pending tasks stay visible but do not wake you. When the required input arrives, ' +
+      'mark the relevant task `in_progress` and resume it.\n\n' +
       '**Update your to-do list:**\n' +
       `\`${curl} -s -X PUT -H "${h}" -H "Content-Type: application/json" ` +
       `${baseUrl}/v1/todos -d '{"todos":[` +
@@ -532,7 +538,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       `],"network":"${workspaceId}","channel":"${channelName}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
       '**Get your to-do list:**\n' +
-      `\`${curl} -s -H "${h}" "${baseUrl}/v1/todos?network=${workspaceId}&channel=${channelName}"\`\n\n` +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/todos?network=${workspaceId}&channel=${channelName}&source=openagents%3A${encodeURIComponent(agentName)}"\`\n\n` +
       '**IMPORTANT:** When you receive a task with multiple steps or a list of things to do, ' +
       'ALWAYS create a to-do list first before starting work. This lets the user see your ' +
       'progress in real time. Update statuses as you work through each item.\n' +

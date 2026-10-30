@@ -196,7 +196,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const test = async (): Promise<void> => {
     setTesting(true); setTestResult(null)
     try {
-      const result = await window.api.testLLM(values)
+      const result = await window.api.testLLM(values, type)
       // Nothing to probe is not a failed credential: say how it is verified instead.
       setTestResult(result.success
         ? { kind: "success", message: t("agents.shared.connectionWorks") }

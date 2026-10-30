@@ -589,7 +589,7 @@ describe('agent stop control', () => {
     // Cancelling belongs to the stop path, which runs it before the notice;
     // doing it here would post the todo list after "Execution stopped".
     adapter.cleanupTodos = async () => { throw new Error('the stop path cancels todos'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
     adapter._stoppingChannels.add('thread');
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
@@ -605,7 +605,7 @@ describe('agent stop control', () => {
       agentName: 'claude',
     });
     adapter.cleanupTodos = async () => { throw new Error('must not cancel a live plan'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
 
@@ -813,7 +813,8 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code', 'qoder',
+  'qoder-cn', 'qwen-code',
 ];
 
 function fakeProc(pid) {
@@ -1061,6 +1062,18 @@ const START_RUN = {
     start: (a, ch) => a._runCodeBuddy(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
     stopped: { userStopped: true },
   },
+  qoder: {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qoder-cn': {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qwen-code': {
+    start: (a, ch) => a._runQwen(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
   copilot: { start: (a, ch) => { a._copilotBin = MISSING_BIN; return a._runTurn(ch, []); }, stopped: { userStopped: true } },
   goose: {
     start: (a, ch) => {
@@ -1082,6 +1095,18 @@ const START_RUN = {
       a._resolveModel = () => 'openai/gpt-4o';
       a._ensureWorkspaceSkill = () => {};
       a._buildSystemContext = () => '';
+      return a._runOpencode('p', ch);
+    },
+    stopped: '',
+  },
+  'mimo-code': {
+    start: (a, ch) => {
+      a._preflight = () => ({ ok: true });
+      a._opencodeBinary = MISSING_BIN;
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._resolveModel = () => 'xiaomi/mimo-v2.5-pro';
+      a.getBrowserEnabled = async () => false;
+      a._writeInstructions = () => {};
       return a._runOpencode('p', ch);
     },
     stopped: '',

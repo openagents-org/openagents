@@ -172,6 +172,77 @@ describe("credsVerdict — OpenCode's sign-in store", () => {
   })
 })
 
+describe("credsVerdict — MiMo Code's Xiaomi-account sign-in", () => {
+  const mimo = DUAL_LOGIN_AGENTS["mimo-code"]
+  let home: string
+
+  const store = (body: unknown): void => {
+    const dir = path.join(home, ".local", "share", "mimocode")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(body))
+  }
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  it("reads the key the sign-in stored as signed in", () => {
+    store({ xiaomi: { type: "api", key: "sk-x", metadata: { uid: "1" } } })
+    expect(credsVerdict(mimo, home)).toBe(true)
+  })
+
+  it("does not count another provider's key, or no store at all", () => {
+    store({ openai: { type: "api", key: "sk-x" } })
+    expect(credsVerdict(mimo, home)).toBe(false)
+    fs.rmSync(path.join(home, ".local"), { recursive: true })
+    expect(credsVerdict(mimo, home)).toBe(false)
+  })
+
+  it("looks under XDG_DATA_HOME when it is set, as the CLI does", () => {
+    const data = path.join(home, "xdg-data")
+    fs.mkdirSync(path.join(data, "mimocode"), { recursive: true })
+    fs.writeFileSync(
+      path.join(data, "mimocode", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.XDG_DATA_HOME
+    try {
+      delete process.env.XDG_DATA_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { XDG_DATA_HOME: data })).toBe(true)
+      process.env.XDG_DATA_HOME = data
+      expect(credsVerdict(mimo, home)).toBe(true)
+    } finally {
+      if (saved === undefined) delete process.env.XDG_DATA_HOME
+      else process.env.XDG_DATA_HOME = saved
+    }
+  })
+
+  it("reads $MIMOCODE_HOME/data/auth.json first when MIMOCODE_HOME is set", () => {
+    const mimoHome = path.join(home, "mimo-home")
+    fs.mkdirSync(path.join(mimoHome, "data"), { recursive: true })
+    fs.writeFileSync(
+      path.join(mimoHome, "data", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.MIMOCODE_HOME
+    try {
+      delete process.env.MIMOCODE_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: mimoHome })).toBe(true)
+      // Set, it replaces the default location rather than adding to it.
+      store({ xiaomi: { type: "api", key: "sk-x" } })
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: path.join(home, "empty") })).toBe(false)
+    } finally {
+      if (saved === undefined) delete process.env.MIMOCODE_HOME
+      else process.env.MIMOCODE_HOME = saved
+    }
+  })
+})
+
 describe("credsVerdict — CodeBuddy's session, and which site it is for", () => {
   const codebuddy = DUAL_LOGIN_AGENTS.codebuddy
   let home: string
