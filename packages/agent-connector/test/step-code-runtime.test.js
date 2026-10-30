@@ -360,6 +360,33 @@ describe('step-code-runtime — run classification', () => {
     assert.ok(classifyStepRun({ code: 1, stderr: NO_KEY, probe: { status: 404 } }, key).userMessage.includes('HTTP 404'));
   });
 
+  it('never quotes a credential carried in the base URL', () => {
+    const pathKey = 'relay-path-credential-0123';
+    const relays = [
+      'https://bob:hunter2-relay-pass@relay.example.com/v1',
+      'https://relay.example.com/v1?api_key=query-secret-0123456',
+      `https://relay.example.com/${pathKey}/v1`,
+    ];
+    const leaks = ['hunter2-relay-pass', 'query-secret-0123456', pathKey];
+    for (const baseUrl of relays) {
+      const relay = { ...key, baseUrl };
+      const verdicts = [
+        classifyStepRun({ code: 1, turnError: '401: {"error":{"message":"bad key"}}' }, relay, [pathKey]),
+        classifyStepRun({ code: 1, turnError: 'fetch failed: ECONNREFUSED' }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: NO_KEY, probe: { status: 401 } }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: NO_KEY, probe: { networkError: true } }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: NO_KEY, probe: { status: 200, emptyList: true } }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: NO_KEY, probe: { status: 404 } }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: NO_KEY }, relay, [pathKey]),
+        classifyStepRun({ code: 1, stderr: 'Error: Step API base URL must be a valid URL' }, relay, [pathKey]),
+      ];
+      for (const v of verdicts) {
+        assert.ok(v.userMessage.includes('relay.example.com'), v.userMessage);
+        for (const leak of leaks) assert.ok(!v.userMessage.includes(leak), v.userMessage);
+      }
+    }
+  });
+
   it('names a malformed base URL', () => {
     const v = classifyStepRun({ code: 1, stderr: 'Error: Failed to load extension "<inline:Step>": Step API base URL must be a valid URL\nHint: Start without extensions using "step -ne".' }, { ...key, baseUrl: 'nope' });
     assert.equal(v.kind, 'config');

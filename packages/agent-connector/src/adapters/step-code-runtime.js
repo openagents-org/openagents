@@ -648,21 +648,31 @@ function providerMessage(text) {
   return s.replace(/^\s*\d{3}:\s*/, '');
 }
 
-function messages(auth = {}) {
+/**
+ * The base URL as it may be quoted back. It is the user's own and can carry a
+ * credential (a relay's user:password@, a ?api_key= query, or the key itself
+ * in the path), so it goes through the same masking as any CLI text.
+ */
+function shownBaseUrl(auth = {}, secrets = []) {
+  return auth.baseUrl ? redactSecrets(auth.baseUrl, secrets) : '';
+}
+
+function messages(auth = {}, secrets = []) {
   const region = stepRegionOf(auth.baseUrl);
   const keyPage = region ? STEP_REGIONS[region].keyPage : STEP_REGIONS.cn.keyPage;
+  const baseUrl = shownBaseUrl(auth, secrets);
   return {
     signedOut: 'Step Code is not signed in. Run `step login` in a terminal on this machine, or set a Step Platform API key for this agent (https://platform.stepfun.com/interface-key, or platform.stepfun.ai outside mainland China).',
     loginRejected: 'The Step Code sign-in was rejected or has expired. Run `step login` again in a terminal, or set a Step Platform API key for this agent.',
     keyRejected: region
       ? `The Step Platform API key was rejected by ${STEP_REGIONS[region].host}. Check it at ${keyPage} — a key works only in the region it was created in (api.stepfun.com for mainland China, api.stepfun.ai for international accounts), so the base URL must match.`
-      : `The API key was rejected by ${auth.baseUrl || 'the endpoint'}. Check the key and the base URL for this agent.`,
-    unreachable: `Step Code could not reach ${auth.mode === 'key' ? (auth.baseUrl || 'the endpoint') : 'the Step service'}. Check the network and any HTTP_PROXY / HTTPS_PROXY setting, and that the base URL is right.`,
-    noModels: `${auth.baseUrl || 'The endpoint'} returned no chat models for this key. Check the base URL, or pick a model explicitly.`,
+      : `The API key was rejected by ${baseUrl || 'the endpoint'}. Check the key and the base URL for this agent.`,
+    unreachable: `Step Code could not reach ${auth.mode === 'key' ? (baseUrl || 'the endpoint') : 'the Step service'}. Check the network and any HTTP_PROXY / HTTPS_PROXY setting, and that the base URL is right.`,
+    noModels: `${baseUrl || 'The endpoint'} returned no chat models for this key. Check the base URL, or pick a model explicitly.`,
     quota: 'The Step account is out of credit or rate limited. Wait and retry, or top up the account.',
     model: `Step Code cannot use the model "${auth.model || ''}". Pick one from \`step --list-models\`, or clear the model to use the default.`,
     server: 'The Step model service returned an error. This is usually temporary — retry shortly.',
-    badBaseUrl: `The base URL "${auth.baseUrl || ''}" is not a valid URL. Use https://api.stepfun.com/v1 (mainland China) or https://api.stepfun.ai/v1 (international).`,
+    badBaseUrl: `The base URL "${baseUrl}" is not a valid URL. Use https://api.stepfun.com/v1 (mainland China) or https://api.stepfun.ai/v1 (international).`,
   };
 }
 
@@ -707,7 +717,7 @@ function classifyStepRun({
   probe = null,
   hasLoginCredential = false,
 } = {}, auth = {}, secrets = []) {
-  const msg = messages(auth);
+  const msg = messages(auth, secrets);
   const lines = stepErrorLines(stderr);
   const errText = String(turnError || '');
   const generic = (input) => {
@@ -750,7 +760,7 @@ function classifyStepRun({
     if (probe && probe.networkError) return { kind: 'network', ok: false, userMessage: msg.unreachable };
     if (probe && probe.emptyList) return { kind: 'no_models', ok: false, userMessage: msg.noModels };
     if (probe && probe.status) {
-      return { kind: 'endpoint', ok: false, userMessage: `${auth.baseUrl} answered the model list with HTTP ${probe.status}. Check the base URL for this agent.` };
+      return { kind: 'endpoint', ok: false, userMessage: `${shownBaseUrl(auth, secrets) || 'The endpoint'} answered the model list with HTTP ${probe.status}. Check the base URL for this agent.` };
     }
     return { kind: 'endpoint', ok: false, userMessage: `${msg.keyRejected}\n\n(If the key is right, the endpoint may be unreachable: ${msg.unreachable})` };
   }

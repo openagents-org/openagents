@@ -142,8 +142,9 @@ type ModelSource = {
    * Keep only the endpoint's models of these `model_type`s. StepFun's
    * /v1/models lists speech synthesis, recognition and realtime models beside
    * the chat ones, and Step Code itself runs only "大语言模型" (LLM) and
-   * "路由模型" (router) entries. An untyped list — or a typed one with none of
-   * these left — is kept whole, so the picker is never emptied by the filter.
+   * "路由模型" (router) entries. An untyped list is kept whole (a relay that
+   * types nothing); a typed one is filtered the way the CLI filters it, even
+   * down to nothing — a model the picker offers has to be one Step Code runs.
    */
   modelTypes?: string[]
   /** Used only when nothing can be probed. */
@@ -802,8 +803,7 @@ export function parseOpenAiModels(
       const type = typeOf(entry)
       return typeof type === "string" && modelTypes.includes(type)
     })
-    if (raw.some((entry) => typeof typeOf(entry) === "string") && kept.length)
-      list = kept
+    if (raw.some((entry) => typeof typeOf(entry) === "string")) list = kept
   }
   const seen = new Set<string>()
   const out: ModelChoice[] = []

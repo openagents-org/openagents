@@ -729,6 +729,16 @@ describe('StepCodeAdapter — redaction', () => {
     assert.deepEqual(a._captured.response, ['token [REDACTED] and [REDACTED]']);
   });
 
+  it('masks a credential in the logged message before cutting it short', async () => {
+    const OTHER = 'relay-credential-0123456789';
+    const a = makeAdapter({ agentEnv: { LLM_API_KEY: KEY, RELAY_TOKEN: OTHER } });
+    // The credential straddles the 80-character cut of the log line.
+    await send(a, `${'word '.repeat(14)}${OTHER} more`);
+    const line = a._captured.logs.find((l) => l.startsWith('Processing message'));
+    assert.ok(line, a._captured.logs.join('\n'));
+    assert.ok(!line.includes(OTHER.slice(0, 6)), line);
+  });
+
   it('keeps the key out of a failed start', async () => {
     const a = makeAdapter({ agentEnv: { LLM_API_KEY: KEY } });
     a._spawnCommand = () => ({ command: path.join(tmpRoot, 'missing', KEY, 'step'), args: [] });
