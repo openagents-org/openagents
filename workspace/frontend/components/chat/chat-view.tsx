@@ -844,7 +844,7 @@ export function ChatView() {
           {/* All steps toggle */}
           {hasCollapsibleSteps && (
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
               onClick={() => setShowAllSteps((prev) => !prev)}
               className="size-7 shrink-0"
