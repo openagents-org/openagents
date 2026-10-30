@@ -71,8 +71,40 @@ describe('classifyFailure', () => {
     );
   });
 
+  it('reads a gateway refusing a model as a bad model, not a CLI error', () => {
+    assert.equal(
+      classifyFailure('HTTP 400: {"detail":"Model \'gpt-4o-mini\' is not available. This gateway only allows: deepseek-3.2, glm-5.2"}'),
+      CODE.BAD_MODEL,
+    );
+  });
+
   it('falls back to cli_error for unrecognized output', () => {
     assert.equal(classifyFailure('segmentation fault'), CODE.CLI_ERROR);
+  });
+
+  it('reads the wordings seen in the field', () => {
+    // CodeBuddy signed out.
+    assert.equal(classifyFailure('Authentication required. Please use /login command to sign in to your account'), CODE.NOT_LOGGED_IN);
+    // A one-api style relay with no channel for the model.
+    assert.equal(
+      classifyFailure('HTTP 503: {"error":{"code":"model_not_found","message":"No available channel for model"}}'),
+      CODE.BAD_MODEL,
+    );
+    // A Claude Code sign-in that ran out.
+    assert.equal(
+      classifyFailure('Failed to authenticate: OAuth session expired and could not be refreshed'),
+      CODE.SESSION_EXPIRED,
+    );
+    // A LiteLLM-style relay rejecting the model.
+    assert.equal(
+      classifyFailure('HTTP 400: {"error":{"message":"/chat/completions: Invalid model name passed in model=gpt-4o-mini"}}'),
+      CODE.BAD_MODEL,
+    );
+    // A provider having a bad minute.
+    assert.equal(
+      classifyFailure('504 {"error_description":"API key **** service temporarily unavailable"}'),
+      CODE.SERVICE_UNAVAILABLE,
+    );
   });
 });
 
@@ -247,8 +279,207 @@ describe('probeAgentType', () => {
       env: { LLM_API_KEY: 'sk-type' },
     });
     const r = await probeAgentType(c, 'codex', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
-    assert.equal(r.ok, false);
+    assert.notEqual(r.ok, true);
     assert.equal(r.method, 'none');
+  });
+
+  it('reports a sign-in it could not check as unverified, not failed', async () => {
+    const entry = { name: 'codex', label: 'Codex' };
+    const c = fakeConnector({
+      entry,
+      health: { installed: true, ready: false, auth_status: 'unknown', message: 'Not configured' },
+    });
+    const r = await probeAgentType(c, 'codex');
+    assert.equal(r.ok, null);
+    assert.equal(r.code, CODE.STATIC_ONLY);
+    assert.equal(r.auth_status, 'unknown');
+  });
+
+  it('lets the declared live check overrule a static "not logged in"', async () => {
+    // Claude signed in where the static checks cannot look (a keychain, a
+    // relay set in its own settings.json) answers fine.
+    const entry = {
+      name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+      probe: { args: ['-e', 'console.log("hello")'], timeout_s: 30 },
+    };
+    const c = fakeConnector({
+      entry,
+      health: { installed: true, ready: false, auth_status: 'no_credentials', binary: process.execPath, message: 'Not logged in' },
+    });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.method, 'cli');
+  });
+
+  it('keeps the static verdict when the live check explains nothing', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+      probe: { args: ['-e', 'process.exit(1)'], timeout_s: 30 },
+    };
+    const c = fakeConnector({
+      entry,
+      health: { installed: true, ready: false, auth_status: 'no_credentials', binary: process.execPath, message: 'Not logged in. Run: claude login' },
+    });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.NOT_READY);
+    assert.equal(r.message, 'Not logged in. Run: claude login');
+  });
+
+  it('reports the CLI\'s own sign-in error over the static verdict', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+      probe: { args: ['-e', 'console.log("Not logged in · Please run /login"); process.exit(1)'], timeout_s: 30 },
+    };
+    const c = fakeConnector({
+      entry,
+      health: { installed: true, ready: false, auth_status: 'no_credentials', binary: process.execPath },
+    });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.code, CODE.NOT_LOGGED_IN);
+    assert.equal(r.message, 'Not logged in · Please run /login');
+  });
+
+  it('reports an unsupported version as such, with reinstall guidance', async () => {
+    const entry = {
+      name: 'deepseek', label: 'DeepSeek Harness',
+      install: { supported_version: '0.1.0-rc.6', windows: 'npm install -g @deepseek-ai/dsh@0.1.0-rc.6', macos: 'npm install -g @deepseek-ai/dsh@0.1.0-rc.6', linux: 'npm install -g @deepseek-ai/dsh@0.1.0-rc.6' },
+    };
+    const c = fakeConnector({
+      entry,
+      health: {
+        installed: true, ready: false, compatible: false, reason: 'version_incompatible',
+        auth_status: 'no_credentials', message: 'DeepSeek Harness 0.2.0-rc.2 is not supported',
+      },
+    });
+    const r = await probeAgentType(c, 'deepseek');
+    assert.equal(r.code, CODE.VERSION_INCOMPATIBLE);
+    assert.ok(r.guidance.some((l) => l.includes('@deepseek-ai/dsh@0.1.0-rc.6')), JSON.stringify(r.guidance));
+  });
+
+  it('hands a keyed agent to the API tier when its CLI probe cannot see the key', async () => {
+    // Codex reaches a relay through launch flags the bare probe run lacks: the
+    // CLI probe would test OpenAI's default endpoint instead of the relay.
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => ({ success: true, response: 'from-api' }) },
+    };
+    try {
+      const entry = {
+        name: 'codex', label: 'Codex',
+        probe: { args: ['-e', 'console.log("from-cli")'], timeout_s: 30, skip_cli_with_key: true },
+      };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const keyed = await probeAgentType(c, 'codex', { agentEnv: { OPENAI_API_KEY: 'sk-relay' } });
+      assert.equal(keyed.method, 'llm_api', JSON.stringify(keyed));
+      const signedIn = await probeAgentType(c, 'codex', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+      assert.equal(signedIn.method, 'cli', JSON.stringify(signedIn));
+      assert.equal(signedIn.reply, 'from-cli');
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
+  it('skips the API call for an agent whose key is not a model API key', async () => {
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    let called = false;
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => { called = true; return { success: false, error: 'getaddrinfo ENOTFOUND api.openai.com' }; } },
+    };
+    try {
+      const entry = { name: 'cursor', label: 'Cursor', probe: { api_test: false } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true }, env: { LLM_API_KEY: 'key_cursor' } });
+      const r = await probeAgentType(c, 'cursor');
+      assert.equal(called, false);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+      assert.equal(r.ok, true);
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
+  it('reports the error line, not a harmless warning on stderr', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude',
+      probe: {
+        args: ['-e', 'console.error("⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY is set"); console.log("API Error: 403 insufficient_quota"); process.exit(1)'],
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.code, CODE.OUT_OF_CREDIT);
+    assert.equal(r.message, 'API Error: 403 insufficient_quota');
+  });
+
+  it('looks past Claude Code\'s unknown-model notice to the real error', async () => {
+    // A relay model Claude Code does not know makes it print a long notice
+    // ending "…auto-compact keeps this session within 200k tokens (the context
+    // window it assumes)…". That notice was all the dashboard ever showed.
+    const notice = 'Claude Code doesn\'t recognize the model "glm-5", so it assumes a context window of 200000 tokens. '
+      + 'Until then auto-compact keeps this session within 200k tokens (the context window it assumes); '
+      + 'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 restores the previous wait-for-the-API behavior.';
+    const entry = {
+      name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+      probe: {
+        args: ['-e', `console.log("Failed to authenticate: OAuth session expired and could not be refreshed"); console.error(${JSON.stringify(notice)}); process.exit(1)`],
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.code, CODE.SESSION_EXPIRED);
+    assert.equal(r.message, 'Failed to authenticate: OAuth session expired and could not be refreshed');
+    assert.ok(r.guidance.some((l) => /expired/.test(l) && /claude login/.test(l)), JSON.stringify(r.guidance));
+  });
+
+  it('looks past Codex\'s fallback-metadata warning to the real error', async () => {
+    const warning = 'warning: Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.';
+    const entry = {
+      name: 'codex', label: 'Codex',
+      probe: {
+        args: ['-e', `console.error(${JSON.stringify(warning)}); console.error("stream error: unexpected status 502 Bad Gateway"); process.exit(1)`],
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codex');
+    assert.equal(r.ok, false);
+    assert.ok(!/Model metadata/.test(r.message), r.message);
+    assert.ok(/502 Bad Gateway/.test(r.message), r.message);
+  });
+
+  it('does not count the unknown-model notice alone as a reply', async () => {
+    const entry = {
+      name: 'claude', label: 'Claude',
+      probe: { args: ['-e', 'console.log("Until then auto-compact keeps this session within 200k tokens (the context window it assumes)")'], timeout_s: 30 },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.EMPTY_RESPONSE);
+  });
+
+  it('runs a Windows .cmd shim from a folder with a space in it', { skip: process.platform !== 'win32' }, async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe space '));
+    try {
+      const shim = path.join(dir, 'agent.cmd');
+      fs.writeFileSync(shim, '@echo off\r\necho hello %1\r\n');
+      const entry = { name: 'codebuddy', label: 'CodeBuddy', probe: { args: ['hi'], timeout_s: 30 } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: shim } });
+      const r = await probeAgentType(c, 'codebuddy');
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.equal(r.reply, 'hello hi');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('treats exit-0-with-no-output as empty_response', async () => {
@@ -257,6 +488,53 @@ describe('probeAgentType', () => {
     const r = await probeAgentType(c, 'claude');
     assert.equal(r.ok, false);
     assert.equal(r.code, CODE.EMPTY_RESPONSE);
+  });
+
+  it('counts an answer from a CLI that then fails to exit as a pass', async () => {
+    const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', 'console.log("Hi! What can I help you with?"); setTimeout(()=>{}, 60000)'] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude', { timeoutMs: 500 });
+    assert.equal(r.ok, true);
+    assert.equal(r.code, CODE.OK);
+    assert.match(r.message, /did not exit within/);
+    assert.equal(r.reply, 'Hi! What can I help you with?');
+  });
+
+  it('still reports a timeout when what it printed is an error or a retry', async () => {
+    for (const line of ['Attempt 1 failed with status 503. Retrying with backoff...', 'API Error: 401 unauthorized']) {
+      const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', `console.log(${JSON.stringify(line)}); setTimeout(()=>{}, 60000)`] } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const r = await probeAgentType(c, 'claude', { timeoutMs: 500 });
+      assert.equal(r.ok, false, line);
+    }
+  });
+
+  it('drops codex housekeeping from the timeout message', async () => {
+    const stderr = [
+      'Reading additional input from stdin...',
+      '2026-10-28T08:48:54.592712Z  WARN codex_core::plugins: failed to refresh plugin cache',
+      '2026-10-28T08:48:54.592712Z ERROR codex_skills_extension::host_service: failed to install system skills',
+    ].join('\n');
+    const entry = { name: 'codex', label: 'Codex', probe: { args: ['-e', `console.error(${JSON.stringify(stderr)}); setTimeout(()=>{}, 60000)`] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codex', { timeoutMs: 500 });
+    assert.equal(r.ok, false);
+    assert.doesNotMatch(r.message, /Reading additional input|WARN/);
+    assert.match(r.message, /failed to install system skills/);
+  });
+
+  it('drops Node process warnings that come ahead of the real error', async () => {
+    const stderr = [
+      '(node:18244) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities',
+      '(Use `node --trace-warnings ...` to show where the warning was created)',
+      '401 Authentication required. Please use /login command to sign in to your account',
+    ].join('\n');
+    const entry = { name: 'codebuddy', label: 'CodeBuddy', probe: { args: ['-e', `console.error(${JSON.stringify(stderr)}); process.exit(1)`] } };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'codebuddy', { timeoutMs: 5000 });
+    assert.equal(r.ok, false);
+    assert.doesNotMatch(r.message, /DeprecationWarning|trace-warnings/);
+    assert.match(r.message, /401 Authentication required/);
   });
 
   it('kills and reports a hanging CLI as timeout', async () => {
@@ -393,5 +671,158 @@ describe('out-of-credit is not only an English 402', () => {
   it('still reads the English wording it always did', () => {
     assert.equal(classifyFailure('Your credit balance is too low'), CODE.OUT_OF_CREDIT);
     assert.equal(classifyFailure('402 payment required'), CODE.OUT_OF_CREDIT);
+  });
+});
+
+describe('a direct test runs on the model the agent runs on', () => {
+  // Codex declares no CLI probe: an agent with a key is tested on its API.
+  const CODEX = { name: 'codex', label: 'OpenAI Codex CLI', check_ready: { login_command: 'codex login' } };
+  const connector = fakeConnector({ entry: CODEX, health: { installed: true, ready: true } });
+
+  /** Stand in for the HTTP client, recording what it was asked. */
+  function withLLM(answer, run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return answer; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests a launcher-made codex agent on its CODEX_MODEL', async () => {
+    await withLLM({ success: true, response: 'hi' }, async (seen) => {
+      const r = await probeAgentType(connector, 'codex', { agentEnv: {
+        OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: 'https://api-gateway.example/v1', CODEX_MODEL: 'openai-gpt-oss-20b',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.model, 'openai-gpt-oss-20b');
+    });
+  });
+});
+
+describe('a direct test calls the endpoint the agent\'s key is for', () => {
+  // DeepSeek takes the generic key and endpoint under names of its own.
+  const DEEPSEEK = {
+    name: 'deepseek', label: 'DeepSeek Harness',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'DEEPSEEK_API_KEY' },
+      { from: 'LLM_BASE_URL', to: 'DEEPSEEK_BASE_URL' },
+      { from: 'LLM_MODEL', to: 'DEEPSEEK_MODEL' },
+    ] },
+    env_config: [{ name: 'DEEPSEEK_API_KEY', password: true }, { name: 'DEEPSEEK_BASE_URL' }],
+  };
+  const OPENCODE = {
+    name: 'opencode', label: 'OpenCode',
+    resolve_env: { rules: [{ from: 'LLM_API_KEY', to: 'OPENAI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'OPENAI_BASE_URL' }] },
+  };
+  const ready = (entry) => fakeConnector({ entry, health: { installed: true, ready: true } });
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('calls the endpoint saved under the type\'s own name', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: {
+        LLM_API_KEY: 'sk-ds-123456', DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      } });
+      assert.equal(r.ok, true);
+      assert.equal(seen[0].opts.baseUrl, 'https://api.deepseek.com');
+    });
+  });
+
+  it('does not send a key of its own to OpenAI when no endpoint is set', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
+  });
+
+  it('leaves the endpoint to the client for a generic one, or an OpenAI-style key', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(ready(DEEPSEEK), 'deepseek', { agentEnv: { LLM_API_KEY: 'sk-ds-123456', LLM_BASE_URL: 'https://relay.example/v1' } });
+      await probeAgentType(ready(OPENCODE), 'opencode', { agentEnv: { LLM_API_KEY: 'sk-oc-123456' } });
+      assert.equal(seen.length, 2);
+      assert.equal(seen[0].opts.baseUrl, undefined);
+      assert.equal(seen[1].opts.baseUrl, undefined);
+    });
+  });
+});
+
+describe('a direct test of a Pi agent speaks the API format Pi uses', () => {
+  const PI = {
+    name: 'pi', label: 'Pi',
+    resolve_env: { rules: [
+      { from: 'LLM_API_KEY', to: 'PI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'PI_BASE_URL' }, { from: 'LLM_MODEL', to: 'PI_MODEL' },
+    ] },
+    env_config: [{ name: 'PI_API_KEY', password: true }, { name: 'PI_BASE_URL' }],
+  };
+  const connector = fakeConnector({ entry: PI, health: { installed: true, ready: true } });
+  const relay = { LLM_API_KEY: 'sk-pi-123456', LLM_BASE_URL: 'https://relay.example/v1', PI_BASE_URL: 'https://relay.example/v1', PI_MODEL: 'm' };
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push(opts); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('tests an Anthropic-format Pi agent on the Anthropic API', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic', PI_API_FORMAT: 'anthropic-messages' } });
+      await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'anthropic' } });
+      assert.deepEqual(seen.map((o) => o.protocol), ['anthropic', 'anthropic']);
+    });
+  });
+
+  it('tests a relay-only Pi agent the way Pi infers it', async () => {
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: relay });
+      assert.equal(seen[0].protocol, 'openai');
+    });
+  });
+
+  it('leaves a Pi agent on its own provider config to the client', async () => {
+    // No PI_PROVIDER or PI_BASE_URL: the launcher's provider is not in play,
+    // and Pi runs on its own config, here an Anthropic relay.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'pi', { agentEnv: {
+        ANTHROPIC_API_KEY: 'sk-ant-123456', ANTHROPIC_BASE_URL: 'https://anthropic-relay.example', PI_MODEL: 'm',
+      } });
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].protocol, undefined);
+      assert.equal(seen[0].baseUrl, undefined);
+    });
+  });
+
+  it('reports static checks for a format the direct test does not speak', async () => {
+    await withLLM(async (seen) => {
+      const r = await probeAgentType(connector, 'pi', { agentEnv: { ...relay, PI_PROVIDER: 'openai' } });
+      assert.equal(seen.length, 0);
+      assert.equal(r.code, CODE.STATIC_ONLY);
+    });
   });
 });

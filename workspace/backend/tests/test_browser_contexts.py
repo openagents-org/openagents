@@ -40,6 +40,7 @@ def _global_bf_key(monkeypatch):
 def _mock_manager():
     manager = MagicMock()
     manager.is_cloud = False
+    manager.probe_session = AsyncMock(return_value={"status": "alive"})
     manager.is_cloud_for = MagicMock(return_value=False)
     manager.get_session_id.return_value = None
     manager.get_live_url.return_value = None
@@ -449,7 +450,8 @@ class TestPermanentTabs:
             "url": "https://a.example", "network": ws["id"], "source": "openagents:scout",
         }, headers={"X-Workspace-Token": ws["token"]})
         tab = resp.json()["data"]
-        assert tab["activity"] is None
+        assert tab["activity"]["action"] == "open"
+        assert tab["activity"]["actor"] == "openagents:scout"
 
         resp = client.post(f"/v1/browser/tabs/{tab['id']}/click", json={"selector": "#go"},
                            headers={"X-Workspace-Token": ws["token"]})

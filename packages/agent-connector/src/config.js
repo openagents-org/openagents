@@ -110,6 +110,7 @@ class Config {
       agent.network = networkSlug;
     } else {
       delete agent.network;
+      delete agent.node_id;
     }
     this.save(config);
   }
@@ -174,8 +175,14 @@ class Config {
     }
   }
 
+  /**
+   * Queue a line for the daemon, which reads and deletes the file every 200ms.
+   * Appended, not overwritten: two commands landing inside one poll (a Start
+   * clicked in the launcher and a heartbeat nudge from a workspace page) both
+   * have to arrive.
+   */
   writeCommand(cmd) {
-    fs.writeFileSync(this.cmdFile, cmd + '\n', 'utf-8');
+    fs.appendFileSync(this.cmdFile, cmd + '\n', 'utf-8');
   }
 
   getLogs(agentName, lines = 200) {

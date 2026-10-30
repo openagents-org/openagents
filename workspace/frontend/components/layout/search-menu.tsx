@@ -1,4 +1,5 @@
 'use client';
+import { isRoutineSession } from '@/lib/conversation-list';
 
 import { useEffect, useState } from 'react';
 import { MessageSquare, Search } from 'lucide-react';
@@ -17,6 +18,7 @@ import { getFileIcon } from '@/components/files/file-utils';
 import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
+import { useModKey } from '@/hooks/use-mod-key';
 import { useLayout } from './layout-context';
 
 /** ⌘K palette over threads, files and agents. */
@@ -25,6 +27,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
   const { sessions, files, agents, setCurrentSessionId, setSelectedFileId } = useWorkspace();
   const { openView, setSelectedAgentName, openMobileDetail } = useLayout();
   const t = useT();
+  const mod = useModKey();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -37,7 +40,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const threads = sessions.filter((s) => !s.sessionId.startsWith('routine:'));
+  const threads = sessions.filter((s) => !isRoutineSession(s));
   const recentAgents = agents.filter(isRecentAgent);
 
   const run = (fn: () => void) => {
@@ -50,7 +53,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={t('search.trigger')}
+        title={t('search.trigger', { shortcut: `${mod}${mod === '⌘' ? '' : '+'}K` })}
         className={
           iconOnly
             ? 'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -62,7 +65,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
           <>
             <span className="hidden text-xs lg:inline">{t('search.label')}</span>
             <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] lg:inline-flex">
-              <span className="text-xs">⌘</span>K
+              <span className="text-xs">{mod}</span>K
             </kbd>
           </>
         )}

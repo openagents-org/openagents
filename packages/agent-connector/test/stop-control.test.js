@@ -589,7 +589,7 @@ describe('agent stop control', () => {
     // Cancelling belongs to the stop path, which runs it before the notice;
     // doing it here would post the todo list after "Execution stopped".
     adapter.cleanupTodos = async () => { throw new Error('the stop path cancels todos'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
     adapter._stoppingChannels.add('thread');
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
@@ -605,7 +605,7 @@ describe('agent stop control', () => {
       agentName: 'claude',
     });
     adapter.cleanupTodos = async () => { throw new Error('must not cancel a live plan'); };
-    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'pending' }];
+    adapter.getRemainingTodos = async () => [{ content: 'unfinished task', status: 'in_progress' }];
 
     await adapter._queueTodoNudge('thread', { content: 'do the work' });
 
@@ -813,7 +813,8 @@ const { createAdapter } = require('../src/adapters');
 const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
-  'mini-swe-agent', 'opencode', 'openworker', 'pi',
+  'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code', 'qoder',
+  'qoder-cn', 'qwen-code',
 ];
 
 function fakeProc(pid) {
@@ -919,9 +920,21 @@ describe('a stop stays inside its thread', () => {
   });
 });
 
+// Reply delivery is real, but its capability probe and disk queue are local
+// to each test. A live server response must not decide a Stop-control assertion.
+function isolateReplyDelivery(adapter, t) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const directory = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'stop-replies-'));
+  adapter._responseOutboxDirectory = directory;
+  adapter.client.supportsMessageDelivery = async () => false;
+  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
+}
+
 describe('a stopped thread goes quiet until its next turn', () => {
-  it('drops what a stopped run was still posting, and says "stopped" last', async () => {
+  it('drops what a stopped run was still posting, and says "stopped" last', async (t) => {
     const { adapter, notices } = crossChannelAdapter('codex');
+    isolateReplyDelivery(adapter, t);
     const posted = [];
     adapter.client.sendMessage = async (_ws, channel, _t, content) => posted.push({ channel, content });
     adapter._channelProcesses.channelA = fakeProc(501);
@@ -943,13 +956,14 @@ describe('a stopped thread goes quiet until its next turn', () => {
     ]);
   });
 
-  it('a message sent after the stop runs, even while the stopped run winds down', async () => {
+  it('a message sent after the stop runs, even while the stopped run winds down', { timeout: 5000 }, async (t) => {
     const adapter = new BaseAdapter({
       workspaceId: 'ws',
       channelName: 'thread',
       token: 'token',
       agentName: 'agent',
     });
+    isolateReplyDelivery(adapter, t);
     adapter._log = () => {};
     adapter._prefetchPinnedContext = async () => {};
     const posted = [];
@@ -970,8 +984,11 @@ describe('a stopped thread goes quiet until its next turn', () => {
       await followUp;
     };
 
+    const channelWorker = adapter._channelWorker.bind(adapter);
+    let finished;
+    adapter._channelWorker = (...args) => (finished = channelWorker(...args));
     await adapter._dispatchMessage({ content: 'first', sessionId: 'thread' });
-    for (let i = 0; i < 50 && adapter._channelBusy.has('thread'); i++) await sleep(10);
+    await finished;
 
     assert.deepEqual(handled, ['first', 'second']);
     assert.deepEqual(posted.slice(-2), ['Execution stopped by user.', 'answer to second']);
@@ -1045,6 +1062,18 @@ const START_RUN = {
     start: (a, ch) => a._runCodeBuddy(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
     stopped: { userStopped: true },
   },
+  qoder: {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qoder-cn': {
+    start: (a, ch) => a._runQoder(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  'qwen-code': {
+    start: (a, ch) => a._runQwen(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
   copilot: { start: (a, ch) => { a._copilotBin = MISSING_BIN; return a._runTurn(ch, []); }, stopped: { userStopped: true } },
   goose: {
     start: (a, ch) => {
@@ -1066,6 +1095,18 @@ const START_RUN = {
       a._resolveModel = () => 'openai/gpt-4o';
       a._ensureWorkspaceSkill = () => {};
       a._buildSystemContext = () => '';
+      return a._runOpencode('p', ch);
+    },
+    stopped: '',
+  },
+  'mimo-code': {
+    start: (a, ch) => {
+      a._preflight = () => ({ ok: true });
+      a._opencodeBinary = MISSING_BIN;
+      a._resolveCwd = () => require('node:os').tmpdir();
+      a._resolveModel = () => 'xiaomi/mimo-v2.5-pro';
+      a.getBrowserEnabled = async () => false;
+      a._writeInstructions = () => {};
       return a._runOpencode('p', ch);
     },
     stopped: '',

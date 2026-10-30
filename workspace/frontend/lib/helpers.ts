@@ -1,3 +1,8 @@
+import { translateActive } from './i18n/active-locale';
+
+/** The built-in onboarding assistant's agentName (backend services/yumi.py). */
+const YUMI_AGENT_NAME = 'yumi';
+
 export function uid(): string {
   return (Date.now() + Math.floor(Math.random() * 1000)).toString();
 }
@@ -24,8 +29,14 @@ export function getInitials(
 
 /** Label to show for an agent: user-set display name (any script) or the
  * ASCII agentName. Mentions and API calls must keep using agentName. */
-export function agentLabel(agent: { agentName: string; displayName?: string | null }): string {
-  return agent.displayName?.trim() || agent.agentName;
+export function agentLabel(agent: { agentName: string; displayName?: string | null; builtin?: boolean }): string {
+  const displayName = agent.displayName?.trim();
+  if (displayName) return displayName;
+  // The built-in assistant is stored without a display name; its label says
+  // what it is for, in the reader's language. Only the builtin flag counts —
+  // a user's own agent may also be called "yumi".
+  if (agent.builtin && agent.agentName === YUMI_AGENT_NAME) return translateActive('agents.yumiLabel');
+  return agent.agentName;
 }
 
 // ── Agent freshness ──

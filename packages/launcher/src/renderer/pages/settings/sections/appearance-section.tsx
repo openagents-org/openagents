@@ -100,7 +100,11 @@ export function AppearanceSection(): React.JSX.Element {
               accentLocked && "pointer-events-none opacity-40",
             )}
           >
-            {ACCENT_COLORS.map((color) => (
+            {ACCENT_COLORS.map((color) => {
+              // While a skin pins the accent, the stored pick is shadowed, not
+              // in use: ticking it read as "violet is selected" under a blue app.
+              const picked = !accentLocked && accent === color
+              return (
               <button
                 key={color}
                 type="button"
@@ -111,13 +115,14 @@ export function AppearanceSection(): React.JSX.Element {
                 style={{ backgroundColor: swatchFill(color) }}
                 className={cn(
                   "flex size-6 items-center justify-center rounded-full text-white transition-transform hover:scale-110",
-                  accent === color &&
+                  picked &&
                     "ring-2 ring-foreground/40 ring-offset-2 ring-offset-card",
                 )}
               >
-                {accent === color && <Check className="size-3.5" />}
+                {picked && <Check className="size-3.5" />}
               </button>
-            ))}
+              )
+            })}
           </div>
         </Row>
 

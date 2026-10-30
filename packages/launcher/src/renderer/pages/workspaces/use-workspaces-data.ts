@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useShallow } from "zustand/react/shallow"
 
 import { useAgentsStore } from "@renderer/store/agents"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import type { WorkspaceCardData } from "@renderer/components/workspaces/WorkspaceCard"
+import type { WorkspaceRowData as WorkspaceCardData } from "@renderer/components/workspaces/workspace-row"
 import type { WorkspaceHealthState } from "@renderer/components/workspaces/WorkspaceHealth"
 import type {
   Agent,
@@ -83,9 +82,7 @@ export function useWorkspacesData(
 ): WorkspacesData {
   const agents = useAgentsStore((s) => s.agents)
   const connections = useConnectionsStore((s) => s.connections)
-  const { favorites, lastUsedAt } = useWorkspacePrefs(
-    useShallow((s) => ({ favorites: s.favorites, lastUsedAt: s.lastUsedAt })),
-  )
+  const lastUsedAt = useWorkspacePrefs((s) => s.lastUsedAt)
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [aliases, setAliases] = useState<Record<string, string>>({})
@@ -285,11 +282,6 @@ export function useWorkspacesData(
         b.ws.name || b.ws.slug || b.ws.id,
       )
     arr.sort((a, b) => {
-      // Favourites stay pinned whatever the sort — that is what starring one
-      // is for; the selected order applies within each group.
-      const aFav = favorites.has(a.ws.id) ? 0 : 1
-      const bFav = favorites.has(b.ws.id) ? 0 : 1
-      if (aFav !== bFav) return aFav - bFav
       if (sort === "name") return byName(a, b)
       if (sort === "agents" && a.agents.length !== b.agents.length)
         return b.agents.length - a.agents.length
@@ -301,7 +293,7 @@ export function useWorkspacesData(
       return byName(a, b)
     })
     return arr
-  }, [cards, search, filter, sort, favorites, lastUsedAt])
+  }, [cards, search, filter, sort, lastUsedAt])
 
   const stats = useMemo<WorkspaceStats>(() => {
     let healthy = 0

@@ -106,26 +106,29 @@ describe('BrowserView', () => {
     expect(out).toContain('LinkedIn');
     expect(out).toContain('GitHub');
     expect(out).toContain('Docs');
-    expect(out).toMatch(/2\s*\/\s*5/);
+    expect(out).toContain('2 active in this workspace.');
     // address bar + status bar
     expect(out).toContain('https://www.example.com/');
-    expect(out).toContain('Permanent tab');
+    expect(out).toContain('Cloud browser');
     expect(out).toContain('Live');
     // agent presence + control layer
     expect(out).toContain('Scout is clicking');
     expect(out).toContain('Take over');
     // embedded chrome-less live view
-    expect(html).toContain('browserfabric.com/live/abc?embed=1');
+    expect(html).toContain('browserfabric.com/live/abc?embed=1&amp;q=high');
     noMissingKeys();
   });
 
-  it('renders a temporary tab with its idle countdown and the pin-to-keep affordance', () => {
+  it('renders a temporary tab with live status, viewer controls and its close action', () => {
     const temp = tab({ id: 'tmp', title: 'Docs', lastActiveAt: new Date(Date.now() - 10 * 60_000).toISOString() });
     Object.assign(ws, { browserTabs: [temp], browserTabLimits: limits, selectedBrowserTabId: 'tmp' });
-    const out = text(render(BrowserView));
-    expect(out).toContain('Temporary tab');
-    expect(out).toMatch(/closes in (4|5) min if idle/);
-    expect(out).toContain('Make permanent');
+    const html = render(BrowserView);
+    const out = text(html);
+    expect(out).toContain('Docs');
+    expect(out).toContain('Live');
+    expect(out).toContain('Watching');
+    expect(out).toContain('Take over');
+    expect(html).toContain('aria-label="Close tab"');
     noMissingKeys();
   });
 

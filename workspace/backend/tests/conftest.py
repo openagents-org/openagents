@@ -10,16 +10,17 @@ Uses StaticPool to share a single in-memory database across all connections.
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
-from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# Register PostgreSQL types for SQLite compilation
-SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
-SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
+# Same SQLite shims the dev server installs (JSONB/UUID compilation, UTC-aware
+# datetimes). The suite used to register its own partial copy, so tests ran
+# against a SQLite that behaved differently from the one developers run.
+from app.database import Base, get_db, install_sqlite_compat  # noqa: E402
+
+install_sqlite_compat()
 
 # Now import the app (which loads models)
-from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -94,7 +95,7 @@ def db():
 
 
 @pytest.fixture
-def workspace(client):
+def workspace(client, db):
     """Create a workspace and return its details (id, slug, token)."""
     resp = client.post("/v1/workspaces", json={
         "name": "Test Workspace",
@@ -103,6 +104,12 @@ def workspace(client):
     })
     assert resp.status_code == 200
     data = resp.json()["data"]
+    # Most legacy workspace tests use a shared starter agent; make sharing explicit.
+    from app.services.access_model import get_or_create_builtin_groups, create_grant
+    everyone = get_or_create_builtin_groups(db, data['workspaceId'])['everyone']
+    create_grant(db, data['workspaceId'], resource_kind='agent', resource_id='agent-alpha',
+                 grantee_kind='group', grantee_id=everyone.id, rights=['act'], granted_by='test@example.com')
+    db.commit()
     return {
         "id": data["workspaceId"],
         "slug": data["slug"],

@@ -48,14 +48,21 @@
     "check_ready": {
       "env_vars": [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN"
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN"
       ],
-      "creds_file": "~/.claude/sessions",
-      "creds_key": null,
+      "creds_file": "~/.claude/.credentials.json",
+      "creds_key": "claudeAiOauth",
       "keychain_service": "Claude Code-credentials",
-      "not_ready_message": "Not logged in. Run: claude login",
-      "login_command": "claude login",
-      "alt_check": "claude --print hi"
+      "not_ready_message": "Not logged in. Run: claude auth login",
+      "login_command": "claude auth login",
+      "alt_check": "claude --print hi",
+      "status_args": [
+        "auth",
+        "status"
+      ],
+      "logged_in_pattern": "\"loggedIn\"\\s*:\\s*true",
+      "logged_out_pattern": "\"loggedIn\"\\s*:\\s*false"
     },
     "probe": {
       "args": [
@@ -146,7 +153,7 @@
         "OPENAI_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "Not configured — press e to configure"
+      "not_ready_message": "Not configured — add a model API key in Configure"
     },
     "env_config": [
       {
@@ -239,6 +246,15 @@
         null
       ]
     },
+    "probe": {
+      "args": [
+        "exec",
+        "--skip-git-repo-check",
+        "hi"
+      ],
+      "timeout_s": 120,
+      "skip_cli_with_key": true
+    },
     "check_ready": {
       "env_all": [
         "OPENAI_API_KEY",
@@ -248,7 +264,14 @@
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL"
       ],
-      "status_command": "codex login status",
+      "creds_file": "~/.codex/auth.json",
+      "creds_no_parse": true,
+      "status_args": [
+        "login",
+        "status"
+      ],
+      "logged_in_pattern": "logged in using",
+      "logged_out_pattern": "not logged in",
       "login_command": "codex login",
       "unverifiable": true,
       "not_ready_message": "Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login"
@@ -402,7 +425,10 @@
     },
     "vendor": "Cursor",
     "tagline": "The AI editor you love — now headless on your node.",
-    "provider_locked": true
+    "provider_locked": true,
+    "probe": {
+      "api_test": false
+    }
   },
   {
     "name": "opencode",
@@ -448,7 +474,13 @@
       ],
       "saved_env_key": "LLM_API_KEY",
       "min_version": "1.17.0",
-      "not_ready_message": "Not configured — press e to configure"
+      "not_ready_message": "Not configured — sign in with `opencode auth login`, pick a free opencode/ model, or add an API key in Configure",
+      "creds_file": "~/.local/share/opencode/auth.json",
+      "creds_no_parse": true,
+      "creds_json_has_entries": true,
+      "keyless_model_prefixes": [
+        "opencode/"
+      ]
     },
     "env_config": [
       {
@@ -561,8 +593,12 @@
     },
     "check_ready": {
       "creds_file": "~/.hermes/config.yaml",
+      "creds_file_windows": "%LOCALAPPDATA%/hermes/config.yaml",
       "creds_no_parse": true,
-      "status_command": "hermes status",
+      "status_args": [
+        "status"
+      ],
+      "logged_in_pattern": "✓\\s*logged in",
       "login_command": "hermes setup",
       "not_ready_message": "Hermes not configured — run: hermes setup",
       "env_vars": [
@@ -670,15 +706,10 @@
       ],
       "saved_env_key": "KIMI_API_KEY",
       "login_command": "kimi login",
-      "unverifiable": true,
-      "not_ready_message": "Not configured — set an API key (press e) or run: kimi login"
-    },
-    "probe": {
-      "args": [
-        "-p",
-        "hi"
-      ],
-      "timeout_s": 60
+      "not_ready_message": "Not configured — set an API key in Configure, or run: kimi login",
+      "creds_file": "~/.kimi-code/credentials/kimi-code.json",
+      "creds_no_parse": true,
+      "creds_key": "refresh_token"
     },
     "env_config": [
       {
@@ -976,7 +1007,7 @@
         "DEEPSEEK_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
-      "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) — press e to configure"
+      "not_ready_message": "No model API key — set a model + LLM_API_KEY (or a provider key such as OPENAI_API_KEY) in Configure"
     },
     "env_config": [
       {
@@ -1072,7 +1103,14 @@
       "args": []
     },
     "check_ready": {
+      "env_vars": [
+        "AMP_API_KEY"
+      ],
       "login_command": "amp login",
+      "status_args": [
+        "usage"
+      ],
+      "logged_out_pattern": "invalid or missing api key|run ['\"]?amp login",
       "not_ready_message": "Amp is installed but not signed in — run: amp login or set AMP_API_KEY"
     },
     "env_config": [
@@ -1142,11 +1180,18 @@
         "CLINE_API_KEY",
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
-        "OPENROUTER_API_KEY"
+        "OPENROUTER_API_KEY",
+        "AI_GATEWAY_API_KEY",
+        "V0_API_KEY"
       ],
       "saved_env_key": "CLINE_API_KEY",
+      "creds_file": "~/.cline/data/settings/providers.json",
+      "creds_no_parse": true,
+      "creds_key": "providers",
+      "creds_classifier": "cline_providers",
       "login_command": "cline auth",
-      "not_ready_message": "Not configured — set an API key (press e) or run: cline auth"
+      "not_ready_message": "Not configured — set an API key in Configure, or run: cline auth",
+      "unknown_message": "Cline's sign-in can't be confirmed from its settings (a Cline account keeps it elsewhere). The first run will tell; if it fails, run: cline auth"
     },
     "env_config": [
       {
@@ -1399,7 +1444,7 @@
         "NANOCLAW_AGENT_GROUP"
       ],
       "saved_env_key": "NANOCLAW_AGENT_GROUP",
-      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) — press e to configure"
+      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) in Configure"
     },
     "env_config": [
       {
@@ -1607,7 +1652,7 @@
       ],
       "saved_env_key": "PI_API_KEY",
       "login_command": "pi",
-      "not_ready_message": "Not configured — set a provider API key (press e), or run `pi` and use /login once.",
+      "not_ready_message": "Not configured — set a provider API key in Configure, or run `pi` and use /login once.",
       "unreadable_message": "Pi credentials were found but could not be read. Check permissions on ~/.pi/agent, or run `pi` and sign in again."
     },
     "env_config": [
@@ -1762,12 +1807,12 @@
       "requires": [
         "nodejs"
       ],
-      "supported_version": "0.1.0-rc.6",
+      "supported_version": "0.2.1-rc.2",
       "verify": "dsh -V >/dev/null 2>&1",
       "verify_win": "dsh -V >nul 2>nul",
-      "macos": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6",
-      "linux": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6",
-      "windows": "npm install -g @deepseek-ai/dsh@0.1.0-rc.6"
+      "macos": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2",
+      "linux": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2",
+      "windows": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
     },
     "uninstall": {
       "macos": "npm uninstall -g @deepseek-ai/dsh",
@@ -1786,7 +1831,7 @@
         "DEEPSEEK_API_KEY"
       ],
       "saved_env_key": "DEEPSEEK_API_KEY",
-      "not_ready_message": "Not configured — set DEEPSEEK_API_KEY (press e). The harness has no CLI sign-in.",
+      "not_ready_message": "Not configured — set DEEPSEEK_API_KEY in Configure. The harness has no CLI sign-in.",
       "unreadable_message": "DeepSeek Harness credentials could not be read. Re-enter DEEPSEEK_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -1798,9 +1843,9 @@
       },
       {
         "name": "DEEPSEEK_BASE_URL",
-        "description": "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API.",
+        "description": "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API. A URL ending in a version segment (e.g. https://relay.example.com/v1, or OpenAgents credits) is used as an OpenAI-compatible chat-completions endpoint; any other URL must speak the Anthropic Messages API (e.g. https://api.deepseek.com/anthropic).",
         "required": false,
-        "placeholder": "https://api.deepseek.com"
+        "placeholder": "https://api.deepseek.com/anthropic"
       },
       {
         "name": "DEEPSEEK_MODEL",
@@ -1898,7 +1943,12 @@
       ],
       "saved_env_key": "COMMAND_CODE_API_KEY",
       "login_command": "command-code login",
-      "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY (press e)",
+      "status_args": [
+        "status"
+      ],
+      "logged_in_pattern": "authentication verified|authenticated as",
+      "logged_out_pattern": "not authenticated|not signed in|not logged in",
+      "not_ready_message": "Not configured — sign in with `command-code login`, or set COMMAND_CODE_API_KEY in Configure",
       "unreadable_message": "Command Code credentials could not be read. Sign in again with `command-code login`, or re-enter COMMAND_CODE_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -2004,7 +2054,7 @@
         "GEMINI_API_KEY"
       ],
       "saved_env_key": "OPENWORKER_API_KEY",
-      "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY (press e to configure)",
+      "not_ready_message": "No model API key — pick a provider and set OPENWORKER_API_KEY in Configure",
       "unreadable_message": "The OpenWorker model key could not be read. Re-enter OPENWORKER_API_KEY in the Configure screen."
     },
     "env_config": [
@@ -2217,7 +2267,7 @@
       "saved_env_key": "CODEBUDDY_API_KEY",
       "login_command": "codebuddy",
       "unverifiable": true,
-      "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN (press e). A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
+      "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN in Configure. A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
       "auth_detected_labels": {
         "cli_login": "CodeBuddy sign-in detected",
         "api_key": "API key detected"
@@ -2310,7 +2360,379 @@
         "CODEARTS_CLI_AK",
         "CODEARTS_CLI_SK"
       ],
-      "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK (press e). Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
+      "not_ready_message": "Needs a Huawei Cloud access key — set CODEARTS_CLI_AK and CODEARTS_CLI_SK in Configure. Create one at https://codearts.huaweicloud.com/portal/settings/cli-auth."
     }
+  },
+  {
+    "name": "mimo-code",
+    "label": "MiMo Code",
+    "description": "Xiaomi's terminal coding agent for MiMo models, driven headless",
+    "homepage": "https://github.com/XiaomiMiMo/MiMo-Code",
+    "tags": [
+      "xiaomi",
+      "mimo",
+      "coding",
+      "cli",
+      "headless"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Xiaomi MiMo",
+    "tagline": "Xiaomi's terminal coding agent, on a Xiaomi account sign-in, a MiMo API key or any OpenAI-compatible endpoint. Installed by Xiaomi's own script.",
+    "logo": {
+      "key": "mimo-code"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "mimo",
+      "verify": "mimo --version",
+      "verify_win": "mimo --version",
+      "macos": "curl -fsSL https://mimo.xiaomi.com/install | bash",
+      "linux": "curl -fsSL https://mimo.xiaomi.com/install | bash",
+      "windows": "irm https://mimo.xiaomi.com/install.ps1 | iex"
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.mimo_code",
+      "class": "MiMoCodeAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "0.1.14",
+      "env_vars": [
+        "LLM_API_KEY"
+      ],
+      "saved_env_key": "LLM_API_KEY",
+      "creds_file": "~/.local/share/mimocode/auth.json",
+      "creds_xdg_data_file": "mimocode/auth.json",
+      "creds_home_env": "MIMOCODE_HOME",
+      "creds_home_env_file": "data/auth.json",
+      "creds_key": "xiaomi",
+      "login_command": "mimo providers login -p xiaomi",
+      "not_ready_message": "Not configured — sign in with a Xiaomi account (mimo providers login -p xiaomi), or set an API key (press e). A MiMo API key works with the prefilled base URL; create one at https://platform.xiaomimimo.com."
+    },
+    "env_config": [
+      {
+        "name": "LLM_API_KEY",
+        "description": "API key — leave blank to run on the Xiaomi account signed in to MiMo Code. Otherwise a MiMo API key from https://platform.xiaomimimo.com, a MiMo Token Plan key (with its Token Plan base URL), or a key for any OpenAI-compatible endpoint set below.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "LLM_BASE_URL",
+        "description": "OpenAI-compatible base URL for the API key above, prefilled with MiMo's API. MiMo Token Plan: https://token-plan-cn.xiaomimimo.com/v1 (Europe: token-plan-ams, Singapore: token-plan-sgp). Any other OpenAI-compatible endpoint works too. Not used with a Xiaomi account sign-in.",
+        "required": false,
+        "default": "https://api.xiaomimimo.com/v1",
+        "placeholder": "https://api.xiaomimimo.com/v1"
+      },
+      {
+        "name": "LLM_MODEL",
+        "description": "Model id, e.g. mimo-v2.6-pro. Optional on MiMo's API and with a Xiaomi sign-in, where a blank one runs the first pro model MiMo lists; required for any other endpoint. The list is loaded from the endpoint.",
+        "required": false,
+        "placeholder": "mimo-v2.6-pro"
+      }
+    ],
+    "workspace_model": true
+  },
+  {
+    "name": "qoder",
+    "label": "Qoder CLI",
+    "description": "Qoder's terminal coding agent (qoder.com), driven headless",
+    "homepage": "https://qoder.com/cli",
+    "tags": [
+      "coding",
+      "cli",
+      "headless"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Qoder",
+    "tagline": "Qoder's terminal coding agent, on a Qoder account sign-in or a personal access token. Installed by Qoder's own script.",
+    "logo": {
+      "key": "qoder"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qodercli",
+      "verify": "qodercli --version",
+      "verify_win": "qodercli --version",
+      "macos": "curl -fsSL https://qoder.com/install | bash",
+      "linux": "curl -fsSL https://qoder.com/install | bash",
+      "windows": "irm https://qoder.com/install.ps1 | iex"
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.qoder",
+      "class": "QoderAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "1.0.45",
+      "env_vars": [
+        "QODER_PERSONAL_ACCESS_TOKEN"
+      ],
+      "saved_env_key": "QODER_PERSONAL_ACCESS_TOKEN",
+      "login_command": "qodercli login",
+      "status_args": [
+        "status",
+        "-o",
+        "json"
+      ],
+      "logged_in_pattern": "\"logged_in\":\\s*true",
+      "logged_out_pattern": "\"logged_in\":\\s*false",
+      "not_ready_message": "Not signed in — sign in with `qodercli login` (it opens a browser), or paste a personal access token from https://qoder.com/account/integrations (press e). A Qoder CN (qoder.cn) account belongs to the qoder-cn agent instead."
+    },
+    "env_config": [
+      {
+        "name": "QODER_PERSONAL_ACCESS_TOKEN",
+        "description": "Personal access token from https://qoder.com/account/integrations. Leave blank to use the account signed in with `qodercli login` on this machine; a token set here always takes precedence over that sign-in.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "QODER_MODEL",
+        "description": "Model for each run — auto, lite, performance, or a key from `qodercli --list-models`. Leave blank for the account default. Other providers' API keys do not work here: models come from the Qoder account.",
+        "required": false,
+        "placeholder": "auto"
+      }
+    ],
+    "models": [
+      {
+        "id": "auto",
+        "label": "Auto",
+        "category": "chat"
+      },
+      {
+        "id": "lite",
+        "label": "Lite",
+        "category": "chat"
+      },
+      {
+        "id": "performance",
+        "label": "Performance",
+        "category": "chat"
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "QODER_PERSONAL_ACCESS_TOKEN"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "QODER_MODEL"
+        }
+      ]
+    },
+    "workspace_model": true,
+    "provider_locked": true
+  },
+  {
+    "name": "qoder-cn",
+    "label": "Qoder CLI CN",
+    "description": "Qoder's terminal coding agent, China edition (qoder.com.cn), driven headless",
+    "homepage": "https://qoder.com.cn/cli",
+    "tags": [
+      "coding",
+      "cli",
+      "headless",
+      "china"
+    ],
+    "featured": false,
+    "order": 999,
+    "catalog": true,
+    "vendor": "Qoder",
+    "tagline": "The China edition of Qoder's terminal agent, on a Qoder CN account (qoder.cn) sign-in or a personal access token. Installed by Qoder's own script.",
+    "logo": {
+      "key": "qoder-cn"
+    },
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qoderclicn",
+      "verify": "qoderclicn --version",
+      "verify_win": "qoderclicn --version",
+      "macos": "curl -fsSL https://qoder.com.cn/install | bash",
+      "linux": "curl -fsSL https://qoder.com.cn/install | bash",
+      "windows": "irm https://qoder.com.cn/install.ps1 | iex"
+    },
+    "uninstall": null,
+    "adapter": {
+      "module": "openagents.adapters.qoder_cn",
+      "class": "QoderCnAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "1.0.45",
+      "env_vars": [
+        "QODERCN_PERSONAL_ACCESS_TOKEN"
+      ],
+      "saved_env_key": "QODERCN_PERSONAL_ACCESS_TOKEN",
+      "login_command": "qoderclicn login",
+      "status_args": [
+        "status",
+        "-o",
+        "json"
+      ],
+      "logged_in_pattern": "\"logged_in\":\\s*true",
+      "logged_out_pattern": "\"logged_in\":\\s*false",
+      "not_ready_message": "Not signed in — sign in with `qoderclicn login` (it opens a browser), or paste a personal access token from https://qoder.cn/account/integrations (press e). A qoder.com account does not work here: the China edition signs in to qoder.cn."
+    },
+    "env_config": [
+      {
+        "name": "QODERCN_PERSONAL_ACCESS_TOKEN",
+        "description": "Personal access token from https://qoder.cn/account/integrations. Leave blank to use the account signed in with `qoderclicn login` on this machine; a token set here always takes precedence over that sign-in.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "QODERCN_MODEL",
+        "description": "Model for each run — auto, lite, performance, or a key from `qoderclicn --list-models`. Leave blank for the account default. Other providers' API keys do not work here: models come from the Qoder account.",
+        "required": false,
+        "placeholder": "auto"
+      }
+    ],
+    "models": [
+      {
+        "id": "auto",
+        "label": "Auto",
+        "category": "chat"
+      },
+      {
+        "id": "lite",
+        "label": "Lite",
+        "category": "chat"
+      },
+      {
+        "id": "performance",
+        "label": "Performance",
+        "category": "chat"
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "QODERCN_PERSONAL_ACCESS_TOKEN"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "QODERCN_MODEL"
+        }
+      ]
+    },
+    "workspace_model": true,
+    "provider_locked": true
+  },
+  {
+    "name": "qwen-code",
+    "label": "Qwen Code",
+    "description": "Alibaba's open-source terminal coding agent for Qwen models, driven headless",
+    "homepage": "https://github.com/QwenLM/qwen-code",
+    "tags": [
+      "coding",
+      "cli",
+      "open-source",
+      "headless"
+    ],
+    "featured": false,
+    "order": 999,
+    "builtin": true,
+    "logo": {
+      "key": "qwen-code"
+    },
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "qwen",
+      "npm_package": "@qwen-code/qwen-code",
+      "requires": [
+        "nodejs"
+      ],
+      "verify": "qwen --version",
+      "verify_win": "qwen --version",
+      "macos": "npm install -g @qwen-code/qwen-code",
+      "linux": "npm install -g @qwen-code/qwen-code",
+      "windows": "npm install -g @qwen-code/qwen-code"
+    },
+    "uninstall": {
+      "macos": "npm uninstall -g @qwen-code/qwen-code",
+      "linux": "npm uninstall -g @qwen-code/qwen-code",
+      "windows": "npm uninstall -g @qwen-code/qwen-code"
+    },
+    "adapter": {
+      "module": "openagents.adapters.qwen_code",
+      "class": "QwenCodeAdapter"
+    },
+    "launch": null,
+    "check_ready": {
+      "min_version": "0.16.0",
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "saved_env_key": "LLM_API_KEY",
+      "not_ready_message": "Not configured — set an API key and a model (press e). Qwen Code has no CLI sign-in; a Model Studio (DashScope) key works with the prefilled base URL."
+    },
+    "env_config": [
+      {
+        "name": "LLM_API_KEY",
+        "description": "API key for an OpenAI-compatible endpoint — a Model Studio (DashScope) key, or a Bailian Coding Plan key together with its own base URL.",
+        "required": true,
+        "password": true
+      },
+      {
+        "name": "LLM_BASE_URL",
+        "description": "OpenAI-compatible base URL, prefilled with Model Studio China. International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 — Coding Plan: https://coding.dashscope.aliyuncs.com/v1 (international: https://coding-intl.dashscope.aliyuncs.com/v1)",
+        "required": true,
+        "default": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "placeholder": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      {
+        "name": "LLM_MODEL",
+        "description": "Model id, e.g. qwen3.8-flash. Pick one the base URL serves — Coding Plan offers a shorter list than Model Studio.",
+        "required": true,
+        "placeholder": "qwen3.8-flash"
+      }
+    ],
+    "catalog": true,
+    "workspace_model": true,
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "OPENAI_MODEL"
+        }
+      ]
+    },
+    "vendor": "Alibaba Qwen",
+    "tagline": "Qwen's terminal coding agent, on your Model Studio or Coding Plan key."
   }
 ]

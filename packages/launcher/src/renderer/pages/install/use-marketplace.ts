@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useMarketplacePrefs } from "@renderer/hooks/useMarketplacePrefs"
 import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
 import type { InstallJob } from "@renderer/store/install"
-import { useAgentsStore } from "@renderer/store/agents"
 import type { CatalogEntry, InstalledAgentRecord } from "@renderer/types"
 
 import { CATEGORIES } from "./categories"
@@ -47,7 +46,6 @@ interface Marketplace {
   /** Entries with an update pending, in the order they appear in the catalog. */
   updatable: CatalogEntry[]
   loadAll: () => Promise<void>
-  refreshAgentsStore: () => Promise<void>
 }
 
 export function useMarketplace(): Marketplace {
@@ -62,19 +60,6 @@ export function useMarketplace(): Marketplace {
   const installedList = useInstallStore((s) => s.installed)
   const updates = useInstallStore((s) => s.updates)
   const jobs = useInstallStore((s) => s.jobs)
-  const setStoreAgents = useAgentsStore((s) => s.setAgents)
-
-  // The wizard's last step is `addAgent`, so closing the wizard is the moment
-  // the agents store may have just gained an entry. Refresh so the hasInstance
-  // selector in AgentDetail flips immediately instead of waiting for the next
-  // 5s poll from another tab.
-  const refreshAgentsStore = useCallback(async () => {
-    try {
-      setStoreAgents(await window.api.listAgents())
-    } catch {
-      /* non-fatal */
-    }
-  }, [setStoreAgents])
 
   const loadAll = useCallback(async () => {
     try {
@@ -88,10 +73,6 @@ export function useMarketplace(): Marketplace {
       setCatalog(cat)
       setInstalled(inst)
       setLoading(false)
-      // Keep the shared agents store warm so AgentDetail.hasInstance is correct
-      // on first navigation even if the user landed here before visiting
-      // Agents/Dashboard.
-      refreshAgentsStore()
       window.api
         .checkAgentUpdates()
         .then(setUpdates)
@@ -101,7 +82,7 @@ export function useMarketplace(): Marketplace {
     } catch {
       setLoading(false)
     }
-  }, [setInstalled, setUpdates, refreshAgentsStore])
+  }, [setInstalled, setUpdates])
 
   useEffect(() => {
     loadAll()
@@ -192,6 +173,5 @@ export function useMarketplace(): Marketplace {
     rows,
     updatable,
     loadAll,
-    refreshAgentsStore,
   }
 }

@@ -40,11 +40,16 @@ export function MarketplaceCategories({
       label: t(`install.categories.${c.key}`),
     }))
 
+  // Underlined tabs, as on Connect Agents: they share one row with search, and
+  // a row of boxed chips beside boxed fields read as one more toolbar of
+  // buttons rather than as the page's sections.
   return (
     <FilterChips
+      variant="underline"
       value={category}
       onChange={onCategoryChange}
       options={options}
+      className="min-w-0 overflow-x-auto scrollbar-hide"
     />
   )
 }

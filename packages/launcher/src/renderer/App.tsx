@@ -21,7 +21,6 @@ import Connections from "./pages/connections"
 import Credentials from "./pages/credentials"
 import GitHubPage from "./pages/github"
 import Install from "./pages/install"
-import Logs from "./pages/logs"
 import Settings from "./pages/settings"
 import { WhatsNewDialog } from "./components/whats-new/whats-new-dialog"
 import { UpdateOfferDialog } from "./components/update-offer/update-offer-dialog"
@@ -34,6 +33,7 @@ import { useStartupPage } from "./hooks/useStartupPage"
 import { useNotificationClicks } from "./hooks/useNotificationRouting"
 import { useFullScreen } from "./hooks/useFullScreen"
 import { capture } from "./lib/analytics"
+import { OPEN_MODAL } from "./lib/modal-chrome"
 
 export default function App(): React.JSX.Element {
   const currentTab = useUiStore((s) => s.currentTab)
@@ -107,6 +107,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (useAccountStore.getState().mode !== "launcher") return
+      // A shortcut must not pull the page out from under an open dialog.
+      if (document.querySelector(OPEN_MODAL)) return
       if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         const idx = parseInt(e.key) - 1
         if (idx < SHORTCUT_TABS.length) {
@@ -141,7 +143,6 @@ export default function App(): React.JSX.Element {
               {visitedTabs.current.has("credentials") && <React.Activity mode={currentTab === "credentials" ? "visible" : "hidden"}><Credentials showToast={showToast} /></React.Activity>}
               {visitedTabs.current.has("github") && <React.Activity mode={currentTab === "github" ? "visible" : "hidden"}><GitHubPage showToast={showToast} /></React.Activity>}
               {visitedTabs.current.has("install") && <React.Activity mode={currentTab === "install" ? "visible" : "hidden"}><Install showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("logs") && <React.Activity mode={currentTab === "logs" ? "visible" : "hidden"}><Logs showToast={showToast} /></React.Activity>}
               {visitedTabs.current.has("settings") && <React.Activity mode={currentTab === "settings" ? "visible" : "hidden"}><Settings showToast={showToast} /></React.Activity>}
             </AppShell>
           )}
@@ -151,7 +152,11 @@ export default function App(): React.JSX.Element {
       {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
           job={activeJob}
-          onOpen={() => setCurrentTab("install")}
+          onOpen={() => {
+            // Straight to the agent being installed, which shows the progress.
+            useUiStore.getState().setInstallFocusAgent(activeJob.agent)
+            setCurrentTab("install")
+          }}
         />
       )}
 

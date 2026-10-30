@@ -109,6 +109,39 @@ describe("credsVerdict — Gemini's sign-in, read off disk", () => {
   })
 })
 
+describe("credsVerdict — Kimi's `kimi login` session", () => {
+  const kimi = DUAL_LOGIN_AGENTS.kimi
+  let home: string
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "kimi-home-"))
+    fs.mkdirSync(path.join(home, ".kimi-code", "credentials"), { recursive: true })
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  const session = (body: unknown): void =>
+    fs.writeFileSync(
+      path.join(home, ".kimi-code", "credentials", "kimi-code.json"),
+      JSON.stringify(body),
+    )
+
+  it("reads a stored OAuth session as signed in", () => {
+    session({ access_token: "a", refresh_token: "r", token_type: "Bearer" })
+    expect(credsVerdict(kimi, home)).toBe(true)
+  })
+
+  it("says signed out before `kimi login` has written anything", () => {
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+
+  it("does not count a session without a refresh token", () => {
+    session({ access_token: "a" })
+    expect(credsVerdict(kimi, home)).toBe(false)
+  })
+})
+
 describe("credsVerdict — OpenCode's sign-in store", () => {
   const opencode = DUAL_LOGIN_AGENTS.opencode
   let home: string
@@ -136,6 +169,77 @@ describe("credsVerdict — OpenCode's sign-in store", () => {
     expect(credsVerdict(opencode, home)).toBe(false)
     fs.rmSync(path.join(home, ".local"), { recursive: true })
     expect(credsVerdict(opencode, home)).toBe(false)
+  })
+})
+
+describe("credsVerdict — MiMo Code's Xiaomi-account sign-in", () => {
+  const mimo = DUAL_LOGIN_AGENTS["mimo-code"]
+  let home: string
+
+  const store = (body: unknown): void => {
+    const dir = path.join(home, ".local", "share", "mimocode")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "auth.json"), JSON.stringify(body))
+  }
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-home-"))
+  })
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  it("reads the key the sign-in stored as signed in", () => {
+    store({ xiaomi: { type: "api", key: "sk-x", metadata: { uid: "1" } } })
+    expect(credsVerdict(mimo, home)).toBe(true)
+  })
+
+  it("does not count another provider's key, or no store at all", () => {
+    store({ openai: { type: "api", key: "sk-x" } })
+    expect(credsVerdict(mimo, home)).toBe(false)
+    fs.rmSync(path.join(home, ".local"), { recursive: true })
+    expect(credsVerdict(mimo, home)).toBe(false)
+  })
+
+  it("looks under XDG_DATA_HOME when it is set, as the CLI does", () => {
+    const data = path.join(home, "xdg-data")
+    fs.mkdirSync(path.join(data, "mimocode"), { recursive: true })
+    fs.writeFileSync(
+      path.join(data, "mimocode", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.XDG_DATA_HOME
+    try {
+      delete process.env.XDG_DATA_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { XDG_DATA_HOME: data })).toBe(true)
+      process.env.XDG_DATA_HOME = data
+      expect(credsVerdict(mimo, home)).toBe(true)
+    } finally {
+      if (saved === undefined) delete process.env.XDG_DATA_HOME
+      else process.env.XDG_DATA_HOME = saved
+    }
+  })
+
+  it("reads $MIMOCODE_HOME/data/auth.json first when MIMOCODE_HOME is set", () => {
+    const mimoHome = path.join(home, "mimo-home")
+    fs.mkdirSync(path.join(mimoHome, "data"), { recursive: true })
+    fs.writeFileSync(
+      path.join(mimoHome, "data", "auth.json"),
+      JSON.stringify({ xiaomi: { type: "api", key: "sk-x" } }),
+    )
+    const saved = process.env.MIMOCODE_HOME
+    try {
+      delete process.env.MIMOCODE_HOME
+      expect(credsVerdict(mimo, home)).toBe(false)
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: mimoHome })).toBe(true)
+      // Set, it replaces the default location rather than adding to it.
+      store({ xiaomi: { type: "api", key: "sk-x" } })
+      expect(credsVerdict(mimo, home, { MIMOCODE_HOME: path.join(home, "empty") })).toBe(false)
+    } finally {
+      if (saved === undefined) delete process.env.MIMOCODE_HOME
+      else process.env.MIMOCODE_HOME = saved
+    }
   })
 })
 

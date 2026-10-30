@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteAgentEnv: (type: string) => ipcRenderer.invoke('agents:delete-env', type),
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
-  testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
+  testLLM: (env: unknown, agentType?: string) => ipcRenderer.invoke('agents:test-llm', env, agentType),
   listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login', opts?: { refresh?: boolean }) =>
     ipcRenderer.invoke('agents:list-models', agentType, env, path, opts),
   scanCredentialImports: (agentType: string) =>
@@ -283,6 +283,7 @@ contextBridge.exposeInMainWorld('api', {
   signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: { ticket: string; randstr: string }) =>
     ipcRenderer.invoke('account:sign-up-password', email, password, displayName, captcha),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
+  requestSignOut: () => ipcRenderer.invoke('account:request-sign-out'),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
   authorizeDevice: (workspaceId: string) =>
@@ -310,7 +311,8 @@ contextBridge.exposeInMainWorld('api', {
     bounds: { x: number; y: number; width: number; height: number },
     token?: string | null,
     sessionId?: string | null,
-  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token, sessionId),
+    title?: string | null,
+  ) => ipcRenderer.invoke('workspace-view:show', target, bounds, token, sessionId, title),
   setWorkspaceViewBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('workspace-view:set-bounds', bounds),
   hideWorkspaceView: () => ipcRenderer.invoke('workspace-view:hide'),
@@ -331,6 +333,22 @@ contextBridge.exposeInMainWorld('api', {
   },
   reloadWorkspaceView: () => ipcRenderer.invoke('workspace-view:reload'),
   openWorkspaceHome: () => ipcRenderer.invoke('workspace-view:home'),
+  // ── Workspace tabs ── main owns them; the renderer draws the strip.
+  getWorkspaceTabs: () => ipcRenderer.invoke('workspace-tabs:get'),
+  activateWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:activate', id),
+  closeWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:close', id),
+  moveWorkspaceTab: (id: string, index: number) => ipcRenderer.invoke('workspace-tabs:move', id, index),
+  retryWorkspaceTab: (id: string) => ipcRenderer.invoke('workspace-tabs:retry', id),
+  /** A tab's native right-click menu, opened at the cursor. */
+  showWorkspaceTabContextMenu: (id: string) => ipcRenderer.invoke('workspace-tabs:context-menu', id),
+  /** The native menu of every open tab, opened at a point in window coordinates. */
+  showWorkspaceTabMenu: (position: { x: number; y: number }) =>
+    ipcRenderer.invoke('workspace-tabs:menu', position),
+  onWorkspaceTabsChanged: (cb: (snapshot: unknown) => void) => {
+    const handler = (_e: unknown, snapshot: unknown): void => cb(snapshot)
+    ipcRenderer.on('workspace-tabs:changed', handler)
+    return () => ipcRenderer.removeListener('workspace-tabs:changed', handler)
+  },
   onWorkspaceAction: (cb: (action: 'computer' | 'sign-in') => void) => {
     const computer = (): void => cb('computer')
     const signIn = (): void => cb('sign-in')

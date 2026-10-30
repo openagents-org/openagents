@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
 const {
-  listCliModels, supportsCliModels, parseCodexModels, parseClaudeModels,
+  listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels,
 } = require('../src/cli-models');
 
 /** What `codex debug models` prints, cut down to the fields that are read. */
@@ -158,6 +158,25 @@ describe('parseClaudeModels', () => {
   });
 });
 
+describe('parseQoderModels', () => {
+  // `qodercli --list-models`: a header, Qoder's own tiers by display name, and
+  // a bring-your-own-key model as "Name (key)".
+  const LISTING = ['MODEL', 'Auto', 'Lite', 'Performance', 'My Qwen (bailian/qwen3.8-flash)', 'Lite', ''].join('\n');
+
+  it('keeps the tiers by name and a custom model by its key', () => {
+    assert.deepEqual(parseQoderModels(LISTING), [
+      { id: 'Auto', label: 'Auto' },
+      { id: 'Lite', label: 'Lite' },
+      { id: 'Performance', label: 'Performance' },
+      { id: 'bailian/qwen3.8-flash', label: 'My Qwen' },
+    ]);
+  });
+
+  it('lists nothing from an error message', () => {
+    assert.deepEqual(parseQoderModels('Not logged in. Run `qodercli login` to authenticate.'), []);
+  });
+});
+
 describe('listCliModels', () => {
   it('knows which CLIs can be asked', () => {
     assert.equal(supportsCliModels('codex'), true);
@@ -185,6 +204,22 @@ describe('listCliModels', () => {
     });
     assert.equal(res.ok, true);
     assert.equal(res.models[0].id, 'opus[1m]');
+  });
+
+  it('asks Qoder with its token, and keeps a first start from editing rc files', async () => {
+    assert.equal(cliModelsWithKey('qoder'), true);
+    assert.equal(cliModelsWithKey('qoder-cn'), true);
+    assert.equal(cliModelsWithKey('codex'), false);
+    const { calls, spawnImpl } = fakeSpawn(answers('MODEL\nAuto\nLite\n'));
+    const res = await listCliModels(
+      connector({ typeEnv: { QODER_PERSONAL_ACCESS_TOKEN: 'pat-123456789' } }),
+      'qoder',
+      { spawnImpl },
+    );
+    assert.deepEqual(calls[0].args, ['--list-models']);
+    assert.equal(calls[0].options.env.QODER_PERSONAL_ACCESS_TOKEN, 'pat-123456789');
+    assert.equal(calls[0].options.env.QODER_NO_RC, '1');
+    assert.deepEqual(res.models.map((m) => m.id), ['Auto', 'Lite']);
   });
 
   it('asks on the sign-in, without the key saved for the type', async () => {

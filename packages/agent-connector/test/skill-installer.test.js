@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const crypto = require('node:crypto');
 
 const installer = require('../src/skill-installer');
 const BaseAdapter = require('../src/adapters/base');
@@ -446,6 +447,67 @@ describe('BaseAdapter skill.install — workspace_file (custom) skills', () => {
     const last = client.calls[client.calls.length - 1];
     assert.equal(last.state, 'failed');
     assert.equal(client.calls.some((c) => c.state === 'installed'), false);
+  });
+});
+
+describe('BaseAdapter skill.install — public registry versions', () => {
+  let workDir;
+  beforeEach(() => { workDir = tmpWorkDir(); });
+  afterEach(() => { try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {} });
+
+  it('downloads the pinned immutable version, verifies sha256, and reports the registry id', async () => {
+    const content = Buffer.from(SKILL_MD, 'utf8');
+    const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'codex',
+      agentType: 'codex', workingDir: workDir,
+    });
+    const client = fakeClient();
+    client.readRegistryVersion = async (versionId) => {
+      assert.equal(versionId, 'version-1');
+      return content;
+    };
+    adapter.client = client;
+
+    await adapter._onControlAction('skill.install', {
+      skill: {
+        id: 'release-notes-helper',
+        registry_skill_id: 'registry-uuid',
+        version_id: 'version-1',
+        source_type: 'registry',
+        package_type: 'md',
+        content_sha256: sha256,
+      },
+    });
+
+    assert.deepEqual(client.calls.map((call) => call.state), ['installing', 'installed']);
+    assert.ok(client.calls.every((call) => call.skillId === 'registry-uuid'));
+    assert.ok(client.calls.every((call) => call.versionId === 'version-1'));
+    assert.equal(
+      fs.readFileSync(path.join(workDir, '.codex', 'skills', 'release-notes-helper', 'SKILL.md'), 'utf8'),
+      SKILL_MD,
+    );
+  });
+
+  it('refuses a registry artifact whose bytes do not match the published digest', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'cursor',
+      agentType: 'cursor', workingDir: workDir,
+    });
+    const client = fakeClient();
+    client.readRegistryVersion = async () => Buffer.from(SKILL_MD, 'utf8');
+    adapter.client = client;
+
+    await adapter._onControlAction('skill.install', {
+      skill: {
+        id: 'tampered', registry_skill_id: 'registry-uuid', version_id: 'version-2',
+        source_type: 'registry', package_type: 'md', content_sha256: '0'.repeat(64),
+      },
+    });
+
+    assert.equal(client.calls.at(-1).state, 'failed');
+    assert.match(client.calls.at(-1).error, /sha256 mismatch/);
+    assert.equal(fs.existsSync(path.join(workDir, '.cursor', 'skills', 'tampered')), false);
   });
 });
 

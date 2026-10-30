@@ -303,3 +303,82 @@ class TestProgressHook:
         db.expire_all()
         row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
         assert row.status == "in_progress"
+
+
+class TestIssueWork:
+    def _issue(self, client, workspace):
+        response = client.post(f"/v1/issues?network={workspace['id']}",
+            json={"title": "Investigate activation", "description": "Find the root cause", "source": "human:owner@example.com"}, headers=_headers(workspace))
+        assert response.status_code == 200, response.text
+        return response.json()['data']
+
+    def test_prepare_work_is_passive_and_scoped(self, client, workspace, db):
+        from app.models import Issue, IssueThread
+        issue = self._issue(client, workspace)
+        response = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha')
+        assert response.status_code == 200, response.text
+        task = response.json()['data']
+        assert task['issue_id'] == issue['id']
+        assert task['status'] == 'backlog'
+        assert task['channel_name'] is None
+        assert db.get(Issue, issue['id']).status == 'open'
+        assert db.execute(select(IssueThread).where(IssueThread.issue_id == issue['id'])).first() is None
+
+    def test_run_links_conversation_without_closing_issue(self, client, workspace, db):
+        from app.models import Issue, IssueThread, EventRecord
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha').json()['data']
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id']}, headers=_headers(workspace))
+        assert response.status_code == 200, response.text
+        channel = db.execute(select(Channel).where(Channel.name == f"task:{task['id']}")).scalar_one()
+        assert db.get(IssueThread, (issue['id'], channel.id)) is not None
+        from app.services.thread_agent_requests import issue_for_work
+        assert issue_for_work(db, channel).id == issue['id']
+        events = db.execute(select(EventRecord).where(EventRecord.target == f'channel/{channel.name}')).scalars().all()
+        assert any('Find the root cause' in (event.payload or {}).get('content', '') for event in events)
+        client.patch(f"/v1/tasks/{task['id']}", json={'network':workspace['id'], 'status':'done'}, headers=_headers(workspace))
+        db.expire_all()
+        assert db.get(Issue, issue['id']).status == 'open'
+        # A rerun keeps one link to the working conversation.
+        client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id']}, headers=_headers(workspace))
+        assert len(db.execute(select(IssueThread).where(IssueThread.issue_id == issue['id'])).all()) == 1
+
+    def test_rejects_issue_from_another_workspace(self, client, workspace, db):
+        from app.models import Issue
+        other = Workspace(name='Other', slug='other-issue-work', password_hash='other-token')
+        db.add(other)
+        db.flush()
+        issue = Issue(workspace_id=other.id, title='Private context', created_by='human:owner')
+        db.add(issue)
+        db.commit()
+        response = _create(client, workspace, issue_id=issue.id)
+        assert response.status_code == 404
+        assert db.execute(select(KanbanTask).where(KanbanTask.issue_id == issue.id)).first() is None
+
+    def test_closed_issue_cannot_start_work(self, client, workspace, db):
+        from app.models import Issue
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='agent-alpha').json()['data']
+        db.get(Issue, issue['id']).status = 'closed'
+        db.commit()
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network': workspace['id']}, headers=_headers(workspace))
+        assert response.status_code != 200
+        db.expire_all()
+        assert db.get(KanbanTask, task['id']).channel_name is None
+
+    def test_issue_work_respects_agent_sharing(self, client, workspace, db, monkeypatch):
+        from app import access
+        from app.models import User, WorkspaceMembership, WorkspaceMember
+        user = User(email='viewer@acme.test', display_name='Viewer')
+        db.add(user)
+        db.flush()
+        db.add(WorkspaceMembership(workspace_id=workspace['id'], user_id=user.id, role='member'))
+        db.add(WorkspaceMember(workspace_id=workspace['id'], agent_name='private-agent', owner_email='owner@acme.test', status='online'))
+        db.commit()
+        monkeypatch.setattr(access, 'verify_identity_claims', lambda token: {'provider':'firebase', 'email':user.email, 'firebase_uid':user.email, 'apple_sub':None, 'display_name':'Viewer'})
+        issue = self._issue(client, workspace)
+        task = _create(client, workspace, issue_id=issue['id'], assignee='private-agent').json()['data']
+        response = client.post(f"/v1/tasks/{task['id']}/assign", json={'network':workspace['id'], 'source':'human:owner@acme.test'}, headers={'Authorization':'Bearer viewer'})
+        assert response.status_code == 403, response.text
+        db.expire_all()
+        assert db.get(KanbanTask, task['id']).channel_name is None

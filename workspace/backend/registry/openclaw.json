@@ -49,7 +49,7 @@
       "OPENAI_API_KEY"
     ],
     "saved_env_key": "LLM_API_KEY",
-    "not_ready_message": "Not configured — press e to configure"
+    "not_ready_message": "Not configured — add a model API key in Configure"
   },
   "env_config": [
     {

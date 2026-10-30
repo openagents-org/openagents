@@ -1,0 +1,101 @@
+{
+  "version": "1.1.0",
+  "date": "2026-10-16",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Private by default, shared on purpose",
+        "zh": "会话默认私密，按需共享"
+      },
+      "description": {
+        "en": "Agents and devices belong to you. Grant access to members, agents or groups.",
+        "zh": "智能体和设备归属个人，可向成员、智能体或群组授权。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Agents split the work",
+        "zh": "智能体分工协作"
+      },
+      "description": {
+        "en": "Proactive or passive replies, with work routed by role to a doer and a reviewer.",
+        "zh": "支持主动或被动响应，按职责分配任务，区分执行者与审核者。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Issues",
+        "zh": "新增议题"
+      },
+      "description": {
+        "en": "Owners, participants, labels and discussion, linked to threads, files and knowledge.",
+        "zh": "支持负责人、参与者、标签和讨论，可关联会话、文件和知识。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Approvals for agent actions",
+        "zh": "智能体操作审批"
+      },
+      "description": {
+        "en": "Choose who approves an agent's actions, or require approval before an agent is used.",
+        "zh": "可指定审批人，也可要求使用智能体前先审批。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Results and a live browser in the thread",
+        "zh": "会话内查看产物和实时浏览器"
+      },
+      "description": {
+        "en": "Files and browser results in one place. Watch the agent browse and take over at any time.",
+        "zh": "文件和浏览器产物集中展示，可实时观看智能体浏览并随时接管。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Better messages, files and notifications",
+        "zh": "消息、文件和通知更好用"
+      },
+      "description": {
+        "en": "Quote replies and recall messages, knowledge folders, and more accurate unread counts and notification sounds.",
+        "zh": "回复可引用原消息、消息可撤回；知识库支持文件夹；未读数和通知提示音更准确。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Custom model endpoints verify and work",
+        "zh": "自定义模型地址可正常验证和使用"
+      },
+      "description": {
+        "en": "Anthropic-compatible URLs pass verification, and gateways without a model list accept a model name you type.",
+        "zh": "Anthropic 兼容地址能通过验证；不提供模型列表的网关可手动填写模型名。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Hermes, OpenCode, Cursor and Antigravity are more reliable",
+        "zh": "Hermes、OpenCode、Cursor、Antigravity 更稳定"
+      },
+      "description": {
+        "en": "Hermes keeps its conversation context, OpenCode installs completely, and Cursor and Antigravity sign-ins are detected correctly.",
+        "zh": "Hermes 保持对话上下文，OpenCode 能完整安装，Cursor 和 Antigravity 的登录状态识别更准确。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Workspace menu no longer stays over the settings page",
+        "zh": "工作区菜单不再残留在设置页上"
+      }
+    }
+  ]
+}

@@ -15,6 +15,8 @@ export interface FilterChipsProps<T extends string> {
   onChange: (value: T) => void
   /** Match the height of the controls beside it: `sm` is 32px, default 36px. */
   size?: "sm" | "default"
+  /** `underline`: tabs beside a section title, the current one underlined. */
+  variant?: "chips" | "underline"
   className?: string
 }
 
@@ -32,8 +34,45 @@ export function FilterChips<T extends string>({
   options,
   onChange,
   size = "default",
+  variant = "chips",
   className,
 }: FilterChipsProps<T>): React.JSX.Element {
+  if (variant === "underline") {
+    return (
+      <div
+        data-slot="filter-chips"
+        className={cn("flex items-stretch self-stretch", className)}
+      >
+        {options.map((option, i) => {
+          const active = option.value === value
+          return (
+            <React.Fragment key={option.value}>
+              {i > 0 && <span aria-hidden className="mx-3 my-3 w-px bg-border" />}
+              <button
+                data-slot="filter-chip"
+                data-active={active}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onChange(option.value)}
+                className={cn(
+                  "relative flex items-center gap-1.5 px-1 text-sm transition-colors",
+                  "after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full",
+                  active
+                    ? "font-medium text-primary after:bg-primary"
+                    : "text-foreground/80 hover:text-foreground",
+                )}
+              >
+                {option.label}
+                {option.count !== undefined && (
+                  <span className="tabular-nums">{option.count}</span>
+                )}
+              </button>
+            </React.Fragment>
+          )
+        })}
+      </div>
+    )
+  }
   return (
     <div
       data-slot="filter-chips"

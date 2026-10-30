@@ -1,0 +1,3 @@
+# Retired October 26, 2026. Do not deploy a preview connected to production data.
+# Current isolated stack: ../operations/preview/compose.yml
+# Runbook: ../docs/preview-environment.md

@@ -1,0 +1,384 @@
+'use client';
+
+// ── v1.1 M2/M4 — "Manage" drawer for an agent the caller owns / administers ──
+// Profile editor (purpose, example requests, required inputs, cost owner,
+// visibility, owner) via PATCH members, the specialist scope teammates'
+// requests run under (shared instructions + allowed knowledge) with a
+// "what teammates see" preview and a test request, plus the grants list (who
+// may use the agent) with add / revoke.
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BookOpen, Check, CheckSquare, Loader2, Play, Square } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentAccessSection } from '@/components/sharing/agent-access-section';
+import { useLayout } from '@/components/layout/layout-context';
+import { prefillComposer } from '@/components/chat/composer-prefill';
+import { workspaceApi } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { apiErrorStatus, displayNameFromEmail, linesToList } from '@/lib/collab';
+import { cn } from '@/lib/utils';
+import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
+import type {
+  AgentDirectoryEntry,
+  AgentProfileView,
+  CostOwner,
+  TeamMember,
+} from '@/lib/types';
+
+/** Radix rejects '' as an item value, so "no owner" needs a sentinel. */
+const NO_OWNER = '__none__';
+
+/** Teammates see the first N characters of the shared instructions —
+ * mirrors `SUMMARY_CHARS` in backend app/routers/agent_profile.py. */
+const SUMMARY_CHARS = 240;
+
+
+export function AgentManageSheet({
+  entry, open, onOpenChange, onSaved,
+}: {
+  entry: AgentDirectoryEntry;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
+}) {
+  const t = useT();
+  const name = entry.display_name?.trim() || entry.agent_name;
+  const { knowledge, setCurrentSessionId, currentUser } = useWorkspace();
+  const { openView, isMobile, openMobileDetail } = useLayout();
+
+  // ── Profile ──
+  const [purpose, setPurpose] = useState(entry.purpose || '');
+  const [examples, setExamples] = useState((entry.example_requests || []).join('\n'));
+  const [requiredInputs, setRequiredInputs] = useState(entry.required_inputs || '');
+  const [costOwner, setCostOwner] = useState<CostOwner>(entry.cost_owner || 'owner');
+  const [owner, setOwner] = useState<string>(entry.owner_email || NO_OWNER);
+  const [saving, setSaving] = useState(false);
+
+  // ── Specialist scope (v1.1 M4) — only in the owner/admin view of the profile ──
+  const [profile, setProfile] = useState<AgentProfileView | null>(null);
+  const [sharedInstructions, setSharedInstructions] = useState('');
+  const [requestApprover, setRequestApprover] = useState('');
+  const [allowedKnowledge, setAllowedKnowledge] = useState<string[]>([]);
+  const loadProfile = useCallback(async () => {
+    try {
+      const p = await workspaceApi.getAgentProfile(entry.agent_name);
+      setProfile(p);
+      if (p.can_manage) {
+        setRequestApprover(p.request_approver_email || '');
+        setSharedInstructions(p.shared_instructions || '');
+        setAllowedKnowledge((p.allowed_knowledge || []).map((k) => k.slug));
+      }
+    } catch {
+      toast.error(t('collab.profileLoadFailed'));
+    }
+  }, [entry.agent_name, t]);
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+  const canEditScope = !!profile?.can_manage;
+
+  // Knowledge options: the workspace list, plus any allowed slug that has
+  // since left the list (so it can still be unticked).
+  const knowledgeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { slug: string; title: string }[] = [];
+    for (const k of knowledge) {
+      if (seen.has(k.slug)) continue;
+      seen.add(k.slug);
+      out.push({ slug: k.slug, title: k.title });
+    }
+    for (const k of profile?.allowed_knowledge || []) {
+      if (seen.has(k.slug)) continue;
+      seen.add(k.slug);
+      out.push({ slug: k.slug, title: k.title || k.slug });
+    }
+    return out;
+  }, [knowledge, profile?.allowed_knowledge]);
+  const toggleKnowledge = (slug: string) => {
+    setAllowedKnowledge((prev) => (prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]));
+  };
+
+  // Owner picker options: the workspace's people (admin-only endpoint — a plain
+  // owner falls back to the current owner + themselves).
+  const [members, setMembers] = useState<TeamMember[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    workspaceApi.getTeam()
+      .then((team) => { if (!cancelled) setMembers(team); })
+      .catch(() => { if (!cancelled) setMembers([]); });
+    return () => { cancelled = true; };
+  }, []);
+  const ownerOptions = Array.from(new Set([
+    ...(members || []).map((m) => m.email),
+    ...(entry.owner_email ? [entry.owner_email] : []),
+  ]));
+  const ownerName = (email: string) => members?.find((m) => m.email === email)?.displayName || displayNameFromEmail(email);
+
+  const saveProfile = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await workspaceApi.updateAgentProfile(entry.agent_name, {
+        purpose: purpose.trim(),
+        example_requests: linesToList(examples),
+        required_inputs: requiredInputs.trim(),
+        cost_owner: costOwner,
+        // Permission model v1.1: visibility is gone — who can use the agent is
+        // its grants (see AgentAccessSection below).
+        owner_email: owner === NO_OWNER ? '' : owner,
+        // The scope fields only travel when we hold the full view — otherwise
+        // a stale/blank value would wipe what the owner set.
+        ...(canEditScope ? {
+          request_approver_email: requestApprover,
+          shared_instructions: sharedInstructions.trim(),
+          allowed_knowledge: allowedKnowledge,
+        } : {}),
+      });
+      toast.success(t('collab.profileSaved'));
+      onSaved?.();
+    } catch (e) {
+      const status = apiErrorStatus(e);
+      toast.error(
+        status === 403 ? t('collab.saveForbidden') : t('collab.profileSaveFailed'),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // "Run a test request": open your own thread with the agent and hand the
+  // composer "@agent <first example>". The composer owns the current thread's
+  // draft, so the thread switch has to render before the prefill lands.
+  const firstExample = linesToList(examples)[0] || '';
+  const runTestRequest = () => {
+    if (!firstExample) return;
+    const text = `@${entry.agent_name} ${firstExample}`;
+    // Same DM id the rail builds: this person's own thread with the agent.
+    setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${entry.agent_name}`));
+    openView('threads');
+    if (isMobile) openMobileDetail();
+    onOpenChange(false);
+    setTimeout(() => prefillComposer(text), 150);
+  };
+
+  // ── Teammate preview — what the directory card / teammate view shows ──
+  const previewExamples = linesToList(examples).slice(0, 3);
+  const instructionsText = sharedInstructions.trim();
+  const instructionsSummary = instructionsText.length > SUMMARY_CHARS
+    ? `${instructionsText.slice(0, SUMMARY_CHARS)}…`
+    : instructionsText;
+  const costOwnerText = costOwner === 'workspace'
+    ? t('collab.costOwnerOptionWorkspace')
+    : costOwner === 'requester'
+      ? t('collab.costOwnerOptionRequester')
+      : t('collab.costOwnerOptionOwner');
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+        <SheetHeader className="border-b px-5 py-4">
+          <SheetTitle>{t('collab.manageTitle', { agent: name })}</SheetTitle>
+          <SheetDescription>{t('collab.manageDescription')}</SheetDescription>
+        </SheetHeader>
+
+        <SheetBody className="flex-1 space-y-6 overflow-y-auto px-5 py-4">
+          {/* Profile */}
+          <section className="space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('collab.profileSection')}</h4>
+            <div className="space-y-1.5">
+              <Label>{t('collab.purposeLabel')}</Label>
+              <Textarea rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder={t('collab.purposePlaceholder')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('collab.exampleRequestsLabel')}</Label>
+              <Textarea rows={3} value={examples} onChange={(e) => setExamples(e.target.value)} placeholder={t('collab.exampleRequestsPlaceholder')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('collab.requiredInputsLabel')}</Label>
+              <Textarea rows={2} value={requiredInputs} onChange={(e) => setRequiredInputs(e.target.value)} placeholder={t('collab.requiredInputsPlaceholder')} />
+            </div>
+
+            {/* v1.1 M4: the scope teammates' requests run under */}
+            {canEditScope && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>{t('collab.sharedInstructionsLabel')}</Label>
+                  <Textarea
+                    rows={4}
+                    value={sharedInstructions}
+                    onChange={(e) => setSharedInstructions(e.target.value)}
+                    placeholder={t('collab.sharedInstructionsPlaceholder')}
+                  />
+                  <p className="text-[11px] text-muted-foreground">{t('collab.sharedInstructionsHint')}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t('collab.allowedKnowledgeLabel')}</Label>
+                  {knowledgeOptions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t('collab.allowedKnowledgeEmpty')}</p>
+                  ) : (
+                    <ul className="max-h-40 divide-y overflow-y-auto rounded-md border" role="listbox" aria-multiselectable>
+                      {knowledgeOptions.map((k) => {
+                        const selected = allowedKnowledge.includes(k.slug);
+                        return (
+                          <li key={k.slug}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => toggleKnowledge(k.slug)}
+                              className={cn(
+                                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+                                selected && 'bg-accent/50',
+                              )}
+                            >
+                              {selected
+                                ? <CheckSquare className="size-4 shrink-0 text-primary" />
+                                : <Square className="size-4 shrink-0 text-muted-foreground" />}
+                              <span className="min-w-0 flex-1 truncate">{k.title}</span>
+                              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{k.slug}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('collab.allowedKnowledgeHint')}
+                    {knowledgeOptions.length > 0 && ` · ${t('collab.allowedKnowledgeSelected', { count: allowedKnowledge.length })}`}
+                  </p>
+                </div>
+              </>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t('collab.costOwnerLabel')}</Label>
+                <Select value={costOwner} onValueChange={(v) => setCostOwner(v as CostOwner)}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="owner">{t('collab.costOwnerOptionOwner')}</SelectItem>
+                    <SelectItem value="workspace">{t('collab.costOwnerOptionWorkspace')}</SelectItem>
+                    <SelectItem value="requester">{t('collab.costOwnerOptionRequester')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('collab.ownerLabel')}</Label>
+              <Select value={owner} onValueChange={setOwner}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_OWNER}>{t('collab.ownerNone')}</SelectItem>
+                  {ownerOptions.map((email) => (
+                    <SelectItem key={email} value={email}>
+                      {ownerName(email)}{ownerName(email) !== email && <span className="ms-1.5 text-xs text-muted-foreground">{email}</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {canEditScope && <div className="space-y-2 rounded-md border p-3">
+              <Label htmlFor="service-request-reviewer">{t('collab.requestApprovalTitle')}</Label>
+              <p className="text-xs text-muted-foreground">{t('collab.requestApprovalHint')}</p>
+              <select id="service-request-reviewer" className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={requestApprover} onChange={(e) => setRequestApprover(e.target.value)} disabled={members === null}>
+                <option value="">{t('collab.requestApprovalOff')}</option>
+                {(members || []).filter((m) => m.role !== 'viewer').map((m) => (
+                  <option key={m.email} value={m.email}>{m.displayName || m.email}</option>
+                ))}
+                {requestApprover && !(members || []).some((m) => m.email === requestApprover) && <option value={requestApprover}>{requestApprover}</option>}
+              </select>
+            </div>}
+            <Button size="sm" onClick={saveProfile} disabled={saving}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              {t('collab.saveProfile')}
+            </Button>
+          </section>
+
+          {/* v1.1 M4: what teammates see + test request */}
+          {canEditScope && (
+            <section className="space-y-3">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('collab.teammatePreviewTitle')}</h4>
+                <p className="text-[11px] text-muted-foreground">{t('collab.teammatePreviewHint')}</p>
+              </div>
+              <div className="space-y-2.5 rounded-md border bg-muted/40 p-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <AgentAvatar name={entry.agent_name} size={24} />
+                  <span className="min-w-0 truncate font-medium">{name}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{costOwnerText}</span>
+                </div>
+                <p className={cn(!purpose.trim() && 'italic text-muted-foreground')}>
+                  {purpose.trim() || t('collab.purposeMissing')}
+                </p>
+                {previewExamples.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.exampleRequests')}</p>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {previewExamples.map((ex) => (
+                        <li key={ex} className="truncate text-muted-foreground">“{ex}”</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {requiredInputs.trim() && (
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.requiredInputs')}</p>
+                    <p className="text-muted-foreground">{requiredInputs.trim()}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.teammatePreviewInstructions')}</p>
+                  <p className={cn('whitespace-pre-wrap text-muted-foreground', !instructionsSummary && 'italic')}>
+                    {instructionsSummary || t('collab.teammatePreviewNoInstructions')}
+                  </p>
+                </div>
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <BookOpen className="size-3.5" />
+                  {allowedKnowledge.length > 0
+                    ? t('collab.teammatePreviewKnowledge', { count: allowedKnowledge.length })
+                    : t('collab.teammatePreviewNoKnowledge')}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Button size="sm" variant="outline" onClick={runTestRequest} disabled={!firstExample}>
+                  <Play className="size-3.5" />
+                  {t('collab.runTestRequest')}
+                </Button>
+                <p className="text-[11px] text-muted-foreground">
+                  {firstExample ? t('collab.runTestRequestHint', { agent: name }) : t('collab.runTestRequestNeedsExample')}
+                </p>
+              </div>
+            </section>
+          )}
+
+          {/* Permission model v1.1 — who can use this agent (= its act grants) */}
+          <AgentAccessSection agentName={entry.agent_name} displayName={name} onChanged={onSaved} />
+        </SheetBody>
+
+        <SheetFooter className="border-t px-5 py-3">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.done')}</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}

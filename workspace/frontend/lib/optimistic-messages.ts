@@ -1,4 +1,32 @@
-import type { WorkspaceMessage } from './types';
+import { eventToMessage, type ONMEvent, type WorkspaceMessage } from './types';
+
+/** Keep the canonical send response visible until polling catches up. */
+export function acknowledgeMessage(pending: WorkspaceMessage[], userId: string, loadingId: string, event: ONMEvent, loadingTemplate?: WorkspaceMessage): WorkspaceMessage[] {
+  // Proactive routing has no immediate placeholder: wait for the server to
+  // select an agent, then retain its waiting state across thread switches.
+  const targets = Array.isArray(event.metadata?.target_agents)
+    ? event.metadata.target_agents.filter((name: string) => !name.startsWith('__')) : [];
+  if (loadingTemplate && targets.length > 0 && !pending.some(m => m.messageId === loadingId)) {
+    pending = [...pending, { ...loadingTemplate, senderName: targets.length === 1 ? targets[0] : '' }];
+  }
+  return pending.flatMap(message => {
+    if (message.messageId === userId) return [{ ...eventToMessage(event), sessionId: message.sessionId }];
+    if (message.messageId !== loadingId) return [message];
+    if (Array.isArray(event.metadata?.target_agents) && event.metadata.target_agents.includes('__no_response__')) return [];
+    return [{ ...message, metadata: { ...message.metadata, _requestId: event.id } }];
+  });
+}
+
+export function pendingMessagesForDisplay(real: WorkspaceMessage[], pending: WorkspaceMessage[]): WorkspaceMessage[] {
+  const ids = new Set(real.map(m => m.messageId));
+  return pending.filter(message => {
+    if (ids.has(message.messageId)) return false;
+    if (message.messageType !== 'loading') return true;
+    const requestIndex = real.findIndex(m => m.messageId === message.metadata?._requestId);
+    return requestIndex < 0 || !real.slice(requestIndex + 1).some(m => m.senderType === 'agent');
+  });
+}
+
 
 /** How far before the optimistic message a real one may be stamped (clock skew). */
 export const OPTIMISTIC_MATCH_SKEW_MS = 5_000;
@@ -43,6 +71,9 @@ export function pendingOptimisticMessages(
     };
     // The reply never came (or never will): let the bubble go.
     if (sentAt !== null && now - sentAt > OPTIMISTIC_EXPIRY_MS) return false;
+    if (!m.messageId.startsWith('optimistic-') || m.metadata?._requestId) {
+      return pendingMessagesForDisplay(sessionMessages, [m]).length > 0;
+    }
     if (m.messageId.startsWith('optimistic-user-')) {
       return !sessionMessages.some((real) => isOwnEcho(real, m.content));
     }

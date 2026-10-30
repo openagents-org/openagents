@@ -29,8 +29,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
+import { dshModelsBase } from "./deepseek-harness-base"
 import { isOfficialAnthropicBase } from "./env-normalize"
 import { httpRequestJson } from "./llm-test"
+import { mimoRecommendedModel, parseMimoModels } from "./mimo-signin"
 import { opencodeRecommendedModel } from "./opencode-signin"
 import { OPENWORKER_COMPAT_BASES } from "./provider-bases"
 
@@ -105,6 +107,8 @@ type ModelSource = {
    * DeepSeek key and come back 401.
    */
   defaultBase?: string
+  /** Maps the configured base to the one that serves the model list. */
+  modelsBase?: (base: string) => string
   /**
    * This endpoint serves `/v1/models` without credentials (a local Ollama or
    * vLLM). Probe it even with an empty key instead of asking for one that does
@@ -477,12 +481,22 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     keyVars: ["DEEPSEEK_API_KEY"],
     baseVars: ["DEEPSEEK_BASE_URL"],
     defaultBase: "https://api.deepseek.com/v1",
+    modelsBase: dshModelsBase,
   },
   openclaw: {
     envVar: "LLM_MODEL",
     provider: "openai",
     keyVars: ["LLM_API_KEY"],
     baseVars: ["LLM_BASE_URL"],
+  },
+  // Qwen Code's adapter sends a blank base URL to Model Studio, so the
+  // picker lists from there too (its /models answers with the key's models).
+  "qwen-code": {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    defaultBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   },
   opencode: {
     envVar: "LLM_MODEL",
@@ -516,6 +530,20 @@ const MODEL_SOURCES: Record<string, ModelSource> = {
     },
     // Left blank, the adapter runs the first model this list names.
     recommend: (models) => models[0]?.id,
+  },
+  // MiMo Code's adapter sends a blank base URL to MiMo's API, so the picker
+  // lists from there too. On the sign-in path the CLI's own catalog answers —
+  // it lists signed out as well — and the ids come as `xiaomi/<model>`, which
+  // the adapter runs on the sign-in.
+  "mimo-code": {
+    envVar: "LLM_MODEL",
+    provider: "openai",
+    keyVars: ["LLM_API_KEY"],
+    baseVars: ["LLM_BASE_URL"],
+    defaultBase: "https://api.xiaomimimo.com/v1",
+    cliCommand: { args: ["models", "xiaomi"], parse: parseMimoModels },
+    listsSignedOut: true,
+    recommend: mimoRecommendedModel,
   },
 }
 
@@ -633,6 +661,25 @@ function resolveSource(
   if (agentType === "pi") return piSource(env)
   if (agentType === "openworker") return openworkerSource(env)
   return MODEL_SOURCES[agentType] || null
+}
+
+/**
+ * `env` with the agent's default endpoint filled in when none of its base-URL
+ * variables holds one — the endpoint the agent itself runs against with the
+ * field left blank, and the one its model list asks. The connection test sees
+ * only the form's values, and an untouched field's default is shown but never
+ * lands in them, so a blank base fell through to api.openai.com there: a MiMo
+ * key "verified" against OpenAI and came back 401. Agents whose endpoint
+ * follows a provider field (Pi, OpenWorker) pick their own in the probe.
+ */
+export function withDefaultBase(
+  agentType: string,
+  env: Record<string, string>,
+): Record<string, string> {
+  const source = MODEL_SOURCES[agentType]
+  if (!source?.defaultBase || !source.baseVars.length) return env
+  if (pick(env, source.baseVars)) return env
+  return { ...env, [source.baseVars[0]]: source.defaultBase }
 }
 
 /** The model env var an agent's list applies to, or null if it has none. */
@@ -1003,7 +1050,8 @@ export async function listAgentModels(
     }
 
   const key = pick(env, source.keyVars)
-  const base = pick(env, source.baseVars) || source.defaultBase || ""
+  const configuredBase = pick(env, source.baseVars) || source.defaultBase || ""
+  const base = source.modelsBase ? source.modelsBase(configuredBase) : configuredBase
   // A CLI-only agent (cursor) has no endpoint to query, so the CLI serves both
   // paths — with the form's key on the key path.
   const httpOnlyPath = path === "key" && source.provider !== "none"

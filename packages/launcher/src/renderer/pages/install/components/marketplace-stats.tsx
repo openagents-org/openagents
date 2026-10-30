@@ -34,7 +34,8 @@ const FILTER: Record<keyof MarketplaceCounts, StatusFilter> = {
  * agent, since a filter showing one row helps nobody.
  *
  * Zero counts still render — "0 待更新" is the answer to "is anything out of
- * date?" — but a zero is not clickable; there is nothing to show.
+ * date?" — but a zero is not clickable; there is nothing to show. Without
+ * `onSelect` (Connect Agents) they are plain counters.
  */
 export function MarketplaceStats({
   counts,
@@ -71,7 +72,9 @@ export function MarketplaceStats({
                 "rounded-sm px-1 py-0.5 transition-colors",
                 actionable
                   ? "cursor-pointer hover:bg-muted"
-                  : "cursor-default opacity-70",
+                  : // Read-only counters (no onSelect) are not dimmed: nothing
+                    // is unavailable, they just are not filters there.
+                    cn("cursor-default", onSelect && "opacity-70"),
                 isActive && "bg-muted text-foreground",
               )}
             >

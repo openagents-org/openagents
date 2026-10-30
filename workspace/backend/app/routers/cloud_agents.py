@@ -274,9 +274,12 @@ def add_cloud_agent(
     )
     db.add(cfg)
 
+    from app.access import resolve_current_user
+    creator = resolve_current_user(db, authorization)
     member = WorkspaceMember(
         workspace_id=str(workspace.id),
         agent_name=body.agent_name,
+        owner_email=creator.email if creator else workspace.creator_email,
         role="member",
         agent_type=f"cloud:{body.provider}",
         status="online",
@@ -324,6 +327,30 @@ def list_cloud_agents(
     })
 
 
+def _owner_error(db: Session, workspace, cfg: CloudAgentConfig, token, authorization):
+    """Only the agent's owner may reconfigure or remove a cloud agent.
+
+    The same rule the workspace member routes apply to every other agent (see
+    ``_connection_management_error``): being allowed to use an agent someone
+    shared does not make its model, key or prompt yours to change. Yumi is
+    exempt: its configuration is fixed server-side and only its on/off status
+    can change.
+    """
+    if cfg.provider == YUMI_PROVIDER:
+        return None
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == cfg.agent_name,
+        )
+    ).scalar_one_or_none()
+    if not member:
+        return None
+    # Imported here: the workspaces router pulls in a large dependency graph.
+    from app.routers.workspaces import _connection_management_error
+    return _connection_management_error(db, workspace, member, token, authorization)
+
+
 # ---------------------------------------------------------------------------
 # PATCH /v1/cloud-agents/{agent_name}
 # ---------------------------------------------------------------------------
@@ -363,6 +390,9 @@ def update_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     # The built-in assistant is server-managed: model, credentials, endpoint
     # and prompt are fixed by server config and can't be tweaked per
@@ -493,6 +523,9 @@ def remove_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
+    if denied is not None:
+        return denied
 
     db.delete(cfg)
 

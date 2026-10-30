@@ -23,18 +23,21 @@ import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
+from app.access import resolve_current_user
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
-from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser import BLANK_PAGE, BROWSERFABRIC_API_KEY, BrowserManager, BrowserReactivationError
 from app.browser_maintenance import BROWSER_TAB_IDLE_MINUTES
+from app.services.browser_frame import standard_browser_frame
 from app.browser_creds import (
     SOURCE_GLOBAL,
     SOURCE_WORKSPACE,
@@ -44,7 +47,7 @@ from app.browser_creds import (
 )
 from app.database import get_db
 from app.net_security import UnsafeURLError
-from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
+from app.models import BrowserContext, BrowserTab, BrowserUsage, Channel, EventRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
     _emit_event,
@@ -209,24 +212,30 @@ class OpenTabRequest(BaseModel):
     network: str
     source: Optional[str] = "human:user"
     context_id: Optional[str] = None          # open with a persistent context (already logged in)
-    # Open as a *permanent* tab straight away: the session is created as a
-    # BrowserFabric persistent session and a saved context is attached, so
-    # login state is kept without the close-and-reopen swap /persist does.
+    # Compatibility field: cloud tabs are always saved, even if an older
+    # client explicitly sends false. Local browser behavior is unchanged.
     persistent: Optional[bool] = None
     name: Optional[str] = None                # label for the new context (defaults to the hostname)
+    # Workspace channel (thread) this tab is being driven for. Optional and
+    # attaches the live preview to this conversation and lets the Slack bridge
+    # post page previews. Remembered per tab for later operations.
+    channel: Optional[str] = None
 
 
 class NavigateRequest(BaseModel):
     url: str
     source: Optional[str] = None  # who is navigating ("human:user" from the UI; agents may omit)
+    channel: Optional[str] = None  # thread this navigation is for (see OpenTabRequest.channel)
 
 
 class ClickRequest(BaseModel):
+    channel: Optional[str] = None
     selector: str
     source: Optional[str] = None
 
 
 class TypeRequest(BaseModel):
+    channel: Optional[str] = None
     selector: str
     text: str
     append: bool = False  # If True, move cursor to end before typing (for contenteditable)
@@ -234,11 +243,13 @@ class TypeRequest(BaseModel):
 
 
 class PressKeyRequest(BaseModel):
+    channel: Optional[str] = None
     key: str  # e.g. "Enter", "Tab", "End", "Control+a"
     source: Optional[str] = None
 
 
 class EvaluateRequest(BaseModel):
+    channel: Optional[str] = None
     expression: str  # JavaScript to execute in page context
     source: Optional[str] = None
 
@@ -263,6 +274,7 @@ def _tab_to_dict(tab: BrowserTab, context_name: str = None) -> dict:
         "status": tab.status,
         "created_by": tab.created_by,
         "shared_with": tab.shared_with or [],
+        "artifact_channels": tab.artifact_channels or [],
         "created_at": tab.created_at.isoformat() if tab.created_at else None,
         "last_active_at": tab.last_active_at.isoformat() if tab.last_active_at else None,
     }
@@ -345,6 +357,79 @@ def _actor_for(tab: BrowserTab, source: Optional[str]) -> str:
     return "openagents:agent"
 
 
+def _browser_conversation(db, workspace_id, actor, channel):
+    """Resolve an explicit thread or DM, never infer one from agent presence."""
+    if channel.startswith("dm:"):
+        # Connectors use dm:<counterpart>; the UI uses the sorted full pair.
+        addresses = channel[3:].split(",")
+        if len(addresses) == 1:
+            addresses.append(actor)
+        if len(addresses) != 2 or actor not in addresses or len(set(addresses)) != 2:
+            return None
+        counterpart = next(address for address in addresses if address != actor)
+        if not counterpart.startswith(("human:", "openagents:")) or not counterpart.split(":", 1)[1]:
+            return None
+        # A tab must refer to a real conversation in this workspace. Merely
+        # claiming another person's address cannot announce work in their DM.
+        exists = db.execute(select(EventRecord.id).where(
+            EventRecord.network_id == str(workspace_id),
+            EventRecord.type == "workspace.message.posted",
+            or_((EventRecord.source == actor) & (EventRecord.target == counterpart),
+                (EventRecord.source == counterpart) & (EventRecord.target == actor)),
+        ).limit(1)).first()
+        if not exists:
+            return None
+        return "dm:" + ",".join(sorted(addresses)), counterpart
+    thread = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace_id),
+        Channel.name == channel, Channel.status != "deleted",
+    )).scalar_one_or_none()
+    return (channel, f"channel/{channel}") if thread else None
+
+
+async def _record_browser_work(db, workspace, tab, actor, channel, action):
+    """Attach a stable live preview once per tab/thread, without agent wake-ups.
+
+    Browser operations already happened externally. Preserve their metadata even
+    if posting the informational card fails. Never guess a conversation from an
+    agent's membership: it may be working in several private threads at once.
+    """
+    db.commit()
+    if not actor or not actor.startswith("openagents:"):
+        return
+    _record_activity(tab.id, action, actor)
+    from app.services.browser_preview import channel_for_tab, remember_tab_channel
+    channel = channel or channel_for_tab(tab.id) or next(iter(tab.artifact_channels or []), None)
+    if not channel:
+        return
+    try:
+        conversation = _browser_conversation(db, workspace.id, actor, channel)
+        if not conversation:
+            return
+        channel, target = conversation
+        remember_tab_channel(tab.id, channel)
+        # Serialize first-use announcements; a browser operation can overlap a
+        # screenshot/snapshot. Reload the JSON after acquiring the row lock.
+        db.refresh(tab, with_for_update=True)
+        channels = list(tab.artifact_channels or [])
+        if channel in channels:
+            tab.artifact_channels = [channel, *[name for name in channels if name != channel]]
+            db.commit()
+            return
+        tab.artifact_channels = [channel, *channels]
+        event = Event(
+            type="workspace.message.posted", source=actor, target=target,
+            payload={"content": f"Using a [live browser tab](/v1/browser/tabs/{tab.id}). Preview it to follow along.", "message_type": "artifact"},
+            metadata={"target_agents": ["__no_response__"], "explicit_targets": [], "browser_artifact": tab.id},
+        )
+        result = await _emit_event(event, workspace, db, token=workspace.password_hash)
+        if result is None:
+            db.rollback()
+    except Exception:
+        db.rollback()
+        logger.warning("Could not attach browser preview for tab %s", tab.id, exc_info=True)
+
+
 def _record_activity(tab_id: str, action: str, actor: str) -> None:
     payload = {"action": action, "actor": actor, "at": datetime.now(timezone.utc).isoformat()}
     _local_activity[tab_id] = (time.monotonic() + BROWSER_ACTIVITY_TTL_SECONDS, payload)
@@ -407,134 +492,109 @@ def _default_context_name(url: Optional[str], title: Optional[str]) -> str:
     return "New tab"
 
 
+async def _attach_saved_context(tab, db, manager, *, name=None):
+    """Attach a real BF context to this tab only after remote saving succeeds."""
+    if tab.context_id or not tab.session_id:
+        return
+    context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab.id)
+    from urllib.parse import urlparse
+    context = BrowserContext(
+        workspace_id=str(tab.workspace_id),
+        name=_unique_context_name(db, str(tab.workspace_id), name or _default_context_name(tab.url, tab.title)),
+        bb_context_id=context_id, domain=urlparse(tab.url or "").hostname,
+        created_by=tab.created_by, shared_with=[],
+    )
+    with db.begin_nested():
+        db.add(context)
+        db.flush()
+    tab.context_id = context.id
+
+
+async def _open_restored_tab(manager, tab, *, bb_context_id, api_key):
+    """Restore saved display state without navigating to Chromium internals."""
+    # Chromium reports this internal document after a failed navigation. It is
+    # not a restorable target; keep the saved context and start on a blank page.
+    # The normal policy gate still refuses every arbitrary internal URL.
+    error_page = tab.url == "chrome-error://chromewebdata/"
+    url = BLANK_PAGE if error_page else (tab.url or BLANK_PAGE)
+    result = await manager.open_tab(tab.id, url, bb_context_id=bb_context_id, api_key=api_key)
+    if error_page:
+        result = {**result, "warnings": [*(result.get("warnings") or []),
+                  "The previous page failed to load; navigate to a website to continue."]}
+    return result
+
+
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
-    """Ensure the browser tab has a live Playwright page.
+    """Adopt the authoritative session, without ever replacing an editor.
 
-    Handles three cases:
-    1. Page already in memory → no-op.
-    2. Page missing (serverless cold start) but session alive → reconnect via CDP.
-    3. Session expired/dead → create a brand-new session (preserving persistent
-       context cookies if available) and update the tab record.
-
-    After (re)connecting, syncs the live page URL/title back to the tab record
-    so the DB reflects any in-iframe navigation that happened.
+    Ordinary actions and reads may retry an unavailable provider, but cannot
+    close/create sessions. Cookies and a URL cannot restore unsaved page state.
     """
-    manager = BrowserManager.get()
-    if tab.id in manager._pages:
-        # Page in memory — but the CDP connection may be dead.  Do a quick
-        # liveness check so we don't hand back a zombie page.
-        try:
-            page = manager._pages[tab.id]
-            await page.title()  # lightweight CDP call
-            return
-        except Exception:
-            logger.warning("Tab %s has a stale page object — will recreate session", tab.id)
-            # Fall through to session recreation below
-            manager._pages.pop(tab.id, None)
-            manager._locks.pop(tab.id, None)
-            manager._sessions.pop(tab.id, None)
-            manager._live_urls.pop(tab.id, None)
-
-    if not tab.session_id and not manager.is_cloud:
-        return  # local mode, nothing to reconnect to
-
-    # --- Resolve the credential reference for the EXISTING session ---
-    session_key = None
-    credential_rotated = False
-    if tab.session_id:
-        try:
-            session_key = resolve_tab_key(tab, workspace)
-        except BrowserCredentialError as e:
-            if e.reason == "credential_missing":
-                raise  # no key at all — surface, don't guess
-            # credential_mismatch: the key was rotated. The old session must
-            # NOT be touched with the new key — record it for the sweeper
-            # (it will exhaust retries visibly) and recreate below.
-            credential_rotated = True
-
-    # --- Try reconnecting to the existing session first ---
-    if tab.session_id and not credential_rotated:
-        try:
-            await manager.reconnect(tab.id, tab.session_id, api_key=session_key)
-            # Probe liveness. Only a definitive "dead" verdict tears the session
-            # down; a transient error (timeout / 5xx) keeps the healthy session
-            # so a slow get_page_info on a heavy SPA can't kill a logged-in tab.
-            probe = await manager.probe_session(tab.id, api_key=session_key)
-            status = probe.get("status")
-            if status == "alive":
-                if probe.get("url") and probe["url"] != tab.url:
-                    tab.url = probe["url"]
-                if probe.get("title") and probe["title"] != tab.title:
-                    tab.title = probe["title"]
-                return
-            if status == "unknown":
-                # Inconclusive (transient BF error). Reconnect already restored
-                # the session mapping; keep it rather than churning the tab.
-                logger.warning(
-                    "Tab %s liveness probe inconclusive; keeping session %s",
-                    tab.id, tab.session_id,
-                )
-                return
-            # status == "dead" — session is really gone, fall through to recreate.
-            logger.info("Session %s is dead (liveness probe), will recreate", tab.session_id)
-            manager._sessions.pop(tab.id, None)
-            manager._live_urls.pop(tab.id, None)
-        except Exception as e:
-            logger.info("Reconnect failed for tab %s (session %s), will create new session: %s",
-                        tab.id, tab.session_id, e)
-
-    # --- Session is dead or unreachable — create a fresh one ---
-    if credential_rotated:
-        if db is not None:
-            _orphan_session_tombstone(db, tab, "credential_mismatch: key rotated before release")
-        tab.session_id = None
-    else:
-        # Clean up old session (best-effort); if the release isn't confirmed,
-        # keep it tracked so the sweeper retries instead of leaking it.
-        released, close_err = await manager.close_tab(
-            tab.id, session_id_hint=tab.session_id, api_key=session_key
-        )
-        if tab.session_id and not released and db is not None:
-            _orphan_session_tombstone(db, tab, close_err or "close failed during session recreate")
-
-    # Resolve persistent context (cookies/localStorage) if available
-    bb_context_id = None
-    if tab.context_id and db:
-        ctx = db.execute(
-            select(BrowserContext)
-            .where(BrowserContext.id == tab.context_id)
-            .where(BrowserContext.status == "active")
-        ).scalar_one_or_none()
-        if ctx:
-            bb_context_id = ctx.bb_context_id
-
-    if workspace is not None and db is not None:
-        bf_key, bf_source = await _resolve_bf_key(workspace, db)
-    else:
-        bf_key, bf_source = session_key, tab.bf_key_source
-    result = await manager.open_tab(tab.id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
-
-    # Update the tab record with the new session info
-    tab.session_id = manager.get_session_id(tab.id)
-    tab.live_url = manager.get_live_url(tab.id)
-    _stamp_credential(tab, bf_key, bf_source)
-    tab.url = result.get("url", tab.url)
-    tab.title = result.get("title", tab.title)
-    warnings = result.get("warnings") or []
-    tab.last_error = "; ".join(warnings) if warnings else None
-    _touch(tab)
-    # Persist the new session/live_url NOW, in its own transaction. Otherwise a
-    # later failure in the same request rolls this back and the live pane keeps
-    # polling the dead share token ("Invalid or expired share link").
     if db is not None:
-        try:
-            db.add(tab)
-            db.commit()
-            db.refresh(tab)
-        except Exception as commit_err:
-            db.rollback()
-            logger.warning("Failed to persist recreated session for tab %s: %s", tab.id, commit_err)
-    logger.info("Tab %s auto-reconnected with new session %s", tab.id, tab.session_id)
+        db.refresh(tab)
+    if tab.status != "active":
+        raise HTTPException(409, "This browser is no longer open. Refresh the browser list.")
+    manager = BrowserManager.get()
+    key = resolve_tab_key(tab, workspace) if tab.session_id else None
+    if tab.session_id:
+        await manager.reconnect(tab.id, tab.session_id, api_key=key)
+    try:
+        probe = await manager.probe_session(tab.id, api_key=key)
+    except Exception:
+        probe = {"status": "unknown"}
+    if probe.get("status") != "alive":
+        raise HTTPException(
+            503,
+            "Browser temporarily unavailable. Its session has not been replaced. "
+            "Retry; replacing a browser loses unsaved page content.",
+            headers={"Retry-After": "2"},
+        )
+    if probe.get("url"):
+        tab.url = probe["url"]
+    if probe.get("title"):
+        tab.title = probe["title"]
+
+
+def _lock_browser_lifecycle(db: Session, tab_id: str) -> BrowserTab:
+    """Re-read and serialize explicit lifecycle changes across workers.
+
+    NOWAIT prevents an async worker from blocking its event loop while another
+    request holds the row during provider I/O. Callers must not commit until
+    the lifecycle change is complete. Normal actions never acquire this lock.
+    """
+    try:
+        tab = db.execute(
+            select(BrowserTab).where(BrowserTab.id == tab_id)
+            .execution_options(populate_existing=True).with_for_update(nowait=True)
+        ).scalar_one_or_none()
+    except OperationalError:
+        db.rollback()
+        raise HTTPException(409, "This browser is already being changed. Retry shortly.")
+    if tab is None:
+        raise HTTPException(404, "Browser tab not found")
+    if db.get_bind().dialect.name == "postgresql":
+        # Creation includes several provider calls (each has a 60s I/O timeout).
+        # Allow them to finish without releasing the lock mid-operation; keep
+        # the ordinary application transaction limits unchanged.
+        db.execute(text("SET LOCAL idle_in_transaction_session_timeout = 300000"))
+    return tab
+
+
+def _replace_session_mapping(db, tab, expected_session_id, expected_status, session_id, live_url):
+    """CAS the mapping before any ORM assignment can flush over a newer one."""
+    with db.no_autoflush:
+        changed = db.execute(
+            update(BrowserTab).where(
+                BrowserTab.id == tab.id,
+                BrowserTab.session_id == expected_session_id,
+                BrowserTab.status == expected_status,
+            ).values(session_id=session_id, live_url=live_url)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+    if changed != 1:
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    # Refresh just the CAS fields; retain a newly saved context on this object.
+    db.refresh(tab, attribute_names=["session_id", "live_url"])
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +604,7 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
 @router.post("/tabs")
 async def open_tab(
     body: OpenTabRequest,
+    background_tasks: BackgroundTasks,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -586,7 +647,7 @@ async def open_tab(
 
     bf_key, bf_source = await _resolve_bf_key(workspace, db)
 
-    open_as_permanent = bool(body.persistent) and not body.context_id
+    open_as_permanent = (manager.is_cloud_for(bf_key) or bool(body.persistent)) and not body.context_id
 
     # No per-kind quota pre-check here: BrowserFabric enforces one limit on
     # concurrently AWAKE tabs, puts idle tabs to sleep itself to make room,
@@ -610,7 +671,7 @@ async def open_tab(
     if context_record:
         context_record.last_used_at = datetime.now(timezone.utc)
 
-    session_id = manager.get_session_id(tab_id)
+    session_id = result.get("session_id")
     warnings = result.get("warnings") or []
     record = BrowserTab(
         id=tab_id,
@@ -621,7 +682,7 @@ async def open_tab(
         shared_with=[],
         context_id=body.context_id,
         session_id=session_id,
-        live_url=manager.get_live_url(tab_id),
+        live_url=result.get("live_url"),
         bf_key_source=bf_source if (bf_key and session_id) else None,
         bf_key_fingerprint=key_fingerprint(bf_key) if session_id else None,
         session_closed=not session_id,
@@ -636,31 +697,25 @@ async def open_tab(
     # UI can show — and wake up later — even if the session dies.
     new_context = None
     if open_as_permanent:
-        new_bb_context_id = None
-        if manager.is_cloud_for(bf_key) and session_id:
+        if manager.is_cloud_for(bf_key):
             try:
-                new_bb_context_id = await manager.create_bb_context(session_id=session_id, tab_id=tab_id)
-            except Exception as e:
-                warnings.append(f"context_save_failed: {e}")
-                logger.warning("save_context failed for new permanent tab %s: %s", tab_id, e)
-        wanted = body.name or _default_context_name(record.url, record.title)
-        domain = None
-        try:
+                await _attach_saved_context(record, db, manager, name=body.name)
+                new_context = db.get(BrowserContext, record.context_id) if record.context_id else None
+            except Exception:
+                # Keep the remote session tracked, but never invent a context
+                # ID or claim that a failed save succeeded.
+                warnings.append("context_save_failed: retry saving this browser context")
+        else:
             from urllib.parse import urlparse
-            domain = urlparse(record.url or "").hostname
-        except Exception:
-            pass
-        new_context = BrowserContext(
-            workspace_id=str(workspace.id),
-            name=_unique_context_name(db, str(workspace.id), wanted),
-            bb_context_id=new_bb_context_id,
-            domain=domain,
-            created_by=body.source or "human:user",
-            shared_with=[],
-        )
-        db.add(new_context)
-        db.flush()
-        record.context_id = new_context.id
+            new_context = BrowserContext(
+                workspace_id=str(workspace.id),
+                name=_unique_context_name(db, str(workspace.id), body.name or _default_context_name(record.url, record.title)),
+                domain=urlparse(record.url or "").hostname,
+                created_by=body.source or "human:user", shared_with=[],
+            )
+            db.add(new_context)
+            db.flush()
+            record.context_id = new_context.id
         if warnings:
             record.last_error = "; ".join(warnings)
 
@@ -668,7 +723,7 @@ async def open_tab(
     usage = BrowserUsage(
         workspace_id=str(workspace.id),
         tab_id=tab_id,
-        session_id=manager.get_session_id(tab_id),
+        session_id=session_id,
         opened_by=body.source or "human:user",
     )
     db.add(usage)
@@ -693,6 +748,19 @@ async def open_tab(
         await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
     except Exception as e:
         logger.warning("tab.opened event failed for %s (tab kept): %s", tab_id, e)
+
+    # Slack browser preview (best-effort, after the response): never lets a
+    # bridge/Slack problem fail the tab operation.
+    try:
+        from app.services.browser_preview import schedule_browser_preview
+        schedule_browser_preview(
+            background_tasks, workspace, body.channel, record,
+            body.source or "human:user", "opened",
+        )
+    except Exception as e:
+        logger.debug("browser preview hook failed for %s: %s", tab_id, e)
+
+    await _record_browser_work(db, workspace, record, body.source, body.channel, "open")
 
     # A partially failed init (session created, navigate/page-info failed) is
     # still a created tab — the caller gets the tab plus explicit warnings.
@@ -814,12 +882,13 @@ async def list_tabs(
 async def get_tab(
     tab_id: str,
     validate: bool = False,
+    include_closed: bool = False,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     tab = _get_tab(db, tab_id)
-    if not tab or tab.status != "active":
+    if not tab or (tab.status != "active" and not (include_closed and tab.status == "closed")):
         return json_response(ResponseCode.NOT_FOUND, "Tab not found")
 
     workspace = _resolve_workspace(db, str(tab.workspace_id))
@@ -828,24 +897,138 @@ async def get_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    if validate:
+    data = _tab_to_dict(tab)
+    if validate and tab.status == "active":
+        # Polling must neither wake nor replace a saved browser. An inconclusive
+        # provider response is not evidence that the user's session expired.
+        manager = BrowserManager.get()
         try:
-            await _ensure_connected(tab, db, workspace)
-            db.commit()
-        except Exception as e:
-            logger.warning("Tab %s validation/reconnect failed: %s", tab_id, e)
-
-    return success_response(_tab_to_dict(tab))
+            key = resolve_tab_key(tab, workspace)
+            if tab.session_id:
+                await manager.reconnect(tab.id, tab.session_id, api_key=key)
+            probe = await manager.probe_session(tab.id, api_key=key)
+            data["connection_status"] = probe["status"]
+            data["asleep"] = bool(probe.get("hibernated"))
+        except Exception:
+            logger.warning("Tab %s validation unavailable", tab_id)
+            data["connection_status"] = "unknown"
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
 # POST /v1/browser/tabs/{tab_id}/navigate
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/navigate")
+def _control_active(tab):
+    expiry = tab.control_expires_at
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    return bool(tab.control_owner and expiry and expiry > datetime.now(timezone.utc))
+
+
+def _lock_control_tab(db, tab_id, token, authorization):
+    # Claims serialize across workers; never wait for another control update.
+    try:
+        tab = db.execute(select(BrowserTab).where(BrowserTab.id == tab_id).with_for_update(nowait=True)).scalar_one_or_none()
+    except OperationalError:
+        db.rollback()
+        raise HTTPException(409, "The browser is finishing another action. Try again shortly.")
+    if not tab:
+        raise HTTPException(404, "Browser tab not found")
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace or not _verify_workspace_access(workspace, token, authorization):
+        raise HTTPException(401, "Invalid workspace credentials")
+    return tab
+
+
+async def _guard_browser_control(tab_id: str, db: Session = Depends(get_db),
+                                 x_workspace_token: Optional[str] = Header(None),
+                                 authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    if _control_active(tab):
+        user = resolve_current_user(db, authorization)
+        if not user or str(user.id) != tab.control_owner:
+            raise HTTPException(409, "A teammate is controlling this browser. Wait until they hand it back.")
+    # Do not hold SQL row locks across browser I/O. A previously admitted
+    # action may finish; subsequent agent actions are refused until release.
+    db.commit()
+
+
+class BrowserControlRequest(BaseModel):
+    token: uuid.UUID
+    action: Literal['claim', 'renew', 'release']
+
+
+class BrowserInputRequest(BaseModel):
+    token: uuid.UUID
+    kind: Literal['click', 'text', 'key', 'scroll']
+    x: float = Field(default=0, ge=0, le=1)
+    y: float = Field(default=0, ge=0, le=1)
+    text: str = Field(default='', max_length=10000)
+    key: str = Field(default='', max_length=80)
+    delta_x: float = Field(default=0, ge=-2000, le=2000)
+    delta_y: float = Field(default=0, ge=-2000, le=2000)
+
+
+@router.post('/tabs/{tab_id}/control')
+async def control_browser(tab_id: str, body: BrowserControlRequest, db: Session = Depends(get_db),
+                          x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    user = resolve_current_user(db, authorization)
+    if not user:
+        raise HTTPException(401, 'Sign in to take control of this browser.')
+    owns = tab.control_owner == str(user.id) and tab.control_token == str(body.token)
+    active = _control_active(tab)
+    if active and not owns:
+        raise HTTPException(409, 'Another viewer is controlling this browser.')
+    if body.action == 'release':
+        if owns:
+            tab.control_owner = tab.control_token = tab.control_expires_at = None
+    else:
+        if tab.status != 'active':
+            raise HTTPException(409, 'Reopen the browser before taking control.')
+        if body.action == 'renew' and (not owns or not active):
+            raise HTTPException(409, 'Browser control has expired. Take over again to continue.')
+        tab.control_owner = str(user.id)
+        tab.control_token = str(body.token)
+        tab.control_expires_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+        _touch(tab)
+    db.commit()
+    return success_response({'controlling': body.action != 'release'})
+
+
+@router.post('/tabs/{tab_id}/input')
+async def browser_input(tab_id: str, body: BrowserInputRequest, db: Session = Depends(get_db),
+                        x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    tab = _lock_control_tab(db, tab_id, x_workspace_token, authorization)
+    user = resolve_current_user(db, authorization)
+    if not user or not _control_active(tab) or tab.control_owner != str(user.id) or tab.control_token != str(body.token):
+        raise HTTPException(409, 'Take over this browser before interacting with it.')
+    if tab.status != 'active' or tab.live_url:
+        raise HTTPException(409, 'This browser does not accept screenshot input.')
+    # Release the row before browser I/O (screenshots also update tab metadata).
+    # The page's input lock preserves gesture order with any in-flight action.
+    db.commit()
+    # Never silently replace the session during a human gesture.
+    try:
+        result = await BrowserManager.get().human_input(tab_id, body.model_dump(exclude={'token'}))
+    except KeyError:
+        raise HTTPException(409, 'The browser disconnected. Reconnect and take over again.')
+    except Exception:
+        logger.exception('Human browser input failed')
+        raise HTTPException(400, 'The browser could not complete that action.')
+    tab.url = result['url']
+    tab.title = result['title']
+    _touch(tab)
+    db.commit()
+    return success_response(result)
+
+
+@router.post("/tabs/{tab_id}/navigate", dependencies=[Depends(_guard_browser_control)])
 async def navigate_tab(
     tab_id: str,
     body: NavigateRequest,
+    background_tasks: BackgroundTasks,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -864,6 +1047,8 @@ async def navigate_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.navigate(tab_id, body.url)
@@ -888,15 +1073,27 @@ async def navigate_tab(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
 
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "navigate")
+
+    # Slack browser preview (best-effort, after the response) — see open_tab.
+    try:
+        from app.services.browser_preview import schedule_browser_preview
+        schedule_browser_preview(
+            background_tasks, workspace, body.channel, tab,
+            _actor_for(tab, body.source), "navigated",
+        )
+    except Exception as e:
+        logger.debug("browser preview hook failed for %s: %s", tab_id, e)
+
     return success_response(_tab_to_dict(tab))
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/browser/tabs/{tab_id}/reconnect — create new session for expired tab
+# POST /v1/browser/tabs/{tab_id}/reactivate — wake the existing saved session
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/reconnect")
-async def reconnect_tab(
+@router.post("/tabs/{tab_id}/reactivate", dependencies=[Depends(_guard_browser_control)])
+async def reactivate_tab(
     tab_id: str,
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
@@ -905,6 +1102,65 @@ async def reconnect_tab(
     tab = _get_tab(db, tab_id)
     if not tab or tab.status != "active":
         return json_response(ResponseCode.NOT_FOUND, "Tab not found")
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    db.refresh(tab)
+    if tab.status != "active":
+        raise HTTPException(409, "This browser is no longer open.")
+    manager = BrowserManager.get()
+    if not tab.session_id:
+        await _ensure_connected(tab, db, workspace)
+        return success_response(_tab_to_dict(tab))
+    session_id = tab.session_id
+    try:
+        key = resolve_tab_key(tab, workspace)
+        await manager.reconnect(tab.id, tab.session_id, api_key=key)
+        page = await manager.reactivate_tab(tab.id)
+    except BrowserCredentialError:
+        return json_response(ResponseCode.CONFLICT,
+                             "The saved browser's credential is unavailable. Ask your workspace administrator to restore it.",
+                             data={"error_code": "BROWSER_CREDENTIAL_UNAVAILABLE"})
+    except Exception as exc:
+        code = exc.code if isinstance(exc, BrowserReactivationError) else "WAKE_FAILED"
+        stage = exc.stage if isinstance(exc, BrowserReactivationError) else "connect"
+        cause = exc.__cause__ or exc
+        logger.warning("Browser reactivation failed tab=%s session=%s stage=%s code=%s exception=%s",
+                       tab_id, session_id, stage, code, type(cause).__name__)
+        messages = {
+            "SESSION_UNAVAILABLE": "BrowserFabric cannot access this saved session. It may have been closed or be temporarily unavailable. Retrying will not create a replacement.",
+            "LIVE_VIEW_UNAVAILABLE": "The browser responded, but its live preview is unavailable. Please retry; the session has not been replaced.",
+        }
+        response = json_response(503, messages.get(code,
+            "The browser could not be reactivated right now. Please retry; the session has not been replaced."),
+            data={"error_code": code, "retryable": True})
+        response.headers["Retry-After"] = "2"
+        return response
+    db.refresh(tab)
+    if tab.session_id != session_id or tab.status != "active":
+        raise HTTPException(409, "Browser session changed. Refresh and retry.")
+    tab.live_url = manager.get_live_url(tab.id)
+    tab.url = page.get("url") or tab.url
+    tab.title = page.get("title") or tab.title
+    _touch(tab)
+    db.commit()
+    return success_response({**_tab_to_dict(tab), "asleep": False, "connection_status": "alive"})
+
+
+# Explicit legacy replacement/reopen operation; live-view recovery uses reactivate.
+@router.post("/tabs/{tab_id}/reconnect", dependencies=[Depends(_guard_browser_control)])
+async def reconnect_tab(
+    tab_id: str,
+    reopen: bool = False,
+    confirm_replace: bool = False,
+    expected_session_id: Optional[str] = None,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    tab = _get_tab(db, tab_id)
+    if not tab or (tab.status != "active" and not (reopen and tab.status == "closed")):
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
 
     workspace = _resolve_workspace(db, str(tab.workspace_id))
     if not workspace:
@@ -912,11 +1168,52 @@ async def reconnect_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    # Resolve/provision credentials before taking a lifecycle lock: provisioning
+    # may commit. After the lock, no helper may release this transaction.
+    bf_key, bf_source = await _resolve_bf_key(workspace, db)
+    tab = _lock_browser_lifecycle(db, tab_id)
+    if tab.status != "active" and not (reopen and tab.status == "closed"):
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
+    was_closed = tab.status == "closed"
+    if reopen and not was_closed:
+        # A concurrent reopen already completed. Never replace its new session.
+        return success_response(_tab_to_dict(tab))
+    if not was_closed and not confirm_replace:
+        return json_response(ResponseCode.BAD_REQUEST,
+                             "Replacing this browser loses unsaved page content and JavaScript state. "
+                             "Use reactivate to retry, or explicitly confirm replacement.")
+    if not was_closed and expected_session_id != tab.session_id:
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    original_session_id, original_status = tab.session_id, tab.status
+
+    if was_closed and tab.context_id:
+        existing = db.execute(select(BrowserTab).where(
+            BrowserTab.workspace_id == tab.workspace_id,
+            BrowserTab.context_id == tab.context_id,
+            BrowserTab.status == "active",
+            BrowserTab.id != tab.id,
+        )).scalars().first()
+        if existing:
+            return json_response(ResponseCode.BAD_REQUEST, "This saved browser is already open in another tab")
+
     manager = BrowserManager.get()
+
+    # Capture a legacy tab's current login before replacing its remote session.
+    # This is an on-demand operation on this tab, not a database backfill.
+    if not was_closed and tab.session_id and not tab.context_id:
+        try:
+            old_key = resolve_tab_key(tab, workspace)
+            await manager.reconnect(tab.id, tab.session_id, api_key=old_key)
+            await _attach_saved_context(tab, db, manager)
+        except Exception:
+            return json_response(ResponseCode.BAD_REQUEST, "Could not save the current browser session. Retry before reconnecting to avoid losing login state.")
 
     # Release the old session with ITS OWN credential; if the release can't
     # be confirmed (failure or rotated key), leave a tombstone so the
     # sweeper keeps the old session tracked instead of leaking it.
+    db.refresh(tab, attribute_names=["session_id", "status"])
+    if (tab.session_id, tab.status) != (original_session_id, original_status):
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
     if tab.session_id:
         try:
             old_key = resolve_tab_key(tab, workspace)
@@ -935,29 +1232,49 @@ async def reconnect_tab(
         ctx = db.execute(
             select(BrowserContext)
             .where(BrowserContext.id == tab.context_id)
+            .where(BrowserContext.workspace_id == tab.workspace_id)
             .where(BrowserContext.status == "active")
         ).scalar_one_or_none()
         if ctx:
             bb_context_id = ctx.bb_context_id
 
-    # Create a new session
-    bf_key, bf_source = await _resolve_bf_key(workspace, db)
+    # Re-read under the held lock immediately before replacing. Never act on
+    # a session selected by an earlier request or the process cache.
+    db.refresh(tab, attribute_names=["session_id", "status"])
+    if (tab.session_id, tab.status) != (original_session_id, original_status):
+        raise HTTPException(409, "Browser session changed. Refresh before replacing it.")
+    # Create a new session only for this explicit replacement/reopen request.
     try:
-        result = await manager.open_tab(tab_id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+        result = await _open_restored_tab(manager, tab, bb_context_id=bb_context_id, api_key=bf_key)
+    except UnsafeURLError as e:
+        db.commit()  # keep any tombstone recorded above
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except Exception as e:
         db.commit()  # keep any tombstone recorded above
         logger.error("Reconnect failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
 
-    # Update DB record
-    tab.session_id = manager.get_session_id(tab_id)
-    tab.live_url = manager.get_live_url(tab_id)
+    # Save the creation response, not the cache a concurrent validator can
+    # overwrite with the previous DB mapping while open_tab awaits I/O.
+    _replace_session_mapping(db, tab, original_session_id, original_status,
+                             result.get("session_id"), result.get("live_url"))
     _stamp_credential(tab, bf_key, bf_source)
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     warnings = result.get("warnings") or []
+    if db is not None and not tab.context_id and manager.is_cloud_for(bf_key):
+        try:
+            await _attach_saved_context(tab, db, manager)
+        except Exception:
+            warnings.append("context_save_failed: retry saving this browser context")
     tab.last_error = "; ".join(warnings) if warnings else None
+    tab.status = "active"
     _touch(tab)
+    if was_closed:
+        db.add(BrowserUsage(
+            workspace_id=str(workspace.id), tab_id=tab.id,
+            session_id=tab.session_id, opened_by="human:user",
+        ))
     db.commit()
 
     data = _tab_to_dict(tab)
@@ -970,7 +1287,7 @@ async def reconnect_tab(
 # POST /v1/browser/tabs/{tab_id}/click
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/click")
+@router.post("/tabs/{tab_id}/click", dependencies=[Depends(_guard_browser_control)])
 async def click_tab(
     tab_id: str,
     body: ClickRequest,
@@ -992,6 +1309,8 @@ async def click_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.click(tab_id, body.selector)
@@ -1004,8 +1323,7 @@ async def click_tab(
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
     _touch(tab)
-    _record_activity(tab_id, "click", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "click")
 
     return success_response({"tab_id": tab_id, "clicked": body.selector, "url": tab.url})
 
@@ -1014,7 +1332,7 @@ async def click_tab(
 # POST /v1/browser/tabs/{tab_id}/type
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/type")
+@router.post("/tabs/{tab_id}/type", dependencies=[Depends(_guard_browser_control)])
 async def type_in_tab(
     tab_id: str,
     body: TypeRequest,
@@ -1036,6 +1354,8 @@ async def type_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         await manager.type_text(tab_id, body.selector, body.text, append=body.append)
@@ -1046,8 +1366,7 @@ async def type_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Type failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "type", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "type")
 
     return success_response({"tab_id": tab_id, "typed": body.selector})
 
@@ -1056,7 +1375,7 @@ async def type_in_tab(
 # POST /v1/browser/tabs/{tab_id}/press_key
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/press_key")
+@router.post("/tabs/{tab_id}/press_key", dependencies=[Depends(_guard_browser_control)])
 async def press_key_in_tab(
     tab_id: str,
     body: PressKeyRequest,
@@ -1078,6 +1397,8 @@ async def press_key_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         await manager.press_key(tab_id, body.key)
@@ -1088,8 +1409,7 @@ async def press_key_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Press key failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "press_key", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "press_key")
 
     return success_response({"tab_id": tab_id, "pressed": body.key})
 
@@ -1098,7 +1418,7 @@ async def press_key_in_tab(
 # POST /v1/browser/tabs/{tab_id}/evaluate
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/evaluate")
+@router.post("/tabs/{tab_id}/evaluate", dependencies=[Depends(_guard_browser_control)])
 async def evaluate_in_tab(
     tab_id: str,
     body: EvaluateRequest,
@@ -1120,6 +1440,8 @@ async def evaluate_in_tab(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         result = await manager.evaluate(tab_id, body.expression)
@@ -1130,8 +1452,7 @@ async def evaluate_in_tab(
         return json_response(ResponseCode.INTERNAL_ERROR, f"Evaluate failed: {e}")
 
     _touch(tab)
-    _record_activity(tab_id, "evaluate", _actor_for(tab, body.source))
-    db.flush()
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "evaluate")
 
     return success_response({"tab_id": tab_id, "result": result.get("result")})
 
@@ -1143,6 +1464,9 @@ async def evaluate_in_tab(
 @router.get("/tabs/{tab_id}/screenshot")
 async def get_screenshot(
     tab_id: str,
+    quality: Literal["sd", "original"] = Query("original"),
+    source: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -1161,9 +1485,13 @@ async def get_screenshot(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         data = await manager.screenshot(tab_id)
+        if quality == "sd":
+            data = await run_in_threadpool(standard_browser_frame, data)
     except KeyError:
         return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
     except Exception as e:
@@ -1184,9 +1512,12 @@ async def get_screenshot(
             _touch(tab)
             db.commit()
 
+    if source or channel:
+        await _record_browser_work(db, workspace, tab, _actor_for(tab, source), channel, "screenshot")
+
     return Response(
         content=data,
-        media_type="image/png",
+        media_type="image/jpeg" if quality == "sd" else "image/png",
         headers={"Cache-Control": "no-cache, no-store"},
     )
 
@@ -1198,6 +1529,8 @@ async def get_screenshot(
 @router.get("/tabs/{tab_id}/snapshot")
 async def get_snapshot(
     tab_id: str,
+    source: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -1216,6 +1549,8 @@ async def get_snapshot(
         await _ensure_connected(tab, db, workspace)
     except BrowserCredentialError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     manager = BrowserManager.get()
     try:
         tree = await manager.snapshot(tab_id)
@@ -1225,6 +1560,8 @@ async def get_snapshot(
         logger.error("Snapshot failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Snapshot failed")
 
+    if source or channel:
+        await _record_browser_work(db, workspace, tab, _actor_for(tab, source), channel, "snapshot")
     return Response(content=tree, media_type="text/plain")
 
 
@@ -1263,7 +1600,7 @@ def share_tab(
 # POST /v1/browser/tabs/{tab_id}/persist — mark tab as persistent
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/persist")
+@router.post("/tabs/{tab_id}/persist", dependencies=[Depends(_guard_browser_control)])
 async def persist_tab(
     tab_id: str,
     body: PersistTabRequest,
@@ -1318,38 +1655,18 @@ async def persist_tab(
         try:
             await _ensure_connected(tab, db, workspace)
             bb_context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab_id)
+        except HTTPException:
+            raise
         except BrowserCredentialError as e:
             return json_response(ResponseCode.BAD_REQUEST, str(e))
+        except UnsafeURLError as e:
+            return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
         except Exception as e:
             logger.error("Failed to create persistent context: %s", e)
             return json_response(ResponseCode.INTERNAL_ERROR, "Failed to create persistent context")
 
-    # Close the current session and reopen with the context so that
-    # future sessions restore cookies/localStorage from the saved state.
-    # The old and new sessions are distinct identities: the old one is
-    # released (or tombstoned for the sweeper) BEFORE tab.session_id is
-    # overwritten with the new one.
-    if manager.is_cloud_for(bf_key) and tab.session_id:
-        try:
-            current_url = tab.url
-            try:
-                old_key = resolve_tab_key(tab, workspace)
-                released, close_err = await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=old_key)
-            except BrowserCredentialError as e:
-                released, close_err = False, str(e)
-                manager._sessions.pop(tab_id, None)
-                manager._live_urls.pop(tab_id, None)
-                manager._tab_keys.pop(tab_id, None)
-            if not released:
-                _orphan_session_tombstone(db, tab, close_err or "close failed during persist swap")
-            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id, api_key=bf_key)
-            tab.session_id = manager.get_session_id(tab_id)
-            tab.live_url = manager.get_live_url(tab_id)
-            _stamp_credential(tab, bf_key, bf_source)
-            tab.url = result.get("url", current_url)
-            tab.title = result.get("title", tab.title)
-        except Exception as e:
-            logger.warning("Could not swap session for context (will activate on next open): %s", e)
+    # Saving login state must not replace the live page. The context will be
+    # restored on a future explicit reopen; unsaved editor state stays intact.
 
     context = BrowserContext(
         workspace_id=str(workspace.id),
@@ -1383,7 +1700,7 @@ async def persist_tab(
 # POST /v1/browser/tabs/{tab_id}/unpersist — remove persistent state
 # ---------------------------------------------------------------------------
 
-@router.post("/tabs/{tab_id}/unpersist")
+@router.post("/tabs/{tab_id}/unpersist", dependencies=[Depends(_guard_browser_control)])
 async def unpersist_tab(
     tab_id: str,
     x_workspace_token: Optional[str] = Header(None),
@@ -1404,6 +1721,9 @@ async def unpersist_tab(
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    if tab.session_id or BrowserManager.get().is_cloud_for(_stored_bf_key(workspace)):
+        return json_response(ResponseCode.BAD_REQUEST, "Cloud browser tabs are always saved. Close the tab to stop using it; delete its saved context only when you want to remove its login state.")
 
     if not tab.context_id:
         return json_response(ResponseCode.BAD_REQUEST, "Tab is not persistent")
@@ -1517,7 +1837,7 @@ async def delete_context(
 # DELETE /v1/browser/tabs/{tab_id} — close tab
 # ---------------------------------------------------------------------------
 
-@router.delete("/tabs/{tab_id}")
+@router.delete("/tabs/{tab_id}", dependencies=[Depends(_guard_browser_control)])
 async def close_tab(
     tab_id: str,
     x_workspace_token: Optional[str] = Header(None),
@@ -1534,6 +1854,9 @@ async def close_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    tab = _lock_browser_lifecycle(db, tab_id)
+    if tab.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
     tab.status = "closed"
 
     # Finalize usage record

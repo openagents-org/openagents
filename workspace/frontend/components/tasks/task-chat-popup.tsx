@@ -102,7 +102,7 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
             className="h-full overflow-y-auto px-4 py-3"
           />
           <div className="border-t border-border p-3">
-            <ChatInput onSend={handleSend} agents={agents} />
+            <ChatInput conversationId={sessionId} onSend={handleSend} agents={agents} />
           </div>
         </div>
       </DialogContent>

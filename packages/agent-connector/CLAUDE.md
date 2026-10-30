@@ -12,6 +12,7 @@ src/
   config.js          YAML config manager for ~/.openagents/daemon.yaml (agents, networks)
   registry.js        Agent catalog: fetches from remote API or bundled registry.json, 24h cache
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
+  agent-login.js     `agn login <agent>`: runs the agent CLI's own sign-in, found where OpenAgents installed it (not on the user's PATH), on device auth when headless (codex)
   postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
@@ -30,6 +31,7 @@ src/
     cursor.js         CursorAdapter — extends LlmDirectAdapter for Cursor CLI
     hermes.js         HermesAdapter — Nous Research Hermes bridge
     gemini.js         GeminiAdapter — Google Gemini CLI bridge (legacy — superseded by antigravity)
+    gemini-stream.js  Gemini's own failure wording and resume-retry rule on top of run-failure.js — unit-tested
     antigravity.js    AntigravityAdapter — Google Antigravity CLI (`agy -p`) bridge, stream-json NDJSON
     antigravity-stream.js  Pure helpers for AntigravityAdapter (argv builder, event reducer, failure classification, binary candidates) — unit-tested
     copilot.js        CopilotAdapter — official GitHub Copilot CLI (`copilot`) bridge, JSONL stream
@@ -44,9 +46,17 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    mimo-code.js      MiMoCodeAdapter — Xiaomi MiMo Code CLI (`mimo run --format json`, an OpenCode fork; extends OpenCodeAdapter). Provider, key, workspace MCP server and briefing go in per run through MIMOCODE_CONFIG_CONTENT, pinned to one provider; Stop kills the whole process tree
+    mimo-code-runtime.js  Pure helpers for MiMoCodeAdapter (key/base URL/model routing, the per-run config, run argv, process-tree walk, stderr error-line reading) — unit-tested
+    qoder.js          QoderAdapter — Qoder CLI (`qodercli -p -o stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config --strict-mcp-config, token or browser sign-in, Stop kills the whole process tree
+    qoder-cn.js       QoderCnAdapter — the China edition (`qoderclicn`), same adapter with the CN edition table
+    qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
+    qwen-code.js      QwenCodeAdapter — Alibaba Qwen Code CLI (`qwen --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config, auto-memory turned off through a system-defaults settings layer
+    qwen-code-stream.js  Pure helpers for QwenCodeAdapter (argv builder, stream-json frame interpreter, run classification, key/base URL/model resolution as one set, settings layer, version gate, redaction) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
-    utils.js          Shared adapter utilities
+    utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)
+    run-failure.js    Shared failure reporting for every adapter: what a failed run means (isFailedRun), which kind of failure the CLI's output describes, and the redacted "guidance + Details:" message the channel gets. Per-adapter wording is passed in — unit-tested
     workspace-prompt.js  System prompt generation for workspace-connected agents
 
 registry.json        Bundled catalog of agents with metadata, install commands, env config, readiness checks.
@@ -78,6 +88,7 @@ npm run check:registry      # Verify they match registry/ without writing (what 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
 agn install <type>          # Install agent runtime
+agn login <type|agent>      # Sign the agent's own CLI in to its account (codex login, claude auth login, ...)
 agn create <name> --type <type>  # Create agent instance
 agn env <type> --set K=V    # Set environment variables
 agn up / agn down           # Start/stop daemon
@@ -132,6 +143,16 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
 
+Failure reporting: `run-failure.test.js` (the shared rules),
+`adapter-failure-reporting.test.js` (what each adapter's channel is actually
+told when a run fails) and `redact-secrets.test.js` (what is stripped from
+anything quoted there).
+
+CLI or exception text posted to a channel goes through `this._redact()` (or
+`secrets: this._knownSecrets()` for the classifier), never out as it came: it
+masks the agent's own keys and workspace token by value, then anything shaped
+like a credential. Authored guidance is not passed through it.
+
 Detection specifically: `agent-detection-matrix.test.js` (every agent, every
 install route), `binary-discovery.test.js` (the GUI-launch PATH, install-dir
 env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
@@ -144,7 +165,7 @@ env vars, uv/pipx/Homebrew), `resolve-binary-known-dirs.test.js`.
 - **Tunnel**: `workspace_tunnel_expose`, `workspace_tunnel_close`, `workspace_tunnel_list`
 - **Todos**: `workspace_put_todos`, `workspace_get_todos`
 - **Timers**: `workspace_create_timer`, `workspace_list_timers`, `workspace_cancel_timer`
-- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_cancel_routine`
+- **Routines**: `workspace_create_routine`, `workspace_list_routines`, `workspace_update_routine`, `workspace_cancel_routine`
 
 ## Key design patterns
 

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync, exec, execFile, spawnSync } = require('child_process');
+const { execSync, execFileSync, exec, execFile, spawnSync } = require('child_process');
 const {
   whichBinary,
   getEnhancedEnv,
@@ -19,13 +19,15 @@ const {
 const { isWslBinary, bridgedCommandString, wslHomeUnc } = require('./wsl');
 const { canBlock } = require('./probe-mode');
 const { EnvManager } = require('./env');
-const { nodeDistUrls, installRegistry } = require('./mirrors');
+const { nodeDistUrls, installRegistry, userConfiguredRegistry } = require('./mirrors');
+const { resolveInstallableVersion, fetchPackument, unpinnedPackage } = require('./node-engines');
 const { readinessReason, REASON } = require('./adapters/health-status');
 const { resolveCursorNodeEntry } = require('./adapters/cursor-node-entry');
 const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight');
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
+const { classifyClineAuth } = require('./adapters/cline-stream');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -45,6 +47,37 @@ const LOGIN_STATUS_TIMEOUT_MS = 8000;
 let credentialListCache = null;
 /** True while a background (non-blocking) `cmdkey /list` refresh is running. */
 let credentialListRefreshing = false;
+/** Whether a macOS Keychain item exists, by service: { found, ts }. No secrets. */
+const keychainItemCache = new Map();
+/** Services with a background (non-blocking) Keychain lookup in flight. */
+const keychainRefreshing = new Set();
+
+/**
+ * Readers for a credential file whose content, not its existence, says whether
+ * the agent is signed in. Named by `check_ready.creds_classifier`. Each takes
+ * the parsed file (or `{ __parse_error: true }`) and returns 'ready',
+ * 'no_credentials' (the file shows no sign-in) or 'unknown' (it cannot tell).
+ * They test fields for presence only; no value is returned or logged.
+ *
+ * Reading the file for one non-empty field said "signed in" for a Cline file
+ * that only remembered which provider and model to use, with no key in it.
+ */
+const CREDS_CLASSIFIERS = {
+  // The adapter's own reading of providers.json. A key-based provider picked
+  // with no key stored is no_credentials; a Cline account sign-in keeps its
+  // credential outside the file, so without a stored key it is unknown, never
+  // "signed out". Keys in the environment are judged by env_vars before this,
+  // which lists every key the adapter takes (CLINE_AUTH_ENV_VARS).
+  cline_providers(creds) {
+    return classifyClineAuth(creds, {}).state;
+  },
+};
+
+/** The named classifier's verdict, or null when the entry names none. */
+function classifyCreds(checkReady, creds) {
+  const classify = checkReady && CREDS_CLASSIFIERS[checkReady.creds_classifier];
+  return classify ? classify(creds) : null;
+}
 
 /**
  * Read a CLI's status output for its sign-in state: true (signed in), false
@@ -89,6 +122,14 @@ const INSTALL_STALL_MS = (() => {
  * tests; in production the 15s ceiling applies).
  */
 const STALL_POLL_MS = Math.max(50, Math.min(15000, Math.floor(INSTALL_STALL_MS / 2) || 15000));
+
+/**
+ * Flags a runtime `npm install` takes for speed: --no-audit and --no-fund skip
+ * two registry round trips that only print advice. Not --prefer-offline: a
+ * cached packument can predate the release asked for, and npm then fails with
+ * ETARGET instead of fetching it.
+ */
+const NPM_INSTALL_SPEED_FLAGS = ['--no-audit', '--no-fund'];
 
 // Version detection is comparatively expensive (spawns `<bin> --version`), so
 // results are cached briefly and invalidated on install/uninstall.
@@ -135,6 +176,7 @@ function compareVersions(a, b) {
 function clearVersionCache() {
   versionCache.clear();
   loginStatusCache.clear();
+  keychainItemCache.clear();
 }
 
 /**
@@ -820,7 +862,10 @@ class Installer {
       (entry.check_ready && entry.check_ready.min_version)
     )) || null;
     if (!minVersion) return { compatible: true, minVersion: null, message: null };
-    const cmp = compareVersions(version, minVersion);
+    // "0.0.0" is a placeholder, not a release: Pi prints it when it cannot
+    // find its own package.json (a standalone build, a moved install). Blocking
+    // on it told a current Pi it was too old.
+    const cmp = /^v?0\.0\.0\b/.test(String(version || '').trim()) ? null : compareVersions(version, minVersion);
     if (cmp === null) {
       return { compatible: null, minVersion, message: `Version unknown (requires >= ${minVersion})` };
     }
@@ -875,7 +920,7 @@ class Installer {
     // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
     // parsing or logging the token. Additive: agents that don't declare
     // creds_no_parse / creds_path_env get identical behavior to before.
-    const credsFile = this._evaluateCredsFile(checkReady, agentType);
+    const credsFile = this._evaluateCredsFile(checkReady, agentType, savedEnv);
     const credsPathReady = this._checkCredsPathEnv(checkReady, savedEnv, agentType);
 
     let cliReady = false;
@@ -916,12 +961,28 @@ class Installer {
       };
     }
 
+    // A model that needs no credential at all — OpenCode Zen's free
+    // `opencode/…` models. The launcher's KEYLESS_AUTH_SETTINGS already counts
+    // them as ready; judged here on keys alone the same agent read "Not
+    // configured" in every smoke test.
+    const keylessPrefixes = Array.isArray(checkReady.keyless_model_prefixes) ? checkReady.keyless_model_prefixes : [];
+    const model = String((savedEnv && savedEnv.LLM_MODEL) || '').trim();
+    if (model && keylessPrefixes.some((p) => p && model.startsWith(p))) {
+      return {
+        ready: true,
+        auth_mode: null,
+        auth_status: 'ready',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
     // Evaluated only after every key/env path above has had its say: it may
     // shell out (macOS keychain, Windows `cmdkey`), which a key-configured
     // agent never needs.
     const credsReady = checkReady.creds_json_has_entries
       ? false
-      : this._checkCredsReady(checkReady, agentType);
+      : this._checkCredsReady(checkReady, agentType, savedEnv);
     if (credsReady || credsFile.ready || credsPathReady) {
       return {
         ready: true,
@@ -962,6 +1023,19 @@ class Installer {
       };
     }
 
+    // The credential file is there but cannot say (a Cline account sign-in
+    // keeps no key in it, or the file is in a shape this version does not
+    // know). Not "signed out": the run decides, as for unreadable above.
+    if (credsFile.unknown && signedIn !== false) {
+      return {
+        ready: false,
+        auth_mode: null,
+        auth_status: 'unknown',
+        execution_mode: 'unavailable',
+        message: checkReady.unknown_message || checkReady.not_ready_message || 'Sign-in could not be confirmed.',
+      };
+    }
+
     // No positive signal. For agents whose auth cannot be reliably probed
     // without running them (generic `check_ready.unverifiable`), this is
     // 'unknown' — they may already be signed in via a CLI login / keychain /
@@ -987,22 +1061,38 @@ class Installer {
     return keys.some((key) => !!(source && source[key]));
   }
 
-  _checkCredsReady(checkReady, agentType) {
-    if (checkReady.creds_file) {
+  /**
+   * The credential file to look at on this platform. `creds_file_windows`
+   * names it for a CLI that keeps its home elsewhere on Windows — Hermes uses
+   * %LOCALAPPDATA%\hermes there, so ~/.hermes/config.yaml never existed and a
+   * configured Hermes read "not configured".
+   */
+  _credsFile(checkReady) {
+    if (!checkReady) return null;
+    if (process.platform === 'win32' && checkReady.creds_file_windows) return checkReady.creds_file_windows;
+    return checkReady.creds_file || null;
+  }
+
+  _checkCredsReady(checkReady, agentType, savedEnv = null) {
+    if (this._credsFile(checkReady)) {
       try {
-        const credsPath = this._expandHome(checkReady.creds_file, agentType);
+        const credsPath = this._credsFilePath(checkReady, agentType, savedEnv);
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
           const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+          const verdict = classifyCreds(checkReady, creds);
+          if (verdict) return verdict === 'ready';
           if (checkReady.creds_key) return !!creds[checkReady.creds_key];
           return true;
         }
       } catch {}
     }
 
+    // The item's presence is the signal; creds_key cannot be checked here
+    // without reading the secret out, which is what _checkMacKeychain avoids.
     if (checkReady.keychain_service && process.platform === 'darwin') {
-      if (this._checkMacKeychain(checkReady.keychain_service, checkReady.creds_key)) {
+      if (this._checkMacKeychain(checkReady.keychain_service)) {
         return true;
       }
     }
@@ -1017,6 +1107,38 @@ class Installer {
   }
 
   /**
+   * Where `creds_file` is for this machine. A CLI that keeps its sign-in in
+   * the XDG data directory (MiMo Code's auth.json) follows XDG_DATA_HOME when
+   * it is set, so `creds_xdg_data_file` names the file under it and
+   * `creds_file` stays the default — which is also all an older core reads.
+   * `creds_home_env` + `creds_home_env_file` name a CLI home variable that
+   * overrides both. The agent's own setting (`savedEnv`, what the CLI is
+   * spawned with) comes before the daemon's. Not for a WSL install: the variable here is this
+   * side's, not the distro's.
+   */
+  _credsFilePath(checkReady, agentType, savedEnv = null) {
+    const fromEnv = (name) => String((savedEnv && savedEnv[name]) || process.env[name] || '').trim();
+    let wsl = null;
+    const isWsl = () => {
+      if (wsl === null) {
+        wsl = false;
+        try { wsl = !!agentType && isWslBinary(this._whichBinary(agentType)); } catch { /* best-effort */ }
+      }
+      return wsl;
+    };
+    // A CLI home named by its own variable comes first (MiMo Code reads
+    // $MIMOCODE_HOME/data/auth.json when MIMOCODE_HOME is set).
+    const homeVar = checkReady.creds_home_env;
+    const homeRel = checkReady.creds_home_env_file;
+    const cliHome = homeVar && homeRel ? fromEnv(homeVar) : '';
+    if (cliHome && path.isAbsolute(cliHome) && !isWsl()) return path.join(cliHome, homeRel);
+    const rel = checkReady.creds_xdg_data_file;
+    const dataHome = fromEnv('XDG_DATA_HOME');
+    if (rel && dataHome && path.isAbsolute(dataHome) && !isWsl()) return path.join(dataHome, rel);
+    return this._expandHome(this._credsFile(checkReady), agentType);
+  }
+
+  /**
    * Expand a leading "~" to the home directory the AGENT writes its sign-in to.
    *
    * Normally the running user's. For an agent that resolved inside WSL it is
@@ -1026,6 +1148,12 @@ class Installer {
    */
   _expandHome(p, agentType) {
     if (typeof p !== 'string' || !p) return p;
+    // A Windows location named by its variable (%LOCALAPPDATA%\hermes\…).
+    if (/^%\w+%/.test(p)) {
+      const m = /^%(\w+)%[\\/]?(.*)$/.exec(p);
+      const base = m && process.env[m[1]];
+      return base ? path.join(base, m[2]) : p;
+    }
     const home = this._homeForAgent(agentType);
     if (p === '~') return home;
     if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(home, p.slice(2));
@@ -1050,7 +1178,8 @@ class Installer {
 
   /**
    * Existence/readability of a credential file. Returns 'present' |
-   * 'unreadable' | 'absent'. A non-empty readable file (or a non-empty
+   * 'unreadable' | 'absent', or 'unknown' when the entry's creds_classifier
+   * cannot tell from the content. A non-empty readable file (or a non-empty
    * directory) is normally 'present'. Entries with creds_json_has_entries
    * additionally require at least one top-level JSON entry, allowing an empty
    * auto-created {} file to remain signed out. Credential values are never
@@ -1059,9 +1188,9 @@ class Installer {
    * against the running user's home (the daemon/launcher user), not the
    * renderer/browser user.
    */
-  _credsFileState(checkReady, agentType) {
-    if (!checkReady || !checkReady.creds_file) return 'absent';
-    const p = this._expandHome(checkReady.creds_file, agentType);
+  _credsFileState(checkReady, agentType, savedEnv = null) {
+    if (!this._credsFile(checkReady)) return 'absent';
+    const p = this._credsFilePath(checkReady, agentType, savedEnv);
     let exists = false;
     try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
     if (!exists) return 'absent';
@@ -1069,6 +1198,13 @@ class Installer {
       const st = fs.statSync(p);
       if (st.isDirectory()) return fs.readdirSync(p).length > 0 ? 'present' : 'absent';
       fs.accessSync(p, fs.constants.R_OK);
+      if (checkReady.creds_classifier) {
+        const raw = fs.readFileSync(p, 'utf-8');
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch { parsed = { __parse_error: true }; }
+        const verdict = classifyCreds(checkReady, parsed);
+        if (verdict) return verdict === 'ready' ? 'present' : verdict === 'unknown' ? 'unknown' : 'absent';
+      }
       if (checkReady.creds_json_has_entries) {
         const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (Array.isArray(parsed)) return parsed.length > 0 ? 'present' : 'absent';
@@ -1098,14 +1234,20 @@ class Installer {
    * Opt-in, content-free creds-file readiness. Active ONLY when
    * `check_ready.creds_no_parse` is set, so existing creds_file agents (which
    * parse + match `creds_key` via _checkCredsReady) keep their exact behavior.
-   * Returns { ready, unreadable }.
+   * Returns { ready, unreadable }, plus `unknown: true` when the entry's
+   * creds_classifier cannot tell from the file.
    */
-  _evaluateCredsFile(checkReady, agentType) {
-    if (!checkReady || !checkReady.creds_file || !checkReady.creds_no_parse) {
+  _evaluateCredsFile(checkReady, agentType, savedEnv = null) {
+    if (!this._credsFile(checkReady) || !checkReady.creds_no_parse) {
       return { ready: false, unreadable: false };
     }
-    const state = this._credsFileState(checkReady, agentType);
-    return { ready: state === 'present', unreadable: state === 'unreadable' };
+    const state = this._credsFileState(checkReady, agentType, savedEnv);
+    return {
+      ready: state === 'present',
+      unreadable: state === 'unreadable',
+      // Only a creds_classifier can say this; left out otherwise.
+      ...(state === 'unknown' ? { unknown: true } : {}),
+    };
   }
 
   /**
@@ -1131,23 +1273,46 @@ class Installer {
   }
 
   /**
-   * Check a macOS Keychain generic-password entry. If creds_key is provided the
-   * stored value is parsed as JSON and required to contain that key; otherwise any
-   * non-empty value counts as ready. Returns false on non-macOS or on any error.
+   * Whether a macOS Keychain generic-password item exists for `service`.
+   *
+   * Asks for the item's attributes only. `-w` would print the stored secret,
+   * and a background process pulling a CLI's token out of the Keychain every
+   * detection round is the credential-dumping pattern EDR tools flag
+   * (CrowdStrike Falcon raised it every two minutes, once per round). Sign-in
+   * detection only needs to know the item is there, so nothing is decrypted
+   * and no ACL prompt can appear. Spawned without a shell, so the process
+   * chain ends at `security` itself.
+   *
+   * Cached like _checkWindowsCredential, and never waited on in Electron main.
    */
-  _checkMacKeychain(service, credsKey) {
-    try {
-      const stdout = execSync(
-        `security find-generic-password -s ${JSON.stringify(service)} -w`,
-        { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, encoding: 'utf-8' },
-      ).trim();
-      if (!stdout) return false;
-      if (!credsKey) return true;
-      const creds = JSON.parse(stdout);
-      return !!creds[credsKey];
-    } catch {
-      return false;
+  _checkMacKeychain(service) {
+    if (!service) return false;
+    const cached = keychainItemCache.get(service);
+    const fresh = cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS;
+    const args = ['find-generic-password', '-s', service];
+    if (!fresh && canBlock()) {
+      let found = false;
+      try {
+        const run = (this._spawnSyncForTest || spawnSync)('security', args, {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          timeout: 5000,
+        });
+        found = !run.error && run.status === 0;
+      } catch {}
+      keychainItemCache.set(service, { found, ts: Date.now() });
+    } else if (!fresh && !keychainRefreshing.has(service)) {
+      // Answer from the last lookup now; the refresh lands for the next call.
+      keychainRefreshing.add(service);
+      try {
+        execFile('security', args, { timeout: 5000 }, (err) => {
+          keychainRefreshing.delete(service);
+          keychainItemCache.set(service, { found: !err, ts: Date.now() });
+        });
+      } catch {
+        keychainRefreshing.delete(service);
+      }
     }
+    return !!(keychainItemCache.get(service) || {}).found;
   }
 
   /**
@@ -1315,7 +1480,7 @@ class Installer {
 
     let bootstrapEnv = this._buildShellEnv();
     let installEnv;
-    if (agentType === 'hermes' && process.platform === 'win32') {
+    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && process.platform === 'win32') {
       const prepared = this._prepareWindowsPowerShellInstall(cmd, bootstrapEnv);
       cmd = prepared.command;
       bootstrapEnv = prepared.env;
@@ -1414,11 +1579,11 @@ class Installer {
     let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
 
-    // Hermes's registry command names the inbox Windows PowerShell host for
-    // compatibility, but some Windows environments expose only PowerShell 7.
-    // Resolve the host that actually exists and keep module paths from the
-    // launcher's own PowerShell runtime out of both installer processes.
-    if (agentType === 'hermes' && isWin) {
+    // Resolve a compatible host and keep inherited PowerShell 7 modules out
+    // of Windows PowerShell. Qoder otherwise cannot load Get-FileHash when
+    // verifying its download, just as Hermes's uv bootstrap could not load
+    // Get-ExecutionPolicy.
+    if (['hermes', 'qoder', 'qoder-cn'].includes(agentType) && isWin) {
       const prepared = this._prepareWindowsPowerShellInstall(rawCmd, env);
       rawCmd = prepared.command;
       env = prepared.env;
@@ -1457,14 +1622,21 @@ class Installer {
       // on next install). --registry is added only when we'd be helping — see
       // installRegistry(); a user's own registry choice is never overridden.
       const registry = installRegistry();
+      const direct = this._resolveNodeNpmCli();
+      // `latest` may need a Node newer than the one that will run it.
+      if (direct) {
+        const held = await this._holdBackForNode(pkgArgs, direct.node, registry, onData);
+        pkgArgs.splice(0, pkgArgs.length, ...held);
+      }
+      // The verbose log stays: it is the install's progress, and the output the
+      // stall watchdog below waits on.
       const npmArgs = [
-        'install', '--loglevel=verbose', '--save', '--prefix', prefixDir,
+        'install', '--loglevel=verbose', ...NPM_INSTALL_SPEED_FLAGS, '--save', '--prefix', prefixDir,
         ...(registry ? ['--registry', registry] : []),
         ...pkgArgs,
       ];
       displayCmd = `npm ${npmArgs.join(' ')}`;
 
-      const direct = this._resolveNodeNpmCli();
       if (direct) {
         spawnFile = direct.node;
         spawnArgs = [direct.npmCli, ...npmArgs];
@@ -1479,7 +1651,7 @@ class Installer {
       } else {
         // Legacy fallback: quoted prefix inside a shell string.
         const registryArg = registry ? `--registry ${registry} ` : '';
-        const args = `install --loglevel=verbose --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
+        const args = `install --loglevel=verbose ${NPM_INSTALL_SPEED_FLAGS.join(' ')} --save --prefix "${prefixDir}" ${registryArg}${pkgArgs.join(' ')}`;
         spawnFile = this._wrapForWindowsShell(this._resolveNpmCommand(args));
         useShell = isWin ? (env.ComSpec || 'C:\\Windows\\System32\\cmd.exe') : true;
         displayCmd = spawnFile;
@@ -2387,7 +2559,7 @@ class Installer {
       throw new Error('Windows PowerShell or PowerShell 7 is required for this installer.');
     }
     return {
-      command: this._retargetPowerShellCommand(command, host),
+      command: this._retargetPowerShellCommand(this._wrapForWindowsShell(command), host),
       env: this._powerShellChildEnv(env),
       host,
     };
@@ -2538,6 +2710,46 @@ class Installer {
   }
 
   /**
+   * Swap an unpinned package (`pkg`, `pkg@latest`) for the newest release
+   * whose `engines.node` accepts the Node that will run it. openclaw raises
+   * its floor without notice (2026.10.6 wanted Node 24.22.1 while the runtime
+   * was 24.21.0) and its preinstall exits 1 below it, so a workspace's remote
+   * "create agent" — which installs here, not through the launcher's own
+   * holdback — failed on every such machine. Anything uncertain (no Node
+   * version, registry unreachable, unreadable range) leaves the args alone.
+   *
+   * @param {string[]} pkgArgs
+   * @param {string} nodeBin  the node npm runs under
+   * @param {string|null} registry  the `--registry` this install will use
+   * @param {function(string)} [onData]
+   * @returns {Promise<string[]>}
+   */
+  async _holdBackForNode(pkgArgs, nodeBin, registry, onData) {
+    const pkgs = pkgArgs.filter((a) => !a.startsWith('-'));
+    if (pkgs.length !== 1) return pkgArgs;
+    const pkg = unpinnedPackage(pkgs[0]);
+    if (!pkg) return pkgArgs;
+    let nodeVersion;
+    try {
+      nodeVersion = execFileSync(nodeBin, ['-v'], { encoding: 'utf-8', timeout: 5000, windowsHide: true }).trim();
+    } catch { return pkgArgs; }
+    let info;
+    try {
+      info = await fetchPackument(registry || userConfiguredRegistry() || 'https://registry.npmjs.org', pkg);
+    } catch { return pkgArgs; }
+    const latest = info && info['dist-tags'] && info['dist-tags'].latest;
+    const target = resolveInstallableVersion(info, nodeVersion);
+    if (!latest || !target || target === latest) return pkgArgs;
+    const range = info.versions && info.versions[latest] && info.versions[latest].engines
+      && info.versions[latest].engines.node;
+    if (onData) {
+      onData(`${pkg}@${latest} requires Node ${range}, but agents here run on Node ${nodeVersion} — `
+        + `installing ${target}, the newest release that supports it.\n\n`);
+    }
+    return pkgArgs.map((a) => (a === pkgs[0] ? `${pkg}@${target}` : a));
+  }
+
+  /**
    * The Node.js the portable runtime gets — the same pin as the launcher's
    * bootstrap/node-version.ts, which owns upgrading an existing runtime; this
    * copy only ever installs onto a machine with no Node at all. Node 24 needs
@@ -2548,7 +2760,7 @@ class Installer {
       const [major, minor] = String(release).split('.').map(Number);
       if (major < 22 || (major === 22 && minor < 6)) return 'v22.22.3';
     }
-    return 'v24.21.0';
+    return 'v24.22.1';
   }
 
   /**
@@ -2843,12 +3055,12 @@ class Installer {
    * `Invoke-RestMethod`, etc. The launcher's install shell is cmd.exe, which
    * doesn't recognize these aliases — without wrapping, e.g. Cursor's
    * `irm '…' | iex` exits 255. Skips commands already prefixed with
-   * `powershell`/`powershell.exe` so we don't double-wrap.
+   * `powershell`/`pwsh` so we don't double-wrap.
    */
   _wrapForWindowsShell(cmd) {
     if (!cmd || process.platform !== 'win32') return cmd;
     const trimmed = cmd.trimStart();
-    if (/^("[^"]*\\)?powershell(\.exe)?["']?\s/i.test(trimmed)) return cmd;
+    if (/^("[^"]*\\)?(powershell|pwsh)(\.exe)?["']?\s/i.test(trimmed)) return cmd;
     const psTokens = /\b(irm|iwr|iex|Invoke-RestMethod|Invoke-WebRequest|Invoke-Expression|Expand-Archive|Get-[A-Z]\w*|Set-[A-Z]\w*)\b/;
     if (!psTokens.test(cmd)) return cmd;
     const escaped = cmd.replace(/"/g, '\\"');

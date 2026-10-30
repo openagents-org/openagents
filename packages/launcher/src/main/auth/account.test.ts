@@ -65,6 +65,91 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
+describe("session upkeep while a workspace stays open", () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
+
+  function setup(seconds = 3600, kind: AccountSession['kind'] = 'workspace') {
+    stored = { ...SESSION, kind, expiresAt: Math.floor(Date.now() / 1000) + seconds,
+      ...(kind === 'firebase' ? { refreshToken: 'refresh' } : {}) }
+    const onChange = vi.fn()
+    const manager = new AccountManager({ endpoint: () => undefined, openExternal: () => {}, onChange })
+    manager.getAccount()
+    return { manager, onChange }
+  }
+  function renewal() {
+    return { ok: true, status: 200, json: async () => ({ data: {
+      session_token: 'renewed', email: SESSION.email, display_name: SESSION.displayName,
+      expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
+    } }) }
+  }
+
+  it('renews an open workspace in the background and publishes the new session', async () => {
+    const { manager, onChange } = setup()
+    const fetch = vi.fn().mockResolvedValue(renewal()); vi.stubGlobal('fetch', fetch)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/v1/auth/session/renew'), expect.objectContaining({
+      method: 'POST', headers: { Authorization: `Bearer ${SESSION.token}` },
+    }))
+    expect(manager.embeddedSession()?.token).toBe('renewed')
+    expect(onChange).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('shares one renewal between concurrent requests', async () => {
+    const { manager } = setup()
+    const fetch = vi.fn().mockResolvedValue(renewal()); vi.stubGlobal('fetch', fetch)
+    expect(await Promise.all([manager.bearer(), manager.bearer()])).toEqual(['renewed', 'renewed'])
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the session on a temporary service failure and retries later', async () => {
+    const { manager, onChange } = setup()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) }).mockResolvedValue(renewal()))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(manager.embeddedSession()?.token).toBe(SESSION.token)
+    expect(onChange).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(manager.embeddedSession()?.token).toBe('renewed')
+  })
+
+  it('ends the expired session after waking instead of leaving an unusable signed-in view', async () => {
+    const { manager, onChange } = setup()
+    vi.setSystemTime(Date.now() + 2 * 3600_000)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(manager.embeddedSession()).toBeNull()
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('requires sign-in when the server refuses renewal', async () => {
+    const { manager, onChange } = setup()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 401 }))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(manager.embeddedSession()).toBeNull()
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('does not restore a session when renewal finishes after sign-out', async () => {
+    const { manager } = setup()
+    let finish!: (value: unknown) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => { finish = resolve })))
+    const pending = manager.bearer().catch(e => e.message)
+    manager.signOut()
+    finish(renewal())
+    expect(await pending).toBe('SESSION_CHANGED')
+    expect(manager.embeddedSession()).toBeNull()
+    expect(stored).toBeNull()
+  })
+
+  it('refreshes Firebase tokens without needing another launcher API call', async () => {
+    const { manager } = setup(90, 'firebase')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id_token: 'fresh-firebase', refresh_token: 'refresh', expires_in: 3600 }) }))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(manager.embeddedSession()?.token).toBe('fresh-firebase')
+  })
+})
+
 /** Stand in for the browser: read the opened URL, answer the loopback port. */
 function browserThatSignsIn(respond: (target: URL) => unknown): {
   opened: string[]

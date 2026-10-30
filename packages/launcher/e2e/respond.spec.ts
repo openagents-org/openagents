@@ -10,6 +10,7 @@
 
 import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
+import { openMarketplace } from "./marketplace"
 import {
   haveWorkspaceCreds,
   createPairingCode,
@@ -95,7 +96,7 @@ function injectionEnv(): Record<string, string> {
 }
 
 test.describe("launcher full flow", () => {
-  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
+  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir, launcher }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     // cursor-agent has no custom base-URL support and authenticates only against
     // Cursor's own cloud (browser login or a real cursor.com key) — the gateway
@@ -115,7 +116,7 @@ test.describe("launcher full flow", () => {
     const name = `e2e-${SLUG}-${osTag}-${runId}`.slice(0, 38)
 
     // 1. Install (skip if a warm profile already has it).
-    await page.getByTestId("nav-install").click()
+    await openMarketplace(launcher.app)
     const card = page.getByTestId(`agent-card-${SLUG}`)
     await expect(card).toBeVisible({ timeout: 30_000 })
     if ((await card.getAttribute("data-installed")) !== "true") {
@@ -137,9 +138,9 @@ test.describe("launcher full flow", () => {
         .toContain(SLUG)
     }
 
-    // Installing an API-key agent auto-opens the post-install SetupWizard modal,
-    // whose overlay blocks navigation. Dismiss it (Escape → base Modal.onClose),
-    // retrying because it opens asynchronously after the install resolves.
+    // Back to Connect Agents. Escape first, in case anything the install left
+    // open would swallow the click; retried because the page can still be
+    // settling after the install resolves.
     await expect(async () => {
       await page.keyboard.press("Escape")
       await page.getByTestId("nav-dashboard").click({ timeout: 2_000 })
@@ -241,76 +242,68 @@ test.describe("launcher full flow", () => {
       )
       .toContain(WS_SLUG)
 
-    //    Now the instance. The working directory is normally async-prefilled
-    //    from listPaths(); fill it explicitly so Create never rejects on an
-    //    empty path (the prefill can lose the race, esp. on Windows).
-    await page.getByTestId("nav-dashboard").click()
-    await page.getByTestId("new-agent-open").click()
-    // Agent type is a Radix Select, not a native <select>: open it and pick the
-    // option. Leaving it on whatever it defaults to would build every agent as
-    // the first installed type instead of the one under test.
-    await page.getByTestId("agent-type").click()
-    await page.getByTestId(`agent-type-option-${SLUG}`).click()
-    await page.locator("#agent-name").fill(name)
-    await page.locator("#agent-working-directory").fill(homeDir)
-    await page.getByTestId("new-agent-create").click()
+    //    Now the instance, through the one setup form every agent is created
+    //    with: the marketplace page of the type under test leads to it
+    //    already on that type. The working directory is filled explicitly so
+    //    Add never runs with an empty path.
+    await openMarketplace(launcher.app)
+    await page.getByTestId(`agent-card-${SLUG}`).click()
+    await page.getByTestId("detail-add-agent").click()
+    await page.getByTestId("agent-setup-name").fill(name)
+    await page.getByTestId("agent-setup-workdir").fill(homeDir)
 
-    // 3. Configure LLM — the dialog auto-opens after create. Agents with GUI key
-    //    fields get filled + Saved: openclaw/opencode show one plain form, while
+    // 3. Configure LLM — in the same form, before Add. Agents with GUI key
+    //    fields get them filled: openclaw/opencode show one plain form, while
     //    the dual-auth ones (claude/codex/gemini) put it behind the API-key tab.
-    //    Agents with no key field at all (cursor/hermes, login-only) get their
-    //    env injected via IPC, then the dialog is closed (→ Connect opens).
-    const save = page.getByTestId("cfg-save")
-    // getEnvFields (IPC → core) can be slow right after install, esp. on Windows.
-    const hasKeyFields = await save
+    //    Agents with no key field at all (cursor/hermes, login-only) are added
+    //    as they are and get their env injected via IPC afterwards. Adding
+    //    opens the Connect dialog either way.
+    const connectDialog = page.getByTestId("connect-ws")
+    // Dual-auth agents open on the CLI sign-in tab, and Radix unmounts the tab
+    // that isn't selected — so the key form is not in the DOM until the API-key
+    // tab is chosen. Its fields arrive over IPC (getEnvFields → core), which
+    // can be slow right after install, esp. on Windows.
+    const keyTab = page.getByTestId("auth-tab-key")
+    if (await keyTab.isVisible({ timeout: 10_000 }).catch(() => false)) await keyTab.click()
+    const keyFields = page.locator('input[id^="agent-env-"]')
+    const hasKeyFields = await keyFields
+      .first()
       .isVisible({ timeout: 60_000 })
       .catch(() => false)
-    // Success of the configure step = the Connect dialog has opened. We assert
-    // on THAT rather than the Save button vanishing, because codex's dual-auth
-    // dialog transiently re-enters its loading state on Windows (footer
-    // unmounts briefly), which would false-positive a "dialog closed" check.
-    const connectDialog = page.getByTestId("connect-ws")
     if (hasKeyFields) {
-      await expect(async () => {
-        if (await connectDialog.isVisible().catch(() => false)) return
-        // Dual-auth agents (claude/codex/gemini) open on the CLI sign-in tab,
-        // and Radix unmounts the tab that isn't selected — so the key form is
-        // not in the DOM to be found, and the only `agent-config-*` inputs
-        // here are the CLI tab's model fields. Save writes every field's
-        // default whatever the tab, so this used to save an EMPTY key and the
-        // provider's stock base URL and still close the dialog: connect passed
-        // and the agent then started with no credential at all.
-        const keyTab = page.getByTestId("auth-tab-key")
-        if (await keyTab.isVisible().catch(() => false)) await keyTab.click()
-
-        const fieldIds = await page.evaluate(() =>
-          Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
-            (e) => e.id,
-          ),
+      // An endpoint field may sit behind "Advanced"; open it so it can be filled.
+      const advanced = page.getByTestId("env-advanced-toggle")
+      if (await advanced.isVisible().catch(() => false)) await advanced.click()
+      const fieldIds = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('input[id^="agent-env-"]')).map(
+          (e) => e.id,
+        ),
+      )
+      let filledKey = false
+      for (const id of fieldIds) {
+        const varName = id.replace("agent-env-", "")
+        let val: string | undefined
+        if (varName.endsWith("_API_KEY")) val = cred.key
+        else if (varName.endsWith("_BASE_URL")) val = cred.base
+        else if (varName.endsWith("_MODEL")) val = cred.model
+        if (!val) continue
+        await page.locator(`[id="${id}"]`).fill(val)
+        if (varName.endsWith("_API_KEY")) filledKey = true
+      }
+      // Adding without a key is not a failure the form reports — the field is
+      // optional for an agent that could also be signed in — so assert it
+      // here. Without this the run reaches the reply check with nothing to
+      // authenticate, and reads as a gateway or model problem.
+      if (!filledKey)
+        throw new Error(
+          `no *_API_KEY input found for ${SLUG}; saw [${fieldIds.join(", ")}]`,
         )
-        let filledKey = false
-        for (const id of fieldIds) {
-          const varName = id.replace("agent-config-", "")
-          let val: string | undefined
-          if (varName.endsWith("_API_KEY")) val = cred.key
-          else if (varName.endsWith("_BASE_URL")) val = cred.base
-          else if (varName.endsWith("_MODEL")) val = cred.model
-          if (!val) continue
-          await page.locator(`[id="${id}"]`).fill(val)
-          if (varName.endsWith("_API_KEY")) filledKey = true
-        }
-        // Saving without a key is not a failure the dialog reports — the field
-        // is optional for an agent that could also be signed in — so assert it
-        // here. Without this the run reaches the reply check with nothing to
-        // authenticate, and reads as a gateway or model problem.
-        if (!filledKey)
-          throw new Error(
-            `no *_API_KEY input found for ${SLUG}; saw [${fieldIds.join(", ")}]`,
-          )
-        await save.click().catch(() => {})
-        await expect(connectDialog).toBeVisible({ timeout: 6_000 })
-      }).toPass({ timeout: 60_000 })
-    } else {
+    }
+    await page.getByTestId("agent-setup-submit").click()
+    // Success of the configure step = the Connect dialog has opened: the agent
+    // exists, with whatever the form held.
+    await expect(connectDialog).toBeVisible({ timeout: 120_000 })
+    if (!hasKeyFields) {
       await page.evaluate(
         async ({ n, env }) => {
           await (
@@ -326,11 +319,6 @@ test.describe("launcher full flow", () => {
         },
         { n: name, env: injectionEnv() },
       )
-      await expect(async () => {
-        if (await connectDialog.isVisible().catch(() => false)) return
-        await page.keyboard.press("Escape")
-        await expect(connectDialog).toBeVisible({ timeout: 4_000 })
-      }).toPass({ timeout: 30_000 })
     }
 
     // hermes authenticates via ~/.hermes/{.env,config.yaml} (what `hermes setup`

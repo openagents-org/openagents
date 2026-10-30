@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { capture, identify } from './analytics';
 import { desktopHost } from './desktop-host';
+import { workspaceApi } from './api';
 import { clearWorkspaceSession, loadWorkspaceSession } from './workspace-session';
 
 interface OpenAgentsUser {
@@ -24,7 +25,15 @@ interface OpenAgentsAuthContextValue {
 // openagents://workspace/, so that is this app's own host there — the same way
 // workspace.openagents.org is on the web. Without it the desktop app would
 // decide it was a third-party deployment and show the marketing landing page.
-const OPENAGENTS_HOSTNAMES = ['workspace.openagents.org', 'localhost', 'workspace'];
+//
+// NEXT_PUBLIC_FIRST_PARTY_HOSTNAMES (comma-separated, build-time) adds more —
+// a preview or staging deployment on its own domain is still *our* app and
+// must get the login gate, not the third-party landing page.
+const OPENAGENTS_HOSTNAMES = [
+  'workspace.openagents.org', 'workspace-preview.openagents.org', 'localhost', 'workspace',
+  ...(process.env.NEXT_PUBLIC_FIRST_PARTY_HOSTNAMES || '')
+    .split(',').map((h) => h.trim()).filter(Boolean),
+];
 
 const OpenAgentsAuthContext = createContext<OpenAgentsAuthContextValue | null>(null);
 
@@ -83,10 +92,29 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     };
     const fallbackTimer = setTimeout(settle, 5000);
 
-    import('./firebase').then(({ onAuthChange, getIdToken, getResolvedEmail }) => {
-      unsubscribe = onAuthChange(async (firebaseUser) => {
+    // Wake from sleep: the SDK's hourly refresh timer does not run while the
+    // machine sleeps, so ask for the token on return — the SDK refreshes it if
+    // it expired, and onIdTokenChange below then propagates the new one.
+    let onVisible: (() => void) | undefined;
+
+    import('./firebase').then(({ onIdTokenChange, getFreshIdToken, getResolvedEmail }) => {
+      workspaceApi.setBearerRefresher(async () => {
+        const fresh = await getFreshIdToken(true);
+        if (fresh) setIdToken(fresh);
+        return fresh;
+      });
+      onVisible = () => {
+        if (document.visibilityState === 'visible') void getFreshIdToken().catch(() => null);
+      };
+      document.addEventListener('visibilitychange', onVisible);
+
+      // onIdTokenChange (not onAuthChange): it also fires on the SDK's hourly
+      // token refresh. The token used to be captured once at sign-in and went
+      // stale after an hour, which v1.1 turned into "rejected by guard" on
+      // every send.
+      unsubscribe = onIdTokenChange(async (firebaseUser) => {
         if (firebaseUser) {
-          const token = await getIdToken();
+          const token = await firebaseUser.getIdToken();
           // Email/password users arrive via a custom token whose email lives in
           // a custom claim, not firebaseUser.email — resolve both.
           const email = firebaseUser.email || (await getResolvedEmail());
@@ -121,6 +149,8 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     return () => {
       clearTimeout(fallbackTimer);
       unsubscribe?.();
+      if (onVisible) document.removeEventListener('visibilitychange', onVisible);
+      workspaceApi.setBearerRefresher(null);
     };
   }, []);
 
@@ -134,10 +164,19 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   const signIn = useCallback(async () => {
     const host = desktopHost();
     if (host) { host.signIn(); return; }
-    const { signInWithGoogle, getIdToken } = await import('./firebase');
+    const { signInWithGoogle, getIdToken, getFreshIdToken, getResolvedEmail } = await import('./firebase');
     const firebaseUser = await signInWithGoogle();
     const token = await getIdToken();
-    const email = firebaseUser.email || '';
+    if (!token) throw new Error('Sign-in did not return an identity token');
+    const email = firebaseUser.email || (await getResolvedEmail());
+    // A successful account switch supersedes a stored workspace session too.
+    // That restore path skips Firebase's listener, so install its refresher here.
+    clearWorkspaceSession();
+    workspaceApi.setBearerRefresher(async () => {
+      const fresh = await getFreshIdToken(true);
+      if (fresh) setIdToken(fresh);
+      return fresh;
+    });
     setUser({
       email,
       displayName: firebaseUser.displayName || email,

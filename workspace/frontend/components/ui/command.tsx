@@ -21,7 +21,9 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex size-full flex-col overflow-hidden rounded-xl! bg-popover text-popover-foreground",
+        // min-h-0: inside a height-capped dialog the palette has to shrink,
+        // so the list scrolls rather than running past the dialog's edge.
+        "flex size-full min-h-0 flex-col overflow-hidden rounded-xl! bg-popover text-popover-foreground",
         className
       )}
       {...props}
@@ -48,7 +50,9 @@ function CommandDialog({
         className={cn(
           // Wider than a standard dialog: a palette lists full thread titles and
           // filenames, and `max-w-lg` truncates them well before it has to.
-          "top-1/4 translate-y-0 overflow-hidden rounded-xl! p-0 sm:max-w-2xl",
+          // Pinned a quarter down, so the cap is what keeps the bottom on
+          // screen in a short window (the desktop app's view especially).
+          "top-1/4 max-h-[70vh] translate-y-0 overflow-hidden rounded-xl! p-0 sm:max-w-2xl",
           className
         )}
         showCloseButton={showCloseButton}
@@ -97,7 +101,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-110 scroll-py-2 overflow-x-hidden overflow-y-auto p-2 outline-none",
+        "no-scrollbar max-h-110 min-h-0 scroll-py-2 overflow-x-hidden overflow-y-auto p-2 outline-none",
         className
       )}
       {...props}

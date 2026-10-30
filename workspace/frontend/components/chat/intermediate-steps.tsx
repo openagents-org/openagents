@@ -157,6 +157,29 @@ function isPlaceholderThinking(message: WorkspaceMessage): boolean {
   return t === '' || t === 'thinking...' || t === 'thinking';
 }
 
+/**
+ * Whether "show all steps" would reveal anything. Thinking and todos show in
+ * both views and a bare "thinking..." never gets a row of its own, so only a
+ * real status/tool step that the latest-only view drops counts. Showing the
+ * toggle without one made it look broken: an agent that had only said
+ * "thinking..." so far offered the button, and clicking it changed nothing.
+ * Mirrors the latest-only filter in ChatMessages.
+ */
+export function hasCollapsedSteps(messages: WorkspaceMessage[]): boolean {
+  const list = messages.filter((m) => m.messageType !== 'loading');
+  const isStep = (m: WorkspaceMessage) =>
+    m.messageType === 'status' || m.messageType === 'thinking' || m.messageType === 'todos';
+  const real = list.filter((m) => m.messageType === 'status' && m.content.trim() && !isPlaceholderThinking(m));
+  if (real.length === 0) return false;
+  // While the agent is still working (the thread ends on a step), the
+  // latest-only view keeps the newest status after the last reply.
+  let kept: WorkspaceMessage | undefined;
+  for (let i = list.length - 1; i >= 0 && isStep(list[i]); i--) {
+    if (list[i].messageType === 'status') { kept = list[i]; break; }
+  }
+  return real.some((m) => m !== kept);
+}
+
 // ── Step Item ──
 
 const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage }) {

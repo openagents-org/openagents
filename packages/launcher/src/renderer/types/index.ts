@@ -1,5 +1,6 @@
 import type { Release } from "../../shared/changelog"
 import type { ImportCandidate } from '../../shared/credential-import'
+import type { WorkspaceTabsSnapshot } from '../../shared/workspace-view'
 
 export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnecting' | 'stopped' | 'error'
 
@@ -651,7 +652,8 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{
+      /** `agentType` lets a blank base URL mean that agent's default endpoint. */
+      testLLM(env: Record<string, string>, agentType?: string): Promise<{
         success: boolean
         model?: string
         response?: string
@@ -925,6 +927,11 @@ declare global {
       /** Create an email account and open its Workspace session. */
       signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
       cancelSignIn(): Promise<void>
+      /**
+       * Has All Workspaces confirm the sign-out in its own dialog. False when
+       * that page is not on screen and ready to ask.
+       */
+      requestSignOut(): Promise<boolean>
       signOut(): Promise<void>
       listAccountWorkspaces(): Promise<AccountWorkspace[]>
       /** A sign-in that had to move to the browser (Google, GitHub). */
@@ -938,6 +945,8 @@ declare global {
         bounds: ViewBounds,
         token?: string | null,
         sessionId?: string | null,
+        /** What to call a new tab until its page names the workspace. */
+        title?: string | null,
       ): Promise<void>
       setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
       /** Push the launcher's theme/language to the hosted workspace. */
@@ -951,6 +960,17 @@ declare global {
       showWorkspaceNotice(notice: { message: string; type: string }): Promise<void>
       reloadWorkspaceView(): Promise<void>
       openWorkspaceHome(): Promise<void>
+      getWorkspaceTabs(): Promise<WorkspaceTabsSnapshot>
+      activateWorkspaceTab(id: string): Promise<void>
+      /** Closes the page only; the workspace and this device's connection stay. */
+      closeWorkspaceTab(id: string): Promise<void>
+      retryWorkspaceTab(id: string): Promise<void>
+      /** Reorders the strip: the tab ends up at `index` among the open tabs. */
+      moveWorkspaceTab(id: string, index: number): Promise<void>
+      showWorkspaceTabMenu(position: { x: number; y: number }): Promise<void>
+      /** Reload, close, close others, close to the right, close all. */
+      showWorkspaceTabContextMenu(id: string): Promise<void>
+      onWorkspaceTabsChanged(cb: (snapshot: WorkspaceTabsSnapshot) => void): () => void
       onWorkspaceAction(cb: (action: 'computer' | 'sign-in') => void): () => void
     }
   }

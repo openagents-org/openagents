@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
-import { Card } from "@renderer/components/ui/card"
+import { Label } from "@renderer/components/ui/label"
+import { Switch } from "@renderer/components/ui/switch"
+import { FilterChips } from "@renderer/components/ui-kit"
 import {
   Empty,
   EmptyDescription,
@@ -19,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@renderer/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
 import { cn } from "@renderer/lib/utils"
 import { useAgentsStore } from "@renderer/store/agents"
 import { formatDateTime } from "@renderer/services/logs/log-metrics"
@@ -28,7 +29,6 @@ import type { ToastType } from "@renderer/hooks/useToast"
 import { useLogs } from "./use-logs"
 import { useLogFilters, type LogsView } from "./use-log-filters"
 import { RANGES, useLogView, type RangeKey } from "./use-log-view"
-import { LogsStats } from "./components/logs-stats"
 import { LogsFilterBar } from "./components/logs-filter-bar"
 import { LogTable } from "./components/log-table"
 import { LogTableFooter } from "./components/log-table-footer"
@@ -47,7 +47,7 @@ const MIN_SPIN_MS = 450
 export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   const { t } = useTranslation()
   const agents = useAgentsStore((s) => s.agents)
-  const { filters, update, setPage, setLevels, setBrush, focusLevel, toggleSort } =
+  const { filters, update, setPage, setLevels, setBrush, toggleSort } =
     useLogFilters()
 
   const [clearOpen, setClearOpen] = useState(false)
@@ -138,42 +138,11 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   return (
     <section className="flex h-full flex-col">
       <PageHeader
-        stacked
         title={t("logs.title")}
         subtitle={t("logs.subtitle")}
         actions={
           <>
-            <Tabs
-              value={filters.view}
-              onValueChange={(v) => update({ view: v as LogsView })}
-            >
-              <TabsList>
-                {VIEWS.map((v) => (
-                  <TabsTrigger key={v} value={v} className="text-2xs">
-                    {t(`logs.view.${v}`)}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-
-            <Select
-              value={filters.range}
-              onValueChange={(v) => update({ range: v as RangeKey, brush: null })}
-            >
-              <SelectTrigger size="sm" className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGES.map((range) => (
-                  <SelectItem key={range} value={range}>
-                    {t(`logs.range.${range}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <Button
-              size="sm"
               variant="outline"
               onClick={() => void runRefresh()}
               disabled={refreshing || feed.loading}
@@ -181,34 +150,53 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
               <RefreshCw className={cn(refreshing && "animate-spin")} />
               {t("logs.actions.refresh")}
             </Button>
-            <Button size="sm" variant="outline" onClick={exportLogs}>
+            <Button variant="outline" onClick={exportLogs}>
               <Download />
               {t("logs.actions.export")}
             </Button>
-            <Button
-              size="sm"
-              variant="destructive-ghost"
-              onClick={() => setClearOpen(true)}
-            >
+            <Button variant="destructive-ghost" onClick={() => setClearOpen(true)}>
               <Trash2 />
               {t("logs.actions.clear")}
             </Button>
+            <span aria-hidden className="mx-2 h-6 w-px bg-border" />
+            <Label className="cursor-pointer gap-2.5 text-sm font-normal whitespace-nowrap">
+              {t("logs.actions.live")}
+              <Switch checked={filters.live} onCheckedChange={(live) => update({ live })} />
+            </Label>
           </>
         }
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-9 py-6">
-        <LogsStats
-          buckets={view.sparkBuckets}
-          total={view.scoped.length}
-          errors={view.levelCounts.error}
-          warnings={view.levelCounts.warn}
-          activeAgents={view.activeAgents}
-          onFocusLevel={focusLevel}
-        />
+      <div className="shrink-0 px-9">
+        <div className="flex h-11 border-b">
+          <FilterChips
+            variant="underline"
+            value={filters.view}
+            onChange={(v) => update({ view: v as LogsView })}
+            options={VIEWS.map((v) => ({ value: v, label: t(`logs.view.${v}`) }))}
+          />
+        </div>
+      </div>
 
-        <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-9 pt-4 pb-5">
           <LogsFilterBar
+            leading={
+              <Select
+                value={filters.range}
+                onValueChange={(v) => update({ range: v as RangeKey, brush: null })}
+              >
+                <SelectTrigger className="w-36 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGES.map((range) => (
+                    <SelectItem key={range} value={range}>
+                      {t(`logs.range.${range}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
             agents={agents}
             agentFilter={filters.agent}
             onAgentFilterChange={(agent) => update({ agent })}
@@ -221,9 +209,9 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
             onEventTypesChange={(eventTypes) => update({ eventTypes })}
             onlyWithStack={filters.onlyWithStack}
             onOnlyWithStackChange={(onlyWithStack) => update({ onlyWithStack })}
-            live={filters.live}
-            onLiveChange={(live) => update({ live })}
           />
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
 
           {empty ? (
             <Empty className="flex-1">
@@ -283,7 +271,7 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
               />
             </>
           )}
-        </Card>
+        </div>
       </div>
 
       <LogContextDialog

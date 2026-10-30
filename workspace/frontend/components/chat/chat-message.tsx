@@ -1,18 +1,36 @@
 'use client';
 
+import { isWebProject, projectDisplayName } from '@/lib/web-projects';
+import { MessageArtifacts } from '@/components/artifacts/message-artifacts';
+import { openArtifactPreview } from '@/lib/thread-artifacts';
+import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, User, FileIcon, Download, Eye } from 'lucide-react';
+import { Reply, Copy, Check, Folder, FileIcon, Download, Eye, ArrowRight, ArrowRightLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentOwnershipBadge, AgentSharingAction } from './agent-message-access';
+import { CopyMessageLink } from './copy-message-link';
+import { MessageReactions } from './message-reactions';
 import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
+import { approvalFromMetadata } from '@/lib/approvals';
+import { ReplyCitation, type ReplyCitationData } from './reply-citation';
+import { MessageAudience, CompletionAudience } from './message-audience';
+import { ApprovalCard } from './approval-card';
+import { handoffFromMessage, type HandoffRecord } from '@/lib/handoff'; // v1.1 M6
+import { isHtmlAttachment } from '@/lib/brief';
+import { HtmlArtifactPreview } from './html-artifact-preview';
+import { isMyAddress, myAddress } from '@/lib/dm';
+import { HumanAvatar } from './human-avatar';
+import { humanMessageContent } from '@/lib/message-content';
+import { useHumanNames } from '@/hooks/use-team-roster';
 
 interface Attachment {
   fileId: string;
@@ -21,15 +39,8 @@ interface Attachment {
   url: string;
 }
 
-function humanColor(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return `hsl(${hash % 360} 55% 82%)`;
-}
-
 function isPreviewable(contentType: string, filename: string): boolean {
+  if (isWebProject(contentType, filename) || /\.docx$/i.test(filename)) return true;
   if (contentType?.startsWith('image/')) return true;
   if (contentType === 'text/html' || /\.html?$/i.test(filename)) return true;
   if (contentType === 'text/markdown' || /\.mdx?$/i.test(filename)) return true;
@@ -37,16 +48,12 @@ function isPreviewable(contentType: string, filename: string): boolean {
   return false;
 }
 
-function Attachments({ items }: { items: Attachment[] }) {
+function Attachments({ items, senderAgentName = null }: { items: Attachment[]; senderAgentName?: string | null }) {
   if (!items || items.length === 0) return null;
 
-  const { setViewMode } = useLayout();
-  const { setSelectedFileId } = useWorkspace();
-
   const openPreview = useCallback((fileId: string) => {
-    setSelectedFileId(fileId);
-    setViewMode('files');
-  }, [setSelectedFileId, setViewMode]);
+    openArtifactPreview({ kind: 'file', id: fileId });
+  }, []);
 
   // Regenerate URLs from fileId to ensure they include current auth token
   const fixedItems = useMemo(() =>
@@ -55,7 +62,10 @@ function Attachments({ items }: { items: Attachment[] }) {
   );
 
   const images = fixedItems.filter((a) => a.contentType?.startsWith('image/'));
-  const files = fixedItems.filter((a) => !a.contentType?.startsWith('image/'));
+  // v1.1 M5: HTML artifacts get an inline sandboxed preview card instead of
+  // a chip that only opens the Files pane.
+  const htmlFiles = fixedItems.filter((a) => !a.contentType?.startsWith('image/') && isHtmlAttachment(a.contentType, a.filename));
+  const files = fixedItems.filter((a) => !a.contentType?.startsWith('image/') && !isHtmlAttachment(a.contentType, a.filename));
 
   return (
     <div className="mt-2 space-y-2">
@@ -68,13 +78,27 @@ function Attachments({ items }: { items: Attachment[] }) {
               onClick={() => openPreview(img.fileId)}
               className="block rounded-lg overflow-hidden border hover:shadow-md transition-shadow max-w-sm cursor-pointer text-left"
             >
-              <img
-                src={img.url}
+              <AuthenticatedImage
+                fileId={img.fileId}
                 alt={img.filename}
                 className="max-h-64 w-auto object-contain"
                 loading="lazy"
               />
             </button>
+          ))}
+        </div>
+      )}
+      {htmlFiles.length > 0 && (
+        <div className="space-y-2">
+          {htmlFiles.map((file) => (
+            <HtmlArtifactPreview
+              key={file.fileId}
+              fileId={file.fileId}
+              filename={file.filename}
+              url={file.url}
+              senderAgentName={senderAgentName}
+              onOpenFull={openPreview}
+            />
           ))}
         </div>
       )}
@@ -89,21 +113,20 @@ function Attachments({ items }: { items: Attachment[] }) {
                 onClick={() => openPreview(file.fileId)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted hover:bg-muted/80 transition-colors text-sm cursor-pointer"
               >
-                <Eye className="size-4 text-muted-foreground shrink-0" />
-                <span className="truncate max-w-[200px]">{file.filename}</span>
+                <span className="shrink-0 text-muted-foreground">{isWebProject(file.contentType,file.filename)?<Folder className="size-4" />:<Eye className="size-4" />}</span>
+                <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
               </button>
             ) : (
-              <a
+              <button
                 key={file.fileId}
-                href={file.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
+                onClick={() => void workspaceApi.downloadFile(file.fileId, file.filename).catch(error => toast.error(error instanceof Error ? error.message : 'Download failed'))}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted hover:bg-muted/80 transition-colors text-sm"
               >
                 <FileIcon className="size-4 text-muted-foreground shrink-0" />
-                <span className="truncate max-w-[200px]">{file.filename}</span>
+                <span className="truncate max-w-[200px]">{projectDisplayName(file.filename,file.contentType)}</span>
                 <Download className="size-3 text-muted-foreground shrink-0" />
-              </a>
+              </button>
             );
           })}
         </div>
@@ -119,14 +142,26 @@ interface ChatMessageProps {
   isLast?: boolean;
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
   onSuggestion?: (text: string) => void;
+  onMentionPerson?: (email: string) => void;
+  onReply?: (message: WorkspaceMessage) => void;
+  onRecall?: (message: WorkspaceMessage) => Promise<void>;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onRecall }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
   const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
+  // Requests from people or agents render as the same actionable approval card
+  // (buttons and all) instead of prose. The plain-text content is what
+  // history readers and bridges see; the card is built from the record.
+  const approval = message.messageType === 'approval' ? approvalFromMetadata(message.metadata) : null;
+  // v1.1 M6 — an agent handing work to another agent. The connector posts
+  // "@to request…" as plain text and the same record in metadata.handoff;
+  // the card renders the record so the sections stay readable.
+  const handoff = !approval ? handoffFromMessage(message.metadata) : null;
+  const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const [copied, setCopied] = useState(false);
 
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
@@ -137,6 +172,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     }
     return labels;
   }, [agents]);
+  // People's @mentions (`@sam@demo.io`) render as "@Sam Okafor"; mentions of
+  // the viewer get the stronger highlight.
+  const humanNames = useHumanNames();
+  const selfMention = currentUser.isAuthenticated && currentUser.id.includes('@') ? currentUser.id.toLowerCase() : undefined;
   const agent = agents.find((a) => a.agentName === message.senderName);
   const rawAttachments = (message.metadata?.attachments as Record<string, unknown>[]) || [];
   const attachments: Attachment[] = rawAttachments.map((a) => ({
@@ -145,6 +184,8 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     contentType: (a.contentType || a.content_type || '') as string,
     url: '',
   }));
+
+  const humanContent = humanMessageContent(message.content, attachments);
 
   const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
@@ -181,32 +222,67 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   // turns stay in the same column as theirs rather than becoming right-aligned
   // bubbles — the thread reads as one transcript.
   if (isHuman) {
-    const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
+    // In DMs the sender address identifies the viewer too — including legacy
+    // conversations stored under the shared `human:user` address.
+    const isCurrentUser = (!!message.senderId && message.senderId === currentUser.id)
+      || (!!message.senderAddress && (message.sessionId || '').startsWith('dm:')
+        && isMyAddress(message.senderAddress, myAddress(currentUser)));
+    const mentionEmail = [message.senderAddress?.replace(/^human:/, ''), message.senderId, message.metadata?.sender_email]
+      .find((value): value is string => typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
     const seed = message.senderId || message.senderName || 'human';
     const displayName = isCurrentUser
       ? 'You'
-      : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
+      : ((mentionEmail && humanNames[mentionEmail.toLowerCase()]) || (message.senderName && message.senderName !== 'user' ? message.senderName : 'User'));
 
     return (
-      <div className="py-2">
+      <div className="group/message relative py-1.5">
         <div className="flex items-start gap-3">
-          <div
-            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: humanColor(seed) }}
-          >
-            <User className="size-3.5 text-zinc-700" />
-          </div>
+          <HumanAvatar email={mentionEmail || (isCurrentUser ? currentUser.id : seed)} className="mt-0.5" />
           <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-foreground">{displayName}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              {onMentionPerson && mentionEmail ? (
+                <button type="button" onClick={() => onMentionPerson(mentionEmail.toLowerCase())}
+                  className="text-sm font-semibold text-foreground cursor-pointer hover:underline focus-visible:underline"
+                  title={t('peopleMessaging.mentionName', { name: displayName })}>
+                  {displayName}
+                </button>
+              ) : <span className="text-sm font-semibold text-foreground">{displayName}</span>}
               {timestamp && (
                 <span className="text-[11px] text-muted-foreground">{timestamp}</span>
               )}
+              {/* v1.1 M5 — information vs execution in directed threads */}
+              {message.metadata?.informational === true && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                  title={t('brief.infoTagHint')}
+                >
+                  {t('brief.infoTag')}
+                </span>
+              )}
+              {message.metadata?.from_non_director === true && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                  title={t('brief.nonDirectorHint')}
+                >
+                  {t('brief.nonDirectorTag')}
+                </span>
+              )}
             </div>
-            <div className="mt-0.5 text-sm leading-relaxed">
-              <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
-              <Attachments items={attachments} />
+            <div className="mt-0.5 text-sm leading-relaxed [&_.markdown-content>*:last-child]:mb-0">
+              {message.metadata.recalled ? <p className="text-xs italic text-muted-foreground">{t('messageReply.recalled')}</p> : approval ? <ApprovalCard approval={approval} /> : <>
+                <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
+                {humanContent && <MarkdownContent content={humanContent} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />}
+                <Attachments items={attachments} />
+              </>}
             </div>
+            {!approval && !message.metadata.recalled && <MessageAudience message={message} isSender={isCurrentUser} agents={agents} />}
+            {!approval && !message.metadata.recalled && <MessageReactions messageId={message.messageId}
+              onReply={onReply ? () => onReply(message) : undefined}
+              onRecall={isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
+                && message.targetAgents?.length === 1 && message.targetAgents[0] === '__no_response__'
+                && !message.metadata.routing_assignment && !message.metadata.approval_id
+                && (message.metadata.routing_choice as { status?: string } | undefined)?.status !== 'assigned'
+                ? () => onRecall(message) : undefined} />}
           </div>
         </div>
       </div>
@@ -221,27 +297,39 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
       <div className="flex items-start gap-3">
         <AgentAvatar name={message.senderName} size={28} className="mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="truncate text-sm font-semibold text-foreground">
               {agent ? agentLabel(agent) : message.senderName}
             </span>
-            {agent && (
-              <span className={cn(
-                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold',
-                agent.role === 'master'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                  : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-              )}>
-                {agent.role}
-              </span>
-            )}
+            {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
               <span className="text-[11px] text-muted-foreground">{timestamp}</span>
             )}
           </div>
           <div className="mt-0.5 text-sm leading-relaxed">
-            <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} />
-            <Attachments items={attachments} />
+            {approval ? (
+              <ApprovalCard approval={approval} />
+            ) : handoff ? (
+              <>
+                <HandoffCard handoff={handoff} agents={agents} agentNames={agentNames} agentLabels={agentLabels} />
+                <Attachments items={attachments} senderAgentName={message.senderName} />
+                <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
+              </>
+            ) : (
+              <>
+                <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
+                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
+                <Attachments items={attachments} senderAgentName={message.senderName} />
+                <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
+              </>
+            )}
+
+            {!approval && <CompletionAudience message={message} agents={agents} />}
+
+            {review && <div className="mt-2 text-xs text-muted-foreground" role="status">
+              {Array.isArray(review.reviewers) && review.reviewers.length > 0 && <p>{t('reviewHandoff.sent', { agents: review.reviewers.map(name => agentLabels[name] || name).join(', ') })}</p>}
+              {Array.isArray(review.blocked) && review.blocked.length > 0 && <p>{t('reviewHandoff.blocked', { agents: review.blocked.map(name => agentLabels[name] || name).join(', ') })}</p>}
+            </div>}
 
             {/* Tap-to-ask chips (e.g. Yumi's seeded welcome). Only on the
                 trailing message: once the user replies, the moment is over. */}
@@ -260,7 +348,10 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             )}
 
             {/* Action bar — revealed on hover, as in ChatGPT */}
-            <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+              {onReply && !approval && !message.messageId.startsWith('optimistic-') && <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => onReply(message)} aria-label={t('reactions.reply')}><Reply className="size-3" />{t('reactions.reply')}</Button>}
+              <AgentSharingAction agentName={message.senderName} />
+              <CopyMessageLink messageId={message.messageId} />
               <Button
                 variant="ghost"
                 size="sm"
@@ -278,3 +369,69 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
     </div>
   );
 });
+
+// ── v1.1 M6 — hand-off card ──────────────────────────────────────────────────
+// Header "from → to", the request, collapsible Context / Output so far, and
+// who owns the work next. Compact on purpose: it sits inline in the thread.
+
+function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
+  handoff: HandoffRecord;
+  agents: WorkspaceAgent[];
+  agentNames: string[];
+  agentLabels: Record<string, string>;
+}) {
+  const t = useT();
+  const label = (name: string) => {
+    const a = agents.find((x) => x.agentName === name);
+    return a ? agentLabel(a) : name;
+  };
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-muted/30">
+      <div className="flex min-w-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2">
+        <ArrowRightLeft className="size-3.5 shrink-0 text-sky-500" />
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('collab.handoff.title')}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+          <AgentAvatar name={handoff.from} size={16} />
+          <span className="truncate">{label(handoff.from)}</span>
+          <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+          <AgentAvatar name={handoff.to} size={16} />
+          <span className="truncate">{label(handoff.to)}</span>
+        </span>
+      </div>
+      <div className="space-y-2 px-3 py-2">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.handoff.request')}</p>
+          <MarkdownContent content={handoff.request} agentNames={agentNames} agentLabels={agentLabels} />
+        </div>
+        {handoff.context && <HandoffSection title={t('collab.handoff.context')} body={handoff.context} />}
+        {handoff.output && <HandoffSection title={t('collab.handoff.output')} body={handoff.output} />}
+      </div>
+      <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <AgentAvatar name={handoff.nextOwner} size={14} />
+        <span className="truncate">{t('collab.handoff.nextOwner', { owner: label(handoff.nextOwner) })}</span>
+      </div>
+    </div>
+  );
+}
+
+function HandoffSection({ title, body }: { title: string; body: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+        {title}
+        <span className="normal-case tracking-normal text-muted-foreground/70">· {open ? t('collab.handoff.hide') : t('collab.handoff.show')}</span>
+      </button>
+      {open && <div className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">{body}</div>}
+    </div>
+  );
+}

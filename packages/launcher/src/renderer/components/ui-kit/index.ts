@@ -19,6 +19,7 @@ export { FilterChips } from "./filter-chips"
 export type { FilterChipOption, FilterChipsProps } from "./filter-chips"
 
 export { BrandMark } from "./brand-mark"
+export { BrandWordmark } from "./brand-wordmark"
 
 export { ConfirmDialog } from "./confirm-dialog"
 export type { ConfirmDialogProps } from "./confirm-dialog"

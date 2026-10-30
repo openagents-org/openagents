@@ -102,9 +102,9 @@ test('desktop connects only on request and opens the agent picker for this compu
   await expect(page.getByText('Review laptop', { exact: true })).toBeVisible()
   expect(state.connects).toBe(0)
   expect(state.codes).toBe(0)
-  await expect(page.getByText('Get the launcher on your device')).toHaveCount(0)
+  await expect(page.getByText('Get the desktop app on your device')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('connect-this-computer.png') })
-  await page.getByRole('button', { name: 'Connect this computer', exact: true }).click()
+  await page.getByRole('button', { name: 'Connect this computer to the workspace', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
   expect(state.connects).toBe(1)
   expect(state.codes).toBe(0)
@@ -122,7 +122,7 @@ test('an already connected computer skips pairing', async ({ page }) => {
 
 test('connection errors can be retried', async ({ page }) => {
   const state = await openOnboarding(page, { failConnect: true })
-  const connect = page.getByRole('button', { name: 'Connect this computer', exact: true })
+  const connect = page.getByRole('button', { name: 'Connect this computer to the workspace', exact: true })
   await connect.click()
   await expect(page.getByRole('alert')).toContainText('Could not connect this computer')
   await connect.click()
@@ -135,9 +135,9 @@ test('an offline computer stays in onboarding until that exact device is online'
   const state = await openOnboarding(page, { paired: true, offline: true })
   await expect(page.getByRole('button', { name: 'Waiting for this computer to come online…' })).toBeVisible()
   await page.clock.fastForward(31_000)
-  await expect(page.getByRole('alert')).toContainText('has not come online yet')
+  await expect(page.getByRole('alert')).toContainText('not online yet')
   expect(state.connects).toBe(0)
-  await page.getByRole('button', { name: 'Open This Computer', exact: true }).click()
+  await page.getByRole('button', { name: 'Open Device', exact: true }).click()
   expect(state.openedComputer).toBe(1)
   state.online = true
   await page.getByRole('button', { name: 'Check again' }).click()
@@ -146,9 +146,9 @@ test('an offline computer stays in onboarding until that exact device is online'
 
 test('another device keeps the pairing flow even with an existing workspace device', async ({ page }) => {
   const state = await openOnboarding(page)
-  await page.getByRole('button', { name: 'Connect remote device' }).click()
+  await page.getByRole('button', { name: 'Connect another device' }).click()
   await expect(page.getByText('TEST-CODE', { exact: true })).toBeVisible()
-  await expect(page.getByText('Get the launcher on your device')).toBeVisible()
+  await expect(page.getByText('Get the desktop app on your device')).toBeVisible()
   expect(state.connects).toBe(0)
   expect(state.codes).toBe(1)
 })
@@ -156,15 +156,15 @@ test('another device keeps the pairing flow even with an existing workspace devi
 test('browser onboarding keeps the existing download and pairing instructions', async ({ page }) => {
   const state = await openOnboarding(page, { web: true })
   await expect(page.getByText('TEST-CODE', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connect this computer', exact: true })).toHaveCount(0)
-  await expect(page.getByText('Get the launcher on your device')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect this computer to the workspace', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Get the desktop app on your device')).toBeVisible()
   expect(state.codes).toBe(1)
 })
 
 test('members see the permission requirement without pairing', async ({ page }) => {
   const state = await openOnboarding(page, { member: true })
   await expect(page.getByText('An owner or admin of this workspace needs to connect this computer.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connect this computer', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Connect this computer to the workspace', exact: true })).toBeDisabled()
   expect(state.connects).toBe(0)
   expect(state.codes).toBe(0)
 })
@@ -185,7 +185,6 @@ test('browser creates an agent on a remote device without desktop capabilities',
   const state = await openOnboarding(page, { web: true, paired: true })
   await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Cloud Agents', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Manual Connection', exact: true })).toBeVisible()
   await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
   await expect(page.getByText(/Runs on: Remote laptop/)).toBeVisible()
   await page.getByRole('textbox', { name: 'Agent name', exact: true }).fill('browser-helper')
@@ -194,5 +193,20 @@ test('browser creates an agent on a remote device without desktop capabilities',
   expect(state.commands[0]).toEqual({ nodeId: 'remote-device', action: 'create_agent', args: { name: 'browser-helper', type: 'claude' } })
   expect(state.connects).toBe(0)
   expect(state.openedComputer).toBe(0)
+  expect(state.errors).toEqual([])
+})
+
+test('the device list marks this computer and its Connect opens the same device choice', async ({ page }) => {
+  const state = await openOnboarding(page, { paired: true })
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.getByTestId('node-this-computer')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Connect a device', exact: true }).click()
+  // Already joined and online here: no new registration, no pairing code,
+  // straight on to this computer's agent picker.
+  await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
+  await expect(page.getByText(/Runs on: This Computer/)).toBeVisible()
+  expect(state.connects).toBe(0)
+  expect(state.codes).toBe(0)
   expect(state.errors).toEqual([])
 })

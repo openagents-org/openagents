@@ -7,6 +7,16 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
+@pytest.fixture
+def list_headers(monkeypatch):
+    import app.access as access
+    monkeypatch.setattr(access, "verify_identity_claims", lambda token: {
+        "provider": "firebase", "email": "test@example.com", "firebase_uid": "test-list-user",
+        "apple_sub": None, "display_name": "Test",
+    } if token == "list-user" else None)
+    return {"Authorization": "Bearer list-user"}
+
+
 class TestCreateWorkspace:
     """POST /v1/workspaces — create a workspace."""
 
@@ -75,6 +85,30 @@ class TestGetWorkspace:
         assert len(agents) >= 1
         assert agents[0]["agentName"] == "agent-alpha"
         assert agents[0]["role"] == "master"
+
+    @pytest.mark.parametrize("setup", ["yumi_only", "offline_device", "offline_agent", "hidden_agent"])
+    def test_first_device_guidance_uses_entire_workspace(self, client, workspace, db, setup):
+        from sqlalchemy import select
+        from app.models import Node, WorkspaceMember
+        member = db.execute(select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace["id"],
+            WorkspaceMember.agent_name == "agent-alpha",
+        )).scalar_one()
+        member.agent_type = "cloud:openagents" if setup != "offline_agent" else "claude"
+        member.status = "offline"
+        if setup == "offline_device":
+            db.add(Node(workspace_id=workspace["id"], node_key="another-owners-device",
+                        owner_email="someone-else@example.com", status="offline"))
+        if setup == "hidden_agent":
+            db.add(WorkspaceMember(workspace_id=workspace["id"], agent_name="private-agent",
+                                   agent_type="claude", owner_email="someone-else@example.com",
+                                   status="offline"))
+        db.commit()
+        resp = client.get(f"/v1/workspaces/{workspace['id']}",
+                          headers={"X-Workspace-Token": workspace["token"]})
+        data = resp.json()["data"]
+        assert data["needsFirstDevice"] is (setup == "yumi_only")
+        assert "nodes" not in data
 
     def test_get_nonexistent_workspace(self, client):
         """Nonexistent workspace returns 404."""
@@ -164,13 +198,13 @@ class TestDeleteWorkspace:
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "deleted"
 
-    def test_deleted_workspace_hidden_from_list(self, client, workspace):
+    def test_deleted_workspace_hidden_from_list(self, client, workspace, list_headers):
         """Deleted workspace doesn't appear in list."""
         client.delete(
             f"/v1/workspaces/{workspace['id']}",
             headers={"X-Workspace-Token": workspace["token"]},
         )
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         ids = [w["workspaceId"] for w in resp.json()["data"]]
         assert workspace["id"] not in ids
 
@@ -197,10 +231,9 @@ class TestChannelOrchestrationMode:
     def test_default_mode_is_dynamic(self, client, workspace):
         assert workspace["channel"].get("orchestrationMode") == "dynamic"
 
-    def test_set_master_mode(self, client, workspace):
+    def test_removed_master_mode_is_rejected(self, client, workspace):
         resp = self._patch(client, workspace, {"orchestration_mode": "master"})
-        assert resp.status_code == 200
-        assert resp.json()["data"]["orchestrationMode"] == "master"
+        assert resp.status_code == 400
 
     def test_set_workflow_mode_with_instruction_round_trips(self, client, workspace):
         plan = "First @agent-alpha writes tests, then reviews."
@@ -261,6 +294,35 @@ class TestGenerateMemberDescription:
     def test_generate_without_key_returns_400(self, _k, client, workspace):
         r = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
         assert r.status_code == 400
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_openai_description_allows_reasoning_before_answer(self, _key, get_client, client, workspace):
+        model_client = MagicMock()
+
+        def complete(**kwargs):
+            # Simulate a model that spends 100 tokens reasoning before emitting text.
+            content = "Reviews code and fixes backend bugs" if kwargs["max_tokens"] > 100 else ""
+            return MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+
+        model_client.chat.completions.create.side_effect = complete
+        get_client.return_value = (model_client, "openai")
+        response = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert response.status_code == 200
+        assert response.json()["data"]["description"] == "Reviews code and fixes backend bugs"
+
+    @pytest.mark.parametrize("content", [None, "", "   ", '"".'])
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    def test_empty_openai_description_is_not_success(self, _key, get_client, content, client, workspace):
+        model_client = MagicMock()
+        model_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=content))]
+        )
+        get_client.return_value = (model_client, "openai")
+        response = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert response.status_code == 500
+        assert "empty description" in response.text
 
     def test_generate_unknown_member_returns_404(self, client, workspace):
         r = client.post(self._url(workspace, "nope-bot"), headers={"X-Workspace-Token": workspace["token"]})
@@ -331,23 +393,23 @@ class TestGenerateMemberDescription:
 class TestListWorkspaces:
     """GET /v1/workspaces — list workspaces."""
 
-    def test_list_empty(self, client):
+    def test_list_empty(self, client, list_headers):
         """Empty workspace list."""
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         assert resp.status_code == 200
         assert resp.json()["data"] == []
 
-    def test_list_returns_workspaces(self, client, workspace):
+    def test_list_returns_workspaces(self, client, workspace, list_headers):
         """Workspaces appear in list."""
-        resp = client.get("/v1/workspaces")
+        resp = client.get("/v1/workspaces", headers=list_headers)
         assert len(resp.json()["data"]) >= 1
 
-    def test_list_filter_by_agent(self, client, workspace):
+    def test_list_filter_by_agent(self, client, workspace, list_headers):
         """Filter workspaces by agent membership."""
-        resp = client.get("/v1/workspaces", params={"agent_name": "agent-alpha"})
+        resp = client.get("/v1/workspaces", params={"agent_name": "agent-alpha"}, headers=list_headers)
         assert len(resp.json()["data"]) >= 1
 
-        resp2 = client.get("/v1/workspaces", params={"agent_name": "nonexistent"})
+        resp2 = client.get("/v1/workspaces", params={"agent_name": "nonexistent"}, headers=list_headers)
         assert resp2.json()["data"] == []
 
 

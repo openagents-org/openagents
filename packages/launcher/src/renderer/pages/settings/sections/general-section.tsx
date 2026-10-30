@@ -45,8 +45,15 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
           label={t("settings.general.startupPage")}
           desc={t("settings.general.startupPageDesc")}
         >
+          {/* A page no longer offered (Logs, say) opens Connect Agents, so that
+              is what the box shows rather than nothing. */}
           <Select
-            value={values.startupPage}
+            value={
+              values.startupPage === STARTUP_PAGE_LAST ||
+              (STARTUP_PAGES as readonly string[]).includes(values.startupPage)
+                ? values.startupPage
+                : "dashboard"
+            }
             onValueChange={(v) => update("startupPage", v)}
           >
             <SelectTrigger size="sm" className="w-44">
@@ -63,6 +70,18 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
               ))}
             </SelectContent>
           </Select>
+        </Row>
+
+        {/* Lived on its own Agents page, which held nothing else to set; the
+            agents themselves are managed under Connect Agents. */}
+        <Row
+          label={t("settings.agents.autoStart")}
+          desc={t("settings.agents.autoStartDesc")}
+        >
+          <Switch
+            checked={values.agentAutoStart}
+            onCheckedChange={(v) => update("agentAutoStart", v)}
+          />
         </Row>
 
         <Row

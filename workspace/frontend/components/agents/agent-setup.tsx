@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, ExternalLink, Loader2, Key, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
+import { uniqueAgentName } from '@/lib/agent-name';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,10 +14,15 @@ import { AgentIcon } from '@/components/icons/agent-icons';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
+import { desktopHost } from '@/lib/desktop-host';
+import { desktopDownloads } from '@/lib/desktop-downloads';
+import { CompactTypePicker } from './agent-setup-compact';
+import { SmokeTestPanel } from './smoke-test-panel';
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
-  enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string }>;
+  /** `deferred`: the create waits on a runtime install and finishes after the form closes; the host reports the outcome. */
+  enqueueNodeCommand(nodeId: string, action: string, args: Record<string, unknown>): Promise<{ commandId?: string; deferred?: boolean }>;
   listNodeCommands(nodeId: string): Promise<NodeCommand[]>;
   listModelAccess(): Promise<ModelAccessEntry[]>;
   probeModelAccess(id: string, model?: string, protocol?: 'openai' | 'anthropic'): Promise<ModelProbeResult>;
@@ -28,13 +35,41 @@ export interface AgentSetupExtensions {
   workingDirectoryHint?: string;
   workingDirectoryPlaceholder?: string;
   browseFolder?: (current: string) => Promise<string | null>;
+  /** Agent names already used across the workspace, beyond this device's own. */
+  takenNames?: readonly string[];
   /** Sets an existing agent's display name. Offered only where the host can do it. */
   renameAgent?: (name: string, displayName: string) => Promise<void>;
+  /** Where the host can sign an agent in on this device: the action for a
+   *  type that signs in, or undefined. Offered beside "Needs login" in place
+   *  of the docs link. */
+  signIn?: (type: string) => (() => void) | undefined;
   modelAccessDialog?: (props: { onClose: () => void; onSaved: (entry: ModelAccessEntry) => void }) => React.ReactNode;
   promo?: (props: { agentType: string; accesses: ModelAccessEntry[] | null; selectedAccessId: string; onUse: (entry: ModelAccessEntry, created: boolean) => void }) => React.ReactNode;
   /** Put Back and Save beside the agent hero instead of in a footer band, which
    *  leaves the bottom-right corner to the host's toasts. */
   headerActions?: boolean;
+  /** Desktop layout: a compact two-column type list instead of the gallery,
+   *  and a titled form with an info column beside it. Hosts other than the
+   *  desktop app leave it off and keep the gallery. */
+  compact?: boolean;
+  /** Compact only: the breadcrumb's first step, naming the page this opened from. */
+  breadcrumbRoot?: string;
+  /** Compact only: the column beside the form (type, device, workspace). */
+  aside?: (props: { type: string }) => React.ReactNode;
+}
+
+/** What an add was submitted with — enough to reopen the form when it fails on the device. */
+export interface AgentDraft {
+  name: string;
+  type: string;
+  workingDir?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  modelAccessId?: string;
+  codexWireApi?: 'responses' | 'chat';
+  /** The agent's own credential fields (e.g. CodeArts AK/SK). */
+  config?: Record<string, string>;
 }
 
 /** Where the host's agent catalog load stands — the gallery is empty until it lands. */
@@ -69,9 +104,20 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 }
 
 const NO_ACCESS = '__none__';
+// Editing an agent that runs on a key: keep it as it is. The form cannot pick
+// the saved access it came from, and a key saved on the device (the launcher
+// saves them there) has none.
+const KEEP_CURRENT = '__keep_current__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
-const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** How long "Detecting…" may stay up before it gives way to a retry. */
+const DETECT_DEADLINE_MS = 45_000;
+const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** Types whose endpoint is one device-wide config file of their own, so every
+ *  agent of the type on a device runs on the same key, endpoint and model.
+ *  Mirrors SHARED_NATIVE_CONFIG in packages/agent-connector/src/daemon.js;
+ *  every other type keeps what this form sends on the agent alone. */
+const SHARED_CONFIG_TYPES = new Set(['hermes']);
 
 /** Derive the per-type detection status shown as a badge in the gallery. */
 function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
@@ -81,108 +127,15 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
   return 'not_installed' as const;
 }
 
-/**
- * Smoke-test panel: the last live "hi"-probe result the daemon reported for
- * this AGENT on this node (probes are per agent — run after create and
- * reconfigure, then hourly), plus a button to run it again (queues a
- * `probe_agent` node command; the fresh result arrives via the heartbeat's
- * agents[].probe on the next poll).
- */
-function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
-  api: AgentSetupApi;
-  nodeId: string;
-  agentName: string;
-  probe: import('@/lib/types').NodeProbe | null | undefined;
-  onChanged: () => void;
-}) {
-  const t = useT();
-  const [testing, setTesting] = useState(false);
-  // Stop the spinner as soon as a fresh result lands (its timestamp changes).
-  const lastAt = useRef(probe?.at);
-  useEffect(() => {
-    if (probe?.at !== lastAt.current) {
-      lastAt.current = probe?.at;
-      setTesting(false);
-    }
-  }, [probe?.at]);
-
-  // Static-only results say nothing about liveness — treat as untested.
-  const informative = probe && probe.code !== 'static_only' ? probe : null;
-
-  const run = async () => {
-    setTesting(true);
-    try {
-      await api.enqueueNodeCommand(nodeId, 'probe_agent', { name: agentName });
-      // Nudge the node poll a few times while the probe runs on the device;
-      // a probe can take up to its CLI timeout, so keep the spinner bounded.
-      setTimeout(onChanged, 8000);
-      setTimeout(onChanged, 20000);
-      setTimeout(onChanged, 45000);
-      setTimeout(() => setTesting(false), 150000);
-    } catch {
-      toast.error(t('connect.nodeCommandFailed'));
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0 text-xs">
-          <span className="font-medium shrink-0">{t('connect.smokeTestTitle')}</span>
-          {testing ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />{t('connect.smokeTestRunning')}
-            </span>
-          ) : informative ? (
-            <span className={cn(
-              'inline-flex items-center gap-1.5 min-w-0',
-              informative.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
-            )}>
-              {informative.ok ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}
-              {informative.ok ? t('connect.smokeTestPassed') : t('connect.smokeTestFailed')}
-              <span className="text-muted-foreground truncate">
-                {t('connect.smokeTestAt', { time: new Date(informative.at).toLocaleString() })}
-              </span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
-          )}
-        </div>
-        <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px] shrink-0" onClick={run} disabled={testing}>
-          {informative ? t('connect.smokeTestRerun') : t('connect.smokeTestRun')}
-        </Button>
-      </div>
-      {!testing && informative && !informative.ok && (
-        <div className="space-y-1.5">
-          {informative.message && (
-            <p className="text-[11px] text-red-600/90 dark:text-red-400/90 break-words">{informative.message}</p>
-          )}
-          {(informative.guidance || []).length > 0 && (
-            <ul className="space-y-1">
-              {(informative.guidance || []).map((line, i) => (
-                <li key={i} className="text-[11px] text-muted-foreground leading-relaxed flex gap-1.5">
-                  <ArrowRight className="size-3 mt-0.5 shrink-0" />
-                  <span className="break-words">{line}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
 // The gallery reads as a storefront: featured spotlight, search + category
 // chips, vendor + status-dot cards. The app's `primary` token is near-black,
 // so the marketplace carries its own indigo accent in both themes.
 
-type GalleryStatus = ReturnType<typeof runtimeStatus>;
+export type GalleryStatus = ReturnType<typeof runtimeStatus>;
 
 /** Logo chip on a white surface so dark agent marks stay legible in dark mode. */
-function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
+export function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
   return (
     <span
       className={cn('inline-flex items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 dark:ring-white/10 shrink-0', className)}
@@ -204,18 +157,102 @@ function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
   }
 }
 
-function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
+/**
+ * CLIs that sign in to an account although the registry gives them no
+ * `login_command`. Declaring one there would also change how the form and the
+ * device treat their keys and models, so they are named here for the hint only.
+ * A device with `agn login` reports that command instead (EXTRA_LOGIN_COMMANDS
+ * in the connector's agent-login.js); this is what an older one is shown.
+ */
+const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> = {
+  // In `opencode auth login` (1.19.5) OpenAI offers a ChatGPT Plus/Pro sign-in
+  // and GitHub Copilot a GitHub one; every other provider only takes a key.
+  opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
+};
+
+const HINT_CODE = 'font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5';
+const CODE_MARK = '\u0000';
+
+/** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
+function withCode(text: string, codes: string[]): React.ReactNode[] {
+  return text.split(CODE_MARK).flatMap((part, i) =>
+    i < codes.length ? [part, <code key={i} className={HINT_CODE}>{codes[i]}</code>] : [part]);
+}
+
+/**
+ * What to do about an agent installed with no credentials: an API key always
+ * works; an agent whose CLI signs in to an account (a subscription) can also be
+ * signed in on its device — from the desktop app, or for a device paired from
+ * the command line, with `command` in a terminal there.
+ */
+function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
+  const t = useT();
+  // Already in the desktop app: no point offering to download it.
+  const downloads = desktopHost() ? [] : desktopDownloads(t);
+  // The CLI's own command (a device too old for `agn login`) relies on the
+  // terminal's PATH, which often lacks where the CLI really is — an npm global
+  // folder or OpenAgents' own. `agn runtimes`, which old devices have, prints
+  // that path; PowerShell needs `&` to run a quoted one.
+  const bare = !!command && !command.startsWith('agn ');
+  const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
+  return (
+    <div data-testid="agent-setup-needs-credentials" className="space-y-2">
+      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
+      <div>
+        <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
+        <p>{t('connect.nodeNeedsLoginKeyStep')}</p>
+      </div>
+      {command && (
+        <div>
+          <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
+          {note && <p className="mb-1">{t(note)}</p>}
+          <ol className="list-decimal space-y-1.5 pl-4">
+            <li>
+              {t('connect.nodeNeedsLoginDesktop', { device, label })}
+              {downloads.length > 0 && (
+                <span className="mt-1.5 flex flex-wrap gap-1.5">
+                  {downloads.map((d) => (
+                    <a
+                      key={d.os}
+                      href={d.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
+                    >
+                      <Download className="size-3" />{d.os}
+                    </a>
+                  ))}
+                </span>
+              )}
+            </li>
+            <li>
+              {t('connect.nodeNeedsLoginCli')}{' '}
+              <code className={HINT_CODE}>{command}</code>
+              {bare && (
+                <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
+                  {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}
+                </span>
+              )}
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
   const t = useT();
   if (checking) {
     return (
-      <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium text-primary whitespace-nowrap', className)}>
+      <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium text-primary whitespace-nowrap', className)}>
         <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
       </span>
     );
   }
   const meta = marketStatusMeta(t, status);
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium whitespace-nowrap', meta.text, className)}>
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', meta.text, className)}>
       <span className={cn('size-1.5 rounded-full', meta.dot)} />
       {meta.label}
     </span>
@@ -248,11 +285,11 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
       <div key={a.name} className="relative flex items-center gap-5 px-5 py-5 sm:px-7 animate-in fade-in slide-in-from-bottom-2 duration-500">
         <MarketLogo name={a.name} size={76} className="rounded-2xl shadow-md" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
             <Sparkles className="size-3" /> {t('connect.marketFeatured')}
           </div>
           <h2 className="mt-0.5 text-xl font-bold tracking-tight truncate">{a.label}</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
           <div className="mt-2.5 flex items-center gap-3">
             <button
               onClick={() => onPick(a.name)}
@@ -270,8 +307,8 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
             [t('connect.marketOnDevice'), marketStatusMeta(t, status).label],
           ].map(([k, v]) => (
             <div key={k} className="rounded-lg bg-background/70 backdrop-blur-sm ring-1 ring-border/60 px-3 py-1.5">
-              <div className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
-              <div className="text-[11.5px] font-medium truncate">{v}</div>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
+              <div className="text-xs font-medium truncate">{v}</div>
             </div>
           ))}
         </div>
@@ -357,13 +394,13 @@ function FolderPicker({
   return (
     <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
       <div className="px-3 py-2 border-b flex items-center justify-between gap-2 bg-muted/40">
-        <span className="text-[11px] font-medium truncate">{t('connect.nodePickerTitle')}</span>
+        <span className="text-xs font-medium truncate">{t('connect.nodePickerTitle')}</span>
         <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
       </div>
 
       {/* Current path */}
       <div className="px-3 py-2 border-b bg-zinc-950 dark:bg-black">
-        <code className="text-[11px] font-mono text-zinc-100 break-all">{path || '—'}</code>
+        <code className="text-xs font-mono text-zinc-100 break-all">{path || '—'}</code>
       </div>
 
       <div className="max-h-56 overflow-y-auto">
@@ -372,12 +409,12 @@ function FolderPicker({
             <Loader2 className="size-4 animate-spin" /><span className="text-xs">{t('connect.nodePickerLoading')}</span>
           </div>
         ) : unavailable ? (
-          <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
+          <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
         ) : (
           <div className="py-1">
             {roots.length > 0 && (
               <div className="px-3 py-2 border-b mb-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
                   {t('connect.nodePickerLocations')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -386,7 +423,7 @@ function FolderPicker({
                       key={root}
                       onClick={() => browse(root)}
                       className={cn(
-                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono transition-colors hover:bg-muted/60',
+                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors hover:bg-muted/60',
                         path === root && 'bg-muted border-foreground/20',
                       )}
                     >
@@ -405,7 +442,7 @@ function FolderPicker({
               </button>
             )}
             {dirs.length === 0 && !parent ? (
-              <p className="text-[11px] text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
+              <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
             ) : (
               dirs.map((d) => (
                 <button
@@ -439,6 +476,9 @@ export function AgentSetup({
   extensions,
   contextLabel,
   editAgent,
+  initialType,
+  draft,
+  draftFailure,
   onManageAgent,
   onBack,
   onChanged,
@@ -453,40 +493,55 @@ export function AgentSetup({
   extensions?: AgentSetupExtensions;
   contextLabel?: React.ReactNode;
   editAgent?: import('@/lib/types').NodeAgent;
+  /** Open straight on this type's form rather than the gallery. Ignored when editing. */
+  initialType?: string;
+  /** Reopen the add form filled in from a failed add; the name stays editable. */
+  draft?: AgentDraft;
+  /** Why the device refused `draft`. */
+  draftFailure?: string | null;
   onManageAgent?: (agent: import('@/lib/types').NodeAgent) => void;
   onBack: () => void;
   onChanged: () => void;
-  onQueued?: (agent: { name: string; type: string; commandId?: string }) => void;
+  onQueued?: (agent: { name: string; type: string; commandId?: string; draft?: AgentDraft }) => void;
 }) {
   const t = useT();
   const isEdit = !!editAgent;
-  const [selected, setSelected] = useState<string | null>(editAgent?.type ?? null);
-  const [name, setName] = useState(editAgent?.name ?? '');
+  const takenNames = useMemo(
+    () => new Set([...node.agents.map((agent) => agent.name), ...(extensions?.takenNames ?? [])]),
+    [node.agents, extensions?.takenNames],
+  );
+  const startType = editAgent ? null : draft?.type ?? initialType ?? null;
+  const [selected, setSelected] = useState<string | null>(editAgent?.type ?? startType);
+  const [name, setName] = useState(editAgent?.name ?? draft?.name ?? (startType ? uniqueAgentName(startType, takenNames) : ''));
   // The label people see, editable after creation — unlike `name`, which is the
   // agent's identity (config, env files, @mentions) and stays fixed.
   const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');
   const canRename = isEdit && !!extensions?.renameAgent;
-  // Once the user edits the name, picking/switching a type must never overwrite
-  // it — otherwise a typed name like "claudecbd" silently reverts to the type
-  // ("claude"). The type only seeds the name as a convenience default.
-  const nameTouched = useRef(false);
-  const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? '');
-  const [apiKey, setApiKey] = useState('');
+  // A typed name belongs to the type it was typed for: re-picking that type keeps
+  // it (a typed "claudecbd" must not revert to "claude"), but switching to a
+  // different type reseeds — otherwise "kimi-1019" lands on a DeepSeek agent.
+  const nameTouchedFor = useRef<string | null>(draft?.type ?? null);
+  const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? draft?.workingDir ?? '');
+  const [apiKey, setApiKey] = useState(draft?.apiKey ?? '');
   // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
   // only usable against an agent's built-in providers — for hermes (whose key
   // is meaningless without an endpoint) the form was a dead end. The daemon's
   // create/configure commands have always accepted baseUrl; the form just
   // never sent it.
-  const [baseUrl, setBaseUrl] = useState('');
-  const [model, setModel] = useState(editAgent?.model ?? '');
+  const [baseUrl, setBaseUrl] = useState(draft?.baseUrl ?? '');
+  const [model, setModel] = useState(editAgent?.model ?? draft?.model ?? '');
+  const [codexWireApi, setCodexWireApi] = useState<'responses' | 'chat'>(editAgent ? (editAgent.codexWireApi || 'chat') : (draft?.codexWireApi ?? 'responses'));
   // When editing an agent that has a key on the node, open the credentials
   // section up front so the masked key (and the keep-if-blank rule) is visible
   // — otherwise the collapsed section reads as "no key saved".
-  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked);
+  const [showCreds, setShowCreds] = useState(!!editAgent?.apiKeyMasked || !!draft?.apiKey || !!draft?.baseUrl);
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Name problems sit under the name field, not with the form-wide error, so
+  // a taken name is fixed where it is typed and nothing else is cleared.
+  const [nameError, setNameError] = useState<string | null>(null);
   // Marketplace toolbar state (selection mode).
   const [marketQuery, setMarketQuery] = useState('');
   const [marketCat, setMarketCat] = useState('all');
@@ -495,6 +550,7 @@ export function AgentSetup({
   // arrives on the next heartbeat.
   const hasRuntimes = (node.runtimes || []).length > 0;
   const [detecting, setDetecting] = useState(!hasRuntimes);
+  const [detectTimedOut, setDetectTimedOut] = useState(false);
 
   const runtimeByType = useMemo(() => {
     const m: Record<string, import('@/lib/types').NodeRuntime> = {};
@@ -509,15 +565,50 @@ export function AgentSetup({
     if (runtimesSig !== prevSigRef.current) {
       prevSigRef.current = runtimesSig;
       setDetecting(false);
+      setDetectTimedOut(false);
     }
   }, [runtimesSig]);
 
+  // Detection always ends. A device that is offline, or whose list never
+  // arrives, used to leave "Detecting…" up for good; after the deadline it
+  // says so and offers Re-detect. With nothing reported, the cards stay
+  // "unknown", never "not installed".
+  const hasRuntimesRef = useRef(hasRuntimes);
+  hasRuntimesRef.current = hasRuntimes;
+  useEffect(() => {
+    if (!detecting) return;
+    const deadline = setTimeout(() => {
+      setDetecting(false);
+      setDetectTimedOut(!hasRuntimesRef.current);
+    }, DETECT_DEADLINE_MS);
+    return () => clearTimeout(deadline);
+  }, [detecting]);
+
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
+  const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
+  const signInLink = signIn && (
+    <button type="button" onClick={signIn} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+      {t('connect.agentSignIn')}<ArrowRight className="size-3" />
+    </button>
+  );
+
+  // Say a name is taken while it is typed, not after the device refuses it. A
+  // name the device refused last time stays flagged on retry: that agent is
+  // not in this roster, so nothing else here knows about it.
+  const trimmedName = name.trim();
+  const nameClash = isEdit || !trimmedName ? null
+    : node.agents.some((agent) => agent.name === trimmedName) ? t('connect.agentNameExists')
+    : takenNames.has(trimmedName) ? t('connect.agentNameTaken', { name: trimmedName })
+    : deviceNameClash(draftFailure) === trimmedName ? t('connect.agentNameOnDevice', { name: trimmedName })
+    : null;
 
   const pick = (typeName: string) => {
     setSelected(typeName);
-    if (!nameTouched.current) setName(typeName); // seed only while untouched
+    if (nameTouchedFor.current !== typeName) {
+      nameTouchedFor.current = null;
+      setName(uniqueAgentName(typeName, takenNames));
+    }
     setWorkingDir('');
     setApiKey('');
     setBaseUrl('');
@@ -580,8 +671,14 @@ export function AgentSetup({
       : (detail?.env_config || []).filter((f) => f.password && f.required && !f.name.startsWith('LLM_'))),
     [detail, extensions?.configuration],
   );
-  const [nativeValues, setNativeValues] = useState<Record<string, string>>({});
-  useEffect(() => { setNativeValues({}); }, [selected]);
+  const [nativeValues, setNativeValues] = useState<Record<string, string>>(draft?.config ?? {});
+  // Picking another type starts these empty; a retry opens with its own.
+  const nativeValuesFor = useRef(selected);
+  useEffect(() => {
+    if (nativeValuesFor.current === selected) return;
+    nativeValuesFor.current = selected;
+    setNativeValues({});
+  }, [selected]);
   // Anthropic-protocol agents (Claude family) can only use Anthropic keys or
   // Anthropic-compatible relays — filter the saved accesses accordingly.
   const byokProtocol = detail?.protocol || 'openai';
@@ -591,11 +688,79 @@ export function AgentSetup({
       ? ['anthropic', 'custom-anthropic', 'tokenpay'].includes(a.provider)
       : a.provider !== 'custom-anthropic',
   );
-  const [byokAccessId, setByokAccessId] = useState('');
+  const [byokAccessId, setByokAccessId] = useState(draft?.modelAccessId ?? '');
+  // An agent on a key opens on that key, not on "sign in on the device": the
+  // select showed the sign-in for an agent running on a relay key, which is
+  // exactly how nobody could tell which of a device's two codex setups an
+  // agent was on. Devices that do not report authMode say so by a key or an
+  // endpoint of their own.
+  const editOnKey = !!editAgent && (editAgent.authMode !== undefined
+    ? editAgent.authMode === 'api_key'
+    : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
+  const [keepCurrent, setKeepCurrent] = useState(editOnKey);
+  // A type whose CLI has its own sign-in (codex login, claude login…): the
+  // no-key choice means that sign-in, and the device is told so (authMode),
+  // or the agent would run on whatever key the device saved for its type.
+  const signInType = byok && !!detail?.check_ready?.login_command;
+  const signInChosen = signInType && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const loginCommand = detail?.check_ready?.login_command || '';
+  // The models the device's own CLI offers its sign-in (a ChatGPT or Claude
+  // subscription), for an agent that will run on that sign-in ("sign in on
+  // the device" picked) rather than on a key. The catalog's list is the
+  // vendor's line-up, kept by hand: it offered models the account behind the
+  // sign-in is not served, and missed ones it is. The edited agent's own
+  // answer comes first; a new agent gets what its type's CLI said for the
+  // device. Null on a launcher too old to ask and until the CLI has
+  // answered: the catalog stands in.
+  const accountModels = useMemo(() => {
+    if (!signInChosen || !selected || baseUrl.trim()) return null;
+    // The device sends an agent's own list only while it is on its sign-in.
+    if (editAgent?.type === selected && editAgent.cliModels?.length) return editAgent.cliModels;
+    const runtime = runtimeByType[selected];
+    return runtime?.cliModels?.length ? runtime.cliModels : null;
+  }, [signInChosen, selected, baseUrl, editAgent, runtimeByType]);
+  const pickerModels = useMemo(
+    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : modelOptions),
+    [accountModels, modelOptions],
+  );
+  // A model the list does not hold (one saved before, or one the account is
+  // no longer offered) is still shown as the one picked, not as a blank.
+  const unlistedModel = model.trim() && pickerModels && !pickerModels.some((m) => m.id === model.trim()) ? model.trim() : null;
+  const currentKeyDetail = [editAgent?.apiKeyMasked, editAgent?.baseUrlHost].filter(Boolean).join(' · ');
+  const customCodex = selected === 'codex' && !extensions?.configuration && Boolean(byokAccessId || baseUrl.trim() || (editAgent?.baseUrlHost && keepCurrent));
+  const launcherParts = (node.launcherVersion || '').replace(/^v/, '').split('.').map(Number);
+  const supportsCodexMode = launcherParts[0] > 0 || launcherParts[1] > 2 || (launcherParts[1] === 2 && launcherParts[2] >= 197);
   const [byokCustomModel, setByokCustomModel] = useState(false);
   const [showAccessDialog, setShowAccessDialog] = useState(false);
   const [byokModels, setByokModels] = useState<{ id: string; label: string }[] | null>(null);
   const [byokModelsSource, setByokModelsSource] = useState<'live' | 'catalog' | null>(null);
+  // A model the form cannot save without is reported under the model field,
+  // which takes focus, rather than on the line beside the buttons.
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
+  // A new agent on a device with no sign-in for its type cannot answer until
+  // it is signed in or given a key. The first Add points at the warning and
+  // turns the button into "Add anyway"; the second adds it (the detection can
+  // be wrong, and signing in later is a fine plan). An agent not installed
+  // yet gets no warning, since its CLI cannot be signed in before it exists.
+  const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
+    && !byokAccessId && !keepCurrent && !apiKey.trim();
+  const [credsError, setCredsError] = useState(false);
+  const credsFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setCredsError(false); }, [credsMissing, selected]);
+
+  const failModel = (message: string) => {
+    // No model field on screen yet (the key's model list is still loading):
+    // the form-wide line is the only place left to say it.
+    if (!modelFieldRef.current) { setError(message); return; }
+    setModelError(message);
+    requestAnimationFrame(() => {
+      const field = modelFieldRef.current?.querySelector<HTMLElement>('input, button');
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      field?.focus({ preventScroll: true });
+    });
+  };
   const [byokLoading, setByokLoading] = useState(false);
   const [byokKeyError, setByokKeyError] = useState<string | null>(null);
   // Why the models listing failed (DNS, timeout, wrong URL, 5xx) when the key
@@ -612,8 +777,8 @@ export function AgentSetup({
     setByokModels(null); setByokModelsSource(null); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
   };
 
-  const loadByokModels = async (accessId: string) => {
-    if (!accessId) return;
+  const loadByokModels = async (accessId: string): Promise<{ id: string; label: string }[] | null> => {
+    if (!accessId) return null;
     setByokLoading(true); setByokKeyError(null); setByokProbeError(null); setByokTest({ state: 'idle' });
     try {
       const r = await api.probeModelAccess(accessId, undefined, byokProtocol === 'anthropic' ? 'anthropic' : 'openai');
@@ -623,6 +788,7 @@ export function AgentSetup({
       if (r.keyOk === false) {
         setByokKeyError(r.error || t('connect.byokKeyInvalid'));
         setByokModels(null);
+        return null;
       } else {
         const models = (r.models || [])
           .filter((m) => m.category !== 'image' && m.category !== 'audio')
@@ -635,13 +801,26 @@ export function AgentSetup({
         setByokModelsSource(r.source || 'live');
         setByokProbeError(!models.length && r.error ? r.error : null);
         if (!models.length) setByokCustomModel(true);
+        return models;
       }
     } catch (err) {
       setByokKeyError(err instanceof Error ? err.message : String(err));
+      return null;
     } finally {
       setByokLoading(false);
     }
   };
+
+  // A retry reopens on the access it was submitted with. Load that key's
+  // models once the agent's protocol is known, keeping the model picked then.
+  const draftAccessLoaded = useRef(false);
+  useEffect(() => {
+    if (!byok || !draft?.modelAccessId || draftAccessLoaded.current) return;
+    draftAccessLoaded.current = true;
+    void loadByokModels(draft.modelAccessId).then((models) => {
+      if (draft.model && models?.length && !models.some((m) => m.id === draft.model)) setByokCustomModel(true);
+    });
+  }, [byok]);
 
   const pickAccess = (accessId: string) => {
     setByokAccessId(accessId);
@@ -665,12 +844,11 @@ export function AgentSetup({
 
   const reDetect = async () => {
     setDetecting(true);
+    setDetectTimedOut(false);
     try {
       await api.enqueueNodeCommand(node.nodeId, 'detect_runtimes', {});
       setTimeout(onChanged, 4000);
-      // Safety: if fresh data never arrives, stop the spinner after a while so
-      // the UI doesn't look stuck.
-      setTimeout(() => setDetecting(false), 20000);
+      // The detection deadline above stops the spinner if fresh data never arrives.
     } catch {
       toast.error(t('connect.nodeCommandFailed'));
       setDetecting(false);
@@ -680,13 +858,24 @@ export function AgentSetup({
   const create = async () => {
     const n = name.trim();
     if (!n || !selected || submitting.current) return;
-    if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setError(t('connect.agentNameInvalid')); return; }
-    if (!isEdit && node.agents.some((agent) => agent.name === n)) { setError(t('connect.agentNameExists')); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(n)) { setNameError(t('connect.agentNameInvalid')); return; }
+    if (!isEdit && node.agents.some((agent) => agent.name === n)) { setNameError(t('connect.agentNameExists')); return; }
+    if (!isEdit && takenNames.has(n)) { setNameError(t('connect.agentNameTaken', { name: n })); return; }
+    setNameError(null);
     // A custom endpoint cannot choose a usable model from the agent's built-in
     // provider defaults. Leaving this blank previously saved the key and URL
     // while the agent kept running its old/default OpenAI model.
-    if (baseUrl.trim() && !model.trim()) { setError(t('connect.nodeCustomModelRequired')); return; }
-    if (byok && byokAccessId && !model.trim()) { setError(t('connect.byokChooseModel')); return; }
+    if (credsMissing && !credsError) {
+      setCredsError(true);
+      requestAnimationFrame(() => {
+        credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        credsFieldRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
+    if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
+    if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
     // A device that already holds them (configured there) needs nothing from
     // here; otherwise a new agent cannot start without every one of them.
     const nativeConfig = Object.fromEntries(
@@ -697,7 +886,10 @@ export function AgentSetup({
       setError(t('connect.nodeNativeCredRequired', { field: missingNative.name }));
       return;
     }
-    const configArg = Object.keys(nativeConfig).length ? { config: nativeConfig } : {};
+    const configArg = {
+      ...(Object.keys(nativeConfig).length ? { config: nativeConfig } : {}),
+      ...(customCodex ? { codexWireApi } : {}),
+    };
     submitting.current = true;
     setError(null);
     setBusy(true);
@@ -706,12 +898,16 @@ export function AgentSetup({
         await api.enqueueNodeCommand(node.nodeId, 'configure_agent', {
           name: n,
           type: selected,
-          model: model.trim(),                       // '' clears → Auto
+          // Only a model that was changed: one this form never showed (a
+          // launcher-saved CODEX_MODEL on an older device) went out blank and
+          // wiped the model the agent ran on. '' still clears → Auto.
+          ...(model.trim() !== (editAgent?.model ?? '').trim() ? { model: model.trim() } : {}),
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir.trim() ? { workingDir: workingDir.trim() } : {}),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // After the configuration, so a label the workspace refuses (too long,
@@ -729,20 +925,44 @@ export function AgentSetup({
           ...(baseUrl.trim() && !detail?.provider_locked ? { baseUrl: baseUrl.trim() } : {}),
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(byok && byokAccessId ? { modelAccessId: byokAccessId } : {}),
+          ...(signInChosen ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
         // Optimistically show it spinning up in the node card. The commandId
         // lets the placeholder track the REAL install/config progress instead
         // of guessing from a timer.
-        onQueued?.({ name: n, type: selected, commandId: cmd?.commandId });
+        if (cmd?.deferred) {
+          toast.success(t('connect.agentAddedAfterInstall', { name: n }));
+        } else {
+          onQueued?.({
+            name: n, type: selected, commandId: cmd?.commandId,
+            draft: {
+              name: n, type: selected,
+              workingDir: workingDir.trim() || undefined,
+              apiKey: apiKey.trim() || undefined,
+              baseUrl: baseUrl.trim() || undefined,
+              model: model.trim() || undefined,
+              modelAccessId: (byok && byokAccessId) || undefined,
+              codexWireApi: customCodex ? codexWireApi : undefined,
+              config: configArg.config,
+            },
+          });
+          toast.success(extensions?.local ? t('connect.agentAdded') : t('connect.nodeCommandQueued', { node: node.name }));
+        }
       }
-      toast.success(extensions?.local ? t(isEdit ? 'connect.agentSaved' : 'connect.agentAdded') : t('connect.nodeCommandQueued', { node: node.name }));
+      if (isEdit) toast.success(extensions?.local ? t('connect.agentSaved') : t('connect.nodeCommandQueued', { node: node.name }));
       if (extensions?.local) onChanged();
       else setTimeout(onChanged, 3000);
       onBack();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
-      setError(/40[13]/.test(msg) ? t('connect.nodeCommandForbidden') : msg || t('connect.nodeCommandFailed'));
+      const key = nodeCommandErrorKey(msg, !isEdit);
+      // The device or workspace refused the name itself: point at the field.
+      if (!isEdit && (key === 'connect.agentNameTaken' || /already exists/i.test(msg))) {
+        setNameError(t(key ?? 'connect.agentNameExists', { name: n }));
+      } else {
+        setError(key ? t(key, { name: n }) : msg || t('connect.nodeCommandFailed'));
+      }
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -758,7 +978,7 @@ export function AgentSetup({
     } as const;
     const b = map[status];
     if (!b.label) return null;
-    return <span className={cn('text-[9px] font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
+    return <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
   };
 
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
@@ -772,44 +992,15 @@ export function AgentSetup({
       </Button>
     );
     const saveButton = (
-      <Button variant="primary" onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className="shrink-0">
+      <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
-        {isEdit ? t('connect.nodeSaveChanges') : t('connect.agentAddTitle')}
+        {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
-    return (
-      <div className="flex h-full min-h-0 w-full flex-col">
-        <header className="shrink-0 border-b">
-          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-xs text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-
-            {/* Agent hero */}
-            <div className="flex items-center gap-4">
-              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
-                <AgentIcon name={selectedEntry.name} size={34} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.name }) : selectedEntry.label}</h3>
-                  {badge(selectedStatus)}
-                  {selectedEntry.homepage && (
-                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer"
-                       className="text-muted-foreground/50 hover:text-primary transition-colors"><ExternalLink className="size-3.5" /></a>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
-              </div>
-              {extensions?.headerActions && (
-                <div className="flex shrink-0 items-center gap-2">{backButton}{saveButton}</div>
-              )}
-            </div>
-            {extensions?.headerActions && error && errorText('line-clamp-2')}
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
+    // The form itself, shared by both layouts below.
+    const formBody = (
+      <>
         {!isEdit && onManageAgent && node.agents.some((agent) => agent.type === selected) && (
           <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
@@ -822,7 +1013,7 @@ export function AgentSetup({
         )}
 
         {/* Config card */}
-        <fieldset disabled={busy} className="rounded-2xl border bg-background p-5 space-y-4 min-w-0">
+        <fieldset disabled={busy} className={extensions?.compact ? 'min-w-0 space-y-5' : 'rounded-2xl border bg-background p-5 space-y-4 min-w-0'}>
           {/* Status hint */}
           {!extensions?.configuration && <div className={cn(
             'text-xs rounded-xl px-4 py-3 leading-relaxed',
@@ -833,7 +1024,16 @@ export function AgentSetup({
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
             {selectedStatus === 'needs_login' && (detail?.provider_locked
               ? t('connect.nodeProviderLockedHint', { label: selectedEntry?.label || selected || '' })
-              : t('connect.nodeNeedsLoginHint'))}
+              : <NeedsCredentialsHint
+                  label={selectedEntry?.label || selected || ''}
+                  device={node.name || node.hostname || ''}
+                  // A device new enough to have `agn login` says so; an older
+                  // one gets the CLI's own command.
+                  command={(selected && runtimeByType[selected]?.loginCommand) || loginCommand
+                    || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || ''}
+                  note={selected ? HINT_ONLY_SIGN_IN[selected]?.note : undefined}
+                  os={node.os}
+                />)}
             {(selectedStatus === 'not_installed' || selectedStatus === 'unknown') && t('connect.nodeWillInstallHint')}
           </div>}
 
@@ -881,18 +1081,38 @@ export function AgentSetup({
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.agentDisplayNameLabel')}</Label>
               <Input aria-label={t('connect.agentDisplayNameLabel')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={editAgent!.name} maxLength={64} className="h-10 text-sm" />
-              <p className="text-[11px] text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
             </div>
           )}
 
           {/* Name (fixed when editing an existing agent) */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeAgentNameLabel')}</Label>
-            <Input aria-label={t('connect.nodeAgentNameLabel')} value={name} onChange={(e) => { setName(e.target.value); nameTouched.current = true; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
-            {canRename && <p className="text-[11px] text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
+            <Label className="text-xs font-medium">
+              {t('connect.nodeAgentNameLabel')}
+              {/* Locked when editing, so only a new agent asks for it. */}
+              {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
+            </Label>
+            <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+            {nameError || nameClash
+              ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
+              : !isEdit && <p className="text-xs text-muted-foreground">{t('connect.agentNameUniqueHint')}</p>}
+            {/* Always on, not a tooltip: a second agent of a type someone
+                already runs is a different name away, nothing more. */}
+            {!isEdit && selected && (
+              <p data-testid="agent-setup-name-hint" className="text-xs text-muted-foreground">
+                {t('connect.agentNameMultiHint', { first: selected, second: `${selected}-2` })}
+              </p>
+            )}
+            {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
+
+          {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
+            <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
+              {t('connect.agentSharedConfigHint', { label: selectedEntry.label })}
+            </p>
+          )}
 
           {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (
@@ -902,23 +1122,48 @@ export function AgentSetup({
                   <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
                 </span>
                 {byokTest.state === 'ok' && (
-                  <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="size-3.5" />{t('connect.byokVerifiedShort')}
                   </span>
                 )}
               </div>
 
-              {/* Saved model access + add-new */}
-              <div className="flex gap-2">
+              {/* Add-new + saved model access */}
+              <div ref={credsFieldRef} className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0 sm:min-w-48">
+                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
+                </Button>
                 <Select
-                  value={byokAccessId || NO_ACCESS}
-                  onValueChange={(v) => pickAccess(v === NO_ACCESS ? '' : v)}
+                  value={byokAccessId || (keepCurrent ? KEEP_CURRENT : NO_ACCESS)}
+                  onValueChange={(v) => {
+                    if (v === KEEP_CURRENT) {
+                      setKeepCurrent(true);
+                      setByokAccessId('');
+                      setModel(editAgent?.model ?? '');
+                      setByokCustomModel(false);
+                      resetByokChecks();
+                      return;
+                    }
+                    setKeepCurrent(false);
+                    pickAccess(v === NO_ACCESS ? '' : v);
+                  }}
                 >
-                  <SelectTrigger className="h-10 min-w-0 flex-1">
+                  <SelectTrigger aria-label={t('connect.byokTitle')} className="h-10 min-w-0 flex-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_ACCESS}>{t('connect.byokProviderNone')}</SelectItem>
+                    {editOnKey && (
+                      <SelectItem value={KEEP_CURRENT}>
+                        {currentKeyDetail
+                          ? t('connect.byokKeepCurrent', { detail: currentKeyDetail })
+                          : t('connect.byokKeepCurrentPlain')}
+                      </SelectItem>
+                    )}
+                    <SelectItem value={NO_ACCESS}>
+                      {signInType && loginCommand
+                        ? t('connect.byokDeviceSignIn', { command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })
+                        : t('connect.byokProviderNone')}
+                    </SelectItem>
                     {byokAccessOptions.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.label} · {a.apiKeyMasked}
@@ -926,10 +1171,48 @@ export function AgentSetup({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" onClick={() => setShowAccessDialog(true)} className="h-10 shrink-0">
-                  <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
-                </Button>
               </div>
+
+              {/* No key picked on a device with no sign-in either. Adding is
+                  first points here, then lets it through as "Add anyway"
+                  (credsMissing); editing an existing agent only warns.
+                  Re-detect is the way back for someone who just signed in. */}
+              {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
+                <p
+                  data-testid="agent-setup-not-signed-in"
+                  role={credsError ? 'alert' : undefined}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-amber-700 dark:text-amber-500')}
+                >
+                  {t(isEdit ? 'connect.byokNotSignedInHint' : 'connect.byokNotSignedInRequired')}{' '}
+                  <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
+                    <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                    {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+                  </button>
+                </p>
+              )}
+
+              {/* Which credential the agent will run on, in words: the select
+                  alone did not say that "sign in on the device" means this
+                  CLI's own account and never a key saved on the device. */}
+              {signInChosen && (
+                <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
+                  {t('connect.byokDeviceSignInHint', { label: selectedEntry?.label || selected || '', command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })}
+                  {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}
+                </p>
+              )}
+              {keepCurrent && !byokAccessId && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
+                  <Input
+                    aria-label={t('connect.nodeModel')}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={t('connect.nodeAgentModelOptional')}
+                    className="h-10 text-sm font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">{t('connect.byokKeepCurrentModelHint')}</p>
+                </div>
+              )}
 
               {/* One-click promo credits — OpenAI-protocol agents the campaign
                   gateway can back. Selects (or creates) the gateway access. */}
@@ -942,23 +1225,29 @@ export function AgentSetup({
               })}
 
               {accesses !== null && accesses.length === 0 && !byokAccessId && (
-                <p className="text-[11px] text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('connect.byokNoAccessHint')}</p>
               )}
 
               {byokAccessId && (
                 <>
                   {byokLoading && (
-                    <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Loader2 className="size-3 animate-spin" />{t('connect.byokLoadingModels')}
                     </p>
                   )}
                   {byokKeyError && (
-                    <p className="text-[11px] text-red-600 dark:text-red-400">{byokKeyError}</p>
+                    <p className="text-xs text-red-600 dark:text-red-400">{byokKeyError}</p>
                   )}
 
-                  {/* Model — the ones this key can actually use */}
+                  {/* Model — the ones this key can actually use. Marked
+                      required up here: the only other word of it was the
+                      footer error, out of sight below a tall form. */}
                   {byokModels && (
-                    <div className="space-y-1.5">
+                    <div ref={modelFieldRef} className="space-y-1.5">
+                      <Label className="text-xs font-medium">
+                        {t('connect.byokModelLabel')}{' '}
+                        <span className="text-destructive">* {t('connect.requiredMark')}</span>
+                      </Label>
                       <Select
                         value={byokCustomModel ? CUSTOM_MODEL : model || undefined}
                         onValueChange={(v) => {
@@ -967,7 +1256,7 @@ export function AgentSetup({
                           setByokTest({ state: 'idle' });
                         }}
                       >
-                        <SelectTrigger className="h-10 w-full">
+                        <SelectTrigger aria-invalid={!!modelError} className="h-10 w-full">
                           <SelectValue placeholder={t('connect.byokChooseModel')} />
                         </SelectTrigger>
                         <SelectContent>
@@ -982,12 +1271,14 @@ export function AgentSetup({
                       {byokCustomModel && (
                         <Input
                           value={model}
+                          aria-invalid={!!modelError}
                           onChange={(e) => { setModel(e.target.value); setByokTest({ state: 'idle' }); }}
                           placeholder="claude-sonnet-4-6"
                           className="h-10 text-sm font-mono"
                         />
                       )}
-                      <p className="text-[11px] text-muted-foreground">
+                      {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                      <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
                           : byokModelsSource === 'live'
@@ -995,7 +1286,7 @@ export function AgentSetup({
                             : t('connect.byokModelsCatalog')}
                       </p>
                       {byokProbeError && (
-                        <p className="text-[11px] text-muted-foreground break-words">{byokProbeError}</p>
+                        <p className="text-xs text-muted-foreground break-words">{byokProbeError}</p>
                       )}
                     </div>
                   )}
@@ -1014,12 +1305,12 @@ export function AgentSetup({
                         : (<><Zap className="size-3.5 mr-1.5" />{t('connect.byokTest')}</>)}
                     </Button>
                     {byokTest.state === 'ok' && (
-                      <span className="text-[11px] leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
                         {t('connect.byokTestOk', { model: model.trim(), ms: byokTest.ms ?? 0 })}
                       </span>
                     )}
                     {byokTest.state === 'fail' && (
-                      <span className="text-[11px] leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
                         {t('connect.byokTestFail')}{byokTest.error ? ` — ${byokTest.error}` : ''}
                       </span>
                     )}
@@ -1038,25 +1329,50 @@ export function AgentSetup({
             </div>
           )}
 
+          {customCodex && (
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">{t('connect.codexMode')}</Label>
+              <Select value={codexWireApi} onValueChange={(v) => setCodexWireApi(v as 'responses' | 'chat')}>
+                <SelectTrigger aria-label={t('connect.codexMode')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="responses">{t('connect.codexModeResponses')}</SelectItem>
+                  <SelectItem value="chat">{t('connect.codexModeChat')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className={cn('text-xs', codexWireApi === 'chat' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                {t(codexWireApi === 'chat' ? 'connect.codexModeChatHint' : 'connect.codexModeResponsesHint')}
+              </p>
+              {codexWireApi === 'responses' && !supportsCodexMode && <p role="alert" className="text-xs text-destructive">{t('connect.codexModeUpdate')}</p>}
+            </div>
+          )}
+
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
-          {!extensions?.configuration && modelOptions && !(byok && byokAccessId) && !baseUrl.trim() && (
+          {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.nodeModel')}</Label>
+              <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
-                value={model || AUTO_MODEL}
+                value={model.trim() || AUTO_MODEL}
                 onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
               >
-                <SelectTrigger className="h-10 w-full">
+                <SelectTrigger aria-label={t('connect.nodeModel')} className="h-10 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
-                  {modelOptions.map((m) => (
+                  {pickerModels.map((m) => (
                     <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                   ))}
+                  {unlistedModel && (
+                    <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {accountModels && (
+                <p data-testid="agent-setup-account-models" className="text-xs text-muted-foreground">
+                  {t('connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+                </p>
+              )}
             </div>
           )}
 
@@ -1064,7 +1380,7 @@ export function AgentSetup({
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
             <div className="flex gap-2">
-              <Input aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
+              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
               <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
                 <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
               </Button>
@@ -1076,7 +1392,7 @@ export function AgentSetup({
                 onClose={() => setShowPicker(false)}
               />
             )}
-            <p className="text-[11px] text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
+            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
           </div>
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
@@ -1095,11 +1411,11 @@ export function AgentSetup({
                     autoComplete="off"
                     className="h-10 text-sm"
                   />
-                  {f.description && <p className="text-[11px] text-muted-foreground">{f.description}</p>}
+                  {f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
                 </div>
               ))}
-              <p className="text-[11px] text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
-              {!modelOptions && (
+              <p className="text-xs text-muted-foreground">{t('connect.nodeNativeCredsHint')}</p>
+              {!pickerModels && (
                 <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
               )}
             </div>
@@ -1118,7 +1434,7 @@ export function AgentSetup({
                 className="h-10 text-sm"
               />
               {isEdit && editAgent?.apiKeyMasked && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {t('connect.nodeKeyConfiguredHint', { masked: editAgent.apiKeyMasked })}
                 </p>
               )}
@@ -1135,18 +1451,120 @@ export function AgentSetup({
                     placeholder={t('connect.nodeAgentBaseUrlOptional')}
                     className="h-10 text-sm font-mono"
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
+                  <p className="text-xs text-muted-foreground">{t('connect.nodeAgentBaseUrlHint')}</p>
                 </>
               )}
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
-              {(!modelOptions || !!baseUrl.trim()) && (
-                <Input aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+              {(!pickerModels || !!baseUrl.trim()) && (
+                <div ref={modelFieldRef} className="space-y-1.5">
+                  <Input data-testid="agent-setup-model" aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} aria-invalid={!!modelError} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
+                  {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                </div>
               )}
             </div>
           )}
 
         </fieldset>
+      </>
+    );
+
+    // ---- Desktop layout: breadcrumb, title, the form beside an info column,
+    // and its actions at the bottom of the form.
+    if (extensions?.compact) {
+      // Opened on a type (the launcher always does), the way back is to the page
+      // that opened it — there is no type list behind this form to return to.
+      const leave = isEdit || startType ? onBack : backToSelection;
+      const title = isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : t('connect.agentConfigure', { name: selectedEntry.label });
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-6 px-9 pt-6 pb-8">
+              <div>
+                {/* Same lead-in as the type picker before it: an explicit way back,
+                    not only the breadcrumb's first step. */}
+                <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <button onClick={leave} disabled={busy} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+                    <ChevronLeft className="size-4" />{t('connect.nodeBack')}
+                  </button>
+                  <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                  <button onClick={leave} disabled={busy} className="hover:text-primary hover:underline">
+                    {extensions.breadcrumbRoot || t('connect.nodeBackToAgents')}
+                  </button>
+                  <span aria-hidden>/</span>
+                  <span className="text-foreground">{title}</span>
+                </nav>
+                <div className="mt-3 flex items-center gap-2">
+                  <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
+                  {badge(selectedStatus)}
+                  {signInLink}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="min-w-0 space-y-5">
+                  {formBody}
+                  {error && errorText()}
+                  {/* The actions close the form, splitting the full width of its
+                      column — not pinned: a pinned bar covered the fields
+                      scrolling under it and doubled the bottom gap. */}
+                  <div data-testid="agent-setup-actions" className="grid grid-cols-2 gap-4 pt-3">
+                    <Button variant="outline" size="lg" className="w-full" onClick={leave} disabled={busy}>
+                      {t('connect.compactCancel')}
+                    </Button>
+                    {saveButton}
+                  </div>
+                </div>
+                {extensions.aside && selected && (
+                  <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col">
+        <header className="shrink-0 border-b">
+          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
+            <div className="text-sm text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+
+            {/* Agent hero */}
+            <div className="flex items-center gap-4">
+              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
+                <AgentIcon name={selectedEntry.name} size={34} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : selectedEntry.label}</h3>
+                  {badge(selectedStatus)}
+                  {/* Beside "Needs login" the link is the sign-in itself where the
+                      host can run it; otherwise it is labelled as docs, because a
+                      bare arrow there reads as "sign in here". */}
+                  {signInLink || selectedEntry.homepage && (
+                    <a href={selectedEntry.homepage} target="_blank" rel="noopener noreferrer" title={selectedEntry.homepage}
+                       className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                      {t('connect.agentDocs')}<ExternalLink className="size-3" />
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{selectedEntry.description}</p>
+              </div>
+              {extensions?.headerActions && (
+                <div className="flex shrink-0 items-center gap-2">{backButton}{saveButton}</div>
+              )}
+            </div>
+            {extensions?.headerActions && error && errorText('line-clamp-2')}
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
+        {formBody}
         </div>
         </div>
 
@@ -1193,6 +1611,30 @@ export function AgentSetup({
     return [e.name, e.label, e.vendor || '', e.description, ...tags].join(' ').toLowerCase().includes(q);
   });
 
+  if (extensions?.compact) {
+    return (
+      <CompactTypePicker
+        catalog={catalog}
+        catalogState={catalogState}
+        visible={visible}
+        readyCount={readyCount}
+        detecting={detecting}
+        detectTimedOut={detectTimedOut}
+        onReDetect={() => void reDetect()}
+        categories={marketCats}
+        category={marketCat}
+        onCategory={setMarketCat}
+        query={marketQuery}
+        onQuery={setMarketQuery}
+        statusOf={statusOf}
+        checkingOf={checkingOf}
+        breadcrumbRoot={extensions.breadcrumbRoot}
+        onPick={pick}
+        onBack={onBack}
+      />
+    );
+  }
+
   return (
     <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
       {/* Header */}
@@ -1207,10 +1649,12 @@ export function AgentSetup({
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-bold tracking-tight">{t('connect.agentAddTitle')}</h3>
           <div className="text-xs text-muted-foreground mt-1">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {detecting
               ? t('connect.nodeDetectingAgents')
-              : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
+              : detectTimedOut
+                ? t('connect.nodeDetectTimedOut')
+                : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>
@@ -1239,7 +1683,7 @@ export function AgentSetup({
               key={c.key}
               onClick={() => setMarketCat(c.key)}
               className={cn(
-                'whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors',
+                'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
                 marketCat === c.key
                   ? 'bg-foreground text-background'
                   : 'bg-muted text-muted-foreground hover:text-foreground',
@@ -1267,18 +1711,18 @@ export function AgentSetup({
             <div className="flex items-center gap-3">
               <MarketLogo name={entry.name} size={44} />
               <div className="flex-1 min-w-0">
-                <div className="text-[13.5px] font-semibold leading-tight truncate">{entry.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
+                <div className="text-sm font-semibold leading-tight truncate">{entry.label}</div>
+                <div className="mt-0.5 font-mono text-xs text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
               </div>
             </div>
 
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
 
             {/* Footer: live device status + an always-visible Add CTA (the
                 whole card is the click target; this span is its label). */}
             <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
               <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
-              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10.5px] font-semibold text-white transition-colors group-hover:bg-indigo-500">
+              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-semibold text-white transition-colors group-hover:bg-indigo-500">
                 {t('connect.marketAdd')} <ArrowRight className="size-3" />
               </span>
             </div>
@@ -1306,7 +1750,7 @@ export function AgentSetup({
           <div className="space-y-5">
             {popular.length > 0 && (
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('connect.marketPopular')}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1316,7 +1760,7 @@ export function AgentSetup({
             )}
             {others.length > 0 && (
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('connect.marketOthers')}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
