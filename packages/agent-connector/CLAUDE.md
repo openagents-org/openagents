@@ -54,8 +54,8 @@ src/
     qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
     qwen-code.js      QwenCodeAdapter — Alibaba Qwen Code CLI (`qwen --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config, auto-memory turned off through a system-defaults settings layer
     qwen-code-stream.js  Pure helpers for QwenCodeAdapter (argv builder, stream-json frame interpreter, run classification, key/base URL/model resolution as one set, settings layer, version gate, redaction) — unit-tested
-    step-code.js      StepCodeAdapter — StepFun's Step Code CLI (`step -p --mode json`, Pi's JSON stream) bridge, prompt piped over stdin, a private config root per channel (workspace MCP server only, the form's key over any saved sign-in), plan mode toggled per session, Stop kills the whole process tree
-    step-code-runtime.js  Pure helpers for StepCodeAdapter (regions, credentials, run config.toml, child env, argv, frame interpreter on top of pi-stream, run classification, Smallstep-aware version gate, process-tree walk, redaction) — unit-tested
+    step-code.js      StepCodeAdapter — StepFun's Step Code CLI (`step -p --mode json`, Pi's JSON stream) bridge, prompt piped over stdin, a private config root per channel (workspace MCP server only, the form's key over any saved sign-in, the briefing as a file), plan mode toggled per session, Stop kills the whole process tree
+    step-code-runtime.js  Pure helpers for StepCodeAdapter (regions, credentials, run config.toml, child env, argv, frame interpreter on top of pi-stream, run classification on top of run-failure, Smallstep-aware version gate, process-tree walk, the secret values in a saved sign-in) — unit-tested
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)
