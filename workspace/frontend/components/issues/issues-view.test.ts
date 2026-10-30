@@ -60,6 +60,7 @@ vi.mock('@/components/chat/markdown-content', () => ({
   MarkdownContent: ({ content }: { content: string }) =>
     createElement('div', {}, content),
 }));
+vi.mock('@/components/files/authenticated-image', () => ({ AuthenticatedImage: () => null }));
 vi.mock('@/components/tasks/task-chat-popup', () => ({
   TaskChatPopup: () => null,
 }));
@@ -364,6 +365,69 @@ it('clears a saved comment and reports delivery failure without inviting a dupli
   expect(host.textContent).toContain('Comment saved; delivery failed');
 });
 
+it('can save again after closing the editor mid-upload', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(button('New issue'));
+  mocks.api.uploadFile.mockImplementationOnce(() => new Promise(() => {}));
+  const input = host.querySelector('input[type="file"]')!;
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['clip'], 'clip.mp4', { type: 'video/mp4' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(button('Cancel'));
+  await click(button('New issue'));
+  await fill(host.querySelector('input[required]')!, 'Retry later');
+  expect(button('Create issue').disabled).toBe(false);
+});
+
+it('keeps issue signals unread while the tab is in the background and reads them on return', async () => {
+  const markChannelSignalsRead = vi.fn();
+  const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+  Object.assign(mocks.ws, { unreadSignals: { 'issue:issue-1': { mentions: 1, dms: 0, latest: {} } }, markChannelSignalsRead });
+  try {
+    await openIssue();
+    expect(markChannelSignalsRead).not.toHaveBeenCalled();
+    hasFocus.mockReturnValue(true);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(markChannelSignalsRead).toHaveBeenCalledWith('issue:issue-1');
+  } finally {
+    hasFocus.mockRestore();
+    Object.assign(mocks.ws, { unreadSignals: undefined, markChannelSignalsRead: undefined });
+  }
+});
+
+it('adds a usable shared agent the comment mentions before posting, but not one the viewer cannot use', async () => {
+  mocks.ws.agents = [
+    { agentName: 'shared-agent', displayName: 'Shared agent', ownerEmail: 'bob@example.com', status: 'online', canStartThread: true },
+    { agentName: 'private-agent', displayName: 'Private agent', ownerEmail: 'bob@example.com', status: 'online', canStartThread: false },
+  ];
+  try {
+    await openIssue();
+    await fill(host.querySelector('textarea')!, '@shared-agent and @private-agent please look');
+    await click(button('Comment'));
+    expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith('issue-1', [{ kind: 'agent', id: 'shared-agent' }]);
+    expect(mocks.api.addIssueParticipants.mock.invocationCallOrder[0]).toBeLessThan(mocks.api.commentOnIssue.mock.invocationCallOrder[0]);
+  } finally { mocks.ws.agents = []; }
+});
+
+it('posts images with a comment and keeps them out of the next draft', async () => {
+  await openIssue();
+  mocks.api.uploadFile.mockResolvedValueOnce({ id: 'shot-1', filename: 'shot.png', contentType: 'image/png' });
+  const input = host.querySelector<HTMLInputElement>('input[type="file"][aria-label="Image or video"]')!;
+  expect(input.accept).toBe('image/*,video/*');
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['png'], 'shot.png', { type: 'image/png' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(button('Comment'));
+  expect(mocks.api.commentOnIssue).toHaveBeenLastCalledWith('issue-1', expect.objectContaining({ content: '', file_ids: ['shot-1'] }));
+  await fill(host.querySelector('textarea')!, 'follow-up');
+  await click(button('Comment'));
+  expect(mocks.api.commentOnIssue.mock.lastCall![1]).not.toHaveProperty('file_ids');
+});
+
 it.each(['metaKey', 'ctrlKey'] as const)('sends an issue comment with %s + Enter, but not plain Enter or IME confirmation', async (modifier) => {
   await openIssue();
   const textarea = host.querySelector('textarea')!;
@@ -436,7 +500,8 @@ it('creates a human-assigned issue and waits for attachments to upload', async (
     Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'evidence.txt', { type: 'text/plain' })] });
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  expect(button('Create issue').disabled).toBe(true);
+  expect(button('Uploading…').disabled).toBe(true);
+  expect(button('Cancel').disabled).toBe(false);
   expect(mocks.api.createIssue).not.toHaveBeenCalled();
   await act(async () => finish({ id: 'file-1', filename: 'evidence.txt', contentType: 'text/plain' }));
   mocks.api.createIssue.mockRejectedValueOnce(new Error('Try again'));

@@ -17,6 +17,7 @@ import { useTeamRoster } from '@/hooks/use-team-roster'
 import { HumanAvatar } from '@/components/chat/human-avatar'
 import { useWorkspace } from "@/lib/workspace-context"
 import { useLayout } from "@/components/layout/layout-context"
+import { ListToggleButton } from "@/components/layout/list-collapse-button"
 import { useConfirm, usePrompt } from "@/components/ui/dialogs-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -280,15 +281,16 @@ export function FileList() {
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         {/* No count here — this panel is about folders, and the detail header
             counts the files you're actually looking at. */}
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">{t("files.title")}</span>
-          {/* This panel owns the folder structure; uploading a file belongs to
-              the folder you're looking at, so it lives in the detail toolbar. */}
-          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => handleCreateFolder()}>
-            <FolderPlus className="size-4" />
-            {t("folders.newFolder")}
-          </Button>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm leading-relaxed font-semibold">{t("files.title")}</span>
         </div>
+        {/* This panel owns the folder structure; uploading a file belongs to
+            the folder you're looking at, so it lives in the detail toolbar. */}
+        <Button size="sm" className="shrink-0 gap-1.5 font-semibold" onClick={() => handleCreateFolder()}>
+          <FolderPlus className="size-4" />
+          {t("folders.newFolder")}
+        </Button>
       </div>
 
       {/* ── Search ── */}

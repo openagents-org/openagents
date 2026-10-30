@@ -27,6 +27,7 @@ from app.models import (
     IssueThread,
     IssueAgentSharing,
     ApprovalRequest,
+    NotificationRecord,
     WorkspaceMember,
     WorkspaceMembership,
     User,
@@ -98,6 +99,7 @@ class UpdateIssueRequest(ActorRequest):
 
 class CommentRequest(ActorRequest):
     knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
+    file_ids: list[str] = Field(default_factory=list, max_length=20)
     content: str = Field(default="", max_length=50000)
     source_event_id: Optional[str] = None
     reply_to_event_id: Optional[str] = None
@@ -235,8 +237,25 @@ def _comment(comment):
         key: getattr(comment, key)
         for key in ("id", "author", "author_name", "content", "kind", "source_event_id")
     } | {
+        "file_ids": comment.file_ids or [],
         "created_at": _iso(comment.created_at),
     }
+
+
+def _attach_comment_files(db, workspace, viewer, discussion):
+    from app.models import FileRecord
+    from app.services.access_model import can_read_file
+    ids = {i for item in discussion for i in item.get("file_ids") or []}
+    if not ids:
+        return
+    files = {f.id: f for f in db.execute(select(FileRecord).where(
+        FileRecord.workspace_id == workspace.id, FileRecord.id.in_(ids), FileRecord.status == "active",
+    )).scalars() if can_read_file(db, str(workspace.id), viewer, f)}
+    for item in discussion:
+        item["attachments"] = [
+            {"file_id": f.id, "filename": f.filename, "content_type": f.content_type, "size": f.size}
+            for f in (files.get(i) for i in item.get("file_ids") or []) if f
+        ]
 
 
 def _add_comment(
@@ -322,6 +341,79 @@ def _participants(db, issue, channels):
         else:
             people[person["source"]] = person
     return list(people.values())
+
+
+def issue_signal_channel(issue_id) -> str:
+    """Signal channel for an issue; the web app reads it as `issue:<id>`."""
+    return f"issue:{issue_id}"
+
+
+def _signal_people(db, workspace, issue, actor, emails, kind, title, message):
+    """File personal unread signals about an issue; never to the actor."""
+    from app.services.people_notify import _is_member
+    from app.services.notify import notify
+
+    me = actor.removeprefix("human:").lower()
+    sent = set()
+    for email in sorted({e.lower() for e in emails if e and "@" in e} - {me}):
+        if not _is_member(db, workspace, email):
+            continue
+        sent.add(email)
+        # Activity collapses into the person's one unread row for the issue;
+        # mentions stay individual so each can be found.
+        latest = db.execute(select(NotificationRecord).where(
+            NotificationRecord.workspace_id == str(workspace.id),
+            NotificationRecord.recipient_email == email,
+            NotificationRecord.channel_name == issue_signal_channel(issue.id),
+            NotificationRecord.kind == "issue",
+            NotificationRecord.is_read.is_(False),
+            NotificationRecord.status == "active",
+        ).limit(1)).scalar_one_or_none() if kind == "issue" else None
+        if latest is not None:
+            latest.title, latest.message, latest.created_by = title, message, actor
+            latest.created_at = datetime.now(timezone.utc)
+            continue
+        notify(
+            db, str(workspace.id),
+            source=actor,
+            kind=kind,
+            recipient_email=email,
+            channel_name=issue_signal_channel(issue.id),
+            title=title,
+            message=message,
+            reason="mention",
+            # Phones open `channel` as a thread; an issue id would not resolve.
+            push=False,
+        )
+    return sent
+
+
+def _snippet_of(content):
+    from app.services.people_notify import _snippet
+    return _snippet(content)
+
+
+def _issue_people(issue):
+    """People following an issue: its creator, assignee and joined participants."""
+    sources = [issue.created_by, issue.assignee] + [
+        p["source"] for p in issue.participants or [] if not p.get("removed")]
+    return {s.removeprefix("human:").lower() for s in sources
+            if s and s.startswith("human:") and "@" in s}
+
+
+def _notify_issue_activity(db, workspace, issue, actor, actor_name, content, activity=None):
+    """Signal people @mentioned in `content`; with `activity`, also the issue's followers."""
+    from app.services.people_notify import _readable_mentions, _snippet, mentioned_people
+
+    name = actor_name or actor.split(":", 1)[-1]
+    prose = re.sub(r"```[\s\S]*?```|`[^`\n]*`|(?m:^>.*$)", "", content or "")
+    message = _snippet(_readable_mentions(db, str(workspace.id), prose))
+    mentioned = _signal_people(
+        db, workspace, issue, actor, mentioned_people(db, str(workspace.id), {"content": prose}),
+        "mention", f"{name} mentioned you in {issue.title}", message)
+    if activity:
+        _signal_people(db, workspace, issue, actor, _issue_people(issue) - mentioned,
+                       "issue", f"{name} {activity} {issue.title}", message)
 
 
 def _mentioned_agents(content, agents):
@@ -431,6 +523,11 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
+    if actor.startswith("human:"):
+        _notify_issue_activity(db, workspace, issue, actor, actor_name, issue.description)
+    if assignee:
+        _signal_people(db, workspace, issue, actor, {assignee.removeprefix("human:")}, "issue",
+                       f"{actor_name} assigned you {issue.title}", _snippet_of(issue.description))
     db.commit()
     return success_response(_serialize(issue))
 
@@ -540,6 +637,7 @@ def get_issue(
     # Project completed chat replies into the discussion without copying
     # private thread content into a workspace-visible IssueComment record.
     discussion = _discussion_entries(db, issue, channels)
+    _attach_comment_files(db, workspace, viewer, discussion)
     from app.services.approvals import serialize_with_owner
     for approval in db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace.id,
             ApprovalRequest.channel_name.in_(names), ApprovalRequest.kind == "issue_agent_request")).scalars():
@@ -617,6 +715,9 @@ def update_issue(
             issue.participants = list(roster.values())
         issue.assignee, issue.assignee_name = assignee, name
         _add_comment(db, issue, actor, f"assigned this issue to {name}" if name else "removed the assignment", "activity", author_name=actor_name)
+        if assignee:
+            _signal_people(db, workspace, issue, actor, {assignee.removeprefix("human:")}, "issue",
+                           f"{actor_name} assigned you {issue.title}", _snippet_of(issue.description))
     if body.knowledge_ids is not None or body.file_ids is not None:
         viewer = _viewer(db, workspace, x_workspace_token, authorization)
         knowledge_ids, file_ids = _validate_context(db, workspace, viewer,
@@ -641,6 +742,8 @@ def update_issue(
             "status",
             author_name=actor_name,
         )
+        _signal_people(db, workspace, issue, actor, _issue_people(issue), "issue",
+                       f"{actor_name} updated {issue.title}", f"{issue.status} → {body.status}")
         issue.status = body.status
     db.commit()
     return success_response(_serialize(issue))
@@ -660,6 +763,7 @@ def add_comment(
     issue = _issue(db, workspace, issue_id, lock=True)
     actor, actor_name = _actor(db, authorization, body.source, body.source_name)
     content, kind = body.content.strip(), "comment"
+    sharer = actor
     if body.source_event_id:
         event = db.get(EventRecord, body.source_event_id)
         if event and (event.target or "").startswith("channel/") and not _can_see(
@@ -693,7 +797,13 @@ def add_comment(
             "result",
         )
         actor_name = event.source.removeprefix("openagents:")
-    if not content:
+    file_ids = []
+    if body.file_ids:
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human comments can attach files")
+        _, file_ids = _validate_context(db, workspace,
+            _viewer(db, workspace, x_workspace_token, authorization), [], body.file_ids)
+    if not content and not file_ids:
         raise HTTPException(422, "Comment cannot be empty")
     targets = []
     if kind == "comment" and actor.startswith("human:"):
@@ -740,6 +850,12 @@ def add_comment(
     comment = _add_comment(
         db, issue, actor, content, kind, body.source_event_id, author_name=actor_name
     )
+    comment.file_ids = file_ids
+    if kind == "comment" and actor.startswith("human:"):
+        _notify_issue_activity(db, workspace, issue, actor, actor_name, body.content, "commented on")
+    elif kind == "result":
+        _signal_people(db, workspace, issue, sharer, _issue_people(issue), "issue",
+                       f"{actor_name} shared a result in {issue.title}", _snippet_of(content))
     try:
         db.commit()
     except IntegrityError:
@@ -772,9 +888,9 @@ def add_comment(
     if targets:
         try:
             if reply_channel:
-                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks)
+                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks, file_ids)
             else:
-                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
+                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks, file_ids)
         except Exception:
             # The comment is saved. Do not encourage reposting it (which could
             # create duplicate work); expose delivery failure separately.
@@ -800,10 +916,18 @@ def link_thread(
     return success_response({"linked": True})
 
 
-def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks):
+def _comment_attachments(db, workspace, file_ids):
+    from types import SimpleNamespace
+    from app.routers.tasks import _task_attachments
+    return _task_attachments(db, str(workspace.id), SimpleNamespace(issue_id=None, file_ids=file_ids)) if file_ids else []
+
+
+def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks, file_ids=()):
+    attachments = _comment_attachments(db, workspace, list(file_ids))
     sent = _emit_event_blocking(Event(
         type="workspace.message.posted", source=actor, target=f"channel/{channel.name}",
         payload={"content": content, "message_type": "chat", "sender_name": actor_name,
+                 **({"attachments": attachments} if attachments else {}),
                  "sender_email": actor.removeprefix("human:") if "@" in actor else None},
         metadata={"target_agents": agents},
     ), workspace, db, token=workspace.password_hash)
@@ -821,7 +945,7 @@ def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agent
     return channel.name
 
 
-def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):
+def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks, file_ids=()):
     # New work threads are workspace-visible. Include the same projected
     # replies shown in the issue, but never copy private linked-thread content
     # into that wider audience. Explicitly shared result comments are public.
@@ -861,7 +985,7 @@ def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instructi
     db.commit()
     from types import SimpleNamespace
     from app.routers.tasks import _context_block, _task_attachments
-    context = SimpleNamespace(issue_id=issue.id, knowledge_ids=[], file_ids=[])
+    context = SimpleNamespace(issue_id=issue.id, knowledge_ids=[], file_ids=list(file_ids))
     attachments = _task_attachments(db, str(workspace.id), context)
     kickoff = Event(
         type="workspace.message.posted",
@@ -912,6 +1036,7 @@ def add_participants(
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
     participants = {p["source"]: p for p in (issue.participants or [])}
+    already = _issue_people(issue)
     # Validate the entire selection before changing the saved roster. Adding
     # an agent here is passive: only the explicit start-work endpoint routes it.
     for person in body.participants:
@@ -937,6 +1062,11 @@ def add_participants(
         participants[source] = {"source": source, "name": member.display_name or identity}
     issue.participants = list(participants.values())
     issue.updated_at = datetime.now(timezone.utc)
+    user = resolve_current_user(db, authorization)
+    actor = f"human:{user.email}" if user else "human:user"
+    actor_name = (user.display_name or user.email) if user else "Someone"
+    _signal_people(db, workspace, issue, actor, _issue_people(issue) - already, "issue",
+                   f"{actor_name} added you to {issue.title}", _snippet_of(issue.description))
     db.commit()
     return success_response({"participants": issue.participants})
 

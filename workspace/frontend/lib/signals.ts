@@ -10,13 +10,15 @@ import { unreadCutoffMs } from './unread-window';
  * desktop notification. Everything here is pure so it can be unit-tested.
  */
 
-export type SignalKind = 'dm' | 'mention';
+export type SignalKind = 'dm' | 'mention' | 'issue';
 
-export const SIGNAL_KINDS: readonly SignalKind[] = ['dm', 'mention'];
+export const SIGNAL_KINDS: readonly SignalKind[] = ['dm', 'mention', 'issue'];
 
 export interface ChannelSignals {
   mentions: number;
   dms: number;
+  /** Issue activity for the viewer: added, assigned, new comments or updates. */
+  issues?: number;
   /** The newest signal for the channel. */
   latest: NotificationItem;
 }
@@ -39,11 +41,35 @@ export function groupSignals(signals: readonly NotificationItem[]): UnreadSignal
     if (!kind || !channel || n.isRead || ts(n) < cutoff) continue;
     const entry = out[channel] ?? { mentions: 0, dms: 0, latest: n };
     if (kind === 'mention') entry.mentions += 1;
+    else if (kind === 'issue') entry.issues = (entry.issues ?? 0) + 1;
     else entry.dms += 1;
     if (ts(n) >= ts(entry.latest)) entry.latest = n;
     out[channel] = entry;
   }
   return out;
+}
+
+const ISSUE_SIGNAL_PREFIX = 'issue:';
+
+/** Signal channel the backend files issue @mentions under. */
+export function issueSignalChannel(issueId: string): string {
+  return `${ISSUE_SIGNAL_PREFIX}${issueId}`;
+}
+
+/** The issue a signal channel points at, or null for threads / DMs. */
+export function issueIdFromSignalChannel(channel: string | null | undefined): string | null {
+  return channel?.startsWith(ISSUE_SIGNAL_PREFIX) ? channel.slice(ISSUE_SIGNAL_PREFIX.length) || null : null;
+}
+
+/** Unread signals per issue for the viewer: @mentions plus collapsed activity. */
+export function unreadIssueCounts(unread: UnreadSignals = {}): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const [channel, sig] of Object.entries(unread)) {
+    const id = issueIdFromSignalChannel(channel);
+    const count = sig.mentions + (sig.issues ?? 0);
+    if (id && count > 0) counts[id] = count;
+  }
+  return counts;
 }
 
 /** Drop rows the user already read locally (a poll may race the PATCH). */

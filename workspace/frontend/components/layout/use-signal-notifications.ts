@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { armNotificationAudio, playNotificationSound } from '@/lib/notification-audio';
 import { useWorkspace } from '@/lib/workspace-context';
-import { diffNewSignals, shouldNotify } from '@/lib/signals';
+import { diffNewSignals, issueIdFromSignalChannel, shouldNotify } from '@/lib/signals';
 import { useLayout } from './layout-context';
 
 const NOTIFICATION_ICON = '/android-chrome-192x192.png';
@@ -24,7 +24,7 @@ function notificationsSupported(): boolean {
  */
 export function useSignalNotifications() {
   const { workspace, sessions = [], signals, signalsLoaded, notifications, notificationsLoaded, notificationSound, signalSound, currentSessionId, setCurrentSessionId } = useWorkspace();
-  const { openView, viewMode, isMobile, openMobileDetail } = useLayout();
+  const { openView, viewMode, isMobile, openMobileDetail, setPendingIssueId } = useLayout();
 
   useEffect(() => armNotificationAudio(), []);
   const inboxSeenRef = useRef<Set<string> | null>(null);
@@ -53,6 +53,12 @@ export function useSignalNotifications() {
   // conversation with the current handlers, not the ones from when it fired.
   const openRef = useRef<(channel: string) => void>(() => {});
   openRef.current = (channel: string) => {
+    const issueId = issueIdFromSignalChannel(channel);
+    if (issueId) {
+      openView('issues');
+      setPendingIssueId(issueId);
+      return;
+    }
     openView('threads');
     setCurrentSessionId(channel);
     if (isMobile) openMobileDetail();

@@ -50,9 +50,10 @@ export function ServiceDirectory() {
     } catch { toast.error(t('services.failed')); } finally { setBusy(false); }
   };
   return <div className="flex h-full min-h-0 flex-col">
-    <DetailHeader title={<h2 className="text-sm font-semibold">{t('services.title')}</h2>}>
-      {owned.length > 0 && <Button size="sm" onClick={() => setEdit('new')}><Plus className="size-3.5" />{t('services.create')}</Button>}
-    </DetailHeader>
+    <DetailHeader titleInHeader title={<div className="flex min-w-0 items-center gap-2">
+      <h2 className="truncate text-sm font-semibold">{t('services.title')}</h2>
+      {owned.length > 0 && <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => setEdit('new')}><Plus className="size-3.5" />{t('services.create')}</Button>}
+    </div>} />
     <div className="space-y-3 border-b px-5 py-3">
       <p className="text-sm text-muted-foreground">{t('services.subtitle')}</p>
       <p className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400"><FlaskConical className="size-3.5" />{t('services.experimental')}</p>

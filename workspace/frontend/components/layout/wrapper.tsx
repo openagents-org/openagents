@@ -322,18 +322,26 @@ export function Wrapper() {
             </div>
           ) : (
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              {(viewMode === 'threads' || viewMode === 'routines') && (
-                /* In the chat view the profile DOCKS beside the thread instead
-                   of sliding over it: clicking an agent opens their DM in the
-                   middle with the profile alongside, so neither hides the other. */
-                <div className="h-full flex">
-                  <div className="relative flex-1 min-w-0 overflow-hidden">
-                    <ChatView />
+              {/* Kept mounted like the views below: remounting a long thread or
+                  a large file grid on every switch back was the visible lag. */}
+              {(visitedViews.current.has('threads') || visitedViews.current.has('routines')) && (
+                <Activity mode={viewMode === 'threads' || viewMode === 'routines' ? 'visible' : 'hidden'}>
+                  {/* In the chat view the profile DOCKS beside the thread instead
+                      of sliding over it: clicking an agent opens their DM in the
+                      middle with the profile alongside, so neither hides the other. */}
+                  <div className="h-full flex">
+                    <div className="relative flex-1 min-w-0 overflow-hidden">
+                      <ChatView />
+                    </div>
+                    {isAgentPanelOpen && (viewMode === 'threads' || viewMode === 'routines') && <AgentProfilePanel docked />}
                   </div>
-                  {isAgentPanelOpen && <AgentProfilePanel docked />}
-                </div>
+                </Activity>
               )}
-              {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
+              {visitedViews.current.has('files') && (
+                <Activity mode={viewMode === 'files' ? 'visible' : 'hidden'}>
+                  {filesSection === 'trash' ? <TrashView /> : <FilePreview />}
+                </Activity>
+              )}
               {visitedViews.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserView /></Activity>}
               {visitedViews.current.has('connect') && <Activity mode={viewMode === 'connect' ? 'visible' : 'hidden'}><ConnectAgentView /></Activity>}
               {visitedViews.current.has('issues') && <Activity mode={viewMode === 'issues' ? 'visible' : 'hidden'}><IssuesView /></Activity>}

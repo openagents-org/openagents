@@ -866,6 +866,7 @@ class IssueComment(Base):
     kind = Column(Text, nullable=False, default="comment", server_default="comment")
     # Shared agent replies retain attribution and can only be shared once.
     source_event_id = Column(Text, ForeignKey("events.id", ondelete="SET NULL"), nullable=True)
+    file_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     __table_args__ = (

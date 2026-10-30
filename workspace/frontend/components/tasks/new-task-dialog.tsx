@@ -1,7 +1,6 @@
 'use client';
 
-import { AuthenticatedImage } from '@/components/files/authenticated-image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import {
   Dialog,
@@ -25,10 +24,10 @@ import {
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
-import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { BookOpen, Check, FileIcon, Loader2, Paperclip, X } from 'lucide-react';
-import type { KanbanTask, WorkspaceFile } from '@/lib/types';
+import { BookOpen, Check } from 'lucide-react';
+import type { KanbanTask } from '@/lib/types';
+import { AttachmentPicker } from './attachment-picker';
 
 /**
  * Multi-select of knowledge-base entries to attach as task context. Rendered
@@ -98,179 +97,7 @@ export function KnowledgeContextPicker({
   );
 }
 
-const ATTACH_ACCEPT =
-  'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
-
-/**
- * Attach workspace files (screenshots, logs, docs) to a task. Files upload to
- * workspace storage immediately on pick (so the ids exist when the task is
- * saved) and are delivered as attachments on the kickoff message.
- */
-export function AttachmentPicker({
-  value,
-  onChange,
-  disabled = false,
-  onUploadingChange,
-}: {
-  value: string[];
-  onChange: (ids: string[]) => void;
-  disabled?: boolean;
-  onUploadingChange?: (uploading: boolean) => void;
-}) {
-  const t = useT();
-  const { files } = useWorkspace();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const uploadingRef = useRef(false);
-  const dragDepth = useRef(0);
-  const [dragging, setDragging] = useState(false);
-  // Files uploaded in this dialog session — the workspace `files` list may not
-  // have refreshed yet, so keep our own record for names/thumbnails.
-  const [uploaded, setUploaded] = useState<WorkspaceFile[]>([]);
-  const [pending, setPending] = useState<{ name: string; preview?: string }[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const resolve = (id: string): WorkspaceFile | undefined =>
-    uploaded.find((f) => f.id === id) ?? files.find((f) => f.id === id);
-
-  const addFiles = async (list: FileList | File[]) => {
-    const picked = Array.from(list);
-    if (picked.length === 0 || disabled || uploadingRef.current) return;
-    uploadingRef.current = true;
-    onUploadingChange?.(true);
-    setError(null);
-    const previews: { name: string; preview?: string }[] = picked.map((f) => ({
-      name: f.name,
-      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
-    }));
-    setPending((p) => [...p, ...previews]);
-    try {
-      const outcomes = await Promise.allSettled(picked.map((f) => workspaceApi.uploadFile(f)));
-      const results = outcomes.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
-      setUploaded((u) => [...u, ...results]);
-      onChange([...value, ...results.map((r) => r.id)]);
-      if (outcomes.some(result => result.status === 'rejected')) setError(t('tasks.attachFailed'));
-    } catch {
-      setError(t('tasks.attachFailed'));
-    } finally {
-      uploadingRef.current = false;
-      onUploadingChange?.(false);
-      previews.forEach((pv) => pv.preview && URL.revokeObjectURL(pv.preview));
-      setPending((p) => p.filter((x) => !previews.includes(x)));
-    }
-  };
-
-  const remove = (id: string) => onChange(value.filter((x) => x !== id));
-
-  return (
-    <div
-      className={cn('space-y-1.5 rounded-md transition-colors', dragging && !disabled && pending.length === 0 && 'bg-primary/5 outline outline-2 outline-primary/50 outline-offset-4')}
-      onDragEnter={(e) => {
-        if (!e.dataTransfer.types.includes('Files')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current += 1;
-        if (!disabled && !uploadingRef.current) setDragging(true);
-      }}
-      onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes('Files')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = disabled || uploadingRef.current ? 'none' : 'copy';
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (dragDepth.current === 0) setDragging(false);
-      }}
-      onDrop={(e) => {
-        if (!e.dataTransfer.types.includes('Files')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        dragDepth.current = 0;
-        setDragging(false);
-        void addFiles(e.dataTransfer.files);
-      }}
-    >
-      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Paperclip className="size-3.5" />
-        {t('tasks.fieldAttachments')}
-        <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
-      </label>
-
-      {(value.length > 0 || pending.length > 0) && (
-        <div className="flex flex-wrap gap-2">
-          {value.map((id) => {
-            const f = resolve(id);
-            const isImage = f?.contentType.startsWith('image/');
-            return (
-              <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
-                {isImage && f ? (
-                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
-                ) : (
-                  <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
-                    <FileIcon className="size-4 text-muted-foreground" />
-                    <span className="w-full truncate text-center text-[10px] text-muted-foreground">
-                      {f?.filename ?? t('tasks.attachedFile')}
-                    </span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  disabled={disabled || pending.length > 0}
-                  onClick={() => remove(id)}
-                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                  title={t('common.remove')}
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            );
-          })}
-          {pending.map((pv, i) => (
-            <div key={`pending-${i}`} className="relative overflow-hidden rounded-lg border bg-muted opacity-60">
-              {pv.preview ? (
-                <img src={pv.preview} alt={pv.name} className="h-16 w-auto max-w-[140px] object-cover" />
-              ) : (
-                <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
-                  <FileIcon className="size-4 text-muted-foreground" />
-                  <span className="w-full truncate text-center text-[10px] text-muted-foreground">{pv.name}</span>
-                </div>
-              )}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Loader2 className="size-4 animate-spin text-foreground" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <button
-        type="button"
-        disabled={disabled || pending.length > 0}
-        onClick={() => inputRef.current?.click()}
-        className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors"
-      >
-        <Paperclip className="size-3.5" />
-        {t(dragging && !disabled && pending.length === 0 ? 'tasks.attachDrop' : 'tasks.attachAdd')}
-      </button>
-      <input
-        disabled={disabled || pending.length > 0}
-        aria-label={t('tasks.fieldAttachments')}
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={ATTACH_ACCEPT}
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files) addFiles(e.target.files);
-          e.target.value = '';
-        }}
-      />
-      {error && <p className="text-[11px] text-rose-600 dark:text-rose-400">{error}</p>}
-    </div>
-  );
-}
+export { AttachmentPicker };
 
 interface NewTaskDialogProps {
   open: boolean;

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
+import { unreadIssueCounts } from '@/lib/signals';
 import { useT, useFormatters } from '@/lib/i18n';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,9 @@ export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
 }
 
 function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds } = useWorkspace();
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals } = useWorkspace();
+  const unreadByIssue = unreadIssueCounts(unreadSignals);
+  const unreadTotal = Object.values(unreadByIssue).reduce((sum, n) => sum + n, 0);
   const { pendingTaskChannel, pendingIssueId, setPendingIssueId } = useLayout();
   const [showWork, setShowWork] = useState(initialWork);
   useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
@@ -171,6 +174,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           >
             {issue.title}
           </span>
+          {!!unreadByIssue[issue.id] && <span aria-label={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} title={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium tabular-nums text-white">{unreadByIssue[issue.id] > 99 ? '99+' : unreadByIssue[issue.id]}</span>}
           {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
           </div>
           {!asCard && (
@@ -260,7 +264,9 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         </div>}
       />
       <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
-        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}</Button>
+        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}
+          {unreadTotal > 0 && <span className="rounded-full bg-destructive px-1.5 text-xs text-white" aria-label={t('issues.unreadUpdates', { count: unreadTotal })}>{unreadTotal > 99 ? '99+' : unreadTotal}</span>}
+        </Button>
         <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
           {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
         </Button>
