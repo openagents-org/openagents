@@ -13,11 +13,11 @@ from typing import Literal, Optional
 from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Query
 from pydantic_core import PydanticCustomError
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import resolve_current_user, verify_workspace_access
+from app.access import resolve_current_user, role_at_least, verify_workspace_access
 from app.database import get_db
 from app.models import (
     Channel,
@@ -663,6 +663,7 @@ def get_issue(
             "participants": participants,
             "comments": discussion,
             "agent_sharing_mode": (db.get(IssueAgentSharing, (issue.id, viewer.email)).mode if viewer.email and db.get(IssueAgentSharing, (issue.id, viewer.email)) else "no"),
+            "can_delete": _can_delete(viewer, issue),
             "threads": [
                 {
                     "channel_name": c.name,
@@ -747,6 +748,66 @@ def update_issue(
         issue.status = body.status
     db.commit()
     return success_response(_serialize(issue))
+
+
+def _can_delete(viewer, issue):
+    """Only the signed-in person who opened an issue, or a workspace admin, may delete it."""
+    if viewer.kind != "human" or not viewer.email:
+        return False
+    return f"human:{viewer.email}" == issue.created_by.lower() or role_at_least(viewer.role, "admin")
+
+
+@router.delete("/{issue_id}")
+def delete_issue(
+    issue_id: str,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Delete an issue together with the agent threads it started.
+
+    Ordinary threads that were only linked to the issue stay. Kanban tasks
+    keep their cards and just lose the link.
+    """
+    from app.services.approvals import STATUS_EXPIRED, STATUS_PENDING
+    from app.services.workflow import cancel_run
+
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    issue = _issue(db, workspace, issue_id, lock=True)
+    if not _can_delete(_viewer(db, workspace, x_workspace_token, authorization), issue):
+        raise HTTPException(403, "Only the person who opened this issue or a workspace admin can delete it")
+    now = datetime.now(timezone.utc)
+    # Work threads are hidden from the conversation list and only open from
+    # their issue, so they would be unreachable once it is gone. Keep one that
+    # another issue also links.
+    retired = []
+    for channel in _linked_channels(db, issue):
+        if not channel.name.startswith("issue-work-") or db.scalar(select(IssueThread.issue_id).where(
+                IssueThread.channel_id == channel.id, IssueThread.issue_id != issue.id).limit(1)):
+            continue
+        channel.status = "deleted"
+        cancel_run(db, str(workspace.id), channel.name)
+        retired.append(channel.name)
+    if retired:
+        for approval in db.scalars(select(ApprovalRequest).where(
+                ApprovalRequest.workspace_id == workspace.id,
+                ApprovalRequest.channel_name.in_(retired),
+                ApprovalRequest.status == STATUS_PENDING)):
+            approval.status, approval.resolved_by, approval.resolved_at = STATUS_EXPIRED, "system", now
+    # Unread signals would otherwise keep pointing at an issue that no longer exists.
+    for notification in db.scalars(select(NotificationRecord).where(
+            NotificationRecord.workspace_id == str(workspace.id),
+            NotificationRecord.status == "active",
+            or_(NotificationRecord.channel_name.in_([issue_signal_channel(issue.id), *retired]),
+                and_(NotificationRecord.kind == "issue_completed",
+                     NotificationRecord.action_ref.endswith(f":{issue.id}"))))):
+        notification.status = "dismissed"
+    # Comments, thread links and sharing settings cascade in the database;
+    # linked Kanban tasks are set to no issue.
+    db.delete(issue)
+    db.commit()
+    return success_response({"id": issue_id, "deleted": True})
 
 
 @router.post("/{issue_id}/comments")

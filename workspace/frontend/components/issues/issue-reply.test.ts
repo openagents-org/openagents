@@ -16,6 +16,7 @@ vi.mock('@/components/chat/markdown-content', () => ({ MarkdownContent: ({ conte
 vi.mock('@/components/tasks/task-chat-popup', () => ({ TaskChatPopup: () => null }));
 vi.mock('@/components/chat/approval-card', () => ({ ApprovalCard: () => null }));
 vi.mock('./issue-work', () => ({ IssueWork: () => null }));
+vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('./issue-properties', () => ({ IssueProperties: () => null }));
 vi.mock('./issue-editor', () => ({ IssueEditor: () => null }));
 vi.mock('./issue-attachments', () => ({ IssueAttachments: () => null }));

@@ -1546,6 +1546,8 @@ export interface IssueDetail extends WorkspaceIssue {
   attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
   knowledge?: { id: string; title: string }[];
   agent_sharing_mode?: 'no' | 'yes' | 'approval';
+  /** The viewer opened this issue or is a workspace admin. */
+  can_delete?: boolean;
   comments: IssueComment[];
   threads: IssueThread[];
   participants: { source: string; name: string; owner_email?: string | null; owner_name?: string | null; request_access?: 'yes' | 'approval' | 'no' }[];

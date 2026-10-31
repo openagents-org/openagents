@@ -1938,6 +1938,10 @@ class WorkspaceApi {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
   }
 
+  async deleteIssue(id: string): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'DELETE' });
+  }
+
   async linkIssueThread(id: string, channelName: string): Promise<void> {
     await this.request(this.issuePath(`/${encodeURIComponent(id)}/links`), { method: 'POST', body: JSON.stringify({ channel_name: channelName }) });
   }

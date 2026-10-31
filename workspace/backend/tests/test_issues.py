@@ -1119,3 +1119,67 @@ def test_agent_request_carries_comment_attachments(client, workspace, db, cloud_
     assert response.json()['data']['channel_name']
     attachments = cloud_dispatch.call_args.args[1]['payload']['attachments']
     assert [a['file_id'] for a in attachments] == ['clip']
+
+
+# ── Deleting an issue ────────────────────────────────────────────────────────
+
+def _delete(client, ws, issue, auth):
+    return client.delete(path(ws, f"/{issue['id']}"), headers=auth)
+
+
+def test_creator_deletes_issue_with_its_work_thread_only(client, workspace, db, two_members):
+    from app.models import ApprovalRequest, IssueComment, IssueThread, KanbanTask, NotificationRecord
+    issue = create(client, workspace, source='human:ann@acme.test')
+    work = request_work(client, workspace, issue).json()['data']['channel_name']
+    linked = workspace['channel']['name']
+    assert client.post(path(workspace, f"/{issue['id']}/links"), headers=headers(workspace),
+                       json={'channel_name': linked}).status_code == 200
+    db.add_all([
+        KanbanTask(id='card', workspace_id=workspace['id'], issue_id=issue['id'], title='Card', created_by='human:ann@acme.test'),
+        NotificationRecord(id='signal', workspace_id=workspace['id'], created_by='human:ann@acme.test', title='t', message='m',
+                           channel_name=f"issue:{issue['id']}", recipient_email='ben@acme.test', kind='issue'),
+        NotificationRecord(id='done', workspace_id=workspace['id'], created_by='openagents:agent-alpha', title='t', message='m',
+                           channel_name=work, recipient_email='ann@acme.test', kind='issue_completed',
+                           action_ref=f"evt:{issue['id']}"),
+        ApprovalRequest(id='ask', workspace_id=workspace['id'], channel_name=work, kind='issue_agent_request',
+                        action='Use agent-alpha', requested_by='human:ben@acme.test', status='pending'),
+    ])
+    db.commit()
+
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ann')).json()['data']['can_delete'] is True
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ben')).json()['data']['can_delete'] is False
+    # Attribution and the workspace token are not proof of who opened the issue.
+    assert _delete(client, workspace, issue, _bearer('ben')).status_code == 403
+    assert _delete(client, workspace, issue, headers(workspace)).status_code == 403
+    assert detail(client, workspace, issue)['id'] == issue['id']
+
+    response = _delete(client, workspace, issue, _bearer('ann'))
+    assert response.status_code == 200, response.text
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=headers(workspace)).status_code == 404
+    assert _delete(client, workspace, issue, _bearer('ann')).status_code == 404
+    db.expire_all()
+    status = {c.name: c.status for c in db.scalars(select(Channel).where(Channel.name.in_([work, linked])))}
+    assert status == {work: 'deleted', linked: 'active'}
+    assert db.get(KanbanTask, 'card').issue_id is None
+    assert not db.scalars(select(IssueComment).where(IssueComment.issue_id == issue['id'])).all()
+    assert not db.scalars(select(IssueThread).where(IssueThread.issue_id == issue['id'])).all()
+    assert db.get(NotificationRecord, 'signal').status == 'dismissed'
+    assert db.get(NotificationRecord, 'done').status == 'dismissed'
+    assert db.get(ApprovalRequest, 'ask').status == 'expired'
+
+
+def test_admin_deletes_any_issue_and_shared_work_thread_survives(client, workspace, db, two_members):
+    from app.models import User, WorkspaceMembership
+    issue = create(client, workspace, source='human:ann@acme.test')
+    other = create(client, workspace, title='Follow-up', source='human:ann@acme.test')
+    work = request_work(client, workspace, issue).json()['data']['channel_name']
+    assert client.post(path(workspace, f"/{other['id']}/links"), headers=headers(workspace),
+                       json={'channel_name': work}).status_code == 200
+    ben = db.scalar(select(User).where(User.email == 'ben@acme.test'))
+    db.scalar(select(WorkspaceMembership).where(WorkspaceMembership.user_id == ben.id)).role = 'admin'
+    db.commit()
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ben')).json()['data']['can_delete'] is True
+    assert _delete(client, workspace, issue, _bearer('ben')).status_code == 200
+    db.expire_all()
+    assert db.scalar(select(Channel).where(Channel.name == work)).status == 'active'
+    assert [t['channel_name'] for t in detail(client, workspace, other)['threads']] == [work]

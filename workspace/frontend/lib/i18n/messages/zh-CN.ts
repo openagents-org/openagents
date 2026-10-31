@@ -152,6 +152,8 @@ export const messages: Messages = {
     subtitle: "共同讨论想法、问题和决策。",
     newIssue: "新建议题",
     editIssue: "编辑议题",
+    deleteTitle: '删除“{title}”？',
+    deleteDescription: '议题、讨论记录和由它发起的智能体会话将被永久删除，无法恢复。仅关联到议题的会话和任务卡片会保留。',
     createIssue: "创建议题",
     open: "待处理",
     inProgress: "进行中",

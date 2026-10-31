@@ -159,6 +159,8 @@ export const messages = {
     subtitle: "A shared place for ideas, problems, and decisions.",
     newIssue: "New issue",
     editIssue: "Edit issue",
+    deleteTitle: 'Delete “{title}”?',
+    deleteDescription: 'This permanently deletes the issue, its discussion and the agent threads it started. Threads that were only linked, and task cards, are kept.',
     createIssue: "Create issue",
     open: "Open",
     inProgress: "In progress",

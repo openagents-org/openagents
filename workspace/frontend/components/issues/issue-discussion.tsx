@@ -23,7 +23,9 @@ import {
   Send,
   Reply,
   ChevronDown,
+  Trash2,
 } from 'lucide-react';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
@@ -74,6 +76,7 @@ export function IssueDiscussion({
   onChanged: () => void;
 }) {
   const t = useT();
+  const confirm = useConfirm();
   const { timeAgo } = useFormatters();
   const { currentUser, sessions, refreshAgents, workspace, agents, unreadSignals, markChannelSignalsRead } = useWorkspace();
   const signalChannel = issueSignalChannel(id);
@@ -164,6 +167,33 @@ export function IssueDiscussion({
       if (mounted.current) await refresh();
       busyRef.current = false;
       if (mounted.current) setBusy(false);
+    }
+  }
+
+  async function removeIssue() {
+    if (busyRef.current || !issue) return;
+    const ok = await confirm({
+      title: t('issues.deleteTitle', { title: issue.title }),
+      description: t('issues.deleteDescription'),
+      confirmText: t('common.delete'),
+      destructive: true,
+    });
+    if (!ok || busyRef.current) return;
+    busyRef.current = true;
+    // Drop any refresh in flight: it would report the issue as missing.
+    ++version.current;
+    setBusy(true);
+    setError('');
+    try {
+      await workspaceApi.deleteIssue(id);
+      busyRef.current = false;
+      if (mounted.current) onBack();
+    } catch (e) {
+      busyRef.current = false;
+      if (mounted.current) {
+        setError(errorMessage(e));
+        setBusy(false);
+      }
     }
   }
 
@@ -356,6 +386,18 @@ export function IssueDiscussion({
                     <Pencil className="size-4" />
                     {t('common.edit')}
                   </Button>
+                  {issue.can_delete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={removeIssue}
+                    >
+                      <Trash2 className="size-4" />
+                      {t('common.delete')}
+                    </Button>
+                  )}
                 </div>
               </header>
               {/* Issue text is typed in a plain textarea, where Enter means a new
