@@ -242,9 +242,7 @@ class TestMiniMaxConfig:
     def test_minimax_has_correct_models(self):
         """Test that minimax config has the correct models."""
         models = MODEL_CONFIGS["minimax"]["models"]
-        assert models[:2] == ["MiniMax-M3", "MiniMax-M2.7"]
-        assert "MiniMax-M2.7-highspeed" in models
-        assert len(models) == 3
+        assert models == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
 
     def test_minimax_has_correct_api_base(self):
         """Test that minimax config has the correct API base URL."""
@@ -271,9 +269,7 @@ class TestMiniMaxConfig:
     def test_get_supported_models(self):
         """Test get_supported_models for minimax."""
         models = get_supported_models("minimax")
-        assert "MiniMax-M3" in models
-        assert "MiniMax-M2.7" in models
-        assert "MiniMax-M2.7-highspeed" in models
+        assert models == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
 
     def test_get_provider_type(self):
         """Test get_provider_type for minimax."""
