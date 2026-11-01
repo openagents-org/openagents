@@ -21,7 +21,13 @@ import { useTranslation } from "react-i18next"
 import { isRunning, stateKeyOf } from "@renderer/lib/agent-state"
 import { useUiStore } from "@renderer/store/ui"
 import { useAgentsStore } from "@renderer/store/agents"
+import { useLocalConnectorStore } from "@renderer/store/local-connector"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
+
+/** Starts only once the local connector runs, asking to turn it on if not. */
+async function startWhenConnected(start: () => Promise<unknown>): Promise<void> {
+  if (await useLocalConnectorStore.getState().ensureOn()) await start()
+}
 
 export interface Command {
   id: string
@@ -110,14 +116,14 @@ export function useCommands(): Command[] {
               title: t("commandPalette.commands.startAgent", { name: a.name }),
               group: t("commandPalette.groups.agents"),
               icon: Play,
-              run: () => void window.api.startAgent(a.name),
+              run: () => void startWhenConnected(() => window.api.startAgent(a.name)),
             },
       ]
     })
 
     const group = t("commandPalette.groups.actions")
     const actions: Command[] = [
-      { id: "action:start-all", title: t("commandPalette.commands.startAll"), group, icon: Play, run: () => void window.api.startAll() },
+      { id: "action:start-all", title: t("commandPalette.commands.startAll"), group, icon: Play, run: () => void startWhenConnected(() => window.api.startAll()) },
       { id: "action:stop-all", title: t("commandPalette.commands.stopAll"), group, icon: Square, run: () => void window.api.stopAll() },
       { id: "action:install-agent", title: t("commandPalette.commands.installAgent"), group, icon: Plus, run: () => goToInstallList() },
       // Opens the Workspaces page with its join dialog: the launcher joins an

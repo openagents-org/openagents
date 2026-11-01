@@ -28,6 +28,7 @@ import { AgentsTable } from "./components/agents-table"
 import { AgentsPagination } from "./components/agents-pagination"
 import { useAgentsView, type AgentFilter } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
+import { LocalConnectorBanner } from "@renderer/components/local-connector/local-connector-banner"
 import type { AgentActionHandlers } from "./components/agent-actions"
 import type { Agent } from "@renderer/types"
 
@@ -191,6 +192,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       {/* No scroll-edge fade: the sticky toolbar inside is what rows pass
           under, and the fade would wash it out along with them. */}
       <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
+        <LocalConnectorBanner />
         <RecommendedAgents
           // Full panel for a first agent; one row once there are agents to
           // list (and while they load, so a returning user's page doesn't jump).

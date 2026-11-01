@@ -1092,3 +1092,58 @@ describe('DeepSeek adapter — base URL', () => {
     assert.match(patch, /provider: openai-gateway/);
   });
 });
+
+describe('dsh resolution', () => {
+  /**
+   * Resolve dsh in a child process: paths.js reads HOME once at load, so the
+   * sandbox HOME has to be in place before the adapter is required.
+   */
+  function resolveIn(home, pathEnv) {
+    const { execFileSync } = require('node:child_process');
+    const probe = `
+      const DeepSeekAdapter = require(${JSON.stringify(path.resolve(__dirname, '../src/adapters/deepseek.js'))});
+      const adapter = Object.create(DeepSeekAdapter.prototype);
+      const resolved = adapter._resolveDshCommand();
+      process.stdout.write(JSON.stringify(resolved ? resolved[1] : null));
+    `;
+    return JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, PATH: pathEnv, OPENAGENTS_SKIP_SHELL_PATH: '1' },
+    }));
+  }
+
+  /** A dsh package at `version` under `modules`, returning its entry point. */
+  function writeDshPackage(modules, version) {
+    const pkgDir = path.join(modules, '@deepseek-ai', 'dsh');
+    const entry = path.join(pkgDir, 'lib', 'bin.js');
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh', version, type: 'module', bin: { dsh: 'lib/bin.js' } }));
+    fs.writeFileSync(entry, '#!/usr/bin/env node\n');
+    return entry;
+  }
+
+  it('prefers the managed pinned copy over an older global dsh on PATH', () => {
+    // POSIX symlink shims; the Windows .cmd layout is covered by dshEntryCandidates.
+    if (IS_WINDOWS) return;
+    const sandbox = fs.mkdtempSync(path.join(tmpRoot, 'resolve-'));
+    const home = path.join(sandbox, 'home');
+
+    const globalPrefix = path.join(sandbox, 'global');
+    const globalEntry = writeDshPackage(path.join(globalPrefix, 'lib', 'node_modules'), '0.1.0-rc.6');
+    fs.mkdirSync(path.join(globalPrefix, 'bin'), { recursive: true });
+    fs.symlinkSync(globalEntry, path.join(globalPrefix, 'bin', 'dsh'));
+    fs.chmodSync(globalEntry, 0o755);
+    const globalBin = path.join(globalPrefix, 'bin');
+
+    // Without a managed copy the global one is all there is.
+    assert.equal(fs.realpathSync(resolveIn(home, globalBin)), fs.realpathSync(globalEntry));
+
+    const modules = path.join(home, '.openagents', 'runtimes', 'deepseek', 'node_modules');
+    const managedEntry = writeDshPackage(modules, '0.2.1-rc.2');
+    fs.mkdirSync(path.join(modules, '.bin'), { recursive: true });
+    fs.symlinkSync(path.join('..', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), path.join(modules, '.bin', 'dsh'));
+
+    assert.equal(fs.realpathSync(resolveIn(home, globalBin)), fs.realpathSync(managedEntry));
+  });
+});

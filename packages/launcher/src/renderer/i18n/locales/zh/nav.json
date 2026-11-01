@@ -60,6 +60,7 @@
     "starting": "{{count}} 个智能体启动中",
     "error": "{{count}} 个智能体异常",
     "stopped": "智能体均未运行",
-    "none": "尚未添加智能体"
+    "none": "尚未添加智能体",
+    "connectorOff": "本地连接器已关闭"
   }
 }

@@ -131,6 +131,28 @@
       "confirm": "重启"
     }
   },
+  "localConnector": {
+    "title": "本地连接器",
+    "label": "在本机运行本地智能体",
+    "desc": "运行在本机添加的智能体，并使本机在工作区中保持在线。关闭后，$t(common.appName)仅作为工作区客户端使用。添加第一个本地智能体时会自动开启。",
+    "failed": "本地连接器启动失败：{{message}}",
+    "offDialog": {
+      "title": "关闭本地连接器？",
+      "description": "本机所有智能体将停止运行，并在工作区中显示为离线。你仍可在 $t(common.appName)中使用工作区。",
+      "confirm": "关闭"
+    },
+    "statusOn": "已开启 · {{summary}}",
+    "statusOff": "已关闭 · 本机智能体不会运行，本机在工作区中显示为离线",
+    "onToast": "本地连接器已开启，本机智能体正在启动。",
+    "offToast": "本地连接器已关闭，本机智能体已停止。",
+    "banner": "本地连接器已关闭：本机智能体不会运行，本机在工作区中显示为离线。",
+    "bannerAction": "开启",
+    "onDialog": {
+      "title": "开启本地连接器？",
+      "description": "智能体需要本地连接器才能运行。开启后，本机已添加的智能体都会启动。",
+      "confirm": "开启"
+    }
+  },
   "appearance": {
     "themeGroup": "主题与颜色",
     "themeDesc": "选择 $t(common.appName)的显示外观",

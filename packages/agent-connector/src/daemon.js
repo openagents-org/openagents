@@ -171,6 +171,7 @@ class Daemon {
     this._cliModelsStartupTimer = null;
     this._cliModelsInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+    this._runtimeRepairs = new Map(); // agent type → in-flight reinstall of its supported version
   }
 
   // ── Agent smoke tests (probes) ─────────────────────────────────────────
@@ -1916,6 +1917,47 @@ async _runNodeCommand(n, cmd) {
     this._writeStatus();
   }
 
+  /**
+   * Put a runtime the adapter can run in place of one it refused, then ask the
+   * adapter again. Used for a pinned agent found on the wrong version (DeepSeek
+   * Harness, whose adapter accepts exactly one preview): the registry's install
+   * command already names the supported version and installs it into the
+   * managed prefix, which the adapter prefers. Doing it here instead of
+   * reporting the mismatch is what keeps a stale install — an old global copy,
+   * or one the launcher placed before the pin moved — from surfacing as an
+   * error the user has to fix by hand.
+   *
+   * One install per agent type at a time, shared by every agent of that type
+   * starting together. Returns the new preflight result, or null when the
+   * install failed and the original reason should stand.
+   */
+  async _repairRuntime(name, agentType, adapter, info, pf) {
+    this._log(`${name} preflight: ${pf.message} — installing the supported version`, 'warn');
+    info.state = 'starting';
+    info.lastError = null;
+    info.errorReason = null;
+    this._writeStatus();
+
+    let job = this._runtimeRepairs.get(agentType);
+    if (!job) {
+      const { Installer } = require('./installer');
+      const installer = new Installer(this.registry, this.config.configDir);
+      job = installer.installStreaming(agentType, () => {})
+        .then(() => true, (e) => {
+          this._log(`${agentType} reinstall failed: ${redactDiagnostic(String(e && e.message || e)).slice(0, 500)}`, 'error');
+          return false;
+        })
+        .finally(() => this._runtimeRepairs.delete(agentType));
+      this._runtimeRepairs.set(agentType, job);
+    }
+    if (!(await job)) return null;
+
+    if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
+    const next = adapter.preflight();
+    if (next && next.ok !== false) this._log(`${name}: supported ${agentType} runtime installed`);
+    return next;
+  }
+
   async _adapterLoop(name, agentCfg, info, network) {
     const { createAdapter } = require('./adapters');
     const { skillsToDisabledModules } = require('./skill-catalog');
@@ -1967,8 +2009,12 @@ async _runNodeCommand(n, cmd) {
     // no point spinning a join/poll loop that can never run the CLI. Adapters
     // that don't override preflight() always pass.
     try {
-      const pf =
+      let pf =
         typeof adapter.preflight === 'function' ? adapter.preflight() : null;
+      if (pf && pf.ok === false && pf.repairable) {
+        pf = (await this._repairRuntime(name, agentType, adapter, info, pf)) || pf;
+        if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+      }
       if (pf && pf.ok === false) {
         info.state = 'error';
         info.errorReason = pf.reason || 'runtime_missing';
