@@ -117,6 +117,22 @@ async function joinWorkspace(idToken: string): Promise<void> {
   }
 }
 
+/**
+ * Unpair a device this run paired. Every cell pairs a fresh device, so without
+ * this each nightly run would leave up to 13 registered devices — each with a
+ * live token — in the E2E workspace. The member who minted the code owns the
+ * connection and may remove it.
+ */
+export async function removeDevice(nodeId: string): Promise<void> {
+  const idToken = await signInMember()
+  const res = await fetch(`${BASE}/v1/nodes/${encodeURIComponent(nodeId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${idToken}` },
+  })
+  if (!res.ok && res.status !== 404)
+    throw new Error(`DELETE /v1/nodes/${nodeId} ${res.status}: ${await res.text()}`)
+}
+
 async function fetchEvents(params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
   const res = await fetch(`${BASE}/v1/events?${qs}`, { headers: headers() })

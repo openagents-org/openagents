@@ -17,6 +17,7 @@ import {
   haveWorkspaceCreds,
   haveMemberCreds,
   createPairingCode,
+  removeDevice,
   WS_SLUG,
   sendMessage,
   baselineCursor,
@@ -98,7 +99,18 @@ function injectionEnv(): Record<string, string> {
   return e
 }
 
+// The device this run paired, so it can be unpaired afterwards (see removeDevice).
+let pairedNodeId: string | null = null
+
 test.describe("launcher full flow", () => {
+  test.afterEach(async () => {
+    if (!pairedNodeId) return
+    await removeDevice(pairedNodeId).catch((e) =>
+      console.warn(`could not unpair E2E device ${pairedNodeId}: ${e}`),
+    )
+    pairedNodeId = null
+  })
+
   test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir, launcher }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     // cursor-agent has no custom base-URL support and authenticates only against
@@ -248,6 +260,18 @@ test.describe("launcher full flow", () => {
         { timeout: 60_000, intervals: [2_000] },
       )
       .toContain(WS_SLUG)
+    pairedNodeId = await page.evaluate(async (slug) => {
+      const status = await (
+        window as unknown as {
+          api: {
+            getNodeStatus: () => Promise<{
+              workspaces?: Array<{ nodeId: string; workspaceSlug?: string | null }>
+            }>
+          }
+        }
+      ).api.getNodeStatus()
+      return (status.workspaces || []).find((w) => w.workspaceSlug === slug)?.nodeId ?? null
+    }, WS_SLUG)
 
     //    Now the instance, through the one setup form every agent is created
     //    with: the marketplace page of the type under test leads to it
@@ -390,15 +414,25 @@ test.describe("launcher full flow", () => {
       // Redacted rather than attached as-is: daemon.yaml holds the instance env
       // verbatim, so the raw file would put the gateway key and the workspace
       // token into artifacts that outlive the run and get copied around. Only
-      // the values this test knows are secret are masked — everything else is
-      // left alone so the attachment stays diagnosable.
+      // secrets are masked — everything else is left alone so the attachment
+      // stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
       const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
         (v): v is string => !!v,
       )
+      // The known values are not the only secrets: pairing mints a per-device
+      // workspace token that daemon.yaml stores as `token:`, and an env may
+      // carry other keys. Mask those by shape too — artifacts of this public
+      // repo can be downloaded by anyone signed in to GitHub.
       const redact = (text: string): string =>
-        secrets.reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
+        secrets
+          .reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
+          .replace(/^(\s*token:\s*).+$/gm, "$1***REDACTED***")
+          .replace(
+            /("[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*"\s*:\s*)"[^"]*"/g,
+            '$1"***REDACTED***"',
+          )
       for (const rel of ["daemon.log", "daemon.status.json", "daemon.yaml"]) {
         const fp = p.join(homeDir, ".openagents", rel)
         if (fs.existsSync(fp)) {
