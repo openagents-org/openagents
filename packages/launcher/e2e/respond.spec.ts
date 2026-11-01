@@ -254,8 +254,13 @@ test.describe("launcher full flow", () => {
     //    already on that type. The working directory is filled explicitly so
     //    Add never runs with an empty path.
     await openMarketplace(launcher.app)
-    await page.getByTestId(`agent-card-${SLUG}`).click()
-    await page.getByTestId("detail-add-agent").click()
+    // The marketplace reopens where it was left, which after the install is
+    // already this type's detail page; only the list needs the card clicked.
+    const addAgent = page.getByTestId("detail-add-agent")
+    const typeCard = page.getByTestId(`agent-card-${SLUG}`)
+    await expect(addAgent.or(typeCard).first()).toBeVisible({ timeout: 30_000 })
+    if (!(await addAgent.isVisible())) await typeCard.click()
+    await addAgent.click()
     await page.getByTestId("agent-setup-name").fill(name)
     await page.getByTestId("agent-setup-workdir").fill(homeDir)
 
