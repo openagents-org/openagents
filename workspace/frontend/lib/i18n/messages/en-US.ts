@@ -27,6 +27,10 @@ export const messages = {
   messageAgentAccess: {"rolloutPending": "Thread-only access will be available after the coordinated server update.","owner": "Owned by {name}", "yours": "Your agent", "shared": "Shared with you", "approval": "Requires approval", "notShared": "Not shared with you", "request": "Request access", "requested": "Access requested", "requestTitle": "Request access to {agent}", "requestHint": "Ask {owner} for access to {agent} in this thread only. Approval does not grant direct chat or access in other threads.", "sent": "Request sent to the agent owner", "failed": "Could not request access. Please try again."},
   webProject: {"kind": "Web project","upload": "Upload web project", "update": "Update project", "choose": "Choose project folder", "name": "Project name", "entry": "Entry page", "files": "files", "keepsSharing": "Keeps the existing link and sharing.", "threadSharing": "Shared with this thread.", "private": "Only visible to you until shared.", "help": "Choose a static site folder. Use relative links for images, styles, scripts, and data. Hidden files and dependency folders are excluded.", "noHtml": "This folder needs an HTML entry page.", "publish": "Publish project", "published": "Project published", "preview": "Web project preview"},
   artifactPanel: {
+    unlinkedBrowser: "Shared browser link unavailable here",
+    unlinkedBrowserHint: "This link cannot be matched to an available saved tab in this workspace. Its original browser session may have ended.",
+    openOriginalBrowserLink: "Open original shared link",
+
     browserClosed: "This browser session has ended",
     browserClosedHint: "Reopen the saved page to start a new session. The agent’s previous live session is no longer running.",
     reopenBrowser: "Reopen browser",

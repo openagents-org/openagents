@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { browserPreviewPreferenceKey, browserPreviewDismissed } from '@/lib/browser-preview-preference';
 import { workspaceApi } from '@/lib/api';
 import { ARTIFACT_OPEN_EVENT, artifactFromLink, type ArtifactReference } from '@/lib/thread-artifacts';
 
@@ -18,7 +19,10 @@ export function useThreadArtifactPreview() {
     if (currentSessionId && !currentSessionId.startsWith('dm:')) {
       void workspaceApi.getThreadArtifact(currentSessionId).then(setting => {
         if (!active || manual.current !== revision) return;
-        if (setting.artifact) openArtifact(setting.artifact);
+        if (setting.artifact) {
+          if (setting.artifact.kind === 'browser' && browserPreviewDismissed(browserPreviewPreferenceKey(workspace?.workspaceId || '', currentUser.id, currentSessionId))) return;
+          openArtifact(setting.artifact);
+        }
         else if (setting.unavailable) { setSplitBrowser(true); setShowBrowserPreview(true); }
       }).catch(() => {});
     }
