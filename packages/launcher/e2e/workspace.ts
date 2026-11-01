@@ -23,20 +23,49 @@ export function haveWorkspaceCreds(): boolean {
 /** The workspace under test, as the launcher will list and bind it. */
 export const WS_SLUG = SLUG
 
+// A dedicated test account that is a member of the E2E workspace. Pairing a
+// device needs a signed-in person (see createPairingCode); the Firebase web key
+// is public — it ships in the Workspace frontend (workspace/frontend/lib/firebase.ts).
+const USER_EMAIL = process.env.E2E_USER_EMAIL || ""
+const USER_PASSWORD = process.env.E2E_USER_PASSWORD || ""
+const FIREBASE_API_KEY =
+  process.env.E2E_FIREBASE_API_KEY || "AIzaSyCXgN-7HfgAQiN0pRKqGi8jMbGGo9e9X34"
+
+export function haveMemberCreds(): boolean {
+  return !!USER_EMAIL && !!USER_PASSWORD
+}
+
+/** Sign the test member in with email/password and return a Firebase ID token. */
+async function signInMember(): Promise<string> {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: USER_EMAIL, password: USER_PASSWORD, returnSecureToken: true }),
+    },
+  )
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !body.idToken)
+    throw new Error(`E2E member sign-in failed (${res.status}): ${body?.error?.message || "no idToken"}`)
+  return body.idToken as string
+}
+
 /**
  * Mint a single-use node pairing code for this workspace.
  *
  * Joining is device-level now: the launcher redeems an XXXX-XXXX code to
  * register this machine as a node, and only then can an agent be bound to the
  * workspace. Codes are short-lived and single-use, so a run cannot carry one in
- * a secret — it mints its own. `POST /v1/workspaces/{slug}/pairing-codes` is
- * owner/admin gated, and a workspace or node token counts as a trusted machine
- * credential there, so the token the reply assertion already needs is enough.
+ * a secret — it mints its own. Since v1.1 `POST /v1/workspaces/{slug}/pairing-codes`
+ * requires a signed-in workspace member, who owns the connection; a workspace
+ * token is no longer enough, so the test member signs in first.
  */
 export async function createPairingCode(): Promise<string> {
+  const idToken = await signInMember()
   const res = await fetch(
     `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`,
-    { method: "POST", headers: headers() },
+    { method: "POST", headers: { Authorization: `Bearer ${idToken}` } },
   )
   if (!res.ok)
     throw new Error(

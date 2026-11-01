@@ -4,6 +4,8 @@
 //
 // Gated so a cell without the needed credentials skips cleanly (not fails):
 //   - needs E2E_WS_TOKEN / E2E_WS_SLUG (workspace)
+//   - fails, not skips, without E2E_USER_EMAIL / E2E_USER_PASSWORD: pairing a
+//     device needs a signed-in member, and a silent skip would read as green
 //   - needs the agent's provider key (LLM_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)
 //   - login-only agents (cursor, hermes) have no GUI key field — deferred to an
 //     env-injection follow-up.
@@ -13,6 +15,7 @@ import { agentBySlug } from "./agents"
 import { openMarketplace } from "./marketplace"
 import {
   haveWorkspaceCreds,
+  haveMemberCreds,
   createPairingCode,
   WS_SLUG,
   sendMessage,
@@ -103,6 +106,10 @@ test.describe("launcher full flow", () => {
     // keys can't drive it, so its keyed flow stays install-smoke-only for now.
     test.skip(SLUG === "cursor", "cursor: needs a real cursor.com API key (no gateway support)")
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
+    expect(
+      haveMemberCreds(),
+      "E2E_USER_EMAIL / E2E_USER_PASSWORD not set — pairing a device needs a signed-in workspace member",
+    ).toBe(true)
     test.setTimeout(INSTALL_TIMEOUT + 13 * 60 * 1000)
 
     const runId = process.env.GITHUB_RUN_ID || String(Date.now())
@@ -210,8 +217,8 @@ test.describe("launcher full flow", () => {
     //    device holds no pairing for, and the agent's Connect dialog offers only
     //    the ones it does. Every test gets a fresh HOME, so nothing is paired —
     //    redeem a code first, through the same Workspaces page a user would use.
-    //    The code is minted at run time from the workspace token the reply
-    //    assertion already needs, so no human has to stage one per run.
+    //    The code is minted at run time by the signed-in test member, so no
+    //    human has to stage one per run.
     const pairingCode = await createPairingCode()
     await page.getByTestId("nav-workspaces").click()
     // Other pages can arrive here with the dialog already requested, so open it

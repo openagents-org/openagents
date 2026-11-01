@@ -4,10 +4,8 @@ name: Launcher Agent E2E
 # _electron) through the real user journey per agent, on GitHub-hosted macOS +
 # Windows runners.
 #
-# SPIKE SCOPE (current): boot + install one agent (default openclaw), no API
-# keys. This exists to de-risk the biggest unknown — can a GUI Electron app
-# launch + run a real install on hosted macOS AND Windows? — before wiring the
-# full install→configure→connect→start→respond flow for all 7 agents.
+# `e2e` runs install + the full install→pair→configure→start→respond flow per
+# agent × OS; `ui` runs the agent-independent UI specs once per OS.
 #
 # Cadence: nightly (daily results table) + manual dispatch. Release-tag gating
 # (launcher-v*) is added once the keyed flow is in.
@@ -106,8 +104,15 @@ jobs:
           E2E_OPENAI_BASE: ${{ secrets.E2E_OPENAI_BASE }}
           E2E_WS_TOKEN: ${{ secrets.E2E_WS_TOKEN }}
           E2E_WS_SLUG: ${{ secrets.E2E_WS_SLUG }}
+          # Test account that is a member of the E2E workspace: since v1.1 only
+          # a signed-in member can mint the code that pairs this device.
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
           WORKSPACE_API_BASE_URL: https://workspace-endpoint.openagents.org
-        run: npx playwright test
+        # Only the specs that depend on the agent; the agent-independent UI
+        # specs run once per OS in the `ui` job, so a cell's colour on the status
+        # page says whether that agent works.
+        run: npx playwright test e2e/install.spec.ts e2e/respond.spec.ts
 
       - name: Record result row
         if: always()
@@ -135,6 +140,53 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trace-${{ matrix.os }}-${{ matrix.agent }}
+          path: |
+            packages/launcher/e2e-results/
+            packages/launcher/test-results/
+          if-no-files-found: ignore
+
+  # Agent-independent UI specs (local fixture servers, no workspace or agent),
+  # once per OS. Named without an agent so the status page's `e2e (os, agent)`
+  # matrix leaves it out.
+  ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/launcher
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deps
+        run: npm install
+
+      - name: Install Workspace frontend deps
+        uses: ./.github/actions/workspace-frontend-deps
+
+      # shared-agent-setup and workspace-onboarding drive the Workspace bundle in
+      # Playwright's Chromium, which `npm install` does not download.
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Build launcher (from source)
+        run: npm run build
+
+      - name: Run UI specs
+        run: npx playwright test e2e/shared-agent-setup.spec.ts e2e/workspace-onboarding.spec.ts e2e/workspace-appearance.spec.ts
+
+      - name: Upload traces / screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-ui-${{ matrix.os }}
           path: |
             packages/launcher/e2e-results/
             packages/launcher/test-results/

@@ -15,7 +15,9 @@ let profile: string
 let page: Page
 let errors: string[]
 
-test.setTimeout(30_000)
+// A cold Electron launch on a hosted runner alone can take ~20s (Windows), so
+// 30s left the delayed-reply test no room once the window was up.
+test.setTimeout(60_000)
 test.beforeAll(async () => {
   const bundle = path.resolve(process.env.WORKSPACE_BUNDLE_DIR || '../../workspace/frontend/dist-desktop')
   if (!existsSync(path.join(bundle, 'index.html'))) throw Error('Run npm run build first')
@@ -95,7 +97,7 @@ test.beforeEach(async () => {
   })
   await page.addInitScript(() => localStorage.setItem('oa:welcomeFilmSeen', '1'))
   await page.goto(`${origin}/#/preview?token=test-only`)
-  await expect(page.getByTitle('alex@example.invalid')).toBeVisible()
+  await expect(page.getByTitle('alex@example.invalid', { exact: true })).toBeVisible()
   await expect(page.locator('html')).toHaveClass(/light/)
   await page.evaluate(() => {
     const globals = window as any
@@ -115,7 +117,7 @@ test.afterEach(async () => {
 })
 
 async function chooseTheme(name: 'Dark' | 'Light' | 'System') {
-  const account = page.getByTitle('alex@example.invalid')
+  const account = page.getByTitle('alex@example.invalid', { exact: true })
   await expect(account).toHaveAttribute('aria-expanded', 'false')
   await account.click()
   await page.getByRole('menuitem', { name: /^Theme/ }).hover()
@@ -145,7 +147,7 @@ test('Workspace dark mode remains dark with exactly one host update, including r
   expect(await page.evaluate(() => (window as any).themeChanges)).toEqual(['dark'])
   expect(await electron.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe('dark')
   await page.reload()
-  await expect(page.getByTitle('alex@example.invalid')).toBeVisible()
+  await expect(page.getByTitle('alex@example.invalid', { exact: true })).toBeVisible()
   await settled()
   await expect(page.locator('html')).toHaveClass(/dark/)
   expect(await outbound()).toEqual(['dark'])
