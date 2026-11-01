@@ -1607,6 +1607,17 @@ function setupIPC(): void {
     setChromeDimmed(mainWindow, dim === true)
   })
 
+  // Not a plain setting: switching it starts or stops the daemon, and its
+  // value before any choice depends on whether this device has agents.
+  ipcMain.handle("local-connector:get", () =>
+    agentManager ? agentManager.localConnectorEnabled() : false,
+  )
+  ipcMain.handle("local-connector:set", async (_e, enabled: unknown) => {
+    const result = await requireManager().setLocalConnectorEnabled(enabled === true)
+    updateTrayMenu()
+    return result
+  })
+
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
   ipcMain.handle("settings:set", (_e, key, value) => {
     store.set(key, value)
@@ -2635,9 +2646,17 @@ function setupIPC(): void {
   accountManager = registerAccountIpc({
     endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
     getWindow: () => mainWindow,
-    connectNode: (code) => requireManager().connectNode(code),
+    // Both run only for "Connect this computer" in the workspace, which asks
+    // for this device to come online — so they turn the local connector on.
+    connectNode: (code) => {
+      requireManager()._wantLocalConnector()
+      return requireManager().connectNode(code)
+    },
     nodeStatus: () => requireManager().refreshNodeStatus(true),
-    ensureDaemon: () => requireManager()._ensureDaemon(),
+    ensureDaemon: () => {
+      requireManager()._wantLocalConnector()
+      return requireManager()._ensureDaemon()
+    },
     nudgeNode: () => agentManager?.nudgeNodeHeartbeat(),
     // The launcher's own look and feel, which the hosted workspace shares.
     // `nativeTheme.themeSource` is already the mode the renderer put there
@@ -3172,9 +3191,10 @@ app.whenReady().then(async () => {
     ._ensureDaemon()
     // Settings → Agents "start agents on launch". Chained onto the daemon so
     // the core is actually loaded before we ask it to start anything; a failure
-    // here is non-fatal, the user can still start each agent by hand.
-    .then(() => {
-      if (store.get("agentAutoStart") !== true) return
+    // here is non-fatal, the user can still start each agent by hand. No
+    // daemon means the local connector is off, which auto-start must not undo.
+    .then((ready) => {
+      if (!ready || store.get("agentAutoStart") !== true) return
       slog("agentAutoStart is on — starting all configured agents")
       return agentManager?.startAll()
     })

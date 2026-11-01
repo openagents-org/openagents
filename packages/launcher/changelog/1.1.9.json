@@ -3,6 +3,17 @@
   "date": "2026-10-28",
   "entries": [
     {
+      "type": "feature",
+      "title": {
+        "en": "Turn the local connector on or off",
+        "zh": "可开启或关闭本地连接器"
+      },
+      "description": {
+        "en": "Settings → General now has a switch for the local connector, which runs the agents on this computer. When it is off, the app works only as a workspace client. On a new installation it stays off until you add your first local agent; devices that already have local agents keep it on.",
+        "zh": "「设置 → 通用」新增本地连接器开关，用于运行本机上的智能体。关闭后，应用仅作为工作区客户端使用。新安装时默认关闭，添加第一个本地智能体后自动开启；已有本地智能体的设备保持开启。"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "OpenClaw installs again",
@@ -11,6 +22,17 @@
       "description": {
         "en": "The bundled Node.js is updated to 24.22.1, which the latest OpenClaw requires. When an agent's newest release needs a newer Node.js than this device has, the newest compatible release is installed instead, including when the agent is added from the web.",
         "zh": "内置 Node.js 升级至 24.22.1，满足最新版 OpenClaw 的要求。若智能体的最新版本需要更高版本的 Node.js，将自动安装可兼容的最新版本；从网页端添加智能体时同样适用。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "DeepSeek Harness no longer stops on an unsupported version",
+        "zh": "DeepSeek Harness 不再因版本不受支持而无法启动"
+      },
+      "description": {
+        "en": "When the DeepSeek Harness on this device is not the supported version, for example one installed by an earlier release or installed separately, the supported version is installed automatically when the agent starts. A failed agent installation now reports the underlying cause.",
+        "zh": "若本机的 DeepSeek Harness 不是受支持的版本（例如由旧版本安装或另行安装），智能体启动时会自动安装受支持的版本。智能体安装失败时，提示中会给出具体原因。"
       }
     },
     {

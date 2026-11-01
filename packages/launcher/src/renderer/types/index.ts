@@ -731,6 +731,14 @@ declare global {
        */
       setChromeDimmed(dim: boolean): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
+      /** Whether the local connector (the daemon) runs on this device. */
+      getLocalConnector(): Promise<boolean>
+      /** Starts or stops the daemon, taking local agents online or offline. */
+      setLocalConnector(enabled: boolean): Promise<{
+        success: boolean
+        enabled: boolean
+        message?: string
+      }>
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{
         ok: boolean

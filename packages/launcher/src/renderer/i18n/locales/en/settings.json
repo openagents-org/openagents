@@ -131,6 +131,17 @@
       "confirm": "Restart"
     }
   },
+  "localConnector": {
+    "title": "Local connector",
+    "label": "Run local agents on this computer",
+    "desc": "Runs the agents added on this computer and keeps it online in your workspaces. When off, $t(common.appName) works only as a workspace client. Turns on automatically when you add your first local agent.",
+    "failed": "The local connector could not start: {{message}}",
+    "offDialog": {
+      "title": "Turn off the local connector?",
+      "description": "Every agent on this computer stops and appears offline in its workspaces. You can still use your workspaces in $t(common.appName).",
+      "confirm": "Turn off"
+    }
+  },
   "appearance": {
     "themeGroup": "Theme & colour",
     "themeDesc": "Choose how $t(common.appName) looks",
