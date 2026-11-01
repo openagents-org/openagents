@@ -356,6 +356,8 @@ test.describe("launcher full flow", () => {
     const wsOption = page.getByTestId(`ws-option-${WS_SLUG}`)
     await expect(wsOption).toBeVisible({ timeout: 60_000 })
     await wsOption.click()
+    // Picking only selects; the dialog joins on its Connect button.
+    await page.getByTestId("ws-connect-submit").click()
 
     // 5. Ensure the agent is running + connected. Connecting triggers a daemon
     //    reload that AUTO-STARTS the agent, so clicking Start on an already-
