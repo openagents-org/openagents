@@ -76,17 +76,19 @@ def message_data(event, limit=12000):
 
 async def decide(context):
     from app.mods.workspace_mod import _get_llm_client, _get_router_model, _get_router_api_key
-    if not config.ROUTER_LLM_ENABLED or not _get_router_api_key():
+    dedicated = bool(config.MESSAGE_ROUTER_MODEL)
+    if not config.ROUTER_LLM_ENABLED or not (
+            (dedicated and config.MESSAGE_ROUTER_API_KEY) or _get_router_api_key()):
         return {'action': 'wait', 'reason': 'Automatic continuation is unavailable.'}
     prompt = PROMPT + json.dumps(context, ensure_ascii=False)
-    try:
-        client, provider = _get_llm_client()
+
+    async def call_model(client, provider, model, max_tokens):
         client = client.with_options(max_retries=0, timeout=15)
-        args = dict(model=_get_router_model(), max_tokens=700, temperature=0,
+        args = dict(model=model, max_tokens=max_tokens, temperature=0,
                     messages=[{'role': 'user', 'content': prompt}])
-        # Explicit request timeout bounds the channel lock while routing.
+        # Each attempt is bounded while the channel lock is held.
         if provider == 'openai':
-            if args['model'].lower().startswith('deepseek'):
+            if model.lower().startswith('deepseek'):
                 args['extra_body'] = {'thinking': {'type': 'disabled'}}
             response = await asyncio.to_thread(client.chat.completions.create, **args, timeout=15)
             raw = response.choices[0].message.content
@@ -96,6 +98,24 @@ async def decide(context):
         result = json.loads(raw)
         if not isinstance(result, dict) or result.get('action') not in ('next', 'ask', 'wait', 'stop'):
             raise ValueError('invalid decision')
+        return result
+
+    try:
+        if dedicated:
+            try:
+                from app.services.message_router import get_client
+                client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
+                result = await call_model(client, 'openai', config.MESSAGE_ROUTER_MODEL, 500)
+            except Exception:
+                # Separate client/credentials; never log prompts or provider errors.
+                logger.warning('Dedicated completion router unavailable or invalid; trying ROUTER_LLM backup')
+                if not _get_router_api_key():
+                    raise ValueError('Completion backup is not configured')
+                client, provider = _get_llm_client()
+                result = await call_model(client, provider, _get_router_model(), 700)
+        else:
+            client, provider = _get_llm_client()
+            result = await call_model(client, provider, _get_router_model(), 700)
         # Human confirmation is not recipient ambiguity. Fail closed if the
         # model omits/mistypes readiness, or contradicts it with ask/next.
         if result.get('action') in ('next', 'ask') and result.get('human_input_required') is not False:
