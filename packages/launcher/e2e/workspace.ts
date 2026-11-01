@@ -59,14 +59,21 @@ async function signInMember(): Promise<string> {
  * workspace. Codes are short-lived and single-use, so a run cannot carry one in
  * a secret — it mints its own. Since v1.1 `POST /v1/workspaces/{slug}/pairing-codes`
  * requires a signed-in workspace member, who owns the connection; a workspace
- * token is no longer enough, so the test member signs in first.
+ * token is no longer enough, so the test member signs in first — and joins the
+ * workspace if it is not a member yet (see joinWorkspace).
  */
 export async function createPairingCode(): Promise<string> {
   const idToken = await signInMember()
-  const res = await fetch(
-    `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`,
-    { method: "POST", headers: { Authorization: `Bearer ${idToken}` } },
-  )
+  const mint = () =>
+    fetch(`${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+    })
+  let res = await mint()
+  if (res.status === 403) {
+    await joinWorkspace(idToken)
+    res = await mint()
+  }
   if (!res.ok)
     throw new Error(
       `POST /v1/workspaces/${SLUG}/pairing-codes ${res.status}: ${await res.text()}`,
@@ -75,6 +82,39 @@ export async function createPairingCode(): Promise<string> {
   const code = body?.data?.code
   if (!code) throw new Error(`pairing-codes returned no code: ${JSON.stringify(body)}`)
   return code as string
+}
+
+/**
+ * Make the test member a member of the workspace under test, so whichever
+ * workspace E2E_WS_SLUG names needs no manual setup. The workspace token is
+ * the workspace's own trusted machine credential and may create invites; an
+ * open (not email-bound, so nothing is mailed) member invite is accepted as the
+ * test member and revoked straight away, leaving no usable link behind.
+ */
+async function joinWorkspace(idToken: string): Promise<void> {
+  const invites = `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/invites`
+  const created = await fetch(invites, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ role: "member", note: "launcher E2E test member" }),
+  })
+  if (!created.ok)
+    throw new Error(`POST /v1/workspaces/${SLUG}/invites ${created.status}: ${await created.text()}`)
+  const invite = (await created.json())?.data
+  const inviteToken = String(invite?.url || "").split("/invite/")[1]
+  try {
+    const accepted = await fetch(`${BASE}/v1/invites/${encodeURIComponent(inviteToken)}/accept`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+    })
+    if (!accepted.ok)
+      throw new Error(`accepting the E2E member invite failed ${accepted.status}: ${await accepted.text()}`)
+  } finally {
+    await fetch(`${invites}/${encodeURIComponent(invite.inviteId)}`, {
+      method: "DELETE",
+      headers: headers(),
+    }).catch(() => {})
+  }
 }
 
 async function fetchEvents(params: Record<string, string>): Promise<any> {
