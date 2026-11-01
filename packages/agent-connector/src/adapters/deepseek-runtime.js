@@ -5,11 +5,11 @@
  * so the adapter itself stays a thin subprocess driver. The split mirrors
  * cline-stream.js / pi-stream.js.
  *
- * Verified against @deepseek-ai/dsh 0.2.1-rc.2 (bin `dsh` -> lib/bin.js, ESM).
+ * Verified against @deepseek-ai/dsh 0.2.1-rc.5 (bin `dsh` -> lib/bin.js, ESM).
  *
  * Three things here exist because dsh is unlike every other CLI in this repo:
  *
- *  1. It is a PREVIEW release (`0.2.1-rc.2`) and upstream says compatibility may
+ *  1. It is a PREVIEW release (`0.2.1-rc.5`) and upstream says compatibility may
  *     break between previews, so the gate is exact equality — not a floor. The
  *     two version comparators already in this repo (installer.js's
  *     `compareVersions`, pi-stream.js's `parseVersion`) both DROP the `-rc.N`
@@ -45,7 +45,7 @@ const path = require('path');
  * from there and only falls back here when the registry entry cannot be read at
  * all. Mirrors pi-stream.js's MIN_PI_VERSION rationale.
  */
-const SUPPORTED_DSH_VERSION = '0.2.1-rc.2';
+const SUPPORTED_DSH_VERSION = '0.2.1-rc.5';
 
 /**
  * dsh's Node requirement, from the upstream repository's root package.json:
@@ -66,10 +66,19 @@ const NODE_MIN_22 = [22, 19, 0];
 const ROW = {
   AGENT_DEFAULT_MODEL: 'agent-default-model',
   APPROVAL: 'approval',
+  LLM_DEEPSEEK: 'llm-deepseek',
   LLM_PI_AI: 'llm-pi-ai',
   PERMISSION: 'permission',
   USER_QUESTIONS: 'user-questions',
 };
+
+/**
+ * The models dsh's own DeepSeek catalog ships (`DEFAULT_MODELS` in
+ * @deepseek-ai/dsh-llm-deepseek). From rc.5, while that catalog is untouched,
+ * dsh follows the official `/models` listing and refuses any listed model not
+ * in it — `deepseek-v4-flash`, the id OpenAgents offers, among them.
+ */
+const DSH_BUILTIN_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
 
 /** The pi-ai route an OpenAI-compatible gateway is served through. */
 const GATEWAY_PROVIDER = 'openai-gateway';
@@ -397,7 +406,7 @@ function yamlScalar(value) {
  * A patch REPLACES the targeted row's whole `config`, so each row below is
  * written out complete rather than as a partial merge.
  */
-function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl } = {}) {
+function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl, officialEndpoint = false } = {}) {
   const mode = normalizePermissionMode(permissionMode) || 'workspace-write';
   const sandboxFor = (m) => (m === 'read-only' ? 'read-only' : m === 'danger-full-access' ? 'danger-full-access' : 'workspace-write');
 
@@ -446,6 +455,17 @@ function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl } =
     lines.push(`    provider: ${GATEWAY_PROVIDER}`);
     lines.push(`    model: ${yamlScalar(gatewayModel)}`);
   } else if (model || provider) {
+    if (officialEndpoint && model && !DSH_BUILTIN_MODELS.includes(model)) {
+      // Declaring the model in the route's catalog is what keeps rc.5 from
+      // following the `/models` listing and refusing it before any request
+      // ("is not supported by DeepSeek Harness"). The API itself still decides
+      // whether the model exists, and says so in an error the user can act on.
+      lines.push('');
+      lines.push(`- id: ${ROW.LLM_DEEPSEEK}`);
+      lines.push('  config:');
+      lines.push('    models:');
+      lines.push(`      - id: ${yamlScalar(model)}`);
+    }
     lines.push('');
     lines.push(`- id: ${ROW.AGENT_DEFAULT_MODEL}`);
     lines.push('  config:');
@@ -604,7 +624,12 @@ const FAILURE = {
 
 const FAILURE_PATTERNS = [
   [FAILURE.AUTH, /\b(401|403|unauthor|forbidden|invalid[_\s-]?api[_\s-]?key|authentication|no api key|missing api key|credential)/i],
-  [FAILURE.MODEL, /\b(model[_\s-]?not[_\s-]?found|unknown model|unsupported model|no such model|context[_\s-]?length|token limit|quota|rate[_\s-]?limit|429)/i],
+  // dsh 0.2.1-rc.5 refuses a model the official `/models` listing names but its
+  // own catalog does not ship ("… is not supported by DeepSeek Harness",
+  // MODEL_UNSUPPORTED), and one that needs a newer harness
+  // (CLIENT_UPGRADE_REQUIRED) — both before any request is sent.
+  [FAILURE.VERSION, /\b(requires DeepSeek Harness \S+ or later|client[_\s-]?upgrade[_\s-]?required)/i],
+  [FAILURE.MODEL, /\b(model[_\s-]?not[_\s-]?found|unknown model|unsupported model|model[_\s-]?unsupported|not supported by DeepSeek Harness|no such model|context[_\s-]?length|token limit|quota|rate[_\s-]?limit|429)/i],
   [FAILURE.NETWORK, /\b(econnrefused|enotfound|etimedout|econnreset|socket hang up|network|dns|proxy|certificate|tls|ssl|502|503|504)/i],
   [FAILURE.PERMISSION, /\b(eacces|eperm|erofs|permission denied|read[_\s-]?only file system|operation not permitted)/i],
   [FAILURE.VERSION, /\b(unsupported node|engine|requires node|syntaxerror.*unexpected token|err_require_esm|cannot use import statement)/i],
@@ -682,6 +707,7 @@ function selectSessionsForGc(entries, { now, keepCount = SESSION_KEEP_COUNT, kee
 
 module.exports = {
   SUPPORTED_DSH_VERSION,
+  DSH_BUILTIN_MODELS,
   NODE_MIN_22,
   ROW,
   PERMISSION_MODES,
