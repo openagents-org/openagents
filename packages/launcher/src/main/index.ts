@@ -2016,12 +2016,23 @@ function setupIPC(): void {
   ipcMain.handle("notifications:set-prefs", (_e, prefs) => setNotifPrefs(prefs))
 
   // ── Settings paths (5.7) ──
+  // app.getPath throws when Windows cannot resolve a known folder (a
+  // redirected or missing Downloads, say), and one throw failed the whole call
+  // — which the agent form needs for its default folder, so no agent could be
+  // added. Each path is looked up on its own instead.
+  const knownPath = (name: Parameters<typeof app.getPath>[0]): string | undefined => {
+    try {
+      return app.getPath(name)
+    } catch {
+      return undefined
+    }
+  }
   ipcMain.handle("paths:list", () => ({
     userData: app.getPath("userData"),
-    logs: app.getPath("logs"),
-    downloads: app.getPath("downloads"),
-    home: app.getPath("home"),
-    cache: app.getPath("sessionData"),
+    logs: knownPath("logs"),
+    downloads: knownPath("downloads"),
+    home: knownPath("home") ?? os.homedir(),
+    cache: knownPath("sessionData"),
     portableNode: PORTABLE_NODE_DIR,
     openagentsHome: path.join(os.homedir(), ".openagents"),
   }))
