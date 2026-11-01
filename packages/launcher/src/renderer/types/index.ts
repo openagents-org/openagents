@@ -770,10 +770,10 @@ declare global {
       }>
       listPaths(): Promise<{
         userData: string
-        logs: string
-        downloads: string
+        logs?: string
+        downloads?: string
         home: string
-        cache: string
+        cache?: string
         portableNode: string
         openagentsHome: string
       }>
