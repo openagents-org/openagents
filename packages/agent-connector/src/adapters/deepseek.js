@@ -54,7 +54,7 @@ const { execFileSync, execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { whichBinary, getEnhancedEnv } = require('../paths');
+const { whichBinary, getEnhancedEnv, resolveManagedNpmBinary } = require('../paths');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildDeepSeekTaskFile } = require('./workspace-prompt');
 const { sampleRecap } = require('./decision-log');
@@ -252,7 +252,14 @@ class DeepSeekAdapter extends BaseAdapter {
    * when nothing resolves.
    */
   _resolveDshCommand() {
-    const bin = whichBinary('dsh');
+    // The launcher-managed copy first, the same Tier 0 the installer uses. A
+    // plain PATH lookup ranks every global npm prefix above
+    // ~/.openagents/runtimes, so an old global dsh (a 0.1.0-rc.6 left from
+    // before the pin moved) shadowed the managed pinned one: the launcher
+    // reported the pinned version with nothing to update, while every start
+    // refused the global copy as unsupported.
+    const bin = resolveManagedNpmBinary('deepseek', '@deepseek-ai/dsh', 'dsh')
+      || whichBinary('dsh');
     if (!bin) return null;
     const nodeBin = this._findNodeBin();
 
@@ -271,6 +278,15 @@ class DeepSeekAdapter extends BaseAdapter {
     const guesses = dshEntryCandidates(bin);
     for (const g of guesses) if (fs.existsSync(g)) return [nodeBin, g];
     return null;
+  }
+
+  /**
+   * Drop the resolved dsh so the next preflight resolves it afresh — after the
+   * daemon installed the pinned version into the managed prefix.
+   */
+  forgetRuntime() {
+    this._nodeBin = null;
+    this._jsEntry = null;
   }
 
   /** `dsh -V` output, or null. Synchronous: preflight() is a sync contract. */
@@ -363,7 +379,9 @@ class DeepSeekAdapter extends BaseAdapter {
       || defaultInstallCommand(supported);
     const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
     if (gate.compatible === false || gate.compatible === null) {
-      return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message };
+      // repairable: the daemon installs the pinned version and asks again
+      // (see Daemon._repairRuntime), so a stale dsh never reaches the user.
+      return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message, repairable: true };
     }
 
     if (!this._apiKey()) {
