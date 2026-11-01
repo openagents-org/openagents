@@ -1041,7 +1041,7 @@ function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endp
  * constant sentence on the command line. Two consequences shape this function:
  *
  *  - The workspace token must NEVER appear. `tokenExpr` is a SHELL EXPRESSION
- *    (`$OPENAGENTS_WORKSPACE_TOKEN`, or `$env:OPENAGENTS_WORKSPACE_TOKEN` on
+ *    (`$OPENAGENTS_WORKSPACE_AUTH`, or `$env:OPENAGENTS_WORKSPACE_AUTH` on
  *    Windows) that the agent expands at run time from the child environment.
  *    Passing the real token here would put it on disk for no benefit — and the
  *    guard below makes that a loud failure rather than a silent leak.
@@ -1050,17 +1050,52 @@ function buildOpenWorkerSystemPrompt({ agentName, workspaceId, channelName, endp
  *    is therefore part of the task itself rather than something the agent can
  *    be expected to remember.
  */
+/** Quote a path as a PowerShell single-quoted literal. */
+function psQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * How a DeepSeek Harness run on Windows reaches the workspace API.
+ *
+ * dsh's Windows sandbox gives shell commands a token with no Schannel
+ * credentials, so the `curl` recipes above fail every HTTPS request
+ * (SEC_E_NO_CREDENTIALS) and so does Invoke-WebRequest. Node's TLS works, so the
+ * calls go through deepseek-workspace-api.js on the adapter's own Node binary.
+ * The recipes above stay as the reference for routes and JSON bodies.
+ */
+function buildDeepSeekWindowsApiSection({ node, helper, channelName }) {
+  const run = `& ${psQuote(node)} ${psQuote(helper)}`;
+  return [
+    '## Calling the workspace API on this machine (Windows)',
+    'This sandbox cannot open HTTPS connections with `curl.exe` or `Invoke-WebRequest` '
+      + '(they fail with SEC_E_NO_CREDENTIALS), so do NOT use the `curl` commands above as '
+      + 'written. Use them only as the reference for routes and JSON bodies, and make every '
+      + 'workspace call with this PowerShell helper instead. It adds the auth header itself '
+      + 'and prints the JSON response.',
+    '',
+    `- GET:    \`${run} GET '/v1/files?network=...'\``,
+    `- POST/PUT/PATCH: write the JSON body to a file with your file tool, then \`${run} POST /v1/events --body-file body.json\``,
+    `- DELETE: \`${run} DELETE '/v1/files/FILE_ID?network=...'\``,
+    `- Upload a file to this thread: \`${run} upload report.md --channel ${psQuote(channelName)}\``,
+    `- Download a file: \`${run} download FILE_ID out.bin\``,
+    '',
+    'Never paste the workspace token into a command or a file: the helper reads it from the environment.',
+    '',
+  ].join('\n');
+}
+
 function buildDeepSeekTaskFile({
   agentName, workspaceId, channelName, endpoint, tokenExpr,
   mode = 'execute', disabledModules, browserEnabled = false,
-  recap = '', request = '', attachments = '',
+  recap = '', request = '', attachments = '', windowsApi = null,
 }) {
   // A token expression is a shell reference, never a credential. Anything that
   // does not start with `$` is almost certainly a real token passed by mistake.
   if (!tokenExpr || !/^\$/.test(String(tokenExpr))) {
     throw new Error(
       'buildDeepSeekTaskFile: tokenExpr must be a shell expression such as '
-      + '$OPENAGENTS_WORKSPACE_TOKEN — never the workspace token itself.',
+      + '$OPENAGENTS_WORKSPACE_AUTH — never the workspace token itself.',
     );
   }
 
@@ -1072,7 +1107,9 @@ function buildDeepSeekTaskFile({
     endpoint, workspaceId, token: tokenExpr, agentName, channelName, disabledModules, mode,
   });
 
-  const parts = [identity, directive, '\n', collab, '\n', modePrompt, '\n', api, '\n', buildGuardrails()];
+  const parts = [identity, directive, '\n', collab, '\n', modePrompt, '\n', api, '\n'];
+  if (windowsApi) parts.push(buildDeepSeekWindowsApiSection({ ...windowsApi, channelName }), '\n');
+  parts.push(buildGuardrails());
 
   if (recap) {
     parts.push(
