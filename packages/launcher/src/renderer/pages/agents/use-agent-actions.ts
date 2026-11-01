@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { useAccountStore } from "@renderer/store/account"
 import { useAgentsStore } from "@renderer/store/agents"
+import { useLocalConnectorStore } from "@renderer/store/local-connector"
 import { capture } from "@renderer/lib/analytics"
 import { inAppBlocker, opensInApp, workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
 import type { Agent } from "@renderer/types"
@@ -76,6 +77,8 @@ export function useAgentActions(
           refresh()
         }
       } else {
+        // Off, the connector is asked for first: turning it on starts them all.
+        if (!(await useLocalConnectorStore.getState().ensureOn())) return
         capture("agent_started", {
           agent_name: agent.name,
           agent_type: agent.type,
@@ -205,6 +208,7 @@ export function useAgentActions(
           "info",
         )
         try {
+          if (!(await useLocalConnectorStore.getState().ensureOn())) return
           await window.api.startAgent(agent.name)
           for (let i = 0; i < 5; i++) {
             await new Promise((r) => setTimeout(r, 1200))

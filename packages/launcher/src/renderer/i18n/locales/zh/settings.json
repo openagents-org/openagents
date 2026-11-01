@@ -140,6 +140,17 @@
       "title": "关闭本地连接器？",
       "description": "本机所有智能体将停止运行，并在工作区中显示为离线。你仍可在 $t(common.appName)中使用工作区。",
       "confirm": "关闭"
+    },
+    "statusOn": "已开启 · {{summary}}",
+    "statusOff": "已关闭 · 本机智能体不会运行，本机在工作区中显示为离线",
+    "onToast": "本地连接器已开启，本机智能体正在启动。",
+    "offToast": "本地连接器已关闭，本机智能体已停止。",
+    "banner": "本地连接器已关闭：本机智能体不会运行，本机在工作区中显示为离线。",
+    "bannerAction": "开启",
+    "onDialog": {
+      "title": "开启本地连接器？",
+      "description": "智能体需要本地连接器才能运行。开启后，本机已添加的智能体都会启动。",
+      "confirm": "开启"
     }
   },
   "appearance": {

@@ -79,6 +79,7 @@ import {
 import { LoginProbe } from "./agents/login-probe"
 import {
   LOCAL_CONNECTOR_KEY,
+  LOCAL_CONNECTOR_OFF,
   localConnectorEnabled,
 } from "./agents/local-connector"
 import { buildBinaryTypeMap } from "./agents/binary-map"
@@ -2659,8 +2660,8 @@ export class AgentManager extends EventEmitter {
   }
 
   async startAgent(name: string): Promise<unknown> {
-    this._wantLocalConnector()
     const ready = await this._ensureDaemon()
+    if (!ready && !this.localConnectorEnabled()) throw new Error(LOCAL_CONNECTOR_OFF)
     if (!ready)
       throw new Error(
         "Daemon failed to start. Check the Logs page for details.",
@@ -2741,8 +2742,8 @@ export class AgentManager extends EventEmitter {
   }
 
   async startAll(): Promise<unknown> {
-    this._wantLocalConnector()
     const ready = await this._ensureDaemon()
+    if (!ready && !this.localConnectorEnabled()) throw new Error(LOCAL_CONNECTOR_OFF)
     if (!ready)
       throw new Error(
         "Daemon failed to start. Check the Logs page for details.",
@@ -2799,6 +2800,7 @@ export class AgentManager extends EventEmitter {
   ): Promise<{ success: boolean; enabled: boolean; message?: string }> {
     this._store.set(LOCAL_CONNECTOR_KEY, enabled)
     this._statusCache = { value: {}, at: 0 }
+    this.emit("local-connector", enabled)
     if (!enabled) {
       if (this._connector) await this.stopAll()
       return { success: true, enabled }
@@ -2814,13 +2816,15 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
-   * A user action that needs a running daemon — adding, starting or
-   * connecting an agent — turns the connector on. The first local agent is
-   * what switches it on for a new install.
+   * Adding a local agent, or connecting this computer from a workspace, turns
+   * the connector on: the first local agent is what switches it on for a new
+   * install. Starting an agent does not — the renderer asks first, since
+   * turning it on starts every agent on this computer.
    */
   _wantLocalConnector(): void {
-    if (this._store.get(LOCAL_CONNECTOR_KEY) !== true)
-      this._store.set(LOCAL_CONNECTOR_KEY, true)
+    if (this._store.get(LOCAL_CONNECTOR_KEY) === true) return
+    this._store.set(LOCAL_CONNECTOR_KEY, true)
+    this.emit("local-connector", true)
   }
 
   getAllStatus(): unknown {

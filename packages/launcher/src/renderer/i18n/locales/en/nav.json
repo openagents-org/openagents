@@ -63,6 +63,7 @@
     "error_one": "{{count}} agent needs attention",
     "error_other": "{{count}} agents need attention",
     "stopped": "No agents running",
-    "none": "No agents yet"
+    "none": "No agents yet",
+    "connectorOff": "Local connector off"
   }
 }

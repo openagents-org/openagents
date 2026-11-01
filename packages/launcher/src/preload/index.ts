@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld('api', {
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   getLocalConnector: () => ipcRenderer.invoke('local-connector:get'),
   setLocalConnector: (enabled: boolean) => ipcRenderer.invoke('local-connector:set', enabled),
+  onLocalConnectorChanged: (cb: (enabled: boolean) => void) =>
+    ipcRenderer.on('local-connector:changed', (_e, enabled) => cb(enabled)),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),

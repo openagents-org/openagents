@@ -7,6 +7,8 @@ import { useThemeStore } from "./store/theme"
 import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
 import { useAccountStore } from "./store/account"
+import { initLocalConnector } from "./store/local-connector"
+import { LocalConnectorPrompt } from "./components/local-connector/local-connector-prompt"
 import { AppShell } from "./components/layout/app-shell"
 import { ModeBar } from "./components/layout/mode-bar"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
@@ -65,6 +67,7 @@ export default function App(): React.JSX.Element {
     // Reads the stored session and subscribes to changes. Signed out is a
     // perfectly good outcome — the workspace half simply stays behind its gate.
     void initAccount()
+    initLocalConnector()
     // The app entry replaces automatic machine-pairing onboarding. Existing
     // local tools and the optional guided tour remain available in This Computer.
     void window.api.consumeOnboardingReset().catch(() => false)
@@ -165,6 +168,7 @@ export default function App(): React.JSX.Element {
       <Toaster position="bottom-right" />
       {appMode === "launcher" && <CommandPalette />}
       {appMode === "launcher" && <GuidedTour />}
+      <LocalConnectorPrompt />
 
       {/* Mounted in BOTH modes, unlike the dialogs below it. With automatic
           downloads off this is the only place a new version is offered, and a

@@ -2,6 +2,7 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 
 import { useAgentsStore, useAgentsSummary, type AgentsSummaryState } from "@renderer/store/agents"
+import { useLocalConnectorStore } from "@renderer/store/local-connector"
 
 /**
  * What the window says about the machine it runs on: its name, what its
@@ -15,7 +16,10 @@ export function useDeviceReadout(): {
   version: string
 } {
   const { t } = useTranslation()
-  const { state: status, count } = useAgentsSummary()
+  const { state: summaryState, count } = useAgentsSummary()
+  // Off, the connector is the news: every agent stopped is the expected result.
+  const connectorOff = useLocalConnectorStore((s) => s.enabled === false)
+  const status: AgentsSummaryState = connectorOff ? "stopped" : summaryState
   const reportedVersion = useAgentsStore((s) => s.launcherVersion)
   const [appVersion, setAppVersion] = React.useState<string | null>(null)
   const [hostname, setHostname] = React.useState<string | null>(null)
@@ -31,7 +35,9 @@ export function useDeviceReadout(): {
     return () => { active = false }
   }, [])
 
-  const statusLabel = t(`nav.agentsSummary.${status}`, { count })
+  const statusLabel = connectorOff
+    ? t("nav.agentsSummary.connectorOff")
+    : t(`nav.agentsSummary.${status}`, { count })
 
   return { hostname, status, statusLabel, version: appVersion || reportedVersion || "v?" }
 }

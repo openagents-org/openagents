@@ -9,6 +9,12 @@
 export const LOCAL_CONNECTOR_KEY = "localConnector"
 
 /**
+ * The error a start fails with while the connector is off. A code, not prose:
+ * the renderer checks for it and offers to turn the connector on.
+ */
+export const LOCAL_CONNECTOR_OFF = "LOCAL_CONNECTOR_OFF"
+
+/**
  * Whether the connector should run. An explicit choice wins. Before there is
  * one, it runs exactly when the device already has local agents: off for a new
  * install, which turns it on with its first local agent, and on for a device

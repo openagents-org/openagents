@@ -1609,8 +1609,9 @@ function setupIPC(): void {
 
   // Not a plain setting: switching it starts or stops the daemon, and its
   // value before any choice depends on whether this device has agents.
+  // Null while the manager is still loading: unknown, not off.
   ipcMain.handle("local-connector:get", () =>
-    agentManager ? agentManager.localConnectorEnabled() : false,
+    agentManager ? agentManager.localConnectorEnabled() : null,
   )
   ipcMain.handle("local-connector:set", async (_e, enabled: unknown) => {
     const result = await requireManager().setLocalConnectorEnabled(enabled === true)
@@ -3199,6 +3200,14 @@ app.whenReady().then(async () => {
       return agentManager?.startAll()
     })
     .catch(() => {})
+
+  // Adding an agent or connecting this computer can switch the connector on
+  // from outside Settings; every surface that shows it follows.
+  agentManager.on("local-connector", (enabled: boolean) => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send("local-connector:changed", enabled)
+    updateTrayMenu()
+  })
 
   agentManager.on("chat-event", (ev: ChatStreamEvent) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
