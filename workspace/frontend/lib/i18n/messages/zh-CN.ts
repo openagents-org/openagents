@@ -21,6 +21,10 @@ export const messages: Messages = {
   messageAgentAccess: {"rolloutPending": "仅限此会话的授权将在服务端协调更新后启用。","owner": "所有者：{name}", "yours": "你的智能体", "shared": "已与你共享", "approval": "需要审批", "notShared": "未与你共享", "request": "申请使用", "requested": "已申请使用", "requestTitle": "申请使用 {agent}", "requestHint": "向 {owner} 申请仅在此会话中使用 {agent}。批准后不会获得私聊或其他会话的使用权限。", "sent": "已向智能体所有者发送申请", "failed": "申请失败，请重试。"},
   webProject: {"kind": "网页项目","upload": "上传网页项目", "update": "更新项目", "choose": "选择项目文件夹", "name": "项目名称", "entry": "入口页面", "files": "个文件", "keepsSharing": "保留原有链接和共享设置。", "threadSharing": "与此会话共享。", "private": "共享前仅你可见。", "help": "选择静态网站文件夹。图片、样式、脚本和数据请使用相对链接。隐藏文件和依赖文件夹不会上传。", "noHtml": "此文件夹需要一个 HTML 入口页面。", "publish": "发布项目", "published": "项目已发布", "preview": "网页项目预览"},
   artifactPanel: {
+    unlinkedBrowser: "无法在此预览共享浏览器链接",
+    unlinkedBrowserHint: "此链接无法匹配到当前工作区中可用的已保存标签页。原浏览器会话可能已结束。",
+    openOriginalBrowserLink: "打开原始共享链接",
+
     browserClosed: "此浏览器会话已结束",
     browserClosedHint: "重新打开已保存的页面以启动新会话。智能体之前的实时会话已停止。",
     reopenBrowser: "重新打开浏览器",
