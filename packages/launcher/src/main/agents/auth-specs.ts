@@ -833,6 +833,18 @@ export const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: /"logged_in"\s*:\s*false/,
     apiKeyEnv: "QODERCN_PERSONAL_ACCESS_TOKEN",
   },
+  kiro: {
+    // `kiro-cli login` runs Kiro's own browser / device-code sign-in (Builder
+    // ID, IAM Identity Center or a social login). `kiro-cli whoami` prints
+    // "Logged in with <method> (...)" plus the account (exit 0, 2.37.0) when
+    // signed in, and "Not logged in" otherwise. KIRO_API_KEY is Kiro's
+    // headless alternative to the sign-in.
+    loginCommand: "kiro-cli login",
+    statusArgs: ["whoami"],
+    loggedInPattern: /logged in with/i,
+    loggedOutPattern: /not logged in/i,
+    apiKeyEnv: "KIRO_API_KEY",
+  },
 }
 
 /**
@@ -932,6 +944,10 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // DUAL_LOGIN_AGENTS above gives it a probe (`status -o json`).
   "qoder",
   "qoder-cn",
+  // Kiro CLI: a `kiro-cli login` sign-in OR a KIRO_API_KEY. Both are optional
+  // in the registry; this entry offers the sign-in first, and
+  // DUAL_LOGIN_AGENTS above gives it a probe (`kiro-cli whoami`).
+  "kiro",
 ])
 
 /**
@@ -1134,6 +1150,14 @@ export const CORE_AGENTS: readonly string[] = [
   // Same core-before-marketplace ordering as above: a core without the
   // qwen-code adapter degrades to "unsupported", not a broken install.
   "qwen-code",
+  // Kiro CLI (`kiro`): Kiro's terminal agent, installed by cli.kiro.dev's own
+  // script as a native binary (`kiro-cli`, ~/.local/bin; an MSI into
+  // %ProgramFiles%\Kiro-Cli on Windows). The core adapter drives it over the
+  // Agent Client Protocol (`kiro-cli acp`), and each agent can name its own
+  // Kiro agent profile (KIRO_AGENT) for its prompt, tools and MCP servers.
+  // See docs/agents/kiro.md. Same core-before-marketplace ordering as above:
+  // a core without the kiro adapter degrades to "unsupported".
+  "kiro",
   // NanoClaw is intentionally NOT in this set: it's a BETA external
   // containerized runtime bridged via a native NanoClaw `openagents` channel,
   // so it stays "coming soon" (visible but not installable) and out of

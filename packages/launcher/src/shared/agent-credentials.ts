@@ -113,6 +113,9 @@ const CREDENTIALS: Record<string, AgentCredentials> = {
   // Qoder account, so there is no endpoint to point anywhere.
   qoder: { endpoint: "none", probeable: "never", reason: "qoder", noEndpoint: "qoder" },
   "qoder-cn": { endpoint: "none", probeable: "never", reason: "qoder", noEndpoint: "qoder" },
+  // Kiro: KIRO_API_KEY authenticates the Kiro service itself (or the CLI's
+  // own `kiro-cli login`); models come from the Kiro account.
+  kiro: { endpoint: "none", probeable: "never", reason: "kiro", noEndpoint: "kiro" },
 
   // ── Provider-driven: the form's provider field decides the protocol. ──
   pi: { endpoint: "openai", probeable: "conditional" },

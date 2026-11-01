@@ -113,6 +113,28 @@ describe("qoder sign-in probe", () => {
   })
 })
 
+/**
+ * `kiro-cli whoami`: the signed-in text is verbatim from 2.37.0 (account
+ * details replaced); the signed-out line is the CLI's own string for that state.
+ */
+describe("kiro sign-in probe", () => {
+  const SIGNED_IN =
+    "Logged in with IAM Identity Center (https://d-0000000000.awsapps.com/start)\nEmail: user@example.com\n\nProfile:\nKiroProfile-us-east-1\n"
+  const SIGNED_OUT = "Not logged in\n"
+
+  it("reads the whoami output", () => {
+    const spec = DUAL_LOGIN_AGENTS.kiro
+    expect(loginVerdict(spec, SIGNED_IN, 0)).toBe(true)
+    expect(loginVerdict(spec, SIGNED_OUT, 0)).toBe(false)
+    expect(spec.loginCommand).toBe("kiro-cli login")
+    expect(spec.apiKeyEnv).toBe("KIRO_API_KEY")
+  })
+
+  it("is installable from the launcher", () => {
+    expect(CORE_AGENTS).toContain("kiro")
+  })
+})
+
 describe("keyless auth paths", () => {
   it("counts OpenWorker's no-key providers as configured", () => {
     expect(
