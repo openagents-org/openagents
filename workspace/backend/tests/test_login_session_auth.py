@@ -208,14 +208,14 @@ class TestWorkspaceClaim:
     """POST /v1/workspaces/{id}/claim — claim workspace ownership."""
 
     def test_claim_unclaimed_workspace(self, client):
-        """User can claim a workspace that has no creator_email set."""
+        """A token holder can claim a workspace that has no creator_email set."""
         ws = _create_workspace(client, name="Unclaimed WS", agent_name="bot")
         ws_id = ws["workspaceId"]
 
         with _mock_firebase_verify("claimer@example.com"):
             resp = client.post(
                 f"/v1/workspaces/{ws_id}/claim",
-                headers={"Authorization": "Bearer claim-token"},
+                headers={"Authorization": "Bearer claim-token", "X-Workspace-Token": ws["token"]},
             )
         assert resp.status_code == 200
         data = resp.json()["data"]
@@ -271,10 +271,11 @@ class TestWorkspaceClaim:
 
         # Claim
         with _mock_firebase_verify("owner@example.com"):
-            client.post(
+            claimed = client.post(
                 f"/v1/workspaces/{ws_id}/claim",
-                headers={"Authorization": "Bearer claim-token"},
+                headers={"Authorization": "Bearer claim-token", "X-Workspace-Token": ws["token"]},
             )
+        assert claimed.status_code == 200
 
         # Now use bearer auth to rotate token (a protected action)
         with _mock_firebase_verify("owner@example.com"):
@@ -540,25 +541,29 @@ class TestSessionLifecycle:
         sources = [e["source"] for e in events]
         assert "openagents:agent-leaver" in sources
 
-    def test_heartbeat_generates_event(self, client, workspace):
-        """Heartbeat creates a network.ping event."""
+    def test_heartbeat_updates_presence_without_storing_an_event(self, client, workspace, db):
+        """Heartbeat refreshes last_heartbeat; pings are not kept as events."""
+        from app.models import WorkspaceMember
         client.post("/v1/join", json={
             "agent_name": "agent-pinger",
             "token": workspace["token"],
             "network": workspace["id"],
         })
-        client.post("/v1/heartbeat", json={
+        resp = client.post("/v1/heartbeat", json={
             "agent_name": "agent-pinger",
             "network": workspace["id"],
-        })
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
+        member = db.query(WorkspaceMember).filter_by(
+            workspace_id=workspace["id"], agent_name="agent-pinger").one()
+        assert member.last_heartbeat is not None
 
         resp = client.get("/v1/events", params={
             "network": workspace["id"],
             "type": "network.ping",
         }, headers={"X-Workspace-Token": workspace["token"]})
-        events = resp.json()["data"]["events"]
-        sources = [e["source"] for e in events]
-        assert "openagents:agent-pinger" in sources
+        assert resp.json()["data"]["events"] == []
 
 
 # ===========================================================================
