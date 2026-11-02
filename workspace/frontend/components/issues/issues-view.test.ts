@@ -8,6 +8,7 @@ import type { IssueDetail, KanbanTask } from '@/lib/types';
 
 const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
+  toast: { error: vi.fn(), success: vi.fn() },
   layout: { openView: vi.fn(), pendingIssueId: null as string | null, setPendingIssueId: vi.fn() },
   ws: {
     workspace: { workspaceId: 'workspace-1' },
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
@@ -45,11 +47,17 @@ vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => mocks.layout,
 }));
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
-vi.mock('@/lib/i18n', () => ({
-  useT: () => t,
-  useI18n: () => ({ locale: 'en-US' }),
-  useFormatters: () => ({ timeAgo: () => 'just now' }),
-}));
+vi.mock('@/lib/i18n', async () => {
+  const { formatDateTime } = await import('@/lib/i18n/format');
+  return {
+    useT: () => t,
+    useI18n: () => ({ locale: 'en-US' }),
+    useFormatters: () => ({
+      timeAgo: () => 'just now',
+      formatDateTime: (value: string, options?: Intl.DateTimeFormatOptions) => formatDateTime(value, 'en-US', options),
+    }),
+  };
+});
 vi.mock('@/components/layout/app-header', () => ({
   DetailHeader: ({
     title,
@@ -239,6 +247,62 @@ describe('shared issues', () => {
     expect(host.textContent).toContain('Only the person who opened this issue or a workspace admin can delete it');
     expect(host.querySelector('h1')?.textContent).toBe('Improve onboarding');
     expect(button('Delete').disabled).toBe(false);
+  });
+
+  it('dates issues from the past week relatively and older ones to the minute', async () => {
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
+    mocks.api.listIssues.mockResolvedValue({ next_offset: null, issues: [
+      { ...issue, id: 'recent', updated_at: '2026-10-30T12:00:00Z' },
+      { ...issue, id: 'older', created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-07T12:00:00Z' },
+      { ...issue, id: 'last-year', updated_at: '2025-12-20T12:00:00Z' },
+    ] });
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const times = Array.from(host.querySelectorAll('time'));
+    expect(times.map(time => time.textContent)).toEqual([
+      'just now',
+      expect.stringMatching(/^Oct 7, \d{1,2}:\d{2}\s[AP]M$/),
+      expect.stringMatching(/^Dec 20, 2025, \d{1,2}:\d{2}\s[AP]M$/),
+    ]);
+    expect(times[1].title).toMatch(/^Opened Oct 1, 2026, .+ · Updated Oct 7, 2026, /);
+  });
+
+  it.each([false, true])('deletes an issue from the list after confirmation (board: %s)', async (board) => {
+    const other = { ...issue, id: 'issue-2', title: 'Someone else’s issue', can_delete: false };
+    mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }, other], next_offset: null });
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    if (board) await click(host.querySelector<HTMLButtonElement>(`button[aria-label="${t('issues.board')}"]`)!);
+    const remove = () => host.querySelector<HTMLButtonElement>('button[aria-label="Delete issue “Improve onboarding”"]');
+    expect(remove()).not.toBeNull();
+    expect(host.querySelector('button[aria-label^="Delete issue “Someone"]')).toBeNull();
+
+    mocks.confirm.mockResolvedValueOnce(false);
+    await click(remove()!);
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Delete “Improve onboarding”?', destructive: true }));
+    expect(mocks.api.deleteIssue).not.toHaveBeenCalled();
+
+    mocks.api.listIssues.mockResolvedValue({ issues: [other], next_offset: null });
+    await click(remove()!);
+    expect(mocks.api.deleteIssue).toHaveBeenCalledWith('issue-1');
+    // Gone at once, without opening the issue.
+    expect(host.querySelector('h1')?.textContent).toBe('Issues');
+    expect(host.textContent).not.toContain('Improve onboarding');
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(host.textContent).not.toContain('Improve onboarding');
+    expect(host.textContent).toContain('Someone else’s issue');
+  });
+
+  it('keeps the issue in the list and says why when deleting from the list fails', async () => {
+    mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }], next_offset: null });
+    mocks.api.deleteIssue.mockRejectedValueOnce(new Error('Only the person who opened this issue or a workspace admin can delete it'));
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="Delete issue “Improve onboarding”"]')!;
+    await click(remove);
+    expect(mocks.toast.error).toHaveBeenCalledWith('Only the person who opened this issue or a workspace admin can delete it');
+    expect(host.textContent).toContain('Improve onboarding');
+    expect(remove.disabled).toBe(false);
   });
 
   it('creates an issue without agents or an execution request', async () => {

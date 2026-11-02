@@ -160,6 +160,8 @@ export const messages = {
     newIssue: "New issue",
     editIssue: "Edit issue",
     deleteTitle: 'Delete “{title}”?',
+    deleteIssue: 'Delete issue “{title}”',
+    timestamps: 'Opened {opened} · Updated {updated}',
     deleteDescription: 'This permanently deletes the issue, its discussion and the agent threads it started. Threads that were only linked, and task cards, are kept.',
     createIssue: "Create issue",
     open: "Open",

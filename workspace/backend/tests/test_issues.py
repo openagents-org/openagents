@@ -1148,6 +1148,9 @@ def test_creator_deletes_issue_with_its_work_thread_only(client, workspace, db, 
 
     assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ann')).json()['data']['can_delete'] is True
     assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ben')).json()['data']['can_delete'] is False
+    # The list carries the same answer, so cards can offer Delete.
+    for auth, allowed in ((_bearer('ann'), True), (_bearer('ben'), False), (headers(workspace), False)):
+        assert [i['can_delete'] for i in client.get(path(workspace), headers=auth).json()['data']['issues']] == [allowed]
     # Attribution and the workspace token are not proof of who opened the issue.
     assert _delete(client, workspace, issue, _bearer('ben')).status_code == 403
     assert _delete(client, workspace, issue, headers(workspace)).status_code == 403

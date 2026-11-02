@@ -25,7 +25,6 @@ import {
   ChevronDown,
   Trash2,
 } from 'lucide-react';
-import { useConfirm } from '@/components/ui/dialogs-provider';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
@@ -64,6 +63,8 @@ import {
   statuses,
   statusKeys,
   selectClass,
+  useConfirmIssueDelete,
+  useIssueTime,
 } from './issue-ui';
 
 export function IssueDiscussion({
@@ -76,8 +77,9 @@ export function IssueDiscussion({
   onChanged: () => void;
 }) {
   const t = useT();
-  const confirm = useConfirm();
+  const confirmDelete = useConfirmIssueDelete();
   const { timeAgo } = useFormatters();
+  const issueTime = useIssueTime();
   const { currentUser, sessions, refreshAgents, workspace, agents, unreadSignals, markChannelSignalsRead } = useWorkspace();
   const signalChannel = issueSignalChannel(id);
   const hasUnreadMention = !!unreadSignals?.[signalChannel];
@@ -172,12 +174,7 @@ export function IssueDiscussion({
 
   async function removeIssue() {
     if (busyRef.current || !issue) return;
-    const ok = await confirm({
-      title: t('issues.deleteTitle', { title: issue.title }),
-      description: t('issues.deleteDescription'),
-      confirmText: t('common.delete'),
-      destructive: true,
-    });
+    const ok = await confirmDelete(issue.title);
     if (!ok || busyRef.current) return;
     busyRef.current = true;
     // Drop any refresh in flight: it would report the issue as missing.
@@ -346,8 +343,8 @@ export function IssueDiscussion({
                   <span aria-hidden className="text-muted-foreground/40">
                     ·
                   </span>
-                  <time dateTime={issue.created_at}>
-                    {timeAgo(issue.created_at)}
+                  <time dateTime={issue.created_at} title={issueTime.exact(issue.created_at)}>
+                    {issueTime.label(issue.created_at)}
                   </time>
                 </div>
                 {/* Under the title, where the eye already is — tucked in the

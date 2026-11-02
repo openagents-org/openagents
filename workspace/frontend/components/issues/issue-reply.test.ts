@@ -7,7 +7,7 @@ import { IssueDiscussion } from './issue-discussion';
 const api = vi.hoisted(() => ({ getIssue: vi.fn(), commentOnIssue: vi.fn() }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
-vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ timeAgo: () => 'just now' }) }));
+vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ timeAgo: () => 'just now', formatDateTime: () => 'Oct 7, 12:00 PM' }) }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   currentUser: { id: 'alice@example.com', name: 'Alice' }, sessions: [], agents: [],
   workspace: { slug: 'test' }, refreshAgents: vi.fn(),

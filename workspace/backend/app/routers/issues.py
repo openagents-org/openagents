@@ -484,7 +484,8 @@ def list_issues(
     return success_response(
         {
             "issues": [
-                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, [])}
+                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, []),
+                                 "can_delete": _can_delete(viewer, i)}
                 for i in rows[:limit]
             ],
             "next_offset": offset + limit if len(rows) > limit else None,

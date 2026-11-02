@@ -153,6 +153,8 @@ export const messages: Messages = {
     newIssue: "新建议题",
     editIssue: "编辑议题",
     deleteTitle: '删除“{title}”？',
+    deleteIssue: '删除议题“{title}”',
+    timestamps: '创建于 {opened} · 更新于 {updated}',
     deleteDescription: '议题、讨论记录和由它发起的智能体会话将被永久删除，无法恢复。仅关联到议题的会话和任务卡片会保留。',
     createIssue: "创建议题",
     open: "待处理",
