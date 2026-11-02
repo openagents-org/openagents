@@ -34,7 +34,7 @@ const os = require('os');
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
-const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise } = require('./adapters/utils');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
@@ -90,10 +90,14 @@ function installCommandFor(entry) {
 /** Redact anything that looks like a secret before output leaves the device. */
 function scrub(text) {
   if (!text) return '';
-  return String(text)
+  const masked = String(text)
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
     .replace(/(api[-_ ]?key["':\s=]+)[A-Za-z0-9_-]{8,}/gi, '$1****')
     .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer ****');
+  // Then everything the adapters strip from quoted CLI text: a Codex probe
+  // that failed after printing a token-shaped blob showed that blob as its
+  // reason, on the device card in the workspace.
+  return redactSecrets(masked);
 }
 
 function tail(text, cap) {
@@ -355,8 +359,11 @@ function shellQuoted(binary, shell) {
  * with the timeout named first.
  */
 function failureMessage(res, code, timeoutMs) {
+  // A line that is one long run of base64/base64url characters is an encoded
+  // blob (a token, encrypted reasoning), never a sentence that says why the
+  // CLI failed. JSON and URLs have characters outside that set and stay.
   const lines = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim())
-    .filter((l) => l && !BENIGN_OUTPUT.test(l));
+    .filter((l) => l && !BENIGN_OUTPUT.test(l) && !/^[A-Za-z0-9+/=._-]{24,}$/.test(l));
   const all = [...lines(res.stderr), ...lines(res.stdout)];
   const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);
   const detail = tail(telling || lines(res.stderr).join('\n') || lines(res.stdout).join('\n'), OUTPUT_CAP);
@@ -660,4 +667,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };

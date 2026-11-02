@@ -1059,6 +1059,11 @@ async function cmdProbe(connector, flags, positional) {
   } catch {}
 
   const result = await connector.probeAgentType(type, { agentEnv });
+  // The daemon probes by agent name: a name that is neither an agent here nor
+  // a type is an agent that is gone, not a type the catalog lacks.
+  if (!agentEnv && result.code === 'unknown_type') {
+    result.message = `No agent named '${target}' on this device`;
+  }
 
   if (flags && flags.json) {
     // Machine consumers (the daemon's probe_agent node command) read ONLY

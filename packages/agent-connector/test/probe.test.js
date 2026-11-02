@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, CODE } = require('../src/probe');
+const { probeAgentType, classifyFailure, buildGuidance, authFlavor, scrub, failureMessage, CODE } = require('../src/probe');
 
 // A minimal fake connector: registry entry + health + env are all injectable
 // so no real CLI or network is touched.
@@ -114,6 +114,31 @@ describe('scrub', () => {
     assert.ok(!out.includes('abc123def456'), out);
     assert.ok(out.includes('sk-****'));
     assert.ok(!scrub('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload').includes('eyJhbGci'));
+  });
+});
+
+describe('failureMessage', () => {
+  const blob = `${'Ab9_'.repeat(14)}.${'Qz3-'.repeat(20)}`;
+
+  it('never offers an encoded blob as the reason', () => {
+    const res = { code: 1, stdout: `warning: Falling back from WebSockets to HTTPS transport\n${blob}`, stderr: '' };
+    const msg = failureMessage(res, CODE.CLI_ERROR, 120000);
+    assert.ok(!msg.includes('Ab9_Ab9_'), msg);
+    assert.ok(msg.includes('Falling back'), msg);
+  });
+
+  it('says how it exited when the output was only a blob', () => {
+    assert.equal(failureMessage({ code: 3, stdout: blob, stderr: '' }, CODE.CLI_ERROR, 120000), 'Exited with code 3');
+  });
+
+  it('keeps a JSON error line', () => {
+    const res = { code: 1, stdout: '{"detail":"Unauthorized_for_this_model"}', stderr: '' };
+    assert.ok(failureMessage(res, CODE.CLI_ERROR, 120000).includes('Unauthorized_for_this_model'));
+  });
+
+  it('masks a JWT inside a sentence', () => {
+    const jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl';
+    assert.ok(!scrub(`refresh failed for ${jwt} at login`).includes('eyJzdWIi'));
   });
 });
 
