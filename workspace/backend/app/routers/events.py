@@ -39,9 +39,9 @@ router = APIRouter(prefix="/v1", tags=["Events"])
 
 POLL_CACHE_TTL_SECONDS = 1.5
 EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS = 10.0
-# DM writes change the key, so this only bounds memory; keep it under the
-# 60 s lifetime of the DM generation (see poll_queries.dm_generation).
-CONVERSATION_PAIRS_CACHE_TTL_SECONDS = 30.0
+# DM writes change the key, so this only bounds memory and idle viewers'
+# recomputation (see poll_queries.dm_generation).
+CONVERSATION_PAIRS_CACHE_TTL_SECONDS = 600.0
 
 
 def _poll_cache_ttl(event_type, response):

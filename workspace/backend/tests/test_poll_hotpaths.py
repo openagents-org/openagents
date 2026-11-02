@@ -104,3 +104,18 @@ def test_agent_sharing_lookup_skips_the_join_without_opt_ins(db, workspace, peop
     assert thread_shared_agent_names(db, workspace['id'], principal) == set()
     joins = [q for q in memory_cache.queries if 'channel_human_members' in q and 'channel_agent_sharing' in q]
     assert joins == []
+
+
+def test_dm_summary_never_reuses_an_entry_after_the_generation_key_is_lost(
+        client, db, workspace, people, memory_cache):
+    # A summary cached before the workspace's first DM write...
+    db.execute(EventRecord.__table__.insert().values(
+        id=str(uuid4()), network_id=workspace['id'], source='human:adam@acme.test', target='openagents:mine',
+        timestamp=100, type='workspace.message.posted', visibility='direct', payload={'content': 'first'}))
+    db.commit()
+    assert conversations(client, workspace, 'adam')[0]['message_count'] == 1
+    # ...must not become current again when a later generation is evicted.
+    add_event(db, workspace, 'openagents:mine', 'human:adam@acme.test', 200, content='later')
+    for key in [k for k in memory_cache.store if k.startswith('v1events:dm-generation:')]:
+        del memory_cache.store[key]
+    assert conversations(client, workspace, 'adam')[0]['message_count'] == 2

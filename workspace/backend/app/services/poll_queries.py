@@ -36,11 +36,23 @@ def poll_generation(workspace_id):
     return (cache.get_bytes(_generation_key(workspace_id)) or b'0').hex()
 
 
+DM_GENERATION_TTL_SECONDS = 7 * 24 * 3600
+
+
 def dm_generation(workspace_id):
     """Like poll_generation, but changes only on writes that can alter direct
     message history, so DM summaries survive a busy workspace's channel traffic.
-    Callers' cache TTLs must stay below the generation's 60 s lifetime."""
-    return (cache.get_bytes(_dm_generation_key(workspace_id)) or b'0').hex()
+
+    A missing key (never written, expired or evicted) gets a fresh random value
+    instead of a fixed default, so an entry cached under an older generation can
+    never become current again; callers may cache for longer than this TTL.
+    """
+    key = _dm_generation_key(workspace_id)
+    value = cache.get_bytes(key)
+    if value is None:
+        value = uuid.uuid4().hex.encode()
+        cache.set_bytes(key, value, DM_GENERATION_TTL_SECONDS)
+    return value.hex()
 
 
 def _may_change_dms(row, is_new):
@@ -68,7 +80,7 @@ def _invalidate_committed_heads(session):
         # writers are covered, including those publishing before commit.
         cache.set_bytes(_generation_key(workspace_id), uuid.uuid4().hex.encode(), 60)
     for workspace_id in session.info.pop('dm_workspaces', set()):
-        cache.set_bytes(_dm_generation_key(workspace_id), uuid.uuid4().hex.encode(), 60)
+        cache.set_bytes(_dm_generation_key(workspace_id), uuid.uuid4().hex.encode(), DM_GENERATION_TTL_SECONDS)
 
 
 @event.listens_for(Session, 'after_rollback')
