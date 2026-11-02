@@ -30,15 +30,17 @@ function button(text: string) {
 }
 it('keeps desktop setup focused, and copies the pairing code', async () => {
   await render();
+  await act(async () => button('Desktop app').click());
   expect(container.querySelectorAll('a')).toHaveLength(3);
   expect(container.querySelector('code')).toBeNull();
   await act(async () => button('TEST-CODE').click());
   expect(copy).toHaveBeenCalledWith('TEST-CODE');
   expect(button('TEST-CODE').textContent).toContain('Copied');
 });
-it('shows both terminal commands together and switches the install command for Windows', async () => {
+it('starts with command-line setup and switches the install command for Windows', async () => {
   await render();
-  await act(async () => button('Terminal / server').click());
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  expect(container.textContent).not.toContain('Recommended');
   expect(container.querySelectorAll('a')).toHaveLength(0);
   expect([...container.querySelectorAll('code')].map(c => c.textContent)).toEqual([
     'curl -fsSL https://openagents.org/install.sh | bash', 'agn device connect TEST-CODE',
@@ -50,10 +52,11 @@ it('shows both terminal commands together and switches the install command for W
 });
 it('stops offering an expired pairing code on both setup paths', async () => {
   await render();
+  await act(async () => button('Desktop app').click());
   await act(async () => vi.advanceTimersByTimeAsync(1800000));
   expect(button('TEST-CODE').disabled).toBe(true);
   expect(container.querySelector('[role="status"]')?.textContent).toContain('Code expired');
-  await act(async () => button('Terminal / server').click());
+  await act(async () => button('Command line').click());
   const copies = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy command"]');
   expect(copies[0].disabled).toBe(false);
   expect(copies[1].disabled).toBe(true);

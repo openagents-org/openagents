@@ -27,7 +27,7 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
 export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: PairingCode; onDismiss?: () => void }) {
   const t = useT();
   const isMobile = useIsMobile();
-  const [method, setMethod] = useState<'desktop' | 'terminal'>('desktop');
+  const [method, setMethod] = useState<'desktop' | 'terminal'>('terminal');
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix');
   const [now, setNow] = useState(Date.now);
@@ -49,14 +49,13 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
         <h2 className="text-sm font-semibold">{t('onboarding.setupComputer')}</h2>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
         <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1" role="group" aria-label={t('onboarding.setupMethod')}>
-          <button type="button" aria-pressed={!terminal} onClick={() => setMethod('desktop')}
-            className={cn('flex flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors', !terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Laptop className="size-4" />{t('onboarding.desktopApp')}
-            <span className="text-[10px] font-normal text-muted-foreground">{t('onboarding.recommended')}</span>
-          </button>
           <button type="button" aria-pressed={terminal} onClick={() => setMethod('terminal')}
             className={cn('flex items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors', terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
             <Terminal className="size-4" />{t('onboarding.terminalServer')}
+          </button>
+          <button type="button" aria-pressed={!terminal} onClick={() => setMethod('desktop')}
+            className={cn('flex items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors', !terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Laptop className="size-4" />{t('onboarding.desktopApp')}
           </button>
         </div>
       </div>
