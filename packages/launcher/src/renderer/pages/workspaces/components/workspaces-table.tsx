@@ -13,7 +13,7 @@ import { cn } from "@renderer/lib/utils"
 const COLUMNS = ["workspace", "status", "agents", "lastActive", "actions"] as const
 
 /**
- * The Joined Workspaces list as a table. Rows come from the caller, each
+ * The Connected Workspaces list as a table. Rows come from the caller, each
  * saying for itself why it opens only in the browser, if it does.
  */
 export function WorkspacesTable({

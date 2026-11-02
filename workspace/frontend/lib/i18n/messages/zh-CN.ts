@@ -343,11 +343,11 @@ export const messages: Messages = {
     "thisComputerTitle": "连接设备到「{workspace}」后，添加智能体",
     "thisComputer": "此电脑",
     "appReady": "已安装 OpenAgents",
-    "computerPermission": "将此电脑授权给当前工作区，工作区管理员可管理其智能体。可在本机管理中断开连接。",
+    "computerPermission": "将此电脑授权给当前工作区，工作区管理员可管理其智能体。可在「此电脑」中断开连接。",
     "computerAdminRequired": "需要工作区所有者或管理员连接此电脑。",
     "checkingComputer": "正在检查此电脑…",
     "checkAgain": "重新检查",
-    "openComputer": "打开本机管理",
+    "openComputer": "打开此电脑",
     "connectingComputer": "正在连接此电脑…",
     "waitingComputer": "正在等待此电脑上线…",
     "connectThisComputer": "连接此电脑",
@@ -362,7 +362,7 @@ export const messages: Messages = {
     "computerError": {
         "load": "无法检查连接状态，请检查网络连接后重试。",
         "connect": "无法连接此电脑，请检查网络连接和工作区权限后重试。",
-        "offline": "此电脑已注册，但尚未上线。请在本机管理中检查连接后重试。"
+        "offline": "此电脑已注册，但尚未上线。请在「此电脑」中检查连接后重试。"
     },
     welcomeTitle: '连接你的第一个智能体',
     welcomeBody: '智能体运行在你连接的设备（节点）上，或作为你已有的本地 CLI。连接设备是最简单的上手方式。',
@@ -1544,6 +1544,8 @@ export const messages: Messages = {
     statusArchived: '已归档',
 
     heading: '你的工作区',
+    /** The desktop app's page, named as its sidebar entry is. */
+    desktopHeading: '全部工作区',
     subtitle: '回到已有的工作区继续，或者开始新的工作。',
     networkError: '暂时无法连接 OpenAgents 服务器。请检查网络（VPN / 代理 / 防火墙）后点击“重试”。',
     nameTitle: '为工作区命名',
@@ -1628,6 +1630,8 @@ export const messages: Messages = {
   connect: {
     agentAlreadyHere: '此设备上已有的智能体',
     agentOpenExisting: '打开设置',
+    agentShowAll: '查看全部 {count} 个',
+    agentShowFewer: '收起',
 
     agentConfigure: '配置 {name}',
     agentAddTitle: "添加智能体",

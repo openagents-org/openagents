@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Check,
-  ChevronsUpDown,
+  ChevronDown,
   CircleAlert,
   KeyRound,
   PencilLine,
@@ -210,12 +210,18 @@ export function ModelField({
                 the popover portals outside any dialog's scroll lock, which then
                 eats every wheel event that isn't inside its own subtree — the
                 list could only be moved by dragging its scrollbar. */}
+            {/* Labelled and filled, not a bare chevron: in user interviews
+                people did not find the list behind the small up/down arrow. */}
             <PopoverTrigger asChild>
               <InputGroupButton
-                size="icon-xs"
-                aria-label={t("agents.envFields.model.browse")}
+                size="xs"
+                variant="secondary"
+                className="text-xs"
+                data-testid="model-field-browse"
               >
-                {loading ? <Spinner /> : <ChevronsUpDown />}
+                {loading ? <Spinner /> : null}
+                {t("agents.envFields.model.browse")}
+                {!loading && <ChevronDown />}
               </InputGroupButton>
             </PopoverTrigger>
           </InputGroupAddon>

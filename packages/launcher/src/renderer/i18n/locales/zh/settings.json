@@ -161,18 +161,6 @@
       "dark": "深色",
       "system": "跟随系统"
     },
-    "accent": "强调色",
-    "accentDesc": "用于按钮、选中状态与链接的主色调",
-    "accents": {
-      "indigo": "蓝紫",
-      "blue": "蓝色",
-      "teal": "青色",
-      "green": "绿色",
-      "amber": "琥珀",
-      "orange": "橙色",
-      "rose": "玫红",
-      "slate": "灰蓝"
-    },
     "scale": "字体与界面缩放",
     "scaleDesc": "同时缩放文字与间距，立即生效",
     "scales": {
@@ -181,24 +169,11 @@
       "lg": "大"
     },
     "theme": "主题",
-    "skin": "界面风格",
-    "skinDesc": "可与浅色 / 深色任意搭配，立即生效",
     "behaviorGroup": "界面行为",
     "animations": "显示动画",
     "animationsDesc": "减少动画可降低资源占用",
     "highContrast": "高对比度",
-    "highContrastDesc": "提高文本和控件的可读性",
-    "accentLocked": "「{{skin}}」风格自带固定强调色，无法在此更改",
-    "skins": {
-      "default": {
-        "name": "经典",
-        "desc": "$t(common.appName)原生外观：柔和描边与阴影"
-      },
-      "openagents": {
-        "name": "$t(common.brandName)",
-        "desc": "对齐 openagents.org：粗描边、硬阴影与 Inter 字体"
-      }
-    }
+    "highContrastDesc": "提高文本和控件的可读性"
   },
   "agents": {
     "autoStart": "启动时自动运行智能体",

@@ -350,11 +350,11 @@ export const messages = {
     "thisComputerTitle": "Connect a device to {workspace}, then add agents",
     "thisComputer": "This computer",
     "appReady": "OpenAgents installed",
-    "computerPermission": "Authorize this computer for this workspace. Workspace admins can manage its agents. You can disconnect it under Device.",
+    "computerPermission": "Authorize this computer for this workspace. Workspace admins can manage its agents. You can disconnect it under This Computer.",
     "computerAdminRequired": "An owner or admin of this workspace needs to connect this computer.",
     "checkingComputer": "Checking this computer…",
     "checkAgain": "Check again",
-    "openComputer": "Open Device",
+    "openComputer": "Open This Computer",
     "connectingComputer": "Connecting this computer…",
     "waitingComputer": "Waiting for this computer to come online…",
     "connectThisComputer": "Connect this computer",
@@ -369,7 +369,7 @@ export const messages = {
     "computerError": {
         "load": "Could not check the connection status. Check your network and try again.",
         "connect": "Could not connect this computer. Check your connection and workspace permissions, then try again.",
-        "offline": "This computer is registered but not online yet. Check its connection under Device, then try again."
+        "offline": "This computer is registered but not online yet. Check its connection under This Computer, then try again."
     },
     welcomeTitle: 'Connect your first agent',
     welcomeBody: 'Agents run on a device you connect (a node), or as a local CLI you already have. Connecting a device is the easiest way to get started.',
@@ -1576,6 +1576,8 @@ export const messages = {
     statusArchived: 'archived',
 
     heading: 'Your workspaces',
+    /** The desktop app's page, named as its sidebar entry is. */
+    desktopHeading: 'All Workspaces',
     subtitle: 'Jump back into a workspace, or start something new.',
     networkError:
       "Can't reach the OpenAgents server right now. Check your network (VPN / proxy / firewall) and press Retry.",
@@ -1665,6 +1667,8 @@ export const messages = {
   connect: {
     agentAlreadyHere: 'Already on this device',
     agentOpenExisting: 'Open settings',
+    agentShowAll: 'Show all {count}',
+    agentShowFewer: 'Show fewer',
 
     agentConfigure: 'Configure {name}',
     agentAddTitle: "Add an agent",

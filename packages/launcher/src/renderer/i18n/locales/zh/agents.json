@@ -378,6 +378,7 @@
     "installAndSignIn": "安装并登录",
     "agentUnavailable": "此智能体已不可用，请返回智能体列表。",
     "folderHint": "默认使用您的主目录，也可为智能体选择项目文件夹。",
+    "workdirOptional": "工作目录（可选）",
     "homeFolder": "您的主目录",
     "recommended": {
       "label": "推荐智能体",

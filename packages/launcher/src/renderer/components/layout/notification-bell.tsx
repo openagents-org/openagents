@@ -15,6 +15,7 @@ import {
   routeNotification,
 } from "@renderer/hooks/useNotificationRouting"
 import { cn } from "@renderer/lib/utils"
+import { HeaderTooltip } from "./header-tooltip"
 import type { NotifRecord } from "@renderer/types"
 
 /** Beyond this the list is history nobody scrolls to; keeps the popover cheap. */
@@ -49,31 +50,34 @@ export function NotificationBell({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          title={t("nav.notifications.tooltip")}
-          className={cn(
-            "relative size-8 text-muted-foreground hover:text-foreground",
-            className,
-          )}
-        >
-          <Bell className="size-4" />
-          {unread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-3xs font-bold text-white">
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
-        </Button>
-      </PopoverTrigger>
+      <HeaderTooltip label={t("nav.notifications.tooltip")}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("nav.notifications.tooltip")}
+            className={cn(
+              "relative size-8 text-muted-foreground hover:text-foreground",
+              className,
+            )}
+          >
+            <Bell className="size-4" />
+            {unread > 0 && (
+              // Inside the button's own box: hanging off its corner, the count ran
+              // into the window's edge at the end of the header.
+              <span className="absolute top-0.5 right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-3xs leading-none font-semibold text-white ring-2 ring-background">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
+          </Button>
+        </PopoverTrigger>
+      </HeaderTooltip>
 
-      {/* The bell sits at the right of the status footer, so the list rises
-          above it, aligned to its right edge. Capped at the room above the
-          bell: past it the last rows spilled over the footer. */}
+      {/* The bell sits at the right of the header, so the list drops below
+          it, aligned to its right edge, capped at the room below. */}
       <PopoverContent
         align="end"
-        side="top"
+        side="bottom"
         data-panel="notifications"
         className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-85 flex-col p-0"
       >

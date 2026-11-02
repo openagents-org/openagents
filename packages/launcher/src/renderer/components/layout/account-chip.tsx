@@ -7,9 +7,10 @@ import { ConfirmDialog } from "@renderer/components/ui-kit"
 import { useAccountStore } from "@renderer/store/account"
 
 /**
- * The signed-in account, on the title bar while All Workspaces is showing —
- * the page there no longer draws its own header inside the launcher. Kept to
- * plain buttons: a popover from this bar would open under the Workspace view.
+ * The signed-in account, on the Workspace bar while All Workspaces is showing
+ * — the one Workspace page without the web app's own sidebar to show it. Kept
+ * to plain buttons: a popover from this bar would open under the Workspace
+ * view.
  */
 export function AccountChip(): React.JSX.Element | null {
   const { t } = useTranslation()
@@ -26,8 +27,7 @@ export function AccountChip(): React.JSX.Element | null {
 
   return (
     <div className="titlebar-no-drag flex min-w-0 items-center gap-2" data-testid="account-chip">
-      {/* Drawn as the web app's account avatar is, so both read as one account. */}
-      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-linear-135 from-[#2F6BFF] to-[#16C79A] text-xs font-bold text-white">
+      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
         {(account.email[0] || "?").toUpperCase()}
       </span>
       <span className="max-w-48 truncate text-sm text-muted-foreground" title={account.email}>{account.email}</span>

@@ -115,7 +115,6 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
-  setChromeSkin,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -607,14 +606,14 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the top bar: (48 - 12) / 2 = 18 from the top.
-          trafficLightPosition: { x: 16, y: 18 },
+          // Centred in the top bar: (40 - 12) / 2 = 14 from the top.
+          trafficLightPosition: { x: 16, y: 14 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white
     // before the first frame — the frame used to hide that behind its own
     // chrome. Matches `--background`, like the overlay above.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a20" : "#fcfdfe",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -1630,7 +1629,6 @@ function setupIPC(): void {
     // switch in Settings has to reach it — otherwise the banner keeps behaving
     // as though nothing changed.
     if (key === "autoUpdate") refreshUpdatePreference()
-    if (key === "skin") setChromeSkin(mainWindow, value)
     // Keep main's notification/tray strings on the language the user picked in
     // Settings — main can't read the renderer's localStorage-backed i18next.
     if (key === "language") {
@@ -2815,8 +2813,6 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
-  // The window buttons wear the stored skin's rail colour; see setChromeSkin.
-  setChromeSkin(null, store.get("skin"))
 
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app
@@ -2975,10 +2971,7 @@ app.whenReady().then(async () => {
   if (isHeadless && process.platform === "darwin" && app.dock) app.dock.hide()
 
   if (!isHeadless) {
-    const c = splashPalette({
-      accent: store.get("accent"),
-      skin: store.get("skin"),
-    })
+    const c = splashPalette()
     splash = new BrowserWindow({
       width: 420,
       height: 260,

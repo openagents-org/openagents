@@ -8,7 +8,7 @@ import { ModelField } from "@renderer/components/model-field"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
-import { envFieldHint, envFieldLabel } from "@renderer/lib/agent-meta"
+import { envFieldHint, envFieldLabel, envFieldPlaceholder } from "@renderer/lib/agent-meta"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
@@ -190,7 +190,7 @@ function EnvRow({
           value={auth.values[field.name] ?? ""}
           onChange={(e) => auth.setValue(field.name, e.target.value)}
           placeholder={
-            field.placeholder ||
+            envFieldPlaceholder(field, t) ||
             field.default ||
             t("onboarding.flow.apiKey.fieldPlaceholder", { name: field.name })
           }

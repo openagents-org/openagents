@@ -137,7 +137,7 @@ test('an offline computer stays in onboarding until that exact device is online'
   await page.clock.fastForward(31_000)
   await expect(page.getByRole('alert')).toContainText('not online yet')
   expect(state.connects).toBe(0)
-  await page.getByRole('button', { name: 'Open Device', exact: true }).click()
+  await page.getByRole('button', { name: 'Open This Computer', exact: true }).click()
   expect(state.openedComputer).toBe(1)
   state.online = true
   await page.getByRole('button', { name: 'Check again' }).click()

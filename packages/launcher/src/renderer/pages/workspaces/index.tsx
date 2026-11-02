@@ -148,25 +148,21 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
       <PageHeader
         title={t("workspaces.title")}
         subtitle={t("workspaces.subtitle")}
+        // The page's one way to join, at the header's right where every other
+        // page keeps its action. Joins, never creates: the dialog takes a
+        // pairing code for a workspace that already exists, and a device can
+        // hold several at once, so it stays however many are listed.
+        actions={
+          <Button data-testid="workspace-join-open" onClick={openQuick}>
+            <Plus />
+            {t("workspaces.join")}
+          </Button>
+        }
       />
 
       {/* No stats row: the toolbar chips already carry each bucket's count, and
           a page that prints the same four numbers twice reads as padding. */}
       <div className="scroll-edge flex-1 overflow-y-auto px-9 pt-5 pb-6">
-        {/* The page's one way to join, directly under its title and sized to
-            be found. Joins, never creates: the dialog takes a pairing code for
-            a workspace that already exists, and a device can hold several at
-            once, so it stays here however many are listed. */}
-        <Button
-          size="lg"
-          className="mb-6 h-11 px-6 text-base"
-          data-testid="workspace-join-open"
-          onClick={openQuick}
-        >
-          <Plus />
-          {t("workspaces.join")}
-        </Button>
-
         <DeviceSummary />
 
         <WorkspacesToolbar

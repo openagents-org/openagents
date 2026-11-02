@@ -1,0 +1,50 @@
+{
+  "version": "1.1.10",
+  "date": "2026-11-02",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Navigation moves to a sidebar",
+        "zh": "导航移至左侧边栏"
+      },
+      "description": {
+        "en": "Agents, workspaces and settings are now in one sidebar on the left.",
+        "zh": "智能体、工作区与设置统一收纳在左侧边栏。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Fixes for OpenClaw and error messages",
+        "zh": "OpenClaw 与报错信息修复"
+      },
+      "description": {
+        "en": "OpenClaw works alongside a Gateway already running on this computer, and agent errors state their actual cause.",
+        "zh": "OpenClaw 可与本机已运行的 Gateway 共存，智能体报错会说明实际原因。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A cleaner, neutral look",
+        "zh": "更简洁的中性配色"
+      },
+      "description": {
+        "en": "The interface style and accent colour options have been removed.",
+        "zh": "界面风格与强调色选项已移除。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Easier agent setup",
+        "zh": "添加智能体更便捷"
+      },
+      "description": {
+        "en": "The setup form fits on one screen, and optional endpoint fields are clearer.",
+        "zh": "添加表单无需滚动即可完成，接口地址的填写说明更清晰。"
+      }
+    }
+  ]
+}

@@ -81,7 +81,7 @@ const TEXT: Record<WorkspaceHealthState, string> = {
   error: "text-(--danger-text)",
 }
 
-/** One joined workspace as a row of the Joined Workspaces table. */
+/** One joined workspace as a row of the Connected Workspaces table. */
 export function WorkspaceRow({
   data,
   onCopyUrl,

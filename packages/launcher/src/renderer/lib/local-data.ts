@@ -2,7 +2,7 @@
  * The launcher's own local state — the part that lives in the renderer's
  * localStorage rather than in settings.json.
  *
- * Theme, accent, skin, UI scale, sidebar state, the command palette's history:
+ * Theme, UI scale, sidebar state, the command palette's history:
  * all of it is read synchronously on the very first paint, which is why it is
  * in localStorage and not behind async IPC. The cost is that it survives things
  * users expect to clear it — "Reset all settings" only touches settings.json,
@@ -21,7 +21,7 @@ import { useThemeStore } from "@renderer/store/theme"
  * writes for its own chrome carries one of these.
  */
 const OWNED_PREFIXES = [
-  "launcher:", // theme, accent, skin, scale, sidebar, last tab, history
+  "launcher:", // theme, scale, sidebar, last tab, history
   "openagents:", // dismissed update notices
   "oa.", // marketplace view/sort/filter
 ]
@@ -52,9 +52,7 @@ function ownedKeys(): string[] {
  * Put the interface back to a fresh install and forget the stored copy.
  *
  * Defaults are applied through the stores first, so the running window
- * repaints and main gets the default accent for the next startup splash — the
- * splash reads its colour from settings.json, which is the mirror those setters
- * maintain. The sweep comes second so nothing is left on disk either.
+ * repaints. The sweep comes second so nothing is left on disk either.
  */
 export function resetLocalPreferences(): void {
   useThemeStore.getState().reset()

@@ -25,7 +25,7 @@ export function LauncherUpdateBanner({
   inline = false,
 }: {
   /**
-   * Drawn inside the mode bar. The Workspace's native view covers everything
+   * Drawn inside the header. The Workspace's native view covers everything
    * below the bar, so a floating banner would be hidden behind it.
    */
   inline?: boolean
