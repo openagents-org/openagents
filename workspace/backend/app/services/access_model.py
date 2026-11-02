@@ -953,6 +953,14 @@ def hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -
     """Private channels this principal may NOT see. Empty for machines."""
     if principal.machine:
         return set()
+    from app.services.permission_cache import cached
+    # Every principal attribute the computation reads joins the key.
+    identity = [principal.kind, principal.email, principal.role, principal.agent_name, principal.owner_email]
+    return set(cached(db, "hidden-channels", workspace_id, identity,
+                      lambda: sorted(_hidden_channel_names(db, workspace_id, principal))))
+
+
+def _hidden_channel_names(db: Session, workspace_id: str, principal: Principal) -> Set[str]:
     wid = str(workspace_id)
     private = db.execute(
         select(Channel.id, Channel.name, Channel.owner_email).where(
