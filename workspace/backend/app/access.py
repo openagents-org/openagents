@@ -297,6 +297,11 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
     if not email:
         return None
 
+    from app.services.permission_cache import cached
+    return cached(db, "role", workspace.id, [email], lambda: _role_for_email(db, workspace, email))
+
+
+def _role_for_email(db: Session, workspace: Workspace, email: str) -> Optional[str]:
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is not None:
         membership = db.execute(
