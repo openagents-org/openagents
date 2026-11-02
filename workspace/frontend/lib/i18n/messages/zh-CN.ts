@@ -385,7 +385,7 @@ export const messages: Messages = {
     setupComputerHint: "在你想使用的电脑或服务器上安装 OpenAgents。",
     setupMethod: "设置方式",
     desktopApp: "桌面应用",
-    terminalServer: "终端 / 服务器",
+    terminalServer: "命令行",
     setupOs: "操作系统",
     installCliTitle: "在电脑或服务器上安装 OpenAgents",
     installAppTitle: "下载并打开桌面应用",
