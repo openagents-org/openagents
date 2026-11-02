@@ -1,6 +1,6 @@
 {
-  "title": "本机加入的工作区",
-  "subtitle": "这台设备已加入的工作区，及其各自的智能体与活动",
+  "title": "本机连接的工作区",
+  "subtitle": "这台设备已连接的工作区，及其各自的智能体与活动",
   "join": "$t(common.actions.addWorkspace)",
   "stats": {
     "healthy": "正常",

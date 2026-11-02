@@ -26,20 +26,16 @@ function labelsFor(tabs: WorkspaceTab[]): Map<string, { title: string; hint: str
 }
 
 /**
- * Tab chrome, shared by the workspace tabs and All Workspaces. They sit in the
- * Workspace button's box, so the active tab is a flat page in the accent
- * text — a quieter version of the filled switch beside it — and the two read
- * as one hierarchy: which half, then which page in it. Inactive tabs stay flat
+ * Tab chrome, shared by the workspace tabs and All Workspaces: the active tab
+ * on the neutral wash the rest of the app uses for "selected", the others flat
  * until hovered.
  */
 function tabClass(active: boolean): string {
   return cn(
-    "group relative flex h-8 items-center gap-2 rounded-md text-sm transition-colors",
+    "group relative flex h-7 items-center gap-2 rounded-md text-sm transition-colors",
     active
-      // No shadow: the skin draws `shadow-sm` as a hard black offset, and the
-      // strip's overflow clipping left only a black sliver at the tab's edge.
-      ? "bg-background font-medium text-primary"
-      : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+      ? "bg-muted font-medium text-foreground"
+      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
   )
 }
 
@@ -117,7 +113,7 @@ function TabMenuButton({ hidden }: { hidden: number }): React.JSX.Element {
   const label = t("workspaceTabs.more", { count: hidden })
   return (
     <button type="button" aria-label={label} title={label} data-testid="workspace-tab-menu"
-      className="titlebar-no-drag flex h-8 shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
+      className="titlebar-no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
       onClick={(e) => {
         const { left, bottom } = e.currentTarget.getBoundingClientRect()
         void window.api.showWorkspaceTabMenu({ x: left, y: bottom })
@@ -201,7 +197,7 @@ function tabsThatFit(width: number, total: number): number {
  * latter at a time. Closing a tab closes its page only — the workspace, this
  * device's connection to it and its agents carry on.
  *
- * `budget` is the room the mode bar has for all of this. The strip is only as
+ * `budget` is the room the Workspace bar has for all of this. The strip is only as
  * wide as its tabs, so it cannot measure its own room: how many it holds would
  * then depend on how many it holds.
  */

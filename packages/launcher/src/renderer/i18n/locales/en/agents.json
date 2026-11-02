@@ -379,6 +379,7 @@
     "installAndSignIn": "Install and sign in",
     "agentUnavailable": "This agent is no longer available. Return to the agent list.",
     "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
+    "workdirOptional": "Working directory (optional)",
     "homeFolder": "Your home folder",
     "recommended": {
       "label": "Recommended agents",

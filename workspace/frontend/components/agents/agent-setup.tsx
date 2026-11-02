@@ -19,6 +19,9 @@ import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
 import { SmokeTestPanel } from './smoke-test-panel';
 
+/** Agents of the chosen type listed before the rest fold behind "Show all". */
+const SAME_TYPE_SHOWN = 3;
+
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
   /** `deferred`: the create waits on a runtime install and finishes after the form closes; the host reports the outcome. */
@@ -31,7 +34,13 @@ export interface AgentSetupApi {
 export interface AgentSetupExtensions {
   local?: boolean;
   disabled?: boolean;
-  configuration?: (props: { type: string; name?: string; onChanged: () => void }) => React.ReactNode;
+  /** `workingDirectory` is set when `inlineWorkingDirectory` is: the folder's
+   *  value and setter, for the host to draw in its own field style inside its
+   *  configuration (beside the model, say). */
+  configuration?: (props: { type: string; name?: string; onChanged: () => void; workingDirectory?: { value: string; onChange: (value: string) => void } }) => React.ReactNode;
+  /** Let `configuration` draw the working-directory field instead of drawing
+   *  it below the form. */
+  inlineWorkingDirectory?: boolean;
   workingDirectoryHint?: string;
   workingDirectoryPlaceholder?: string;
   browseFolder?: (current: string) => Promise<string | null>;
@@ -522,6 +531,7 @@ export function AgentSetup({
   // different type reseeds — otherwise "kimi-1019" lands on a DeepSeek agent.
   const nameTouchedFor = useRef<string | null>(draft?.type ?? null);
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? draft?.workingDir ?? '');
+  const [showAllSameType, setShowAllSameType] = useState(false);
   const [apiKey, setApiKey] = useState(draft?.apiKey ?? '');
   // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
   // only usable against an agent's built-in providers — for hermes (whose key
@@ -993,22 +1003,48 @@ export function AgentSetup({
     );
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
-        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
+        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
+    const sameType = node.agents.filter((agent) => agent.type === selected);
+    const workingDirectoryField = (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
+            <div className="flex gap-2">
+              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
+              <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
+                <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
+              </Button>
+            </div>
+            {showPicker && (
+              <FolderPicker api={api}
+                node={node}
+                onPick={(p) => setWorkingDir(p)}
+                onClose={() => setShowPicker(false)}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
+          </div>
+    );
     // The form itself, shared by both layouts below.
     const formBody = (
       <>
-        {!isEdit && onManageAgent && node.agents.some((agent) => agent.type === selected) && (
+        {!isEdit && onManageAgent && sameType.length > 0 && (
           <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
-            {node.agents.filter((agent) => agent.type === selected).map((agent) => (
+            {(showAllSameType ? sameType : sameType.slice(0, SAME_TYPE_SHOWN)).map((agent) => (
               <button key={agent.name} disabled={busy} onClick={() => onManageAgent(agent)} className="flex w-full items-center justify-between gap-3 text-sm text-left py-1">
                 <span className="truncate">{agent.name}</span><span className="shrink-0 text-primary">{t('connect.agentOpenExisting')} →</span>
               </button>
             ))}
+            {/* A long list pushed the form, and its Add button, out of sight. */}
+            {sameType.length > SAME_TYPE_SHOWN && (
+              <button type="button" onClick={() => setShowAllSameType((v) => !v)} className="text-xs text-muted-foreground hover:text-foreground">
+                {showAllSameType ? t('connect.agentShowFewer') : t('connect.agentShowAll', { count: sameType.length })}
+              </button>
+            )}
           </div>
         )}
 
@@ -1106,7 +1142,8 @@ export function AgentSetup({
             {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
-          {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
+          {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged,
+            workingDirectory: extensions.inlineWorkingDirectory ? { value: workingDir, onChange: setWorkingDir } : undefined })}
 
           {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
             <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
@@ -1376,24 +1413,9 @@ export function AgentSetup({
             </div>
           )}
 
-          {/* Working directory — optional, managed default, with a folder picker */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
-            <div className="flex gap-2">
-              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
-              <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
-                <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
-              </Button>
-            </div>
-            {showPicker && (
-              <FolderPicker api={api}
-                node={node}
-                onPick={(p) => setWorkingDir(p)}
-                onClose={() => setShowPicker(false)}
-              />
-            )}
-            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
-          </div>
+          {/* Working directory — optional, managed default, with a folder picker.
+              A host that draws it itself got its value through `configuration`. */}
+          {!extensions?.inlineWorkingDirectory && workingDirectoryField}
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
           {!extensions?.configuration && !byok && nativeCreds.length > 0 ? (
@@ -1479,7 +1501,7 @@ export function AgentSetup({
       return (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="space-y-6 px-9 pt-6 pb-8">
+            <div className="space-y-6 px-9 pt-6">
               <div>
                 {/* Same lead-in as the type picker before it: an explicit way back,
                     not only the breadcrumb's first step. */}
@@ -1508,9 +1530,10 @@ export function AgentSetup({
                   {formBody}
                   {error && errorText()}
                   {/* The actions close the form, splitting the full width of its
-                      column — not pinned: a pinned bar covered the fields
-                      scrolling under it and doubled the bottom gap. */}
-                  <div data-testid="agent-setup-actions" className="grid grid-cols-2 gap-4 pt-3">
+                      column, and stay in view at the bottom while it scrolls:
+                      users who signed in and saw no Add button went back
+                      without ever scrolling down to it. */}
+                  <div data-testid="agent-setup-actions" className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 border-t bg-background pt-4 pb-6">
                     <Button variant="outline" size="lg" className="w-full" onClick={leave} disabled={busy}>
                       {t('connect.compactCancel')}
                     </Button>
