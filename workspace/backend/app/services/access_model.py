@@ -815,6 +815,15 @@ def thread_shared_agent_names(db: Session, workspace_id: str, principal: Princip
     email = principal.owner_email if principal.is_agent else principal.email
     if not email:
         return set()
+    # Few workspaces opt in at all. Probe for that first: PostgreSQL spends far
+    # longer planning the seven-way join below than executing it.
+    if db.execute(
+        select(ChannelAgentSharing.channel_id)
+        .join(Channel, Channel.id == ChannelAgentSharing.channel_id)
+        .where(Channel.workspace_id == str(workspace_id), ChannelAgentSharing.enabled.is_(True))
+        .limit(1)
+    ).first() is None:
+        return set()
     recipient = aliased(ChannelHumanMember)
     owner = aliased(ChannelHumanMember)
     return set(db.execute(
