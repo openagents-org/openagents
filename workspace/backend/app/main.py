@@ -612,6 +612,10 @@ class AgentIdentityMiddleware:
 
 app.add_middleware(AgentIdentityMiddleware)
 
+from app.request_auth import RequestAuthMiddleware
+
+app.add_middleware(RequestAuthMiddleware)
+
 
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing

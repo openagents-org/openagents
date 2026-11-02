@@ -21,6 +21,7 @@ import time
 from typing import Optional
 
 from app.config import config
+from app.request_auth import request_cached
 
 logger = logging.getLogger(__name__)
 
@@ -89,28 +90,28 @@ def _init_firebase() -> bool:
         return False
 
 
-def verify_firebase_token(token: str) -> Optional[str]:
-    """
-    Verify a Firebase ID token and return the user's email.
-
-    Returns None if verification fails or Firebase is not configured.
-    """
+@request_cached
+def _verified_firebase_token(token: str) -> Optional[dict]:
+    """One SDK verification supplies both email and the other identity claims."""
     if not _init_firebase():
         logger.warning("firebase_auth: Firebase not initialized, cannot verify token")
         return None
-
     try:
         from firebase_admin import auth
         decoded = auth.verify_id_token(token, check_revoked=False)
-        email = decoded.get("email")
-        if not email:
+        if not decoded.get("email"):
             logger.warning("firebase_auth: Token valid but no email claim")
             return None
-        logger.info("firebase_auth: Verified token for %s", email)
-        return email
+        return decoded
     except Exception as e:
         logger.warning("firebase_auth: Token verification failed: %s", e)
         return None
+
+
+def verify_firebase_token(token: str) -> Optional[str]:
+    """Verify a Firebase ID token and return its email, or None."""
+    decoded = _verified_firebase_token(token)
+    return decoded["email"] if decoded else None
 
 
 def _apple_client_ids() -> list:
@@ -388,50 +389,21 @@ def verify_identity_token(token: str) -> Optional[str]:
     if no provider accepts the token. This is the provider-agnostic entry point
     new callers should use.
     """
-    if looks_like_workspace_session(token):
-        claims = verify_workspace_session(token)
-        return claims["email"] if claims else None
-    email = verify_firebase_token(token)
-    if email:
-        return email
-    return verify_apple_token(token)
+    claims = verify_identity_claims(token)
+    return claims["email"] if claims else None
 
 
 def verify_firebase_claims(token: str) -> Optional[dict]:
-    """Verify a Firebase ID token and return the identity claims we persist.
-
-    Returns {"provider", "email", "firebase_uid", "display_name"} or None.
-
-    The email — the field access decisions depend on — is obtained via
-    verify_firebase_token, keeping that the single verification seam (so
-    existing callers and their test mocks continue to work). The stable `uid`
-    and `name` claims are augmented best-effort, only when the Admin SDK is
-    actually initialized, so a mocked/uninitialized environment still yields
-    email-only claims instead of failing outright.
-    """
-    email = verify_firebase_token(token)
-    if not email:
+    """Return identity claims from a single successful SDK verification."""
+    decoded = _verified_firebase_token(token)
+    if decoded is None:
         return None
-
-    firebase_uid = None
-    display_name = None
-    email_verified = False
-    if _init_firebase():
-        try:
-            from firebase_admin import auth
-            decoded = auth.verify_id_token(token, check_revoked=False)
-            firebase_uid = decoded.get("uid")
-            display_name = decoded.get("name") or decoded.get("displayName")
-            email_verified = _firebase_email_verified(decoded)
-        except Exception as e:
-            logger.warning("firebase_auth: Firebase claims augmentation failed: %s", e)
-
     return {
         "provider": "firebase",
-        "email": email,
-        "firebase_uid": firebase_uid,
-        "display_name": display_name,
-        "email_verified": email_verified,
+        "email": decoded["email"],
+        "firebase_uid": decoded.get("uid"),
+        "display_name": decoded.get("name") or decoded.get("displayName"),
+        "email_verified": _firebase_email_verified(decoded),
     }
 
 
@@ -490,6 +462,7 @@ def verify_apple_claims(token: str) -> Optional[dict]:
         return None
 
 
+@request_cached
 def verify_identity_claims(token: str) -> Optional[dict]:
     """Provider-agnostic identity verification returning persisted claims.
 
