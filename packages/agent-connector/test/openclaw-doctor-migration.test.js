@@ -34,7 +34,9 @@ function fakeAdapter({ runs, repair = { ok: true, detail: 'exit 0' } }) {
   const adapter = Object.create(OpenClawAdapter.prototype);
   adapter._log = () => {};
   adapter.sendStatus = async () => {};
-  adapter._runCliAgent = async () => {
+  calls.local = [];
+  adapter._runCliAgent = async (message, channel, { local = true } = {}) => {
+    calls.local.push(local);
     const next = runs[calls.runs++];
     if (next instanceof Error) throw next;
     return next;
@@ -47,13 +49,13 @@ describe('OpenClawAdapter._runCliAgentWithMigration', () => {
   it('runs Doctor once and retries the turn', async () => {
     const { adapter, calls } = fakeAdapter({ runs: [new Error(WORKSPACE_STATE), 'hi'] });
     assert.equal(await adapter._runCliAgentWithMigration('hello', 'ch'), 'hi');
-    assert.deepEqual(calls, { runs: 2, repairs: 1 });
+    assert.deepEqual(calls, { runs: 2, repairs: 1, local: [true, true] });
   });
 
   it('does not retry an unrelated failure', async () => {
     const { adapter, calls } = fakeAdapter({ runs: [new Error('CLI exited 1: 401')] });
     await assert.rejects(adapter._runCliAgentWithMigration('hello', 'ch'), /401/);
-    assert.deepEqual(calls, { runs: 1, repairs: 0 });
+    assert.deepEqual(calls, { runs: 1, repairs: 0, local: [true] });
   });
 
   it('surfaces the original error when Doctor fails, and stops trying', async () => {
@@ -63,12 +65,29 @@ describe('OpenClawAdapter._runCliAgentWithMigration', () => {
     });
     await assert.rejects(adapter._runCliAgentWithMigration('hello', 'ch'), /requires migration/);
     await assert.rejects(adapter._runCliAgentWithMigration('hello', 'ch'), /requires migration/);
-    assert.deepEqual(calls, { runs: 2, repairs: 1 });
+    assert.deepEqual(calls, { runs: 2, repairs: 1, local: [true, true] });
   });
 
   it('repairs at most once per turn', async () => {
     const { adapter, calls } = fakeAdapter({ runs: [new Error(WORKSPACE_STATE), new Error(WORKSPACE_STATE)] });
     await assert.rejects(adapter._runCliAgentWithMigration('hello', 'ch'), /requires migration/);
-    assert.deepEqual(calls, { runs: 2, repairs: 1 });
+    assert.deepEqual(calls, { runs: 2, repairs: 1, local: [true, true] });
+  });
+});
+
+const GATEWAY = 'OpenClaw timed out before producing a response.\n\nDetails: A Gateway is running for this state '
+  + 'directory (pid 13836, port 18789). Run without --local to use it, or stop the Gateway first.';
+
+describe('OpenClawAdapter — a Gateway already running', () => {
+  it('retries the turn through the Gateway', async () => {
+    const { adapter, calls } = fakeAdapter({ runs: [new Error(GATEWAY), 'hi'] });
+    assert.equal(await adapter._runCliAgentWithMigration('hello', 'ch'), 'hi');
+    assert.deepEqual(calls, { runs: 2, repairs: 0, local: [true, false] });
+  });
+
+  it('reports the Gateway run\'s own failure, without a third try', async () => {
+    const { adapter, calls } = fakeAdapter({ runs: [new Error(GATEWAY), new Error('CLI exited 1: 401')] });
+    await assert.rejects(adapter._runCliAgentWithMigration('hello', 'ch'), /401/);
+    assert.deepEqual(calls, { runs: 2, repairs: 0, local: [true, false] });
   });
 });
