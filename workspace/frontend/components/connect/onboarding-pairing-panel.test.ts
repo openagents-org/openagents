@@ -41,6 +41,10 @@ it('starts with command-line setup and switches the install command for Windows'
   await render();
   expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
   expect(container.textContent).not.toContain('Recommended');
+  expect(container.querySelector('details')?.open).toBe(false);
+  expect(button('TEST-CODE').disabled).toBe(false);
+  await act(async () => button('TEST-CODE').click());
+  expect(copy).toHaveBeenCalledWith('TEST-CODE');
   expect(container.querySelectorAll('a')).toHaveLength(0);
   expect([...container.querySelectorAll('code')].map(c => c.textContent)).toEqual([
     'curl -fsSL https://openagents.org/install.sh | bash', 'agn device connect TEST-CODE',
@@ -57,6 +61,7 @@ it('stops offering an expired pairing code on both setup paths', async () => {
   expect(button('TEST-CODE').disabled).toBe(true);
   expect(container.querySelector('[role="status"]')?.textContent).toContain('Code expired');
   await act(async () => button('Command line').click());
+  expect(button('TEST-CODE').disabled).toBe(true);
   const copies = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy command"]');
   expect(copies[0].disabled).toBe(false);
   expect(copies[1].disabled).toBe(true);

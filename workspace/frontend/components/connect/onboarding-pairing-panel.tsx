@@ -102,17 +102,21 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
                 {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
               </span>
             </div>
-            {terminal ? <SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /> : (
-              <button type="button" onClick={() => copyToClipboard(pairing.code)} disabled={expired} aria-label={t('connect.nodeCopyCode')}
+            <button type="button" onClick={() => copyToClipboard(pairing.code)} disabled={expired} aria-label={t('connect.nodeCopyCode')}
                 className="group flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-xl border border-primary/20 bg-primary/[0.03] px-3 py-5 transition-colors hover:bg-primary/[0.06] disabled:opacity-40">
                 <span className="font-mono text-2xl font-semibold tracking-[0.12em] tabular-nums sm:text-3xl">{pairing.code}</span>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {isCopied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
                   {t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCode')}
                 </span>
-              </button>
-            )}
+            </button>
             <p className="text-xs leading-5 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
+            {terminal && (
+              <details className="rounded-lg border px-3 py-2.5">
+                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">{t('onboarding.cliPairingFallback')}</summary>
+                <div className="mt-3"><SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /></div>
+              </details>
+            )}
           </div>
         </div>
       </div>
