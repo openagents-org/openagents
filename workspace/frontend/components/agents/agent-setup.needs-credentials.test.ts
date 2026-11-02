@@ -153,7 +153,8 @@ it('warns, then lets the agent be added anyway when nothing is signed in and no 
 });
 
 it('shows agn login in the sign-in choice and its hint on a device that has it', async () => {
-  await open('codex', { loginCommand: 'agn login codex' });
+  // Signed in, so the sign-in is the choice on show.
+  await open('codex', { loginCommand: 'agn login codex', ready: true, signedIn: true });
   expect(host.querySelector('[data-testid="agent-setup-signin-hint"]')!.textContent)
     .toContain(t('connect.byokDeviceSignInHint', { label: codexEntry.label, command: 'agn login codex' }));
   expect(host.textContent).toContain(t('connect.byokDeviceSignIn', { command: 'agn login codex' }));

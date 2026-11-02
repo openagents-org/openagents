@@ -25,12 +25,13 @@ let api: Api
 const captured: { loginEvent?: (ev: { agentType: string; phase: string }) => void } = {}
 let rendered: { onChange: ReturnType<typeof vi.fn<(config: LocalConfiguration | null) => void>> }
 
-function setup(type: string, saved: Record<string, string> = {}, entry: Partial<CatalogEntry> = { name: type }) {
+function setup(type: string, saved: Record<string, string> = {}, entry: Partial<CatalogEntry> = { name: type },
+  health: Record<string, unknown> = { installed: true, ready: false }) {
   api = {
     getEnvFields: vi.fn().mockResolvedValue(FIELDS[type]),
     getAgentEnv: vi.fn().mockResolvedValue(saved),
     getAgentInstanceEnv: vi.fn().mockResolvedValue({}),
-    healthCheck: vi.fn().mockResolvedValue({ installed: true, ready: false }),
+    healthCheck: vi.fn().mockResolvedValue(health),
     refreshLogin: vi.fn().mockResolvedValue({ installed: true, ready: false }),
     testLLM: vi.fn().mockResolvedValue({ success: true }),
     onCliLoginEvent: vi.fn((cb) => { captured.loginEvent = cb; return () => {} }),
@@ -73,6 +74,22 @@ describe("LocalConfigurationFields — API key form", () => {
   it("blocks saving a model-gateway URL into a vendor-platform agent", async () => {
     const { onChange } = setup("codebuddy", { CODEBUDDY_API_KEY: "k", CODEBUDDY_BASE_URL: "https://api.openai.com/v1" })
     await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0]?.blocked).toMatch(/model API endpoint/))
+  })
+})
+
+describe("LocalConfigurationFields — a type ready only on another agent's key", () => {
+  beforeEach(() => vi.clearAllMocks())
+  const labelled = { name: "opencode", check_ready: { auth_detected_labels: { api_key: "API key" } } } as Partial<CatalogEntry>
+
+  it("does not tell a new agent it is ready", async () => {
+    setup("opencode", {}, labelled, { installed: true, ready: true, typeReady: false, auth_mode: "api_key", message: "Ready" })
+    expect(await screen.findByText("This agent requires authentication before use.")).toBeInTheDocument()
+    expect(screen.queryByText(/Ready —/)).not.toBeInTheDocument()
+  })
+
+  it("still says ready when the type is ready on its own", async () => {
+    setup("opencode", {}, labelled, { installed: true, ready: true, auth_mode: "api_key", message: "Ready" })
+    expect(await screen.findByText(/Ready —/)).toBeInTheDocument()
   })
 })
 
