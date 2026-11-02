@@ -16,6 +16,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
@@ -2603,7 +2604,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
+        <div className="max-w-2xl mx-auto w-full px-4 py-7 sm:px-6 sm:py-9 space-y-6">
           {onBack && (
             <button
               onClick={onBack}
@@ -2613,16 +2614,16 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </button>
           )}
 
-          <div className="text-center">
-            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-              <Server className="size-7 text-white" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Laptop className="size-4" />{t('onboarding.deviceStepLabel')}
             </div>
-            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('onboarding.nodeStepTitle')}</h1>
+            <p className="max-w-xl text-sm leading-6 text-muted-foreground">{t('onboarding.nodeStepBody')}</p>
           </div>
 
           {pairing ? (
-            <PairingPanel pairing={pairing} onDismiss={onBack ?? (() => {})} />
+            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}
