@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from "react"
 import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
-import { hasPendingUpdate, useInstallStore } from "../../store/install"
+import { hasPendingUpdate, useInstallStore, useOnUninstalled } from "../../store/install"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { RenameAgentDialog } from "./components/rename-agent-dialog"
@@ -16,8 +16,8 @@ import { RecommendedAgents } from "./components/recommended-agents"
 import { AgentsEmpty } from "./components/agents-empty"
 import { RemoveAgentDialog } from "./components/remove-agent-dialog"
 /** A type's marketplace page: its versions, update, uninstall and history. */
-function openMarketPage(type: string): void {
-  useUiStore.getState().setInstallFocusAgent(type)
+function openMarketPage(type: string, returnTab?: string): void {
+  useUiStore.getState().setInstallFocusAgent(type, returnTab)
   useUiStore.getState().setCurrentTab("install")
 }
 
@@ -26,7 +26,7 @@ import { ConnectWorkspaceDialog } from "./components/connect-workspace-dialog"
 import { AgentsToolbar } from "./components/agents-toolbar"
 import { AgentsTable } from "./components/agents-table"
 import { AgentsPagination } from "./components/agents-pagination"
-import { useAgentsView, type AgentFilter } from "./use-agents-view"
+import { PAGE_SIZES, useAgentsView, type AgentFilter } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
 import { LocalConnectorBanner } from "@renderer/components/local-connector/local-connector-banner"
 import type { AgentActionHandlers } from "./components/agent-actions"
@@ -180,6 +180,14 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     useUiStore.getState().goToInstallList(filter)
   }
 
+  // The form's type uninstalled from its page ("Versions & uninstall") while
+  // the form waited behind it: what it was filled in for is gone — the checks
+  // it ran, the sign-in it found — so it closes rather than come back stale.
+  const closeForm = (): void => {
+    setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); setReturnTab(null); void refresh()
+  }
+  useOnUninstalled(configureOpen ? configureAgent?.type : newAgentOpen ? setupType : null, closeForm)
+
   if (newAgentOpen || (configureOpen && configureAgent)) {
     return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup initialType={setupType ?? undefined} agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
       backLabel={returnTab ? t(`nav.items.${returnTab}.label`) : undefined}
@@ -190,7 +198,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         if (returnTab) useUiStore.getState().setCurrentTab(returnTab)
         setReturnTab(null)
       }}
-      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
+      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
+      // The form stays open behind the type's page, unsaved edits and all,
+      // and that page's Back returns here.
+      onOpenType={(type) => openMarketPage(type, "dashboard")} /></React.Suspense>
   }
 
   return (
@@ -238,14 +249,16 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         ) : (
           <>
             <AgentsTable rows={pageRows} pending={pendingAgentActions} {...handlers} />
-            <AgentsPagination
+            {/* Only with more than the smallest page to show: "3 in total,
+                10 per page, 1 / 1" under three agents said nothing. */}
+            {rows.length > PAGE_SIZES[0] && <AgentsPagination
               total={rows.length}
               page={page}
               pageCount={pageCount}
               pageSize={pageSize}
               onPage={setPage}
               onPageSize={setPageSize}
-            />
+            />}
           </>
         )}
       </div>

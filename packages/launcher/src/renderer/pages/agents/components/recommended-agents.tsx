@@ -69,9 +69,11 @@ export function RecommendedAgents({
       >
         <div className="mb-3 flex items-center justify-between gap-4">
           <h2 className="m-0 text-base font-semibold">{t("agents.shared.recommended.label")}</h2>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={onMore} data-testid="new-agent-open">
+          {/* Styled like Workspaces' "+ Join workspace": each page's one way
+              to add more of what it lists looks the same. */}
+          <Button className="shrink-0" onClick={onMore} data-testid="new-agent-open">
+            <Plus />
             {t("agents.shared.recommended.more")}
-            <ChevronRight />
           </Button>
         </div>
         <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
@@ -133,6 +135,7 @@ export function RecommendedAgents({
         {/* Taller and wider than `size="lg"` on purpose, set here rather than
             on the shared size so no other page's buttons grow with it. */}
         <Button className="h-12 w-full px-8 text-base @md:w-auto @md:min-w-70" onClick={onMore} data-testid="new-agent-open">
+          <Plus />
           {t("agents.shared.recommended.more")}
         </Button>
       </div>

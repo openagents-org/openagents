@@ -20,6 +20,21 @@ export function AppFrame({ children }: { children: React.ReactNode }): React.JSX
   const open = useSidebarStore((s) => s.open)
   const setOpen = useSidebarStore((s) => s.setOpen)
   const switchWidth = useSidebarStore((s) => s.switchWidth)
+  // A new width from re-measuring the switch — the first measure, a language
+  // change — lands at once. The sidebar animates its width for open and close,
+  // and the same 300ms on a width the user never asked for read as the
+  // sidebar stretching by itself.
+  const [instant, setInstant] = React.useState(false)
+  const measured = React.useRef(switchWidth)
+  React.useLayoutEffect(() => {
+    if (measured.current === switchWidth) return
+    measured.current = switchWidth
+    setInstant(true)
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setInstant(false))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [switchWidth])
   // The open workspaces, for the tab bar and the header on either side.
   React.useEffect(() => { useWorkspaceTabsStore.getState().init() }, [])
 
@@ -37,6 +52,7 @@ export function AppFrame({ children }: { children: React.ReactNode }): React.JSX
       open={open}
       onOpenChange={setOpen}
       className="h-screen min-h-0 overflow-hidden"
+      data-instant-width={instant || undefined}
       style={{
         "--sidebar-width-icon": "var(--rail-icon-width)",
         // Wide enough for the switch at its full labels after the macOS traffic

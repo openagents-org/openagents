@@ -2048,6 +2048,8 @@ export const messages = {
     smokeTestAt: 'checked {time}',
     smokeTestStaticPassed: 'Installed and signed in',
     smokeTestStaticFailed: 'Could not verify',
+    smokeTestUnconfirmed: 'Sign-in unconfirmed',
+    smokeTestUnconfirmedHint: 'This agent\'s sign-in cannot be checked ahead of time on this device, which does not mean it is set up wrong. Send it a message: a normal reply confirms it is signed in.',
     smokeTestStaticHint: 'This agent has no live chat test yet. It is confirmed installed and signed in on the device. Send it a message to check that it replies.',
     smokeTestTimedOut: 'Timed out',
     smokeTestTimedOutHint: 'The device did not report a result in time. Make sure it is online and try again.',

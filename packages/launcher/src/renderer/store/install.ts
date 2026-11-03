@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 import { isUpgradeAvailable } from '../../shared/version-compare'
 import type {
@@ -93,4 +94,26 @@ export function hasPendingUpdate(updates: AgentUpdateInfo[], name: string): bool
   const info = updates.find((u) => u.name === name)
   if (!info) return false
   return isUpgradeAvailable(info.current, info.latest)
+}
+
+/**
+ * Runs `onDone` once when `type` is uninstalled — a job that started after the
+ * caller began watching it, so one left over from earlier does not count.
+ *
+ * `since` is memoised rather than set in an effect: a page hidden by
+ * <Activity> re-runs its effects when it is shown again, which would move the
+ * start past an uninstall that finished while it was hidden.
+ */
+export function useOnUninstalled(type: string | null | undefined, onDone: () => void): void {
+  const job = useInstallStore((s) => (type ? s.jobs[type] : undefined))
+  const since = useMemo(() => Date.now(), [type])
+  const handled = useRef(0)
+  const callback = useRef(onDone)
+  callback.current = onDone
+  useEffect(() => {
+    if (!job || job.verb !== 'uninstall' || job.phase !== 'done') return
+    if (job.startedAt < since || job.startedAt === handled.current) return
+    handled.current = job.startedAt
+    callback.current()
+  }, [job, since])
 }

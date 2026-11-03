@@ -2,6 +2,7 @@
   "items": {
     "dashboard": {
       "label": "Connect Agents",
+      "short": "Agents",
       "description": "Install and configure agents, then connect them to workspaces"
     },
     "install": {
@@ -14,6 +15,7 @@
     },
     "workspaces": {
       "label": "Connected Workspaces",
+      "short": "Spaces",
       "description": "Workspaces this computer is connected to as a device"
     },
     "chat": {
@@ -38,6 +40,7 @@
     },
     "settings": {
       "label": "Settings",
+      "short": "Settings",
       "description": "App settings and preferences"
     }
   },
@@ -52,6 +55,7 @@
   "search": "Search agents, workspaces…",
   "themeToggle": "Theme",
   "modeLauncher": "This Computer",
+  "modeLauncherShort": "Computer",
   "modeWorkspace": "Workspace",
   "modeSwitch": "Switch between this computer and your workspaces",
   "toggleSidebar": "Toggle sidebar",

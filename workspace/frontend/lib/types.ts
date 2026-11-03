@@ -83,7 +83,8 @@ export interface NodeAgent {
 /** Last smoke-test result the daemon reported for an agent type: one tiny
  * end-to-end "hi" prompt, with classified guidance when it failed. */
 export interface NodeProbe {
-  ok: boolean;
+  /** null: the sign-in could not be checked ahead of a real run (not a failure). */
+  ok: boolean | null;
   at: string;
   code?: string | null;
   method?: string | null;

@@ -24,10 +24,11 @@ const DENSITY_CLASS: Record<Density, string> = {
   comfortable: "py-3.5",
 }
 
-/** Message colour per level — error/warn stand out, debug/trace recede. */
+/** Message colour per level — errors stand out, debug/trace recede. A
+ *  warning is marked by its level's dot, not by colouring the whole line. */
 const LEVEL_TEXT: Record<LogLevel, string> = {
   error: "text-(--danger-text)",
-  warn: "text-(--warning-text)",
+  warn: "text-foreground",
   info: "text-foreground",
   debug: "text-muted-foreground",
   trace: "text-muted-foreground",

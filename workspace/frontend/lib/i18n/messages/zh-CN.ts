@@ -2011,6 +2011,8 @@ export const messages: Messages = {
     smokeTestAt: '检测于 {time}',
     smokeTestStaticPassed: '安装与登录正常',
     smokeTestStaticFailed: '未能验证',
+    smokeTestUnconfirmed: '登录状态待确认',
+    smokeTestUnconfirmedHint: '设备上无法提前检测这个智能体的登录状态，这不代表配置有误。发一条消息，能正常回复即说明已登录。',
     smokeTestStaticHint: '该智能体暂不支持实时对话测试，已确认它在设备上安装并登录。发一条消息即可确认能否正常回复。',
     smokeTestTimedOut: '测试超时',
     smokeTestTimedOutHint: '设备没有在规定时间内返回结果。请确认设备在线后重试。',

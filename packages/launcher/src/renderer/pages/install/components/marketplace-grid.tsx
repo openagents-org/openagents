@@ -19,19 +19,23 @@ const MAX_TAGS = 3
 
 interface Props {
   rows: MarketplaceRow[]
+  /** The row itself: open the setup form on this type. */
   onOpen: (name: string) => void
   onInstall: (row: MarketplaceRow) => void
+  /** An installed type's Manage: its marketplace page (versions, uninstall). */
+  onManage: (name: string) => void
 }
 
 export function MarketplaceGrid({
   rows,
   onOpen,
   onInstall,
+  onManage,
 }: Props): React.JSX.Element {
   return (
     <div className={GRID}>
       {rows.map((row) => (
-        <AgentCard key={row.entry.name} row={row} onOpen={onOpen} onInstall={onInstall} />
+        <AgentCard key={row.entry.name} row={row} onOpen={onOpen} onInstall={onInstall} onManage={onManage} />
       ))}
     </div>
   )
@@ -41,6 +45,7 @@ function AgentCard({
   row,
   onOpen,
   onInstall,
+  onManage,
 }: { row: MarketplaceRow } & Omit<Props, "rows">): React.JSX.Element {
   const { t } = useTranslation()
   const { entry, status } = row
@@ -104,7 +109,7 @@ function AgentCard({
           status={status}
           job={row.job}
           onInstall={() => onInstall(row)}
-          onManage={() => onOpen(entry.name)}
+          onManage={() => onManage(entry.name)}
         />
       </div>
     </Card>

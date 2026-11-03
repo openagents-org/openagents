@@ -606,8 +606,10 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the top bar: (40 - 12) / 2 = 14 from the top.
-          trafficLightPosition: { x: 16, y: 14 },
+          // Centred in the top bar: (40 - 12) / 2 = 14 from the top. x 12 keeps
+          // the three inside the collapsed sidebar rail (80px, `--rail-icon-width`
+          // in globals.css) with room to spare.
+          trafficLightPosition: { x: 12, y: 14 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white

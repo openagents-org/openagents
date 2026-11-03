@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Download, Loader2, RefreshCw } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
 import { Progress } from "@renderer/components/ui/progress"
@@ -91,14 +90,9 @@ export function UpdateOfferDialog(): React.JSX.Element | null {
         }}
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {status === "downloading" ? (
-              <Loader2 className="size-4 animate-spin text-(--accent)" />
-            ) : status === "downloaded" ? (
-              <RefreshCw className="size-4 text-(--accent)" />
-            ) : (
-              <Download className="size-4 text-(--accent)" />
-            )}
+          {/* No icon before the title, as in "What's new": the line under it
+              and the progress bar already say which step this is. */}
+          <DialogTitle>
             {t("settings.updates.offerTitle", { version })}
           </DialogTitle>
           <DialogDescription>

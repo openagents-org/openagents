@@ -79,15 +79,6 @@
       "copied": "Copied",
       "close": "Close"
     },
-    "columns": {
-      "agent": "Agent",
-      "provider": "Type / model",
-      "auth": "Auth",
-      "workspace": "Workspace",
-      "status": "Status",
-      "lastActive": "Last active",
-      "actions": "Actions"
-    },
     "more": "More actions",
     "totalCount": "{{count}} total",
     "perPage": "Per page",
@@ -96,13 +87,22 @@
     "nextPage": "Next page",
     "addHint": "Add another agent instance",
     "readiness": "Setup",
+    "columns": {
+      "agent": "Agent",
+      "workspace": "Workspace",
+      "model": "Model",
+      "status": "Status",
+      "actions": "Actions"
+    },
     "emptyNoFilterMatch": "Every agent you have is in another state right now.",
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
     "emptyNoFilterMatchTitle": "Nothing matches this filter",
     "rename": "Rename",
-    "theWorkspace": "the workspace"
+    "theWorkspace": "the workspace",
+    "defaultModel": "Default model",
+    "noWorkspace": "Not joined"
   },
   "newDialog": {
     "title": "New Agent",
@@ -209,6 +209,7 @@
   },
   "detail": {
     "back": "Back to Agent Marketplace",
+    "backToSetup": "Back to setup",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -392,10 +393,16 @@
     },
     "aside": {
       "title": "Details",
-      "type": "Type",
       "device": "Runs on",
       "workspace": "Workspace",
-      "pickLater": "Choose after adding"
+      "pickLater": "Choose after adding",
+      "about": "About this type",
+      "version": "Version",
+      "notInstalled": "Not installed — installs when added",
+      "installed": "Installed",
+      "links": "Links",
+      "homepage": "Homepage",
+      "manage": "Versions & uninstall"
     }
   },
   "renameDialog": {

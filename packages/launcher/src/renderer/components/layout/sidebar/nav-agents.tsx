@@ -11,6 +11,7 @@ import { useAccountStore } from "@renderer/store/account"
 import { useUiStore } from "@renderer/store/ui"
 import { useUpdateCount } from "@renderer/hooks/useUpdateCount"
 import { capture } from "@renderer/lib/analytics"
+import { RAIL_BUTTON, RailLabel } from "./rail-label"
 
 /**
  * Connect Agents — this computer's agents, and the way to every new one. The
@@ -34,20 +35,21 @@ export function NavAgents(): React.JSX.Element {
         tooltip={label}
         data-tour="dashboard"
         data-testid="nav-dashboard"
+        className={RAIL_BUTTON}
         onClick={() => {
           capture("tab_switched", { tab: "dashboard" })
           useAccountStore.getState().exitWorkspace("dashboard")
         }}
       >
         <Bot />
-        <span>{label}</span>
+        <RailLabel label={label} short={t("nav.items.dashboard.short")} />
       </SidebarMenuButton>
       {updates > 0 && (
         <>
           <SidebarMenuBadge className="rounded-full bg-destructive px-1.5 font-semibold text-white peer-hover/menu-button:text-white peer-data-[active=true]/menu-button:text-white">
             {updates > 99 ? "99+" : updates}
           </SidebarMenuBadge>
-          <span aria-hidden className="pointer-events-none absolute top-1 right-1 hidden size-2 rounded-full bg-destructive group-data-[collapsible=icon]:block" />
+          <span aria-hidden className="pointer-events-none absolute top-1.5 left-1/2 ml-1.5 hidden size-2 rounded-full bg-destructive group-data-[collapsible=icon]:block" />
         </>
       )}
     </SidebarMenuItem>
