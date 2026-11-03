@@ -1,6 +1,7 @@
 'use client';
 import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
-import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
+import { FirstDeviceHint } from './first-device-hint';
+import { ConnectAgentButton } from './connect-agent-button';
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
 import { AgentSectionLabel } from './agent-section-label';
@@ -10,7 +11,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import {
   BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Settings, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Settings, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -470,24 +471,12 @@ export function NavRail() {
         {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(
-                !showLabels && 'justify-center!',
-                showFirstDeviceHint && SETUP_STEP_BUTTON,
-                onboarding && 'data-[active=true]:bg-emerald-600 data-[active=true]:text-white hover:bg-emerald-700',
-                !hasAgents && !showFirstDeviceHint &&
-                  !isConnectActive &&
-                  'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
-              )}
-              aria-label={connectLabel}
-              tooltip={{ children: connectLabel, hidden: showLabels }}
-              isActive={isConnectActive}
-              aria-current={isConnectActive ? 'page' : undefined}
+            <ConnectAgentButton
+              label={connectLabel}
+              active={isConnectActive}
+              showLabels={showLabels}
               onClick={() => openView('connect')}
-            >
-              <PlusSquare />
-              {showLabels && <span className="truncate">{connectLabel}</span>}
-            </SidebarMenuButton>
+            />
           </SidebarMenuItem>
         </SidebarMenu>
 

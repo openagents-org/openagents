@@ -2,15 +2,13 @@
 import { useOnboardingSurface } from './onboarding-surface';
 
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
-import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
-import { PlusSquare } from 'lucide-react';
+import { FirstDeviceHint } from './first-device-hint';
+import { ConnectAgentButton } from './connect-agent-button';
 import {
   SidebarGroup,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { cn } from '@/lib/utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -36,25 +34,14 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
       {showSetupHint && setupStep && <FirstDeviceHint step={setupStep} />}
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton
-            tooltip={connectLabel}
-            isActive={isActive}
-            aria-current={isActive ? 'page' : undefined}
+          <ConnectAgentButton
+            label={connectLabel}
+            active={isActive}
             onClick={() => {
               openView('connect');
               onNavigate?.();
             }}
-            className={cn(
-              showSetupHint && SETUP_STEP_BUTTON,
-              !hasAgents && !showSetupHint &&
-                !isActive &&
-                'bg-primary/10 text-primary font-medium hover:bg-primary/20 hover:text-primary',
-              !hasAgents && isActive && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-            )}
-          >
-            <PlusSquare />
-            <span>{connectLabel}</span>
-          </SidebarMenuButton>
+          />
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarGroup>
