@@ -130,8 +130,8 @@ describe("marketplace", () => {
         command: "npm install -g --prefix C:\\npm @openai/codex@latest",
       }),
     })
+    useUiStore.setState({ installFocusAgent: "codex" })
     render(<Install showToast={showToast} />)
-    await userEvent.click(await screen.findByTestId("agent-card-codex"))
     expect(await screen.findByRole("button", { name: /Update to v0\.160\.0/ })).toBeInTheDocument()
     // Updated where the user installed it — not shadowed by a second copy.
     expect(await screen.findByText(/applied at its original install path/)).toBeInTheDocument()
@@ -153,8 +153,8 @@ describe("marketplace", () => {
         command: "sudo npm install -g --prefix /usr/lib @openai/codex@latest",
       }),
     })
+    useUiStore.setState({ installFocusAgent: "codex" })
     render(<Install showToast={showToast} />)
-    await userEvent.click(await screen.findByTestId("agent-card-codex"))
     expect(
       await screen.findByText("sudo npm install -g --prefix /usr/lib @openai/codex@latest"),
     ).toBeInTheDocument()
@@ -272,10 +272,11 @@ describe("marketplace", () => {
     expect(screen.getByTestId("agent-card-openclaw")).toBeInTheDocument()
   })
 
-  it("opens the detail page with its action rail", async () => {
+  it("opens the detail page with its action rail from Manage", async () => {
     render(<Install showToast={showToast} />)
 
-    await userEvent.click(await screen.findByTestId("agent-card-codex"))
+    const card = await screen.findByTestId("agent-card-codex")
+    await userEvent.click(within(card).getByRole("button", { name: "Manage" }))
 
     expect(
       await screen.findByRole("heading", { name: "OpenAI Codex CLI" }),
@@ -327,10 +328,27 @@ describe("deep links", () => {
 describe("adding an agent", () => {
   // Agents are created in one place — Connect Agents' setup form — so the
   // marketplace hands the type over rather than running a setup of its own.
-  it("opens the setup form on this type from its page", async () => {
+  // A card goes straight to the form: the detail page in between left people
+  // looking for where to configure the agent.
+  it("opens the setup form on this type from its card", async () => {
+    useUiStore.setState({ currentTab: "install" })
     render(<Install showToast={showToast} />)
 
     await userEvent.click(await screen.findByTestId("agent-card-codex"))
+
+    expect(useUiStore.getState()).toMatchObject({
+      currentTab: "dashboard",
+      pendingCreate: "agent",
+      pendingCreateType: "codex",
+      pendingCreateFrom: "install",
+    })
+    expect(screen.queryByTestId("detail-add-agent")).not.toBeInTheDocument()
+  })
+
+  it("opens the setup form on this type from its page", async () => {
+    useUiStore.setState({ installFocusAgent: "codex" })
+    render(<Install showToast={showToast} />)
+
     await userEvent.click(await screen.findByTestId("detail-add-agent"))
 
     expect(useUiStore.getState()).toMatchObject({

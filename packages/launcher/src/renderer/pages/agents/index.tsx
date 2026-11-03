@@ -190,7 +190,8 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         if (returnTab) useUiStore.getState().setCurrentTab(returnTab)
         setReturnTab(null)
       }}
-      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
+      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
+      onOpenType={(type) => { setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); setReturnTab(null); openMarketPage(type) }} /></React.Suspense>
   }
 
   return (

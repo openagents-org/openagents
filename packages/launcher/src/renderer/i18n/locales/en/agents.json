@@ -395,7 +395,14 @@
       "type": "Type",
       "device": "Runs on",
       "workspace": "Workspace",
-      "pickLater": "Choose after adding"
+      "pickLater": "Choose after adding",
+      "about": "About this type",
+      "version": "Version",
+      "notInstalled": "Not installed — installs when added",
+      "installed": "Installed",
+      "links": "Links",
+      "homepage": "Homepage",
+      "manage": "Versions & uninstall"
     }
   },
   "renameDialog": {

@@ -107,6 +107,13 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     market.setStatusFilter(filter)
   }
 
+  // A card, row or banner opens the setup form on its type: adding an agent
+  // is why people come here, and the page in between left them looking for
+  // where to configure it. What that page told them now sits beside the form;
+  // the page itself stays behind Manage, for versions and uninstall.
+  const openSetup = (name: string): void =>
+    useUiStore.getState().requestCreate("agent", name)
+
   const startInstall = (row: MarketplaceRow): void =>
     actions.requestInstall(
       row.entry,
@@ -189,7 +196,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           catalog={market.catalog}
           installed={installedList}
           updates={updates}
-          onOpen={setSelectedName}
+          onOpen={openSetup}
         />
 
         {/* Categories and search in one row that sticks while the catalog
@@ -260,14 +267,16 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         ) : prefs.view === "grid" ? (
           <MarketplaceGrid
             rows={market.rows}
-            onOpen={setSelectedName}
+            onOpen={openSetup}
             onInstall={startInstall}
+            onManage={setSelectedName}
           />
         ) : (
           <MarketplaceTable
             rows={market.rows}
-            onOpen={setSelectedName}
+            onOpen={openSetup}
             onInstall={startInstall}
+            onManage={setSelectedName}
           />
         )}
       </div>

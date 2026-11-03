@@ -394,7 +394,14 @@
       "type": "类型",
       "device": "运行设备",
       "workspace": "连接工作区",
-      "pickLater": "添加后选择"
+      "pickLater": "添加后选择",
+      "about": "类型信息",
+      "version": "版本",
+      "notInstalled": "未安装，添加时自动安装",
+      "installed": "已安装",
+      "links": "链接",
+      "homepage": "主页",
+      "manage": "版本历史与卸载"
     }
   },
   "renameDialog": {

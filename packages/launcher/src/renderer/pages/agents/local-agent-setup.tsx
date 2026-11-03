@@ -21,7 +21,7 @@ import { SetupAside } from "./components/setup-aside"
 import { SetupWorkdirField } from "./components/setup-workdir-field"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
-export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreated, onChanged, onManage }: {
+export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreated, onChanged, onManage, onOpenType }: {
   agent?: Agent
   /** Open on this type's form instead of the type picker (a recommended card). */
   initialType?: string
@@ -31,6 +31,8 @@ export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreat
   onCreated: (name: string) => void
   onManage: (agent: { name: string; type: string }) => void
   onChanged: () => void
+  /** Leave the form for the type's marketplace page (update, versions, uninstall). */
+  onOpenType?: (type: string) => void
 }): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const [data, setData] = useState<{ node: WorkspaceNode; catalog: AgentCatalogEntry[]; raw: CatalogEntry[] } | null>(null)
@@ -94,7 +96,7 @@ export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreat
             // The folder sits beside the model, half each, so the whole form fits without scrolling.
             inlineWorkingDirectory: true,
             aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
-              workspace={agent?.networkName || agent?.network || null} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
+              workspace={agent?.networkName || agent?.network || null} entry={data.raw.find((entry) => entry.name === type)} onOpenType={onOpenType} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },

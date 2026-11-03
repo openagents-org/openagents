@@ -515,16 +515,6 @@ function deviceIcon(deviceType: string, className?: string) {
   }
 }
 
-/** A colored gradient tile per device type — gives each node card visual identity. */
-function deviceTile(deviceType: string) {
-  switch (deviceType) {
-    case 'server': return 'bg-gradient-to-br from-blue-500 to-indigo-600';
-    case 'laptop': return 'bg-gradient-to-br from-violet-500 to-purple-600';
-    case 'desktop': return 'bg-gradient-to-br from-emerald-500 to-teal-600';
-    default: return 'bg-gradient-to-br from-zinc-500 to-zinc-700';
-  }
-}
-
 function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
   switch (deviceType) {
     case 'server': return t('connect.nodeDeviceServer');
@@ -705,7 +695,7 @@ function PairingPanel({
               'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
               expired
                 ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
+                : 'border-border bg-muted/30 hover:bg-muted/60',
             )}
             title={t('connect.nodeCopyCode')}
           >
@@ -1014,7 +1004,7 @@ function NodeCard({
           aria-controls={`device-agents-${node.nodeId}`}
           className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
-          <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
+          <div className="size-12 shrink-0 flex items-center justify-center rounded-xl border bg-muted text-foreground">
             {deviceIcon(node.deviceType, 'size-6')}
           </div>
           <div className="flex-1 min-w-0">
@@ -1597,8 +1587,8 @@ function NodesTab({
         </div>
       ) : nodes.length === 0 ? (
         <div className="rounded-2xl border border-dashed py-14 px-6 text-center">
-          <div className="size-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-            <Server className="size-8 text-white" />
+          <div className="size-16 mx-auto rounded-xl border bg-muted flex items-center justify-center">
+            <Server className="size-8 text-muted-foreground" />
           </div>
           <div className="text-base font-semibold mt-5">{t('connect.nodeEmptyTitle')}</div>
           <p className="text-xs text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>

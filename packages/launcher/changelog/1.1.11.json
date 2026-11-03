@@ -1,0 +1,28 @@
+{
+  "version": "1.1.11",
+  "date": "2026-11-03",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Add agents from the marketplace in one step",
+        "zh": "从智能体市场一步添加"
+      },
+      "description": {
+        "en": "Selecting an agent in the marketplace opens its setup form directly. Its version, platforms and links are shown beside the form, and version history and uninstall remain under Manage.",
+        "zh": "在智能体市场中选择智能体后，将直接进入配置页面；版本、平台与相关链接显示在页面右侧，版本历史与卸载仍可通过「管理」进入。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Consistent connect-agent styling",
+        "zh": "连接智能体界面风格统一"
+      },
+      "description": {
+        "en": "The add-agent pages now follow the app's light and dark themes.",
+        "zh": "添加智能体相关页面已与应用的浅色、深色主题保持一致。"
+      }
+    }
+  ]
+}
