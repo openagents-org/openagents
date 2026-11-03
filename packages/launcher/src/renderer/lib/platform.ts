@@ -5,11 +5,11 @@
  * The window has no system title bar (`titleBarStyle: 'hidden'`, see
  * main/index.ts) and the platforms disagree about where the buttons go — macOS
  * draws its traffic lights over the top-LEFT, Windows and Linux put
- * minimise/maximise/close on the top-RIGHT. So exactly one of the two panes has
- * to make room, and which one is a per-platform fact that several components
- * would otherwise each have to branch on. Expressed once, as the pair
- * `--rail-top-inset` / `--content-top-inset` in globals.css; everything else
- * just reads the inset for the pane it is in.
+ * minimise/maximise/close on the top-RIGHT. So the sidebar makes room on one
+ * and the header on the other, a per-platform fact that several components
+ * would otherwise each have to branch on. Expressed once, as
+ * `--traffic-lights-h` / `--window-controls-w` in globals.css; everything else
+ * just reads the token for the surface it is on.
  *
  * `process.platform` comes across from preload as a plain value rather than an
  * IPC call, so this can run from the renderer entry before React mounts and the

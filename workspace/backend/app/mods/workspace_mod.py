@@ -1451,7 +1451,7 @@ async def _route_with_llm(
 
     if allow_human_stop:
         new_event.metadata["routing_decision"] = "ask"
-    if not (config.MESSAGE_ROUTER_API_KEY if dedicated_classifier else _get_router_api_key()):
+    if not ((dedicated_classifier and config.MESSAGE_ROUTER_API_KEY) or _get_router_api_key()):
         if allow_human_stop:
             new_event.metadata["router_unavailable"] = True
         logger.warning("LLM router: no API key set for the selected routing client, defaulting to stop")
@@ -1607,37 +1607,56 @@ async def _route_with_llm(
         content=content,
     )
 
-    try:
-        if dedicated_classifier:
-            from app.services.message_router import get_client
-            client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
-            provider, model = "openai", config.MESSAGE_ROUTER_MODEL
-        else:
-            client, provider = _get_llm_client()
-            model = _get_router_model()
-
-        # One classification call; keep reasoning disabled for DeepSeek.
+    def classify(client, provider, model, max_tokens):
         if provider == "openai":
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=500 if dedicated_classifier else 256,
-                # DeepSeek otherwise spends the output budget on reasoning and
-                # can return no routing decision. Other providers must not receive
-                # this provider-specific option.
+                max_tokens=max_tokens,
+                # DeepSeek otherwise spends the output budget on reasoning.
                 **({"extra_body": {"thinking": {"type": "disabled"}}}
                    if model.lower().startswith("deepseek") else {}),
                 **({"temperature": 0} if allow_human_stop else {}),
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_result = response.choices[0].message.content.strip()
+            return (response.choices[0].message.content or "").strip()
+        response = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            **({"temperature": 0} if allow_human_stop else {}),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+
+    try:
+        if dedicated_classifier:
+            try:
+                from app.services.message_router import get_client
+                client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
+                provider, model = "openai", config.MESSAGE_ROUTER_MODEL
+                raw_result = classify(client, provider, model, 500)
+                valid_targets = {f"next:{name.lower()}" for name in candidate_names}
+                if raw_result.lower() not in {"stop", "ask"} | valid_targets:
+                    raise ValueError("Classifier returned an invalid routing decision")
+            except Exception as primary_error:
+                # Never send the general router's credentials to the dedicated
+                # endpoint. Use its independently configured client instead.
+                logger.warning(
+                    "Dedicated classifier failed (%s); trying ROUTER_LLM backup",
+                    type(primary_error).__name__,
+                )
+                if not _get_router_api_key():
+                    raise RuntimeError("Router backup has no configured API key") from primary_error
+                client, provider = _get_llm_client()
+                model = _get_router_model()
+                client = client.with_options(timeout=15, max_retries=0)
+                raw_result = classify(client, provider, model, 256)
+                valid_targets = {f"next:{name.lower()}" for name in candidate_names}
+                if raw_result.lower() not in {"stop", "ask"} | valid_targets:
+                    raise ValueError("Router backup returned an invalid routing decision")
         else:
-            response = client.messages.create(
-                model=model,
-                max_tokens=256,
-                **({"temperature": 0} if allow_human_stop else {}),
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw_result = response.content[0].text.strip()
+            client, provider = _get_llm_client()
+            model = _get_router_model()
+            raw_result = classify(client, provider, model, 256)
 
         # Case-insensitive keyword detection but preserve original case
         # of the agent name so we can match it against participants

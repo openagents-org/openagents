@@ -157,6 +157,15 @@ def canonical_mailbox(email: Optional[str]) -> Optional[str]:
     return f"{local}@{domain}"
 
 
+def has_plus_tag(email: Optional[str]) -> bool:
+    """True when the local part carries a "+tag" (decision 2026-11-02: such
+    addresses get no credits at all). Folding the tag (canonical_mailbox) only
+    stopped the SECOND alias of an inbox; farms registered each bought inbox
+    once, already tagged, so the first tagged address still earned."""
+    e = (email or "").strip()
+    return "@" in e and "+" in e.rsplit("@", 1)[0]
+
+
 def mailbox_taken(db: Session, user: User) -> bool:
     """True when ANOTHER user whose address is the same real inbox already
     holds a campaign account — one credit account per inbox. Checked only
@@ -214,7 +223,7 @@ def sync_email_verification(db: Session, user: User, bearer: Optional[str]) -> b
 
 def ineligible_reason(user: Optional[User]) -> Optional[str]:
     """None when the user may receive credits, else "blocked" |
-    "uncommon_mailbox" | "unverified".
+    "uncommon_mailbox" | "plus_address" | "unverified".
 
     "unverified" here means the address is not verified — the caller decides
     what that allows: nothing beyond CAMPAIGN_UNVERIFIED_ALLOWANCE_USD on the
@@ -224,6 +233,8 @@ def ineligible_reason(user: Optional[User]) -> Optional[str]:
         return "blocked"
     if not mailbox_allowed(user.email):
         return "uncommon_mailbox"
+    if has_plus_tag(user.email):
+        return "plus_address"
     if config.CAMPAIGN_REQUIRE_VERIFIED_EMAIL and not user.email_verified_at:
         return "unverified"
     return None
@@ -665,7 +676,7 @@ def status_payload(db: Session, user: User) -> dict:
     reason = ineligible_reason(user)
     if reason == "blocked":
         return {"enabled": False}  # hide the whole campaign for blocked addresses
-    if reason == "uncommon_mailbox" and db.get(CampaignAccount, user.id) is None:
+    if reason in ("uncommon_mailbox", "plus_address") and db.get(CampaignAccount, user.id) is None:
         # Never earned anything: nothing to show. Users who already hold a key
         # keep seeing it (and their usage) below; grant_block stops new grants.
         return {"enabled": False}

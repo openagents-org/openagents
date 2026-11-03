@@ -41,6 +41,9 @@
     "provider": "服务商 id。留空则沿用该智能体已有的配置。",
     "token": "访问令牌。"
   },
+  "placeholders": {
+    "baseUrlOptional": "可选，留空即使用默认地址"
+  },
   "env": {
     "AIDER_MODEL": {
       "label": "模型名称",

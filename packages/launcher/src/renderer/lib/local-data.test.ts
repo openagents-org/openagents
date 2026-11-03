@@ -8,8 +8,7 @@ describe("resetLocalPreferences", () => {
   beforeEach(() => localStorage.clear())
 
   it("clears every key the launcher writes for its own chrome", () => {
-    localStorage.setItem("launcher:accent", "rose")
-    localStorage.setItem("launcher:skin", "openagents")
+    localStorage.setItem("launcher:ui-scale", "lg")
     localStorage.setItem("launcher:theme-mode", "dark")
     localStorage.setItem("launcher:command-history", '["logs"]')
     localStorage.setItem("openagents:updateDismissals/v1", "{}")
@@ -18,8 +17,7 @@ describe("resetLocalPreferences", () => {
     resetLocalPreferences()
 
     for (const key of [
-      "launcher:accent",
-      "launcher:skin",
+      "launcher:ui-scale",
       "launcher:theme-mode",
       "launcher:command-history",
       "openagents:updateDismissals/v1",
@@ -44,7 +42,6 @@ describe("resetLocalPreferences", () => {
   })
 
   it("puts the live stores back to their defaults", () => {
-    useAppearanceStore.getState().setAccent("rose")
     useAppearanceStore.getState().setScale("lg")
     useAppearanceStore.getState().setHighContrast(true)
     useThemeStore.getState().setMode("dark")
@@ -52,7 +49,6 @@ describe("resetLocalPreferences", () => {
     resetLocalPreferences()
 
     const appearance = useAppearanceStore.getState()
-    expect(appearance.accent).toBe("indigo")
     expect(appearance.scale).toBe("md")
     expect(appearance.highContrast).toBe(false)
     expect(useThemeStore.getState().mode).toBe("light")

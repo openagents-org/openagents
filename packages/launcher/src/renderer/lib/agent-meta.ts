@@ -39,6 +39,22 @@ export function envFieldHint(field: EnvField, t: TFunction): string {
   return field.description || ""
 }
 
+/**
+ * The grey text inside an empty input, or "" to let the caller fall back.
+ *
+ * An optional endpoint with nothing pre-filled is meant to be left blank, but
+ * a URL in its placeholder reads as the value to use: DeepSeek's showed
+ * `https://api.deepseek.com/anthropic` and users took the `/anthropic` path
+ * for a requirement. Such a field says it can stay empty instead, whatever
+ * the registry put there.
+ */
+export function envFieldPlaceholder(field: EnvField, t: TFunction): string {
+  if (genericRole(field.name) === "baseUrl" && !field.required && !field.default) {
+    return t("agentMeta.placeholders.baseUrlOptional")
+  }
+  return field.placeholder || ""
+}
+
 /** Agent blurb for the picker and marketplace cards. */
 export function agentDescription(
   name: string,

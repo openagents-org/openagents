@@ -13,7 +13,7 @@
   "nav": {
     "dashboard": "Connect Agents",
     "chat": "Chat",
-    "workspaces": "Joined Workspaces",
+    "workspaces": "Connected Workspaces",
     "connections": "Connections",
     "credentials": "Credentials",
     "github": "GitHub",

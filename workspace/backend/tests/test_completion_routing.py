@@ -330,3 +330,103 @@ def test_completion_provider_failure_pauses_without_a_fictional_handoff(db, setu
     assert route(db, setup, event) == ['__no_response__']
     assert event.metadata['orchestration']['action'] == 'wait'
     assert 'routing_choice' not in event.metadata
+
+
+@pytest.fixture
+def completion_clients(monkeypatch):
+    from app.services import message_router
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', True)
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'openagents-routing-qwen3.5-2b')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_BASE_URL', 'https://dedicated.example/v1')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', 'dedicated-key')
+    primary, backup = MagicMock(), MagicMock()
+    for client in (primary, backup):
+        client.with_options.return_value = client
+        client.chat.completions.create.return_value.choices[0].message.content = '{"action":"next","human_input_required":false,"agent":"reviewer","task":"Review the fix"}'
+    factory = MagicMock(return_value=primary)
+    monkeypatch.setattr(message_router, 'get_client', factory)
+    general = MagicMock(return_value=(backup, 'openai'))
+    monkeypatch.setattr('app.mods.workspace_mod._get_llm_client', general)
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: 'backup-key')
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_model', lambda: 'DeepSeek-V4.1-flash')
+    return primary, backup, factory, general
+
+
+@pytest.mark.parametrize('raw,action', [
+    ('{"action":"next","human_input_required":false,"agent":"reviewer","task":"Review"}', 'next'),
+    ('{"action":"ask","human_input_required":false,"task":"Review"}', 'ask'),
+    ('{"action":"stop"}', 'stop'), ('{"action":"wait"}', 'wait'),
+    ('{"action":"ask","human_input_required":true}', 'wait'),
+    ('{"action":"next","human_input_required":"false"}', 'wait'),
+    ('{"action":"next"}', 'wait'),
+])
+def test_dedicated_completion_decisions_do_not_use_backup(completion_clients, raw, action):
+    primary, _, factory, general = completion_clients
+    primary.chat.completions.create.return_value.choices[0].message.content = raw
+    assert asyncio.run(routing.decide({'request': 'Review'}))['action'] == action
+    factory.assert_called_once_with('https://dedicated.example/v1', 'dedicated-key')
+    general.assert_not_called()
+    args = primary.chat.completions.create.call_args.kwargs
+    assert args['model'] == 'openagents-routing-qwen3.5-2b'
+    assert args['max_tokens'] == 500
+    assert args['temperature'] == 0
+    assert args['timeout'] == 15
+    assert 'extra_body' not in args
+    primary.with_options.assert_called_once_with(max_retries=0, timeout=15)
+
+
+@pytest.mark.parametrize('failure', ['http530', 'timeout', 'label', 'empty', 'array', 'invalid_action', 'missing_key'])
+def test_completion_backup_on_primary_failure(completion_clients, monkeypatch, failure):
+    import httpx
+    from openai import InternalServerError
+    primary, backup, factory, general = completion_clients
+    if failure == 'http530':
+        primary.chat.completions.create.side_effect = InternalServerError('unavailable', response=httpx.Response(530, request=httpx.Request('POST','https://dedicated.example')), body=None)
+    elif failure == 'timeout':
+        primary.chat.completions.create.side_effect = TimeoutError()
+    elif failure == 'missing_key':
+        monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', '')
+        factory.side_effect = ValueError('Missing key')
+    else:
+        primary.chat.completions.create.return_value.choices[0].message.content = {
+            'label':'stop', 'empty':None, 'array':'[]', 'invalid_action':'{"action":"dance"}'}[failure]
+    result = asyncio.run(routing.decide({'request': 'Review'}))
+    assert result['action'] == 'next'
+    assert result['agent'] == 'reviewer'
+    general.assert_called_once()
+    args = backup.chat.completions.create.call_args.kwargs
+    assert args['model'] == 'DeepSeek-V4.1-flash'
+    assert args['max_tokens'] == 700
+    assert args['extra_body'] == {'thinking': {'type': 'disabled'}}
+    backup.chat.completions.create.assert_called_once()
+    backup.with_options.assert_called_once_with(max_retries=0, timeout=15)
+    if failure != 'missing_key':
+        assert args['messages'] == primary.chat.completions.create.call_args.kwargs['messages']
+
+
+@pytest.mark.parametrize('failure', ['exception', 'invalid', 'missing_key'])
+def test_completion_both_models_fail_waits(completion_clients, monkeypatch, failure):
+    primary, backup, _, general = completion_clients
+    primary.chat.completions.create.side_effect = TimeoutError()
+    if failure == 'missing_key':
+        monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: '')
+    elif failure == 'exception':
+        backup.chat.completions.create.side_effect = TimeoutError()
+    else:
+        backup.chat.completions.create.return_value.choices[0].message.content = 'stop'
+    assert asyncio.run(routing.decide({'request': 'Review'}))['action'] == 'wait'
+    assert backup.chat.completions.create.call_count == (0 if failure == 'missing_key' else 1)
+
+
+def test_completion_disabled_calls_neither_model(completion_clients, monkeypatch):
+    _, _, factory, general = completion_clients
+    monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', False)
+    assert asyncio.run(routing.decide({}))['action'] == 'wait'
+    factory.assert_not_called()
+    general.assert_not_called()
+
+
+def test_dedicated_completion_works_without_general_key(completion_clients, monkeypatch):
+    monkeypatch.setattr('app.mods.workspace_mod._get_router_api_key', lambda: '')
+    assert asyncio.run(routing.decide({}))['action'] == 'next'
+    completion_clients[3].assert_not_called()

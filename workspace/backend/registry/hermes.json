@@ -60,8 +60,7 @@
     {
       "name": "LLM_BASE_URL",
       "description": "Custom OpenAI-compatible base URL (leave empty to use Hermes's own provider login)",
-      "required": false,
-      "placeholder": "https://api.openai.com/v1"
+      "required": false
     },
     {
       "name": "LLM_MODEL",

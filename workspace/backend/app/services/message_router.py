@@ -1,4 +1,4 @@
-"""Dedicated OpenAI-compatible client for human-versus-agent classification."""
+"""Dedicated OpenAI-compatible client for message classification and completion handoffs."""
 from functools import lru_cache
 
 

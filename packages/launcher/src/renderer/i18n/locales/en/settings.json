@@ -131,6 +131,28 @@
       "confirm": "Restart"
     }
   },
+  "localConnector": {
+    "title": "Local connector",
+    "label": "Run local agents on this computer",
+    "desc": "Runs the agents added on this computer and keeps it online in your workspaces. When off, $t(common.appName) works only as a workspace client. It turns on when you add your first local agent.",
+    "failed": "The local connector could not start: {{message}}",
+    "offDialog": {
+      "title": "Turn off the local connector?",
+      "description": "Every agent on this computer stops and appears offline in its workspaces. You can still use your workspaces in $t(common.appName).",
+      "confirm": "Turn off"
+    },
+    "statusOn": "On · {{summary}}",
+    "statusOff": "Off · agents on this computer do not run, and it appears offline in workspaces",
+    "onToast": "Local connector turned on. Agents on this computer are starting.",
+    "offToast": "Local connector turned off. Agents on this computer have stopped.",
+    "banner": "The local connector is off. Agents on this computer do not run, and it appears offline in workspaces.",
+    "bannerAction": "Turn on",
+    "onDialog": {
+      "title": "Turn on the local connector?",
+      "description": "Agents need the local connector to run. Turning it on starts every agent on this computer.",
+      "confirm": "Turn on"
+    }
+  },
   "appearance": {
     "themeGroup": "Theme & colour",
     "themeDesc": "Choose how $t(common.appName) looks",
@@ -138,18 +160,6 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System"
-    },
-    "accent": "Accent colour",
-    "accentDesc": "Used for buttons, selection and links",
-    "accents": {
-      "indigo": "Violet",
-      "blue": "Blue",
-      "teal": "Teal",
-      "green": "Green",
-      "amber": "Amber",
-      "orange": "Orange",
-      "rose": "Rose",
-      "slate": "Slate"
     },
     "scale": "Text & interface scale",
     "scaleDesc": "Scales text and spacing together, applied instantly",
@@ -159,24 +169,11 @@
       "lg": "Large"
     },
     "theme": "Theme",
-    "skin": "Interface style",
-    "skinDesc": "Combines with either light or dark, applied instantly",
     "behaviorGroup": "Interface behaviour",
     "animations": "Show animations",
     "animationsDesc": "Turning them off lowers resource use",
     "highContrast": "High contrast",
-    "highContrastDesc": "Makes text and controls easier to read",
-    "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
-    "skins": {
-      "default": {
-        "name": "Classic",
-        "desc": "$t(common.appName)’s native look — soft borders and shadows"
-      },
-      "openagents": {
-        "name": "$t(common.brandName)",
-        "desc": "Matches openagents.org — bold frames, hard shadows and Inter"
-      }
-    }
+    "highContrastDesc": "Makes text and controls easier to read"
   },
   "agents": {
     "autoStart": "Start agents on launch",

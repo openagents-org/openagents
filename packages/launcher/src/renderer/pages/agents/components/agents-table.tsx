@@ -101,9 +101,7 @@ export function AgentsTable({
               >
                 <TableCell className="px-6">
                   <div className="flex items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-card">
-                      <AgentIcon type={agent.type} size={22} />
-                    </span>
+                    <AgentIcon type={agent.type} size={40} />
                     <div className="min-w-0">
                       <button onClick={() => onConfigure(agent)} className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline" title={agentLabel(agent)}>
                         {agentLabel(agent)}

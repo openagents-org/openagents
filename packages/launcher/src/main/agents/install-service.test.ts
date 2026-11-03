@@ -63,7 +63,7 @@ import { CONFIG_DIR, INSTALLED_HISTORY_FILE, PORTABLE_NODE_DIR } from "./paths"
 
 const npmInstall = "npm install -g @openai/codex"
 const openclawInstall = "npm install -g openclaw@latest"
-const deepseekInstall = "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+const deepseekInstall = "npm install -g @deepseek-ai/dsh@0.2.1-rc.5"
 const script = "powershell -c irm cursor.com/install | iex"
 const REGISTRY: Record<string, Record<string, unknown>> = {
   // npm-backed: has a package dir we can check.
@@ -100,7 +100,7 @@ const REGISTRY: Record<string, Record<string, unknown>> = {
     install: {
       binary: "dsh",
       npm_package: "@deepseek-ai/dsh",
-      supported_version: "0.2.1-rc.2",
+      supported_version: "0.2.1-rc.5",
       macos: deepseekInstall,
       linux: deepseekInstall,
       windows: deepseekInstall,
@@ -417,7 +417,7 @@ describe("agent-specific npm resolver workarounds", () => {
     // left the peers its later sub-packages moved out of dependencies missing.
     await service().installAgentTypeStreaming("deepseek", () => undefined)
     expect(spawned[0]).not.toContain("--legacy-peer-deps")
-    expect(spawned[0]).toContain("@deepseek-ai/dsh@0.2.1-rc.2")
+    expect(spawned[0]).toContain("@deepseek-ai/dsh@0.2.1-rc.5")
   })
 })
 

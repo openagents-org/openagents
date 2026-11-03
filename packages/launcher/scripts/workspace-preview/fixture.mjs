@@ -53,6 +53,12 @@ export function previewFixture(locale) {
       }
       if (p === '/v1/account/profile') return { email:'alex@example.invalid',displayName:'Alex',avatarUrl:null,welcomeSeen:true };
       if (p === '/v1/agent-catalog') return [];
+      // The thread header reads both lists; without them the app crashes.
+      if (p.startsWith('/v1/channels/') && p.endsWith('/participants') && method === 'GET') return {
+        channel: p.split('/')[3], visibility: 'workspace', director_email: 'alex@example.invalid',
+        humans: [{ email: 'alex@example.invalid', display_name: 'Alex', joined_at: new Date(now - 86400000).toISOString() }],
+        agents: agents.map(a => ({ agent_name: a.agent_type, display_name: a.display_name, owner_email: 'alex@example.invalid', visibility: 'team' })),
+      };
       return { files:[], entries:[], tabs:[], contexts:[], todos:[], tasks:[], workflows:[], routines:[], notifications:[], unreadCount:0, total:0, channels:{}, nodes:[] };
     },
   };

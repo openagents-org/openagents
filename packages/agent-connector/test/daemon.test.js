@@ -1874,3 +1874,67 @@ describe('Daemon pid resolution (dual-source)', () => {
     assert.ok(!fs.existsSync(path.join(tmpDir, 'daemon.pid')), 'stale pid file should be cleaned');
   });
 });
+
+describe('Daemon._repairRuntime', () => {
+  const { Installer } = require('../src/installer');
+  let realInstall;
+  beforeEach(() => { realInstall = Installer.prototype.installStreaming; });
+  afterEach(() => { Installer.prototype.installStreaming = realInstall; });
+
+  function makeDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._writeStatus = () => {};
+    daemon._log = () => {};
+    return daemon;
+  }
+
+  /** An adapter that refuses its runtime until the reinstall has run. */
+  function staleAdapter(state) {
+    return {
+      forgotten: 0,
+      forgetRuntime() { this.forgotten += 1; },
+      preflight() {
+        return state.installed
+          ? { ok: true }
+          : { ok: false, reason: 'version_incompatible', message: 'dsh 0.1.0-rc.6 is not supported', repairable: true };
+      },
+    };
+  }
+
+  it('installs the supported version once for agents starting together, then preflights again', async () => {
+    const state = { installed: false };
+    let installs = 0;
+    Installer.prototype.installStreaming = async function (type) {
+      installs += 1;
+      assert.equal(type, 'deepseek');
+      await new Promise((r) => setTimeout(r, 20));
+      state.installed = true;
+      return { success: true };
+    };
+    const daemon = makeDaemon();
+    const a = staleAdapter(state);
+    const b = staleAdapter(state);
+    const infoA = { state: 'error', lastError: 'old', errorReason: 'version_incompatible' };
+    const pf = { ok: false, repairable: true, message: 'stale' };
+    const [ra, rb] = await Promise.all([
+      daemon._repairRuntime('a', 'deepseek', a, infoA, pf),
+      daemon._repairRuntime('b', 'deepseek', b, { state: 'starting' }, pf),
+    ]);
+    assert.equal(installs, 1);
+    assert.deepEqual(ra, { ok: true });
+    assert.deepEqual(rb, { ok: true });
+    assert.equal(a.forgotten, 1);
+    assert.equal(infoA.lastError, null);
+    assert.equal(daemon._runtimeRepairs.size, 0);
+  });
+
+  it('keeps the original reason when the install fails', async () => {
+    Installer.prototype.installStreaming = async () => { throw new Error('Install failed with exit code 1'); };
+    const daemon = makeDaemon();
+    const adapter = staleAdapter({ installed: false });
+    const result = await daemon._repairRuntime('a', 'deepseek', adapter, { state: 'starting' }, { ok: false });
+    assert.equal(result, null);
+    assert.equal(adapter.forgotten, 0);
+    assert.equal(daemon._runtimeRepairs.size, 0);
+  });
+});

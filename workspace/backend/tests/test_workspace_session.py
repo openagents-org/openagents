@@ -113,7 +113,7 @@ class TestIdentityRouting:
         fb.assert_not_called()
 
     def test_non_session_tokens_still_go_to_firebase(self, session_secret):
-        with patch("app.firebase_auth.verify_firebase_token", return_value="g@x.io") as fb:
+        with patch("app.firebase_auth._verified_firebase_token", return_value={"email": "g@x.io"}) as fb:
             assert firebase_auth.verify_identity_token("opaque-firebase-token") == "g@x.io"
         fb.assert_called_once()
 

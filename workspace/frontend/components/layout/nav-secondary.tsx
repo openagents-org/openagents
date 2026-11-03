@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface } from './onboarding-surface';
 
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
@@ -24,10 +25,11 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { agents } = useWorkspace();
   const t = useT();
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
-  const isActive = viewMode === 'connect';
+  const onboarding = useOnboardingSurface();
+  const isActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showSetupHint = !!setupStep && !isActive;
-  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = onboarding || setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">
@@ -37,6 +39,7 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
           <SidebarMenuButton
             tooltip={connectLabel}
             isActive={isActive}
+            aria-current={isActive ? 'page' : undefined}
             onClick={() => {
               openView('connect');
               onNavigate?.();

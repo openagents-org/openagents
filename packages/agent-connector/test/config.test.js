@@ -260,3 +260,21 @@ describe('Config.tailLogs', () => {
     assert.deepEqual(new Config(path.join(tmpDir, 'missing')).getLogs(null, 50), []);
   });
 });
+
+describe('Config.save', () => {
+  it('replaces daemon.yaml in one step and leaves no temp file', () => {
+    const cfg = new Config(tmpDir);
+    cfg.addAgent({ name: 'luna', type: 'codex' });
+    cfg.addAgent({ name: 'gpt20b', type: 'opencode' });
+    assert.deepEqual(cfg.getAgents().map((a) => a.name), ['luna', 'gpt20b']);
+    assert.deepEqual(fs.readdirSync(tmpDir), ['daemon.yaml']);
+  });
+
+  it('writes in place when the rename keeps being refused', (t) => {
+    const cfg = new Config(tmpDir);
+    t.mock.method(fs, 'renameSync', () => { throw Object.assign(new Error('busy'), { code: 'EPERM' }); });
+    cfg.addAgent({ name: 'luna', type: 'codex' });
+    assert.equal(cfg.getAgent('luna').type, 'codex');
+    assert.deepEqual(fs.readdirSync(tmpDir), ['daemon.yaml']);
+  });
+});

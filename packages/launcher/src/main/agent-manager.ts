@@ -77,6 +77,11 @@ import {
   type UpdateTarget,
 } from "./agents/install-service"
 import { LoginProbe } from "./agents/login-probe"
+import {
+  LOCAL_CONNECTOR_KEY,
+  LOCAL_CONNECTOR_OFF,
+  localConnectorEnabled,
+} from "./agents/local-connector"
 import { buildBinaryTypeMap } from "./agents/binary-map"
 import { shellCommandFor } from "./win-exec"
 import { ChatService } from "./chat/service"
@@ -97,6 +102,7 @@ import BUNDLED_REGISTRY from "../../../agent-connector/registry.json"
 
 interface LauncherSettingsStore {
   get(key?: string): unknown
+  set(key: string, value: unknown): void
 }
 
 /**
@@ -860,6 +866,8 @@ export class AgentManager extends EventEmitter {
     // Bust the 1.5s agents cache so the renderer's immediate post-mutation
     // refresh() returns fresh data instead of the stale pre-add list.
     this._agentsCache = { value: [], at: 0 }
+    this._wantLocalConnector()
+    void this._ensureDaemon().catch(() => {})
     return { success: true, agent: agentConfig }
   }
 
@@ -1855,7 +1863,7 @@ export class AgentManager extends EventEmitter {
     if (workspaceId) clearRevocation(workspaceId)
     this._removeNetworkAndUnbind(workspaceSlug, workspaceId)
 
-    if (pairing) {
+    if (pairing && this.localConnectorEnabled()) {
       // The node heartbeat loop lives in the daemon, so the pairing we just
       // dropped keeps being reported until the daemon is recycled.
       const daemon = this._startDaemon()
@@ -2306,8 +2314,12 @@ export class AgentManager extends EventEmitter {
     // recycle it rather than reuse it (_startDaemon stops first, then spawns).
     // Pairing already succeeded at this point: a daemon that refuses to start
     // is a warning, not a failure.
+    // With the local connector off the pairing is only recorded: the device
+    // comes online once the connector is switched on.
     let warning: string | null = null
-    const daemon = this._startDaemon()
+    const daemon = this.localConnectorEnabled()
+      ? this._startDaemon()
+      : { success: true, message: "" }
     if (!daemon.success) {
       appendDaemonLog(`node pairing: daemon start failed — ${daemon.message}`)
       warning = daemon.message
@@ -2562,7 +2574,11 @@ export class AgentManager extends EventEmitter {
       )
     }
 
-    this.signalReload()
+    this._wantLocalConnector()
+    // A running daemon picks the agent up on reload; with none (the connector
+    // was off until this first agent) starting one launches it.
+    if (this._getLiveDaemonPid()) this.signalReload()
+    else void this._ensureDaemon().catch(() => {})
     return { agentName: name, warning: null }
   }
 
@@ -2645,6 +2661,7 @@ export class AgentManager extends EventEmitter {
 
   async startAgent(name: string): Promise<unknown> {
     const ready = await this._ensureDaemon()
+    if (!ready && !this.localConnectorEnabled()) throw new Error(LOCAL_CONNECTOR_OFF)
     if (!ready)
       throw new Error(
         "Daemon failed to start. Check the Logs page for details.",
@@ -2726,6 +2743,7 @@ export class AgentManager extends EventEmitter {
 
   async startAll(): Promise<unknown> {
     const ready = await this._ensureDaemon()
+    if (!ready && !this.localConnectorEnabled()) throw new Error(LOCAL_CONNECTOR_OFF)
     if (!ready)
       throw new Error(
         "Daemon failed to start. Check the Logs page for details.",
@@ -2744,13 +2762,69 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /**
+   * Start the daemon unless one is running. False when it cannot start, and
+   * when the local connector is switched off: then nothing may start it but
+   * the user, through an action that turns the connector back on.
+   */
   async _ensureDaemon(): Promise<boolean> {
     const pid = this._getLiveDaemonPid()
     if (pid) return true
+    if (!this.localConnectorEnabled()) return false
 
     const result = await this._startDaemon()
     if (!result.success) appendDaemonLog(result.message)
     return !!(result.success && result.pid)
+  }
+
+  /** Whether this device runs its local connector — see local-connector.ts. */
+  localConnectorEnabled(): boolean {
+    let count = 0
+    try {
+      const listAgents = this._connector?.listAgents as
+        | (() => unknown[])
+        | undefined
+      count = listAgents?.call(this._connector)?.length || 0
+    } catch {
+      // An unreadable config is no agents; an explicit choice still applies.
+    }
+    return localConnectorEnabled(this._store.get(LOCAL_CONNECTOR_KEY), count)
+  }
+
+  /**
+   * Switch the local connector. Off stops the daemon, taking every local agent
+   * offline; on starts it, and with it every configured agent.
+   */
+  async setLocalConnectorEnabled(
+    enabled: boolean,
+  ): Promise<{ success: boolean; enabled: boolean; message?: string }> {
+    this._store.set(LOCAL_CONNECTOR_KEY, enabled)
+    this._statusCache = { value: {}, at: 0 }
+    this.emit("local-connector", enabled)
+    if (!enabled) {
+      if (this._connector) await this.stopAll()
+      return { success: true, enabled }
+    }
+    const ready = await this._ensureDaemon()
+    return ready
+      ? { success: true, enabled }
+      : {
+          success: false,
+          enabled,
+          message: "Daemon failed to start. Check the Logs page for details.",
+        }
+  }
+
+  /**
+   * Adding a local agent, or connecting this computer from a workspace, turns
+   * the connector on: the first local agent is what switches it on for a new
+   * install. Starting an agent does not — the renderer asks first, since
+   * turning it on starts every agent on this computer.
+   */
+  _wantLocalConnector(): void {
+    if (this._store.get(LOCAL_CONNECTOR_KEY) === true) return
+    this._store.set(LOCAL_CONNECTOR_KEY, true)
+    this.emit("local-connector", true)
   }
 
   getAllStatus(): unknown {

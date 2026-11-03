@@ -13,6 +13,8 @@ import type { CatalogEntry } from "@renderer/types"
 export const RECOMMENDED_TYPES = ["codex", "claude", "opencode", "hermes"]
 /** Cards on screen at once; the arrows step through them one at a time. */
 const VISIBLE = 2
+/** Tiles in the compact row: three, so each is wide enough for its full name. */
+const COMPACT_SHOWN = 3
 
 /**
  * The recommended agent types, two at a time. Moved by hand only — the
@@ -55,32 +57,37 @@ export function RecommendedAgents({
   const shown = entries.slice(first, first + VISIBLE)
 
   if (compact) {
+    // A heading row with the way into the marketplace on its right, then the
+    // first three types as equal tiles in one row. A filled panel with the
+    // chips wrapping beside a large button left half its width empty and made
+    // "more" louder than the choices; four tiles across cut their names short.
     return (
       <section
-        className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl border border-primary/20 bg-primary/8 px-5 py-4"
+        className="@container mb-6"
         aria-label={t("agents.shared.recommended.label")}
         data-testid="recommended-agents"
       >
-        <h2 className="m-0 shrink-0 text-base font-semibold">{t("agents.shared.recommended.label")}</h2>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          {entries.map((entry) => (
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <h2 className="m-0 text-base font-semibold">{t("agents.shared.recommended.label")}</h2>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={onMore} data-testid="new-agent-open">
+            {t("agents.shared.recommended.more")}
+            <ChevronRight />
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
+          {entries.slice(0, COMPACT_SHOWN).map((entry) => (
             <RecommendedChip key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)} />
           ))}
         </div>
-        <Button size="lg" className="shrink-0" onClick={onMore} data-testid="new-agent-open">
-          {t("agents.shared.recommended.more")}
-        </Button>
       </section>
     )
   }
 
   return (
-    // One tinted panel holds the whole block — heading, cards, arrows and the
-    // way into the marketplace — so it reads apart from the agent list below.
-    // The tint is derived from the brand colour, the same family as the
-    // marketplace banner, without touching the global button colour.
+    // One panel holds the whole block — heading, cards, arrows and the way into
+    // the marketplace — so it reads apart from the agent list below.
     <section
-      className="@container mb-6 rounded-xl border border-primary/20 bg-primary/8 p-6"
+      className="@container mb-6 rounded-xl border bg-muted/40 p-6"
       aria-label={t("agents.shared.recommended.label")}
       data-testid="recommended-agents"
     >
@@ -135,8 +142,7 @@ export function RecommendedAgents({
 
 /**
  * A recommended type in the compact row: its mark and name, then what a click
- * does. Full-size rather than `sm`: these are the way to a first agent of a
- * new type, and at 32px they read as toolbar chrome rather than as choices.
+ * does, in words — a bare plus or download arrow left people guessing.
  */
 function RecommendedChip({
   entry,
@@ -151,12 +157,15 @@ function RecommendedChip({
   const action = t(available ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")
   const name = entry.label || entry.name
   return (
-    <Button variant="outline" size="lg" className="bg-card font-semibold" onClick={onInstall}
-      title={`${action} · ${name}`} data-testid={`recommended-add-${entry.name}`}>
-      <AgentIcon type={entry.name} size={20} />
-      {name}
-      {available ? <Download className="text-muted-foreground" /> : <Plus className="text-muted-foreground" />}
-    </Button>
+    <button type="button" onClick={onInstall} title={`${action} · ${name}`} data-testid={`recommended-add-${entry.name}`}
+      className="group flex h-14 min-w-0 items-center gap-3 rounded-lg border bg-card px-3 text-left shadow-xs transition-colors hover:bg-accent">
+      <AgentIcon type={entry.name} size={32} />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+        {available ? <Download className="size-3.5" /> : <Plus className="size-3.5" />}
+        {action}
+      </span>
+    </button>
   )
 }
 
@@ -177,9 +186,7 @@ function RecommendedCard({
       data-testid={`recommended-${entry.name}`}
       className="flex min-w-0 items-center gap-4 rounded-lg border bg-card p-4"
     >
-      <div className="flex size-14 shrink-0 items-center justify-center rounded-md border bg-background">
-        <AgentIcon type={entry.name} size={30} />
-      </div>
+      <AgentIcon type={entry.name} size={56} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>

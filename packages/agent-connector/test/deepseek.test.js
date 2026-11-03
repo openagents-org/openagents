@@ -4,7 +4,7 @@
  * Unit tests for the DeepSeek Harness adapter.
  *
  * These drive a REAL subprocess — test/fixtures/mock-dsh.js, a scriptable fake
- * that speaks dsh 0.2.1-rc.2's headless contract — rather than a faked `spawn`.
+ * that speaks dsh 0.2.1-rc.5's headless contract — rather than a faked `spawn`.
  * The properties under test (what reaches argv, whether the whole of stdout is
  * captured before the promise settles, whether a process group actually dies)
  * are properties of process handling, and a fake spawn cannot demonstrate them.
@@ -181,7 +181,7 @@ describe('DeepSeek adapter — argv and secrecy', () => {
   it('passes the secrets through the child ENVIRONMENT instead', async () => {
     const log = await run(makeAdapter(), 'hello');
     assert.equal(log.env.DEEPSEEK_API_KEY, API_KEY);
-    assert.equal(log.env.OPENAGENTS_WORKSPACE_TOKEN, TOKEN);
+    assert.equal(log.env.OPENAGENTS_WORKSPACE_AUTH, TOKEN);
   });
 
   it('never writes the prompt, token or key into a log line', async () => {
@@ -210,13 +210,54 @@ describe('DeepSeek adapter — task file', () => {
     assert.ok(log.taskBody, 'task file was written');
     assert.ok(!log.taskBody.includes(TOKEN), 'real token absent from the task file');
     assert.ok(!log.taskBody.includes(API_KEY), 'API key absent from the task file');
-    const expr = IS_WINDOWS ? '$env:OPENAGENTS_WORKSPACE_TOKEN' : '$OPENAGENTS_WORKSPACE_TOKEN';
+    const expr = IS_WINDOWS ? '$env:OPENAGENTS_WORKSPACE_AUTH' : '$OPENAGENTS_WORKSPACE_AUTH';
     assert.ok(log.taskBody.includes(expr), 'token is referenced by shell expression');
+  });
+
+  // dsh strips credential-shaped names from every command it runs
+  // (SENSITIVE_ENV_PATTERN in @deepseek-ai/dsh-subprocess). Under such a name
+  // the agent's shell never sees the token and goes looking for it instead.
+  it('names the token variable so dsh passes it through to the shell', () => {
+    const name = makeAdapter()._tokenExpr().replace(/^\$(env:)?/, '');
+    assert.doesNotMatch(name, /KEY|PASSWORD|SECRET|TOKEN/i);
   });
 
   it('does not leave the unsubstituted {WORKSPACE_API} placeholder behind', async () => {
     const log = await run(makeAdapter(), 'hello');
     assert.ok(!log.taskBody.includes('{WORKSPACE_API}'));
+  });
+
+  // dsh's Windows sandbox leaves curl.exe without TLS credentials, so Windows
+  // runs are pointed at the Node helper; elsewhere the curl recipes stand.
+  it('routes workspace calls through the Node helper on Windows only', async () => {
+    const log = await run(makeAdapter(), 'hello');
+    const section = /Calling the workspace API on this machine \(Windows\)/;
+    if (IS_WINDOWS) {
+      assert.match(log.taskBody, section);
+      assert.ok(log.taskBody.includes('deepseek-workspace-api.js'));
+    } else {
+      assert.doesNotMatch(log.taskBody, section);
+    }
+  });
+
+  it('builds the Windows section with quoted paths and no token', () => {
+    const { buildDeepSeekTaskFile } = require('../src/adapters/workspace-prompt');
+    const text = buildDeepSeekTaskFile({
+      agentName: 'a', workspaceId: 'ws1', channelName: "o'brien-thread",
+      endpoint: 'https://ws.example', tokenExpr: '$env:OPENAGENTS_WORKSPACE_AUTH', request: 'hi',
+      windowsApi: { node: "C:\\Users\\Pat O'Neil\\node.exe", helper: 'C:\\oa\\deepseek-workspace-api.js' },
+    });
+    assert.ok(text.includes("& 'C:\\Users\\Pat O''Neil\\node.exe' 'C:\\oa\\deepseek-workspace-api.js' GET"));
+    assert.ok(text.includes("upload report.md --channel 'o''brien-thread'"));
+    assert.ok(text.indexOf('(Windows)') < text.indexOf('## Your task'), 'standing instructions precede the task');
+  });
+
+  it('gives the helper its endpoint, workspace and identity through the environment', () => {
+    const env = makeAdapter()._buildSubprocessEnv('workspace-write');
+    assert.equal(env.OPENAGENTS_WORKSPACE_AUTH, TOKEN);
+    assert.ok(env.OPENAGENTS_WORKSPACE_ENDPOINT);
+    assert.ok(env.OPENAGENTS_WORKSPACE_ID);
+    assert.ok(env.OPENAGENTS_AGENT_NAME);
   });
 
   it('includes the recap when there is one', async () => {
@@ -1043,7 +1084,7 @@ describe('DeepSeek adapter — preflight', () => {
     const adapter = makeAdapter({ agentEnv: { DEEPSEEK_API_KEY: '' } });
     adapter.agentEnv = {};
     adapter._readNodeVersion = () => 'v22.19.0';
-    adapter._readDshVersion = () => '0.2.1-rc.2';
+    adapter._readDshVersion = () => '0.2.1-rc.5';
     const pf = adapter.preflight();
     assert.equal(pf.ok, false);
     assert.equal(pf.reason, 'login_required');
@@ -1052,7 +1093,7 @@ describe('DeepSeek adapter — preflight', () => {
   it('passes when everything lines up', () => {
     const adapter = makeAdapter();
     adapter._readNodeVersion = () => 'v22.19.0';
-    adapter._readDshVersion = () => '0.2.1-rc.2';
+    adapter._readDshVersion = () => '0.2.1-rc.5';
     assert.deepEqual(adapter.preflight(), { ok: true });
   });
 
@@ -1060,7 +1101,7 @@ describe('DeepSeek adapter — preflight', () => {
     const adapter = makeAdapter();
     const entry = adapter._registryEntry();
     assert.ok(entry, 'the registry carries a deepseek entry');
-    assert.equal(entry.install.supported_version, '0.2.1-rc.2');
+    assert.equal(entry.install.supported_version, '0.2.1-rc.5');
   });
 });
 
@@ -1090,5 +1131,60 @@ describe('DeepSeek adapter — base URL', () => {
     assert.match(patch, /api: openai-completions/);
     assert.match(patch, /baseURL: "https:\/\/api-gateway\.openagents\.org\/v1"/);
     assert.match(patch, /provider: openai-gateway/);
+  });
+});
+
+describe('dsh resolution', () => {
+  /**
+   * Resolve dsh in a child process: paths.js reads HOME once at load, so the
+   * sandbox HOME has to be in place before the adapter is required.
+   */
+  function resolveIn(home, pathEnv) {
+    const { execFileSync } = require('node:child_process');
+    const probe = `
+      const DeepSeekAdapter = require(${JSON.stringify(path.resolve(__dirname, '../src/adapters/deepseek.js'))});
+      const adapter = Object.create(DeepSeekAdapter.prototype);
+      const resolved = adapter._resolveDshCommand();
+      process.stdout.write(JSON.stringify(resolved ? resolved[1] : null));
+    `;
+    return JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, PATH: pathEnv, OPENAGENTS_SKIP_SHELL_PATH: '1' },
+    }));
+  }
+
+  /** A dsh package at `version` under `modules`, returning its entry point. */
+  function writeDshPackage(modules, version) {
+    const pkgDir = path.join(modules, '@deepseek-ai', 'dsh');
+    const entry = path.join(pkgDir, 'lib', 'bin.js');
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh', version, type: 'module', bin: { dsh: 'lib/bin.js' } }));
+    fs.writeFileSync(entry, '#!/usr/bin/env node\n');
+    return entry;
+  }
+
+  it('prefers the managed pinned copy over an older global dsh on PATH', () => {
+    // POSIX symlink shims; the Windows .cmd layout is covered by dshEntryCandidates.
+    if (IS_WINDOWS) return;
+    const sandbox = fs.mkdtempSync(path.join(tmpRoot, 'resolve-'));
+    const home = path.join(sandbox, 'home');
+
+    const globalPrefix = path.join(sandbox, 'global');
+    const globalEntry = writeDshPackage(path.join(globalPrefix, 'lib', 'node_modules'), '0.1.0-rc.6');
+    fs.mkdirSync(path.join(globalPrefix, 'bin'), { recursive: true });
+    fs.symlinkSync(globalEntry, path.join(globalPrefix, 'bin', 'dsh'));
+    fs.chmodSync(globalEntry, 0o755);
+    const globalBin = path.join(globalPrefix, 'bin');
+
+    // Without a managed copy the global one is all there is.
+    assert.equal(fs.realpathSync(resolveIn(home, globalBin)), fs.realpathSync(globalEntry));
+
+    const modules = path.join(home, '.openagents', 'runtimes', 'deepseek', 'node_modules');
+    const managedEntry = writeDshPackage(modules, '0.2.1-rc.5');
+    fs.mkdirSync(path.join(modules, '.bin'), { recursive: true });
+    fs.symlinkSync(path.join('..', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), path.join(modules, '.bin', 'dsh'));
+
+    assert.equal(fs.realpathSync(resolveIn(home, globalBin)), fs.realpathSync(managedEntry));
   });
 });

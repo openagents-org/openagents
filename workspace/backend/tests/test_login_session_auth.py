@@ -32,10 +32,10 @@ def _create_workspace(client, name="Test WS", agent_name="agent-alpha", creator_
 
 
 def _mock_firebase_verify(email):
-    """Return a patcher that makes verify_firebase_token return the given email."""
+    """Stub the SDK verification result with the given email."""
     return patch(
-        "app.firebase_auth.verify_firebase_token",
-        return_value=email,
+        "app.firebase_auth._verified_firebase_token",
+        return_value={"email": email} if email else None,
     )
 
 

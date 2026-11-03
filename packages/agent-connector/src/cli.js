@@ -12,22 +12,30 @@ const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
 // Arg parsing
 // ---------------------------------------------------------------------------
 
+// Flags that may be given more than once (`agn env x --set A=1 --set B=2`).
+// They always parse to an array; every other flag keeps its last value.
+const REPEATABLE_FLAGS = new Set(['set']);
+
 function parseArgs(argv) {
   const args = argv.slice(2);
   const flags = {};
   const allPositional = [];
+  const setFlag = (name, value) => {
+    if (REPEATABLE_FLAGS.has(name)) (flags[name] = flags[name] || []).push(value);
+    else flags[name] = value;
+  };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
       if (eq > 0) {
-        flags[a.slice(2, eq)] = a.slice(eq + 1);
+        setFlag(a.slice(2, eq), a.slice(eq + 1));
       } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
-        flags[a.slice(2)] = args[i + 1];
+        setFlag(a.slice(2), args[i + 1]);
         i++;
       } else {
-        flags[a.slice(2)] = true;
+        setFlag(a.slice(2), true);
       }
     } else {
       allPositional.push(a);
@@ -820,15 +828,19 @@ async function cmdEnv(connector, flags, positional) {
   const type = positional[0];
   if (!type) { print('Usage: agn env <type> [--set KEY=VALUE]'); return; }
 
-  const setVal = flags.set;
-  if (setVal) {
-    const eq = setVal.indexOf('=');
-    if (eq < 1) { print('Usage: --set KEY=VALUE'); return; }
-    const key = setVal.slice(0, eq);
-    const val = setVal.slice(eq + 1);
-    connector.saveAgentEnv(type, { [key]: val });
+  const setVals = flags.set || [];
+  if (setVals.length) {
+    // Validate every pair before saving any, so a typo in the last one does
+    // not leave the first ones half-applied.
+    const updates = {};
+    for (const setVal of setVals) {
+      const eq = typeof setVal === 'string' ? setVal.indexOf('=') : -1;
+      if (eq < 1) { print('Usage: --set KEY=VALUE'); return; }
+      updates[setVal.slice(0, eq)] = setVal.slice(eq + 1);
+    }
+    connector.saveAgentEnv(type, updates);
     try { connector.sendDaemonCommand('reload'); } catch {}
-    print(`Saved ${key} for ${type}`);
+    print(`Saved ${Object.keys(updates).join(', ')} for ${type}`);
     return;
   }
 
@@ -1047,6 +1059,11 @@ async function cmdProbe(connector, flags, positional) {
   } catch {}
 
   const result = await connector.probeAgentType(type, { agentEnv });
+  // The daemon probes by agent name: a name that is neither an agent here nor
+  // a type is an agent that is gone, not a type the catalog lacks.
+  if (!agentEnv && result.code === 'unknown_type') {
+    result.message = `No agent named '${target}' on this device`;
+  }
 
   if (flags && flags.json) {
     // Machine consumers (the daemon's probe_agent node command) read ONLY

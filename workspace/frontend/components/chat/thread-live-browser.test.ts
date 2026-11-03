@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
-  ws: { browserTabs: [] as any[], currentSessionId: 'dm:me,bot', activeSessionIds: new Set<string>(), refreshBrowserTabs: vi.fn() },
+  ws: { workspace: {workspaceId: 'ws'}, currentUser: {id: 'me'}, browserTabs: [] as any[], currentSessionId: 'dm:me,bot', activeSessionIds: new Set<string>(), refreshBrowserTabs: vi.fn() },
   layout: { selectedArtifact: null as any, showBrowserPreview: false, setSelectedArtifact: vi.fn() },
   open: vi.fn(),
 }));
@@ -15,17 +15,20 @@ vi.mock('@/components/artifacts/browser-thumbnail', () => ({ BrowserThumbnail: (
 vi.mock('@/components/artifacts/browser-artifact-preview', () => ({ BrowserArtifactPreview: ({ tabId }: any) => React.createElement('div', { 'data-preview': tabId }) }));
 import { ThreadLiveBrowser } from './thread-live-browser';
 let root: Root, host: HTMLDivElement;
-const tab = (id = 'tab', channel = 'dm:me,bot') => ({ id, status: 'active', createdBy: 'openagents:bot', artifactChannels: [channel], url: 'https://example.com', liveUrl: 'https://browser.example/live', lastActiveAt: '2026-10-16T06:00:00Z' });
+const tab = (id = 'tab', channel = 'dm:me,bot') => ({ id, status: 'active', createdBy: 'openagents:bot', artifactChannels: [channel], url: 'https://example.com', liveUrl: 'https://browser.example/live', lastActiveAt: '2026-10-16T06:00:00Z', activity: {actor: 'openagents:bot', action: 'navigate', at: new Date().toISOString()} });
 const render = async () => { await act(async () => root.render(React.createElement(ThreadLiveBrowser))); };
 beforeEach(() => {
   vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.useFakeTimers(); vi.clearAllMocks();
-  h.ws.browserTabs = []; h.ws.activeSessionIds = new Set(); h.ws.refreshBrowserTabs.mockResolvedValue(undefined);
+  const storage = new Map<string, string>();
+  vi.stubGlobal('localStorage', {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)}); h.ws.currentSessionId = 'dm:me,bot'; h.ws.currentUser.id = 'me';
+  h.ws.browserTabs = []; h.ws.activeSessionIds = new Set(['dm:me,bot']); h.ws.refreshBrowserTabs.mockResolvedValue(undefined);
   h.layout.selectedArtifact = null; h.layout.showBrowserPreview = false;
+  h.layout.setSelectedArtifact.mockImplementation(value => { h.layout.selectedArtifact = value; });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('shows only awake agent tabs whose latest association is this conversation', async () => {
-  h.ws.browserTabs = [tab('other', 'other'), { ...tab('old', 'other'), artifactChannels: ['other','dm:me,bot'] }, { ...tab('closed'), status: 'closed' }, { ...tab('human'), createdBy: 'human:me' }];
+  h.ws.browserTabs = [tab('other', 'other'), { ...tab('old', 'other'), artifactChannels: ['other','dm:me,bot'] }, { ...tab('closed'), status: 'closed' }, { ...tab('human'), createdBy: 'human:me', activity: null }];
   await render(); expect(host.querySelector('aside')).toBeNull();
   h.ws.browserTabs.push(tab()); await render();
   expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://browser.example/live?embed=1');
@@ -52,9 +55,12 @@ it('opens a selected artifact in the overlay and supports returning from fullscr
   await act(async () => (host.querySelector('[aria-label="common.close"]') as HTMLButtonElement).click());
   expect(h.layout.setSelectedArtifact).toHaveBeenCalledWith(null);
 });
-it('automatically shows an agent live link even after its tab leaves the active list', async () => {
+it('does not automatically open historical links but permits explicit selection', async () => {
   const url = 'https://www.browserfabric.com/live/closed-session';
   const messages = [{ sessionId: 'dm:me,bot', senderType: 'agent', senderName: 'bot', messageType: 'chat', content: url }] as any;
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('aside')).toBeNull();
+  h.layout.selectedArtifact = {kind: 'browser', id: url};
   await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
   expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(url);
   await act(async () => (host.querySelector('[aria-label="common.close"]') as HTMLButtonElement).click());
@@ -100,8 +106,10 @@ it('shows a reused human browser during tool work, then keeps the stable preview
   await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
   expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(id);
 });
-it('keeps sleeping associated tabs visible with the recovery controls', async () => {
+it('only opens sleeping tabs when explicitly selected', async () => {
   h.ws.browserTabs = [{ ...tab(), asleep: true }]; await render();
+  expect(host.querySelector('aside')).toBeNull();
+  h.layout.selectedArtifact = {kind: 'browser', id: 'tab'}; await render();
   expect(host.querySelector('[data-preview="tab"]')).not.toBeNull();
 });
 it('previews the last browser used before a reply, even when an older browser was refreshed later', async () => {
@@ -123,4 +131,33 @@ it('previews the last browser used before a reply, even when an older browser wa
   h.layout.selectedArtifact = {kind:'browser', id:expired};
   await act(async () => root.render(React.createElement(ThreadLiveBrowser, {messages})));
   expect(host.querySelector('[data-preview]')?.getAttribute('data-preview')).toBe(newId);
+});
+
+it('keeps Close across tab rotation, remount and returning to the thread; manual opening still works', async () => {
+  h.ws.browserTabs = [tab()]; await render();
+  await act(async () => (host.querySelector('[aria-label="common.close"]') as HTMLButtonElement).click());
+  h.ws.browserTabs = [tab('replacement')]; await render();
+  expect(host.querySelector('aside')).toBeNull();
+  await act(async () => root.unmount()); root = createRoot(host); await render();
+  expect(host.querySelector('aside')).toBeNull();
+  h.ws.currentSessionId = 'other'; h.ws.activeSessionIds.add('other');
+  h.ws.browserTabs = [tab('other-tab', 'other')]; await render();
+  expect(host.querySelector('aside')).not.toBeNull();
+  h.ws.currentSessionId = 'dm:me,bot'; h.ws.browserTabs = [tab('replacement')]; await render();
+  expect(host.querySelector('aside')).toBeNull();
+  h.layout.selectedArtifact = {kind: 'browser', id: 'replacement'}; await render();
+  expect(host.querySelector('[data-preview="replacement"]')).not.toBeNull();
+});
+it('does not open stale tabs or historical links in an idle thread', async () => {
+  h.ws.browserTabs = [tab()]; h.ws.activeSessionIds.clear(); await render();
+  expect(host.querySelector('aside')).toBeNull();
+  h.ws.activeSessionIds.add('dm:me,bot');
+  h.ws.browserTabs = [{...tab(), activity:{actor:'openagents:bot',at:'2020-01-01T00:00:00Z'}}]; await render();
+  expect(host.querySelector('aside')).toBeNull();
+});
+it('labels the selected tab, not another tab with current activity', async () => {
+  h.ws.browserTabs = [tab(), {...tab('chosen'), title:'Research paper', url:'https://example.org/paper'}];
+  h.layout.selectedArtifact = {kind:'browser',id:'chosen'}; await render();
+  expect(host.querySelector('[title="threadLiveBrowser.minimize"]')?.textContent).toBe('Research paper');
+  expect(host.querySelector('p[title]')?.textContent).toBe('https://example.org/paper');
 });

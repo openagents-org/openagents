@@ -170,6 +170,35 @@ describe('CLI', () => {
     }
   });
 
+  it('env --set can be repeated and saves every pair', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const saved = runWithConfig(tmpDir, 'env', 'deepseek',
+        '--set', 'DEEPSEEK_API_KEY=sk-test',
+        '--set', 'DEEPSEEK_BASE_URL=https://relay.example.com/v1',
+        '--set', 'DEEPSEEK_MODEL=deepseek-v4.1-flash');
+      assert.match(saved, /DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL/);
+      const out = runWithConfig(tmpDir, 'env', 'deepseek');
+      assert.match(out, /DEEPSEEK_API_KEY: \*\*\*/);
+      assert.match(out, /DEEPSEEK_BASE_URL: https:\/\/relay\.example\.com\/v1/);
+      assert.match(out, /DEEPSEEK_MODEL: deepseek-v4\.1-flash/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('env --set saves nothing when any pair is malformed', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const out = runWithConfig(tmpDir, 'env', 'deepseek',
+        '--set', 'DEEPSEEK_MODEL=deepseek-v4.1-flash', '--set', 'oops');
+      assert.match(out, /Usage: --set KEY=VALUE/);
+      assert.match(runWithConfig(tmpDir, 'env', 'deepseek'), /DEEPSEEK_MODEL: \(not set\)/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('help mentions optional create install flag', () => {
     const out = run('help');
     assert.ok(out.includes('--install'));

@@ -28,6 +28,7 @@ import { AgentsTable } from "./components/agents-table"
 import { AgentsPagination } from "./components/agents-pagination"
 import { useAgentsView, type AgentFilter } from "./use-agents-view"
 import { useAgentActions } from "./use-agent-actions"
+import { LocalConnectorBanner } from "@renderer/components/local-connector/local-connector-banner"
 import type { AgentActionHandlers } from "./components/agent-actions"
 import type { Agent } from "@renderer/types"
 
@@ -59,6 +60,9 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const pendingCreate = useUiStore((s) => s.pendingCreate)
   const clearPendingCreate = useUiStore((s) => s.clearPendingCreate)
   const pendingCreateType = useUiStore((s) => s.pendingCreateType)
+  const pendingCreateFrom = useUiStore((s) => s.pendingCreateFrom)
+  // Where a form opened from another page (the marketplace) goes back to.
+  const [returnTab, setReturnTab] = useState<string | null>(null)
   const updates = useInstallStore((s) => s.updates)
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
@@ -71,6 +75,8 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const startSetup = (type: string | null): void => {
     setSetupType(type)
     setNewAgentOpen(true)
+    // Started here unless a request from another page says otherwise (below).
+    setReturnTab(null)
   }
   const { catalog, counts: typeCounts, loading: catalogLoading } = useAgentCatalog()
   const [configureOpen, setConfigureOpen] = useState(false)
@@ -162,8 +168,9 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   useEffect(() => {
     if (pendingCreate !== "agent") return
     startSetup(pendingCreateType)
+    setReturnTab(pendingCreateFrom)
     clearPendingCreate()
-  }, [pendingCreate, pendingCreateType, clearPendingCreate])
+  }, [pendingCreate, pendingCreateType, pendingCreateFrom, clearPendingCreate])
 
   // The marketplace is where types are browsed and kept up to date; this page
   // only opens it. One pending update goes straight to that agent's page.
@@ -175,8 +182,14 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
 
   if (newAgentOpen || (configureOpen && configureAgent)) {
     return <React.Suspense fallback={<div className="p-8"><Skeleton className="h-48" /></div>}><LocalAgentSetup initialType={setupType ?? undefined} agent={configureOpen ? agents.find((a) => a.name === configureAgent?.name) : undefined}
+      backLabel={returnTab ? t(`nav.items.${returnTab}.label`) : undefined}
       onManage={(agent) => { setNewAgentOpen(false); setConfigureAgent(agent); setConfigureOpen(true) }}
-      onBack={() => { setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); void refresh() }}
+      onBack={() => {
+        setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); void refresh()
+        // Opened from the marketplace: Cancel goes back there, not to this list.
+        if (returnTab) useUiStore.getState().setCurrentTab(returnTab)
+        setReturnTab(null)
+      }}
       onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()} /></React.Suspense>
   }
 
@@ -191,6 +204,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       {/* No scroll-edge fade: the sticky toolbar inside is what rows pass
           under, and the fade would wash it out along with them. */}
       <div className="flex-1 overflow-y-auto px-9 pt-2 pb-6">
+        <LocalConnectorBanner />
         <RecommendedAgents
           // Full panel for a first agent; one row once there are agents to
           // list (and while they load, so a returning user's page doesn't jump).

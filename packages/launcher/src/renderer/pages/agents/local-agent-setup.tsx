@@ -18,12 +18,15 @@ import { throwIfInstallFailed } from "@renderer/utils/installErrors"
 import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { SetupAside } from "./components/setup-aside"
+import { SetupWorkdirField } from "./components/setup-workdir-field"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
-export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChanged, onManage }: {
+export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreated, onChanged, onManage }: {
   agent?: Agent
   /** Open on this type's form instead of the type picker (a recommended card). */
   initialType?: string
+  /** The page Back and Cancel return to, for the breadcrumb; Connect Agents by default. */
+  backLabel?: string
   onBack: () => void
   onCreated: (name: string) => void
   onManage: (agent: { name: string; type: string }) => void
@@ -87,15 +90,17 @@ export function LocalAgentSetup({ agent, initialType, onBack, onCreated, onChang
           contextLabel={<>{t("agents.shared.runsHere")}{agent?.networkName || agent?.network ? ` · ${agent.networkName || agent.network}` : ` · ${t("agents.shared.localOnly")}`}</>}
           onBack={onBack} onChanged={() => { void refresh().catch((err) => { if (mounted.current) setError(String(err)) }); onChanged() }}
           onQueued={({ name }) => onCreated(name)}
-          extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: t("nav.items.dashboard.label"),
+          extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: backLabel || t("nav.items.dashboard.label"),
+            // The folder sits beside the model, half each, so the whole form fits without scrolling.
+            inlineWorkingDirectory: true,
             aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
               workspace={agent?.networkName || agent?.network || null} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
             renameAgent: async (agentName, label) => { await window.api.renameAgent(agentName, label) },
             signIn: (type) => data.raw.find((entry) => entry.name === type)?.check_ready?.login_command ? () => setSignInRequest((n) => n + 1) : undefined,
-            configuration: ({ type, name, onChanged: changed }) => <LocalConfigurationFields key={`${type}:${name || ""}`} type={type} name={name}
-              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy} signInRequest={signInRequest}
+            configuration: ({ type, name, onChanged: changed, workingDirectory }) => <LocalConfigurationFields key={`${type}:${name || ""}`} type={type} name={name}
+              catalog={data.raw} onChanged={changed} onBusy={setAuthBusy} signInRequest={signInRequest} workingDirectory={workingDirectory}
               onChange={(next) => { config.current = next; setConfigReady(!!next) }} />,
           }} />
       </I18nProvider>}
@@ -107,10 +112,12 @@ export function toCatalogEntry(entry: CatalogEntry): AgentCatalogEntry {
     homepage: entry.homepage || "", tags: entry.tags || [], builtin: !!entry.builtin }
 }
 
-export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy, signInRequest = 0 }: {
+export function LocalConfigurationFields({ type, name, catalog, onChange, onChanged, onBusy, signInRequest = 0, workingDirectory }: {
   type: string; name?: string; catalog: CatalogEntry[]; onChange: (config: LocalConfiguration | null) => void; onChanged: () => void; onBusy: (busy: boolean) => void
   /** Changes when the user asks to sign in from outside this form. */
   signInRequest?: number
+  /** The agent's working folder, drawn beside the model field. */
+  workingDirectory?: { value: string; onChange: (value: string) => void }
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [fields, setFields] = useState<EnvField[]>([])
@@ -245,7 +252,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       }} /></div>}
     <AgentEnvFields agentType={type} modelPath={keyForm ? "key" : "login"} modelReloadKey={String(loggedIn)}
       fields={keyForm ? fields : loginModels}
-      values={values} onChange={change} onImport={keyForm ? importValues : undefined}
+      values={values} onChange={change} onImport={keyForm ? importValues : undefined} besideModel={workingDirectory && <SetupWorkdirField {...workingDirectory} />}
       focusField={invalid} errors={invalid ? { [invalid.name]: t("agents.envFields.required", { name: invalid.name }) } : undefined} />
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}

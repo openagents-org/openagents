@@ -22,6 +22,8 @@ interface UiState {
   pendingCreate: 'agent' | 'workspace' | null
   /** With `pendingCreate: 'agent'`: the type to open the setup form on. */
   pendingCreateType: string | null
+  /** The page the request came from, which the form's Cancel returns to. */
+  pendingCreateFrom: string | null
   requestCreate: (what: 'agent' | 'workspace', type?: string) => void
   clearPendingCreate: () => void
 
@@ -101,13 +103,18 @@ export const useUiStore = create<UiState>((set) => ({
 
   pendingCreate: null,
   pendingCreateType: null,
+  pendingCreateFrom: null,
   requestCreate: (what, type) =>
-    set({
-      currentTab: what === 'agent' ? 'dashboard' : 'workspaces',
-      pendingCreate: what,
-      pendingCreateType: type ?? null,
+    set((s) => {
+      const target = what === 'agent' ? 'dashboard' : 'workspaces'
+      return {
+        currentTab: target,
+        pendingCreate: what,
+        pendingCreateType: type ?? null,
+        pendingCreateFrom: s.currentTab === target ? null : s.currentTab,
+      }
     }),
-  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null }),
+  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null, pendingCreateFrom: null }),
 
   installListSignal: 0,
   installListFilter: 'all',

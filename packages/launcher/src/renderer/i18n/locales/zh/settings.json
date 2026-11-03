@@ -131,6 +131,28 @@
       "confirm": "重启"
     }
   },
+  "localConnector": {
+    "title": "本地连接器",
+    "label": "在本机运行本地智能体",
+    "desc": "运行在本机添加的智能体，并使本机在工作区中保持在线。关闭后，$t(common.appName)仅作为工作区客户端使用。添加第一个本地智能体时会自动开启。",
+    "failed": "本地连接器启动失败：{{message}}",
+    "offDialog": {
+      "title": "关闭本地连接器？",
+      "description": "本机所有智能体将停止运行，并在工作区中显示为离线。你仍可在 $t(common.appName)中使用工作区。",
+      "confirm": "关闭"
+    },
+    "statusOn": "已开启 · {{summary}}",
+    "statusOff": "已关闭 · 本机智能体不会运行，本机在工作区中显示为离线",
+    "onToast": "本地连接器已开启，本机智能体正在启动。",
+    "offToast": "本地连接器已关闭，本机智能体已停止。",
+    "banner": "本地连接器已关闭：本机智能体不会运行，本机在工作区中显示为离线。",
+    "bannerAction": "开启",
+    "onDialog": {
+      "title": "开启本地连接器？",
+      "description": "智能体需要本地连接器才能运行。开启后，本机已添加的智能体都会启动。",
+      "confirm": "开启"
+    }
+  },
   "appearance": {
     "themeGroup": "主题与颜色",
     "themeDesc": "选择 $t(common.appName)的显示外观",
@@ -138,18 +160,6 @@
       "light": "浅色",
       "dark": "深色",
       "system": "跟随系统"
-    },
-    "accent": "强调色",
-    "accentDesc": "用于按钮、选中状态与链接的主色调",
-    "accents": {
-      "indigo": "蓝紫",
-      "blue": "蓝色",
-      "teal": "青色",
-      "green": "绿色",
-      "amber": "琥珀",
-      "orange": "橙色",
-      "rose": "玫红",
-      "slate": "灰蓝"
     },
     "scale": "字体与界面缩放",
     "scaleDesc": "同时缩放文字与间距，立即生效",
@@ -159,24 +169,11 @@
       "lg": "大"
     },
     "theme": "主题",
-    "skin": "界面风格",
-    "skinDesc": "可与浅色 / 深色任意搭配，立即生效",
     "behaviorGroup": "界面行为",
     "animations": "显示动画",
     "animationsDesc": "减少动画可降低资源占用",
     "highContrast": "高对比度",
-    "highContrastDesc": "提高文本和控件的可读性",
-    "accentLocked": "「{{skin}}」风格自带固定强调色，无法在此更改",
-    "skins": {
-      "default": {
-        "name": "经典",
-        "desc": "$t(common.appName)原生外观：柔和描边与阴影"
-      },
-      "openagents": {
-        "name": "$t(common.brandName)",
-        "desc": "对齐 openagents.org：粗描边、硬阴影与 Inter 字体"
-      }
-    }
+    "highContrastDesc": "提高文本和控件的可读性"
   },
   "agents": {
     "autoStart": "启动时自动运行智能体",

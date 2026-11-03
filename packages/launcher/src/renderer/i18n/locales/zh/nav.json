@@ -13,8 +13,8 @@
       "description": "第 2 步 · 创建智能体、设置 API 密钥、测试并连接"
     },
     "workspaces": {
-      "label": "本机加入的工作区",
-      "description": "此电脑作为设备加入的工作区"
+      "label": "本机连接的工作区",
+      "description": "此电脑作为设备连接的工作区"
     },
     "chat": {
       "label": "对话",
@@ -51,15 +51,16 @@
   },
   "search": "搜索智能体、工作区…",
   "themeToggle": "主题",
-  "modeSwitch": "在工作区与本机管理之间切换",
-  "modeLauncher": "本机管理",
+  "modeLauncher": "此电脑",
   "modeWorkspace": "工作区",
-  "pages": "本机管理页面",
+  "modeSwitch": "在此电脑与工作区之间切换",
+  "toggleSidebar": "展开或收起侧栏",
   "agentsSummary": {
     "running": "{{count}} 个智能体运行中",
     "starting": "{{count}} 个智能体启动中",
     "error": "{{count}} 个智能体异常",
     "stopped": "智能体均未运行",
-    "none": "尚未添加智能体"
+    "none": "尚未添加智能体",
+    "connectorOff": "本地连接器已关闭"
   }
 }

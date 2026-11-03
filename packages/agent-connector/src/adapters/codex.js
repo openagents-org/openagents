@@ -604,7 +604,7 @@ class CodexAdapter extends BaseAdapter {
         }
       });
 
-      proc.on('exit', async (code) => {
+      proc.on('exit', async (code, signal) => {
         // Wait for all in-flight processLine calls
         try { await _pendingLines; } catch {}
 
@@ -617,7 +617,7 @@ class CodexAdapter extends BaseAdapter {
 
         const stderrBuf = CodexAdapter._decodeOutput(Buffer.concat(stderrChunks));
         if (code !== 0) {
-          this._log(`Codex CLI exited with code ${code}`);
+          this._log(`Codex CLI exited with code ${code}${signal ? ` (${signal})` : ''}`);
           if (stderrBuf.trim()) {
             this._log(`stderr: ${stderrBuf.trim().slice(0, 500)}`);
           }
@@ -626,6 +626,7 @@ class CodexAdapter extends BaseAdapter {
         resolve({
           responseText: responseTexts.join('\n').trim(),
           exitCode: code,
+          signal,
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
           turnFailed,
@@ -744,11 +745,13 @@ class CodexAdapter extends BaseAdapter {
 
   /**
    * Pick the most informative failure detail from a run result:
-   * turn.failed / error event message → stderr tail → exit code. Redacted.
+   * turn.failed / error event message → stderr tail → signal → exit code.
+   * Redacted.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}) {
     const raw = String(errorMessage || '').trim()
       || CodexAdapter._stderrReason(stderr)
+      || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const detail = CodexAdapter._explain(CodexAdapter._unwrap(raw));
     return CodexAdapter._redact(detail).slice(0, 500).trim();
@@ -767,7 +770,10 @@ class CodexAdapter extends BaseAdapter {
    * when neither exists does the raw tail stand.
    */
   static _stderrReason(stderr) {
-    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    // The stdin banner is never a reason: a run whose stderr holds nothing
+    // else falls through to the exit code instead of quoting the banner.
+    const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l && !/^Reading (prompt|additional input) from stdin/i.test(l));
     if (!lines.length) return '';
     const TRACE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[\w:]+:\s+)?(.*)$/;
     const plain = [];
@@ -775,7 +781,7 @@ class CodexAdapter extends BaseAdapter {
     for (const line of lines) {
       const m = line.match(TRACE);
       if (!m) {
-        if (!/^Reading (prompt|additional input) from stdin/i.test(line)) plain.push(line);
+        plain.push(line);
       } else if (m[1] === 'ERROR' && m[2] && !errors.includes(m[2])) {
         errors.push(m[2]);
       }

@@ -104,7 +104,9 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
   useEffect(() => {
     let cancelled = false;
     const known = recallWorkspaceToken(workspaceId, idToken);
-    if (known === null) setState({ kind: 'loading' });
+    // A previous lookup may have left this mounted gate loading under another
+    // credential. Restore the cached state as well as the cached token.
+    setState(known === null ? { kind: 'loading' } : { kind: 'ok', token: known });
     (async () => {
       try {
         const { listAccountWorkspaces } = await import('@/lib/account-api');
@@ -114,7 +116,9 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         if (match) {
           setWorkspaceCookie(match.slug || workspaceId, match.token || '');
           rememberWorkspaceToken(workspaceId, idToken, match.token || '');
-          if (known !== (match.token || '')) setState({ kind: 'ok', token: match.token || '' });
+          const token = match.token || '';
+          setState((previous) => previous.kind === 'ok' && previous.token === token
+            ? previous : { kind: 'ok', token });
           return;
         }
         // Not one of the user's workspaces. Previously we rendered the full

@@ -7,8 +7,9 @@ import { useThemeStore } from "./store/theme"
 import { useAppearanceStore } from "./store/appearance"
 import { useNotificationsStore } from "./store/notifications"
 import { useAccountStore } from "./store/account"
-import { AppShell } from "./components/layout/app-shell"
-import { ModeBar } from "./components/layout/mode-bar"
+import { initLocalConnector } from "./store/local-connector"
+import { LocalConnectorPrompt } from "./components/local-connector/local-connector-prompt"
+import { AppFrame } from "./components/layout/app-frame"
 import { SHORTCUT_TABS } from "./components/layout/nav-config"
 import { Toaster } from "./components/ui/sonner"
 import { CommandPalette } from "./components/command-palette"
@@ -52,10 +53,8 @@ export default function App(): React.JSX.Element {
   const visitedTabs = useRef(new Set([currentTab]))
   visitedTabs.current.add(currentTab)
 
-  // Here rather than in AppShell: workspace mode returns before the shell is
-  // ever rendered, so mounting it there left that half of the app believing it
-  // was never full screen — and holding the window buttons' clearance open
-  // across the top of a workspace that had no buttons to clear.
+  // Here rather than in a page: both halves of the window need it, to stop
+  // holding the window buttons' clearance open in full screen.
   useFullScreen()
 
   useEffect(() => {
@@ -65,6 +64,7 @@ export default function App(): React.JSX.Element {
     // Reads the stored session and subscribes to changes. Signed out is a
     // perfectly good outcome — the workspace half simply stays behind its gate.
     void initAccount()
+    initLocalConnector()
     // The app entry replaces automatic machine-pairing onboarding. Existing
     // local tools and the optional guided tour remain available in This Computer.
     void window.api.consumeOnboardingReset().catch(() => false)
@@ -127,27 +127,24 @@ export default function App(): React.JSX.Element {
 
   return (
     <>
-      {/* Persistent desktop navigation above the welcome, Workspace, or local area. */}
-      <div className="flex h-screen flex-col overflow-hidden">
-        <ModeBar />
-        <div className="min-h-0 flex-1">
-          {!accountReady ? (
-            <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>
-          ) : appMode === "workspace" ? (
-            <WorkspacePage showToast={showToast} />
-          ) : (
-            <AppShell>
-              {visitedTabs.current.has("dashboard") && <React.Activity mode={currentTab === "dashboard" ? "visible" : "hidden"}><Agents overview showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("workspaces") && <React.Activity mode={currentTab === "workspaces" ? "visible" : "hidden"}><Workspaces showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("connections") && <React.Activity mode={currentTab === "connections" ? "visible" : "hidden"}><Connections showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("credentials") && <React.Activity mode={currentTab === "credentials" ? "visible" : "hidden"}><Credentials showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("github") && <React.Activity mode={currentTab === "github" ? "visible" : "hidden"}><GitHubPage showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("install") && <React.Activity mode={currentTab === "install" ? "visible" : "hidden"}><Install showToast={showToast} /></React.Activity>}
-              {visitedTabs.current.has("settings") && <React.Activity mode={currentTab === "settings" ? "visible" : "hidden"}><Settings showToast={showToast} /></React.Activity>}
-            </AppShell>
-          )}
-        </div>
-      </div>
+      {/* The sidebar beside the welcome, Workspace, or This Computer's pages. */}
+      <AppFrame>
+        {!accountReady ? (
+          <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>
+        ) : appMode === "workspace" ? (
+          <WorkspacePage showToast={showToast} />
+        ) : (
+          <>
+            {visitedTabs.current.has("dashboard") && <React.Activity mode={currentTab === "dashboard" ? "visible" : "hidden"}><Agents overview showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("workspaces") && <React.Activity mode={currentTab === "workspaces" ? "visible" : "hidden"}><Workspaces showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("connections") && <React.Activity mode={currentTab === "connections" ? "visible" : "hidden"}><Connections showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("credentials") && <React.Activity mode={currentTab === "credentials" ? "visible" : "hidden"}><Credentials showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("github") && <React.Activity mode={currentTab === "github" ? "visible" : "hidden"}><GitHubPage showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("install") && <React.Activity mode={currentTab === "install" ? "visible" : "hidden"}><Install showToast={showToast} /></React.Activity>}
+            {visitedTabs.current.has("settings") && <React.Activity mode={currentTab === "settings" ? "visible" : "hidden"}><Settings showToast={showToast} /></React.Activity>}
+          </>
+        )}
+      </AppFrame>
 
       {activeJob && currentTab !== "install" && appMode === "launcher" && (
         <InstallMiniBanner
@@ -160,11 +157,12 @@ export default function App(): React.JSX.Element {
         />
       )}
 
-      {/* In the Workspace the mode bar carries it; see ModeBar. */}
+      {/* In the Workspace its tab bar carries it; see WorkspaceBar. */}
       {appMode !== "workspace" && <LauncherUpdateBanner />}
       <Toaster position="bottom-right" />
       {appMode === "launcher" && <CommandPalette />}
       {appMode === "launcher" && <GuidedTour />}
+      <LocalConnectorPrompt />
 
       {/* Mounted in BOTH modes, unlike the dialogs below it. With automatic
           downloads off this is the only place a new version is offered, and a
