@@ -117,7 +117,8 @@ function buildKiroArgs({ agent = null, model = null } = {}) {
 
 /**
  * The ACP stdio form of an MCP server: env is a list of {name, value}, not
- * an object. Values stay in the JSON-RPC message, never in argv or on disk.
+ * an object. Values travel to Kiro over stdin in the JSON-RPC message; they are
+ * never in argv or written to disk by OpenAgents (Kiro may persist them).
  */
 function toAcpMcpServer(name, { command, args = [], env = {} }) {
   return {
@@ -220,6 +221,11 @@ function interpretUpdate(params, secrets = []) {
  * headless, so every call is allowed once (never "always": that would
  * persist trust into the user's Kiro settings). In plan mode only tools that
  * change nothing, and the workspace's own tools, are allowed.
+ *
+ * Plan mode can only refuse tools Kiro asks permission for: tools in the
+ * profile's `allowedTools`, or that Kiro trusts by default, never reach this
+ * gate and bypass it — keep allowedTools empty/read-only for agents you use
+ * in plan mode.
  *
  * `known` is what the preceding tool_call said about this call
  * ({ toolKind, server }), since the request itself may not repeat it.

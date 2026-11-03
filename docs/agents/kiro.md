@@ -42,8 +42,7 @@ as that profile:
   "mcpServers": {
     "notes-db": { "command": "my-db-mcp", "args": ["--db", "researcher"] }
   },
-  "tools": ["*"],
-  "allowedTools": ["@notes-db"]
+  "tools": ["*"]
 }
 ```
 
@@ -75,7 +74,9 @@ One server per message, in the agent's working directory:
    Kiro uses its own tools).
 2. `session/new { cwd, mcpServers: [openagents-workspace] }` for a new
    channel, or `session/load` with the channel's remembered session id. The
-   workspace token travels inside that message only — never in argv or a file.
+   workspace token is passed to Kiro over stdin, in that message's MCP server
+   env — never in argv, and never written to a file by OpenAgents. (Whether Kiro
+   itself persists session state including that env is up to Kiro.)
 3. `session/prompt`. ACP has no system-prompt field, so the workspace briefing
    is the first content block of a session's first turn, and is sent again only
    when it changes (mode switch, pinned knowledge). A fresh session also gets a
@@ -99,6 +100,11 @@ arrives as `session/request_permission` and is answered here:
 - **Plan mode** — only read-only tools (`read`, `search`, `think`, `fetch`)
   and the workspace's own tools are allowed; writes, commands and other MCP
   servers are refused, and the briefing tells the model it is planning.
+
+Plan mode can only refuse tools Kiro asks permission for. Tools listed in the
+profile's `allowedTools`, or that Kiro trusts by default, never ask and so
+bypass it. Keep `allowedTools` empty or read-only for agents you use in plan
+mode.
 
 ## Stopping a run
 

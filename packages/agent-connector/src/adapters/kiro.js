@@ -8,8 +8,9 @@
  *     stdio (acp-client.js): initialize → session/new | session/load →
  *     session/prompt, streaming session/update frames into the channel
  *   - workspace tools over MCP, handed to the CLI in session/new's
- *     `mcpServers` — the token travels in that message only, never on disk
- *     or in argv
+ *     `mcpServers` — the token is passed to Kiro over stdin in the MCP
+ *     server env; it is never in argv or written to disk by OpenAgents
+ *     (whether Kiro persists session state including that env is up to Kiro)
  *   - session continuity per channel: the ACP session id is remembered and
  *     resumed with session/load from the same working directory
  *
