@@ -19,7 +19,7 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc -b",
     "check:changelog": "node ./scripts/check-changelog.mjs",
-    "test": "vitest run",
+    "test": "node --test scripts/linux-build.test.mjs && vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
     "build": "npm run build:workspace && electron-vite build",
@@ -30,6 +30,8 @@
     "build:mac:arm64": "npm run build && electron-builder --mac --arm64 --publish never",
     "build:win": "npm run build && electron-builder --win --publish never",
     "build:linux": "npm run build && electron-builder --linux --publish never",
+    "build:linux:x64": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "build:linux:arm64": "npm run build && electron-builder --linux AppImage deb --arm64 --publish never",
     "build:all": "npm run build && electron-builder --win --mac --linux --publish never",
     "dist": "npm run build && electron-builder --publish always"
   },
