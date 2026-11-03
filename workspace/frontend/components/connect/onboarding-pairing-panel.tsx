@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Copy, Download, Laptop, Loader2, Terminal } from 'lucide-react';
+import { Check, Copy, Laptop, Loader2, Terminal } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { desktopDownloads } from '@/lib/desktop-downloads';
@@ -104,7 +104,9 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
                 {desktopDownloads(t).map((d) => (
                   <a key={d.os} href={d.href} target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 rounded-lg border px-3 py-3 text-xs font-medium transition-colors hover:border-primary/40 hover:bg-primary/5">
-                    <Download className="size-4 shrink-0" />{d.os}
+                    <img src={`/icons/platforms/${d.platform === 'macos' ? 'apple' : 'windows'}.svg`}
+                      alt="" aria-hidden="true" width={14} height={14}
+                      className="size-3.5 shrink-0 object-contain opacity-70 dark:invert" />{d.os}
                   </a>
                 ))}
               </div>
