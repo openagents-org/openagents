@@ -17,6 +17,7 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
@@ -2604,7 +2605,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full px-4 py-7 sm:px-6 sm:py-9 space-y-6">
+        <div className="max-w-5xl mx-auto w-full px-4 py-6 sm:px-8 sm:py-8 space-y-6">
           {onBack && (
             <button
               onClick={onBack}
@@ -2614,13 +2615,10 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </button>
           )}
 
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Laptop className="size-4" />{t('onboarding.deviceStepLabel')}
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('onboarding.nodeStepTitle')}</h1>
-            <p className="max-w-xl text-sm leading-6 text-muted-foreground">{t('onboarding.nodeStepBody')}</p>
-          </div>
+          <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} />
+
+          <div className="mx-auto w-full max-w-2xl space-y-6">
+            <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Laptop className="size-4" />{t('onboarding.deviceStepLabel')}</p>
 
           {pairing ? (
             <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
@@ -2657,6 +2655,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
           )}
 
           {footer}
+          </div>
         </div>
       </div>
       <OnboardingSteps current={1} />

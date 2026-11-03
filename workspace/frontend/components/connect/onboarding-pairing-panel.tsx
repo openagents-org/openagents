@@ -50,12 +50,14 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
         <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1" role="group" aria-label={t('onboarding.setupMethod')}>
           <button type="button" aria-pressed={terminal} onClick={() => setMethod('terminal')}
-            className={cn('flex items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors', terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Terminal className="size-4" />{t('onboarding.terminalServer')}
+            className={cn('flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-xs font-medium transition-colors', terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <span className="flex items-center justify-center gap-2"><Terminal className="size-4 shrink-0" />{t('onboarding.terminalServer')}</span>
+            <span className="text-[11px] font-normal leading-4 text-muted-foreground">{t('onboarding.commandLineTarget')}</span>
           </button>
           <button type="button" aria-pressed={!terminal} onClick={() => setMethod('desktop')}
-            className={cn('flex items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-xs font-medium transition-colors', !terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Laptop className="size-4" />{t('onboarding.desktopApp')}
+            className={cn('flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-xs font-medium transition-colors', !terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <span className="flex items-center justify-center gap-2"><Laptop className="size-4 shrink-0" />{t('onboarding.desktopApp')}</span>
+            <span className="text-[11px] font-normal leading-4 text-muted-foreground">{t('onboarding.desktopAppTarget')}</span>
           </button>
         </div>
       </div>
