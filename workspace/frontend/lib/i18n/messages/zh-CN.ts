@@ -1763,7 +1763,7 @@ export const messages: Messages = {
     yumiAdded: '已添加 Yumi',
 
     acentaTitle: 'Acenta 云端智能体',
-    acentaSubtitle: '运行在独立常驻云端环境中的编程智能体(OpenCode),自带文件、工具和模型。每个 $39/月,免费试用 7 天,在 Acenta 完成设置。',
+    acentaSubtitle: '运行在独立常驻云端环境中的编程智能体(OpenCode),自带文件、工具和模型。每个 $29/月,免费试用 7 天,在 Acenta 完成设置。',
     acentaFinishSetup: '完成设置',
     acentaNamePlaceholder: '名称,例如 研究助手',
     acentaLaunch: '启动',
