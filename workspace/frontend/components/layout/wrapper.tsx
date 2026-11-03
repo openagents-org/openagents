@@ -302,7 +302,7 @@ export function Wrapper() {
       <AppSidebar />
 
       <SidebarInset className="min-w-0">
-        {!showOnboarding && <AppHeader />}
+        {!showOnboarding && viewMode !== 'connect' && <AppHeader />}
         <div className="relative flex min-h-0 grow overflow-hidden">
           {showOnboarding ? (
             /* Guided first-agent setup owns the full Connect Agent surface. */

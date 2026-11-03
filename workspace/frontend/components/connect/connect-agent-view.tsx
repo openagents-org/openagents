@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
-import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -406,16 +405,14 @@ export function ConnectAgentView({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header — title in the app header, actions in its toolbar */}
-      <DetailHeader title={<h2 className="text-base font-semibold">{t('connect.title')}</h2>}>
-        <button
-          onClick={close}
-          className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-          title={t('common.close')}
-        >
-          <X className="size-4" />
-        </button>
-      </DetailHeader>
+      {showFirstDeviceSetup && (
+        <div className="shrink-0">
+          <OnboardingConnectionHero
+            workspaceName={workspace?.name || t('nav.workspaceFallback')}
+            onSetup={() => setSelectedTab('node')}
+          />
+        </div>
+      )}
 
       {/* The desktop app focuses on agents running on connected devices. */}
       {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
@@ -440,7 +437,6 @@ export function ConnectAgentView({
           </div>
         ) : activeTab === 'node' && showFirstDeviceSetup ? (
           <>
-            <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} />
             <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
               {pairing ? (
                 <OnboardingPairingPanel pairing={pairing} onDismiss={close} />
