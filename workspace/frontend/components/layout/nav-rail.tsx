@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface } from './onboarding-surface';
 import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
@@ -263,10 +264,11 @@ export function NavRail() {
     { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
   ];
 
-  const isConnectActive = viewMode === 'connect';
+  const onboarding = useOnboardingSurface();
+  const isConnectActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
-  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = onboarding || setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -351,7 +353,7 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
+                    isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
                     onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
                   >
                     {item.icon}
@@ -471,6 +473,7 @@ export function NavRail() {
               className={cn(
                 !showLabels && 'justify-center!',
                 showFirstDeviceHint && SETUP_STEP_BUTTON,
+                onboarding && 'data-[active=true]:bg-emerald-600 data-[active=true]:text-white hover:bg-emerald-700',
                 !hasAgents && !showFirstDeviceHint &&
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
@@ -478,6 +481,7 @@ export function NavRail() {
               aria-label={connectLabel}
               tooltip={{ children: connectLabel, hidden: showLabels }}
               isActive={isConnectActive}
+              aria-current={isConnectActive ? 'page' : undefined}
               onClick={() => openView('connect')}
             >
               <PlusSquare />

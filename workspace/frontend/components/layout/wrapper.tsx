@@ -14,6 +14,7 @@ import { useDesktopThreadLinks } from './use-desktop-thread-links';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { AppHeader } from './app-header';
+import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileHeader } from './mobile-header';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { isRecentAgent } from '@/lib/helpers';
@@ -164,8 +165,13 @@ export function Wrapper() {
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'threads' &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && (viewMode === 'threads' || viewMode === 'connect') &&
     !currentSessionId?.startsWith('dm:');
+
+  const dismissOnboarding = () => {
+    setOnboardingDismissed(true);
+    if (viewMode === 'connect') openView('threads');
+  };
 
   if (loading) {
     return <WorkspaceLoadingScreen />;
@@ -178,13 +184,14 @@ export function Wrapper() {
   // ── Mobile layout: single-pane with list/detail switching ──
   if (isMobile) {
     return (
+      <OnboardingSurfaceContext.Provider value={showOnboarding}>
       <div className="flex flex-col h-[calc(100vh-var(--oa-banner-h,0px))] w-full [&_.container-fluid]:px-5">
         <MobileHeader />
         <div className="flex-1 min-h-0 pt-[var(--header-height-mobile)] pb-[calc(48px+env(safe-area-inset-bottom))]">
           {/* Full-screen views (no list/detail split) */}
           {showOnboarding ? (
             <div className="h-full bg-background overflow-hidden">
-              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
+              <FirstRunOnboarding onDismiss={dismissOnboarding} />
             </div>
           ) : viewMode === 'connect' ? (
             <div className="h-full bg-background overflow-hidden">
@@ -255,6 +262,7 @@ export function Wrapper() {
 
         <NewThreadDialogHost />
       </div>
+      </OnboardingSurfaceContext.Provider>
     );
   }
 
@@ -280,6 +288,7 @@ export function Wrapper() {
   const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
 
   return (
+    <OnboardingSurfaceContext.Provider value={showOnboarding}>
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
@@ -293,13 +302,12 @@ export function Wrapper() {
       <AppSidebar />
 
       <SidebarInset className="min-w-0">
-        <AppHeader />
+        {!showOnboarding && <AppHeader />}
         <div className="relative flex min-h-0 grow overflow-hidden">
           {showOnboarding ? (
-            /* No agents yet: guided first-run onboarding (choose node vs local,
-               node recommended) → hands off to the Connect view. */
+            /* Guided first-agent setup owns the full Connect Agent surface. */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-              <FirstRunOnboarding onDismiss={() => setOnboardingDismissed(true)} />
+              <FirstRunOnboarding onDismiss={dismissOnboarding} />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
             /* Monitor mode: 2x3 grid over the whole detail area */
@@ -361,5 +369,6 @@ export function Wrapper() {
 
       <NewThreadDialogHost />
     </SidebarProvider>
+    </OnboardingSurfaceContext.Provider>
   );
 }

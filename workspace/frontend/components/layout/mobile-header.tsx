@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface } from './onboarding-surface';
 
 import {
   Sheet,
@@ -9,7 +10,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Menu, MessageSquare, FileText, Globe } from 'lucide-react';
+import { Menu, MessageSquare, FileText, Globe, PlusSquare } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -29,6 +30,7 @@ export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const { viewMode, openView, openMobileList, setThreadFilter } = useLayout();
   const { workspace } = useWorkspace();
+  const onboarding = useOnboardingSurface();
   const t = useT();
 
   // Close sheet when clicking a session
@@ -52,6 +54,7 @@ export function MobileHeader() {
   };
 
   const tabs: { mode: ViewMode; icon: typeof MessageSquare; label: string }[] = [
+    ...(onboarding ? [{ mode: 'connect' as const, icon: PlusSquare, label: t('nav.connectAgent') }] : []),
     { mode: 'threads', icon: MessageSquare, label: t('views.threads') },
     { mode: 'files', icon: FileText, label: t('views.files') },
     { mode: 'browser', icon: Globe, label: t('views.browser') },
@@ -126,7 +129,7 @@ export function MobileHeader() {
               onClick={() => handleViewSwitch(mode)}
               className={cn(
                 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors',
-                viewMode === mode
+                (onboarding ? 'connect' : viewMode) === mode
                   ? 'text-primary'
                   : 'text-muted-foreground'
               )}
