@@ -115,6 +115,7 @@ export default function MembersSettingsPage() {
   const copyInviteLink = async (invite: TeamInvite) => {
     const copied = await copyText(invite.url);
     if (copied) toast.success(t('admin.linkCopied'));
+    else toast.error(t('chat.copyFailed'));
   };
 
   const revoke = async (invite: TeamInvite) => {

@@ -546,17 +546,8 @@ function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
 /** A monospace command line with a copy button. */
 function CommandRow({ command }: { command: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    setCopied(false);
-    try {
-      await copyTextToClipboard(command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error(t('chat.copyFailed'));
-    }
-  };
+  const { isCopied: copied, copyToClipboard } = useCopyToClipboard();
+  const copy = () => copyToClipboard(command);
   return (
     <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
       <code className="flex-1 min-w-0 text-xs font-mono text-zinc-100 overflow-x-auto whitespace-nowrap">
@@ -610,7 +601,7 @@ function PairingPanel({
 }) {
   const t = useT();
   const isMobile = useIsMobile();
-  const [codeCopied, setCodeCopied] = useState(false);
+  const { isCopied: codeCopied, copyToClipboard: copyPairingCode } = useCopyToClipboard();
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
   );
@@ -628,16 +619,7 @@ function PairingPanel({
   const expired = remaining <= 0;
   const minutes = Math.max(1, Math.ceil(remaining / 60));
 
-  const copyCode = async () => {
-    setCodeCopied(false);
-    try {
-      await copyTextToClipboard(pairing.code);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 2000);
-    } catch {
-      toast.error(t('chat.copyFailed'));
-    }
-  };
+  const copyCode = () => copyPairingCode(pairing.code);
 
   return (
     <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">

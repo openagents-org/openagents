@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - app: workspace/frontend
-            command: npm test -- lib/clipboard.test.ts hooks/use-copy-to-clipboard.test.ts
+            command: npm test -- lib/clipboard.test.ts hooks/use-copy-to-clipboard.test.ts 'app/[workspaceId]/settings/members/clipboard.test.ts' 'app/[workspaceId]/settings/api-credits/clipboard.test.ts' components/connect/clipboard.test.ts components/invitations/clipboard.test.ts
           - app: packages/launcher
             command: npm test -- src/renderer/lib/clipboard.test.ts src/renderer/components/chat/Markdown.clipboard.test.tsx
           - app: sdk/studio

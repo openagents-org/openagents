@@ -1,8 +1,6 @@
 'use client';
 
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { toast } from 'sonner';
-import { copyTextToClipboard } from '@/lib/clipboard';
 
 /**
  * Settings → API credits — the campaign's home inside the workspace.
@@ -94,6 +92,7 @@ export default function ApiCreditsSettingsPage() {
   const [keyRevealed, setKeyRevealed] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [models, setModels] = useState<string[] | null>(null);
+  const { isCopied: modelCopied, copyToClipboard: copyModelToClipboard } = useCopyToClipboard({ timeout: 1500 });
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
   const toggleModels = () => {
@@ -106,14 +105,8 @@ export default function ApiCreditsSettingsPage() {
   };
 
   const copyModel = async (id: string) => {
-    setCopiedModel(null);
-    try {
-      await copyTextToClipboard(id);
-      setCopiedModel(id);
-      setTimeout(() => setCopiedModel(null), 1500);
-    } catch {
-      toast.error(t('chat.copyFailed'));
-    }
+    setCopiedModel(id);
+    await copyModelToClipboard(id);
   };
 
   useEffect(() => {
@@ -331,7 +324,7 @@ export default function ApiCreditsSettingsPage() {
                       className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-[12px] transition-colors hover:bg-accent"
                       title={id}
                     >
-                      {copiedModel === id ? (
+                      {modelCopied && copiedModel === id ? (
                         <Check className="size-3 shrink-0 text-green-600" />
                       ) : (
                         <Copy className="size-3 shrink-0 text-muted-foreground/50" />

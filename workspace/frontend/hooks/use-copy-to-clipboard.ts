@@ -36,7 +36,8 @@ export function useCopyToClipboard({
       timer.current = setTimeout(() => setIsCopied(false), timeout);
       onCopy?.();
     }
-    return true;
+    // Callers may own their own feedback (for example, an invitation row).
+    return current === attempt.current;
   };
 
   return { isCopied, copyToClipboard };

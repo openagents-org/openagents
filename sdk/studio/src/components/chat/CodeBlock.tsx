@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { copyTextToClipboard } from '@/utils/clipboard';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useThemeStore } from '../../stores/themeStore';
@@ -13,14 +13,24 @@ interface CodeBlockProps {
 const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   const { theme } = useThemeStore();
   const [copied, setCopied] = useState(false);
+  const attempt = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {
+    ++attempt.current;
+    clearTimeout(timer.current);
+  }, []);
 
   const copyToClipboard = async () => {
+    const current = ++attempt.current;
+    clearTimeout(timer.current);
     setCopied(false);
     try {
       await copyTextToClipboard(code);
+      if (current !== attempt.current) return;
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      timer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
+      if (current !== attempt.current) return;
       toast.error('Failed to copy text to clipboard');
     }
   };

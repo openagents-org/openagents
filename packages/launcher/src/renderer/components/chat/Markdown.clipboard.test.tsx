@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { act } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { showGlobalToast } from '@renderer/hooks/useToast'
@@ -31,4 +31,18 @@ it('clears earlier success when a subsequent copy fails', async () => {
   fireEvent.click(screen.getByRole('button'))
   await waitFor(() => expect(showGlobalToast).toHaveBeenCalledWith(expect.any(String), 'error'))
   expect(screen.getByRole('button')).toHaveTextContent('chat.markdown.copy')
+})
+
+it('does not replace the latest failed copy with an older pending success', async () => {
+  let finish!: () => void
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(() => new Promise<void>(resolve => { finish = resolve })) } })
+  render(<Markdown source={'```text\nfirst\n```'} />)
+  fireEvent.click(screen.getByRole('button'))
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  Object.defineProperty(document, 'execCommand', { configurable: true, value: vi.fn(() => false) })
+  fireEvent.click(screen.getByRole('button'))
+  await waitFor(() => expect(showGlobalToast).toHaveBeenCalledTimes(1))
+  await act(async () => { finish() })
+  expect(screen.getByRole('button')).toHaveTextContent('chat.markdown.copy')
+  expect(screen.getByRole('button')).not.toHaveTextContent('chat.markdown.copied')
 })

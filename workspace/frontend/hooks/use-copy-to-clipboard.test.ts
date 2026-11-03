@@ -61,3 +61,31 @@ it('keeps empty values a no-op', async () => {
   await act(async () => { expect(await hook.copyToClipboard('')).toBe(false); });
   expect(document.execCommand).not.toHaveBeenCalled(); expect(onCopy).not.toHaveBeenCalled(); expect(toast.error).not.toHaveBeenCalled();
 });
+
+it('returns false to caller-owned feedback when an older success completes after a newer failure', async () => {
+  let finish!: () => void;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })) } });
+  let pending!: Promise<boolean>;
+  await act(async () => { pending = hook.copyToClipboard('first'); });
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  Object.defineProperty(document, 'execCommand', { configurable: true, value: vi.fn(() => false) });
+  await act(async () => { expect(await hook.copyToClipboard('second')).toBe(false); });
+  await act(async () => { finish(); expect(await pending).toBe(false); });
+  expect(hook.isCopied).toBe(false);
+  expect(onCopy).not.toHaveBeenCalled();
+});
+
+it('copies whitespace without trimming or treating it as empty', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  await act(async () => { expect(await hook.copyToClipboard(' \t\n')).toBe(true); });
+  expect(writeText).toHaveBeenCalledWith(' \t\n');
+  expect(hook.isCopied).toBe(true);
+});
+it('propagates an onCopy consumer error without misreporting clipboard failure', async () => {
+  const consumerError = new Error('synthetic consumer error');
+  onCopy.mockImplementationOnce(() => { throw consumerError; });
+  await act(async () => { await expect(hook.copyToClipboard('synthetic')).rejects.toBe(consumerError); });
+  expect(hook.isCopied).toBe(true);
+  expect(toast.error).not.toHaveBeenCalled();
+});
