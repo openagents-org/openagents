@@ -17,6 +17,9 @@
   /* app-shell-4 runs a neutral brand: black in light, near-white in dark */
   --primary: var(--color-zinc-950);
   --primary-foreground: var(--color-zinc-50);
+  /* Brand actions stay blue alongside the neutral app-shell primary. */
+  --brand: var(--color-blue-600);
+  --brand-foreground: var(--color-white);
   --secondary: var(--color-zinc-100);
   --secondary-foreground: var(--color-zinc-900);
   --muted: var(--color-zinc-100);
@@ -133,6 +136,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
