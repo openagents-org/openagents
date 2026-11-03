@@ -815,6 +815,14 @@ async def _handle_channel_leave(event: Event, ctx: PipelineContext) -> Optional[
     return event
 
 
+def _is_failure_report(event: Event) -> bool:
+    """Whether an agent message reports a failed turn (status_kind or type)."""
+    from app.services.push import _FAILED_STATUS_KINDS, _structured_status_kind
+    payload = event.payload or {}
+    kind = _structured_status_kind({"payload": payload, "metadata": event.metadata})
+    return kind in _FAILED_STATUS_KINDS or payload.get("message_type") == "error"
+
+
 def _extract_mentions(content: str, known_agents: List[str]) -> List[str]:
     """Parse @agent-name mentions from message text, validated against known agents."""
     if not content or not known_agents:
@@ -2169,6 +2177,14 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # PERSON for permission (see services/approvals): it is addressed to humans,
     # never routed to agents.
     if message_type in ("thinking", "status", "todos", "approval", "artifact"):
+        return event
+
+    # An agent's failure report ends its turn; it is never a request. Routed
+    # like a reply it reached another agent, whose answer @-ing the failed one
+    # ran it again — with nothing counting hops, a Codex on a 429 posted an
+    # error every ~20s for hours.
+    if event.source.startswith("openagents:") and _is_failure_report(event):
+        event.metadata["target_agents"] = ["__no_response__"]
         return event
 
     # Parse @mentions from message content (used for human message routing)

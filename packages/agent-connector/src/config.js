@@ -45,9 +45,32 @@ class Config {
 
   // -- Write --
 
+  /**
+   * Replace the file in one step. A plain writeFileSync truncates first, and
+   * the daemon and its `agn` children read this file all the time: a probe
+   * started right after a create read it empty and reported the new agent as
+   * "Unknown agent type '<name>'", and a read-modify-write in that window
+   * saves the empty list back. Windows can refuse the rename while a reader
+   * holds the file open, so that case retries and then writes in place.
+   */
   save(config) {
     fs.mkdirSync(this.configDir, { recursive: true });
-    fs.writeFileSync(this.configFile, serializeYaml(config), 'utf-8');
+    const text = serializeYaml(config);
+    const tmp = `${this.configFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, text, 'utf-8');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        fs.renameSync(tmp, this.configFile);
+        return;
+      } catch (err) {
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(err.code)) {
+          try { fs.unlinkSync(tmp); } catch {}
+          throw err;
+        }
+      }
+    }
+    try { fs.unlinkSync(tmp); } catch {}
+    fs.writeFileSync(this.configFile, text, 'utf-8');
   }
 
   addAgent({ name, type, role, path: agentPath, env }) {

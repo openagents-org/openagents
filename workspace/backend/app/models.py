@@ -83,6 +83,10 @@ class EventRecord(Base):
               postgresql_include=["visibility"],
               postgresql_where=text("visibility = 'direct' AND type = 'workspace.message.posted'"),
               sqlite_where=text("visibility = 'direct' AND type = 'workspace.message.posted'")),
+        # Growth analytics: human-sent messages over created_at windows.
+        Index("idx_events_human_message_created_at", "created_at",
+              postgresql_where=text("type = 'workspace.message.posted' AND source LIKE 'human:%'"),
+              sqlite_where=text("type = 'workspace.message.posted' AND source LIKE 'human:%'")),
     )
 
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
+import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -17,7 +17,11 @@ import { joinNodePath } from '@/lib/node-path';
 import { desktopHost } from '@/lib/desktop-host';
 import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
+import { MarketGallery } from './agent-setup-market';
 import { SmokeTestPanel } from './smoke-test-panel';
+
+/** Agents of the chosen type listed before the rest fold behind "Show all". */
+const SAME_TYPE_SHOWN = 3;
 
 export interface AgentSetupApi {
   getAgentCatalogDetail(type: string): Promise<AgentCatalogDetail>;
@@ -31,7 +35,13 @@ export interface AgentSetupApi {
 export interface AgentSetupExtensions {
   local?: boolean;
   disabled?: boolean;
-  configuration?: (props: { type: string; name?: string; onChanged: () => void }) => React.ReactNode;
+  /** `workingDirectory` is set when `inlineWorkingDirectory` is: the folder's
+   *  value and setter, for the host to draw in its own field style inside its
+   *  configuration (beside the model, say). */
+  configuration?: (props: { type: string; name?: string; onChanged: () => void; workingDirectory?: { value: string; onChange: (value: string) => void } }) => React.ReactNode;
+  /** Let `configuration` draw the working-directory field instead of drawing
+   *  it below the form. */
+  inlineWorkingDirectory?: boolean;
   workingDirectoryHint?: string;
   workingDirectoryPlaceholder?: string;
   browseFolder?: (current: string) => Promise<string | null>;
@@ -96,7 +106,7 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
   return (
     <div role="alert" className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
       {t('connect.marketLoadFailed')}{' '}
-      <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={state.retry}>
+      <button className="font-medium text-foreground underline-offset-4 hover:underline" onClick={state.retry}>
         {t('connect.marketRetry')}
       </button>
     </div>
@@ -112,7 +122,6 @@ const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
 /** How long "Detecting…" may stay up before it gives way to a retry. */
 const DETECT_DEADLINE_MS = 45_000;
-const MARKET_POPULAR_AGENTS =['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
 /** Types whose endpoint is one device-wide config file of their own, so every
  *  agent of the type on a device runs on the same key, endpoint and model.
  *  Mirrors SHARED_NATIVE_CONFIG in packages/agent-connector/src/daemon.js;
@@ -128,9 +137,8 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
 }
 
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
-// The gallery reads as a storefront: featured spotlight, search + category
-// chips, vendor + status-dot cards. The app's `primary` token is near-black,
-// so the marketplace carries its own indigo accent in both themes.
+// Shared by the gallery (agent-setup-market) and the desktop app's compact
+// picker (agent-setup-compact).
 
 export type GalleryStatus = ReturnType<typeof runtimeStatus>;
 
@@ -146,7 +154,7 @@ export function MarketLogo({ name, size, className }: { name: string; size: numb
   );
 }
 
-function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
+export function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
   switch (status) {
     case 'ready':
       return { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' };
@@ -256,78 +264,6 @@ export function MarketStatusBadge({ status, checking, className }: { status: Gal
       <span className={cn('size-1.5 rounded-full', meta.dot)} />
       {meta.label}
     </span>
-  );
-}
-
-/** Rotating featured spotlight above the marketplace grid. */
-function MarketHero({ slides, statusOf, checkingOf, onPick }: {
-  slides: AgentCatalogEntry[];
-  statusOf: (name: string) => GalleryStatus;
-  checkingOf: (name: string) => boolean;
-  onPick: (name: string) => void;
-}) {
-  const t = useT();
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    if (slides.length < 2) return;
-    const timer = setInterval(() => setI((v) => (v + 1) % slides.length), 6000);
-    return () => clearInterval(timer);
-  }, [slides.length]);
-  const a = slides[i % slides.length];
-  if (!a) return null;
-  const status = statusOf(a.name);
-
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-500/[0.09] via-violet-500/[0.05] to-transparent dark:from-indigo-400/[0.12] dark:via-violet-400/[0.05]">
-      <div className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-indigo-500/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 right-0 size-72 rounded-full bg-violet-500/15 blur-3xl" />
-
-      <div key={a.name} className="relative flex items-center gap-5 px-5 py-5 sm:px-7 animate-in fade-in slide-in-from-bottom-2 duration-500">
-        <MarketLogo name={a.name} size={76} className="rounded-2xl shadow-md" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400">
-            <Sparkles className="size-3" /> {t('connect.marketFeatured')}
-          </div>
-          <h2 className="mt-0.5 text-xl font-bold tracking-tight truncate">{a.label}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
-          <div className="mt-2.5 flex items-center gap-3">
-            <button
-              onClick={() => onPick(a.name)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 transition-colors"
-            >
-              <Plus className="size-3.5" /> {t('connect.marketAddToDevice')}
-            </button>
-            <MarketStatusBadge status={status} checking={checkingOf(a.name)} className="hidden sm:inline-flex" />
-          </div>
-        </div>
-        <div className="hidden lg:flex flex-col gap-1.5 w-44 shrink-0">
-          {[
-            [t('connect.marketVendor'), a.vendor || '—'],
-            [t('connect.marketRuntime'), t('connect.marketRuntimeValue')],
-            [t('connect.marketOnDevice'), marketStatusMeta(t, status).label],
-          ].map(([k, v]) => (
-            <div key={k} className="rounded-lg bg-background/70 backdrop-blur-sm ring-1 ring-border/60 px-3 py-1.5">
-              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">{k}</div>
-              <div className="text-xs font-medium truncate">{v}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="relative flex items-center gap-1.5 px-5 sm:px-7 pb-3.5">
-        {slides.map((s, idx) => (
-          <button
-            key={s.name}
-            onClick={() => setI(idx)}
-            aria-label={s.label}
-            className={cn(
-              'h-1.5 rounded-full transition-all duration-300',
-              idx === i % slides.length ? 'w-6 bg-indigo-500' : 'w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60',
-            )}
-          />
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -522,6 +458,7 @@ export function AgentSetup({
   // different type reseeds — otherwise "kimi-1019" lands on a DeepSeek agent.
   const nameTouchedFor = useRef<string | null>(draft?.type ?? null);
   const [workingDir, setWorkingDir] = useState(editAgent?.workingDir ?? draft?.workingDir ?? '');
+  const [showAllSameType, setShowAllSameType] = useState(false);
   const [apiKey, setApiKey] = useState(draft?.apiKey ?? '');
   // Custom OpenAI/Anthropic-compatible endpoint. Without this field a key was
   // only usable against an agent's built-in providers — for hermes (whose key
@@ -587,10 +524,12 @@ export function AgentSetup({
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
   const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
+  // A button beside "Needs login", not a bare link: it is the one thing to do
+  // about that state.
   const signInLink = signIn && (
-    <button type="button" onClick={signIn} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
-      {t('connect.agentSignIn')}<ArrowRight className="size-3" />
-    </button>
+    <Button type="button" variant="outline" size="sm" onClick={signIn} className="shrink-0">
+      {t('connect.agentSignIn')}<ArrowRight />
+    </Button>
   );
 
   // Say a name is taken while it is typed, not after the device refuses it. A
@@ -969,16 +908,23 @@ export function AgentSetup({
     }
   };
 
+  // An outlined chip whose dot carries the state, as status chips are drawn
+  // across the app — not a tinted block.
   const badge = (status: ReturnType<typeof runtimeStatus>) => {
     const map = {
-      ready: { label: t('connect.nodeRuntimeReady'), cls: 'bg-green-500/10 text-green-600 dark:text-green-400' },
-      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-500' },
-      not_installed: { label: t('connect.nodeRuntimeWillInstall'), cls: 'bg-zinc-500/10 text-muted-foreground' },
-      unknown: { label: '', cls: '' },
+      ready: { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-foreground' },
+      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-amber-500', text: 'text-foreground' },
+      not_installed: { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-muted-foreground', text: 'text-muted-foreground' },
+      unknown: { label: '', dot: '', text: '' },
     } as const;
     const b = map[status];
     if (!b.label) return null;
-    return <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
+    return (
+      <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium', b.text)}>
+        <span className={cn('size-1.5 rounded-full', b.dot)} />
+        {b.label}
+      </span>
+    );
   };
 
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
@@ -993,22 +939,48 @@ export function AgentSetup({
     );
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
-        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !extensions?.headerActions && <Plus className="size-4 mr-1.5" />}
+        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
+    const sameType = node.agents.filter((agent) => agent.type === selected);
+    const workingDirectoryField = (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
+            <div className="flex gap-2">
+              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
+              <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
+                <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
+              </Button>
+            </div>
+            {showPicker && (
+              <FolderPicker api={api}
+                node={node}
+                onPick={(p) => setWorkingDir(p)}
+                onClose={() => setShowPicker(false)}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
+          </div>
+    );
     // The form itself, shared by both layouts below.
     const formBody = (
       <>
-        {!isEdit && onManageAgent && node.agents.some((agent) => agent.type === selected) && (
+        {!isEdit && onManageAgent && sameType.length > 0 && (
           <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
-            {node.agents.filter((agent) => agent.type === selected).map((agent) => (
+            {(showAllSameType ? sameType : sameType.slice(0, SAME_TYPE_SHOWN)).map((agent) => (
               <button key={agent.name} disabled={busy} onClick={() => onManageAgent(agent)} className="flex w-full items-center justify-between gap-3 text-sm text-left py-1">
                 <span className="truncate">{agent.name}</span><span className="shrink-0 text-primary">{t('connect.agentOpenExisting')} →</span>
               </button>
             ))}
+            {/* A long list pushed the form, and its Add button, out of sight. */}
+            {sameType.length > SAME_TYPE_SHOWN && (
+              <button type="button" onClick={() => setShowAllSameType((v) => !v)} className="text-xs text-muted-foreground hover:text-foreground">
+                {showAllSameType ? t('connect.agentShowFewer') : t('connect.agentShowAll', { count: sameType.length })}
+              </button>
+            )}
           </div>
         )}
 
@@ -1106,7 +1078,8 @@ export function AgentSetup({
             {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
           </div>
 
-          {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged })}
+          {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged,
+            workingDirectory: extensions.inlineWorkingDirectory ? { value: workingDir, onChange: setWorkingDir } : undefined })}
 
           {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
             <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
@@ -1116,10 +1089,10 @@ export function AgentSetup({
 
           {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (
-            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-gradient-to-b from-indigo-500/[0.05] to-transparent p-4">
+            <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
-                  <Key className="size-3.5 text-indigo-500" />{t('connect.byokTitle')}
+                  <Key className="size-3.5 text-muted-foreground" />{t('connect.byokTitle')}
                 </span>
                 {byokTest.state === 'ok' && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -1376,24 +1349,9 @@ export function AgentSetup({
             </div>
           )}
 
-          {/* Working directory — optional, managed default, with a folder picker */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
-            <div className="flex gap-2">
-              <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
-              <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
-                <Folder className="size-4 mr-1.5" />{t('connect.nodeBrowse')}
-              </Button>
-            </div>
-            {showPicker && (
-              <FolderPicker api={api}
-                node={node}
-                onPick={(p) => setWorkingDir(p)}
-                onClose={() => setShowPicker(false)}
-              />
-            )}
-            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
-          </div>
+          {/* Working directory — optional, managed default, with a folder picker.
+              A host that draws it itself got its value through `configuration`. */}
+          {!extensions?.inlineWorkingDirectory && workingDirectoryField}
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
           {!extensions?.configuration && !byok && nativeCreds.length > 0 ? (
@@ -1479,7 +1437,7 @@ export function AgentSetup({
       return (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="space-y-6 px-9 pt-6 pb-8">
+            <div className="space-y-6 px-9 pt-6">
               <div>
                 {/* Same lead-in as the type picker before it: an explicit way back,
                     not only the breadcrumb's first step. */}
@@ -1503,14 +1461,15 @@ export function AgentSetup({
                   {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="min-w-0 space-y-5">
                   {formBody}
                   {error && errorText()}
                   {/* The actions close the form, splitting the full width of its
-                      column — not pinned: a pinned bar covered the fields
-                      scrolling under it and doubled the bottom gap. */}
-                  <div data-testid="agent-setup-actions" className="grid grid-cols-2 gap-4 pt-3">
+                      column, and stay in view at the bottom while it scrolls:
+                      users who signed in and saw no Add button went back
+                      without ever scrolling down to it. */}
+                  <div data-testid="agent-setup-actions" className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 border-t bg-background pt-4 pb-6">
                     <Button variant="outline" size="lg" className="w-full" onClick={leave} disabled={busy}>
                       {t('connect.compactCancel')}
                     </Button>
@@ -1518,7 +1477,7 @@ export function AgentSetup({
                   </div>
                 </div>
                 {extensions.aside && selected && (
-                  <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
+                  <aside className="min-w-0 lg:border-l lg:pl-6">{extensions.aside({ type: selected })}</aside>
                 )}
               </div>
             </div>
@@ -1636,141 +1595,25 @@ export function AgentSetup({
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex items-start gap-2">
-        <button
-          onClick={onBack}
-          className="shrink-0 size-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          title={t('connect.nodeBack')}
-        >
-          <ChevronRight className="size-4 rotate-180" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-base font-bold tracking-tight">{t('connect.agentAddTitle')}</h3>
-          <div className="text-xs text-muted-foreground mt-1">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {detecting
-              ? t('connect.nodeDetectingAgents')
-              : detectTimedOut
-                ? t('connect.nodeDetectTimedOut')
-                : t('connect.marketSummary', { count: catalog.length, ready: readyCount })}
-          </p>
-        </div>
-        <Button size="sm" variant="outline" onClick={reDetect} disabled={detecting}>
-          <RefreshCw className={cn('size-3.5 mr-1', detecting && 'animate-spin')} />
-          {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
-        </Button>
-      </div>
-
-      {/* Featured spotlight */}
-      <MarketHero slides={featured} statusOf={statusOf} checkingOf={checkingOf} onPick={pick} />
-
-      {/* Toolbar: search + category chips */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/60" />
-          <input
-            value={marketQuery}
-            onChange={(e) => setMarketQuery(e.target.value)}
-            placeholder={t('connect.marketSearch')}
-            className="w-full h-9 rounded-lg border bg-background pl-9 pr-3 text-xs outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/10 transition-shadow"
-          />
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto">
-          {marketCats.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setMarketCat(c.key)}
-              className={cn(
-                'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                marketCat === c.key
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Marketplace grid — Popular agents first, then everything else. */}
-      {(() => {
-        const popular = MARKET_POPULAR_AGENTS
-          .map((n) => visible.find((e) => e.name === n))
-          .filter((e): e is (typeof visible)[number] => !!e);
-        const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
-
-        const renderCard = (entry: (typeof visible)[number]) => (
-          <button
-            key={entry.name}
-            onClick={() => pick(entry.name)}
-            className="group relative flex flex-col gap-3 rounded-2xl border bg-background p-4 text-left transition-all duration-200 hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/[0.08] hover:-translate-y-0.5"
-          >
-            <div className="flex items-center gap-3">
-              <MarketLogo name={entry.name} size={44} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold leading-tight truncate">{entry.label}</div>
-                <div className="mt-0.5 font-mono text-xs text-muted-foreground/80 truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
-              </div>
-            </div>
-
-            <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2 min-h-[33px]">{entry.description}</p>
-
-            {/* Footer: live device status + an always-visible Add CTA (the
-                whole card is the click target; this span is its label). */}
-            <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
-              <MarketStatusBadge status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
-              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-semibold text-white transition-colors group-hover:bg-indigo-500">
-                {t('connect.marketAdd')} <ArrowRight className="size-3" />
-              </span>
-            </div>
-          </button>
-        );
-
-        // An empty catalog is a load that has not landed (or failed), never a
-        // search result — say so instead of "nothing matches".
-        if (catalog.length === 0 && catalogState && catalogState.status !== 'ready') {
-          return <CatalogStateNotice state={catalogState} />;
-        }
-        if (visible.length === 0) {
-          return (
-            <div className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-              {q
-                ? t('connect.marketNoMatch', { query: marketQuery.trim() })
-                : t('connect.marketNoneInCategory')}{' '}
-              <button className="text-indigo-600 dark:text-indigo-400 font-medium" onClick={() => { setMarketQuery(''); setMarketCat('all'); }}>
-                {t('connect.marketReset')}
-              </button>
-            </div>
-          );
-        }
-        return (
-          <div className="space-y-5">
-            {popular.length > 0 && (
-              <div className="space-y-2.5">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t('connect.marketPopular')}
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {popular.map(renderCard)}
-                </div>
-              </div>
-            )}
-            {others.length > 0 && (
-              <div className="space-y-2.5">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t('connect.marketOthers')}
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {others.map(renderCard)}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-    </div>
+    <MarketGallery
+      catalog={catalog}
+      catalogState={catalogState}
+      visible={visible}
+      featured={featured}
+      readyCount={readyCount}
+      detecting={detecting}
+      detectTimedOut={detectTimedOut}
+      onReDetect={() => void reDetect()}
+      categories={marketCats}
+      category={marketCat}
+      onCategory={setMarketCat}
+      query={marketQuery}
+      onQuery={setMarketQuery}
+      statusOf={statusOf}
+      checkingOf={checkingOf}
+      subtitle={contextLabel || t('connect.agentRunsOn', { device: node.name })}
+      onPick={pick}
+      onBack={onBack}
+    />
   );
 }

@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session as SqlaSession
 
 from app.firebase_auth import verify_identity_claims
+from app.request_auth import request_cached
 from app.models import Node, User, Workspace, WorkspaceCollaborator, WorkspaceMembership
 
 logger = logging.getLogger(__name__)
@@ -277,6 +278,7 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
 # Access verification
 # ---------------------------------------------------------------------------
 
+@request_cached(database=True)
 def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional[str]) -> Optional[str]:
     """Return the caller's role in this workspace from their identity bearer.
 
@@ -295,6 +297,11 @@ def resolve_user_role(db: Session, workspace: Workspace, authorization: Optional
     if not email:
         return None
 
+    from app.services.permission_cache import cached
+    return cached(db, "role", workspace.id, [email], lambda: _role_for_email(db, workspace, email))
+
+
+def _role_for_email(db: Session, workspace: Workspace, email: str) -> Optional[str]:
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is not None:
         membership = db.execute(

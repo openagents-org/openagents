@@ -4,6 +4,9 @@ import { useTranslation } from "react-i18next"
 import { FilterChips, SearchInput } from "@renderer/components/ui-kit"
 import { AGENT_FILTERS, type AgentFilter } from "../use-agents-view"
 
+/** Search earns its place past this many agents; below it the list fits on screen. */
+const SEARCH_MIN = 6
+
 interface Props {
   search: string
   onSearch: (v: string) => void
@@ -13,9 +16,22 @@ interface Props {
 }
 
 /**
+ * The filters that would narrow the list: none that match nothing, and none
+ * that match everything ("Running 3" beside "All 3"). The one in use stays,
+ * so a filter is never taken out from under the user. With nothing left to
+ * narrow to, there are no tabs at all.
+ */
+function narrowing(counts: Record<AgentFilter, number>, filter: AgentFilter): AgentFilter[] {
+  const useful = AGENT_FILTERS.filter(
+    (f) => f !== "all" && (f === filter || (counts[f] > 0 && counts[f] < counts.all)),
+  )
+  return useful.length > 0 ? ["all", ...useful] : []
+}
+
+/**
  * The list's heading row: its title, the state tabs beside it, search on the
- * right. No sort or view switch — the list is ordered by recent activity and
- * is always the table.
+ * right — each only once there is something for it to do. No sort or view
+ * switch: the list is ordered by recent activity.
  */
 export function AgentsToolbar({
   search,
@@ -25,6 +41,7 @@ export function AgentsToolbar({
   counts,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const filters = narrowing(counts, filter)
 
   return (
     // Sticks to the top of the page's scroll body with the table header right
@@ -35,23 +52,27 @@ export function AgentsToolbar({
     // above it.
     <div className="sticky -top-2 z-10 -mx-9 flex h-14 items-center gap-8 bg-background px-9 pb-3">
       <h2 className="m-0 shrink-0 text-lg font-semibold">{t("agents.shared.agentsHere")}</h2>
-      <FilterChips
-        variant="underline"
-        value={filter}
-        onChange={onFilter}
-        options={AGENT_FILTERS.map((f) => ({
-          value: f,
-          label: t(`agents.list.filters.${f}`),
-          count: counts[f],
-        }))}
-      />
-      <SearchInput
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        onClear={() => onSearch("")}
-        placeholder={t("agents.list.searchPlaceholder")}
-        wrapperClassName="ml-auto w-72"
-      />
+      {filters.length > 0 && (
+        <FilterChips
+          variant="underline"
+          value={filter}
+          onChange={onFilter}
+          options={filters.map((f) => ({
+            value: f,
+            label: t(`agents.list.filters.${f}`),
+            count: counts[f],
+          }))}
+        />
+      )}
+      {(counts.all >= SEARCH_MIN || search) && (
+        <SearchInput
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          onClear={() => onSearch("")}
+          placeholder={t("agents.list.searchPlaceholder")}
+          wrapperClassName="ml-auto w-72"
+        />
+      )}
     </div>
   )
 }

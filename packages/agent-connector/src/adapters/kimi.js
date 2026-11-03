@@ -19,7 +19,17 @@
  * OpenAI-compatible chat completions against KIMI_BASE_URL (inherited from
  * LlmDirectAdapter).
  *
- * Verified against Kimi Code CLI v0.39.1. NOTE: the legacy Python `kimi-cli`
+ *   - workspace tools: the CLI reads MCP servers only from
+ *     `$KIMI_CODE_HOME/mcp.json`, so each agent runs with a private Kimi home
+ *     (~/.openagents/kimi-homes/<agent>/) that adds the workspace MCP server to
+ *     the user's own servers and links their `kimi login` credentials and
+ *     config.toml back in. The token, workspace and channel reach the MCP
+ *     server through the environment, never through a file.
+ *   - no sandbox: print mode approves every tool call and the CLI has no
+ *     filesystem boundary, so the agent can write outside its working
+ *     directory. That is the CLI's own model, not something this adapter adds.
+ *
+ * Verified against Kimi Code CLI v0.39.1 and 2.4.1. NOTE: the legacy Python `kimi-cli`
  * (PyPI) also installs a `kimi` binary but reports 1.x versions and has a
  * different interface — it is detected and NOT driven.
  */
@@ -49,6 +59,11 @@ const {
   classifyKimiVersion,
   classifyKimiError,
   encodeKimiWorkDirKey,
+  KIMI_MCP_SERVER_NAME,
+  KIMI_HOME_LINKS,
+  kimiHomeName,
+  buildKimiMcpConfig,
+  buildKimiWorkspaceEnv,
 } = require('./kimi-stream');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -255,10 +270,14 @@ class KimiAdapter extends LlmDirectAdapter {
     if (!proc || proc.exitCode !== null) return;
     try {
       if (IS_WINDOWS) {
-        try { proc.kill('SIGINT'); } catch {}
-        const exited = await this._waitExit(proc, 1500);
-        if (!exited) {
-          try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000, windowsHide: true }); } catch {}
+        // Tree first. On Windows proc.kill() is TerminateProcess whatever the
+        // signal, so "SIGINT, then taskkill /T if it is still alive" never
+        // reached taskkill — and once kimi is dead its shell commands can no
+        // longer be found through it: a Stop left them running.
+        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000, windowsHide: true }); } catch {}
+        if (!(await this._waitExit(proc, 1500))) {
+          try { proc.kill(); } catch {}
+          await this._waitExit(proc, 1000);
         }
       } else {
         try { process.kill(-proc.pid, 'SIGINT'); } catch { try { proc.kill('SIGINT'); } catch {} }
@@ -456,6 +475,13 @@ class KimiAdapter extends LlmDirectAdapter {
     if (this._mode === 'plan') {
       lines.push('You are in PLAN mode: investigate and propose a plan; do not modify files.');
     }
+    if (this._workspaceToolsReady) {
+      lines.push(
+        `For anything in the OpenAgents workspace — chat history, files, uploads, knowledge, todos — use the ` +
+        `\`workspace_*\` tools (MCP server "${KIMI_MCP_SERVER_NAME}"). They are already signed in: never look for, ` +
+        'print or use a workspace token, and do not call the workspace HTTP API yourself.',
+      );
+    }
     lines.push('Work in the current working directory. Reply concisely. The user request follows:');
     return lines.join('\n');
   }
@@ -584,6 +610,9 @@ class KimiAdapter extends LlmDirectAdapter {
 
       // Resuming → Kimi already has history, send the bare turn. Fresh →
       // prepend a context header (+ recap when available).
+      // Decided before the prompt is built: the header only promises the
+      // workspace tools when this run will actually have them.
+      this._workspaceToolsReady = !!this._prepareKimiHome();
       let prompt;
       if (resumeId) {
         prompt = content;
@@ -631,6 +660,92 @@ class KimiAdapter extends LlmDirectAdapter {
       }
       return;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Private Kimi home (workspace MCP tools)
+  // ------------------------------------------------------------------
+
+  /** This agent's own Kimi home. See KIMI_MCP_SERVER_NAME in kimi-stream.js. */
+  _kimiHome() {
+    return path.join(os.homedir(), '.openagents', 'kimi-homes', kimiHomeName(this.workspaceId, this.agentName));
+  }
+
+  /** The user's own Kimi home, which the private one links back to. */
+  _userKimiHome() {
+    const env = this.agentEnv || {};
+    return env.KIMI_CODE_HOME || process.env.KIMI_CODE_HOME || path.join(os.homedir(), '.kimi-code');
+  }
+
+  /**
+   * (Re)build the private home for one run and return its path, or null when
+   * it cannot be prepared — the run then goes ahead without workspace tools,
+   * exactly as before.
+   *
+   * Every run re-checks the links, so a `kimi login` done after the agent
+   * started is picked up, and rewrites mcp.json, so a change to the user's own
+   * MCP servers or to the agent's disabled modules applies at once.
+   */
+  _prepareKimiHome() {
+    const home = this._kimiHome();
+    try {
+      fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+      const userHome = this._userKimiHome();
+      for (const { name, dir } of KIMI_HOME_LINKS) this._linkIntoKimiHome(path.join(userHome, name), path.join(home, name), dir);
+
+      const command = this._mcpServerCommand();
+      if (!command) {
+        this._log('Could not locate the OpenAgents CLI — workspace tools are unavailable this run');
+        return null;
+      }
+      let userConfig = null;
+      try { userConfig = JSON.parse(fs.readFileSync(path.join(userHome, 'mcp.json'), 'utf-8')); } catch {}
+      const config = buildKimiMcpConfig(userConfig, command);
+      const file = path.join(home, 'mcp.json');
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+      return home;
+    } catch (e) {
+      this._log(`Could not prepare the private Kimi home (${redactSecrets(e && e.message)}) — workspace tools are unavailable this run`);
+      return null;
+    }
+  }
+
+  /**
+   * Point `dest` at `target` in the user's home. A directory is linked
+   * (a junction on Windows, which needs no privilege), so writes such as a
+   * credentials refresh land in the user's home. A file is symlinked on POSIX
+   * and copied on Windows, where file symlinks need Developer Mode. Anything
+   * already at `dest` that is not ours to replace is left alone.
+   */
+  _linkIntoKimiHome(target, dest, isDir) {
+    if (!fs.existsSync(target)) return;
+    let st = null;
+    try { st = fs.lstatSync(dest); } catch {}
+    if (st && st.isSymbolicLink()) {
+      let current = null;
+      try { current = fs.readlinkSync(dest); } catch {}
+      if (current && path.resolve(path.dirname(dest), current) === path.resolve(target)) return;
+      fs.rmSync(dest, { force: true });
+    } else if (st && !(IS_WINDOWS && !isDir && st.isFile())) {
+      return;
+    }
+    if (isDir) fs.symlinkSync(target, dest, IS_WINDOWS ? 'junction' : 'dir');
+    else if (IS_WINDOWS) fs.copyFileSync(target, dest);
+    else fs.symlinkSync(target, dest, 'file');
+  }
+
+  /** The stdio command that runs this package's workspace MCP server. */
+  _mcpServerCommand() {
+    const bin = path.resolve(__dirname, '..', '..', 'bin', 'agent-connector.js');
+    if (!fs.existsSync(bin)) return null;
+    const args = [bin, 'mcp-server'];
+    const disabled = this.disabledModules || new Set();
+    if (disabled.has('files')) args.push('--disable-files');
+    if (disabled.has('browser')) args.push('--disable-browser');
+    if (disabled.has('knowledge')) args.push('--disable-knowledge');
+    return { command: process.execPath, args };
   }
 
   _dirExists(p) {
@@ -683,6 +798,17 @@ class KimiAdapter extends LlmDirectAdapter {
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const { env: cleanEnv } = buildKimiEnv(this.agentEnv || process.env);
+    const kimiHome = this._prepareKimiHome();
+    if (kimiHome) {
+      cleanEnv.KIMI_CODE_HOME = kimiHome;
+      Object.assign(cleanEnv, buildKimiWorkspaceEnv({
+        token: this.token,
+        workspaceId: this.workspaceId,
+        channel,
+        agentName: this.agentName,
+        endpoint: this.endpoint,
+      }));
+    }
     const [cmd, ...spawnArgs] = this._spawnableCmd(kimiBin, args);
     // Before the spawn, so the session this run creates shows up as new.
     const sessionWatch = this._watchKimiSessions(cleanEnv, workingDir, args);
@@ -702,6 +828,7 @@ class KimiAdapter extends LlmDirectAdapter {
     const state = {
       ok: false,
       finalText: '',
+      pendingThought: '',
       sessionId: null,
       anyOutput: false,
       userStopped: false,
@@ -743,12 +870,21 @@ class KimiAdapter extends LlmDirectAdapter {
         for (const e of interpretKimiMessage(m)) {
           switch (e.kind) {
             case 'text':
+              // Held back until the turn moves on: the LAST text is the reply,
+              // posted once as the response rather than also as a thought.
               state.anyOutput = true;
+              if (state.pendingThought) {
+                try { await this.sendThinking(channel, state.pendingThought); } catch {}
+              }
+              state.pendingThought = e.text;
               state.finalText = e.text;
-              try { await this.sendThinking(channel, e.text); } catch {}
               break;
             case 'tool_start':
               state.anyOutput = true;
+              if (state.pendingThought) {
+                try { await this.sendThinking(channel, state.pendingThought); } catch {}
+                state.pendingThought = '';
+              }
               try {
                 await this.sendStatus(channel, e.preview ? `${e.name}: ${e.preview}` : e.name);
               } catch {}

@@ -62,6 +62,19 @@ def test_passive_agent_reply_does_not_start_a_loop(db, multi_agent_workspace):
     assert route(db, multi_agent_workspace, '@agent-worker self', 'openagents:agent-worker') == ['__no_response__']
 
 
+@pytest.mark.parametrize('marker', [{'metadata': {'status_kind': 'error'}}, {'metadata': {'status_kind': 'failed'}},
+                                    {'payload': {'message_type': 'error'}}])
+def test_agent_failure_report_wakes_no_agent(db, multi_agent_workspace, marker):
+    ws, ch = multi_agent_workspace['workspace'], multi_agent_workspace['channel']
+    event = _make_event('openagents:agent-worker', f'channel/{ch.name}', "@agent-master Codex couldn't run — 429 Too Many Requests")
+    event.metadata.update(marker.get('metadata', {}))
+    event.payload.update(marker.get('payload', {}))
+    ctx = PipelineContext(network_id=str(ws.id), agent_address=event.source, db=db, workspace=ws)
+    with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
+        assert _run(_handle_message_posted(event, ctx)).metadata['target_agents'] == ['__no_response__']
+        router.assert_not_called()
+
+
 @pytest.mark.parametrize('decision,expected', [('stop', []), ('next:unknown', []), ('nonsense', []), ('next:agent-worker', ['agent-worker'])])
 def test_proactive_model_decision_is_respected(db, multi_agent_workspace, decision, expected):
     ch, ws = multi_agent_workspace['channel'], multi_agent_workspace['workspace']

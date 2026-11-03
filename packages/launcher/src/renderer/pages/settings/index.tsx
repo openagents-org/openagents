@@ -7,7 +7,6 @@ import { useUiStore } from "@renderer/store/ui"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 import { DetailHeader } from "./components/detail-header"
-import { SettingsNav } from "./components/settings-nav"
 import { ResetSummary } from "./components/reset-summary"
 import { DEFAULT_SECTION, SECTIONS, type SectionId } from "./section-config"
 import { useLauncherUpdater } from "./use-launcher-updater"
@@ -48,7 +47,8 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     launcherVersion,
     loadSettings,
   } = useSettingsState()
-  // Settings opens straight on a module; the menu beside it is the way around.
+  // Settings opens straight on a module; the sidebar's Settings group is the way
+  // around (see NavSettings), and reaches this page through the deep link below.
   const [section, setSection] = useState<SectionId>(DEFAULT_SECTION)
 
   // Deep-link from elsewhere in the app (currently the update banner's "view
@@ -105,7 +105,6 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
   return (
     <section className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
-        <SettingsNav current={section} onSelect={setSection} />
         {section === "logs" ? (
           // The log viewer brings its own header, filters and table, laid out
           // to fill the height, so it takes the pane as it is.
@@ -114,8 +113,8 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           </div>
         ) : (
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* The header scrolls away with the module: the nav beside it already
-              says where the user is, so pinning it only costs room. */}
+          {/* The header scrolls away with the module: the sidebar and the
+              window's header already say where the user is. */}
           <div className="min-h-0 flex-1 overflow-y-auto pb-6">
             <DetailHeader section={section} />
             <div className="px-9 pt-4">

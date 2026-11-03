@@ -2,7 +2,6 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 import { ClipboardCopy, FolderOpen, RefreshCw } from "lucide-react"
 
-import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { formatBytes } from "@renderer/lib/format"
 import { SettingsCard, Row, InfoRow } from "../components/settings-card"
@@ -80,47 +79,32 @@ export function RuntimeSection({
       </p>
 
       <SettingsCard title={t("settings.runtime.versionsGroup")}>
+        {/* A version is the whole answer when all is well — that it shows at
+            all says it is installed — so a row adds words only for what needs
+            the reader: a missing runtime, or a Core behind the latest. A
+            "Fine" chip on every row said nothing and, being of different
+            widths, pushed the versions out of line. */}
         <InfoRow
           label={t("settings.runtime.nodejs")}
-          value={runtimeInfo?.nodeVersion || t("common.notInstalled")}
+          value={runtimeInfo?.nodeVersion || <Missing />}
           mono
-          trailing={<StatusChip ok={!!runtimeInfo?.nodeVersion} />}
         />
         <InfoRow
           label={t("settings.runtime.npm")}
-          value={
-            runtimeInfo?.npmVersion
-              ? `v${runtimeInfo.npmVersion}`
-              : t("common.notInstalled")
-          }
+          value={runtimeInfo?.npmVersion ? `v${runtimeInfo.npmVersion}` : <Missing />}
           mono
-          trailing={<StatusChip ok={!!runtimeInfo?.npmVersion} />}
         />
-        {/* Core carries its own freshness: the installed version, the verdict
-            as a chip, and — only when it is behind — what it would move to. */}
         <InfoRow
           label={t("settings.runtime.coreLibrary")}
-          value={
-            runtimeInfo?.coreVersion
-              ? `v${runtimeInfo.coreVersion}`
-              : t("common.notInstalled")
-          }
+          value={runtimeInfo?.coreVersion ? `v${runtimeInfo.coreVersion}` : <Missing />}
           mono
-          hint={
-            runtimeInfo?.latestVersion && !coreUpToDate
-              ? `${t("settings.runtime.latestAvailable")} v${runtimeInfo.latestVersion}`
-              : undefined
-          }
           trailing={
-            runtimeInfo?.coreVersion && runtimeInfo.latestVersion ? (
-              <Badge variant={coreUpToDate ? "success" : "warning"} size="sm">
-                {coreUpToDate
-                  ? t("settings.runtime.upToDate")
-                  : t("settings.runtime.updateAvailable")}
-              </Badge>
-            ) : (
-              <StatusChip ok={!!runtimeInfo?.coreVersion} />
-            )
+            runtimeInfo?.coreVersion && runtimeInfo.latestVersion && !coreUpToDate ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="size-1.5 rounded-full bg-(--warning)" />
+                {t("settings.runtime.updateTo", { version: runtimeInfo.latestVersion })}
+              </span>
+            ) : undefined
           }
         />
       </SettingsCard>
@@ -219,13 +203,10 @@ export function RuntimeSection({
   )
 }
 
-function StatusChip({ ok }: { ok: boolean }): React.JSX.Element {
+/** In place of a version: not on this machine, in the words that need acting on. */
+function Missing(): React.JSX.Element {
   const { t } = useTranslation()
-  return (
-    <Badge variant={ok ? "success" : "danger"} size="sm">
-      {ok ? t("settings.runtime.ok") : t("common.notInstalled")}
-    </Badge>
-  )
+  return <span className="font-sans text-(--danger-text)">{t("common.notInstalled")}</span>
 }
 
 function formatUptime(seconds: number): string {

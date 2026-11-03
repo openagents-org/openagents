@@ -129,8 +129,8 @@ export function McpSetupDialog({
             />
           </Field>
 
-          <p className="flex items-start gap-2 rounded-sm bg-(--warning-bg) px-3 py-2 text-2xs leading-relaxed text-(--warning-text)">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <p className="flex items-start gap-2 rounded-sm border bg-muted/40 px-3 py-2 text-2xs leading-relaxed text-foreground">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning)" />
             <span>{t("connections.mcp.secretWarning")}</span>
           </p>
         </DialogBody>

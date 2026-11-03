@@ -101,8 +101,7 @@
     {
       "name": "CODEBUDDY_BASE_URL",
       "description": "Advanced. Endpoint override, for an enterprise or self-hosted deployment. Blank means the endpoint the region above selects.",
-      "required": false,
-      "placeholder": "https://www.codebuddy.cn"
+      "required": false
     }
   ],
   "check_ready": {

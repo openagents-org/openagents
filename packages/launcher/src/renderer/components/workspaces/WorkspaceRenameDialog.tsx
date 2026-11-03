@@ -139,10 +139,10 @@ export function WorkspaceRenameDialog({
           </label>
 
           {remote && (
-            <div className="mt-3 flex items-start gap-2.5 rounded-md border border-(--warning-border) bg-(--warning-bg) px-3 py-2.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning-text)" />
+            <div className="mt-3 flex items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning)" />
               <div className="min-w-0">
-                <div className="text-xs font-medium text-(--warning-text)">
+                <div className="text-xs font-medium">
                   {t("workspaces.rename.remoteWarningTitle")}
                 </div>
                 <p className="m-0 mt-1 text-2xs text-muted-foreground">

@@ -161,18 +161,6 @@
       "dark": "Dark",
       "system": "System"
     },
-    "accent": "Accent colour",
-    "accentDesc": "Used for buttons, selection and links",
-    "accents": {
-      "indigo": "Violet",
-      "blue": "Blue",
-      "teal": "Teal",
-      "green": "Green",
-      "amber": "Amber",
-      "orange": "Orange",
-      "rose": "Rose",
-      "slate": "Slate"
-    },
     "scale": "Text & interface scale",
     "scaleDesc": "Scales text and spacing together, applied instantly",
     "scales": {
@@ -181,24 +169,11 @@
       "lg": "Large"
     },
     "theme": "Theme",
-    "skin": "Interface style",
-    "skinDesc": "Combines with either light or dark, applied instantly",
     "behaviorGroup": "Interface behaviour",
     "animations": "Show animations",
     "animationsDesc": "Turning them off lowers resource use",
     "highContrast": "High contrast",
-    "highContrastDesc": "Makes text and controls easier to read",
-    "accentLocked": "The {{skin}} style ships its own accent colour, so this is fixed",
-    "skins": {
-      "default": {
-        "name": "Classic",
-        "desc": "$t(common.appName)’s native look — soft borders and shadows"
-      },
-      "openagents": {
-        "name": "$t(common.brandName)",
-        "desc": "Matches openagents.org — bold frames, hard shadows and Inter"
-      }
-    }
+    "highContrastDesc": "Makes text and controls easier to read"
   },
   "agents": {
     "autoStart": "Start agents on launch",
@@ -324,11 +299,8 @@
     "nodejs": "Node.js",
     "npm": "npm",
     "coreLibrary": "OpenAgents Core",
-    "latestAvailable": "Latest available",
     "unableToCheck": "Unable to check",
-    "ok": "OK",
-    "upToDate": "Up to date",
-    "updateAvailable": "Update available",
+    "updateTo": "v{{version}} available",
     "systemGroup": "System",
     "os": "Operating system",
     "arch": "Architecture",

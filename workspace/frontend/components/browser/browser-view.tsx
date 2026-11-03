@@ -373,7 +373,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           onClick={(e) => { e.stopPropagation(); onClose(); }}
           className={cn(
             'shrink-0 rounded p-0.5 text-muted-foreground/70 transition-all hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
-            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            active ? 'opacity-100' : 'opacity-60 group-hover:opacity-100',
           )}
           title={closeTitle}
           aria-label={closeTitle}
@@ -404,8 +404,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               if (entry.tab) selectLive(entry.tab);
               else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
             }}
-            onClose={awake ? () => handleCloseOrSleep(entry.tab!) : undefined}
-            closeTitle={t('browser.closeTab')}
+            // An asleep tab has nothing left to close, so its × removes it
+            // (after a confirm: its saved sign-in goes with it). Without one
+            // there was no way to get rid of a tab from the strip at all.
+            onClose={awake ? () => handleCloseOrSleep(entry.tab!) : () => handleForget(entry)}
+            closeTitle={t(awake ? 'browser.closeTab' : 'browser.deleteSavedSession')}
           />
         );
       })}

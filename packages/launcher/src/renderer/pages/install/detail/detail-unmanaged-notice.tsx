@@ -36,11 +36,11 @@ export function UnmanagedNotice({
   const original = target?.kind === "original" ? target : null
 
   return (
-    <div className="rounded-lg border border-(--warning-border) bg-(--warning-bg) px-3.5 py-3">
+    <div className="rounded-lg border bg-muted/40 px-3.5 py-3">
       <div className="flex items-start gap-2">
-        <Info className="mt-0.5 size-4 shrink-0 text-(--warning-text)" />
+        <Info className="mt-0.5 size-4 shrink-0 text-(--warning)" />
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-xs font-semibold text-(--warning-text)">
+          <p className="m-0 text-xs font-semibold">
             {t("agents.unmanaged.title")}
           </p>
           {target && (

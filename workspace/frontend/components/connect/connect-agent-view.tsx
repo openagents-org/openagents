@@ -16,6 +16,8 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
@@ -514,16 +516,6 @@ function deviceIcon(deviceType: string, className?: string) {
   }
 }
 
-/** A colored gradient tile per device type — gives each node card visual identity. */
-function deviceTile(deviceType: string) {
-  switch (deviceType) {
-    case 'server': return 'bg-gradient-to-br from-blue-500 to-indigo-600';
-    case 'laptop': return 'bg-gradient-to-br from-violet-500 to-purple-600';
-    case 'desktop': return 'bg-gradient-to-br from-emerald-500 to-teal-600';
-    default: return 'bg-gradient-to-br from-zinc-500 to-zinc-700';
-  }
-}
-
 function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
   switch (deviceType) {
     case 'server': return t('connect.nodeDeviceServer');
@@ -704,7 +696,7 @@ function PairingPanel({
               'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
               expired
                 ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
+                : 'border-border bg-muted/30 hover:bg-muted/60',
             )}
             title={t('connect.nodeCopyCode')}
           >
@@ -1013,7 +1005,7 @@ function NodeCard({
           aria-controls={`device-agents-${node.nodeId}`}
           className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
-          <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
+          <div className="size-12 shrink-0 flex items-center justify-center rounded-xl border bg-muted text-foreground">
             {deviceIcon(node.deviceType, 'size-6')}
           </div>
           <div className="flex-1 min-w-0">
@@ -1596,8 +1588,8 @@ function NodesTab({
         </div>
       ) : nodes.length === 0 ? (
         <div className="rounded-2xl border border-dashed py-14 px-6 text-center">
-          <div className="size-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-            <Server className="size-8 text-white" />
+          <div className="size-16 mx-auto rounded-xl border bg-muted flex items-center justify-center">
+            <Server className="size-8 text-muted-foreground" />
           </div>
           <div className="text-base font-semibold mt-5">{t('connect.nodeEmptyTitle')}</div>
           <p className="text-xs text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
@@ -2603,26 +2595,12 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-            </button>
-          )}
+        <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-          <div className="text-center">
-            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-              <Server className="size-7 text-white" />
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
-          </div>
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
 
           {pairing ? (
-            <PairingPanel pairing={pairing} onDismiss={onBack ?? (() => {})} />
+            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}

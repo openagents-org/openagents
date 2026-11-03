@@ -382,7 +382,7 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
               {active
                 ? activeParticipants.length > 0
                   ? <>
-                      <span className="text-(--success-text) font-medium">
+                      <span className="text-foreground font-medium">
                         {activeParticipants.filter((p) => p.status === 'online').length}
                       </span>
                       {t('chat.header.agentsOnline', {

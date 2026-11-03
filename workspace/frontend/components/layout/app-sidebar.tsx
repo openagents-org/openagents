@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface } from './onboarding-surface';
 
 import { Sidebar, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
@@ -68,6 +69,7 @@ function SidebarRailToggle() {
  */
 export function AppSidebar() {
   const { hasListPanel, isMobile, isSidebarOpen, railDragWidth } = useLayout();
+  const onboarding = useOnboardingSurface();
 
   return (
     <>
@@ -92,7 +94,7 @@ export function AppSidebar() {
       {/* Only while the list is open. Collapsed, this handle would land on the
           exact seam the rail's own toggle owns — and the app header already
           grows a "Show list" button for that case. */}
-      {!isMobile && hasListPanel && isSidebarOpen && (
+      {!onboarding && !isMobile && hasListPanel && isSidebarOpen && (
         <SidebarRailToggle />
       )}
     </>

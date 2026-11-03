@@ -384,6 +384,67 @@ function classifyKimiError(info) {
   return { kind: 'error', userMessage: `Kimi Code CLI ${why}.` };
 }
 
+// ---------------------------------------------------------------------------
+// Workspace tools (MCP) through a private Kimi home
+// ---------------------------------------------------------------------------
+
+/**
+ * Kimi Code has no flag for an MCP config and ignores a project-level
+ * `.kimi-code/mcp.json`; it reads MCP servers from `$KIMI_CODE_HOME/mcp.json`
+ * (2.4.1). Each agent therefore runs with its own Kimi home under
+ * ~/.openagents, so the workspace server can be added without editing the
+ * user's ~/.kimi-code. Kimi passes its whole environment to stdio MCP
+ * servers, so the file names only the command: the token, workspace and
+ * channel of each run travel in the environment (see buildKimiWorkspaceEnv).
+ */
+const KIMI_MCP_SERVER_NAME = 'openagents-workspace';
+
+/**
+ * Entries of the user's Kimi home a private home links back to: the
+ * `kimi login` credentials (a directory, so token refreshes land in the
+ * user's home) and config.toml (providers and default model for the
+ * no-API-key route).
+ */
+const KIMI_HOME_LINKS = [
+  { name: 'credentials', dir: true },
+  { name: 'config.toml', dir: false },
+];
+
+/** Directory name of an agent's private Kimi home: readable, unique per workspace+agent. */
+function kimiHomeName(workspaceId, agentName) {
+  const raw = `${workspaceId == null ? '' : workspaceId}\u0000${agentName == null ? '' : agentName}`;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  const slug = (v) => String(v == null ? '' : v).toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'agent';
+  return `${slug(workspaceId)}_${slug(agentName)}-${hash}`;
+}
+
+/**
+ * The private home's mcp.json: the user's own MCP servers (so a private home
+ * loses nothing the user configured) plus the workspace server, which always
+ * wins its name. An unreadable user file contributes nothing.
+ */
+function buildKimiMcpConfig(userConfig, server) {
+  const base = userConfig && typeof userConfig === 'object' && !Array.isArray(userConfig) ? userConfig : {};
+  const servers = base.mcpServers && typeof base.mcpServers === 'object' && !Array.isArray(base.mcpServers)
+    ? { ...base.mcpServers }
+    : {};
+  servers[KIMI_MCP_SERVER_NAME] = server;
+  return { ...base, mcpServers: servers };
+}
+
+/** What the workspace MCP server reads from its environment (cli.js `mcp-server`). */
+function buildKimiWorkspaceEnv({ token, workspaceId, channel, agentName, endpoint }) {
+  const env = {
+    OPENAGENTS_WORKSPACE_ID: String(workspaceId || ''),
+    OPENAGENTS_CHANNEL_NAME: String(channel || 'general'),
+    OPENAGENTS_AGENT_NAME: String(agentName || 'agent'),
+  };
+  if (endpoint) env.OPENAGENTS_ENDPOINT = String(endpoint);
+  if (token) env.OA_WORKSPACE_TOKEN = String(token);
+  return env;
+}
+
 module.exports = {
   parseKimiVersion,
   classifyKimiVersion,
@@ -402,4 +463,9 @@ module.exports = {
   DEFAULT_MAX_COMPLETION_TOKENS,
   EXIT_PERMANENT,
   EXIT_TRANSIENT,
+  KIMI_MCP_SERVER_NAME,
+  KIMI_HOME_LINKS,
+  kimiHomeName,
+  buildKimiMcpConfig,
+  buildKimiWorkspaceEnv,
 };
