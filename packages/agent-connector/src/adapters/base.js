@@ -198,6 +198,9 @@ class BaseAdapter {
     this._cursorFile = this._cursorFilePath();
     this._lastPersistedCursor = null;
     this._resumedFromCursor = false;
+    // No cursor and no head: polls read from the start of history until they
+    // come back empty (see _skipExistingEvents).
+    this._unanchored = false;
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
@@ -550,7 +553,15 @@ class BaseAdapter {
       this._lastEventId = head;
       this._persistCursor(head);
       this._log(`Skipped existing events, cursor at ${head}`);
+      return;
     }
+    // The head lookup failed (network not up yet, a 5xx) or the workspace is
+    // empty. Polling with no cursor reads from the start of history, and a
+    // fresh start is not a replay, so every old message that named this agent
+    // was run again, one after another — a Codex hitting 429 posted an error
+    // every ~20s for an hour. Age-filter until the backlog is drained.
+    this._unanchored = true;
+    this._log('Could not find the head of the event stream — skipping stale messages until caught up', 'warn');
   }
 
   // ------------------------------------------------------------------
@@ -1286,6 +1297,10 @@ class BaseAdapter {
         continue;
       }
 
+      // The cursor stops moving (or none comes back) only once the poll has
+      // reached the end of the stream. An empty `messages` alone does not say
+      // that: it is the page after events for other agents were dropped.
+      const caughtUp = !rawCursor || rawCursor === this._lastEventId;
       if (rawCursor) {
         this._lastEventId = rawCursor;
         this._persistCursor(rawCursor);
@@ -1293,8 +1308,9 @@ class BaseAdapter {
       // Only the first poll after resuming from a persisted cursor is a
       // replay; later polls carry live traffic and are never age-filtered
       // (a skewed local clock must not make a live agent go deaf).
-      const isReplay = this._resumedFromCursor;
+      const isReplay = this._resumedFromCursor || this._unanchored;
       this._resumedFromCursor = false;
+      if (caughtUp) this._unanchored = false;
       const staleByChannel = {};
 
       // Deduplicate
