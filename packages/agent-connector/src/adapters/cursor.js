@@ -102,13 +102,6 @@ class CursorAdapter extends BaseAdapter {
     await super._onControlAction(action, payload);
   }
 
-  stop() {
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.'
-    ).catch(() => {});
-    super.stop();
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {

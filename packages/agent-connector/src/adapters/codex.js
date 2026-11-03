@@ -966,6 +966,7 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _callCompletionApi(userMessage, channel) {
+    if (this._stoppedBeforeStart(channel)) throw new Error('LLM API request stopped');
     const systemPrompt = this._buildSystemContext(channel);
     const messages = [{ role: 'system', content: systemPrompt }];
     messages.push(...this._conversationHistory);
@@ -997,6 +998,7 @@ class CodexAdapter extends BaseAdapter {
         if (settled) return;
         settled = true;
         clearTimeout(deadline);
+        this._activeRequests.delete(req);
         if (!err) { resolve(text); return; }
         this._log(`Direct API failed after ${seconds()}s, ${err.message}`);
         reject(err);
@@ -1060,6 +1062,9 @@ class CodexAdapter extends BaseAdapter {
         res.on('error', (err) => finish(new Error(
           `The LLM API connection failed, ${err.message} (${note()})`)));
       });
+
+      req._oaChannel = channel;
+      this._activeRequests.add(req);
 
       // Settle first, then destroy: the abort that follows would otherwise
       // report itself as a dropped connection and hide the real reason.

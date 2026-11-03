@@ -309,12 +309,6 @@ class GooseAdapter extends BaseAdapter {
   }
 
   /** Override BaseAdapter.stop so daemon shutdown tears down in-flight runs. */
-  stop() {
-    this._stopAll('Task interrupted — daemon restarting. Send another message to continue.')
-      .catch(() => {});
-    super.stop();
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {

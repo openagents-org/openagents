@@ -1760,7 +1760,7 @@ describe('Daemon', () => {
     }
   });
 
-  it('_ensureAdapterCleared force-releases stuck adapter', async () => {
+  it('_ensureAdapterCleared stops an owner before releasing its slot', async () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);
     const reg = new Registry(tmpDir);

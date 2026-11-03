@@ -169,6 +169,7 @@ class ClaudeAdapter extends BaseAdapter {
         // Post the status BEFORE the bounce so the message lands while
         // we're still online.
         try {
+          if (this._stopRequested) return;
           await this.client.sendMessage(this.workspaceId, channel, this.token,
             'Session restarted — next message starts fresh.',
             {
@@ -210,24 +211,6 @@ class ClaudeAdapter extends BaseAdapter {
     }
     // Fall through to base for shared actions (status, etc.).
     await super._onControlAction(action, payload);
-  }
-
-  /**
-   * Override BaseAdapter.stop so daemon shutdown also tears down in-flight
-   * claude subprocesses cleanly. Without this, killing the daemon leaves
-   * the channel's last event as a `status` (e.g. "Bash › ..." mid-tool-call)
-   * forever — the workspace UI then shows the thread as "running" until a
-   * new message arrives. Fire-and-forget; daemon._killAgent gives us up to
-   * 5s to actually finish the cleanup before the parent exits.
-   */
-  stop() {
-    for (const channel of Object.keys(this._persistentProcs)) {
-      this._killPersistentProc(channel);
-    }
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.'
-    ).catch(() => {});
-    super.stop();
   }
 
   async _stopProcess(proc) {
@@ -331,9 +314,18 @@ class ClaudeAdapter extends BaseAdapter {
    * must read its exit as a stop, not as a stale session to retry, and the
    * output parser drops what the process wrote before dying.
    */
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...Object.keys(this._persistentProcs)])];
+  }
+
   async _stopChannelWork(channel) {
     const pp = this._persistentProcs[channel];
     if (pp) pp.userStopped = true;
+    if (pp && this._stopRequested) {
+      await this._killPersistentProc(channel);
+      if (this._channelProcesses[channel] === pp.proc) delete this._channelProcesses[channel];
+      return 'stopped';
+    }
     const outcome = await super._stopChannelWork(channel);
     // Those leftover lines are still being parsed on this chain. They post
     // nothing now, but wait them out so none of their bookkeeping races the
@@ -830,6 +822,7 @@ class ClaudeAdapter extends BaseAdapter {
    * via stdin (--input-format stream-json). Returns the persistent proc entry.
    */
   _spawnPersistentProc(channel, cmd, cleanEnv) {
+    if (this._stoppedBeforeStart(channel)) throw new Error('Agent stopped');
     // Remove -p and its argument from cmd — prompts go via stdin
     const filteredCmd = [];
     for (let i = 0; i < cmd.length; i++) {
@@ -1068,6 +1061,10 @@ class ClaudeAdapter extends BaseAdapter {
    * if the process dies mid-message.
    */
   _sendToPersistentProc(pp, content) {
+    if (this._stopRequested) {
+      pp.userStopped = true;
+      return Promise.resolve({ exited: true });
+    }
     pp.lastResponseText = [];
     pp.lastErrorText = '';
     pp.hasToolUseSinceLastText = false;

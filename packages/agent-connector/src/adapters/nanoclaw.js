@@ -114,6 +114,7 @@ class NanoClawAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   async run() {
+    if (this._stopRequested) return;
     await this._startBridge();
     return super.run();
   }
@@ -177,7 +178,7 @@ class NanoClawAdapter extends BaseAdapter {
     if (this._statusPoller.unref) this._statusPoller.unref();
   }
 
-  stop() {
+  async _stopLifecycleWork() {
     this._stopping = true;
     if (this._statusPoller) {
       clearInterval(this._statusPoller);
@@ -204,7 +205,6 @@ class NanoClawAdapter extends BaseAdapter {
     }
     // Note: we deliberately do NOT stop the NanoClaw host or any container —
     // those are shared services other channels/agent groups may rely on.
-    super.stop();
   }
 
   // ------------------------------------------------------------------
@@ -372,6 +372,7 @@ class NanoClawAdapter extends BaseAdapter {
 
   /** Send inbound, retrying once across a short reconnect window. */
   async _inject(platformId, channel, msgId, turnId, threadId, text) {
+    if (this._stoppedBeforeStart(channel)) return false;
     const fields = {
       platformId,
       threadId,
@@ -388,6 +389,7 @@ class NanoClawAdapter extends BaseAdapter {
     }
     // Wait briefly for the channel to become ready (host restart / late load).
     const ready = await this._waitReady(this._connectWaitMs);
+    if (this._stoppedBeforeStart(channel)) return false;
     if (!ready) throw Object.assign(new Error('openagents channel not ready'), { code: proto.ERR.CHANNEL_NOT_LOADED });
     return this._bridge.sendInbound(fields);
   }
@@ -455,6 +457,7 @@ class NanoClawAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   async _onOutbound(frame) {
+    if (this._stopRequested) return;
     const platformId = frame.platformId;
     const channel = proto.channelFromPlatformId(platformId, this.workspaceId);
     // Not our workspace — leave it for the owning bridge; do NOT ACK (acking

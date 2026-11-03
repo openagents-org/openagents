@@ -338,17 +338,6 @@ class CopilotAdapter extends BaseAdapter {
   }
 
   /**
-   * Daemon shutdown: tear down any in-flight Copilot subprocess so the thread
-   * doesn't get stuck showing "running".
-   */
-  stop() {
-    for (const proc of Object.values(this._channelProcesses)) {
-      this._stopProcess(proc).catch(() => {});
-    }
-    super.stop();
-  }
-
-  /**
    * Graceful → forceful interrupt of a Copilot subprocess and its whole process
    * tree (Copilot may spawn shell/MCP children). SIGINT first so the CLI can
    * cancel managed work, then SIGTERM/SIGKILL on the process group (Unix) or

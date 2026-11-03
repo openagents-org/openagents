@@ -33,7 +33,11 @@ const PRD = {
 const PRD_LOCAL = '20260914_095400_客户交付AI系统_v2.0_PRD.md';
 
 function fakeAdapter(overrides = {}) {
-  const adapter = Object.create(CodexAdapter.prototype);
+  // Exercise the real cancellation state without probing installed CLIs.
+  const adapter = new (require('../src/adapters/base'))({
+    workspaceId: 'ws1', channelName: 'general', token: 'agent-token-1', agentName: 'test', agentEnv: {},
+  });
+  Object.setPrototypeOf(adapter, CodexAdapter.prototype);
   const sent = [];
   Object.assign(adapter, {
     channelName: 'general',
