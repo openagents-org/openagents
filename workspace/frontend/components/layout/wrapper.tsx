@@ -184,7 +184,7 @@ export function Wrapper() {
   // ── Mobile layout: single-pane with list/detail switching ──
   if (isMobile) {
     return (
-      <OnboardingSurfaceContext.Provider value={showOnboarding}>
+      <OnboardingSurfaceContext.Provider value={{ active: showOnboarding, onDismiss: dismissOnboarding }}>
       <div className="flex flex-col h-[calc(100vh-var(--oa-banner-h,0px))] w-full [&_.container-fluid]:px-5">
         <MobileHeader />
         <div className="flex-1 min-h-0 pt-[var(--header-height-mobile)] pb-[calc(48px+env(safe-area-inset-bottom))]">
@@ -288,7 +288,7 @@ export function Wrapper() {
   const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
 
   return (
-    <OnboardingSurfaceContext.Provider value={showOnboarding}>
+    <OnboardingSurfaceContext.Provider value={{ active: showOnboarding, onDismiss: dismissOnboarding }}>
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}

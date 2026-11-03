@@ -1,5 +1,5 @@
 'use client';
-import { useOnboardingSurface } from './onboarding-surface';
+import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
 import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
@@ -265,6 +265,7 @@ export function NavRail() {
   ];
 
   const onboarding = useOnboardingSurface();
+  const dismissOnboarding = useDismissOnboarding();
   const isConnectActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
@@ -354,7 +355,7 @@ export function NavRail() {
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
                     isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
-                    onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
+                    onClick={() => { if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); } openView(item.mode); }}
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}

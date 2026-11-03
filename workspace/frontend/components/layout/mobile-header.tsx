@@ -1,5 +1,5 @@
 'use client';
-import { useOnboardingSurface } from './onboarding-surface';
+import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
 
 import {
   Sheet,
@@ -31,6 +31,7 @@ export function MobileHeader() {
   const { viewMode, openView, openMobileList, setThreadFilter } = useLayout();
   const { workspace } = useWorkspace();
   const onboarding = useOnboardingSurface();
+  const dismissOnboarding = useDismissOnboarding();
   const t = useT();
 
   // Close sheet when clicking a session
@@ -48,7 +49,7 @@ export function MobileHeader() {
   const closeSheet = () => setIsSheetOpen(false);
 
   const handleViewSwitch = (mode: ViewMode) => {
-    if (mode === 'threads') setThreadFilter('all');
+    if (mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); }
     openView(mode);
     openMobileList();
   };
