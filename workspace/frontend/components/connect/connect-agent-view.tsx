@@ -2605,19 +2605,9 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto w-full px-4 py-6 sm:px-8 sm:py-8 space-y-6">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-            </button>
-          )}
+        <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-          <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} />
-
-          <div className="mx-auto w-full max-w-2xl space-y-6">
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-2xl scroll-mt-8 space-y-6 px-4 py-10 sm:px-6 sm:py-14">
             <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Laptop className="size-4" />{t('onboarding.deviceStepLabel')}</p>
 
           {pairing ? (
@@ -2655,7 +2645,6 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
           )}
 
           {footer}
-          </div>
         </div>
       </div>
       <OnboardingSteps current={1} />
