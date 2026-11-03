@@ -1458,9 +1458,14 @@ async _runNodeCommand(n, cmd) {
   /**
    * Gracefully stop all agents and exit.
    */
-  async stop() {
-    if (this._shuttingDown) return;
+  stop() {
+    if (this._shutdownPromise) return this._shutdownPromise;
     this._shuttingDown = true;
+    this._shutdownPromise = this._stop();
+    return this._shutdownPromise;
+  }
+
+  async _stop() {
     this._log('Shutting down...');
 
     if (this._statusInterval) clearInterval(this._statusInterval);
@@ -1477,7 +1482,7 @@ async _runNodeCommand(n, cmd) {
 
     // Kill all child processes
     const kills = Object.keys(this._processes).map((name) =>
-      this._killAgent(name, 5000)
+      this.stopAgent(name)
     );
     await Promise.all(kills);
 
@@ -1757,6 +1762,9 @@ async _runNodeCommand(n, cmd) {
   }
 
   _launchAgent(agentCfg) {
+    // A restart/reload may have been awaiting old finalization when shutdown
+    // began. The daemon's terminal boundary applies to every launch caller.
+    if (this._shuttingDown) return;
     const name = agentCfg.name;
     const type = agentCfg.type || 'openclaw';
 

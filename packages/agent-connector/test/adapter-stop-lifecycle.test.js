@@ -56,8 +56,9 @@ it('terminal stop kills an owned real child and descendant exactly once', { time
   a._stopProcess = p => { kills++; return kill(p); };
   a._channelProcesses.a = proc;
   await a.stop(); await a.stop();
-  await Promise.race([exited, delay(600)]);
-  assert.notEqual(proc.signalCode, null, 'active child survived terminal stop');
+  await exited;
+  assert.ok(proc.exitCode !== null || proc.signalCode !== null, 'active child survived terminal stop');
+  assert.throws(() => process.kill(proc.pid, 0), { code: 'ESRCH' });
   assert.throws(() => process.kill(childPid, 0), { code: 'ESRCH' });
   assert.equal(kills, 1);
 });
@@ -67,8 +68,9 @@ it('late child registration is killed without a worker generation', { timeout: 4
   t.after(() => { try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill(); } });
   await once(proc, 'spawn');
   const exited = once(proc, 'exit'); a._channelProcesses.a = proc;
-  await Promise.race([exited, delay(600)]);
-  assert.notEqual(proc.signalCode, null);
+  await exited;
+  assert.ok(proc.exitCode !== null || proc.signalCode !== null);
+  assert.throws(() => process.kill(proc.pid, 0), { code: 'ESRCH' });
 });
 for (const Type of [CodexAdapter, LlmDirectAdapter]) {
   it(`${Type.name}: terminal stop aborts real HTTP and prevents future requests`, { timeout: 4000 }, async t => {
