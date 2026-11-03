@@ -776,7 +776,8 @@ def delete_issue(
 
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
-    if not _can_delete(_viewer(db, workspace, x_workspace_token, authorization), issue):
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    if not _can_delete(viewer, issue):
         raise HTTPException(403, "Only the person who opened this issue or a workspace admin can delete it")
     now = datetime.now(timezone.utc)
     # Work threads are hidden from the conversation list and only open from
@@ -806,6 +807,9 @@ def delete_issue(
         notification.status = "dismissed"
     # Comments, thread links and sharing settings cascade in the database;
     # linked Kanban tasks are set to no issue.
+    logging.getLogger(__name__).info(
+        "issue deleted ws=%s id=%s title=%r by=%s retired=%s",
+        workspace.id, issue.id, issue.title, viewer.email, retired)
     db.delete(issue)
     db.commit()
     return success_response({"id": issue_id, "deleted": True})
