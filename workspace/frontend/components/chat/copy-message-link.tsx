@@ -1,4 +1,6 @@
 'use client';
+
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { useState } from 'react';
 import { Link, Check } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,10 +17,11 @@ export function CopyMessageLink({ messageId }: { messageId: string }) {
   const [copied, setCopied] = useState(false);
   if (!workspace || !currentSessionId || messageId.startsWith('optimistic-')) return null;
   const copy = async () => {
+    setCopied(false);
     setBusy(true);
     try {
       const link = await workspaceApi.getThreadLink(currentSessionId);
-      await navigator.clipboard.writeText(messageLink(shareOrigin(), workspace.slug || workspace.workspaceId, link.id, messageId));
+      await copyTextToClipboard(messageLink(shareOrigin(), workspace.slug || workspace.workspaceId, link.id, messageId));
       setCopied(true);
       toast.success(t('common.copied'));
     } catch { toast.error(t('reactions.linkFailed')); }

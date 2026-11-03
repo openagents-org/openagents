@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, Copy, Loader2, Pencil, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -76,9 +78,10 @@ export function KnowledgeView() {
   // The mention is what this entry is *for* — it's how an agent pulls the
   // content into a thread — so it gets a copy affordance, not grey small print.
   const handleCopyMention = useCallback(async () => {
+    setCopied(false);
     if (!entry) return;
     try {
-      await navigator.clipboard.writeText(`@knowledge:${entry.slug}`);
+      await copyTextToClipboard(`@knowledge:${entry.slug}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

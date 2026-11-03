@@ -1,4 +1,5 @@
  'use client';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { Link } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ export function CopyResourceLink({ view, id }: { view: ResourceView; id: string 
   return <Button variant="ghost" mode="icon" size="sm" aria-label={t('issues.copyLink')} title={t('issues.copyLink')} onClick={async () => {
     try {
       const url = new URL(resourcePath(workspace?.slug || workspace?.workspaceId || '', view, id), shareOrigin());
-      await navigator.clipboard.writeText(url.toString()); toast.success(t('common.copied'));
+      await copyTextToClipboard(url.toString()); toast.success(t('common.copied'));
     } catch { toast.error(t('resourceLinks.copyFailed')); }
   }}><Link className="size-3.5" /></Button>;
 }

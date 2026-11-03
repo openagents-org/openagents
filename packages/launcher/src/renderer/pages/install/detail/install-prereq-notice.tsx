@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -30,10 +32,15 @@ export function InstallPrereqNotice({ missing, onRetry }: Props): React.JSX.Elem
   const [copied, setCopied] = useState<string | null>(null)
   const [cltState, setCltState] = useState<"idle" | "requested" | "failed">("idle")
 
-  const copy = (value: string): void => {
-    void navigator.clipboard.writeText(value)
-    setCopied(value)
-    window.setTimeout(() => setCopied((c) => (c === value ? null : c)), 2000)
+  const copy = async (value: string): Promise<void> => {
+    setCopied(null)
+    try {
+      await copyTextToClipboard(value)
+      setCopied(value)
+      window.setTimeout(() => setCopied((c) => (c === value ? null : c)), 2000)
+    } catch {
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
+    }
   }
 
   const requestClt = async (): Promise<void> => {

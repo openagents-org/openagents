@@ -1,5 +1,8 @@
 'use client';
 
+import { toast } from 'sonner';
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { desktopHost } from '@/lib/desktop-host';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -513,10 +516,15 @@ function CampaignCard({ idToken }: { idToken: string }) {
   const key = status.apiKey || '';
   const maskedKey = key ? `${key.slice(0, 12)}…${key.slice(-4)}` : '';
 
-  const copyKey = () => {
-    navigator.clipboard.writeText(key);
-    setKeyCopied(true);
-    setTimeout(() => setKeyCopied(false), 2000);
+  const copyKey = async () => {
+    setKeyCopied(false);
+    try {
+      await copyTextToClipboard(key);
+      setKeyCopied(true);
+      setTimeout(() => setKeyCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   return (

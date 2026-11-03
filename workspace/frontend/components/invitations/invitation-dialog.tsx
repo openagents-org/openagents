@@ -30,8 +30,8 @@ export function InvitationDialog() {
   const [creating, setCreating] = useState(false);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [loading, setLoading] = useState(false);
-  const { copyToClipboard } = useCopyToClipboard();
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const [copiedInvitationId, setCopiedInvitationId] = useState<string | null>(null);
 
   const loadInvitations = async () => {
     setLoading(true);
@@ -66,10 +66,9 @@ export function InvitationDialog() {
     }
   };
 
-  const handleCopyToken = (token: string) => {
-    copyToClipboard(token);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2000);
+  const handleCopyToken = async (invitation: WorkspaceInvitation) => {
+    setCopiedInvitationId(invitation.invitationId);
+    await copyToClipboard(invitation.inviteToken);
   };
 
   const statusIcon = (status: string) => {
@@ -151,10 +150,10 @@ export function InvitationDialog() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        onClick={() => handleCopyToken(inv.inviteToken)}
+                        onClick={() => handleCopyToken(inv)}
                         title={t('invitations.copyToken')}
                       >
-                        {copiedToken === inv.inviteToken
+                        {isCopied && copiedInvitationId === inv.invitationId
                           ? <Check className="size-3.5" />
                           : <Copy className="size-3.5" />
                         }

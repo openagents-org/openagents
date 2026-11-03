@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react'
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
 
@@ -159,12 +161,25 @@ function renderInline(text: string): React.ReactNode[] {
 function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.Element {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
+  const attempt = useRef(0)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => {
+    ++attempt.current
+    clearTimeout(timer.current)
+  }, [])
   const copy = async (): Promise<void> => {
+    const current = ++attempt.current
+    clearTimeout(timer.current)
+    setCopied(false)
     try {
-      await navigator.clipboard.writeText(code)
+      await copyTextToClipboard(code)
+      if (current !== attempt.current) return
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {}
+      timer.current = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      if (current !== attempt.current) return
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
+    }
   }
   return (
     <div className="relative my-2 rounded-(--radius) overflow-hidden border border-(--border) bg-[#1e1e2a]">

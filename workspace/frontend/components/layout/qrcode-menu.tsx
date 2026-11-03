@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
@@ -75,20 +77,7 @@ export function QrcodeMenu({ side = 'right', align = 'end' }: QrcodeMenuProps = 
   const handleCopy = useCallback(async () => {
     if (!shareUrl) return;
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-      } else {
-        // Fallback for in-app browsers / insecure contexts without the Clipboard API
-        const ta = document.createElement('textarea');
-        ta.value = shareUrl;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+      await copyTextToClipboard(shareUrl);
       toast.success(t('qrcode.copied'));
     } catch {
       toast.error(t('qrcode.copyFailed'));

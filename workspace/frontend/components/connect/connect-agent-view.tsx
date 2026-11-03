@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
@@ -228,10 +230,15 @@ export function ConnectAgentView({
     }
   }, [cfgModel, selectedProviderInfo]);
 
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const handleCopyToken = async () => {
+    setTokenCopied(false);
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   const maskedToken = token.length > 16
@@ -535,12 +542,8 @@ function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
 /** A monospace command line with a copy button. */
 function CommandRow({ command }: { command: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const { isCopied: copied, copyToClipboard } = useCopyToClipboard();
+  const copy = () => copyToClipboard(command);
   return (
     <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
       <code className="flex-1 min-w-0 text-xs font-mono text-zinc-100 overflow-x-auto whitespace-nowrap">
@@ -594,7 +597,7 @@ function PairingPanel({
 }) {
   const t = useT();
   const isMobile = useIsMobile();
-  const [codeCopied, setCodeCopied] = useState(false);
+  const { isCopied: codeCopied, copyToClipboard: copyPairingCode } = useCopyToClipboard();
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
   );
@@ -612,11 +615,7 @@ function PairingPanel({
   const expired = remaining <= 0;
   const minutes = Math.max(1, Math.ceil(remaining / 60));
 
-  const copyCode = () => {
-    navigator.clipboard.writeText(pairing.code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
-  };
+  const copyCode = () => copyPairingCode(pairing.code);
 
   return (
     <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">

@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useCallback, useEffect, useState } from 'react';
 import { Link2, Loader2, Mail, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -30,7 +32,7 @@ const INVITE_ROLES: WorkspaceRole[] = ['admin', 'member', 'viewer'];
 
 async function copyText(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text);
+    await copyTextToClipboard(text);
     return true;
   } catch {
     return false;
@@ -113,6 +115,7 @@ export default function MembersSettingsPage() {
   const copyInviteLink = async (invite: TeamInvite) => {
     const copied = await copyText(invite.url);
     if (copied) toast.success(t('admin.linkCopied'));
+    else toast.error(t('chat.copyFailed'));
   };
 
   const revoke = async (invite: TeamInvite) => {

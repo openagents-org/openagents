@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react"
+import { toast } from 'sonner';
+import React, { useState, useMemo, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import {
@@ -98,10 +99,26 @@ const LLMLogsView: React.FC = () => {
     applyFilters({})
   }
 
+  const copyAttempt = useRef(0)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => {
+    ++copyAttempt.current
+    clearTimeout(copyTimer.current)
+  }, [])
+
   const handleCopy = async (text: string, logId: string) => {
-    await copyToClipboard(text)
-    setCopiedId(logId)
-    setTimeout(() => setCopiedId(null), 2000)
+    const current = ++copyAttempt.current
+    clearTimeout(copyTimer.current)
+    setCopiedId(null)
+    try {
+      await copyToClipboard(text)
+      if (current !== copyAttempt.current) return
+      setCopiedId(logId)
+      copyTimer.current = setTimeout(() => setCopiedId(null), 2000)
+    } catch {
+      if (current !== copyAttempt.current) return
+      toast.error('Failed to copy text to clipboard');
+    }
   }
 
   const formatTimestamp = (timestamp: number) => {

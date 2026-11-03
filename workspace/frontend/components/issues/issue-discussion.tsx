@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { IssueWork } from './issue-work';
 import { WorkingBubble } from '@/components/chat/working-bubble';
 import { IssueAttachments } from './issue-attachments';
@@ -355,12 +357,13 @@ export function IssueDiscussion({
                     variant="outline"
                     className="gap-1.5"
                     onClick={async () => {
+                      setCopied(false);
                       try {
                         const url = new URL(
                           resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id),
                           shareOrigin(),
                         );
-                        await navigator.clipboard.writeText(url.toString());
+                        await copyTextToClipboard(url.toString());
                         setCopied(true);
                       } catch (e) {
                         setError(errorMessage(e));

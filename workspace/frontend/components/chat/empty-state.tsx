@@ -1,5 +1,8 @@
 'use client';
 
+import { toast } from 'sonner';
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { MessageCircle, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -69,10 +72,15 @@ export function EmptyState() {
     [catalog, selectedAgent],
   );
 
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const handleCopyToken = async () => {
+    setTokenCopied(false);
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   if (hasOnlineAgent) return <EmptyConversation />;

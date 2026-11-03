@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { useTranslation } from "react-i18next"
@@ -40,7 +41,7 @@ export function WorkspaceQrcodeDialog({
   const handleCopy = async (): Promise<void> => {
     if (!url) return
     try {
-      await navigator.clipboard.writeText(url)
+      await copyTextToClipboard(url)
       showToast(t("workspaces.qrcode.copied"), "success")
     } catch {
       showToast(t("workspaces.qrcode.copyFailed"), "error")

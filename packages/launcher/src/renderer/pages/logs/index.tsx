@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { Download, FileSearch, RefreshCw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -76,8 +77,7 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
   }
 
   const copy = (text: string): void => {
-    navigator.clipboard
-      .writeText(text)
+    copyTextToClipboard(text)
       .then(() => showToast(t("logs.toast.copied"), "success"))
       .catch(() => showToast(t("logs.toast.copyFailed"), "error"))
   }

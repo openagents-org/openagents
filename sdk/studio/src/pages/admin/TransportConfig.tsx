@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@/utils/clipboard';
 import React, { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { useOpenAgents } from "@/context/OpenAgentsProvider"
@@ -190,9 +191,13 @@ const TransportConfigPage: React.FC = () => {
     fetchTransports()
   }, [fetchTransports])
 
-  const handleCopyUrl = (url: string) => {
-    navigator.clipboard.writeText(url)
-    toast.success(t("transports.toast.urlCopied"))
+  const handleCopyUrl = async (url: string) => {
+    try {
+      await copyTextToClipboard(url)
+      toast.success(t("transports.toast.urlCopied"))
+    } catch {
+      toast.error('Failed to copy text to clipboard');
+    }
   }
 
   const handleToggleTransport = async (transport: TransportInfo) => {

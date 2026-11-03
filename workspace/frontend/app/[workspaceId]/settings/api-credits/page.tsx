@@ -1,5 +1,7 @@
 'use client';
 
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+
 /**
  * Settings → API credits — the campaign's home inside the workspace.
  *
@@ -31,14 +33,10 @@ const MISSION_LABEL_KEYS: Record<string, string> = {
 };
 
 function CopyBtn({ value, title }: { value: string; title: string }) {
-  const [copied, setCopied] = useState(false);
+  const { isCopied: copied, copyToClipboard } = useCopyToClipboard();
   return (
     <button
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
+      onClick={() => void copyToClipboard(value)}
       className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background transition-colors hover:bg-accent"
       title={title}
     >
@@ -94,6 +92,7 @@ export default function ApiCreditsSettingsPage() {
   const [keyRevealed, setKeyRevealed] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [models, setModels] = useState<string[] | null>(null);
+  const { isCopied: modelCopied, copyToClipboard: copyModelToClipboard } = useCopyToClipboard({ timeout: 1500 });
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
   const toggleModels = () => {
@@ -105,10 +104,9 @@ export default function ApiCreditsSettingsPage() {
     }
   };
 
-  const copyModel = (id: string) => {
-    navigator.clipboard.writeText(id);
+  const copyModel = async (id: string) => {
     setCopiedModel(id);
-    setTimeout(() => setCopiedModel(null), 1500);
+    await copyModelToClipboard(id);
   };
 
   useEffect(() => {
@@ -326,7 +324,7 @@ export default function ApiCreditsSettingsPage() {
                       className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-[12px] transition-colors hover:bg-accent"
                       title={id}
                     >
-                      {copiedModel === id ? (
+                      {modelCopied && copiedModel === id ? (
                         <Check className="size-3 shrink-0 text-green-600" />
                       ) : (
                         <Copy className="size-3 shrink-0 text-muted-foreground/50" />

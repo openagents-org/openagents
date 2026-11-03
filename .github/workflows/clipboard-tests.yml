@@ -1,0 +1,43 @@
+name: Clipboard capability tests
+
+on:
+  pull_request:
+    paths:
+      - 'workspace/frontend/**'
+      - 'packages/launcher/**'
+      - 'sdk/studio/**'
+      - '.github/workflows/clipboard-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clipboard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: workspace/frontend
+            command: npm test -- lib/clipboard.test.ts hooks/use-copy-to-clipboard.test.ts 'app/[workspaceId]/settings/members/clipboard.test.ts' 'app/[workspaceId]/settings/api-credits/clipboard.test.ts' components/connect/clipboard.test.ts components/invitations/clipboard.test.ts
+          - app: packages/launcher
+            command: npm test -- src/renderer/lib/clipboard.test.ts src/renderer/components/chat/Markdown.clipboard.test.tsx
+          - app: sdk/studio
+            command: npm test -- --watchAll=false --runInBand --testPathPattern=clipboard.test.ts
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Independent apps; no root package. Scripts are unnecessary for these
+      # DOM tests (in particular, don't download Electron for renderer tests).
+      # Follow each app's existing npm policy (Studio declares its own peer
+      # policy in .npmrc); retain the committed lockfile as the resolution input.
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: ${{ matrix.command }}
+        env:
+          CI: 'true'
