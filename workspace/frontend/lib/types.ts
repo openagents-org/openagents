@@ -1517,6 +1517,8 @@ export interface WorkspaceIssue {
   created_at: string;
   updated_at: string;
   comment_count?: number;
+  /** The viewer opened this issue or is a workspace admin. */
+  can_delete?: boolean;
 }
 export interface IssueComment {
   reply_channel_name?: string | null;
