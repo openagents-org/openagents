@@ -195,7 +195,7 @@ export const messages = {
     commentPlaceholder: "Share an idea, ask a question, or review the work…",
     mentionPeopleAndAgents: "People and agents",
     unreadUpdates: "{count} unread updates",
-    attachMedia: "Image or video",
+    attachFiles: "Attach files",
     mentionPerson: "Person",
     mentionAgent: "Agent",
     noMentionMatches: "No matching people or agents",

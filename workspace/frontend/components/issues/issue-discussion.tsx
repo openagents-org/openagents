@@ -559,7 +559,7 @@ export function IssueDiscussion({
                       placeholder={t('issues.commentPlaceholder')}
                     />
                     <div className="px-3 pb-2">
-                      <AttachmentPicker key={pickerKey} media value={commentFiles} onChange={setCommentFiles}
+                      <AttachmentPicker key={pickerKey} compact value={commentFiles} onChange={setCommentFiles}
                         disabled={busy} onUploadingChange={setCommentUploading} />
                     </div>
                     <div className="flex items-center justify-between gap-3 px-3 pb-3">
