@@ -1762,6 +1762,19 @@ export const messages: Messages = {
     yumiAdd: '重新添加 Yumi',
     yumiAdded: '已添加 Yumi',
 
+    acentaTitle: 'Acenta 云端智能体',
+    acentaSubtitle: '运行在独立常驻云端环境中的编程智能体(OpenCode),自带文件、工具和模型。无需设备或 API 密钥。',
+    acentaNamePlaceholder: '名称,例如 研究助手',
+    acentaLaunch: '启动',
+    acentaLaunched: '"{name}" 正在启动,几分钟内上线。',
+    acentaLaunchFailed: '无法启动云端智能体',
+    acentaUnavailable: 'Acenta 云端智能体即将推出。',
+    acentaStarting: '启动中',
+    acentaOnline: '在线',
+    acentaOffline: '离线',
+    acentaRemoveConfirm: '移除 "{name}"?其云端环境和文件将被删除,工作区对话会保留。',
+    acentaRemoved: '已移除 "{name}"',
+
     // 节点（连接设备）
     nodeHeading: '我连接的设备',
     nodeSubtitle: '你在此工作空间的私有设备连接。通过这些连接添加的智能体归你所有，默认不与他人共享。',

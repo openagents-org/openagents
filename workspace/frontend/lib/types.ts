@@ -876,6 +876,28 @@ export interface CloudAgentModel {
   supportedProtocols?: string[];
 }
 
+/** A provider that hosts agent runtimes for the workspace (Acenta). */
+export interface HostedAgentProvider {
+  name: string;
+  label: string;
+  /** False until the server is configured to reach the provider. */
+  available: boolean;
+  harness: string;
+  url: string;
+}
+
+/** An agent whose runtime a provider hosts; it joins like any other agent. */
+export interface HostedAgent {
+  agentName: string;
+  displayName: string;
+  provider: string;
+  status: 'launching' | 'active' | 'terminating';
+  /** From the agent's own heartbeats. */
+  presence: 'online' | 'offline';
+  ownerEmail: string;
+  createdAt: string | null;
+}
+
 export interface CloudAgentConfig {
   agentName: string;
   provider: string;

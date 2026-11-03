@@ -667,8 +667,12 @@ def remove_member(
     if denied is not None:
         return denied
 
+    from app.services import hosted_agents
+    hosted = hosted_agents.release(db, workspace.id, agent_name)
     db.delete(member)
     db.commit()
+    if hosted is not None:
+        hosted_agents.schedule_termination(hosted.id)
 
     return success_response({"agent_name": agent_name, "removed": True})
 

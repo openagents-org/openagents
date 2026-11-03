@@ -19,6 +19,7 @@ import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
+import { HostedAgentsSection } from './hosted-agents-section';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
@@ -500,6 +501,7 @@ export function ConnectAgentView({
             onRemove={handleRemoveCloudAgent}
             showBuiltinCard={!yumiPresent}
             onAddBuiltin={handleAddBuiltinYumi}
+            onHostedChanged={refreshWorkspace}
           />
         )}
       </div>
@@ -1966,6 +1968,7 @@ function CloudAgentsTab({
   onRemove,
   showBuiltinCard,
   onAddBuiltin,
+  onHostedChanged,
 }: {
   providers: CloudAgentProvider[];
   cloudAgents: CloudAgentConfig[];
@@ -1991,6 +1994,7 @@ function CloudAgentsTab({
   onRemove: (name: string) => void;
   showBuiltinCard: boolean;
   onAddBuiltin: () => void;
+  onHostedChanged: () => void;
 }) {
   const t = useT();
   const isTokenPay = selectedProvider === 'tokenpay';
@@ -2247,6 +2251,8 @@ function CloudAgentsTab({
           </Button>
         </div>
       )}
+
+      <HostedAgentsSection onChanged={onHostedChanged} />
 
       {providerGroups.map((group) => {
         const groupProviders = group.names

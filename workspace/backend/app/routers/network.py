@@ -165,6 +165,9 @@ async def _emit_event(event: Event, workspace, db: Session, token: str = None):
     return result
 
 
+HOSTED_DEVICE_TYPE = "hosted"
+
+
 def runtime_status_by_node(db: Session, workspace, now: Optional[datetime] = None) -> dict:
     """{node_id: {"status": online|offline, "name": ...}} for the workspace's
     devices — the "runtime offline" signal. Shared by /v1/discover and the
@@ -178,6 +181,9 @@ def runtime_status_by_node(db: Session, workspace, now: Optional[datetime] = Non
         if hb is not None and hb.tzinfo is None:
             hb = hb.replace(tzinfo=timezone.utc)
         alive = (n.status == "online") and hb is not None and (now - hb) <= AGENT_TIMEOUT
+        # A provider-hosted connection has no launcher daemon to heartbeat; the
+        # provider keeps the runtime up and the agent's own heartbeat is its presence.
+        alive = alive or n.device_type == HOSTED_DEVICE_TYPE
         runtime_by_id[str(n.id)] = {"status": "online" if alive else "offline", "name": n.name or n.hostname}
     return runtime_by_id
 
@@ -376,6 +382,10 @@ def remove_agent(
     result = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
     if result is None:
         return json_response(ResponseCode.NOT_FOUND, "Agent not in network")
+
+    if result.metadata.get("hosted_agent_id"):
+        from app.services.hosted_agents import schedule_termination
+        schedule_termination(result.metadata["hosted_agent_id"])
 
     resp = {"agent_name": body.agent_name, "status": "removed"}
     if result.metadata.get("new_master"):

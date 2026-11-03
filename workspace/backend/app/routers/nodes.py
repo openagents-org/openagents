@@ -22,7 +22,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.access import repeats_machine_token, resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
@@ -371,7 +371,9 @@ def list_nodes(
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
     user = resolve_current_user(db, authorization) if authorization else None
-    query = select(Node).where(Node.workspace_id == workspace.id, Node.owner_email.isnot(None))
+    # Provider-hosted connections (Acenta) are listed with their agents, not as devices.
+    query = select(Node).where(Node.workspace_id == workspace.id, Node.owner_email.isnot(None),
+                               or_(Node.device_type.is_(None), Node.device_type != "hosted"))
     if user:
         query = query.where(Node.owner_email == user.email.strip().lower())
     elif not authorization and x_workspace_token:
