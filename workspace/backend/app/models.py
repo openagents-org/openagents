@@ -1163,7 +1163,10 @@ class HostedAgent(Base):
     external_id = Column(Text, nullable=True)
     node_id = Column(UUID(as_uuid=False), ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
     owner_email = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, default="launching")  # launching | active | terminating
+    # launching | setup (owner must finish sign-in/payment on Acenta) | active | terminating
+    status = Column(Text, nullable=False, default="launching")
+    # Acenta launch page while status is "setup"; it requires the owner's sign-in.
+    setup_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     __table_args__ = (

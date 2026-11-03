@@ -51,6 +51,7 @@ def _format(hosted: HostedAgent, member: Optional[WorkspaceMember]) -> dict:
         "displayName": hosted.display_name,
         "provider": hosted.provider,
         "status": hosted.status,
+        "setupUrl": hosted.setup_url if hosted.status == "setup" else None,
         "presence": effective_agent_status(member) if member else "offline",
         "ownerEmail": hosted.owner_email,
         "createdAt": hosted.created_at.isoformat() if hosted.created_at else None,
@@ -89,6 +90,24 @@ def list_hosted_agents(
         if hosted.status == "terminating":
             hosting.schedule_termination(hosted.id)  # retry cleanup Acenta has not confirmed
             continue
+        if hosted.status == "setup":
+            # The owner may have just returned from Acenta's launch page.
+            try:
+                result = hosting.status(hosted)
+            except hosting.ProviderError as error:
+                result = {"state": "terminated"} if error.status == 404 else None
+            if result and result.get("state") == "terminated":
+                # Checkout was abandoned and Acenta expired the request.
+                hosting.release(db, workspace.id, hosted.agent_name)
+                member = members.get(hosted.agent_name)
+                if member is not None:
+                    member.status = "removed"
+                db.delete(hosted)
+                db.commit()
+                continue
+            if result:
+                hosting.apply_state(hosted, result)
+                db.commit()
         if hosted.agent_name:
             visible.append(_format(hosted, members.get(hosted.agent_name)))
     return success_response({"hosted_agents": visible})
@@ -179,7 +198,7 @@ def launch_hosted_agent(
         member.description = member.description or "Cloud agent hosted on Acenta"
     hosted.agent_name = agent_name
     hosted.external_id = external_id
-    hosted.status = "active"
+    hosting.apply_state(hosted, result)
     db.commit()
     logger.info("hosted_agents: launched %s (%s) in workspace %s", agent_name, external_id, workspace.id)
     return success_response(_format(hosted, member))

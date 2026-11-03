@@ -30,7 +30,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.getHostedProviders.mockResolvedValue([{ name: 'acenta', label: 'Acenta', available: true, harness: 'opencode', url: 'https://acenta.ai' }]);
   api.listHostedAgents.mockResolvedValue([]);
-  api.launchHostedAgent.mockReset().mockResolvedValue({});
+  api.launchHostedAgent.mockReset().mockResolvedValue({ setupUrl: null });
   api.removeHostedAgent.mockReset().mockResolvedValue(undefined);
   confirm.mockReset();
   onChanged.mockReset();
@@ -76,4 +76,29 @@ it('shows presence and removes only after confirmation', async () => {
   confirm.mockResolvedValueOnce(true);
   await act(async () => button('connect.remove').click());
   expect(api.removeHostedAgent).toHaveBeenCalledWith('acenta-1a2b3c4d');
+});
+
+it('sends the user to Acenta when setup (sign-in and payment) is needed', async () => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { ...window.location, assign });
+  api.launchHostedAgent.mockResolvedValue({ setupUrl: 'https://acenta.ai/launch/box-1' });
+  await render();
+  const input = container.querySelector<HTMLInputElement>('input')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Helper');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('connect.acentaLaunch').click());
+  expect(assign).toHaveBeenCalledWith('https://acenta.ai/launch/box-1');
+  expect(onChanged).not.toHaveBeenCalled();
+});
+
+it('offers to finish setup for a launch waiting on Acenta', async () => {
+  api.listHostedAgents.mockResolvedValue([
+    { agentName: 'acenta-1a2b3c4d', displayName: 'Helper', provider: 'acenta', status: 'setup', setupUrl: 'https://acenta.ai/launch/box-1', presence: 'offline', ownerEmail: 'a@b.c', createdAt: null },
+  ]);
+  await render();
+  const link = container.querySelector<HTMLAnchorElement>('a')!;
+  expect(link.href).toBe('https://acenta.ai/launch/box-1');
+  expect(link.textContent).toContain('connect.acentaFinishSetup');
 });

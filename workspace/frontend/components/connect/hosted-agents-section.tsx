@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cloud, Loader2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Cloud, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -53,9 +53,14 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     if (!label) return;
     setLaunching(true);
     try {
-      await workspaceApi.launchHostedAgent(label);
+      const launched = await workspaceApi.launchHostedAgent(label);
+      capture('hosted_agent_launched', { provider: 'acenta', setup: !!launched.setupUrl });
+      if (launched.setupUrl) {
+        // Sign-in and payment finish on Acenta, which sends the user back here.
+        window.location.assign(launched.setupUrl);
+        return;
+      }
       toast.success(t('connect.acentaLaunched', { name: label }));
-      capture('hosted_agent_launched', { provider: 'acenta' });
       setName('');
       load();
       onChanged();
@@ -118,6 +123,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
       {hosted.map((agent) => {
         const online = agent.presence === 'online';
+        const setup = agent.status === 'setup' && !!agent.setupUrl;
         // Offline soon after launch means the box is still being prepared.
         const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
         return (
@@ -127,10 +133,17 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
               <div className="text-xs font-medium truncate">{agent.displayName}</div>
               <div className="text-xs text-muted-foreground font-mono truncate">@{agent.agentName}</div>
             </div>
-            <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-emerald-600' : 'text-muted-foreground')}>
-              {starting && <Loader2 className="size-3 animate-spin" />}
-              {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : t('connect.acentaOffline')}
-            </span>
+            {setup ? (
+              <a href={agent.setupUrl!} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                {t('connect.acentaFinishSetup')}
+                <ArrowUpRight className="size-3" />
+              </a>
+            ) : (
+              <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-emerald-600' : 'text-muted-foreground')}>
+                {starting && <Loader2 className="size-3 animate-spin" />}
+                {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : t('connect.acentaOffline')}
+              </span>
+            )}
             <button
               onClick={() => handleRemove(agent)}
               className="size-6 flex items-center justify-center rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 transition-colors"

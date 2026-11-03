@@ -17,6 +17,9 @@ class FakeAcenta:
         self.calls = []
         self.fail = None
         self.terminate_status = None
+        self.state = "queued"
+        self.launch_url = None
+        self.status_error = None
 
     def __call__(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))
@@ -25,7 +28,11 @@ class FakeAcenta:
         if method == "POST" and path == "":
             body = kwargs["json"]
             self.launched = body
-            return {"id": "box-1", "agent_name": "acenta-1a2b3c4d", "state": "queued"}
+            return {"id": "box-1", "agent_name": "acenta-1a2b3c4d", "state": self.state, "launch_url": self.launch_url}
+        if method == "GET" and path == "/box-1":
+            if self.status_error:
+                raise hosting.ProviderError("gone", self.status_error)
+            return {"id": "box-1", "state": self.state, "launch_url": self.launch_url}
         if path.endswith("/terminate"):
             if self.terminate_status:
                 raise hosting.ProviderError("down", self.terminate_status)
@@ -156,3 +163,26 @@ def test_failed_termination_is_retried_from_listing(client, db, workspace, peopl
     acenta.terminate_status = None
     listed = client.get(f"/v1/hosted-agents?network={workspace['id']}", headers=_bearer("mia", workspace))
     assert listed.json()["data"]["hosted_agents"] == [] and _hosted(db) == []
+
+
+def test_paid_launch_sends_owner_to_acenta_then_activates(client, db, workspace, people, acenta):
+    acenta.state, acenta.launch_url = "awaiting_payment", "https://acenta.test/launch/box-1"
+    data = _launch(client, workspace).json()["data"]
+    assert data["status"] == "setup" and data["setupUrl"] == "https://acenta.test/launch/box-1"
+    # Acenta returns the owner to this workspace after checkout.
+    assert acenta.launched["return_url"] == f"https://workspace.openagents.org/{workspace['slug']}"
+    acenta.state, acenta.launch_url = "queued", None
+    listed = client.get(f"/v1/hosted-agents?network={workspace['id']}", headers=_bearer("mia", workspace))
+    row = listed.json()["data"]["hosted_agents"][0]
+    assert row["status"] == "active" and row["setupUrl"] is None
+
+
+def test_abandoned_checkout_is_cleaned_up(client, db, workspace, people, acenta):
+    acenta.state, acenta.launch_url = "awaiting_payment", "https://acenta.test/launch/box-1"
+    _launch(client, workspace)
+    acenta.state = "terminated"
+    listed = client.get(f"/v1/hosted-agents?network={workspace['id']}", headers=_bearer("mia", workspace))
+    assert listed.json()["data"]["hosted_agents"] == [] and _hosted(db) == []
+    assert db.query(Node).count() == 0
+    member = db.query(WorkspaceMember).filter_by(agent_name="acenta-1a2b3c4d").one()
+    assert member.status == "removed"

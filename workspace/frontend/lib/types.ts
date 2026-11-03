@@ -891,7 +891,9 @@ export interface HostedAgent {
   agentName: string;
   displayName: string;
   provider: string;
-  status: 'launching' | 'active' | 'terminating';
+  status: 'launching' | 'setup' | 'active' | 'terminating';
+  /** Acenta launch page (sign-in and payment) while status is "setup". */
+  setupUrl: string | null;
   /** From the agent's own heartbeats. */
   presence: 'online' | 'offline';
   ownerEmail: string;

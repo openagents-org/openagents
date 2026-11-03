@@ -31,6 +31,7 @@ def upgrade() -> None:
         sa.Column("node_id", UUID(as_uuid=False), sa.ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True),
         sa.Column("owner_email", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), nullable=False, server_default="launching"),
+        sa.Column("setup_url", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
         sa.UniqueConstraint("workspace_id", "agent_name", name="uq_hosted_agent_workspace_name"),
     )

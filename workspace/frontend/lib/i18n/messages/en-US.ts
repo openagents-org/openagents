@@ -1800,7 +1800,8 @@ export const messages = {
     yumiAdded: 'Yumi added',
 
     acentaTitle: 'Acenta cloud agent',
-    acentaSubtitle: 'A coding agent (OpenCode) running in its own always-on cloud box, with files, tools and a model included. No device or API key needed.',
+    acentaSubtitle: 'A coding agent (OpenCode) in its own always-on cloud box, with files, tools and a model included. $39/month per box, 7-day free trial. You finish setup on Acenta.',
+    acentaFinishSetup: 'Finish setup',
     acentaNamePlaceholder: 'Name, e.g. Research helper',
     acentaLaunch: 'Launch',
     acentaLaunched: '"{name}" is starting. It comes online in a few minutes.',

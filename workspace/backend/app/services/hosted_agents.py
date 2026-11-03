@@ -67,9 +67,12 @@ def _request(method: str, path: str, **kwargs) -> dict:
 
 def launch(*, request_key: str, name: str, subject: str, email: str, display_name: Optional[str],
            workspace, token: str, channel: str = "general") -> dict:
+    # Acenta's launch page (sign-in, payment) sends the user back here when done.
+    return_url = f"{config.FRONTEND_BASE_URL.rstrip('/')}/{workspace.slug or workspace.id}"
     return _request("POST", "", json={
         "request_key": request_key,
         "name": name,
+        "return_url": return_url,
         "user": {"subject": subject, "email": email, "display_name": display_name},
         "workspace": {
             "id": str(workspace.id),
@@ -83,6 +86,16 @@ def launch(*, request_key: str, name: str, subject: str, email: str, display_nam
 
 def status(hosted: HostedAgent) -> dict:
     return _request("GET", f"/{hosted.external_id}", params={"workspace_id": str(hosted.workspace_id)})
+
+
+def apply_state(hosted: HostedAgent, result: dict) -> None:
+    """Mirror Acenta's state: a box waiting for payment needs the owner on Acenta."""
+    if result.get("state") == "awaiting_payment" and result.get("launch_url"):
+        hosted.status = "setup"
+        hosted.setup_url = result["launch_url"]
+    else:
+        hosted.status = "active"
+        hosted.setup_url = None
 
 
 def _terminate(hosted: HostedAgent) -> None:
