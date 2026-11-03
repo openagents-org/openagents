@@ -16,7 +16,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
 }) }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, isMobile: false }) }));
-vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
+vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => React.createElement('header', null, 'Connect Agent title bar') }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => null }));
@@ -36,7 +36,7 @@ vi.mock('@/components/agents/agent-setup', () => ({
     React.createElement('button', { onClick: onBack }, 'Back to devices'),
   ),
 }));
-vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: () => React.createElement('h1', null, 'Connect your agents to your workspace') }));
+vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: ({ onSetup }: { onSetup?: () => void }) => React.createElement('section', null, React.createElement('h1', null, 'Connect your agents to your workspace'), React.createElement('button', { onClick: onSetup }, 'Banner setup')) }));
 vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing }: { pairing: { code: string } }) => React.createElement('div', { 'data-testid': 'guided-pairing' }, pairing.code) }));
 let root: Root;
 let container: HTMLDivElement;
@@ -197,4 +197,20 @@ it('keeps the phone setup email action available in the shared tabbed setup', as
   await act(async () => button('onboarding.setupEmailCta').click());
   expect(api.sendSetupEmail).toHaveBeenCalledWith('test-id-token', 'test-workspace');
   expect(container.querySelector('[role="status"]')?.textContent).toContain('onboarding.setupEmailSent');
+});
+
+
+it('places the banner above both connection tabs without the redundant title bar', async () => {
+  fixture.needsFirstDevice = true;
+  await render([]);
+  const heading = container.querySelector('h1')!;
+  const tabs = container.querySelector('[role="group"][aria-label="connect.title"]')!;
+  expect(heading.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(container.querySelector('header')).toBeNull();
+  await act(async () => button('connect.tabCloud').click());
+  expect(container.querySelector('h1')).not.toBeNull();
+  expect(button('connect.tabNode')).toBeDefined();
+  await act(async () => button('Banner setup').click());
+  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
 });

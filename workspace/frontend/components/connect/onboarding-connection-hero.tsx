@@ -4,11 +4,17 @@ import { ArrowLeft, ArrowRight, PlusSquare } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 
 /** A slim illustrated banner above the setup form. */
-export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceName: string; onBack?: () => void }) {
+export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { workspaceName: string; onBack?: () => void; onSetup?: () => void }) {
   const t = useT();
   const openSetup = () => {
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.getElementById('onboarding-device-setup')?.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
+    onSetup?.();
+    const scroll = () => {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      document.getElementById('onboarding-device-setup')?.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
+    };
+    // Switching from Cloud Agents mounts the local setup before the next frame.
+    if (document.getElementById('onboarding-device-setup')) scroll();
+    else window.requestAnimationFrame(scroll);
   };
   return (
     <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[#dce6f6] bg-[#f3f7ff] px-6 pb-7 pt-10 text-[#262626] sm:px-10" aria-labelledby="onboarding-connection-title">
