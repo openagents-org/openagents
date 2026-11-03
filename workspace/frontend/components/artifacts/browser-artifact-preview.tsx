@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Globe, Loader2, RotateCcw } from 'lucide-react';
+import { Globe, Loader2, RotateCcw, ExternalLink } from 'lucide-react';
 import { BrowserView } from '@/components/browser/browser-view';
 import { Button } from '@/components/ui/button';
 import { workspaceApi } from '@/lib/api';
@@ -35,7 +35,14 @@ function LinkedBrowserPreview({ liveUrl }: { liveUrl: string }) {
   }, [liveUrl, active?.id, workspace?.workspaceId]);
   if (active || closed) return <SavedBrowserPreview key={(active || closed)!.id} tabId={(active || closed)!.id} />;
   if (checking) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin" /></div>;
-  return <iframe src={`${liveUrl}?embed=1`} title={t('threadLiveBrowser.shared')} referrerPolicy="no-referrer" className="h-full w-full border-0" allow="clipboard-read; clipboard-write" />;
+  return <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center">
+    <Globe className="size-6 text-muted-foreground" />
+    <h3 className="text-sm font-semibold">{t('artifactPanel.unlinkedBrowser')}</h3>
+    <p className="text-sm text-muted-foreground">{t('artifactPanel.unlinkedBrowserHint')}</p>
+    <a href={liveUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm underline">
+      {t('artifactPanel.openOriginalBrowserLink')}<ExternalLink className="size-3.5" />
+    </a>
+  </div>;
 }
 
 function SavedBrowserPreview({ tabId }: { tabId: string }) {
@@ -49,7 +56,7 @@ function SavedBrowserPreview({ tabId }: { tabId: string }) {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([workspaceApi.getBrowserTab(tabId), refreshBrowserTabs()])
+    void Promise.all([workspaceApi.getBrowserTab(tabId), refreshBrowserTabs().catch(() => {})])
       .then(([tab]) => { if (active) setSaved(tab); })
       .catch(() => {})
       .finally(() => { if (active) setLoading(false); });

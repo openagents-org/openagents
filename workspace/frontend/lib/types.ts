@@ -83,7 +83,8 @@ export interface NodeAgent {
 /** Last smoke-test result the daemon reported for an agent type: one tiny
  * end-to-end "hi" prompt, with classified guidance when it failed. */
 export interface NodeProbe {
-  ok: boolean;
+  /** null: the sign-in could not be checked ahead of a real run (not a failure). */
+  ok: boolean | null;
   at: string;
   code?: string | null;
   method?: string | null;
@@ -1517,6 +1518,8 @@ export interface WorkspaceIssue {
   created_at: string;
   updated_at: string;
   comment_count?: number;
+  /** The viewer opened this issue or is a workspace admin. */
+  can_delete?: boolean;
 }
 export interface IssueComment {
   reply_channel_name?: string | null;

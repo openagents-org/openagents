@@ -34,9 +34,9 @@ export function WorkspaceRevokedNotice({
         return (
           <div
             key={n.workspaceId}
-            className="flex flex-wrap items-center gap-3 rounded-lg border border-(--warning-border) bg-(--warning-bg) px-4 py-3"
+            className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3"
           >
-            <Unplug className="size-4 shrink-0 text-(--warning-text)" />
+            <Unplug className="size-4 shrink-0 text-(--warning)" />
             <div className="min-w-50 flex-1">
               <div className="text-sm font-medium">
                 {t("workspaces.revokedNotice.title", {

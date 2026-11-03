@@ -19,17 +19,6 @@ export function entryStatus(
   return hasUpdate ? "update" : "installed"
 }
 
-/** Badge tone per status — kept next to the status so the two never drift. */
-export const STATUS_VARIANT: Record<
-  EntryStatus,
-  "success" | "warning" | "muted"
-> = {
-  installed: "success",
-  update: "warning",
-  available: "muted",
-  comingSoon: "muted",
-}
-
 /**
  * The agent's blurb, translated. The core ships English only — and for some
  * agents ships nothing at all — so every catalog surface has to go through the

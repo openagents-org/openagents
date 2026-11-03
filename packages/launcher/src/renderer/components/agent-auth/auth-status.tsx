@@ -31,8 +31,8 @@ export function AuthStatusBanner({
       (authInfo.authMode && authLabels[authInfo.authMode]) ||
       t("agents.configureDialog.authReadyGeneric")
     return (
-      <div className="flex items-center gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-(--success-text)">
-        <CheckCircle2 className="w-4 h-4 shrink-0" strokeWidth={2} />
+      <div className="flex items-center gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-foreground">
+        <CheckCircle2 className="w-4 h-4 shrink-0 text-(--success)" strokeWidth={2} />
         <span>
           {t("agents.configureDialog.authReadyPrefix")} {detected}
         </span>
@@ -40,8 +40,8 @@ export function AuthStatusBanner({
     )
   }
   return (
-    <div className="flex items-start gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-(--warning-text)">
-      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={2} />
+    <div className="flex items-start gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-foreground">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-(--warning)" strokeWidth={2} />
       <span>
         {authInfo.message || t("agents.configureDialog.authNotReadyGeneric")}
       </span>
@@ -84,15 +84,15 @@ export function LoginStatusRow({
   }
   if (loggedIn) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-(--success-text)">
-        <CheckCircle2 className="size-3.5 shrink-0" strokeWidth={2} />
+      <div className="flex items-center gap-1.5 text-xs text-foreground">
+        <CheckCircle2 className="size-3.5 shrink-0 text-(--success)" strokeWidth={2} />
         <span>{t("agents.loginStatus.signedIn")}</span>
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-1.5 text-xs text-(--warning-text)">
-      <AlertTriangle className="size-3.5 shrink-0" strokeWidth={2} />
+    <div className="flex items-center gap-1.5 text-xs text-foreground">
+      <AlertTriangle className="size-3.5 shrink-0 text-(--warning)" strokeWidth={2} />
       <span>{t("agents.loginStatus.notSignedIn")}</span>
     </div>
   )
@@ -121,7 +121,7 @@ export function LoginStatusCard({
       ) : loggedIn ? (
         <>
           <CheckCircle2
-            className="w-5 h-5 shrink-0 text-(--success-text)"
+            className="w-5 h-5 shrink-0 text-(--success)"
             strokeWidth={2}
           />
           <strong className="text-sm">
@@ -131,7 +131,7 @@ export function LoginStatusCard({
       ) : (
         <>
           <AlertTriangle
-            className="w-5 h-5 shrink-0 text-(--warning-text)"
+            className="w-5 h-5 shrink-0 text-(--warning)"
             strokeWidth={2}
           />
           <strong className="text-sm">

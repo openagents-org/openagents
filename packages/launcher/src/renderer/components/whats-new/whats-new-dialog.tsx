@@ -1,6 +1,5 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Sparkles } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
 import {
@@ -41,21 +40,28 @@ export function WhatsNewDialog({
       {/* Wider than the default dialog: this one is a list of paragraphs, and
           at `lg` the English text wrapped to four or five lines per entry —
           the whole release read as a wall rather than as a handful of items. */}
-      <DialogContent className="sm:max-w-2xl">
+      {/* Opened by itself after an update, not by a click: focusing the button
+          on open drew its keyboard focus ring round it, the heaviest thing in
+          the dialog. Tab still lands on it. */}
+      <DialogContent className="sm:max-w-2xl" onOpenAutoFocus={(event) => event.preventDefault()}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-(--accent)" />
+          <DialogTitle>
             {newest
               ? t("whatsNew.title", { version: newest.version })
               : t("whatsNew.titleEmpty")}
           </DialogTitle>
-          {/* Fixed copy, not the release's own headline: this line explains
-              what the dialog is, and that does not change from version to
-              version. Each release's summary is the title on its entries. */}
-          <DialogDescription>{t("whatsNew.subtitle")}</DialogDescription>
+          {/* The release date rather than a line restating the title ("What's
+              new in v1.1.11" over "What changed in this version"). Several
+              releases stacked each carry their own date, so the line goes back
+              to saying what the dialog is. */}
+          <DialogDescription>
+            {newest && releases.length === 1
+              ? t("whatsNew.releasedOn", { date: newest.date })
+              : t("whatsNew.subtitle")}
+          </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="gap-6">
+        <DialogBody className="gap-6 py-5">
           {releases.length === 0 && (
             <p className="m-0 text-sm text-muted-foreground">
               {t("whatsNew.empty")}

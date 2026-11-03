@@ -100,6 +100,9 @@ function needsDoctorMigration(message) {
   return /requires[^\n]*\bmigration\b/i.test(text) && /openclaw doctor --fix/i.test(text);
 }
 
+/** OpenClaw's refusal to run embedded while a Gateway owns the state. */
+const GATEWAY_RUNNING = /A Gateway is running for this state directory/i;
+
 /** Budget for one `openclaw doctor --fix` run. */
 const DOCTOR_REPAIR_TIMEOUT_MS = 120000;
 
@@ -383,7 +386,7 @@ class OpenClawAdapter extends BaseAdapter {
    */
   async _runCliAgentWithMigration(userMessage, channel) {
     try {
-      return await this._runCliAgent(userMessage, channel);
+      return await this._runCliTurn(userMessage, channel);
     } catch (e) {
       // At most one repair per turn; a repair that failed is not retried on
       // every later message.
@@ -396,7 +399,23 @@ class OpenClawAdapter extends BaseAdapter {
         this._doctorRepairFailed = true;
         throw e;
       }
-      return this._runCliAgent(userMessage, channel);
+      return this._runCliTurn(userMessage, channel);
+    }
+  }
+
+  /**
+   * One turn, embedded (`--local`) by default. OpenClaw refuses an embedded
+   * run while the user's own Gateway serves the same state directory — "A
+   * Gateway is running for this state directory … Run without --local to use
+   * it" — and every message failed that way. Hand the turn to that Gateway.
+   */
+  async _runCliTurn(userMessage, channel) {
+    try {
+      return await this._runCliAgent(userMessage, channel);
+    } catch (e) {
+      if (!GATEWAY_RUNNING.test((e && e.message) || '')) throw e;
+      this._log('A Gateway is running for this OpenClaw state — retrying the turn through it');
+      return this._runCliAgent(userMessage, channel, { local: false });
     }
   }
 
@@ -471,7 +490,7 @@ class OpenClawAdapter extends BaseAdapter {
     return { spawnBin: binary, spawnArgs: args };
   }
 
-  _runCliAgent(userMessage, channel) {
+  _runCliAgent(userMessage, channel, { local = true } = {}) {
     return new Promise((resolve, reject) => {
       // Stopped while this turn was being prepared: start nothing (no tokens).
       if (this._stoppedBeforeStart(channel)) {
@@ -496,7 +515,7 @@ class OpenClawAdapter extends BaseAdapter {
 
       const args = [
         '--log-level', 'trace',
-        'agent', '--local',
+        'agent', ...(local ? ['--local'] : []),
         '--agent', this.openclawAgentId,
         '--session-id', sessionKey,
         '--message', userMessage,

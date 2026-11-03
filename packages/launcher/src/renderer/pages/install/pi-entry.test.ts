@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest"
 import BUNDLED_REGISTRY from "../../../../../agent-connector/registry.json"
 import EN_AGENT_META from "../../i18n/locales/en/agentMeta.json"
 import ZH_AGENT_META from "../../i18n/locales/zh/agentMeta.json"
-import { entryStatus, platformsOf, runtimeOf, STATUS_VARIANT } from "./entry-meta"
+import { entryStatus, platformsOf, runtimeOf } from "./entry-meta"
 import {
   parseNpmInstallCommand,
   resolveNpmPackage,
@@ -125,7 +125,6 @@ describe("Pi in the Install marketplace", () => {
   it("renders as a disabled 'coming soon' row while it is not a core agent", () => {
     const status = entryStatus(asComingSoon(), false)
     expect(status).toBe("comingSoon")
-    expect(STATUS_VARIANT[status]).toBe("muted")
   })
 
   it("becomes installable the moment it joins CORE_AGENTS", () => {

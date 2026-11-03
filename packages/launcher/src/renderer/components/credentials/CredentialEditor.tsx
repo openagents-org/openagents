@@ -201,7 +201,7 @@ export function CredentialEditor({
               className={cn(
                 "rounded-sm px-3 py-2 text-xs",
                 testResult.ok
-                  ? "bg-(--success-bg) text-(--success-text)"
+                  ? "bg-muted text-foreground"
                   : "bg-(--danger-bg) text-(--danger-text)",
               )}
             >

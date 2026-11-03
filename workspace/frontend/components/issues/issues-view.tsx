@@ -14,11 +14,13 @@ import {
   MessageSquare,
   Plus,
   Search,
+  Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { unreadIssueCounts } from '@/lib/signals';
-import { useT, useFormatters } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +37,8 @@ import {
   authorName,
   statuses,
   statusKeys,
+  useConfirmIssueDelete,
+  useIssueTime,
 } from './issue-ui';
 
 export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
@@ -51,7 +55,8 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const [showWork, setShowWork] = useState(initialWork);
   useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
   const t = useT();
-  const { timeAgo } = useFormatters();
+  const issueTime = useIssueTime();
+  const confirmDelete = useConfirmIssueDelete();
   const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
     initialWork || typeof window === 'undefined'
@@ -88,6 +93,22 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const [pages, setPages] = useState(1);
   const requestVersion = useRef(0);
   const reload = useCallback(() => setRevision((v) => v + 1), []);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const removeIssue = async (issue: WorkspaceIssue) => {
+    if (deleting || !(await confirmDelete(issue.title))) return;
+    setDeleting(issue.id);
+    try {
+      await workspaceApi.deleteIssue(issue.id);
+      // Drop a poll in flight: it may still list the issue.
+      ++requestVersion.current;
+      setIssues((current) => current.filter((i) => i.id !== issue.id));
+      reload();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -144,8 +165,17 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const row = (issue: WorkspaceIssue, asCard = false) => {
     const working = issue.linked_channels?.some(id => activeSessionIds?.has(id) || agents.some(agent => agent.status === 'online' && agent.busyChannels?.includes(id)));
     const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
-    return <button
-      key={issue.id}
+    const time = (
+      <time
+        dateTime={issue.updated_at}
+        title={t('issues.timestamps', { opened: issueTime.exact(issue.created_at), updated: issueTime.exact(issue.updated_at) })}
+      >
+        {issueTime.label(issue.updated_at)}
+      </time>
+    );
+    // Delete sits beside the card's button rather than inside it: buttons cannot nest.
+    return <div key={issue.id} className="relative">
+    <button
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
       onClick={() => selectIssue(issue.id)}
       className={cn(
@@ -179,7 +209,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </div>
           {!asCard && (
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-              {timeAgo(issue.updated_at)}
+              {time}
             </span>
           )}
         </div>
@@ -202,6 +232,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           className={cn(
             'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground',
             asCard ? 'mt-4' : 'mt-2',
+            issue.can_delete && 'pr-7',
           )}
         >
           <IssueAvatar
@@ -218,7 +249,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </span>}
           {asCard && (
             <span className="ml-auto shrink-0">
-              {timeAgo(issue.updated_at)}
+              {time}
             </span>
           )}
           {!!issue.comment_count && (
@@ -234,7 +265,23 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           )}
         </div>
       </div>
-    </button>;
+    </button>
+    {issue.can_delete && (
+      <button
+        type="button"
+        aria-label={t('issues.deleteIssue', { title: issue.title })}
+        title={t('common.delete')}
+        disabled={deleting === issue.id}
+        onClick={() => removeIssue(issue)}
+        className={cn(
+          'absolute bottom-[13px] flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+          asCard ? 'right-3' : 'right-4 sm:right-7',
+        )}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    )}
+    </div>;
   };
 
   if (selected)

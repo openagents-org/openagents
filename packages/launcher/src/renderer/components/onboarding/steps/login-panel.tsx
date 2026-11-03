@@ -54,28 +54,19 @@ export function LoginPanel({
     /^claude\b/.test(entry.loginCommand || "")
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-5",
-        loggedIn
-          ? "border-(--success-border) bg-(--success-bg)"
-          : cliInstalled === false
-            ? "border-(--warning-border) bg-(--warning-bg)"
-            : "border-(--border) bg-(--bg-card)",
-      )}
-    >
+    <div className="rounded-lg border border-(--border) bg-(--bg-card) p-5">
       <div className="flex items-center gap-2 text-base font-semibold">
         {loggedIn ? (
           <>
-            <Check className="size-4 shrink-0 text-(--success-text)" />
-            <span className="text-(--success-text)">
+            <Check className="size-4 shrink-0 text-(--success)" />
+            <span>
               {t("onboarding.flow.apiKey.detectedLogin")}
             </span>
           </>
         ) : cliInstalled === false ? (
           <>
-            <AlertTriangle className="size-4 shrink-0 text-(--warning-text)" />
-            <span className="text-(--warning-text)">
+            <AlertTriangle className="size-4 shrink-0 text-(--warning)" />
+            <span>
               {t("onboarding.flow.apiKey.notInstalledYet", { label })}
             </span>
           </>

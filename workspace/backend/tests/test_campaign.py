@@ -520,8 +520,10 @@ def test_gmail_dot_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gate
     assert campaign.ensure_account(db, alias) is None
 
 
-def test_first_alias_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
-    alias = _mk_user(db, "someone+work@outlook.com")
+def test_first_dotted_gmail_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
+    # Dots alone are still fine for the first account on an inbox. A "+tag"
+    # address no longer earns at all (decision 2026-11-02, see below).
+    alias = _mk_user(db, "some.one@gmail.com")
     assert campaign.mailbox_taken(db, alias) is False
     assert campaign.ensure_account(db, alias) is not None
 
@@ -635,3 +637,44 @@ def test_message_hook_only_scans_for_unearned_reward(db, campaign_on, gateway, m
     campaign.on_agent_message(str(ws.id), "openagents:codexbot")
     responding.assert_not_called()
     assert campaign.total_granted(db, user.id) == total
+
+
+# --- No credits for +tag addresses (decision 2026-11-02) ---------------------
+
+@pytest.mark.parametrize("email,expected", [
+    ("judgmentwet+benavides@gmail.com", True),
+    ("lays.gremlin-03+c706@icloud.com", True),
+    ("plain@gmail.com", False),
+    ("first.last@outlook.com", False),
+    ("weird@plus+domain.com", False),   # + in the domain is not a tag
+    ("no-at-sign+x", False),
+])
+def test_has_plus_tag(email, expected):
+    assert campaign.has_plus_tag(email) is expected
+
+
+def test_plus_address_gets_no_key_no_grants_and_no_campaign(db, campaign_on, gateway):
+    user = _mk_user(db, "monaf7276+carlin@gmail.com")   # verified, allowlisted domain, first on its inbox
+    assert campaign.mailbox_taken(db, user) is False
+    assert campaign.ineligible_reason(user) == "plus_address"
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, user) == {"enabled": False}
+    assert gateway == []
+
+
+def test_existing_key_on_plus_address_stays_visible_but_stops_earning(db, campaign_on, gateway):
+    user = _mk_user(db, "real.person+work@gmail.com")
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=9, api_key="sk-plus"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["apiKey"] == "sk-plus"
+    assert gateway == []
+
+
+def test_plain_address_still_earns_when_plus_rule_is_on(db, campaign_on, gateway):
+    user = _mk_user(db, "monaf7276@gmail.com")
+    assert campaign.ineligible_reason(user) is None
+    assert campaign.ensure_account(db, user) is not None

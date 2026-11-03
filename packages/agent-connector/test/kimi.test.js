@@ -462,6 +462,9 @@ describe('KimiAdapter idle watchdog', () => {
     // Windows can exceed half a second — a 500ms budget killed healthy runs
     // in CI. Alive scenarios stay busy longer than the budget so a watchdog
     // that ignored the journal would still be caught.
+    // Runs use the agent's private Kimi home; here that IS the fixture home
+    // whose sessions the watchdog watches.
+    adapter._kimiHome = () => home;
     adapter._watchdogIntervalMs = 100;
     adapter._watchdogMax = 20;
     adapter.logs = [];
@@ -575,3 +578,122 @@ function listen(server) {
 function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
+
+// Kimi Code reads MCP servers only from $KIMI_CODE_HOME/mcp.json, so each
+// agent runs with a private home that adds the workspace server and links the
+// user's `kimi login` back in — the user's ~/.kimi-code is never edited.
+describe('KimiAdapter workspace tools (private Kimi home)', () => {
+  const {
+    KIMI_MCP_SERVER_NAME, kimiHomeName, buildKimiMcpConfig, buildKimiWorkspaceEnv,
+  } = require('../src/adapters/kimi-stream');
+
+  function withHomes(fn) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-home-'));
+    const userHome = path.join(root, 'user-kimi');
+    const privateHome = path.join(root, 'private-kimi');
+    fs.mkdirSync(path.join(userHome, 'credentials'), { recursive: true });
+    fs.writeFileSync(path.join(userHome, 'credentials', 'kimi-code.json'), '{"refresh_token":"r"}');
+    fs.writeFileSync(path.join(userHome, 'config.toml'), 'default_model = "k"\n');
+    fs.writeFileSync(path.join(userHome, 'mcp.json'), JSON.stringify({ mcpServers: { mine: { command: 'my-server' } } }));
+    const adapter = makeAdapter({ KIMI_CODE_HOME: userHome });
+    adapter._kimiHome = () => privateHome;
+    adapter._log = () => {};
+    try { return fn({ adapter, userHome, privateHome }); } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+
+  it('names each agent its own home', () => {
+    assert.notEqual(kimiHomeName('ws', 'a'), kimiHomeName('ws', 'b'));
+    assert.match(kimiHomeName('WS 1', 'Kimi Bot'), /^ws-1_kimi-bot-[0-9a-f]{8}$/);
+  });
+
+  it('keeps the user\'s MCP servers and adds the workspace server', () => {
+    const cfg = buildKimiMcpConfig({ mcpServers: { mine: { command: 'x' }, [KIMI_MCP_SERVER_NAME]: { command: 'stale' } } }, { command: 'node' });
+    assert.deepEqual(Object.keys(cfg.mcpServers).sort(), ['mine', KIMI_MCP_SERVER_NAME].sort());
+    assert.equal(cfg.mcpServers[KIMI_MCP_SERVER_NAME].command, 'node');
+    assert.deepEqual(buildKimiMcpConfig('garbage', { command: 'node' }).mcpServers, { [KIMI_MCP_SERVER_NAME]: { command: 'node' } });
+  });
+
+  it('passes the run\'s workspace identity through the environment the MCP server reads', () => {
+    assert.deepEqual(
+      buildKimiWorkspaceEnv({ token: 't', workspaceId: 'w', channel: 'c', agentName: 'a', endpoint: 'https://e' }),
+      { OA_WORKSPACE_TOKEN: 't', OPENAGENTS_WORKSPACE_ID: 'w', OPENAGENTS_CHANNEL_NAME: 'c', OPENAGENTS_AGENT_NAME: 'a', OPENAGENTS_ENDPOINT: 'https://e' },
+    );
+  });
+
+  it('builds the private home: merged mcp.json with no secret in it, login linked back', () => withHomes(({ adapter, userHome, privateHome }) => {
+    assert.equal(adapter._prepareKimiHome(), privateHome);
+    const text = fs.readFileSync(path.join(privateHome, 'mcp.json'), 'utf-8');
+    assert.ok(!text.includes('token'), 'no token in mcp.json');
+    const cfg = JSON.parse(text);
+    assert.equal(cfg.mcpServers.mine.command, 'my-server');
+    const server = cfg.mcpServers[KIMI_MCP_SERVER_NAME];
+    assert.equal(server.command, process.execPath);
+    assert.deepEqual(server.args.slice(1), ['mcp-server']);
+    // The credentials directory is linked, so a token refresh lands in the user's home.
+    fs.writeFileSync(path.join(privateHome, 'credentials', 'kimi-code.json'), '{"refresh_token":"rotated"}');
+    assert.match(fs.readFileSync(path.join(userHome, 'credentials', 'kimi-code.json'), 'utf-8'), /rotated/);
+    assert.match(fs.readFileSync(path.join(privateHome, 'config.toml'), 'utf-8'), /default_model/);
+    // Idempotent: a second run reuses the links.
+    assert.equal(adapter._prepareKimiHome(), privateHome);
+  }));
+
+  it('passes disabled modules on to the MCP server', () => withHomes(({ adapter, privateHome }) => {
+    adapter.disabledModules = new Set(['browser', 'files']);
+    adapter._prepareKimiHome();
+    const args = JSON.parse(fs.readFileSync(path.join(privateHome, 'mcp.json'), 'utf-8')).mcpServers[KIMI_MCP_SERVER_NAME].args;
+    assert.ok(args.includes('--disable-browser') && args.includes('--disable-files'));
+  }));
+
+  it('spawns kimi with the private home and the workspace environment', () => withHomes(async ({ adapter, privateHome }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-envdump-'));
+    const dump = path.join(dir, 'env.json');
+    const bin = path.join(dir, 'fake-kimi.js');
+    fs.writeFileSync(bin, `require('fs').writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env));
+process.stdout.write(JSON.stringify({ role: 'assistant', content: 'ok' }) + '\\n');`);
+    adapter.sendThinking = async () => {};
+    adapter.sendStatus = async () => {};
+    try {
+      const result = await adapter._runKimi('thread-9', bin, ['-p', 'hi', '--output-format', 'stream-json'], dir);
+      assert.equal(result.ok, true);
+      const env = JSON.parse(fs.readFileSync(dump, 'utf-8'));
+      assert.equal(env.KIMI_CODE_HOME, privateHome);
+      assert.equal(env.OA_WORKSPACE_TOKEN, 'token');
+      assert.equal(env.OPENAGENTS_CHANNEL_NAME, 'thread-9');
+      assert.equal(env.OPENAGENTS_AGENT_NAME, 'kimi-bot');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }));
+
+  it('tells kimi about the workspace tools only when they are ready', () => {
+    const adapter = makeAdapter({});
+    adapter._workspaceToolsReady = true;
+    assert.match(adapter._contextHeader('c'), /workspace_\*/);
+    assert.match(adapter._contextHeader('c'), /never look for/);
+    adapter._workspaceToolsReady = false;
+    assert.doesNotMatch(adapter._contextHeader('c'), /workspace_\*/);
+  });
+});
+
+describe('KimiAdapter reply posting', () => {
+  it('posts intermediate text as thinking and the final text only once, as the reply', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-post-'));
+    const bin = path.join(dir, 'fake-kimi.js');
+    const line = (m) => `process.stdout.write(${JSON.stringify(JSON.stringify(m))} + '\\n');`;
+    fs.writeFileSync(bin, [
+      line({ role: 'assistant', content: 'Let me look.', tool_calls: [{ type: 'function', id: 't1', function: { name: 'Bash', arguments: '{"command":"ls"}' } }] }),
+      line({ role: 'tool', tool_call_id: 't1', content: 'a.txt' }),
+      line({ role: 'assistant', content: 'Thinking more.' }),
+      line({ role: 'assistant', content: 'Final answer.' }),
+    ].join('\n'));
+    const adapter = makeAdapter({});
+    adapter._kimiHome = () => path.join(dir, 'home');
+    adapter._log = () => {};
+    const thoughts = [];
+    adapter.sendThinking = async (_c, t) => { thoughts.push(t); };
+    adapter.sendStatus = async () => {};
+    try {
+      const result = await adapter._runKimi('thread', bin, ['-p', 'hi', '--output-format', 'stream-json'], dir);
+      assert.equal(result.finalText, 'Final answer.');
+      assert.deepEqual(thoughts, ['Let me look.', 'Thinking more.']);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});

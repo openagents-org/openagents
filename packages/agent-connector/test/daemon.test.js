@@ -1938,3 +1938,46 @@ describe('Daemon._repairRuntime', () => {
     assert.equal(daemon._runtimeRepairs.size, 0);
   });
 });
+
+describe('Daemon — probe sweep for agents whose setup is unfinished', () => {
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+
+  function setup(probes) {
+    const config = new Config(tmpDir);
+    for (const name of Object.keys(probes)) config.addAgent({ name, type: name.split('-')[0] });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._probes = probes;
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); return null; };
+    daemon._nodeHeartbeat = () => {};
+    return { daemon, probed };
+  }
+
+  it('re-runs a finished setup hourly but an unfinished one only daily', async () => {
+    const { daemon, probed } = setup({
+      'claude-broken': { code: 'invalid_api_key', at: hoursAgo(2) },
+      'claude-nologin': { code: 'not_logged_in', at: hoursAgo(2) },
+      'openclaw-nokey': { code: 'not_ready', at: hoursAgo(25) },
+    });
+    await daemon._probeConfiguredAgents(3600 * 1000);
+    assert.deepEqual(probed, ['claude-broken', 'openclaw-nokey']);
+  });
+
+  it('re-runs an unfinished agent as soon as its type is detected signed in', async () => {
+    const { daemon, probed } = setup({
+      'claude-nologin': { code: 'not_logged_in', at: hoursAgo(1) },
+      'claude-fine': { code: 'ok', at: hoursAgo(1) },
+      'codex-nologin': { code: 'not_logged_in', at: hoursAgo(1) },
+    });
+    daemon._runtimes = [
+      { type: 'claude', installed: true, ready: true },
+      { type: 'codex', installed: true, ready: false },
+    ];
+    daemon._probeNewlyReady(new Map([
+      ['claude', { type: 'claude', installed: true, ready: false }],
+      ['codex', { type: 'codex', installed: true, ready: false }],
+    ]));
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(probed, ['claude-nologin']);
+  });
+});

@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
 
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
@@ -36,6 +37,8 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
+  const onboarding = useOnboardingSurface();
+  const dismissOnboarding = useDismissOnboarding();
   const { agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
   const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
@@ -99,9 +102,9 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
+                isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
                 onClick={() => {
-                  if (item.mode === 'threads') setThreadFilter('all');
+                  if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); }
                   openView(item.mode);
                   onNavigate?.();
                 }}

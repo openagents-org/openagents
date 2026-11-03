@@ -68,7 +68,7 @@ describe('unpinnedPackage', () => {
     assert.equal(unpinnedPackage('@openai/codex'), '@openai/codex');
     assert.equal(unpinnedPackage('@openai/codex@latest'), '@openai/codex');
     assert.equal(unpinnedPackage('opencode-ai@1.17.11'), null);
-    assert.equal(unpinnedPackage('@deepseek-ai/dsh@0.2.1-rc.2'), null);
+    assert.equal(unpinnedPackage('@deepseek-ai/dsh@0.2.1-rc.5'), null);
   });
 });
 

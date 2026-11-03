@@ -24,6 +24,8 @@ import { useUpdateTarget } from "./use-update-target"
 interface Props {
   entry: CatalogEntry
   onBack: () => void
+  /** The back button's words; the marketplace by default. */
+  backLabel?: string
   onAfterInstall: (entry: CatalogEntry) => void
   /** Open the setup form on this type: the one way an agent is created. */
   onAddAgent: (entry: CatalogEntry) => void
@@ -38,6 +40,7 @@ interface Props {
 export default function AgentDetail({
   entry,
   onBack,
+  backLabel,
   onAfterInstall,
   onAddAgent,
   showToast,
@@ -92,7 +95,7 @@ export default function AgentDetail({
       <div className="mx-auto w-full max-w-7xl shrink-0 px-9 pt-5">
         <Button size="sm" variant="ghost" className="mb-3 -ml-2" onClick={onBack}>
           <ArrowLeft />
-          {t("agents.detail.back")}
+          {backLabel ?? t("agents.detail.back")}
         </Button>
 
         <DetailHeader

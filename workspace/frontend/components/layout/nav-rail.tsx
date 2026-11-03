@@ -1,5 +1,7 @@
 'use client';
-import { FirstDeviceHint, SETUP_STEP_BUTTON } from './first-device-hint';
+import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
+import { FirstDeviceHint } from './first-device-hint';
+import { ConnectAgentButton } from './connect-agent-button';
 import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import { MoreAgents } from './more-agents';
 import { AgentSectionLabel } from './agent-section-label';
@@ -9,7 +11,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import {
   BookOpen, Bot, CircleDot, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
-  Inbox, KanbanSquare, MessageSquare, Settings, PlusSquare, Sparkles, Users, Waypoints,
+  Inbox, KanbanSquare, MessageSquare, Settings, Sparkles, Users, Waypoints,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -263,10 +265,12 @@ export function NavRail() {
     { mode: 'agents', label: t('collab.viewAgents'), icon: <Bot /> },
   ];
 
-  const isConnectActive = viewMode === 'connect';
+  const onboarding = useOnboardingSurface();
+  const dismissOnboarding = useDismissOnboarding();
+  const isConnectActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
-  const connectLabel = setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = onboarding || setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -351,8 +355,8 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
-                    onClick={() => { if (item.mode === 'threads') setThreadFilter('all'); openView(item.mode); }}
+                    isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
+                    onClick={() => { if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); } openView(item.mode); }}
                   >
                     {item.icon}
                     {showLabels && <span className="truncate">{item.label}</span>}
@@ -467,22 +471,12 @@ export function NavRail() {
         {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(
-                !showLabels && 'justify-center!',
-                showFirstDeviceHint && SETUP_STEP_BUTTON,
-                !hasAgents && !showFirstDeviceHint &&
-                  !isConnectActive &&
-                  'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
-              )}
-              aria-label={connectLabel}
-              tooltip={{ children: connectLabel, hidden: showLabels }}
-              isActive={isConnectActive}
+            <ConnectAgentButton
+              label={connectLabel}
+              active={isConnectActive}
+              showLabels={showLabels}
               onClick={() => openView('connect')}
-            >
-              <PlusSquare />
-              {showLabels && <span className="truncate">{connectLabel}</span>}
-            </SidebarMenuButton>
+            />
           </SidebarMenuItem>
         </SidebarMenu>
 

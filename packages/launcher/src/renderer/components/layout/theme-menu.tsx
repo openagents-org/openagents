@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu"
 import { Button } from "@renderer/components/ui/button"
+import { HeaderTooltip } from "./header-tooltip"
 import { useThemeStore, type ThemeMode } from "@renderer/store/theme"
 
 const THEME_MODES = [
@@ -20,8 +21,8 @@ const THEME_MODES = [
 ] as const
 
 /**
- * The status footer's quick theme switch. Everything else about appearance — skin,
- * accent, scale — lives in Settings → Appearance.
+ * The header's quick theme switch. Everything else about appearance — scale,
+ * motion, contrast — lives in Settings → Appearance.
  */
 export function ThemeMenu(): React.JSX.Element {
   const { t } = useTranslation()
@@ -34,12 +35,14 @@ export function ThemeMenu(): React.JSX.Element {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={label} title={label} data-testid="theme-menu">
-          <Icon className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-40">
+      <HeaderTooltip label={label}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label={label} data-testid="theme-menu">
+            <Icon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </HeaderTooltip>
+      <DropdownMenuContent align="end" side="bottom" className="w-40">
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(v) => setMode(v as ThemeMode)}

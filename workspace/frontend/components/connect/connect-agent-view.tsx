@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle, Mail } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -16,13 +16,17 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { SetupEmailButton } from './setup-email-button';
+import { ConnectionTabs } from './connection-tabs';
+import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getAccountProfile, updateAccountProfile, sendSetupEmail } from '@/lib/account-api';
+import { getAccountProfile, updateAccountProfile } from '@/lib/account-api';
 import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignConnectHint, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -111,11 +115,15 @@ export function ConnectAgentView({
   autoPair = false,
   autoAddAgent = false,
   preferredNodeId,
+  footer,
+  onDismiss,
 }: {
   initialTab?: 'local' | 'cloud' | 'node';
   autoPair?: boolean;
   autoAddAgent?: boolean;
   preferredNodeId?: string;
+  footer?: React.ReactNode;
+  onDismiss?: () => void;
 } = {}) {
   const t = useT();
   const { openView } = useLayout();
@@ -143,6 +151,7 @@ export function ConnectAgentView({
   const [nodesLoaded, setNodesLoaded] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState(false);
 
   // Local agents
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -358,12 +367,14 @@ export function ConnectAgentView({
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
+    setPairingError(false);
     try {
       const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
       capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
+      setPairingError(true);
       const msg = err instanceof Error ? err.message : '';
       toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
     } finally {
@@ -371,30 +382,34 @@ export function ConnectAgentView({
     }
   };
 
-  // Guided onboarding: when asked to auto-pair, generate a code as soon as the
-  // node view is ready and there are no nodes yet — so the user lands straight
-  // on the pairing code instead of an empty state + a button. Fires once.
+  // First run and explicit reentry share the guided pairing surface. Generate
+  // a code only after a successful device read confirms an empty list. The
+  // pairing form replaces the empty-state detour on both entry points.
   const autoPairedRef = useRef(false);
   useEffect(() => {
-    if (!autoPair || autoPairedRef.current) return;
-    if (activeTab !== 'node' || loading || nodesLoading) return;
+    if (!(autoPair || workspace?.needsFirstDevice === true) || autoPairedRef.current) return;
+    if (activeTab !== 'node' || loading || nodesLoading || !nodesLoaded || nodesError) return;
     if (nodes.length > 0 || pairing || pairingLoading) return;
     autoPairedRef.current = true;
     handleGeneratePairingCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPair, activeTab, loading, nodesLoading, nodes.length, pairing, pairingLoading]);
+  }, [autoPair, workspace?.needsFirstDevice, activeTab, loading, nodesLoading, nodesLoaded, nodesError, nodes.length, pairing, pairingLoading]);
 
   const handleDismissPairing = () => {
     setPairing(null);
     loadNodes(true);
   };
 
+  const showFirstDeviceSetup = !isDesktop && nodesLoaded && !nodesError && nodes.length === 0 &&
+    (autoPair || workspace?.needsFirstDevice === true);
+  const close = onDismiss ?? (() => openView('threads'));
+
   return (
     <div className="flex flex-col h-full">
       {/* Header — title in the app header, actions in its toolbar */}
       <DetailHeader title={<h2 className="text-base font-semibold">{t('connect.title')}</h2>}>
         <button
-          onClick={() => openView('threads')}
+          onClick={close}
           className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
           title={t('common.close')}
         >
@@ -403,32 +418,7 @@ export function ConnectAgentView({
       </DetailHeader>
 
       {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <div className="px-6 pt-4 pb-2 shrink-0">
-        <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
-          {([
-            { id: 'node', icon: Server, label: t('connect.tabNode') },
-            { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
-          ] as const).map((tab) => {
-            const active = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setSelectedTab(tab.id)}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all',
-                  active
-                    ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className={cn('size-4', active && 'text-primary')} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>}
+      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
@@ -448,13 +438,35 @@ export function ConnectAgentView({
             <Loader2 className="size-4 animate-spin mr-2" />
             <span className="text-xs">{t('common.loading')}</span>
           </div>
+        ) : activeTab === 'node' && showFirstDeviceSetup ? (
+          <>
+            <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} />
+            <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
+              {pairing ? (
+                <OnboardingPairingPanel pairing={pairing} onDismiss={close} />
+              ) : pairingError ? (
+                <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
+                  <Button variant="outline" className="mt-4" onClick={handleGeneratePairingCode} disabled={pairingLoading}>
+                    {t('common.retry')}
+                  </Button>
+                </div>
+              ) : (
+                <div role="status" className="flex items-center justify-center py-14 text-muted-foreground">
+                  <Loader2 className="mr-2 size-5 animate-spin" />{t('connect.nodeGenerating')}
+                </div>
+              )}
+              <SetupEmailButton />
+              {footer}
+            </div>
+          </>
         ) : activeTab === 'node' ? (
           <NodesTab
             nodes={labeledNodes}
             catalog={catalog}
             catalogState={catalogState}
             cloudProviders={cloudProviders}
-            autoAddAgent={autoAddAgent}
+            autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
@@ -512,16 +524,6 @@ function deviceIcon(deviceType: string, className?: string) {
     case 'laptop': return <Laptop className={className} />;
     case 'desktop': return <Monitor className={className} />;
     default: return <HardDrive className={className} />;
-  }
-}
-
-/** A colored gradient tile per device type — gives each node card visual identity. */
-function deviceTile(deviceType: string) {
-  switch (deviceType) {
-    case 'server': return 'bg-gradient-to-br from-blue-500 to-indigo-600';
-    case 'laptop': return 'bg-gradient-to-br from-violet-500 to-purple-600';
-    case 'desktop': return 'bg-gradient-to-br from-emerald-500 to-teal-600';
-    default: return 'bg-gradient-to-br from-zinc-500 to-zinc-700';
   }
 }
 
@@ -705,7 +707,7 @@ function PairingPanel({
               'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
               expired
                 ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
+                : 'border-border bg-muted/30 hover:bg-muted/60',
             )}
             title={t('connect.nodeCopyCode')}
           >
@@ -1014,7 +1016,7 @@ function NodeCard({
           aria-controls={`device-agents-${node.nodeId}`}
           className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
-          <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
+          <div className="size-12 shrink-0 flex items-center justify-center rounded-xl border bg-muted text-foreground">
             {deviceIcon(node.deviceType, 'size-6')}
           </div>
           <div className="flex-1 min-w-0">
@@ -1597,8 +1599,8 @@ function NodesTab({
         </div>
       ) : nodes.length === 0 ? (
         <div className="rounded-2xl border border-dashed py-14 px-6 text-center">
-          <div className="size-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-            <Server className="size-8 text-white" />
+          <div className="size-16 mx-auto rounded-xl border bg-muted flex items-center justify-center">
+            <Server className="size-8 text-muted-foreground" />
           </div>
           <div className="text-base font-semibold mt-5">{t('connect.nodeEmptyTitle')}</div>
           <p className="text-xs text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
@@ -2341,7 +2343,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
   const t = useT();
   const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
-  const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
   const [welcomeDone, setWelcomeDone] = useState(
     () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
   );
@@ -2376,9 +2377,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     setWelcomeDone(true);
   }, [welcomeIdToken]);
 
-  // Escape hatches reuse the full connect view on the right tab.
-  if (alt && !isDesktop) return <ConnectAgentView initialTab={alt} />;
-
   // Value first: three pillar slides (hub → collaboration → humans+agents)
   // play full screen before any ask (download, pairing). Each slide animates
   // once and holds its closing frame; the user pages with prev/next, the last
@@ -2401,41 +2399,22 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     );
   }
 
-  return (
-    <NodeOnboardingStep
-      onDismiss={onDismiss}
-      footer={
-        <div className="pt-4 text-center space-y-2">
-          {/* Onboarding-only: replay the welcome slides (gone once agents exist,
-              since FirstRunOnboarding itself no longer renders then) */}
-          <div>
-            <button
-              onClick={() => {
-                capture('welcome_film_replayed', { source: 'guided_wizard' });
-                setWelcomeDone(false);
-              }}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
-            </button>
-          </div>
-          {!isDesktop && (
-            <>
-              <div>
-                <button
-                  onClick={() => setAlt('cloud')}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
-                </button>
-              </div>
-
-            </>
-          )}
-        </div>
-      }
-    />
+  const footer = (
+    <div className="pt-4 text-center">
+      <button
+        onClick={() => {
+          capture('welcome_film_replayed', { source: 'guided_wizard' });
+          setWelcomeDone(false);
+        }}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
+      </button>
+    </div>
   );
+  return isDesktop
+    ? <NodeOnboardingStep onDismiss={onDismiss} footer={footer} />
+    : <ConnectAgentView autoPair onDismiss={onDismiss} footer={footer} />;
 }
 
 /** Bottom progress indicator for the onboarding flow. */
@@ -2513,36 +2492,12 @@ function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; o
 
 function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { onBack?: () => void; footer?: React.ReactNode; requireNewNode?: boolean }) {
   const t = useT();
-  const isMobile = useIsMobile();
-  const { idToken: setupIdToken } = useOpenAgentsAuth();
   const { workspace } = useWorkspace();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectedNodeId, setConnectedNodeId] = useState<string>();
   const [errored, setErrored] = useState(false);
-  const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const baselineRef = useRef<Set<string>>(new Set());
-
-  // Phone users can't finish here — the launcher needs a computer, and the
-  // pairing code will be long expired by the time they're at one. Email them
-  // a link so "later, on my laptop" survives closing this tab.
-  const handleEmailSetupLink = async () => {
-    if (!setupIdToken || !workspace || emailState !== 'idle') return;
-    setEmailState('sending');
-    try {
-      const r = await sendSetupEmail(setupIdToken, workspace.slug);
-      if (r.emailSent) {
-        setEmailState('sent');
-        capture('setup_email_sent', { source: 'guided_wizard', is_mobile: true });
-      } else {
-        toast.error(t('onboarding.setupEmailFailed'));
-        setEmailState('idle');
-      }
-    } catch {
-      toast.error(t('onboarding.setupEmailFailed'));
-      setEmailState('idle');
-    }
-  };
 
   // On mount: snapshot existing nodes, then either jump to step 3 (a node is
   // already here) or mint a pairing code.
@@ -2604,26 +2559,12 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-            </button>
-          )}
+        <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-          <div className="text-center">
-            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-              <Server className="size-7 text-white" />
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
-          </div>
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
 
           {pairing ? (
-            <PairingPanel pairing={pairing} onDismiss={onBack ?? (() => {})} />
+            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}
@@ -2634,27 +2575,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </div>
           )}
 
-          {/* Phone primary CTA: the real "next step" on mobile is asynchronous —
-              email the setup link so it's waiting when they're at a computer. */}
-          {isMobile && setupIdToken && (
-            emailState === 'sent' ? (
-              <div className="flex items-center justify-center gap-2 rounded-xl border border-green-500/30 bg-green-500/[0.06] px-4 py-3.5 text-sm font-medium text-green-600 dark:text-green-500">
-                <Check className="size-4 shrink-0" />
-                {t('onboarding.setupEmailSent')}
-              </div>
-            ) : (
-              <button
-                onClick={handleEmailSetupLink}
-                disabled={emailState !== 'idle'}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.99] transition disabled:opacity-60"
-              >
-                {emailState === 'sending'
-                  ? <Loader2 className="size-4 animate-spin" />
-                  : <Mail className="size-4" />}
-                {emailState === 'sending' ? t('onboarding.setupEmailSending') : t('onboarding.setupEmailCta')}
-              </button>
-            )
-          )}
+          <SetupEmailButton />
 
           {footer}
         </div>

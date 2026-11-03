@@ -2,6 +2,7 @@
   "title": "v{{version}} 更新内容",
   "titleEmpty": "更新公告",
   "subtitle": "本版本的更新内容",
+  "releasedOn": "{{date}} 发布",
   "empty": "该版本暂无更新公告。",
   "done": "知道了",
   "types": {
