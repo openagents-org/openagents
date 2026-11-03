@@ -91,9 +91,12 @@ jobs:
       - name: Build launcher (from source)
         run: npm run build
 
-      # Answers "is the provider key still accepted?" up front, so an expired or
-      # exhausted gateway key reads as that instead of a six-minute "No agent
-      # reply". Prints only HTTP statuses, never the keys.
+      # Answers "does the provider still serve this key and model?" up front,
+      # with one tiny real request per provider (a listing endpoint often
+      # answers without checking the key), so an expired or exhausted gateway
+      # key reads as that instead of a six-minute "No agent reply". Prints only
+      # the HTTP status and the gateway's error message, never the keys.
+      # Models match the per-agent ones in e2e/respond.spec.ts.
       - name: Check provider keys
         shell: bash
         env:
@@ -104,16 +107,25 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.E2E_DEEPSEEK_API_KEY }}
           OPENAI_BASE: ${{ secrets.E2E_OPENAI_BASE }}
         run: |
-          check() { # name key url [header]
-            [ -z "$2" ] && { echo "$1: no key"; return; }
-            code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 -H "${4:-Authorization: Bearer $2}" "$3" || echo "000")
-            echo "$1: HTTP $code"
-            [ "$code" = 200 ] || echo "::warning::$1 key was not accepted by its gateway (HTTP $code)"
+          check() { # name key url body header...
+            local name=$1 key=$2 url=$3 body=$4; shift 4
+            [ -z "$key" ] && { echo "$name: no key"; return; }
+            local hdrs=(-H "Content-Type: application/json"); for h in "$@"; do hdrs+=(-H "$h"); done
+            local code; rm -f /tmp/preflight.json
+            code=$(curl -s -o /tmp/preflight.json -w '%{http_code}' -m 60 "${hdrs[@]}" -d "$body" "$url") || true
+            local msg
+            msg=$(node -e "try{const j=require('/tmp/preflight.json');const e=j.error||j;console.log(String(e.message||e.type||'').slice(0,200))}catch{console.log('')}")
+            echo "$name: HTTP $code ${msg}"
+            [ "$code" = 200 ] || echo "::warning::$name request was refused by its gateway (HTTP $code): ${msg}"
           }
-          check anthropic "$ANTHROPIC_KEY" "${ANTHROPIC_BASE%/}/v1/models" "x-api-key: $ANTHROPIC_KEY"
-          check codex "$CODEX_KEY" "${OPENAI_BASE%/}/models"
-          check gemini "$GEMINI_KEY" "${OPENAI_BASE%/}/models"
-          check deepseek "$DEEPSEEK_KEY" "${OPENAI_BASE%/}/models"
+          GW="${OPENAI_BASE%/}"
+          chat='{"model":"%s","max_tokens":5,"messages":[{"role":"user","content":"Say 4"}]}'
+          check anthropic "$ANTHROPIC_KEY" "${ANTHROPIC_BASE%/}/v1/messages" \
+            "$(printf "$chat" claude-sonnet-4-6)" "x-api-key: $ANTHROPIC_KEY" "anthropic-version: 2023-06-01"
+          check codex "$CODEX_KEY" "$GW/chat/completions" "$(printf "$chat" gpt-5-mini)" "Authorization: Bearer $CODEX_KEY"
+          check deepseek "$DEEPSEEK_KEY" "$GW/chat/completions" "$(printf "$chat" deepseek-v4-flash)" "Authorization: Bearer $DEEPSEEK_KEY"
+          check gemini "$GEMINI_KEY" "${GW%/v1}/v1beta/models/gemini-3.5-flash:generateContent" \
+            '{"contents":[{"parts":[{"text":"Say 4"}]}]}' "x-goog-api-key: $GEMINI_KEY"
 
       - name: Run E2E (${{ matrix.agent }})
         id: run
