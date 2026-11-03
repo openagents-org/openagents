@@ -51,3 +51,32 @@ it('restart already awaiting finalization cannot launch after daemon shutdown st
   await Promise.all([restarting, stopping]);
   assert.equal(created, 0, 'shutdown must fence every launch, including an earlier restart');
 });
+
+for (const wholeDaemon of [false, true]) {
+  it(`failed runtime repair cannot start an adapter after ${wholeDaemon ? 'daemon shutdown' : 'agent stop'}`, async t => {
+    const registry = require('../src/adapters'), original = registry.createAdapter;
+    const release = deferred();
+    t.after(() => { release.resolve(); registry.createAdapter = original; });
+    let started = 0;
+    registry.createAdapter = () => ({
+      preflight: () => ({ ok: false, repairable: true }),
+      run: async () => { started++; },
+      stop: async () => ({ ok: true }),
+      wasStopRequested: () => false,
+    });
+    const { d } = daemon(null);
+    const agent = { name: 'test', type: 'codex', network: 'w' };
+    Object.assign(d, { config: { configDir: require('node:os').tmpdir() },
+      _buildAgentEnv: () => ({}), _logAs() {},
+      _resolveAgentNetwork: () => ({ id: 'w', token: 'test' }),
+      _repairRuntime: async () => { await release.promise; throw new Error('repair failed'); },
+    });
+    d._launchAgent(agent);
+    const stopping = wholeDaemon ? d.stop() : d.stopAgent('test');
+    release.resolve();
+    await stopping;
+    assert.equal(started, 0, 'failed preparation must still honor terminal admission');
+    assert.equal(d._adapters.test == null, true);
+    assert.equal(d._processes.test.state, 'stopped');
+  });
+}

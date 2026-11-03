@@ -2043,6 +2043,10 @@ async _runNodeCommand(n, cmd) {
       this._log(`${name} preflight error (ignored, continuing): ${e.message}`, 'warn');
     }
 
+    // Repair can reject after a stop request. Its error fallback must obey
+    // the same terminal boundary as successful asynchronous preparation.
+    if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+
     // Store adapter reference for stop and duplicate detection
     this._adapters[name] = adapter;
 
