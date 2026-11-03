@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle, Mail } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -17,6 +17,7 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
@@ -25,7 +26,7 @@ import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getAccountProfile, updateAccountProfile, sendSetupEmail } from '@/lib/account-api';
+import { getAccountProfile, updateAccountProfile } from '@/lib/account-api';
 import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignConnectHint, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -454,6 +455,7 @@ export function ConnectAgentView({
                   <Loader2 className="mr-2 size-5 animate-spin" />{t('connect.nodeGenerating')}
                 </div>
               )}
+              <SetupEmailButton />
               {footer}
             </div>
           </>
@@ -2489,36 +2491,12 @@ function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; o
 
 function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { onBack?: () => void; footer?: React.ReactNode; requireNewNode?: boolean }) {
   const t = useT();
-  const isMobile = useIsMobile();
-  const { idToken: setupIdToken } = useOpenAgentsAuth();
   const { workspace } = useWorkspace();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectedNodeId, setConnectedNodeId] = useState<string>();
   const [errored, setErrored] = useState(false);
-  const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const baselineRef = useRef<Set<string>>(new Set());
-
-  // Phone users can't finish here — the launcher needs a computer, and the
-  // pairing code will be long expired by the time they're at one. Email them
-  // a link so "later, on my laptop" survives closing this tab.
-  const handleEmailSetupLink = async () => {
-    if (!setupIdToken || !workspace || emailState !== 'idle') return;
-    setEmailState('sending');
-    try {
-      const r = await sendSetupEmail(setupIdToken, workspace.slug);
-      if (r.emailSent) {
-        setEmailState('sent');
-        capture('setup_email_sent', { source: 'guided_wizard', is_mobile: true });
-      } else {
-        toast.error(t('onboarding.setupEmailFailed'));
-        setEmailState('idle');
-      }
-    } catch {
-      toast.error(t('onboarding.setupEmailFailed'));
-      setEmailState('idle');
-    }
-  };
 
   // On mount: snapshot existing nodes, then either jump to step 3 (a node is
   // already here) or mint a pairing code.
@@ -2596,27 +2574,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </div>
           )}
 
-          {/* Phone primary CTA: the real "next step" on mobile is asynchronous —
-              email the setup link so it's waiting when they're at a computer. */}
-          {isMobile && setupIdToken && (
-            emailState === 'sent' ? (
-              <div className="flex items-center justify-center gap-2 rounded-xl border border-green-500/30 bg-green-500/[0.06] px-4 py-3.5 text-sm font-medium text-green-600 dark:text-green-500">
-                <Check className="size-4 shrink-0" />
-                {t('onboarding.setupEmailSent')}
-              </div>
-            ) : (
-              <button
-                onClick={handleEmailSetupLink}
-                disabled={emailState !== 'idle'}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.99] transition disabled:opacity-60"
-              >
-                {emailState === 'sending'
-                  ? <Loader2 className="size-4 animate-spin" />
-                  : <Mail className="size-4" />}
-                {emailState === 'sending' ? t('onboarding.setupEmailSending') : t('onboarding.setupEmailCta')}
-              </button>
-            )
-          )}
+          <SetupEmailButton />
 
           {footer}
         </div>

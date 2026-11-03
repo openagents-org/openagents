@@ -7,20 +7,21 @@ import type { WorkspaceNode } from '@/lib/types';
 
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
-  listNodes: vi.fn(), createPairingCode: vi.fn(),
+  listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
-const fixture = vi.hoisted(() => ({ needsFirstDevice: false, openView: vi.fn() }));
+const fixture = vi.hoisted(() => ({ needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
+vi.mock('@/lib/account-api', () => ({ sendSetupEmail: api.sendSetupEmail }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  workspace: { workspaceId: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
+  workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
 }) }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
-vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: null }) }));
+vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => null }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({}) }));
-vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => fixture.mobile }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ timeAgo: () => 'now' }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -47,6 +48,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   fixture.needsFirstDevice = false;
+  fixture.mobile = false;
+  fixture.idToken = null;
+  api.sendSetupEmail.mockResolvedValue({ emailSent: true });
   api.createPairingCode.mockResolvedValue({ code: "TEST-CODE", expiresAt: "2099-01-01T00:00:00Z", expiresInSeconds: 1800 });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.getAgentCatalog.mockResolvedValue([]);
@@ -181,4 +185,16 @@ it('moves from first-device pairing into agent setup while keeping both tabs', a
   expect(container.querySelector('[aria-label="Agent gallery for new-device"]')).not.toBeNull();
   expect(button('connect.tabNode')).toBeDefined();
   expect(button('connect.tabCloud')).toBeDefined();
+});
+
+
+it('keeps the phone setup email action available in the shared tabbed setup', async () => {
+  fixture.needsFirstDevice = true;
+  fixture.mobile = true;
+  fixture.idToken = 'test-id-token';
+  await render([]);
+  expect(button('connect.tabCloud')).toBeDefined();
+  await act(async () => button('onboarding.setupEmailCta').click());
+  expect(api.sendSetupEmail).toHaveBeenCalledWith('test-id-token', 'test-workspace');
+  expect(container.querySelector('[role="status"]')?.textContent).toContain('onboarding.setupEmailSent');
 });
