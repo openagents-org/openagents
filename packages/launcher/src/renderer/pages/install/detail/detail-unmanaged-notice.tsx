@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { Check, Copy, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -100,12 +102,13 @@ function CommandBox({
   const [copied, setCopied] = useState(false)
 
   async function copy(): Promise<void> {
+    setCopied(false)
     try {
-      await navigator.clipboard.writeText(command)
+      await copyTextToClipboard(command)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch {
-      /* Clipboard denied — the command is on screen and selectable anyway. */
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
     }
   }
 

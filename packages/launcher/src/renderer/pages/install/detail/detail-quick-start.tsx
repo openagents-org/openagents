@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { Check, Copy } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -54,8 +55,9 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
   if (!prose && commands.length === 0) return null
 
   async function copy(cmd: string): Promise<void> {
+    setCopied(null)
     try {
-      await navigator.clipboard.writeText(cmd)
+      await copyTextToClipboard(cmd)
       setCopied(cmd)
       window.setTimeout(() => setCopied((c) => (c === cmd ? null : c)), 1500)
     } catch {

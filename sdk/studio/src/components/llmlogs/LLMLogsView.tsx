@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import React, { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
@@ -99,9 +100,14 @@ const LLMLogsView: React.FC = () => {
   }
 
   const handleCopy = async (text: string, logId: string) => {
-    await copyToClipboard(text)
-    setCopiedId(logId)
-    setTimeout(() => setCopiedId(null), 2000)
+    setCopiedId(null)
+    try {
+      await copyToClipboard(text)
+      setCopiedId(logId)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch {
+      toast.error('Failed to copy text to clipboard');
+    }
   }
 
   const formatTimestamp = (timestamp: number) => {

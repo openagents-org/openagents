@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useCallback, useEffect, useState } from 'react';
 import { Bot, Copy, Globe, Loader2, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -185,9 +187,13 @@ export default function IntegrationsSettingsPage() {
     }
   };
 
-  const copyEventsUrl = (url: string) => {
-    navigator.clipboard.writeText(url);
-    toast.success(t('admin.copied'));
+  const copyEventsUrl = async (url: string) => {
+    try {
+      await copyTextToClipboard(url);
+      toast.success(t('admin.copied'));
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   const agentPicker = (value: string, onChange: (v: string) => void) => (

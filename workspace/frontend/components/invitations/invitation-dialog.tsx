@@ -66,8 +66,9 @@ export function InvitationDialog() {
     }
   };
 
-  const handleCopyToken = (token: string) => {
-    copyToClipboard(token);
+  const handleCopyToken = async (token: string) => {
+    setCopiedToken(null);
+    if (!await copyToClipboard(token)) return;
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);
   };

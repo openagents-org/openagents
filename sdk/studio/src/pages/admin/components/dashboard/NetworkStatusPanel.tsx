@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@/utils/clipboard';
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/layout/ui/button";
@@ -57,18 +58,7 @@ const NetworkStatusPanel: React.FC<NetworkStatusPanelProps> = ({
   const handleCopyMcpUrl = async () => {
     const url = `https://network.openagents.org/${networkPublication.networkId}/mcp`;
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        const textArea = document.createElement("textarea");
-        textArea.value = url;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textArea);
-      }
+      await copyTextToClipboard(url);
       toast.success("MCP connector URL copied to clipboard");
     } catch (err) {
       toast.error("Failed to copy URL");

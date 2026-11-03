@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import {
   AlertTriangle,
@@ -150,10 +152,11 @@ function UrlRow({
   const [copied, setCopied] = useState(false)
 
   const copy = (): void => {
-    void navigator.clipboard.writeText(url).then(() => {
+    setCopied(false)
+    void copyTextToClipboard(url).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }).catch(() => showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error"))
   }
 
   return (

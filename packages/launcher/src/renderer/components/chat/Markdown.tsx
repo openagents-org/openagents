@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
@@ -160,11 +162,14 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.E
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
+    setCopied(false)
     try {
-      await navigator.clipboard.writeText(code)
+      await copyTextToClipboard(code)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {}
+    } catch {
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
+    }
   }
   return (
     <div className="relative my-2 rounded-(--radius) overflow-hidden border border-(--border) bg-[#1e1e2a]">

@@ -1,5 +1,9 @@
 'use client';
 
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { toast } from 'sonner';
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 /**
  * Settings → API credits — the campaign's home inside the workspace.
  *
@@ -31,14 +35,10 @@ const MISSION_LABEL_KEYS: Record<string, string> = {
 };
 
 function CopyBtn({ value, title }: { value: string; title: string }) {
-  const [copied, setCopied] = useState(false);
+  const { isCopied: copied, copyToClipboard } = useCopyToClipboard();
   return (
     <button
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
+      onClick={() => void copyToClipboard(value)}
       className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background transition-colors hover:bg-accent"
       title={title}
     >
@@ -105,10 +105,15 @@ export default function ApiCreditsSettingsPage() {
     }
   };
 
-  const copyModel = (id: string) => {
-    navigator.clipboard.writeText(id);
-    setCopiedModel(id);
-    setTimeout(() => setCopiedModel(null), 1500);
+  const copyModel = async (id: string) => {
+    setCopiedModel(null);
+    try {
+      await copyTextToClipboard(id);
+      setCopiedModel(id);
+      setTimeout(() => setCopiedModel(null), 1500);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   useEffect(() => {

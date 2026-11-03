@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Check, Copy, Eye, EyeOff, Link2, Pencil, Trash2 } from "lucide-react"
@@ -38,11 +40,14 @@ export function CredentialCard({
 
   const copySecret = async (): Promise<void> => {
     if (!revealed) return
+    setCopied(false)
     try {
-      await navigator.clipboard.writeText(revealed)
+      await copyTextToClipboard(revealed)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {}
+    } catch {
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
+    }
   }
 
   const lastTest = cred.lastTestedAt

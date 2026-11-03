@@ -1,3 +1,5 @@
+import { toast } from 'sonner';
+import { copyTextToClipboard } from '@/utils/clipboard';
 import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -12,10 +14,15 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   const { theme } = useThemeStore();
   const [copied, setCopied] = useState(false);
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyToClipboard = async () => {
+    setCopied(false);
+    try {
+      await copyTextToClipboard(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy text to clipboard');
+    }
   };
 
   // Map common language aliases to proper ones

@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@/utils/clipboard';
 import { create } from "zustand";
 import type { HttpEventConnector } from "@/services/eventConnector";
 import type { LLMLogEntry, LLMLogFilters, LLMLogStats } from "@/types/llmLogs";
@@ -378,26 +379,7 @@ export const useLLMLogStore = create<LLMLogState>((set, get) => ({
 
   collapseAll: () => set({ expandedLogIds: new Set() }),
 
-  copyToClipboard: async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (error) {
-      console.error("Failed to copy to clipboard:", error);
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      textArea.style.opacity = "0";
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand("copy");
-      } catch (err) {
-        console.error("Fallback copy failed:", err);
-      }
-      document.body.removeChild(textArea);
-    }
-  },
+  copyToClipboard: copyTextToClipboard,
 
   loadMockData: () => {
     const { agentId } = get();

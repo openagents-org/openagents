@@ -1,3 +1,5 @@
+import { showGlobalToast } from '@renderer/hooks/useToast';
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { AlertCircle, Check, Copy } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -33,12 +35,13 @@ export function AgentErrorDialog({
   const [copied, setCopied] = useState(false)
 
   const copy = async (): Promise<void> => {
+    setCopied(false)
     try {
-      await navigator.clipboard.writeText(message)
+      await copyTextToClipboard(message)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard can be denied; the text is selectable either way.
+      showGlobalToast(t("agents.quickStart.toast.copyFailed"), "error")
     }
   }
 

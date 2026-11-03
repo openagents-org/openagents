@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@renderer/lib/clipboard';
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Plus, RefreshCw } from "lucide-react"
@@ -97,7 +98,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const copyUrl = async (ws: Workspace): Promise<void> => {
     markUsed(ws.id)
     try {
-      await navigator.clipboard.writeText(workspaceUrl(ws))
+      await copyTextToClipboard(workspaceUrl(ws))
       showToast(t("workspaces.toast.urlCopied"), "success")
     } catch {
       showToast(t("workspaces.toast.copyFailed"), "error")

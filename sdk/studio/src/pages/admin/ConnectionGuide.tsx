@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from '@/utils/clipboard';
 import React, { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { useOpenAgents } from "@/context/OpenAgentsProvider"
@@ -176,19 +177,7 @@ const ConnectionGuide: React.FC = () => {
   // Copy to clipboard with fallback for HTTP
   const copyToClipboard = async (text: string, successMessage: string) => {
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text)
-      } else {
-        // Fallback for non-secure contexts (HTTP)
-        const textArea = document.createElement("textarea")
-        textArea.value = text
-        textArea.style.position = "fixed"
-        textArea.style.left = "-9999px"
-        document.body.appendChild(textArea)
-        textArea.select()
-        document.execCommand("copy")
-        document.body.removeChild(textArea)
-      }
+      await copyTextToClipboard(text);
       toast.success(successMessage)
     } catch (err) {
       toast.error(t("connectionGuide.copyFailed"))

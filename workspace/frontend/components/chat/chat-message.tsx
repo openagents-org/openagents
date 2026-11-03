@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { isWebProject, projectDisplayName } from '@/lib/web-projects';
 import { MessageArtifacts } from '@/components/artifacts/message-artifacts';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
@@ -190,8 +192,9 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
   const handleCopy = async () => {
+    setCopied(false);
     try {
-      await navigator.clipboard.writeText(message.content);
+      await copyTextToClipboard(message.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

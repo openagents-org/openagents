@@ -1,5 +1,7 @@
 'use client';
 
+import { copyTextToClipboard } from '@/lib/clipboard';
+
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
@@ -229,10 +231,15 @@ export function ConnectAgentView({
     }
   }, [cfgModel, selectedProviderInfo]);
 
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const handleCopyToken = async () => {
+    setTokenCopied(false);
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   const maskedToken = token.length > 16
@@ -540,10 +547,15 @@ function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
 function CommandRow({ command }: { command: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copy = async () => {
+    setCopied(false);
+    try {
+      await copyTextToClipboard(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
   return (
     <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
@@ -616,10 +628,15 @@ function PairingPanel({
   const expired = remaining <= 0;
   const minutes = Math.max(1, Math.ceil(remaining / 60));
 
-  const copyCode = () => {
-    navigator.clipboard.writeText(pairing.code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
+  const copyCode = async () => {
+    setCodeCopied(false);
+    try {
+      await copyTextToClipboard(pairing.code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      toast.error(t('chat.copyFailed'));
+    }
   };
 
   return (
