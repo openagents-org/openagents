@@ -127,6 +127,44 @@ describe('failureMessage', () => {
     assert.ok(msg.includes('Falling back'), msg);
   });
 
+  it('leaves out a dumped-object fragment that is mostly encoded', () => {
+    const res = {
+      code: 1,
+      timedOut: true,
+      stdout: '',
+      stderr: `warning: model metadata missing\n849-1.0.1.${'Qz3x'.repeat(4)}\\",md: '3P2K.${'Ab9_'.repeat(6)}.JdMRRLCtAU4vyOVXABHQclPCjjm5L9wR2.85P8rZZuqdP4zNv0t5HElFIRAXSdJgBc`,
+    };
+    assert.equal(failureMessage(res, CODE.TIMEOUT, 120000), 'Timed out after 120s: warning: model metadata missing');
+  });
+
+  it('keeps hex ids, paths and URLs', () => {
+    const line = 'HTTP 402: Insufficient Balance (request_id: e00c569f-0a07-4fe9-a1c2-57d73843a0d3) at https://api.deepseek.com/chat/completions';
+    assert.ok(failureMessage({ code: 1, stdout: '', stderr: line }, CODE.OUT_OF_CREDIT, 120000).includes('Insufficient Balance'));
+  });
+
+  it('names an unreachable host when Codex times out on one', () => {
+    const stderr = 'ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed: error sending request for url (https://chatgpt.com/backend-api/ps/mcp)")))';
+    const res = { code: 1, timedOut: true, stdout: '', stderr };
+    const code = classifyFailure(stderr, { timedOut: true });
+    assert.equal(code, CODE.NETWORK);
+    assert.ok(failureMessage(res, code, 120000).includes('chatgpt.com'));
+  });
+
+  it('reports the error line of a crash, not its stack frames', () => {
+    const stderr = [
+      'file:///C:/Users/a/.openagents/runtimes/codex/node_modules/@openai/codex/bin/codex.js:108',
+      'Error: Missing optional dependency @openai/codex-win32-x64. Reinstall Codex: npm install -g @openai/codex@latest',
+      ...Array.from({ length: 12 }, (_, i) => `    at file:///C:/Users/a/.openagents/runtimes/codex/node_modules/@openai/codex/bin/codex.js:${100 + i}:9`),
+    ].join('\n');
+    const msg = failureMessage({ code: 1, stdout: '', stderr }, CODE.CLI_ERROR, 120000);
+    assert.match(msg, /Missing optional dependency/);
+    assert.doesNotMatch(msg, /:105:9/);
+  });
+
+  it('reads a direct API test that ran out of time as the network', () => {
+    assert.equal(classifyFailure('Request to api.openai.com timed out after 15s'), CODE.NETWORK);
+  });
+
   it('says how it exited when the output was only a blob', () => {
     assert.equal(failureMessage({ code: 3, stdout: blob, stderr: '' }, CODE.CLI_ERROR, 120000), 'Exited with code 3');
   });

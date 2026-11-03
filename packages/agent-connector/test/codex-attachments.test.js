@@ -477,4 +477,16 @@ describe('Codex CLI mode — resuming a thread', () => {
     assert.deepStrictEqual(adapter.sent, [{ kind: 'response', channel: 'general', content: 'fresh answer' }]);
     assert.strictEqual(adapter._channelThreads.general, undefined, 'the dead thread id is dropped');
   });
+
+  it('keeps the thread and does not rerun when the service refused the run', async () => {
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [{ responseText: '', exitCode: 1, errorMessage: 'exceeded retry limit, last status: 429 Too Many Requests' }],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(adapter._channelThreads.general, 'thread-1');
+    assert.strictEqual(adapter.sent.length, 1);
+    assert.match(adapter.sent[0].content, /429 Too Many Requests/);
+  });
 });

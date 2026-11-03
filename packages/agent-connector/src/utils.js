@@ -37,7 +37,9 @@ function request(url, { method = 'POST', headers = {}, body = null, timeout = 15
       res.on('end', () => resolve({ status: res.statusCode, data }));
     });
     req.on('error', (e) => resolve({ error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ error: 'Request timed out' }); });
+    // Name the host and the deadline: a bare "Request timed out" on the
+    // device card did not say whether the provider or the network was slow.
+    req.on('timeout', () => { req.destroy(); resolve({ error: `Request to ${parsedUrl.host} timed out after ${Math.round(timeout / 1000)}s` }); });
     if (body) req.write(body);
     req.end();
   });

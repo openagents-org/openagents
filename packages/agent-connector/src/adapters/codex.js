@@ -465,7 +465,7 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
-        } else if (result.exitCode !== 0 && threadId && attempt === 0) {
+        } else if (result.exitCode !== 0 && threadId && attempt === 0 && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh
           this._log(`Stale thread detected for ${msgChannel}, clearing and retrying`);
           delete this._channelThreads[msgChannel];
@@ -741,6 +741,17 @@ class CodexAdapter extends BaseAdapter {
    */
   static _endedEarly({ exitCode, turnFailed } = {}) {
     return Boolean(turnFailed) || (exitCode !== 0 && exitCode !== undefined);
+  }
+
+  /**
+   * True when the model service turned the run away (rate limit, quota,
+   * credentials, network) — nothing to do with the thread being resumed. Such
+   * a run was read as a stale thread: the thread was dropped, losing the
+   * conversation, and the same refused request was sent a second time.
+   */
+  static _serviceRefused({ errorMessage, stderr } = {}) {
+    const text = `${errorMessage || ''}\n${stderr || ''}`;
+    return /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i.test(text);
   }
 
   /**
