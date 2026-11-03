@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, Loader2, X } from 'lucide-react';
+import { ArrowRight, Check, CircleHelp, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -80,7 +80,11 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
     }
   };
 
-  const failed = outcome.kind !== 'never' && outcome.probe.ok !== true;
+  // ok: null is "could not check" (a sign-in kept where the device cannot
+  // see it, e.g. Antigravity or Copilot outside Windows), not a failure: shown
+  // in red, people re-did a sign-in that was fine.
+  const unconfirmed = outcome.kind !== 'never' && outcome.probe.ok == null;
+  const failed = outcome.kind !== 'never' && outcome.probe.ok === false;
 
   return (
     <div className="rounded-xl border px-4 py-3 space-y-2">
@@ -95,6 +99,14 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
             <span className="text-amber-600 dark:text-amber-400">{t('connect.smokeTestTimedOut')}</span>
           ) : outcome.kind === 'never' ? (
             <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
+          ) : unconfirmed ? (
+            <span className="inline-flex items-center gap-1.5 min-w-0 text-amber-600 dark:text-amber-400">
+              <CircleHelp className="size-3 shrink-0" />
+              {t('connect.smokeTestUnconfirmed')}
+              <span className="text-muted-foreground truncate">
+                {t('connect.smokeTestAt', { time: new Date(outcome.probe.at).toLocaleString() })}
+              </span>
+            </span>
           ) : (
             <span className={cn(
               'inline-flex items-center gap-1.5 min-w-0',
@@ -117,8 +129,16 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
       {!testing && timedOut && (
         <p className="text-xs text-muted-foreground">{t('connect.smokeTestTimedOutHint')}</p>
       )}
-      {!testing && !timedOut && outcome.kind === 'static' && !failed && (
+      {!testing && !timedOut && outcome.kind === 'static' && !failed && !unconfirmed && (
         <p className="text-xs text-muted-foreground">{t('connect.smokeTestStaticHint')}</p>
+      )}
+      {!testing && !timedOut && unconfirmed && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">{t('connect.smokeTestUnconfirmedHint')}</p>
+          {outcome.probe.message && (
+            <p className="text-xs text-muted-foreground break-words">{outcome.probe.message}</p>
+          )}
+        </div>
       )}
       {!testing && !timedOut && outcome.kind !== 'never' && failed && (
         <div className="space-y-1.5">
