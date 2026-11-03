@@ -4,6 +4,8 @@
 //
 // Gated so a cell without the needed credentials skips cleanly (not fails):
 //   - needs E2E_WS_TOKEN / E2E_WS_SLUG (workspace)
+//   - fails, not skips, without E2E_USER_EMAIL / E2E_USER_PASSWORD: pairing a
+//     device needs a signed-in member, and a silent skip would read as green
 //   - needs the agent's provider key (LLM_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY)
 //   - login-only agents (cursor, hermes) have no GUI key field — deferred to an
 //     env-injection follow-up.
@@ -13,7 +15,9 @@ import { agentBySlug } from "./agents"
 import { openMarketplace } from "./marketplace"
 import {
   haveWorkspaceCreds,
+  haveMemberCreds,
   createPairingCode,
+  removeDevice,
   WS_SLUG,
   sendMessage,
   baselineCursor,
@@ -95,7 +99,18 @@ function injectionEnv(): Record<string, string> {
   return e
 }
 
+// The device this run paired, so it can be unpaired afterwards (see removeDevice).
+let pairedNodeId: string | null = null
+
 test.describe("launcher full flow", () => {
+  test.afterEach(async () => {
+    if (!pairedNodeId) return
+    await removeDevice(pairedNodeId).catch((e) =>
+      console.warn(`could not unpair E2E device ${pairedNodeId}: ${e}`),
+    )
+    pairedNodeId = null
+  })
+
   test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir, launcher }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     // cursor-agent has no custom base-URL support and authenticates only against
@@ -103,6 +118,10 @@ test.describe("launcher full flow", () => {
     // keys can't drive it, so its keyed flow stays install-smoke-only for now.
     test.skip(SLUG === "cursor", "cursor: needs a real cursor.com API key (no gateway support)")
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
+    expect(
+      haveMemberCreds(),
+      "E2E_USER_EMAIL / E2E_USER_PASSWORD not set — pairing a device needs a signed-in workspace member",
+    ).toBe(true)
     test.setTimeout(INSTALL_TIMEOUT + 13 * 60 * 1000)
 
     const runId = process.env.GITHUB_RUN_ID || String(Date.now())
@@ -210,8 +229,8 @@ test.describe("launcher full flow", () => {
     //    device holds no pairing for, and the agent's Connect dialog offers only
     //    the ones it does. Every test gets a fresh HOME, so nothing is paired —
     //    redeem a code first, through the same Workspaces page a user would use.
-    //    The code is minted at run time from the workspace token the reply
-    //    assertion already needs, so no human has to stage one per run.
+    //    The code is minted at run time by the signed-in test member, so no
+    //    human has to stage one per run.
     const pairingCode = await createPairingCode()
     await page.getByTestId("nav-workspaces").click()
     // Other pages can arrive here with the dialog already requested, so open it
@@ -241,14 +260,31 @@ test.describe("launcher full flow", () => {
         { timeout: 60_000, intervals: [2_000] },
       )
       .toContain(WS_SLUG)
+    pairedNodeId = await page.evaluate(async (slug) => {
+      const status = await (
+        window as unknown as {
+          api: {
+            getNodeStatus: () => Promise<{
+              workspaces?: Array<{ nodeId: string; workspaceSlug?: string | null }>
+            }>
+          }
+        }
+      ).api.getNodeStatus()
+      return (status.workspaces || []).find((w) => w.workspaceSlug === slug)?.nodeId ?? null
+    }, WS_SLUG)
 
     //    Now the instance, through the one setup form every agent is created
     //    with: the marketplace page of the type under test leads to it
     //    already on that type. The working directory is filled explicitly so
     //    Add never runs with an empty path.
     await openMarketplace(launcher.app)
-    await page.getByTestId(`agent-card-${SLUG}`).click()
-    await page.getByTestId("detail-add-agent").click()
+    // The marketplace reopens where it was left, which after the install is
+    // already this type's detail page; only the list needs the card clicked.
+    const addAgent = page.getByTestId("detail-add-agent")
+    const typeCard = page.getByTestId(`agent-card-${SLUG}`)
+    await expect(addAgent.or(typeCard).first()).toBeVisible({ timeout: 30_000 })
+    if (!(await addAgent.isVisible())) await typeCard.click()
+    await addAgent.click()
     await page.getByTestId("agent-setup-name").fill(name)
     await page.getByTestId("agent-setup-workdir").fill(homeDir)
 
@@ -344,6 +380,8 @@ test.describe("launcher full flow", () => {
     const wsOption = page.getByTestId(`ws-option-${WS_SLUG}`)
     await expect(wsOption).toBeVisible({ timeout: 60_000 })
     await wsOption.click()
+    // Picking only selects; the dialog joins on its Connect button.
+    await page.getByTestId("ws-connect-submit").click()
 
     // 5. Ensure the agent is running + connected. Connecting triggers a daemon
     //    reload that AUTO-STARTS the agent, so clicking Start on an already-
@@ -376,15 +414,25 @@ test.describe("launcher full flow", () => {
       // Redacted rather than attached as-is: daemon.yaml holds the instance env
       // verbatim, so the raw file would put the gateway key and the workspace
       // token into artifacts that outlive the run and get copied around. Only
-      // the values this test knows are secret are masked — everything else is
-      // left alone so the attachment stays diagnosable.
+      // secrets are masked — everything else is left alone so the attachment
+      // stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
       const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
         (v): v is string => !!v,
       )
+      // The known values are not the only secrets: pairing mints a per-device
+      // workspace token that daemon.yaml stores as `token:`, and an env may
+      // carry other keys. Mask those by shape too — artifacts of this public
+      // repo can be downloaded by anyone signed in to GitHub.
       const redact = (text: string): string =>
-        secrets.reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
+        secrets
+          .reduce((acc, v) => acc.split(v).join("***REDACTED***"), text)
+          .replace(/^(\s*token:\s*).+$/gm, "$1***REDACTED***")
+          .replace(
+            /("[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*"\s*:\s*)"[^"]*"/g,
+            '$1"***REDACTED***"',
+          )
       for (const rel of ["daemon.log", "daemon.status.json", "daemon.yaml"]) {
         const fp = p.join(homeDir, ".openagents", rel)
         if (fs.existsSync(fp)) {

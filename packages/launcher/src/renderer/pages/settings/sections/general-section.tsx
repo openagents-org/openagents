@@ -17,6 +17,7 @@ import {
   STARTUP_PAGE_LAST,
 } from "@renderer/hooks/useStartupPage"
 import { SettingsCard, Row } from "../components/settings-card"
+import { LocalConnectorCard } from "../components/local-connector-card"
 import type { SettingsValues, Update } from "../use-settings-state"
 
 interface Props {
@@ -30,6 +31,8 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
 
   return (
     <>
+      <LocalConnectorCard />
+
       <SettingsCard title={t("settings.general.startupGroup")}>
         <Row
           label={t("settings.general.startOnBoot")}

@@ -41,6 +41,9 @@
     "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
     "token": "Access token."
   },
+  "placeholders": {
+    "baseUrlOptional": "Optional — leave blank to use the default endpoint"
+  },
   "env": {
     "AIDER_MODEL": {
       "label": "Model",

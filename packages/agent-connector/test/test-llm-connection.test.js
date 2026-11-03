@@ -101,3 +101,31 @@ describe('testLLMConnection', () => {
     assert.equal(res.model, 'thinking-model');
   });
 });
+
+// A relay that drops the first connection and answers the next one.
+describe('testLLMConnection — a dropped connection', () => {
+  let server;
+  let base;
+  let hits = 0;
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      hits++;
+      if (hits === 1) { req.socket.destroy(); return; }
+      req.resume();
+      req.on('end', () => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ model: 'm', choices: [{ message: { content: 'Hello there, nice to meet' } }] }));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${server.address().port}/v1`;
+  });
+  after(() => new Promise((r) => server.close(r)));
+
+  it('is tried once more before the test fails', async () => {
+    const res = await testLLMConnection({ OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: base }, { model: 'm' });
+    assert.equal(res.success, true, res.error);
+    assert.equal(hits, 2);
+  });
+});

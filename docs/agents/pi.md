@@ -41,7 +41,7 @@ stdin line and answers with a `result` event; Pi speaks a request/response RPC:
 
 ```
 pi --mode rpc --session-dir <oa dir> --session-id <uuid> --no-approve \
-   [--provider …] [--model …] [--thinking …] --append-system-prompt <text> --name <agent/channel>
+   [--provider …] [--model …] [--thinking …] --append-system-prompt <text or session file> --name <agent/channel>
 ```
 
 - Commands go to **stdin** as JSONL, each with a unique `id`.
@@ -154,12 +154,14 @@ to start rather than failing every message.
 7. deep scan of every known bin dir (nvm / fnm / volta / Homebrew / …)
 
 On Windows a `.cmd` shim is **parsed** into `[node, entry.js]` rather than
-wrapped in `cmd.exe /c`: `cmd.exe`'s 8191-character command-line cap would
-truncate the long `--append-system-prompt` argument and hang the agent. Both
-npm shim dialects are handled — the modern `SET dp0=%~dp0` … `"%dp0%\…"` form
-and the older/hand-written `"%~dp0\…"` form. (The sibling Claude and Cline
-adapters recognise only the first; `parseWindowsCmdShim` in `pi-stream.js` is
-pure and covered by tests that run on every OS, not just Windows.)
+wrapped in `cmd.exe /c`, which keeps the launch off `cmd.exe`'s 8191-character
+command line. A prompt over 512 characters is a `0600` file under
+`~/.openagents/pi-sessions/<workspace>_<agent>/system-prompt-<uuid>.md`, and
+`--append-system-prompt` receives that path. Both npm shim dialects are
+handled — the modern `SET dp0=%~dp0` … `"%dp0%\…"` form and the
+older/hand-written `"%~dp0\…"` form. (The sibling Claude and Cline adapters
+recognise only the first; `parseWindowsCmdShim` in `pi-stream.js` is pure and
+covered by tests that run on every OS, not just Windows.)
 
 ---
 
@@ -330,11 +332,13 @@ agn connect my-pi <workspace-token>
   interpreted as a command.
 - The workspace system context is injected with **`--append-system-prompt`**,
   never `--system-prompt` (which would *replace* Pi's own coding prompt and
-  strip its tool instructions). It is built by `buildPiSystemPrompt()` in
-  `workspace-prompt.js` with `toolMode: 'skills'` — Pi reaches the workspace
-  REST API through its built-in `bash` tool and curl, exactly like the OpenCode
-  and Amp adapters. **Pi is not wired to MCP**; only the Claude adapter uses
-  `--mcp-config`.
+  strip its tool instructions). A prompt over 512 characters is a `0600` file
+  under `~/.openagents/pi-sessions/<workspace>_<agent>/system-prompt-<uuid>.md`;
+  the flag receives that path. Shorter prompts stay inline text. It is built by
+  `buildPiSystemPrompt()` in `workspace-prompt.js` with `toolMode: 'skills'` —
+  Pi reaches the workspace REST API through its built-in `bash` tool and curl,
+  exactly like the OpenCode and Amp adapters. **Pi is not wired to MCP**; only
+  the Claude adapter uses `--mcp-config`.
 - Plan mode (`this._mode === 'plan'`) is expressed in the system prompt. Because
   the prompt is fixed at spawn time, switching modes respawns the process — the
   session id is unchanged, so the conversation is preserved.
@@ -393,8 +397,12 @@ cancellation instead of writing into the void.
   `finalError`, `raw`, `title`) with the agent's exact secrets folded in, so a
   newly added event kind cannot forget it. Assistant message text is
   deliberately left intact — it is the model's reply to the user, and rewriting
-  it would corrupt code and command output. Logged argv elides the system
-  prompt (which embeds the workspace token) as `<N chars>`.
+  it would corrupt code and command output. `redactArgs` still elides the
+  `--append-system-prompt` value as `<N chars>`, including when that value is
+  the path of the `0600` session file
+  (`~/.openagents/pi-sessions/<workspace>_<agent>/system-prompt-<uuid>.md`)
+  that holds a longer prompt and the workspace token. The flag must not be
+  `--system-prompt`.
 - **`PI_SKIP_VERSION_CHECK=1`** is set for the child so a launcher-managed
   install does not phone home for update checks mid-session.
 - Pi has **no sandbox** and the built-in tools run with your user's permissions.

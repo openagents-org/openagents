@@ -1934,8 +1934,12 @@ class WorkspaceApi {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async deleteIssue(id: string): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'DELETE' });
   }
 
   async linkIssueThread(id: string, channelName: string): Promise<void> {
@@ -2337,7 +2341,7 @@ class WorkspaceApi {
   async listSignals(opts?: { limit?: number }): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
     const params = new URLSearchParams({
       network: this.workspaceId,
-      kinds: 'dm,mention',
+      kinds: 'dm,mention,issue',
       is_read: 'false',
       limit: String(opts?.limit ?? 100),
     });

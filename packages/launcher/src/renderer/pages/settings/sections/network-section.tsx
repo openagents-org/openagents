@@ -88,7 +88,7 @@ export function NetworkSection({
               <span
                 className={cn(
                   "text-2xs",
-                  test.ok ? "text-(--success-text)" : "text-destructive",
+                  test.ok ? "text-foreground" : "text-destructive",
                 )}
               >
                 {test.ok

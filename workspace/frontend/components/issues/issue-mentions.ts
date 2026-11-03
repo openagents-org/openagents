@@ -71,6 +71,13 @@ export function issueMentionOptions({
   );
 }
 
+/** Same exact-handle rule the server uses to route agent work; code and quotes are passive. */
+export function mentionsAgent(content: string, name: string): boolean {
+  const prose = content.replace(/```[\s\S]*?```|`[^`\n]*`|^>.*$/gm, '');
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w@])@${escaped}(?![\\w@-]|\\.[\\w-])`).test(prose);
+}
+
 export function mentionQuery(value: string, cursor: number) {
   // A fresh @ after whitespace/punctuation, never the @ inside an email.
   const match = /(?:^|[\s(])@([^\s@]*)$/.exec(value.slice(0, cursor));

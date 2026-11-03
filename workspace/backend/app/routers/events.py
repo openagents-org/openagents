@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json as _json
 import logging
+from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID
 
@@ -28,7 +29,7 @@ from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
 from app.services.read_state import stream_allows as read_state_stream_allows
-from app.services.poll_queries import event_type_filter, poll_generation, resume_cursor, stream_head
+from app.services.poll_queries import dm_generation, event_type_filter, poll_generation, resume_cursor, stream_head
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -38,6 +39,9 @@ router = APIRouter(prefix="/v1", tags=["Events"])
 
 POLL_CACHE_TTL_SECONDS = 1.5
 EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS = 10.0
+# DM writes change the key, so this only bounds memory and idle viewers'
+# recomputation (see poll_queries.dm_generation).
+CONVERSATION_PAIRS_CACHE_TTL_SECONDS = 600.0
 
 
 def _poll_cache_ttl(event_type, response):
@@ -820,7 +824,7 @@ def poll_events(
     # v1.1 visibility: people do not read private threads they are not in.
     # Machines (token-only callers: agents, daemons) are exempt. Deny a
     # single-thread read up front; for cross-thread reads exclude the hidden
-    # targets and bypass the identity-blind poll cache.
+    # targets and key the poll cache on the hidden set (below).
     from app.services.visibility import hidden_channel_targets, resolve_viewer
     from app.services.access_model import Principal
     viewer = (Principal("machine", workspace_id=workspace_id) if legacy_machine else
@@ -837,6 +841,13 @@ def poll_events(
     # (plus unattributable agent↔agent / legacy ones). The scope joins every
     # cache key below so pages are never shared between people.
     dm_scope = _dm_viewer_scope(viewer)
+    # The page also depends on the hidden-thread set. Keying on its digest lets
+    # people with the same view share cached pages; any other view gets its own.
+    cache_scope = dm_scope or ""
+    if hidden_targets:
+        cache_scope += "|hidden=" + hashlib.sha1(
+            "\n".join(sorted(hidden_targets)).encode("utf-8")
+        ).hexdigest()
 
     # Two-level read-through cache for poll traffic.
     #
@@ -881,7 +892,7 @@ def poll_events(
     # value, which would explode the head-tracker key space (invalidation
     # enumerates a fixed set of filter combos, not agent names). Skip the
     # cache for these polls, same as `member`; the filtered query is cheap.
-    if not search and not member and not target_agents and not hidden_targets:
+    if not search and not member and not target_agents:
         key_parts = [
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
@@ -890,8 +901,8 @@ def poll_events(
         ]
         if exclude_message_types:
             key_parts.append(exclude_message_types)
-        if dm_scope:
-            key_parts.append("viewer=" + dm_scope)
+        if cache_scope:
+            key_parts.append("viewer=" + cache_scope)
         generation = poll_generation(workspace_id)
         key_parts.append("gen=" + generation)
         cache_key = "v1events:full:" + hashlib.sha1(
@@ -904,7 +915,7 @@ def poll_events(
             workspace_id, target or "", channel or "",
             type or "", conversation or "",
             sort or "asc", limit, exclude_message_types or "",
-            dm_scope or "",
+            cache_scope,
         )
         head_tracker_key = "v1events:head:" + filter_hash
         athead_cache_key = "v1events:athead:" + filter_hash + ":" + generation
@@ -1222,7 +1233,17 @@ def list_conversations(
     from app.services.visibility import resolve_viewer
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     visibility_filters = [_dm_privacy_clause(_dm_addresses(viewer))] if _dm_viewer_scope(viewer) else []
-    pairs = db.execute(conversation_pairs_query(workspace.id, limit, agent, visibility_filters)).all()
+    # The aggregation reads a workspace's whole DM history. Its inputs are the
+    # filters plus the DM history itself, so key on exactly those.
+    dm_scope = _dm_viewer_scope(viewer)
+    pairs_key = "v1events:dm-pairs:" + hashlib.sha1("|".join([
+        str(workspace.id), str(limit), agent or "", dm_scope or "", dm_generation(workspace.id),
+    ]).encode("utf-8")).hexdigest()
+    pairs = [SimpleNamespace(**row) for row in cache.json_singleflight(
+        pairs_key, CONVERSATION_PAIRS_CACHE_TTL_SECONDS,
+        lambda: [dict(row._mapping) for row in db.execute(
+            conversation_pairs_query(workspace.id, limit, agent, visibility_filters))],
+    )]
 
     from app.models import DirectThreadLink, DirectThreadPreference
     # Stored per-person markers (shared across devices) merge with the ones

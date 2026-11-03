@@ -57,10 +57,12 @@ export const STATE_DOT_CLASS: Record<StateKey, string> = {
   notConnected: "bg-muted-foreground/50",
 }
 
+/** The word beside the dot. Colour stays on the dot; only an error, which
+ *  has to be found in a long list, is coloured in words too. */
 export const STATE_TEXT_CLASS: Record<StateKey, string> = {
-  running: "text-(--success-text)",
-  idle: "text-(--warning-text)",
-  starting: "text-(--warning-text)",
+  running: "text-foreground",
+  idle: "text-foreground",
+  starting: "text-foreground",
   error: "text-(--danger-text)",
   offline: "text-muted-foreground",
   notConnected: "text-muted-foreground",

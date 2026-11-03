@@ -54,7 +54,7 @@ const { execFileSync, execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { whichBinary, getEnhancedEnv } = require('../paths');
+const { whichBinary, getEnhancedEnv, resolveManagedNpmBinary } = require('../paths');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildDeepSeekTaskFile } = require('./workspace-prompt');
 const { sampleRecap } = require('./decision-log');
@@ -121,8 +121,25 @@ const BOOTSTRAP_KEY = '\u0000bootstrap';
 const RECAP_HEAD = 30;
 const RECAP_TAIL = 60;
 
-/** The environment variable the task file tells the agent to read. */
-const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_TOKEN';
+/**
+ * The environment variable the task file tells the agent to read.
+ *
+ * Deliberately NOT `OPENAGENTS_WORKSPACE_TOKEN`: dsh strips every variable whose
+ * name matches /KEY|PASSWORD|SECRET|TOKEN/i from the commands it runs
+ * (`SENSITIVE_ENV_PATTERN` in @deepseek-ai/dsh-subprocess, rc.2 and rc.5 alike),
+ * and has no setting to let one through. Under that name the agent's shell never
+ * saw the token, so agents went looking for it — one read it out of daemon.yaml
+ * and wrote it into its reasoning, which sent it to the model provider and into
+ * dsh's session log. This token is meant for the agent's shell; the scrub
+ * exists for the harness's own credentials (DEEPSEEK_API_KEY stays scrubbed).
+ */
+const TOKEN_ENV = 'OPENAGENTS_WORKSPACE_AUTH';
+
+/**
+ * The workspace API client Windows runs use instead of curl, which dsh's
+ * Windows sandbox leaves without TLS credentials. See deepseek-workspace-api.js.
+ */
+const WORKSPACE_API_HELPER = path.join(__dirname, 'deepseek-workspace-api.js');
 
 /**
  * The notice for a stop that could NOT be confirmed (BaseAdapter posts it when
@@ -252,7 +269,14 @@ class DeepSeekAdapter extends BaseAdapter {
    * when nothing resolves.
    */
   _resolveDshCommand() {
-    const bin = whichBinary('dsh');
+    // The launcher-managed copy first, the same Tier 0 the installer uses. A
+    // plain PATH lookup ranks every global npm prefix above
+    // ~/.openagents/runtimes, so an old global dsh (a 0.1.0-rc.6 left from
+    // before the pin moved) shadowed the managed pinned one: the launcher
+    // reported the pinned version with nothing to update, while every start
+    // refused the global copy as unsupported.
+    const bin = resolveManagedNpmBinary('deepseek', '@deepseek-ai/dsh', 'dsh')
+      || whichBinary('dsh');
     if (!bin) return null;
     const nodeBin = this._findNodeBin();
 
@@ -271,6 +295,15 @@ class DeepSeekAdapter extends BaseAdapter {
     const guesses = dshEntryCandidates(bin);
     for (const g of guesses) if (fs.existsSync(g)) return [nodeBin, g];
     return null;
+  }
+
+  /**
+   * Drop the resolved dsh so the next preflight resolves it afresh — after the
+   * daemon installed the pinned version into the managed prefix.
+   */
+  forgetRuntime() {
+    this._nodeBin = null;
+    this._jsEntry = null;
   }
 
   /** `dsh -V` output, or null. Synchronous: preflight() is a sync contract. */
@@ -363,7 +396,9 @@ class DeepSeekAdapter extends BaseAdapter {
       || defaultInstallCommand(supported);
     const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
     if (gate.compatible === false || gate.compatible === null) {
-      return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message };
+      // repairable: the daemon installs the pinned version and asks again
+      // (see Daemon._repairRuntime), so a stale dsh never reaches the user.
+      return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message, repairable: true };
     }
 
     if (!this._apiKey()) {
@@ -545,7 +580,11 @@ class DeepSeekAdapter extends BaseAdapter {
    * starts mid-write can never read a half-file.
    */
   _writePrivatePatch() {
-    const { text } = buildPrivatePatch({ model: this._model(), gatewayBaseUrl: this._gatewayBaseUrl() });
+    const { text } = buildPrivatePatch({
+      model: this._model(),
+      gatewayBaseUrl: this._gatewayBaseUrl(),
+      officialEndpoint: !this._baseUrl(),
+    });
     const tmp = `${this._patchFile}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, text, { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmp, this._patchFile);
@@ -585,6 +624,11 @@ class DeepSeekAdapter extends BaseAdapter {
 
     // The task file references this by NAME; the value never appears in it.
     env[TOKEN_ENV] = this.token;
+    // Read by deepseek-workspace-api.js, so a Windows run's commands carry no
+    // endpoint, workspace or identity of their own to get wrong.
+    env.OPENAGENTS_WORKSPACE_ENDPOINT = this.endpoint;
+    env.OPENAGENTS_WORKSPACE_ID = this.workspaceId;
+    env.OPENAGENTS_AGENT_NAME = this.agentName;
     return env;
   }
 
@@ -937,6 +981,7 @@ class DeepSeekAdapter extends BaseAdapter {
       recap,
       request: content,
       attachments: attachmentText,
+      windowsApi: IS_WINDOWS ? { node: this._nodeBin, helper: WORKSPACE_API_HELPER } : null,
     });
 
     this._taskCounter += 1;

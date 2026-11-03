@@ -14,10 +14,19 @@ const CATEGORY_ICONS: Record<NonNullable<ToolCall['category']>, string> = {
   other:     '🛠',
 }
 
+// One neutral card for every state; the dot beside the label says which.
+// Only a failed call keeps colour in its border, so it can be found in a
+// long run of calls.
 const STATUS_STYLE: Record<ToolCall['status'], string> = {
-  pending: 'border-(--warning) bg-[rgba(255,159,10,0.06)]',
-  success: 'border-(--success) bg-[rgba(48,209,88,0.06)]',
-  error:   'border-(--danger-text) bg-[rgba(255,59,48,0.06)]',
+  pending: 'border-border bg-card',
+  success: 'border-border bg-card',
+  error:   'border-(--danger-border) bg-card',
+}
+
+const STATUS_DOT: Record<ToolCall['status'], string> = {
+  pending: 'bg-(--warning) animate-pulse',
+  success: 'bg-(--success)',
+  error:   'bg-(--danger)',
 }
 
 const STATUS_LABEL_KEY: Record<ToolCall['status'], string> = {
@@ -55,14 +64,8 @@ export default function ToolCallCard({ call }: { call: ToolCall }): React.JSX.El
           {typeof call.durationMs === 'number' && (
             <span className="text-3xs text-(--text-tertiary)">{call.durationMs}ms</span>
           )}
-          <span
-            className={cn(
-              'text-3xs font-semibold px-1.5 py-0.5 rounded',
-              call.status === 'success' ? 'bg-(--success) text-white' :
-              call.status === 'error' ? 'bg-(--danger-text) text-white' :
-              'bg-(--warning) text-white animate-pulse',
-            )}
-          >
+          <span className={cn('inline-flex items-center gap-1.5 text-xs', call.status === 'error' ? 'text-(--danger-text)' : 'text-muted-foreground')}>
+            <span className={cn('size-1.5 rounded-full', STATUS_DOT[call.status])} />
             {t(STATUS_LABEL_KEY[call.status])}
           </span>
           <span className="text-3xs text-(--text-tertiary)">{open ? '▾' : '▸'}</span>

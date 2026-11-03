@@ -1,8 +1,7 @@
 import type { Agent } from "@renderer/types"
 
 /**
- * Row actions, shared by the table and the card grid so both views offer the
- * same set and the page wires them up once.
+ * Row actions, wired up once by the page and handed to every row of the list.
  */
 export interface AgentActionHandlers {
   onToggle: (a: Agent) => void

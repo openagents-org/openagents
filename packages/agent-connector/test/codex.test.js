@@ -147,6 +147,24 @@ describe('Codex — failure detail selection', () => {
     assert.ok(detail.includes('only a warning'));
   });
 
+  it('never quotes the stdin banner as the reason', () => {
+    // Every failure in one channel read "> Reading prompt from stdin..." —
+    // the banner was the only stderr line, and the fallback quoted it.
+    const stderr = 'Reading prompt from stdin...\n';
+    assert.strictEqual(
+      CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 }),
+      'codex exited with code 1',
+    );
+    assert.strictEqual(CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 0 }), '');
+  });
+
+  it('names the signal when codex was killed', () => {
+    assert.strictEqual(
+      CodexAdapter._failureDetail({ errorMessage: '', stderr: 'Reading prompt from stdin...', exitCode: null, signal: 'SIGKILL' }),
+      'codex was terminated by SIGKILL',
+    );
+  });
+
   it('falls back to the exit code', () => {
     assert.strictEqual(
       CodexAdapter._failureDetail({ errorMessage: '', stderr: '', exitCode: 2 }),

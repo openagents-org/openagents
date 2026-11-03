@@ -34,7 +34,7 @@ const os = require('os');
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
-const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise } = require('./adapters/utils');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
@@ -90,10 +90,15 @@ function installCommandFor(entry) {
 /** Redact anything that looks like a secret before output leaves the device. */
 function scrub(text) {
   if (!text) return '';
-  return String(text)
+  const masked = String(text)
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
-    .replace(/(api[-_ ]?key["':\s=]+)[A-Za-z0-9_-]{8,}/gi, '$1****')
+    // Not a plain word: "Incorrect API key provided: sk-…" lost "provided".
+    .replace(/(api[-_ ]?key["':\s=]+)([A-Za-z0-9_-]{8,})/gi, (m, p, v) => (/^[a-z]+$/.test(v) ? m : `${p}****`))
     .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer ****');
+  // Then everything the adapters strip from quoted CLI text: a Codex probe
+  // that failed after printing a token-shaped blob showed that blob as its
+  // reason, on the device card in the workspace.
+  return redactSecrets(masked);
 }
 
 function tail(text, cap) {
@@ -133,7 +138,11 @@ function classifyOutputText(text) {
   // — the one misreading that sends a user to re-authenticate a working key.
   if (/credit balance|insufficient[_ ]?(quota|credits|funds)|payment required|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额|欠费|余额不足/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
-  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
+  // "error sending request for url (…)" is how Codex (Rust) says the host
+  // was unreachable; a Codex that could not reach chatgpt.com ran out the
+  // probe clock and was reported as waiting for interactive input. "Request
+  // to <host> timed out" is the direct API test's own deadline (utils.js).
+  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   // A sign-in that exists but has run out — Claude Code: "Failed to
@@ -347,6 +356,25 @@ function shellQuoted(binary, shell) {
 }
 
 /**
+ * Whether a line is an encoded blob rather than words. A whole-line run of
+ * base64/base64url characters is one; so is a line where mixed-case
+ * alphanumeric runs (and already-redacted spans) make up half of it — a
+ * Codex timeout reported a fragment of a dumped object, `…849-1.0.1.
+ * [REDACTED]\",md: '3P2K.…`, as its reason. Hex ids, paths and URL paths
+ * have no mixed-case runs and are not counted.
+ */
+function mostlyEncoded(line) {
+  if (/^[A-Za-z0-9+/=._-]{24,}$/.test(line)) return true;
+  const body = line.replace(/\s+/g, '');
+  const unredacted = line.replace(/\[REDACTED\]/g, '');
+  let encoded = line.length - unredacted.length;
+  for (const run of unredacted.match(/[A-Za-z0-9+/=_.-]{16,}/g) || []) {
+    if (/\d/.test(run) && /[a-z]/.test(run) && /[A-Z]/.test(run)) encoded += run.length;
+  }
+  return encoded * 2 >= body.length;
+}
+
+/**
  * The one line worth reporting from a failed run.
  *
  * Stderr used to win outright, so a harmless warning there hid the real error
@@ -355,8 +383,15 @@ function shellQuoted(binary, shell) {
  * with the timeout named first.
  */
 function failureMessage(res, code, timeoutMs) {
-  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim())
-    .filter((l) => l && !BENIGN_OUTPUT.test(l));
+  // A line that is mostly encoded blob (a token, encrypted reasoning) never
+  // says why the CLI failed, and neither does a stack frame: a crashed Node
+  // shim showed only its last frames, `…(file:///C:/…/codex.js:108:9) at
+  // file:///…`, with the `Error:` line above them cut off. JSON and URLs stay.
+  // Each line is scrubbed before that test: a provider that echoes the whole
+  // key (`401 Incorrect API key provided: sk-proj-…`) had the one line that
+  // explains the failure dropped as encoded.
+  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
+    .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
   const all = [...lines(res.stderr), ...lines(res.stdout)];
   const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);
   const detail = tail(telling || lines(res.stderr).join('\n') || lines(res.stdout).join('\n'), OUTPUT_CAP);
@@ -660,4 +695,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };

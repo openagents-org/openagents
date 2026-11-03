@@ -490,7 +490,7 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
-        } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted) {
+        } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
           // started: a thread codex cannot resume fails at once with nothing
           // on stdout ("no rollout found for thread id"). A resumed turn
@@ -646,7 +646,7 @@ class CodexAdapter extends BaseAdapter {
         }
       });
 
-      proc.on('exit', async (code) => {
+      proc.on('exit', async (code, signal) => {
         // Wait for all in-flight processLine calls
         try { await _pendingLines; } catch {}
 
@@ -659,7 +659,7 @@ class CodexAdapter extends BaseAdapter {
 
         const stderrBuf = CodexAdapter._decodeOutput(Buffer.concat(stderrChunks));
         if (code !== 0) {
-          this._log(`Codex CLI exited with code ${code}`);
+          this._log(`Codex CLI exited with code ${code}${signal ? ` (${signal})` : ''}`);
           if (stderrBuf.trim()) {
             this._log(`stderr: ${stderrBuf.trim().slice(0, 500)}`);
           }
@@ -668,6 +668,7 @@ class CodexAdapter extends BaseAdapter {
         resolve({
           responseText: responseTexts.join('\n').trim(),
           exitCode: code,
+          signal,
           stderr: stderrBuf,
           errorMessage: lastErrorMessage,
           turnFailed,
@@ -786,15 +787,33 @@ class CodexAdapter extends BaseAdapter {
   }
 
   /**
+   * True when the model service turned the run away (rate limit, quota,
+   * credentials, network) — nothing to do with the thread being resumed. Such
+   * a run was read as a stale thread: the thread was dropped, losing the
+   * conversation, and the same refused request was sent a second time.
+   */
+  static _serviceRefused({ errorMessage, stderr } = {}) {
+    const refused = /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i;
+    if (refused.test(String(errorMessage || ''))) return true;
+    // Only the end of stderr, where the reason the run died is: a stale
+    // thread whose earlier log mentioned a quota was kept, and every later
+    // message in that channel failed until restart.
+    const lastLines = String(stderr || '').split(/\r?\n/).filter((l) => l.trim()).slice(-5).join('\n');
+    return refused.test(lastLines);
+  }
+
+  /**
    * Pick the most informative failure detail from a run result:
-   * turn.failed / error event message → stderr → exit code. Redacted.
+   * turn.failed / error event message → stderr tail → signal → exit code.
+   * Redacted.
    *
    * The cap applies to the quoted reason, before the advice is added, so a
    * long stderr cannot push the advice out of the message.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}) {
     const raw = String(errorMessage || '').trim()
       || CodexAdapter._stderrReason(stderr)
+      || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
     return reason ? CodexAdapter._explain(reason, stderr) : '';

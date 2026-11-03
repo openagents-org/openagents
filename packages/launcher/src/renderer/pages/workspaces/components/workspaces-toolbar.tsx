@@ -1,8 +1,5 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { RefreshCw } from "lucide-react"
-
-import { Button } from "@renderer/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -11,7 +8,6 @@ import {
   SelectValue,
 } from "@renderer/components/ui/select"
 import { FilterChips, PageToolbar, SearchInput } from "@renderer/components/ui-kit"
-import { cn } from "@renderer/lib/utils"
 import {
   WORKSPACE_FILTERS,
   WORKSPACE_SORTS,
@@ -28,8 +24,6 @@ interface Props {
   stats: WorkspaceStats
   sort: WorkspaceSort
   onSort: (s: WorkspaceSort) => void
-  onRefresh: () => void
-  refreshing?: boolean
 }
 
 /** Rows each chip would leave on screen, in the order WORKSPACE_FILTERS lists. */
@@ -48,8 +42,6 @@ export function WorkspacesToolbar({
   stats,
   sort,
   onSort,
-  onRefresh,
-  refreshing,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -85,13 +77,6 @@ export function WorkspacesToolbar({
           ))}
         </SelectContent>
       </Select>
-
-      {/* Labelled, like every other page-level refresh (connections, logs,
-          GitHub) — an icon alone was the odd one out. */}
-      <Button variant="outline" disabled={refreshing} onClick={onRefresh}>
-        <RefreshCw className={cn(refreshing && "animate-spin")} />
-        {t("workspaces.refresh")}
-      </Button>
     </PageToolbar>
   )
 }

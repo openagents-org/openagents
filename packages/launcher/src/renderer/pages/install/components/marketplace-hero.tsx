@@ -51,10 +51,6 @@ export function MarketplaceHero({
 
   return (
     <section
-      // Named so a skin can restyle the banner as one object. The frame here
-      // is `border-primary/25`, an explicit colour rather than `--border`, so
-      // it does not follow a skin that repaints the app's hairlines — this is
-      // the handle that lets the openagents skin ink it instead.
       data-slot="hero"
       aria-roledescription="carousel"
       onMouseEnter={() => setHovered(true)}
@@ -68,89 +64,58 @@ export function MarketplaceHero({
         if (e.key === "ArrowLeft") { e.preventDefault(); prev() }
         if (e.key === "ArrowRight") { e.preventDefault(); next() }
       }}
-      className="relative overflow-hidden rounded-xl border border-primary/25 bg-linear-to-r from-primary/12 via-primary/5 to-transparent px-7 py-6"
+      // A plain card, like every other surface in the app. It was a tinted
+      // panel with the arrows on either side of the slide, which left a wide
+      // empty margin at its top-left and let a long slide run under an arrow.
+      className="overflow-hidden rounded-xl border bg-card shadow-xs"
     >
-      {/* Ambient brand glow rather than a blown-up logo: agent marks are mostly
-          near-black, so a watermark of one reads as a smudge on this surface
-          instead of as decoration. Two soft blooms fill the width that a
-          two-line blurb never will. Purely decorative. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-32 -left-24 size-96 rounded-full bg-primary/20 blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-20 -bottom-32 size-96 rounded-full bg-primary/15 blur-3xl"
-      />
-
       {/* Every slide is laid into the same grid cell, so the banner is always
-          as tall as its tallest slide. Rendering only the current one made the
-          height follow each blurb: a slide whose description wrapped to a
-          second line pushed the whole marketplace below it down, and the next
-          slide pulled it back up. The others stay in place but invisible,
-          hidden from screen readers and out of the tab order. */}
-      {/* Arrows either side of the slide and the dots centred under it, the
-          same controls as the recommended agents on Connect Agents, so paging
-          works alike on both pages. They sit outside the slides on purpose —
-          the controls are the one thing that must not move when the slide
-          does. */}
-      <div className="relative flex items-center gap-3">
-        {slides.length > 1 && (
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="shrink-0 rounded-full bg-card"
-            aria-label={t("install.hero.prev")}
-            title={t("install.hero.prev")}
-            onClick={prev}
-          >
-            <ChevronLeft />
-          </Button>
-        )}
-        <div className="grid min-w-0 flex-1">
-          {slides.map((slide, i) => (
-            <HeroSlide
-              key={slide.name}
-              slide={slide}
-              active={i === index}
-              installed={installed}
-              updates={updates}
-              onOpen={onOpen}
-            />
-          ))}
-        </div>
-        {slides.length > 1 && (
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="shrink-0 rounded-full bg-card"
-            aria-label={t("install.hero.next")}
-            title={t("install.hero.next")}
-            onClick={next}
-          >
-            <ChevronRight />
-          </Button>
-        )}
+          as tall as its tallest slide; the others stay in place but invisible,
+          hidden from screen readers and out of the tab order. `grid-cols-1` is
+          `minmax(0, 1fr)`, which keeps a long title from widening the cell. */}
+      <div className="grid grid-cols-1 p-6">
+        {slides.map((slide, i) => (
+          <HeroSlide
+            key={slide.name}
+            slide={slide}
+            active={i === index}
+            installed={installed}
+            updates={updates}
+            onOpen={onOpen}
+          />
+        ))}
       </div>
 
+      {/* The controls on a footer of their own — they are the one thing that
+          must not move when the slide does. */}
       {slides.length > 1 && (
-        <div className="relative mt-5 flex items-center justify-center gap-1.5">
-          {slides.map((slide, i) => (
-            <button
-              key={slide.name}
-              type="button"
-              aria-current={i === index}
-              aria-label={slide.label || slide.name}
-              title={slide.label || slide.name}
-              onClick={() => select(i)}
-              className={cn(
-                "h-1.5 rounded-full transition-all duration-300",
-                i === index
-                  ? "w-6 bg-primary"
-                  : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground",
-              )}
-            />
-          ))}
+        <div className="flex items-center justify-between border-t px-6 py-3">
+          <div className="flex items-center gap-1.5">
+            {slides.map((slide, i) => (
+              <button
+                key={slide.name}
+                type="button"
+                aria-current={i === index}
+                aria-label={slide.label || slide.name}
+                title={slide.label || slide.name}
+                onClick={() => select(i)}
+                className={cn(
+                  "h-1.5 rounded-full transition-all duration-300",
+                  i === index
+                    ? "w-6 bg-primary"
+                    : "w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground",
+                )}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon-sm" aria-label={t("install.hero.prev")} title={t("install.hero.prev")} onClick={prev}>
+              <ChevronLeft />
+            </Button>
+            <Button variant="outline" size="icon-sm" aria-label={t("install.hero.next")} title={t("install.hero.next")} onClick={next}>
+              <ChevronRight />
+            </Button>
+          </div>
         </div>
       )}
     </section>
@@ -190,79 +155,59 @@ function HeroSlide({
         // The enter animation plays whenever a slide becomes the current one:
         // the class is only present while it is.
         active
-          ? "animate-in fade-in duration-500 ease-out slide-in-from-bottom-3 motion-reduce:animate-none"
+          ? "animate-in fade-in duration-300 ease-out motion-reduce:animate-none"
           : "invisible",
       )}
     >
-      {/* The logo, full strength and framed — it anchors the left edge far
-          better than the same mark faded into the background did. */}
-      <div
-        data-slot="hero-mark"
-        className="flex size-24 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-card/80 shadow-md backdrop-blur-sm"
-      >
-        <AgentIcon type={slide.name} size={52} />
-      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-6">
+        {/* The mark on its own light tile, as the workspace's agent gallery
+            draws it — legible on either theme. */}
+        <AgentIcon type={slide.name} size={80} />
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-2">
-        <p className="m-0 text-2xs font-semibold tracking-widest text-primary uppercase">
-          {t(slide.installed ? "install.hero.eyebrow" : "install.hero.eyebrowNew")}
-        </p>
-
-        <h2 className="m-0 mt-1.5 truncate text-3xl font-bold tracking-tight">
-          {slide.label || slide.name}
-        </h2>
-
-        {/* Capped at three lines so one very long blurb cannot make every
-            slide as tall as it is. */}
-        <p className="m-0 mt-2 line-clamp-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
-          {describeEntry(slide, t) || t("install.card.noDescription")}
-        </p>
-
-        {/* Tags sit ABOVE the CTA, on a row of their own. They used to ride
-            the CTA row to save the vertical space a short tag list wastes,
-            but that row wraps: four tags pushed them under the button, where
-            they read as something the button produced rather than as
-            metadata about the agent. A row that is occasionally sparse beats
-            one that occasionally reorders itself. */}
-        {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-4">
-            {tags.map((tag) => (
-              <Badge key={tag} variant="muted" size="sm" className="font-mono">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-4">
-          <Button onClick={() => onOpen(slide.name)}>
-            {slide.installed ? <ArrowUpRight /> : <Download />}
-            {t(slide.installed ? "install.hero.viewDetail" : "install.hero.installNow")}
-          </Button>
-          {(current || latest) && (
-            <span className="font-mono text-2xs text-muted-foreground">
-              {current && t("install.hero.current", { version: current })}
-              {current && latest && " · "}
-              {latest && t("install.hero.latest", { version: latest })}
-            </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="m-0 text-xs text-muted-foreground">
+            {t(slide.installed ? "install.hero.eyebrow" : "install.hero.eyebrowNew")}
+          </p>
+          <h2 className="m-0 mt-1 truncate text-2xl font-semibold tracking-tight">
+            {slide.label || slide.name}
+          </h2>
+          {/* Two lines at most, so one long blurb cannot make every slide as
+              tall as it is. */}
+          <p className="m-0 mt-2 line-clamp-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
+            {describeEntry(slide, t) || t("install.card.noDescription")}
+          </p>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-3">
+              {tags.map((tag) => (
+                <Badge key={tag} variant="muted" size="sm" className="font-mono">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
           )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-4">
+            <Button onClick={() => onOpen(slide.name)}>
+              {slide.installed ? <ArrowUpRight /> : <Download />}
+              {t(slide.installed ? "install.hero.viewDetail" : "install.hero.installNow")}
+            </Button>
+            {(current || latest) && (
+              <span className="font-mono text-xs text-muted-foreground">
+                {current && t("install.hero.current", { version: current })}
+                {current && latest && " · "}
+                {latest && t("install.hero.latest", { version: latest })}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stretches to the banner's full height so the right edge is as
-          weighted as the left instead of trailing off into empty space. */}
-      <dl className="m-0 grid shrink-0 gap-2 sm:grid-cols-3 lg:w-72 lg:grid-cols-1 lg:grid-rows-3 lg:self-stretch">
+      {/* The facts, as label and value rows divided by hairlines — beside the
+          slide on a wide window, under it on a narrow one. */}
+      <dl className="m-0 shrink-0 divide-y border-t pt-1 lg:w-64 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
         {specs.map((spec) => (
-          <div
-            key={spec.key}
-            className="flex flex-col justify-center rounded-lg border bg-card/60 px-3.5 py-2.5 backdrop-blur-sm"
-          >
-            <dt className="text-3xs tracking-wider text-muted-foreground uppercase">
-              {t(`install.hero.spec.${spec.key}`)}
-            </dt>
-            <dd className="m-0 mt-1 truncate font-mono text-xs" title={spec.value}>
-              {spec.value}
-            </dd>
+          <div key={spec.key} className="flex items-center justify-between gap-4 py-2.5">
+            <dt className="shrink-0 text-xs text-muted-foreground">{t(`install.hero.spec.${spec.key}`)}</dt>
+            <dd className="m-0 min-w-0 truncate font-mono text-xs" title={spec.value}>{spec.value}</dd>
           </div>
         ))}
       </dl>

@@ -39,6 +39,12 @@ const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
 // stopped. A few rather than one per type: each child loads the whole core.
 const RUNTIME_DETECT_GROUPS = 4;
 const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
+// Probe results that mean the setup was never finished (no key, no sign-in,
+// not installed). Time alone does not change them, and re-running them every
+// hour re-reported the same failure all day; they are swept daily, and again
+// as soon as detection sees the type installed or signed in.
+const SETUP_INCOMPLETE = new Set(['not_ready', 'not_logged_in', 'missing_api_key', 'not_installed', 'install_failed']);
+const SETUP_INCOMPLETE_MAX_AGE_MS = 24 * 3600 * 1000;
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -171,6 +177,7 @@ class Daemon {
     this._cliModelsStartupTimer = null;
     this._cliModelsInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+    this._runtimeRepairs = new Map(); // agent type → in-flight reinstall of its supported version
   }
 
   // ── Agent smoke tests (probes) ─────────────────────────────────────────
@@ -246,6 +253,29 @@ class Daemon {
     }
   }
 
+  /**
+   * A sign-in done in a terminal, or an install, changes no agent config, so
+   * nothing re-probes on its own and the daily sweep is far off. Re-probe the
+   * unfinished agents of a type as soon as detection sees it become installed
+   * or signed in.
+   */
+  _probeNewlyReady(previous) {
+    const became = new Set((this._runtimes || []).filter((rt) => {
+      const before = previous.get(rt.type);
+      return before && ((rt.installed && !before.installed) || (rt.ready && !before.ready));
+    }).map((rt) => rt.type));
+    if (!became.size) return;
+    const due = this.config.getAgents().filter((a) => became.has(a.type)
+      && this._probes[a.name] && SETUP_INCOMPLETE.has(this._probes[a.name].code));
+    if (!due.length) return;
+    (async () => {
+      for (const a of due) {
+        try { await this._probeAgent(a.name); } catch {}
+      }
+      this._nodeHeartbeat();
+    })();
+  }
+
   /** Report a runtime install that failed while creating `name`, as its probe result. */
   _recordInstallFailure(name, type, error) {
     let install = null;
@@ -274,7 +304,8 @@ class Daemon {
     for (const a of this.config.getAgents()) {
       const last = this._probes[a.name];
       const age = last && last.at ? Date.now() - Date.parse(last.at) : Infinity;
-      if (age < maxAgeMs) continue;
+      const limit = last && SETUP_INCOMPLETE.has(last.code) ? Math.max(maxAgeMs, SETUP_INCOMPLETE_MAX_AGE_MS) : maxAgeMs;
+      if (age < limit) continue;
       try { await this._probeAgent(a.name); } catch {}
     }
     this._nodeHeartbeat();
@@ -993,6 +1024,7 @@ class Daemon {
     const order = types.length ? types : [...found.keys()];
     this._runtimes = order.map((type) => found.get(type) || previous.get(type)).filter(Boolean);
     this._cliModelsAfterDetection(previous);
+    this._probeNewlyReady(previous);
   }
 
   /**
@@ -1916,6 +1948,47 @@ async _runNodeCommand(n, cmd) {
     this._writeStatus();
   }
 
+  /**
+   * Put a runtime the adapter can run in place of one it refused, then ask the
+   * adapter again. Used for a pinned agent found on the wrong version (DeepSeek
+   * Harness, whose adapter accepts exactly one preview): the registry's install
+   * command already names the supported version and installs it into the
+   * managed prefix, which the adapter prefers. Doing it here instead of
+   * reporting the mismatch is what keeps a stale install — an old global copy,
+   * or one the launcher placed before the pin moved — from surfacing as an
+   * error the user has to fix by hand.
+   *
+   * One install per agent type at a time, shared by every agent of that type
+   * starting together. Returns the new preflight result, or null when the
+   * install failed and the original reason should stand.
+   */
+  async _repairRuntime(name, agentType, adapter, info, pf) {
+    this._log(`${name} preflight: ${pf.message} — installing the supported version`, 'warn');
+    info.state = 'starting';
+    info.lastError = null;
+    info.errorReason = null;
+    this._writeStatus();
+
+    let job = this._runtimeRepairs.get(agentType);
+    if (!job) {
+      const { Installer } = require('./installer');
+      const installer = new Installer(this.registry, this.config.configDir);
+      job = installer.installStreaming(agentType, () => {})
+        .then(() => true, (e) => {
+          this._log(`${agentType} reinstall failed: ${redactDiagnostic(String(e && e.message || e)).slice(0, 500)}`, 'error');
+          return false;
+        })
+        .finally(() => this._runtimeRepairs.delete(agentType));
+      this._runtimeRepairs.set(agentType, job);
+    }
+    if (!(await job)) return null;
+
+    if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
+    const next = adapter.preflight();
+    if (next && next.ok !== false) this._log(`${name}: supported ${agentType} runtime installed`);
+    return next;
+  }
+
   async _adapterLoop(name, agentCfg, info, network) {
     const { createAdapter } = require('./adapters');
     const { skillsToDisabledModules } = require('./skill-catalog');
@@ -1967,8 +2040,12 @@ async _runNodeCommand(n, cmd) {
     // no point spinning a join/poll loop that can never run the CLI. Adapters
     // that don't override preflight() always pass.
     try {
-      const pf =
+      let pf =
         typeof adapter.preflight === 'function' ? adapter.preflight() : null;
+      if (pf && pf.ok === false && pf.repairable) {
+        pf = (await this._repairRuntime(name, agentType, adapter, info, pf)) || pf;
+        if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+      }
       if (pf && pf.ok === false) {
         info.state = 'error';
         info.errorReason = pf.reason || 'runtime_missing';

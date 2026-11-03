@@ -138,8 +138,9 @@ def create_notification(
 # DM / @mention signals (services/people_notify) are personal unread markers,
 # not inbox items: the web app turns them into desktop notifications and
 # unread highlights (Slack-style). The inbox list and its unread count leave
-# them out unless a caller asks for them with `kinds=`.
-SIGNAL_KINDS = ("dm", "mention")
+# them out unless a caller asks for them with `kinds=`. `issue` signals are
+# issue activity for the people it concerns (added, assigned, new comments).
+SIGNAL_KINDS = ("dm", "mention", "issue")
 
 
 @router.get("/notifications")

@@ -1,8 +1,9 @@
 'use client';
 import { Circle, CircleCheck, CircleDot, CirclePause } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { useFormatters, useT } from '@/lib/i18n';
 import type { IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,42 @@ export function errorMessage(error: unknown): string {
     /* non-JSON network error */
   }
   return message;
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Issue timestamps. `label` reads "3 hours ago" for the past week and the
+ * exact day and minute after that, so old issues can be traced to a date.
+ * `exact` always gives the full date and minute, for tooltips.
+ */
+export function useIssueTime() {
+  const { timeAgo, formatDateTime } = useFormatters();
+  const exactOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  return {
+    label: (value: string) => {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+      if (Date.now() - date.getTime() < WEEK_MS) return timeAgo(value);
+      return formatDateTime(value, {
+        ...exactOptions,
+        year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      });
+    },
+    exact: (value: string) => formatDateTime(value, exactOptions),
+  };
+}
+
+/** Asks before an issue is deleted; resolves true when the person confirms. */
+export function useConfirmIssueDelete() {
+  const t = useT();
+  const confirm = useConfirm();
+  return (title: string) => confirm({
+    title: t('issues.deleteTitle', { title }),
+    description: t('issues.deleteDescription'),
+    confirmText: t('common.delete'),
+    destructive: true,
+  });
 }
 
 export function StatusIcon({

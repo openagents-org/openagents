@@ -74,7 +74,7 @@ export function GuidedTour(): React.JSX.Element | null {
   }
 
   const current = tourOpen ? STEPS[step] : undefined
-  const { hole, vw } = useTourSpotlight(current?.anchor ?? null)
+  const { hole, vh } = useTourSpotlight(current?.anchor ?? null)
 
   React.useEffect(() => {
     if (tourOpen) capture("guided_tour_started")
@@ -137,19 +137,19 @@ export function GuidedTour(): React.JSX.Element | null {
 
   if (!tourOpen || !current) return null
 
-  // The bubble hangs below the highlighted tab, centred on it and clamped into
-  // the viewport. The tabs run along the top of the window, so "below the
-  // hole" never needs a flipped placement.
-  const top = hole.top + hole.height + GAP
-  const left = Math.min(
-    Math.max(hole.left + hole.width / 2 - bubble.w / 2, MARGIN),
-    Math.max(MARGIN, vw - bubble.w - MARGIN),
+  // The bubble stands to the right of the highlighted entry, centred on it and
+  // clamped into the viewport. The entries run down the sidebar on the left, so
+  // "right of the hole" never needs a flipped placement.
+  const left = hole.left + hole.width + GAP
+  const top = Math.min(
+    Math.max(hole.top + hole.height / 2 - bubble.h / 2, MARGIN),
+    Math.max(MARGIN, vh - bubble.h - MARGIN),
   )
   // Keep the pointer on the hole even after the bubble has been clamped away
   // from it, staying clear of the rounded corners.
-  const arrowLeft = Math.min(
-    Math.max(hole.left + hole.width / 2 - left, GAP),
-    Math.max(GAP, bubble.w - GAP),
+  const arrowTop = Math.min(
+    Math.max(hole.top + hole.height / 2 - top, GAP),
+    Math.max(GAP, bubble.h - GAP),
   )
   const Icon = stepIcon(current.anchor)
 
@@ -205,7 +205,7 @@ export function GuidedTour(): React.JSX.Element | null {
         icon={stepIcon(current.anchor)}
         index={step}
         total={STEPS.length}
-        arrowLeft={arrowLeft}
+        arrowTop={arrowTop}
         style={{ top, left }}
         onSkip={() => finish(false)}
         onBack={back}

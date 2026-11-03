@@ -43,6 +43,51 @@ class TestPairingCode:
         assert r.status_code in (401, 403)
 
 
+class TestPairingCodeStatus:
+    def _code(self, client, ws):
+        return client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_owner()).json()["data"]["code"]
+
+    def _status(self, client, ws, code, headers=None):
+        return client.get(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes/{code}",
+                          headers=_owner() if headers is None else headers)
+
+    def test_pending_then_redeemed(self, client):
+        ws = _make_workspace(client)
+        code = self._code(client, ws)
+        r = self._status(client, ws, code)
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert data["redeemed"] is False and data["nodeId"] is None and data["expired"] is False
+
+        node_id = client.post("/v1/nodes/redeem", json={"code": code, "node_key": "dev-s"}).json()["data"]["nodeId"]
+        data = self._status(client, ws, code.lower().replace("-", "")).json()["data"]
+        assert data["redeemed"] is True and data["nodeId"] == node_id and data["redeemedAt"]
+
+    def test_repair_of_known_device_is_reported(self, client):
+        """The case a node-list watch misses: the same device, the same node id."""
+        ws = _make_workspace(client)
+        first = client.post("/v1/nodes/redeem", json={"code": self._code(client, ws), "node_key": "dev-r"}).json()["data"]
+        code = self._code(client, ws)
+        again = client.post("/v1/nodes/redeem", json={"code": code, "node_key": "dev-r"}).json()["data"]
+        assert again["nodeId"] == first["nodeId"]
+        data = self._status(client, ws, code).json()["data"]
+        assert data["redeemed"] is True and data["nodeId"] == first["nodeId"]
+
+    def test_expired_code(self, client, db):
+        ws = _make_workspace(client)
+        code = self._code(client, ws)
+        pc = db.query(NodePairingCode).filter_by(code=code.replace("-", "")).one()
+        pc.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        db.commit()
+        assert self._status(client, ws, code).json()["data"]["expired"] is True
+
+    def test_requires_identity_and_hides_unknown(self, client):
+        ws = _make_workspace(client)
+        code = self._code(client, ws)
+        assert self._status(client, ws, code, headers={}).status_code in (401, 403)
+        assert self._status(client, ws, "ZZZZ-ZZZZ").status_code == 404
+
+
 class TestRedeem:
     def test_redeem_registers_node_and_returns_token(self, client):
         ws = _make_workspace(client)

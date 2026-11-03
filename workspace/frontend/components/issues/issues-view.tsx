@@ -14,10 +14,13 @@ import {
   MessageSquare,
   Plus,
   Search,
+  Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
-import { useT, useFormatters } from '@/lib/i18n';
+import { unreadIssueCounts } from '@/lib/signals';
+import { useT } from '@/lib/i18n';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +37,8 @@ import {
   authorName,
   statuses,
   statusKeys,
+  useConfirmIssueDelete,
+  useIssueTime,
 } from './issue-ui';
 
 export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
@@ -43,12 +48,15 @@ export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
 }
 
 function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds } = useWorkspace();
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals } = useWorkspace();
+  const unreadByIssue = unreadIssueCounts(unreadSignals);
+  const unreadTotal = Object.values(unreadByIssue).reduce((sum, n) => sum + n, 0);
   const { pendingTaskChannel, pendingIssueId, setPendingIssueId } = useLayout();
   const [showWork, setShowWork] = useState(initialWork);
   useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
   const t = useT();
-  const { timeAgo } = useFormatters();
+  const issueTime = useIssueTime();
+  const confirmDelete = useConfirmIssueDelete();
   const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
     initialWork || typeof window === 'undefined'
@@ -85,6 +93,22 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const [pages, setPages] = useState(1);
   const requestVersion = useRef(0);
   const reload = useCallback(() => setRevision((v) => v + 1), []);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const removeIssue = async (issue: WorkspaceIssue) => {
+    if (deleting || !(await confirmDelete(issue.title))) return;
+    setDeleting(issue.id);
+    try {
+      await workspaceApi.deleteIssue(issue.id);
+      // Drop a poll in flight: it may still list the issue.
+      ++requestVersion.current;
+      setIssues((current) => current.filter((i) => i.id !== issue.id));
+      reload();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -141,8 +165,17 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   const row = (issue: WorkspaceIssue, asCard = false) => {
     const working = issue.linked_channels?.some(id => activeSessionIds?.has(id) || agents.some(agent => agent.status === 'online' && agent.busyChannels?.includes(id)));
     const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
-    return <button
-      key={issue.id}
+    const time = (
+      <time
+        dateTime={issue.updated_at}
+        title={t('issues.timestamps', { opened: issueTime.exact(issue.created_at), updated: issueTime.exact(issue.updated_at) })}
+      >
+        {issueTime.label(issue.updated_at)}
+      </time>
+    );
+    // Delete sits beside the card's button rather than inside it: buttons cannot nest.
+    return <div key={issue.id} className="relative">
+    <button
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
       onClick={() => selectIssue(issue.id)}
       className={cn(
@@ -171,11 +204,12 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           >
             {issue.title}
           </span>
+          {!!unreadByIssue[issue.id] && <span aria-label={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} title={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium tabular-nums text-white">{unreadByIssue[issue.id] > 99 ? '99+' : unreadByIssue[issue.id]}</span>}
           {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
           </div>
           {!asCard && (
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-              {timeAgo(issue.updated_at)}
+              {time}
             </span>
           )}
         </div>
@@ -198,6 +232,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           className={cn(
             'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground',
             asCard ? 'mt-4' : 'mt-2',
+            issue.can_delete && 'pr-7',
           )}
         >
           <IssueAvatar
@@ -214,7 +249,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </span>}
           {asCard && (
             <span className="ml-auto shrink-0">
-              {timeAgo(issue.updated_at)}
+              {time}
             </span>
           )}
           {!!issue.comment_count && (
@@ -230,7 +265,23 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           )}
         </div>
       </div>
-    </button>;
+    </button>
+    {issue.can_delete && (
+      <button
+        type="button"
+        aria-label={t('issues.deleteIssue', { title: issue.title })}
+        title={t('common.delete')}
+        disabled={deleting === issue.id}
+        onClick={() => removeIssue(issue)}
+        className={cn(
+          'absolute bottom-[13px] flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+          asCard ? 'right-3' : 'right-4 sm:right-7',
+        )}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    )}
+    </div>;
   };
 
   if (selected)
@@ -260,7 +311,9 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         </div>}
       />
       <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
-        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}</Button>
+        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}
+          {unreadTotal > 0 && <span className="rounded-full bg-destructive px-1.5 text-xs text-white" aria-label={t('issues.unreadUpdates', { count: unreadTotal })}>{unreadTotal > 99 ? '99+' : unreadTotal}</span>}
+        </Button>
         <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
           {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
         </Button>

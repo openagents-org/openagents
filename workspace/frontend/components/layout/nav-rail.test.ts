@@ -3,10 +3,11 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { NavRail } from './nav-rail';
+import { OnboardingSurfaceContext } from './onboarding-surface';
 
 const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
-  viewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null,
+  viewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null, setThreadFilter: vi.fn(),
 }), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 180 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
@@ -16,7 +17,7 @@ vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('@/components/ui/sidebar', () => {
   const wrap = ({ children }: { children?: React.ReactNode }) => React.createElement('div', null, children);
   return Object.fromEntries(['Sidebar', 'SidebarContent', 'SidebarFooter', 'SidebarGroup', 'SidebarGroupContent', 'SidebarGroupLabel', 'SidebarHeader', 'SidebarMenu', 'SidebarMenuItem'].map(k => [k, wrap]).concat([
-    ['SidebarMenuButton', ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => React.createElement('button', { onClick }, children)],
+    ['SidebarMenuButton', ({ children, onClick, isActive, ...props }: { children?: React.ReactNode; onClick?: () => void; isActive?: boolean; 'aria-current'?: React.AriaAttributes['aria-current'] }) => React.createElement('button', { onClick, 'data-active': isActive, 'aria-current': props['aria-current'] }, children)],
   ]));
 });
 vi.mock('@/components/ui/tooltip', () => {
@@ -63,4 +64,24 @@ it('shows the Threads unread total, caps large counts, and clears the badge at z
     await act(async () => root.render(React.createElement(NavRail)));
     expect(threads().querySelector('[aria-label="nav.unreadCount"]')).toBeNull();
   } finally { state.unreadThreadsTotal = 0; await act(async () => root.unmount()); host.remove(); }
+});
+
+it('selects Connect Agent rather than the seeded thread while onboarding owns the page', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const dismiss = vi.fn();
+  try {
+    await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider, { value: { active: true, onDismiss: dismiss } }, React.createElement(NavRail))));
+    const threads = [...host.querySelectorAll('button')].find(b => b.textContent === 'views.threads')!;
+    const connect = [...host.querySelectorAll('button')].find(b => b.textContent === 'nav.connectAgent')!;
+    expect(threads.getAttribute('data-active')).toBe('false');
+    expect(connect.getAttribute('data-active')).toBe('true');
+    expect(connect.getAttribute('aria-current')).toBe('page');
+    await act(async () => threads.click());
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(state.openView).toHaveBeenCalledWith('threads');
+    await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider, { value: { active: false } }, React.createElement(NavRail))));
+    expect(threads.getAttribute('data-active')).toBe('true');
+    expect(connect.getAttribute('data-active')).toBe('false');
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });

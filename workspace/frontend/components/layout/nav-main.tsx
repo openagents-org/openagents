@@ -1,4 +1,5 @@
 'use client';
+import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
 
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
@@ -18,6 +19,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { isRecentAgent } from '@/lib/helpers';
 import { countFiles } from '@/components/files/file-utils';
+import { unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
 import { useLayout, type ViewMode } from './layout-context';
 
@@ -35,8 +37,11 @@ interface NavItem {
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
-  const { agents, sessions, files, browserTabs, tasks, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal } = useWorkspace();
+  const onboarding = useOnboardingSurface();
+  const dismissOnboarding = useDismissOnboarding();
+  const { agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
+  const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   // Fresh workspace (no real agent, no threads) is in guided onboarding — the
@@ -52,7 +57,13 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
           icon: <MessageSquare />,
           count: unreadThreadsTotal,
         },
-    { mode: 'issues', label: t('views.issues'), icon: <CircleDot />, count: tasks.filter(task => task.status === 'need_input').length },
+    {
+      mode: 'issues',
+      label: t('views.issues'),
+      icon: <CircleDot />,
+      count: unreadIssues,
+      urgent: true,
+    },
     ...(hasAgents
       ? ([
           { mode: 'files', label: t('views.files'), icon: <FileText /> },
@@ -91,9 +102,9 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues')}
+                isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
                 onClick={() => {
-                  if (item.mode === 'threads') setThreadFilter('all');
+                  if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); }
                   openView(item.mode);
                   onNavigate?.();
                 }}

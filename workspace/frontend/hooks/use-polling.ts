@@ -311,6 +311,11 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     let eventSource: EventSource | null = null;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let usingSSE = false;
+    // clearTimeout cannot stop a timer that already fired and is awaiting
+    // poll(); without this flag that callback re-schedules after cleanup and
+    // the old loop runs forever. Every re-run (each tab refocus bumps the
+    // reconnect nonce) could leak one more 2s loop.
+    let cancelled = false;
 
     const startPolling = () => {
       const getDelay = () => {
@@ -322,6 +327,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
         return idle > 60_000 ? 15_000 : 2_000;
       };
       const schedule = () => {
+        if (cancelled) return;
         timeout = setTimeout(async () => {
           await poll();
           schedule();
@@ -368,6 +374,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     }
 
     return () => {
+      cancelled = true;
       if (eventSource) eventSource.close();
       if (timeout) clearTimeout(timeout);
     };

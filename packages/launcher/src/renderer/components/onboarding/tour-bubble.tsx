@@ -18,7 +18,7 @@ export function TourBubble({
   icon: Icon,
   index,
   total,
-  arrowLeft,
+  arrowTop,
   style,
   onSkip,
   onBack,
@@ -31,9 +31,8 @@ export function TourBubble({
   icon: LucideIcon | null
   index: number
   total: number
-  /** Pointer offset from the bubble's top, in px. */
-  /** Where along the bubble's top edge the pointer sits. */
-  arrowLeft: number
+  /** Where along the bubble's left edge the pointer sits, in px from its top. */
+  arrowTop: number
   style: React.CSSProperties
   onSkip: () => void
   onBack: () => void
@@ -51,8 +50,8 @@ export function TourBubble({
       {/* Pointer back at the highlighted item: a rotated square sharing the
           bubble's background, so only its two outer edges read as border. */}
       <span
-        className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-t border-l border-border bg-popover"
-        style={{ top: 0, left: arrowLeft }}
+        className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-l border-border bg-popover"
+        style={{ left: 0, top: arrowTop }}
         aria-hidden
       />
 

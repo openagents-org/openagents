@@ -9,14 +9,16 @@ import {
 } from "@renderer/lib/changelog"
 
 /**
- * Entry type → chip tint. Three distinct hues rather than a grey for fixes:
- * the neutral chip sat at the same lightness as the dialog behind it and read
- * as disabled text.
+ * Entry type → chip weight, in shadcn's own badge variants: solid for what is
+ * new, soft grey for an improvement, outlined for a fix. The neutral theme
+ * has no accent colour, so the three are told apart by weight rather than
+ * hue — green and amber chips were the only colour left in the dialog. The
+ * outline keeps full-strength text, so a fix does not read as disabled.
  */
-const TONE: Record<ReleaseEntryType, "default" | "success" | "warning"> = {
+const TONE: Record<ReleaseEntryType, "default" | "secondary" | "outline"> = {
   feature: "default",
-  improvement: "success",
-  fix: "warning",
+  improvement: "secondary",
+  fix: "outline",
 }
 
 /**
@@ -49,9 +51,11 @@ export function ReleaseEntries({
           <span className="text-2xs text-muted-foreground">{release.date}</span>
         </div>
       )}
-      <ul className="m-0 flex list-none flex-col gap-4 p-0">
+      {/* A hairline between changes: with only a gap, each title sat as close
+          to the previous description as to its own. */}
+      <ul className="m-0 flex list-none flex-col divide-y p-0">
         {release.entries.map((entry, i) => (
-          <li key={i} className="flex items-start gap-2.5">
+          <li key={i} className="flex items-start gap-3 py-3.5 first:pt-0 last:pb-0">
             {/* One width for all three, so the titles start on a common left
                 edge. Sized to the label, the column jumped between entries —
                 barely visible in Chinese, where the three words are nearly the
@@ -60,7 +64,7 @@ export function ReleaseEntries({
             <Badge
               variant={TONE[entry.type]}
               size="sm"
-              className="mt-0.5 w-20 shrink-0 justify-center"
+              className="mt-0.5 w-16 shrink-0 justify-center"
             >
               {t(`whatsNew.types.${entry.type}`)}
             </Badge>
@@ -72,7 +76,7 @@ export function ReleaseEntries({
                 {localized(entry.title, language)}
               </div>
               {entry.description && (
-                <p className="mt-1 mb-0 text-xs leading-relaxed text-muted-foreground">
+                <p className="mt-1.5 mb-0 text-xs leading-relaxed text-muted-foreground">
                   {localized(entry.description, language)}
                 </p>
               )}

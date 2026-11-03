@@ -23,21 +23,57 @@ export function haveWorkspaceCreds(): boolean {
 /** The workspace under test, as the launcher will list and bind it. */
 export const WS_SLUG = SLUG
 
+// A dedicated test account that is a member of the E2E workspace. Pairing a
+// device needs a signed-in person (see createPairingCode); the Firebase web key
+// is public — it ships in the Workspace frontend (workspace/frontend/lib/firebase.ts).
+const USER_EMAIL = process.env.E2E_USER_EMAIL || ""
+const USER_PASSWORD = process.env.E2E_USER_PASSWORD || ""
+const FIREBASE_API_KEY =
+  process.env.E2E_FIREBASE_API_KEY || "AIzaSyCXgN-7HfgAQiN0pRKqGi8jMbGGo9e9X34"
+
+export function haveMemberCreds(): boolean {
+  return !!USER_EMAIL && !!USER_PASSWORD
+}
+
+/** Sign the test member in with email/password and return a Firebase ID token. */
+async function signInMember(): Promise<string> {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: USER_EMAIL, password: USER_PASSWORD, returnSecureToken: true }),
+    },
+  )
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !body.idToken)
+    throw new Error(`E2E member sign-in failed (${res.status}): ${body?.error?.message || "no idToken"}`)
+  return body.idToken as string
+}
+
 /**
  * Mint a single-use node pairing code for this workspace.
  *
  * Joining is device-level now: the launcher redeems an XXXX-XXXX code to
  * register this machine as a node, and only then can an agent be bound to the
  * workspace. Codes are short-lived and single-use, so a run cannot carry one in
- * a secret — it mints its own. `POST /v1/workspaces/{slug}/pairing-codes` is
- * owner/admin gated, and a workspace or node token counts as a trusted machine
- * credential there, so the token the reply assertion already needs is enough.
+ * a secret — it mints its own. Since v1.1 `POST /v1/workspaces/{slug}/pairing-codes`
+ * requires a signed-in workspace member, who owns the connection; a workspace
+ * token is no longer enough, so the test member signs in first — and joins the
+ * workspace if it is not a member yet (see joinWorkspace).
  */
 export async function createPairingCode(): Promise<string> {
-  const res = await fetch(
-    `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`,
-    { method: "POST", headers: headers() },
-  )
+  const idToken = await signInMember()
+  const mint = () =>
+    fetch(`${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/pairing-codes`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+    })
+  let res = await mint()
+  if (res.status === 403) {
+    await joinWorkspace(idToken)
+    res = await mint()
+  }
   if (!res.ok)
     throw new Error(
       `POST /v1/workspaces/${SLUG}/pairing-codes ${res.status}: ${await res.text()}`,
@@ -46,6 +82,55 @@ export async function createPairingCode(): Promise<string> {
   const code = body?.data?.code
   if (!code) throw new Error(`pairing-codes returned no code: ${JSON.stringify(body)}`)
   return code as string
+}
+
+/**
+ * Make the test member a member of the workspace under test, so whichever
+ * workspace E2E_WS_SLUG names needs no manual setup. The workspace token is
+ * the workspace's own trusted machine credential and may create invites; an
+ * open (not email-bound, so nothing is mailed) member invite is accepted as the
+ * test member and revoked straight away, leaving no usable link behind.
+ */
+async function joinWorkspace(idToken: string): Promise<void> {
+  const invites = `${BASE}/v1/workspaces/${encodeURIComponent(SLUG)}/invites`
+  const created = await fetch(invites, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ role: "member", note: "launcher E2E test member" }),
+  })
+  if (!created.ok)
+    throw new Error(`POST /v1/workspaces/${SLUG}/invites ${created.status}: ${await created.text()}`)
+  const invite = (await created.json())?.data
+  const inviteToken = String(invite?.url || "").split("/invite/")[1]
+  try {
+    const accepted = await fetch(`${BASE}/v1/invites/${encodeURIComponent(inviteToken)}/accept`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+    })
+    if (!accepted.ok)
+      throw new Error(`accepting the E2E member invite failed ${accepted.status}: ${await accepted.text()}`)
+  } finally {
+    await fetch(`${invites}/${encodeURIComponent(invite.inviteId)}`, {
+      method: "DELETE",
+      headers: headers(),
+    }).catch(() => {})
+  }
+}
+
+/**
+ * Unpair a device this run paired. Every cell pairs a fresh device, so without
+ * this each nightly run would leave up to 13 registered devices — each with a
+ * live token — in the E2E workspace. The member who minted the code owns the
+ * connection and may remove it.
+ */
+export async function removeDevice(nodeId: string): Promise<void> {
+  const idToken = await signInMember()
+  const res = await fetch(`${BASE}/v1/nodes/${encodeURIComponent(nodeId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${idToken}` },
+  })
+  if (!res.ok && res.status !== 404)
+    throw new Error(`DELETE /v1/nodes/${nodeId} ${res.status}: ${await res.text()}`)
 }
 
 async function fetchEvents(params: Record<string, string>): Promise<any> {

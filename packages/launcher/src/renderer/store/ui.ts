@@ -13,7 +13,12 @@ interface UiState {
   // Deep-link request: when set, the Install page should auto-open this agent's
   // detail view (used by Dashboard banner click and tray-menu update items).
   installFocusAgent: string | null
-  setInstallFocusAgent: (name: string | null) => void
+  /**
+   * Where the page opened by `installFocusAgent` goes back to, when that is
+   * not the marketplace list — the setup form it was opened from.
+   */
+  installFocusReturn: string | null
+  setInstallFocusAgent: (name: string | null, returnTab?: string) => void
 
   // Deep-link request for a page's own "create" dialog, so the dashboard's
   // "New agent" / "Create workspace" buttons open the real flow instead of just
@@ -22,6 +27,8 @@ interface UiState {
   pendingCreate: 'agent' | 'workspace' | null
   /** With `pendingCreate: 'agent'`: the type to open the setup form on. */
   pendingCreateType: string | null
+  /** The page the request came from, which the form's Cancel returns to. */
+  pendingCreateFrom: string | null
   requestCreate: (what: 'agent' | 'workspace', type?: string) => void
   clearPendingCreate: () => void
 
@@ -97,17 +104,24 @@ export const useUiStore = create<UiState>((set) => ({
       : set({ currentTab: tab === 'agents' ? 'dashboard' : tab }),
 
   installFocusAgent: null,
-  setInstallFocusAgent: (name) => set({ installFocusAgent: name }),
+  installFocusReturn: null,
+  setInstallFocusAgent: (name, returnTab) =>
+    set(name ? { installFocusAgent: name, installFocusReturn: returnTab ?? null } : { installFocusAgent: null }),
 
   pendingCreate: null,
   pendingCreateType: null,
+  pendingCreateFrom: null,
   requestCreate: (what, type) =>
-    set({
-      currentTab: what === 'agent' ? 'dashboard' : 'workspaces',
-      pendingCreate: what,
-      pendingCreateType: type ?? null,
+    set((s) => {
+      const target = what === 'agent' ? 'dashboard' : 'workspaces'
+      return {
+        currentTab: target,
+        pendingCreate: what,
+        pendingCreateType: type ?? null,
+        pendingCreateFrom: s.currentTab === target ? null : s.currentTab,
+      }
     }),
-  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null }),
+  clearPendingCreate: () => set({ pendingCreate: null, pendingCreateType: null, pendingCreateFrom: null }),
 
   installListSignal: 0,
   installListFilter: 'all',

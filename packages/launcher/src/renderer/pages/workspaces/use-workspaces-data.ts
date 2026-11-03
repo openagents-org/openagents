@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useConnectionsStore } from "@renderer/store/connections"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
-import type { WorkspaceRowData as WorkspaceCardData } from "@renderer/components/workspaces/workspace-row"
+import type { WorkspaceCardData } from "@renderer/components/workspaces/workspace-card"
 import type { WorkspaceHealthState } from "@renderer/components/workspaces/WorkspaceHealth"
 import type {
   Agent,

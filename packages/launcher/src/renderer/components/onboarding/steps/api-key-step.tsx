@@ -8,7 +8,7 @@ import { ModelField } from "@renderer/components/model-field"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
-import { envFieldHint, envFieldLabel } from "@renderer/lib/agent-meta"
+import { envFieldHint, envFieldLabel, envFieldPlaceholder } from "@renderer/lib/agent-meta"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField, OnboardingAgent } from "@renderer/types"
@@ -45,7 +45,7 @@ export function ApiKeyStep({
           {mode === "login" && <LoginPanel entry={entry} auth={auth} />}
 
           {mode === "none" && !hasEnvFields && (
-            <div className="rounded-lg border border-(--success-border) bg-(--success-bg) p-5 text-sm text-(--success-text)">
+            <div className="rounded-lg border bg-card p-5 text-sm">
               {t("onboarding.flow.apiKey.noConfigNeeded")}
             </div>
           )}
@@ -190,7 +190,7 @@ function EnvRow({
           value={auth.values[field.name] ?? ""}
           onChange={(e) => auth.setValue(field.name, e.target.value)}
           placeholder={
-            field.placeholder ||
+            envFieldPlaceholder(field, t) ||
             field.default ||
             t("onboarding.flow.apiKey.fieldPlaceholder", { name: field.name })
           }
@@ -214,8 +214,7 @@ function TestStatus({ auth }: { auth: OnboardingAuthApi }): React.JSX.Element {
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 rounded-md border px-3 py-2 text-xs",
         !testResult && "border-(--border) text-(--text-tertiary)",
-        testResult?.ok &&
-          "border-(--success-border) bg-(--success-bg) text-(--success-text)",
+        testResult?.ok && "border-(--border) text-foreground",
         testResult &&
           !testResult.ok &&
           "border-(--danger-border) bg-(--danger-bg) text-(--danger-text)",

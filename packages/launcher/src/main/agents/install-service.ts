@@ -660,18 +660,28 @@ export class InstallService {
         env: withPathEnv(PORTABLE_NODE_DIR + path.delimiter + readPathEnv()),
         windowsHide: true,
       })
+      // The end of npm's output is where it says why it stopped; without it a
+      // failure reached the user as a bare "Install failed with code 1".
+      let tail = ""
+      const collect = (d: string) => {
+        tail = (tail + d).slice(-2000)
+        if (onData) onData(d)
+      }
       proc.stdout?.setEncoding("utf-8")
       proc.stderr?.setEncoding("utf-8")
-      proc.stdout?.on("data", (d) => onData && onData(d))
-      proc.stderr?.on("data", (d) => onData && onData(d))
+      proc.stdout?.on("data", collect)
+      proc.stderr?.on("data", collect)
       proc.on("error", (err) => resolve({ success: false, error: err.message }))
-      proc.on("close", (code) =>
-        resolve(
-          code === 0
-            ? { success: true }
-            : { success: false, error: `Install failed with code ${code}` },
-        ),
-      )
+      proc.on("close", (code, signal) => {
+        if (code === 0) return resolve({ success: true })
+        // A null code means npm did not exit on its own: something killed it.
+        const how =
+          code === null
+            ? `npm was terminated by ${signal || "a signal"}`
+            : `Install failed with code ${code}`
+        const last = tail.trim().split(/\r?\n/).slice(-4).join("\n")
+        resolve({ success: false, error: last ? `${how}\n\n${last}` : how })
+      })
     })
   }
 

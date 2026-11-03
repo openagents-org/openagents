@@ -616,8 +616,7 @@
       {
         "name": "LLM_BASE_URL",
         "description": "Custom OpenAI-compatible base URL (leave empty to use Hermes's own provider login)",
-        "required": false,
-        "placeholder": "https://api.openai.com/v1"
+        "required": false
       },
       {
         "name": "LLM_MODEL",
@@ -1807,12 +1806,12 @@
       "requires": [
         "nodejs"
       ],
-      "supported_version": "0.2.1-rc.2",
+      "supported_version": "0.2.1-rc.5",
       "verify": "dsh -V >/dev/null 2>&1",
       "verify_win": "dsh -V >nul 2>nul",
-      "macos": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2",
-      "linux": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2",
-      "windows": "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+      "macos": "npm install -g @deepseek-ai/dsh@0.2.1-rc.5",
+      "linux": "npm install -g @deepseek-ai/dsh@0.2.1-rc.5",
+      "windows": "npm install -g @deepseek-ai/dsh@0.2.1-rc.5"
     },
     "uninstall": {
       "macos": "npm uninstall -g @deepseek-ai/dsh",
@@ -1844,8 +1843,7 @@
       {
         "name": "DEEPSEEK_BASE_URL",
         "description": "Optional gateway/proxy base URL. Leave blank for the public DeepSeek API. A URL ending in a version segment (e.g. https://relay.example.com/v1, or OpenAgents credits) is used as an OpenAI-compatible chat-completions endpoint; any other URL must speak the Anthropic Messages API (e.g. https://api.deepseek.com/anthropic).",
-        "required": false,
-        "placeholder": "https://api.deepseek.com/anthropic"
+        "required": false
       },
       {
         "name": "DEEPSEEK_MODEL",
@@ -2254,8 +2252,7 @@
       {
         "name": "CODEBUDDY_BASE_URL",
         "description": "Advanced. Endpoint override, for an enterprise or self-hosted deployment. Blank means the endpoint the region above selects.",
-        "required": false,
-        "placeholder": "https://www.codebuddy.cn"
+        "required": false
       }
     ],
     "check_ready": {

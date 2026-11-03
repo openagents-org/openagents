@@ -119,10 +119,9 @@ test('editing the same local agent preserves credentials and changes only its fo
   expect(errors).toEqual([])
 })
 
-test('theme menu keeps hover and selection visually separate in the OpenAgents skin', async ({ page }, info) => {
+test('theme menu keeps hover and selection visually separate in dark mode', async ({ page }, info) => {
   await openComputer(page)
   await page.evaluate(() => {
-    localStorage.setItem('launcher:skin', 'openagents')
     localStorage.setItem('launcher:theme-mode', 'dark')
   })
   await page.reload()
@@ -138,7 +137,7 @@ test('theme menu keeps hover and selection visually separate in the OpenAgents s
   await expect
     .poll(() => hovered.evaluate((el) => getComputedStyle(el).outlineStyle))
     .toBe('none')
-  await page.screenshot({ path: info.outputPath('openagents-theme-menu.png') })
+  await page.screenshot({ path: info.outputPath('theme-menu.png') })
 })
 
 test('adding an installed type can open its existing agent instead of creating a copy', async ({ page }) => {

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
-import { SearchInput } from "@renderer/components/ui-kit"
+import { SearchInput, StatusBadge } from "@renderer/components/ui-kit"
 import { agentDescription } from "@renderer/lib/agent-meta"
 import { cn } from "@renderer/lib/utils"
 import type { OnboardingAgent } from "@renderer/types"
@@ -161,11 +161,11 @@ function AgentCard({
                 {t("onboarding.flow.agentSelection.featured")}
               </Badge>
             )}
-            <Badge size="sm" variant={agent.installed ? "success" : "muted"}>
+            <StatusBadge size="sm" tone={agent.installed ? "success" : "neutral"}>
               {agent.installed
                 ? t("onboarding.flow.agentSelection.installed")
                 : t("onboarding.flow.agentSelection.needsInstall")}
-            </Badge>
+            </StatusBadge>
           </div>
           <p className="m-0 mt-1.5 line-clamp-2 text-xs leading-relaxed text-(--text-secondary)">
             {agentDescription(agent.name, agent.description, t) ||

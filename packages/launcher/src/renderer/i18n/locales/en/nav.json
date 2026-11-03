@@ -2,6 +2,7 @@
   "items": {
     "dashboard": {
       "label": "Connect Agents",
+      "short": "Agents",
       "description": "Install and configure agents, then connect them to workspaces"
     },
     "install": {
@@ -13,8 +14,9 @@
       "description": "Step 2 · Create agents, set API keys, test and connect"
     },
     "workspaces": {
-      "label": "Joined Workspaces",
-      "description": "Workspaces this computer has joined as a device"
+      "label": "Connected Workspaces",
+      "short": "Spaces",
+      "description": "Workspaces this computer is connected to as a device"
     },
     "chat": {
       "label": "Chat",
@@ -38,6 +40,7 @@
     },
     "settings": {
       "label": "Settings",
+      "short": "Settings",
       "description": "App settings and preferences"
     }
   },
@@ -51,10 +54,11 @@
   },
   "search": "Search agents, workspaces…",
   "themeToggle": "Theme",
-  "modeSwitch": "Switch between this machine and your workspaces",
-  "modeLauncher": "Device",
+  "modeLauncher": "This Computer",
+  "modeLauncherShort": "Computer",
   "modeWorkspace": "Workspace",
-  "pages": "This Computer pages",
+  "modeSwitch": "Switch between this computer and your workspaces",
+  "toggleSidebar": "Toggle sidebar",
   "agentsSummary": {
     "running_one": "{{count}} agent running",
     "running_other": "{{count}} agents running",
@@ -63,6 +67,7 @@
     "error_one": "{{count}} agent needs attention",
     "error_other": "{{count}} agents need attention",
     "stopped": "No agents running",
-    "none": "No agents yet"
+    "none": "No agents yet",
+    "connectorOff": "Local connector off"
   }
 }

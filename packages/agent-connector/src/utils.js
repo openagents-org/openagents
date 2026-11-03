@@ -37,10 +37,26 @@ function request(url, { method = 'POST', headers = {}, body = null, timeout = 15
       res.on('end', () => resolve({ status: res.statusCode, data }));
     });
     req.on('error', (e) => resolve({ error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ error: 'Request timed out' }); });
+    // Name the host and the deadline: a bare "Request timed out" on the
+    // device card did not say whether the provider or the network was slow.
+    req.on('timeout', () => { req.destroy(); resolve({ error: `Request to ${parsedUrl.host} timed out after ${Math.round(timeout / 1000)}s` }); });
     if (body) req.write(body);
     req.end();
   });
+}
+
+/**
+ * The test completion. 15s read as broken a slow relay that answers in 20, and
+ * a dropped connection failed the whole test: give it 30s and one more try on
+ * a timeout or reset. A host that does not resolve is not retried.
+ */
+const COMPLETION_TIMEOUT_MS = 30000;
+const RETRYABLE = /timed out|econnreset|socket hang up|eai_again/i;
+
+async function requestCompletion(url, opts) {
+  const res = await request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
+  if (!res.error || !RETRYABLE.test(res.error)) return res;
+  return request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
 }
 
 /**
@@ -166,7 +182,7 @@ async function testLLMConnection(env, opts = {}) {
       max_tokens: 32,
       messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
     });
-    const res = await request(url, { headers, body });
+    const res = await requestCompletion(url, { headers, body });
     return completionResult(res, { isAnthropic: true, model });
   }
 
@@ -195,7 +211,7 @@ async function testLLMConnection(env, opts = {}) {
     };
     if (hasKimiConfig) requestBody.max_tokens = 32;
     else requestBody.max_completion_tokens = 32;
-    const res = await request(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
+    const res = await requestCompletion(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
     last = completionResult(res, { isAnthropic: false, model: candidate });
     if (last.success) return last;
     // Only a model WE picked moves on to the next one. A configured model is
