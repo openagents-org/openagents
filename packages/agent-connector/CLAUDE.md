@@ -53,6 +53,9 @@ src/
     qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
     qwen-code.js      QwenCodeAdapter — Alibaba Qwen Code CLI (`qwen --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config, auto-memory turned off through a system-defaults settings layer
     qwen-code-stream.js  Pure helpers for QwenCodeAdapter (argv builder, stream-json frame interpreter, run classification, key/base URL/model resolution as one set, settings layer, version gate, redaction) — unit-tested
+    kiro.js           KiroAdapter — Kiro CLI (`kiro-cli acp`) driven over the Agent Client Protocol: one ACP server per message, session/new|load per channel, workspace tools in session/new's mcpServers, approvals answered by the adapter (plan mode refuses writes), KIRO_AGENT selects the Kiro agent profile with the agent's own prompt and MCP servers
+    kiro-runtime.js   Pure helpers for KiroAdapter (version gate, argv, session/update interpretation, permission policy, stale-session/profile-not-found recognition) — unit-tested
+    acp-client.js     Generic ACP client: JSON-RPC 2.0 over a child's stdio (request/response matching, agent→client requests, notifications, timeouts) — reusable by any CLI that serves ACP
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)

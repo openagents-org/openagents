@@ -92,6 +92,9 @@ const LOC = {
   // Qwen Code's standalone installer (install-qwen-standalone.ps1) puts its
   // qwen.cmd wrapper here; the .sh flavor uses ~/.local/bin.
   qwenWin: IS_WINDOWS ? 'AppData/Local/qwen-code/bin' : null,
+  // Kiro's install.ps1 runs an MSI into %ProgramFiles%\Kiro-Cli; childEnv
+  // points ProgramFiles inside the synthetic HOME so it can be planted.
+  kiroWin: IS_WINDOWS ? 'Program Files/Kiro-Cli' : null,
   agyWin: IS_WINDOWS ? 'AppData/Local/agy/bin' : null,
   // winget's shim dir — how the GitHub Copilot CLI arrives for a Windows user
   // who didn't take the npm route.
@@ -231,6 +234,10 @@ const WHERE = {
     [IS_WINDOWS ? null : LOC.localBin, 'install-qwen-standalone.sh', 'installer'],
     [LOC.qwenWin, 'install-qwen-standalone.ps1', 'installer'],
   ],
+  kiro: [
+    [IS_WINDOWS ? null : LOC.localBin, 'cli.kiro.dev/install (install.sh, per-user)', 'installer'],
+    [LOC.kiroWin, 'cli.kiro.dev/install.ps1 (MSI)', 'installer'],
+  ],
 }
 
 /**
@@ -273,6 +280,8 @@ function childEnv(home) {
       ? {
           APPDATA: path.join(home, 'AppData', 'Roaming'),
           LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+          // Machine-wide MSI installs (Kiro CLI) land under ProgramFiles.
+          ProgramFiles: path.join(home, 'Program Files'),
         }
       : {}),
     // The shell probe is irrelevant here and would leak the developer's own

@@ -869,6 +869,12 @@ function _addWindowsPaths(dirs) {
   // Node.js install
   _push(dirs, path.join(programFiles, 'nodejs'));
 
+  // Kiro CLI — install.ps1 runs an MSI that installs kiro-cli.exe into
+  // %ProgramFiles%\Kiro-Cli and edits the machine PATH, which an
+  // already-running daemon never sees. (install.sh uses ~/.local/bin, or
+  // /usr/local/bin for a system-wide install — both searched already.)
+  _push(dirs, path.join(programFiles, 'Kiro-Cli'));
+
   // nvm for Windows
   const nvmHome = process.env.NVM_HOME;
   if (nvmHome) {

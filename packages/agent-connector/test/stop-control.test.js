@@ -814,7 +814,7 @@ const PROCESS_ADAPTERS = [
   'claude', 'codex', 'kimi', 'aider', 'amp', 'antigravity', 'cline', 'codebuddy',
   'commandcode', 'copilot', 'cursor', 'deepseek', 'gemini', 'goose', 'hermes',
   'mini-swe-agent', 'opencode', 'openworker', 'pi', 'mimo-code', 'qoder',
-  'qoder-cn', 'qwen-code',
+  'qoder-cn', 'qwen-code', 'kiro',
 ];
 
 function fakeProc(pid) {
@@ -1072,6 +1072,13 @@ const START_RUN = {
   },
   'qwen-code': {
     start: (a, ch) => a._runQwen(ch, MISSING_BIN, [], require('node:os').tmpdir(), 'p'),
+    stopped: { userStopped: true },
+  },
+  kiro: {
+    start: (a, ch) => a._runTurn({
+      channel: ch, bin: MISSING_BIN, args: [], cwd: require('node:os').tmpdir(), env: {},
+      resumeId: null, mcpServers: [], blocks: [], secrets: [],
+    }),
     stopped: { userStopped: true },
   },
   copilot: { start: (a, ch) => { a._copilotBin = MISSING_BIN; return a._runTurn(ch, []); }, stopped: { userStopped: true } },
