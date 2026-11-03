@@ -17,6 +17,7 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
@@ -112,11 +113,15 @@ export function ConnectAgentView({
   autoPair = false,
   autoAddAgent = false,
   preferredNodeId,
+  footer,
+  onDismiss,
 }: {
   initialTab?: 'local' | 'cloud' | 'node';
   autoPair?: boolean;
   autoAddAgent?: boolean;
   preferredNodeId?: string;
+  footer?: React.ReactNode;
+  onDismiss?: () => void;
 } = {}) {
   const t = useT();
   const { openView } = useLayout();
@@ -144,6 +149,7 @@ export function ConnectAgentView({
   const [nodesLoaded, setNodesLoaded] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState(false);
 
   // Local agents
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -359,12 +365,14 @@ export function ConnectAgentView({
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
+    setPairingError(false);
     try {
       const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
       capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
+      setPairingError(true);
       const msg = err instanceof Error ? err.message : '';
       toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
     } finally {
@@ -372,30 +380,34 @@ export function ConnectAgentView({
     }
   };
 
-  // Guided onboarding: when asked to auto-pair, generate a code as soon as the
-  // node view is ready and there are no nodes yet — so the user lands straight
-  // on the pairing code instead of an empty state + a button. Fires once.
+  // First run and explicit reentry share the guided pairing surface. Generate
+  // a code only after a successful device read confirms an empty list. The
+  // pairing form replaces the empty-state detour on both entry points.
   const autoPairedRef = useRef(false);
   useEffect(() => {
-    if (!autoPair || autoPairedRef.current) return;
-    if (activeTab !== 'node' || loading || nodesLoading) return;
+    if (!(autoPair || workspace?.needsFirstDevice === true) || autoPairedRef.current) return;
+    if (activeTab !== 'node' || loading || nodesLoading || !nodesLoaded || nodesError) return;
     if (nodes.length > 0 || pairing || pairingLoading) return;
     autoPairedRef.current = true;
     handleGeneratePairingCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPair, activeTab, loading, nodesLoading, nodes.length, pairing, pairingLoading]);
+  }, [autoPair, workspace?.needsFirstDevice, activeTab, loading, nodesLoading, nodesLoaded, nodesError, nodes.length, pairing, pairingLoading]);
 
   const handleDismissPairing = () => {
     setPairing(null);
     loadNodes(true);
   };
 
+  const showFirstDeviceSetup = !isDesktop && nodesLoaded && !nodesError && nodes.length === 0 &&
+    (autoPair || workspace?.needsFirstDevice === true);
+  const close = onDismiss ?? (() => openView('threads'));
+
   return (
     <div className="flex flex-col h-full">
       {/* Header — title in the app header, actions in its toolbar */}
       <DetailHeader title={<h2 className="text-base font-semibold">{t('connect.title')}</h2>}>
         <button
-          onClick={() => openView('threads')}
+          onClick={close}
           className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
           title={t('common.close')}
         >
@@ -404,32 +416,7 @@ export function ConnectAgentView({
       </DetailHeader>
 
       {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <div className="px-6 pt-4 pb-2 shrink-0">
-        <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
-          {([
-            { id: 'node', icon: Server, label: t('connect.tabNode') },
-            { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
-          ] as const).map((tab) => {
-            const active = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setSelectedTab(tab.id)}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all',
-                  active
-                    ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className={cn('size-4', active && 'text-primary')} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>}
+      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
@@ -449,13 +436,34 @@ export function ConnectAgentView({
             <Loader2 className="size-4 animate-spin mr-2" />
             <span className="text-xs">{t('common.loading')}</span>
           </div>
+        ) : activeTab === 'node' && showFirstDeviceSetup ? (
+          <>
+            <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} />
+            <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
+              {pairing ? (
+                <OnboardingPairingPanel pairing={pairing} onDismiss={close} />
+              ) : pairingError ? (
+                <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
+                  <Button variant="outline" className="mt-4" onClick={handleGeneratePairingCode} disabled={pairingLoading}>
+                    {t('common.retry')}
+                  </Button>
+                </div>
+              ) : (
+                <div role="status" className="flex items-center justify-center py-14 text-muted-foreground">
+                  <Loader2 className="mr-2 size-5 animate-spin" />{t('connect.nodeGenerating')}
+                </div>
+              )}
+              {footer}
+            </div>
+          </>
         ) : activeTab === 'node' ? (
           <NodesTab
             nodes={labeledNodes}
             catalog={catalog}
             catalogState={catalogState}
             cloudProviders={cloudProviders}
-            autoAddAgent={autoAddAgent}
+            autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
@@ -2332,7 +2340,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
   const t = useT();
   const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
-  const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
   const [welcomeDone, setWelcomeDone] = useState(
     () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
   );
@@ -2367,9 +2374,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     setWelcomeDone(true);
   }, [welcomeIdToken]);
 
-  // Escape hatches reuse the full connect view on the right tab.
-  if (alt && !isDesktop) return <ConnectAgentView initialTab={alt} />;
-
   // Value first: three pillar slides (hub → collaboration → humans+agents)
   // play full screen before any ask (download, pairing). Each slide animates
   // once and holds its closing frame; the user pages with prev/next, the last
@@ -2392,41 +2396,22 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     );
   }
 
-  return (
-    <NodeOnboardingStep
-      onDismiss={onDismiss}
-      footer={
-        <div className="pt-4 text-center space-y-2">
-          {/* Onboarding-only: replay the welcome slides (gone once agents exist,
-              since FirstRunOnboarding itself no longer renders then) */}
-          <div>
-            <button
-              onClick={() => {
-                capture('welcome_film_replayed', { source: 'guided_wizard' });
-                setWelcomeDone(false);
-              }}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
-            </button>
-          </div>
-          {!isDesktop && (
-            <>
-              <div>
-                <button
-                  onClick={() => setAlt('cloud')}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
-                </button>
-              </div>
-
-            </>
-          )}
-        </div>
-      }
-    />
+  const footer = (
+    <div className="pt-4 text-center">
+      <button
+        onClick={() => {
+          capture('welcome_film_replayed', { source: 'guided_wizard' });
+          setWelcomeDone(false);
+        }}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
+      </button>
+    </div>
   );
+  return isDesktop
+    ? <NodeOnboardingStep onDismiss={onDismiss} footer={footer} />
+    : <ConnectAgentView autoPair onDismiss={onDismiss} footer={footer} />;
 }
 
 /** Bottom progress indicator for the onboarding flow. */

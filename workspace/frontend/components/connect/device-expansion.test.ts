@@ -2,18 +2,19 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ConnectAgentView } from './connect-agent-view';
+import { ConnectAgentView, FirstRunOnboarding } from './connect-agent-view';
 import type { WorkspaceNode } from '@/lib/types';
 
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
-  listNodes: vi.fn(),
+  listNodes: vi.fn(), createPairingCode: vi.fn(),
 }));
+const fixture = vi.hoisted(() => ({ needsFirstDevice: false, openView: vi.fn() }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  workspace: { workspaceId: 'test-workspace' }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
+  workspace: { workspaceId: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
 }) }));
-vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: vi.fn(), isMobile: false }) }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: null }) }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
@@ -34,6 +35,8 @@ vi.mock('@/components/agents/agent-setup', () => ({
     React.createElement('button', { onClick: onBack }, 'Back to devices'),
   ),
 }));
+vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: () => React.createElement('h1', null, 'Connect your agents to your workspace') }));
+vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing }: { pairing: { code: string } }) => React.createElement('div', { 'data-testid': 'guided-pairing' }, pairing.code) }));
 let root: Root;
 let container: HTMLDivElement;
 function device(nodeId: string, status = 'online'): WorkspaceNode {
@@ -42,6 +45,9 @@ function device(nodeId: string, status = 'online'): WorkspaceNode {
 }
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.clearAllMocks();
+  fixture.needsFirstDevice = false;
+  api.createPairingCode.mockResolvedValue({ code: "TEST-CODE", expiresAt: "2099-01-01T00:00:00Z", expiresInSeconds: 1800 });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.getAgentCatalog.mockResolvedValue([]);
   api.getCloudProviders.mockResolvedValue([]);
@@ -109,4 +115,70 @@ it('opens a device arriving after an empty list, and works when all devices are 
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   expect(summary('arriving').getAttribute('aria-expanded')).toBe('true');
   expect(button('connect.nodeAddAgent')).toBeDefined();
+});
+
+
+it('keeps both connection tabs and the same guided local setup on first run and reentry', async () => {
+  fixture.needsFirstDevice = true;
+  localStorage.setItem('oa:welcomeFilmSeen', '1');
+  api.listNodes.mockResolvedValue([]);
+  await act(async () => root.render(React.createElement(FirstRunOnboarding)));
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toBe('TEST-CODE');
+  expect(button('connect.tabNode')).toBeDefined();
+  expect(button('connect.tabCloud')).toBeDefined();
+  expect(container.textContent).not.toContain('connect.nodeEmptyTitle');
+  await act(async () => button('connect.tabCloud').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')).toBeNull();
+  expect(button('connect.tabNode')).toBeDefined();
+  await act(async () => button('connect.tabNode').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
+  expect(api.createPairingCode).toHaveBeenCalledTimes(1);
+  // Reopening from Threads mounts the ordinary Connect Agent view, without autoPair.
+  await act(async () => root.render(React.createElement(ConnectAgentView)));
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toBe('TEST-CODE');
+  expect(button('connect.tabNode')).toBeDefined();
+  expect(button('connect.tabCloud')).toBeDefined();
+  localStorage.removeItem('oa:welcomeFilmSeen');
+});
+
+it('waits for a successful device read before generating a first-device code', async () => {
+  fixture.needsFirstDevice = true;
+  let resolveNodes!: (nodes: WorkspaceNode[]) => void;
+  api.listNodes.mockReturnValue(new Promise<WorkspaceNode[]>(resolve => { resolveNodes = resolve; }));
+  await act(async () => root.render(React.createElement(ConnectAgentView)));
+  expect(api.createPairingCode).not.toHaveBeenCalled();
+  await act(async () => resolveNodes([]));
+  expect(api.createPairingCode).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
+});
+
+it('offers a retry when first-device pairing fails without hiding the connection tabs', async () => {
+  fixture.needsFirstDevice = true;
+  api.createPairingCode.mockRejectedValueOnce(new Error('Unavailable'));
+  await render([]);
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('connect.nodePairingFailed');
+  expect(button('connect.tabCloud')).toBeDefined();
+  await act(async () => button('common.retry').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toBe('TEST-CODE');
+});
+
+it('does not mistake a failed device read for an empty workspace', async () => {
+  fixture.needsFirstDevice = true;
+  api.listNodes.mockRejectedValueOnce(new Error('Unavailable'));
+  await act(async () => root.render(React.createElement(ConnectAgentView)));
+  expect(api.createPairingCode).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-testid="nodes-load-failed"]')).not.toBeNull();
+  expect(button('connect.tabCloud')).toBeDefined();
+});
+
+
+it('moves from first-device pairing into agent setup while keeping both tabs', async () => {
+  fixture.needsFirstDevice = true;
+  await render([]);
+  api.listNodes.mockResolvedValue([device('new-device')]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(container.querySelector('[data-testid="guided-pairing"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Agent gallery for new-device"]')).not.toBeNull();
+  expect(button('connect.tabNode')).toBeDefined();
+  expect(button('connect.tabCloud')).toBeDefined();
 });
