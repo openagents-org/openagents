@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowRight, Check, Copy, Download, Laptop, Loader2, Terminal } from 'lucide-react';
+import { Check, Copy, Download, Laptop, Loader2, Terminal } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { desktopDownloads } from '@/lib/desktop-downloads';
@@ -13,11 +13,12 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
   const t = useT();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-zinc-950 p-3 text-zinc-100">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-xs leading-5">{command}</code>
+    <div className="flex min-w-0 items-center gap-2 rounded-xl bg-[#101828] p-3 text-slate-100">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-[13px] leading-6">{command}</code>
       <button type="button" disabled={disabled} onClick={() => copyToClipboard(command)}
-        aria-label={t('connect.nodeCopyCommand')} className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-40">
-        {isCopied ? <Check className="size-4 text-emerald-400" /> : <Copy className="size-4" />}
+        aria-label={t('connect.nodeCopyCommand')} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40">
+        {isCopied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
+        <span>{t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCommand')}</span>
       </button>
     </div>
   );
@@ -44,35 +45,45 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
     : 'curl -fsSL https://openagents.org/install.sh | bash';
 
   return (
-    <section className="overflow-hidden rounded-2xl border bg-background shadow-sm" aria-label={t('onboarding.setupComputer')}>
-      <div className="border-b px-5 py-4 sm:px-6">
-        <h2 className="text-sm font-semibold">{t('onboarding.setupComputer')}</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
-        <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1" role="group" aria-label={t('onboarding.setupMethod')}>
-          <button type="button" aria-pressed={terminal} onClick={() => setMethod('terminal')}
-            className={cn('flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-xs font-medium transition-colors', terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <span className="flex items-center justify-center gap-2"><Terminal className="size-4 shrink-0" />{t('onboarding.terminalServer')}</span>
-            <span className="text-[11px] font-normal leading-4 text-muted-foreground">{t('onboarding.commandLineTarget')}</span>
-          </button>
-          <button type="button" aria-pressed={!terminal} onClick={() => setMethod('desktop')}
-            className={cn('flex flex-col items-center justify-center gap-1 rounded-lg px-2 py-3 text-xs font-medium transition-colors', !terminal ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <span className="flex items-center justify-center gap-2"><Laptop className="size-4 shrink-0" />{t('onboarding.desktopApp')}</span>
-            <span className="text-[11px] font-normal leading-4 text-muted-foreground">{t('onboarding.desktopAppTarget')}</span>
-          </button>
+    <section className="overflow-hidden rounded-2xl border border-border/80 bg-background shadow-[0_4px_24px_-12px_#17255426]" aria-label={t('onboarding.setupComputer')}>
+      <div className="border-b border-border/70 px-5 pb-6 pt-5 sm:px-7 sm:pt-6">
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">{t('onboarding.deviceStepLabel')}</p>
+        <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
+        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
+        <div className="mt-5 grid grid-cols-2 gap-3" role="group" aria-label={t('onboarding.setupMethod')}>
+          {([
+            { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget' },
+            { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget' },
+          ] as const).map(({ id, icon: Icon, label, hint }) => {
+            const active = method === id;
+            return (
+              <button type="button" key={id} aria-pressed={active} onClick={() => setMethod(id)}
+                className={cn('relative flex items-start gap-3 rounded-xl border px-3 py-4 text-left transition-colors sm:px-4', active ? 'border-[#2f6bff]/60 bg-[#2f6bff]/[0.04]' : 'border-border hover:border-[#2f6bff]/35 hover:bg-muted/30')}>
+                <Icon className={cn('mt-0.5 hidden size-5 shrink-0 sm:block', active ? 'text-[#2f6bff]' : 'text-muted-foreground')} />
+                <span className="min-w-0 flex-1">
+                  <span className={cn('block pr-3 text-sm font-semibold', active && 'text-[#2f6bff]')}>{t(label)}</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
+                </span>
+                <span aria-hidden="true" className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', active ? 'border-[#2f6bff] bg-[#2f6bff] text-white' : 'border-border')}>
+                  {active && <Check className="size-2.5" />}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="space-y-6 p-5 sm:p-6">
+      <div className="space-y-7 p-5 sm:p-7">
         <div className="flex gap-3">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">1</span>
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2f6bff]/[0.07] text-xs font-semibold text-[#2f6bff]">1</span>
           <div className="min-w-0 flex-1 space-y-3">
-            <h3 className="text-sm font-semibold leading-6">{t(terminal ? 'onboarding.installCliTitle' : 'onboarding.installAppTitle')}</h3>
+            <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.installCliTitle' : 'onboarding.installAppTitle')}</h3>
             {terminal ? (
               <>
                 <div className="flex gap-2" role="group" aria-label={t('onboarding.setupOs')}>
                   {(['unix', 'windows'] as const).map((value) => (
                     <button type="button" key={value} aria-pressed={os === value} onClick={() => setOs(value)}
-                      className={cn('rounded-md border px-3 py-1.5 text-xs', os === value ? 'border-primary/30 bg-primary/5 font-medium' : 'text-muted-foreground')}>
+                      className={cn('rounded-md border px-3 py-1.5 text-xs', os === value ? 'border-[#2f6bff]/30 bg-[#2f6bff]/[0.04] font-medium text-[#2f6bff]' : 'text-muted-foreground')}>
                       {t(value === 'unix' ? 'connect.nodeOsUnix' : 'connect.nodeOsWindows')}
                     </button>
                   ))}
@@ -91,30 +102,30 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
                 ))}
               </div>
             )}
-            <p className="text-xs leading-5 text-muted-foreground">{t(terminal ? 'onboarding.installCliHint' : 'onboarding.installAppHint')}</p>
+            <p className="text-[13px] leading-6 text-muted-foreground">{t(terminal ? 'onboarding.installCliHint' : 'onboarding.installAppHint')}</p>
           </div>
         </div>
 
         <div className="flex gap-3">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">2</span>
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2f6bff]/[0.07] text-xs font-semibold text-[#2f6bff]">2</span>
           <div className="min-w-0 flex-1 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold leading-6">{t(terminal ? 'onboarding.connectCliTitle' : 'onboarding.enterAppCode')}</h3>
-              <span className={cn('text-[11px]', expired ? 'text-destructive' : 'text-muted-foreground')} role="timer">
+              <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.connectCliTitle' : 'onboarding.enterAppCode')}</h3>
+              <span className={cn('rounded-full px-2 py-1 text-[11px] font-medium', expired ? 'bg-destructive/5 text-destructive' : remaining < 300000 ? 'bg-amber-50 text-amber-700' : 'bg-muted/70 text-muted-foreground')} role="timer">
                 {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
               </span>
             </div>
             <button type="button" onClick={() => copyToClipboard(pairing.code)} disabled={expired} aria-label={t('connect.nodeCopyCode')}
-                className="group flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-xl border border-primary/20 bg-primary/[0.03] px-3 py-5 transition-colors hover:bg-primary/[0.06] disabled:opacity-40">
+                className="group flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-xl border border-[#2f6bff]/20 bg-[#2f6bff]/[0.025] px-3 py-5 transition-colors hover:border-[#2f6bff]/40 hover:bg-[#2f6bff]/[0.05] disabled:opacity-40">
                 <span className="font-mono text-2xl font-semibold tracking-[0.12em] tabular-nums sm:text-3xl">{pairing.code}</span>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-[#2f6bff]">
                   {isCopied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
                   {t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCode')}
                 </span>
             </button>
-            <p className="text-xs leading-5 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
+            <p className="text-[13px] leading-6 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
             {terminal && (
-              <details className="rounded-lg border px-3 py-2.5">
+              <details className="rounded-lg bg-muted/35 px-3 py-2.5">
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">{t('onboarding.cliPairingFallback')}</summary>
                 <div className="mt-3"><SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /></div>
               </details>
@@ -123,19 +134,15 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-5 py-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2.5 text-xs text-muted-foreground" role="status">
-          {!expired && <Loader2 className="size-4 shrink-0 animate-spin" />}
-          <span>{t(expired ? 'onboarding.expiredHint' : 'onboarding.waitingComputerHint')}</span>
+      <div className="flex items-start justify-between gap-3 border-t border-border/70 bg-muted/25 px-5 py-4 sm:px-7">
+        <div className="flex min-w-0 items-start gap-3" role="status">
+          {!expired && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-[#2f6bff]" />}
+          <div>
+            <p className="text-[13px] font-medium">{t(expired ? 'connect.nodePairingExpired' : 'onboarding.waitingComputerHint')}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(expired ? 'onboarding.expiredHint' : 'onboarding.nextAgentBody')}</p>
+          </div>
         </div>
-        {onDismiss && <button type="button" onClick={onDismiss} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">{t('connect.nodeCancel')}</button>}
-      </div>
-      <div className="flex items-start gap-3 border-t px-5 py-4 sm:px-6">
-        <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" />
-        <div>
-          <p className="text-xs font-medium">{t('onboarding.nextAgentTitle')}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('onboarding.nextAgentBody')}</p>
-        </div>
+        {onDismiss && <button type="button" onClick={onDismiss} className="shrink-0 pt-0.5 text-xs text-muted-foreground hover:text-foreground">{t('connect.nodeCancel')}</button>}
       </div>
     </section>
   );

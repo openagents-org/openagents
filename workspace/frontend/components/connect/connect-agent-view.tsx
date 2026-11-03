@@ -2607,8 +2607,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
       <div className="flex-1 overflow-y-auto">
         <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-        <div id="onboarding-device-setup" className="mx-auto w-full max-w-2xl scroll-mt-8 space-y-6 px-4 py-10 sm:px-6 sm:py-14">
-            <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Laptop className="size-4" />{t('onboarding.deviceStepLabel')}</p>
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
 
           {pairing ? (
             <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
