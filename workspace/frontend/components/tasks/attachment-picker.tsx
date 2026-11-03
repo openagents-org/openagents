@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceFile } from '@/lib/types';
 
 const ATTACH_ACCEPT =
-  'image/*,video/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
+  'image/*,video/*,.pdf,.txt,.md,.json,.csv,.xlsx,.xls,.doc,.docx,.ppt,.pptx,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
 const MEDIA_ACCEPT = 'image/*,video/*';
 
 function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: () => void; onRetry: () => void }) {
