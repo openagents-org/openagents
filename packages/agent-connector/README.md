@@ -71,6 +71,25 @@ Every request the connector makes for an agent carries `X-Agent-Name`, so the
 workspace applies that agent's permissions rather than treating the call as an
 anonymous machine.
 
+### Codex execution policy
+
+For Codex CLI agents, set the policy with:
+
+```bash
+agent-connector env codex --set CODEX_SANDBOX_MODE=workspace-write
+```
+
+Restart the agent after changing its environment. `read-only` and
+`workspace-write` select the corresponding Codex sandbox; `inherit` leaves
+the local Codex policy in control without passing a sandbox or approval-bypass
+override. Organization restrictions still apply. Fresh turns, resumed sessions,
+and stale-session retries all use the same policy. Invalid values prevent the
+CLI from starting and report a configuration error.
+
+For compatibility, an unset, empty, or whitespace-only value keeps the existing
+`--dangerously-bypass-approvals-and-sandbox` behavior. This setting applies
+only to CLI execution, not the direct Chat Completions API mode.
+
 ## Library Usage
 
 ```js

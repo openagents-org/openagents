@@ -424,6 +424,22 @@ class CodexAdapter extends BaseAdapter {
     }
 
     const env = { ...(this.agentEnv || process.env) };
+    // Use the subprocess's resolved environment, including daemon/type/agent
+    // settings. Only an absent/blank setting retains the historical bypass policy;
+    // a typo must never silently disable the requested sandbox.
+    const configuredSandbox = env.CODEX_SANDBOX_MODE;
+    const sandboxMode = String(configuredSandbox ?? '').trim().toLowerCase();
+    let sandboxArgs;
+    if (!sandboxMode) {
+      sandboxArgs = ['--dangerously-bypass-approvals-and-sandbox'];
+    } else if (sandboxMode === 'inherit') {
+      sandboxArgs = [];
+    } else if (sandboxMode === 'read-only' || sandboxMode === 'workspace-write') {
+      sandboxArgs = ['--sandbox', sandboxMode];
+    } else {
+      await this.sendError(msgChannel, 'Invalid CODEX_SANDBOX_MODE. Use read-only, workspace-write, or inherit (use the local Codex policy).');
+      return;
+    }
     const effectiveModel = this._effectiveModel();
 
     // Set model via env if configured
@@ -439,7 +455,7 @@ class CodexAdapter extends BaseAdapter {
     for (let attempt = 0; attempt < 2; attempt++) {
       const cmd = [this._codexBin, 'exec'];
 
-      cmd.push('--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check');
+      cmd.push('--json', ...sandboxArgs, '--skip-git-repo-check');
 
       // Model override
       if (effectiveModel) {
