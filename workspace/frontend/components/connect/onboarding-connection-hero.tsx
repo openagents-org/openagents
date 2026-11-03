@@ -3,7 +3,7 @@
 import { ArrowDown, ArrowLeft, ArrowRight, PlusSquare } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 
-/** An opening scene, with setup instructions below the first viewport. */
+/** A compact opening illustration, followed directly by setup instructions. */
 export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceName: string; onBack?: () => void }) {
   const t = useT();
   const openSetup = () => {
@@ -11,18 +11,18 @@ export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceN
     document.getElementById('onboarding-device-setup')?.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
   };
   return (
-    <section className="oa-connection-scene relative isolate flex min-h-[calc(100svh-164px)] lg:min-h-[calc(100svh-56px)] flex-col items-center justify-center overflow-hidden bg-[#071b1c] px-5 py-10 text-white sm:px-10 sm:py-16" aria-labelledby="onboarding-connection-title">
+    <section className="oa-connection-scene relative isolate flex flex-col items-center justify-center overflow-hidden bg-[#071b1c] px-5 py-10 text-white sm:px-10 sm:py-12" aria-labelledby="onboarding-connection-title">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_55%,#145b514d,transparent_55%),radial-gradient(ellipse_at_15%_15%,#1b52584d,transparent_50%)]" />
       {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-white/60 transition hover:bg-white/5 hover:text-white sm:left-8 sm:top-7"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
 
       <div className="relative z-10 mx-auto w-full max-w-3xl text-center">
         <p className="mb-5 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-200/80"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
-        <h1 id="onboarding-connection-title" className="oa-scene-title text-[clamp(2.25rem,4.7vw,4rem)] font-medium leading-[1.08] tracking-[-0.045em] text-balance">{t('onboarding.connectionTitle')}</h1>
+        <h1 id="onboarding-connection-title" className="oa-scene-title text-[clamp(2rem,3.8vw,3rem)] font-medium leading-[1.08] tracking-[-0.045em] text-balance">{t('onboarding.connectionTitle')}</h1>
         <p className="oa-scene-intro mx-auto mt-5 max-w-xl text-sm leading-6 text-teal-50/60 sm:text-base sm:leading-7">{t('onboarding.visualIntro')}</p>
       </div>
 
       <div className="relative -my-2 w-full max-w-5xl sm:-my-5" aria-hidden="true">
-        <svg viewBox="0 0 1000 510" fill="none" className="oa-scene-art block h-[clamp(220px,42svh,460px)] w-full overflow-visible">
+        <svg viewBox="0 0 1000 510" fill="none" className="oa-scene-art block h-[clamp(180px,26svh,320px)] w-full overflow-visible">
           <defs>
             <radialGradient id="oa-hub-glow"><stop stopColor="#6cf5c0" stopOpacity=".25" /><stop offset="1" stopColor="#6cf5c0" stopOpacity="0" /></radialGradient>
             <linearGradient id="oa-connection-line" x1="200" y1="260" x2="755" y2="260" gradientUnits="userSpaceOnUse"><stop stopColor="#8ae2cf" stopOpacity=".12" /><stop offset=".65" stopColor="#98ffcf" stopOpacity=".7" /><stop offset="1" stopColor="#b8ffde" stopOpacity=".2" /></linearGradient>
@@ -100,9 +100,9 @@ export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceN
         @keyframes oa-scene-float { 50% { transform: translateY(-7px); } }
         @media (max-height: 800px) and (min-width: 1024px) {
           .oa-connection-scene { padding-block: 24px; }
-          .oa-scene-title { font-size: 42px; }
+          .oa-scene-title { font-size: 36px; }
           .oa-scene-intro { margin-top: 12px; }
-          .oa-scene-art { height: 36svh; }
+          .oa-scene-art { height: 28svh; }
         }
         @media (prefers-reduced-motion: reduce) {
           .oa-scene-flow, .oa-scene-float { animation: none; }
