@@ -7,6 +7,7 @@ import type { WorkspaceNode } from '@/lib/types';
 
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
+  getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
 const fixture = vi.hoisted(() => ({ needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
