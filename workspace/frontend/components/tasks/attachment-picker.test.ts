@@ -42,6 +42,19 @@ it('highlights file drags and uploads multiple dropped files through the existin
   expect(host.textContent).toContain('a.txt');
   expect(host.textContent).not.toContain('tasks.attachDrop');
 });
+it('uploads any dropped file in the compact comment picker, not only images and videos', async () => {
+  const changed = vi.fn();
+  upload.mockImplementation(async (file: File) => ({ id: file.name, filename: file.name, contentType: file.type }));
+  await act(async () => root.render(createElement(AttachmentPicker, { value: [], onChange: changed, compact: true })));
+  const zone = host.firstElementChild!;
+  const sheet = new File(['x'], 'report.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const shot = new File(['p'], 'shot.png', { type: 'image/png' });
+  await act(async () => { zone.dispatchEvent(drag('drop', [sheet, shot])); });
+  expect(upload).toHaveBeenCalledTimes(2);
+  expect(changed).toHaveBeenLastCalledWith(['report.xlsx', 'shot.png']);
+  expect(host.textContent).toContain('issues.attachFiles');
+  expect(host.textContent).not.toContain('tasks.attachLimit');
+});
 it('ignores text drags and prevents file navigation without uploading when disabled', async () => {
   await act(async () => root.render(createElement(AttachmentPicker, { value: [], onChange: vi.fn(), disabled: true })));
   const zone = host.firstElementChild!;

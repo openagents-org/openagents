@@ -10,8 +10,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceFile } from '@/lib/types';
 
 const ATTACH_ACCEPT =
-  'image/*,video/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
-const MEDIA_ACCEPT = 'image/*,video/*';
+  'image/*,video/*,.pdf,.txt,.md,.json,.csv,.xlsx,.xls,.doc,.docx,.ppt,.pptx,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
 
 function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: () => void; onRetry: () => void }) {
   const t = useT();
@@ -68,20 +67,21 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
  * Attach workspace files (screenshots, logs, docs, videos). Each file uploads
  * on pick (so the ids exist when the form is saved) with its own progress,
  * cancel and retry; more files can be added while others are still going up.
- * `media` narrows the picker to images and videos for a compact composer.
+ * `compact` drops the label and size hint and shows a small button, for the
+ * issue comment composer. It accepts the same files as the full picker.
  */
 export function AttachmentPicker({
   value,
   onChange,
   disabled = false,
   onUploadingChange,
-  media = false,
+  compact = false,
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
   onUploadingChange?: (uploading: boolean) => void;
-  media?: boolean;
+  compact?: boolean;
 }) {
   const t = useT();
   const { files } = useWorkspace();
@@ -120,7 +120,7 @@ export function AttachmentPicker({
 
   const addFiles = (list: FileList | File[]) => {
     if (disabled) return;
-    uploads.add(Array.from(list).filter((f) => !media || f.type.startsWith('image/') || f.type.startsWith('video/')));
+    uploads.add(Array.from(list));
   };
 
   const remove = (id: string) => onChange(value.filter((x) => x !== id));
@@ -156,7 +156,7 @@ export function AttachmentPicker({
         addFiles(e.dataTransfer.files);
       }}
     >
-      {!media && (
+      {!compact && (
         <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Paperclip className="size-3.5" />
           {t('tasks.fieldAttachments')}
@@ -203,27 +203,27 @@ export function AttachmentPicker({
         type="button"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className={media
+        className={compact
           ? 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50'
           : 'flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors'}
       >
         <Paperclip className="size-3.5" />
-        {t(dragging && !disabled ? 'tasks.attachDrop' : media ? 'issues.attachMedia' : 'tasks.attachAdd')}
+        {t(dragging && !disabled ? 'tasks.attachDrop' : compact ? 'issues.attachFiles' : 'tasks.attachAdd')}
       </button>
       <input
         disabled={disabled}
-        aria-label={t(media ? 'issues.attachMedia' : 'tasks.fieldAttachments')}
+        aria-label={t(compact ? 'issues.attachFiles' : 'tasks.fieldAttachments')}
         ref={inputRef}
         type="file"
         multiple
-        accept={media ? MEDIA_ACCEPT : ATTACH_ACCEPT}
+        accept={ATTACH_ACCEPT}
         className="hidden"
         onChange={(e) => {
           if (e.target.files) addFiles(e.target.files);
           e.target.value = '';
         }}
       />
-      {!media && <p className="text-[11px] text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
+      {!compact && <p className="text-[11px] text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
     </div>
   );
 }

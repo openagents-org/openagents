@@ -192,7 +192,7 @@ export const messages: Messages = {
     commentPlaceholder: "分享想法、提出问题或审阅成果…",
     mentionPeopleAndAgents: "成员和智能体",
     unreadUpdates: "{count} 条未读动态",
-    attachMedia: "图片或视频",
+    attachFiles: "添加附件",
     mentionPerson: "成员",
     mentionAgent: "智能体",
     noMentionMatches: "没有匹配的成员或智能体",

@@ -515,8 +515,9 @@ it('adds a usable shared agent the comment mentions before posting, but not one 
 it('posts images with a comment and keeps them out of the next draft', async () => {
   await openIssue();
   mocks.api.uploadFile.mockResolvedValueOnce({ id: 'shot-1', filename: 'shot.png', contentType: 'image/png' });
-  const input = host.querySelector<HTMLInputElement>('input[type="file"][aria-label="Image or video"]')!;
-  expect(input.accept).toBe('image/*,video/*');
+  const input = host.querySelector<HTMLInputElement>('input[type="file"][aria-label="Attach files"]')!;
+  // Comments take the same files as task and issue attachments, not only images and videos.
+  expect(input.accept.split(',')).toEqual(expect.arrayContaining(['image/*', 'video/*', '.pdf', '.csv', '.xlsx', '.docx', '.zip']));
   await act(async () => {
     Object.defineProperty(input, 'files', { value: [new File(['png'], 'shot.png', { type: 'image/png' })] });
     input.dispatchEvent(new Event('change', { bubbles: true }));

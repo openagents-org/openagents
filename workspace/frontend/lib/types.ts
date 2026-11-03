@@ -1533,7 +1533,7 @@ export interface IssueComment {
   approval?: ApprovalRequest;
   source_event_id: string | null;
   file_ids?: string[];
-  /** Readable images and videos posted with the comment. */
+  /** Readable files posted with the comment. */
   attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
   created_at: string;
 }
