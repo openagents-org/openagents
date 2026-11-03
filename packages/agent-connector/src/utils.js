@@ -46,6 +46,20 @@ function request(url, { method = 'POST', headers = {}, body = null, timeout = 15
 }
 
 /**
+ * The test completion. 15s read as broken a slow relay that answers in 20, and
+ * a dropped connection failed the whole test: give it 30s and one more try on
+ * a timeout or reset. A host that does not resolve is not retried.
+ */
+const COMPLETION_TIMEOUT_MS = 30000;
+const RETRYABLE = /timed out|econnreset|socket hang up|eai_again/i;
+
+async function requestCompletion(url, opts) {
+  const res = await request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
+  if (!res.error || !RETRYABLE.test(res.error)) return res;
+  return request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
+}
+
+/**
  * The chat models an OpenAI-compatible endpoint says it serves, or [] when it
  * publishes no readable list. A list we cannot read is not a test failure —
  * the caller still has its default model to fall back on.
@@ -156,7 +170,7 @@ async function testLLMConnection(env, opts = {}) {
       max_tokens: 32,
       messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
     });
-    const res = await request(url, { headers, body });
+    const res = await requestCompletion(url, { headers, body });
     return completionResult(res, { isAnthropic: true, model });
   }
 
@@ -185,7 +199,7 @@ async function testLLMConnection(env, opts = {}) {
     };
     if (hasKimiConfig) requestBody.max_tokens = 32;
     else requestBody.max_completion_tokens = 32;
-    const res = await request(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
+    const res = await requestCompletion(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
     last = completionResult(res, { isAnthropic: false, model: candidate });
     if (last.success) return last;
     // Only a model WE picked moves on to the next one. A configured model is
