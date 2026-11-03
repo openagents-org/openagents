@@ -93,7 +93,7 @@ function scrub(text) {
   const masked = String(text)
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
     // Not a plain word: "Incorrect API key provided: sk-…" lost "provided".
-    .replace(/(api[-_ ]?key["':\s=]+)(?![a-z]+\b)[A-Za-z0-9_-]{8,}/gi, '$1****')
+    .replace(/(api[-_ ]?key["':\s=]+)([A-Za-z0-9_-]{8,})/gi, (m, p, v) => (/^[a-z]+$/.test(v) ? m : `${p}****`))
     .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer ****');
   // Then everything the adapters strip from quoted CLI text: a Codex probe
   // that failed after printing a token-shaped blob showed that blob as its
