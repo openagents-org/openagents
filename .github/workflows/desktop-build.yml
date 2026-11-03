@@ -453,7 +453,21 @@ jobs:
           if-no-files-found: warn
 
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            deb_arch: amd64
+            appimage_arch: x86_64
+            update_file: latest-linux.yml
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            deb_arch: arm64
+            appimage_arch: arm64
+            update_file: latest-linux-arm64.yml
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         working-directory: packages/launcher
@@ -473,9 +487,9 @@ jobs:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('packages/launcher/package-lock.json') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-electron-builder-${{ hashFiles('packages/launcher/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-electron-builder-
+            ${{ runner.os }}-${{ matrix.arch }}-electron-builder-
 
       - name: Install dependencies
         run: |
@@ -485,6 +499,9 @@ jobs:
       # `npm run build` builds the Workspace bundle the installer ships first.
       - name: Install Workspace frontend dependencies
         uses: ./.github/actions/workspace-frontend-deps
+
+      - name: Test Linux target selection
+        run: node --test scripts/linux-build.test.mjs
 
       - name: Build Linux app
         shell: bash
@@ -497,22 +514,63 @@ jobs:
         run: |
           # Retry to ride out transient electron-builder binary-download 504s.
           for i in 1 2 3; do
-            npm run build:linux && exit 0
+            npm run build:linux:${{ matrix.arch }} && exit 0
             echo "::warning::Linux build attempt $i failed (likely a transient electron-builder binary download); retrying in 25s…"
             sleep 25
           done
           echo "Linux build failed after 3 attempts." >&2
           exit 1
 
+      - name: Verify Linux artifacts
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          APPIMAGE_ARCH: ${{ matrix.appimage_arch }}
+          UPDATE_FILE: ${{ matrix.update_file }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          deb="dist/OpenAgents-${version}-linux-${DEB_ARCH}.deb"
+          appimage="dist/OpenAgents-${version}-linux-${APPIMAGE_ARCH}.AppImage"
+          test -s "$deb"
+          test -s "$appimage"
+          test "$(dpkg-deb --field "$deb" Architecture)" = "$DEB_ARCH"
+          # Check the actual Electron executable, not only the artifact name.
+          unpacked=dist/linux-unpacked
+          machine='Advanced Micro Devices X86-64'
+          if [ "$BUILD_ARCH" = arm64 ]; then
+            unpacked=dist/linux-arm64-unpacked
+            machine=AArch64
+          fi
+          readelf -h "$unpacked/openagents" | grep -F "$machine"
+          readelf -h "$appimage" | grep -F "$machine"
+          test -s "$unpacked/resources/app.asar"
+          test -s "$unpacked/resources/workspace/index.html"
+          # Linux feeds are separate per architecture; never merge them like macOS.
+          node --input-type=commonjs <<'JS'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const yaml = require('js-yaml')
+          const { version } = require('./package.json')
+          const { APPIMAGE_ARCH, DEB_ARCH, UPDATE_FILE } = process.env
+          const metadata = yaml.load(fs.readFileSync(`dist/${UPDATE_FILE}`, 'utf8'))
+          const appimage = `OpenAgents-${version}-linux-${APPIMAGE_ARCH}.AppImage`
+          const deb = `OpenAgents-${version}-linux-${DEB_ARCH}.deb`
+          assert.equal(metadata.version, version)
+          assert.equal(metadata.path, appimage)
+          assert(metadata.files.some(file => file.url === appimage))
+          assert(metadata.files.every(file => [appimage, deb].includes(file.url)))
+          JS
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: launcher-linux
+          name: launcher-linux-${{ matrix.arch }}
           path: |
             packages/launcher/dist/*.AppImage
             packages/launcher/dist/*.deb
-            packages/launcher/dist/latest-linux.yml
-          if-no-files-found: warn
+            packages/launcher/dist/${{ matrix.update_file }}
+          if-no-files-found: error
 
   release:
     needs:
@@ -528,10 +586,18 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Download Linux artifacts
+      # Named downloads fail if either architecture's artifact is missing.
+      # A pattern download can succeed with only one architecture (or none).
+      - name: Download Linux x64 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: launcher-linux
+          name: launcher-linux-x64
+          path: artifacts
+
+      - name: Download Linux ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-linux-arm64
           path: artifacts
 
       - name: Download release notes
