@@ -2,31 +2,28 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 import { Folder, Monitor } from "lucide-react"
 
-import AgentIcon from "@renderer/components/AgentIcon"
 import type { CatalogEntry } from "@renderer/types"
 import { SetupTypeInfo } from "./setup-type-info"
 
 /**
- * The column beside the agent form: which type this is, where it runs, and
- * which workspace it is in — or that one is picked after adding it. Below
- * that, what the type's marketplace page says about it.
+ * The column beside the agent form: where it runs, and which workspace it is
+ * in — or that one is picked after adding it. Below that, what the type's
+ * marketplace page says about it. Not the type itself: the page title already
+ * names it, with its mark.
  */
 export function SetupAside({
   type,
-  label,
   workspace,
   entry,
   onOpenType,
 }: {
   type: string
-  label: string
   workspace: string | null
   entry?: CatalogEntry
   onOpenType?: (type: string) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const rows = [
-    { key: "type", value: <><AgentIcon type={type} size={20} /><span className="truncate">{label}</span></> },
     { key: "device", value: <><Monitor className="size-4 shrink-0" /><span>{t("agents.shared.thisComputer")}</span></> },
     {
       key: "workspace",

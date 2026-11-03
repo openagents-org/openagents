@@ -524,10 +524,12 @@ export function AgentSetup({
   const selectedEntry = catalog.find((e) => e.name === selected);
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
   const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
+  // A button beside "Needs login", not a bare link: it is the one thing to do
+  // about that state.
   const signInLink = signIn && (
-    <button type="button" onClick={signIn} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
-      {t('connect.agentSignIn')}<ArrowRight className="size-3" />
-    </button>
+    <Button type="button" variant="outline" size="sm" onClick={signIn} className="shrink-0">
+      {t('connect.agentSignIn')}<ArrowRight />
+    </Button>
   );
 
   // Say a name is taken while it is typed, not after the device refuses it. A
@@ -906,16 +908,23 @@ export function AgentSetup({
     }
   };
 
+  // An outlined chip whose dot carries the state, as status chips are drawn
+  // across the app — not a tinted block.
   const badge = (status: ReturnType<typeof runtimeStatus>) => {
     const map = {
-      ready: { label: t('connect.nodeRuntimeReady'), cls: 'bg-green-500/10 text-green-600 dark:text-green-400' },
-      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-500' },
-      not_installed: { label: t('connect.nodeRuntimeWillInstall'), cls: 'bg-zinc-500/10 text-muted-foreground' },
-      unknown: { label: '', cls: '' },
+      ready: { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-foreground' },
+      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-amber-500', text: 'text-foreground' },
+      not_installed: { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-muted-foreground', text: 'text-muted-foreground' },
+      unknown: { label: '', dot: '', text: '' },
     } as const;
     const b = map[status];
     if (!b.label) return null;
-    return <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', b.cls)}>{b.label}</span>;
+    return (
+      <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium', b.text)}>
+        <span className={cn('size-1.5 rounded-full', b.dot)} />
+        {b.label}
+      </span>
+    );
   };
 
   // ---- Config mode: a focused, full-view form for the chosen agent ----------
@@ -1452,7 +1461,7 @@ export function AgentSetup({
                   {isEdit ? contextLabel : t('connect.compactFormSubtitle')}
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="min-w-0 space-y-5">
                   {formBody}
                   {error && errorText()}
@@ -1468,7 +1477,7 @@ export function AgentSetup({
                   </div>
                 </div>
                 {extensions.aside && selected && (
-                  <aside className="min-w-0 lg:border-l lg:pl-8">{extensions.aside({ type: selected })}</aside>
+                  <aside className="min-w-0 lg:border-l lg:pl-6">{extensions.aside({ type: selected })}</aside>
                 )}
               </div>
             </div>

@@ -13,6 +13,7 @@ import { useUiStore } from "@renderer/store/ui"
 import { capture } from "@renderer/lib/analytics"
 import { NavAgents } from "./nav-agents"
 import { NavSettings } from "./nav-settings"
+import { RAIL_BUTTON, RailLabel } from "./rail-label"
 
 /**
  * This Computer's menu: its agents, the workspaces it has joined as a device,
@@ -32,13 +33,14 @@ export function NavComputer(): React.JSX.Element {
             tooltip={label}
             data-tour="workspaces"
             data-testid="nav-workspaces"
+            className={RAIL_BUTTON}
             onClick={() => {
               capture("tab_switched", { tab: "workspaces" })
               useAccountStore.getState().exitWorkspace("workspaces")
             }}
           >
             <Layers />
-            <span>{label}</span>
+            <RailLabel label={label} short={t("nav.items.workspaces.short")} />
           </SidebarMenuButton>
         </SidebarMenuItem>
         <NavSettings />

@@ -95,7 +95,7 @@ export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreat
           extensions={{ local: true, headerActions: true, compact: true, breadcrumbRoot: backLabel || t("nav.items.dashboard.label"),
             // The folder sits beside the model, half each, so the whole form fits without scrolling.
             inlineWorkingDirectory: true,
-            aside: ({ type }) => <SetupAside type={type} label={data.catalog.find((entry) => entry.name === type)?.label || type}
+            aside: ({ type }) => <SetupAside type={type}
               workspace={agent?.networkName || agent?.network || null} entry={data.raw.find((entry) => entry.name === type)} onOpenType={onOpenType} />, workingDirectoryHint: t("agents.shared.folderHint"), workingDirectoryPlaceholder: t("agents.shared.homeFolder"), disabled: !configReady || authBusy,
             browseFolder: (path) => window.api.selectDirectory(path || undefined),
             // The same rename This Computer's list offers: a label, pushed to the agent's workspace.
@@ -271,14 +271,14 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
       : <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 px-3.5 py-3 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
           {testResult?.kind === "success"
-            ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-(--success)" />
             : testResult?.kind === "error"
               ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
               : <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
           <div className="min-w-0">
             <p className="m-0 text-xs font-medium text-foreground">{t("agents.shared.verifyApiSettings")}</p>
             <p role={testResult ? "status" : undefined} className={testResult
-              ? `m-0 mt-0.5 text-2xs leading-relaxed ${testResult.kind === "success" ? "text-emerald-600 dark:text-emerald-400" : testResult.kind === "error" ? "text-destructive" : "text-muted-foreground"}`
+              ? `m-0 mt-0.5 text-2xs leading-relaxed ${testResult.kind === "success" ? "text-foreground" : testResult.kind === "error" ? "text-destructive" : "text-muted-foreground"}`
               : "m-0 mt-0.5 text-2xs leading-relaxed text-muted-foreground"}>
               {testResult?.message || t("agents.shared.verifyApiSettingsHint")}
             </p>

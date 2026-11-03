@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { inAppBlocker, opensInApp, workspacePageUrl, type InAppBlocker } from "@renderer/lib/workspace-urls"
 import { useAccountStore } from "@renderer/store/account"
@@ -21,22 +21,29 @@ export function useWorkspaceOpening(markUsed: (id: string) => void): {
   }
 
   const account = useAccountStore((s) => s.account)
+  // Both reads are kept as promises too, so a click that lands before they do
+  // can wait for the answer instead of taking "not known yet" for "browser".
   const [endpoint, setEndpoint] = useState<string | undefined>()
+  const endpointLoad = useRef<Promise<string | undefined> | null>(null)
   useEffect(() => {
-    void window.api.getSetting("workspaceEndpoint")
-      .then((value) => setEndpoint(typeof value === "string" && value ? value : undefined))
-      .catch(() => {})
+    const load = window.api.getSetting("workspaceEndpoint")
+      .then((value) => (typeof value === "string" && value ? value : undefined))
+      .catch(() => undefined)
+    endpointLoad.current = load
+    void load.then(setEndpoint)
   }, [])
   // The account's own workspaces: only those open in the app (see opensInApp).
   // Null until known, and on failure — both mean the browser.
   const [memberOf, setMemberOf] = useState<AccountWorkspace[] | null>(null)
+  const memberLoad = useRef<Promise<AccountWorkspace[] | null> | null>(null)
   useEffect(() => {
     setMemberOf(null)
+    memberLoad.current = null
     if (!account) return
     let active = true
-    void window.api.listAccountWorkspaces()
-      .then((list) => { if (active) setMemberOf(list) })
-      .catch(() => {})
+    const load = window.api.listAccountWorkspaces().catch(() => null)
+    memberLoad.current = load
+    void load.then((list) => { if (active) setMemberOf(list) })
     return () => { active = false }
   }, [account?.email])
   const canOpenInApp = (ws: Workspace): boolean => opensInApp(ws, endpoint, !!account, memberOf)
@@ -46,10 +53,17 @@ export function useWorkspaceOpening(markUsed: (id: string) => void): {
     const reason = inAppBlocker(ws, endpoint, !!account, memberOf)
     return reason === "unknown" ? null : reason
   }
+  // Decided on the answers, waiting for any still on the way: a click in the
+  // first moment after the page opened used to go to the browser only because
+  // the account's workspaces had not loaded yet.
   const openWorkspace = (ws: Workspace): void => {
-    if (!canOpenInApp(ws)) { openInBrowser(ws); return }
-    markUsed(ws.id)
-    useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, name: ws.name, token: ws.token ?? null })
+    void (async () => {
+      const url = endpointLoad.current ? await endpointLoad.current : endpoint
+      const list = memberOf ?? (memberLoad.current ? await memberLoad.current : null)
+      if (!opensInApp(ws, url, !!account, list)) { openInBrowser(ws); return }
+      markUsed(ws.id)
+      useAccountStore.getState().openWorkspace({ slug: ws.slug || ws.id, name: ws.name, token: ws.token ?? null })
+    })()
   }
 
   return { canOpenInApp, browserOnlyReason, openWorkspace, openInBrowser }

@@ -76,9 +76,14 @@ export function ModeSwitch({ inSidebar = false, ref }: {
   const mode = useAccountStore((s) => s.mode)
   const Button = inSidebar ? RailTooltipButton : ModeButton
   return (
+    // Each half as wide as its own label (`auto-cols-max`), and the pair never
+    // narrower than both (`w-max`). Its width sizes the sidebar (see `ref`), so
+    // it must not depend on the sidebar's: equal columns allowed to shrink fed
+    // back into the measurement, and the sidebar crept wider frame by frame
+    // after a language change, labels overlapping on the way.
     <div ref={ref} role="tablist" aria-label={t("nav.modeSwitch")}
-      className="inline-grid shrink-0 grid-cols-2 gap-0.5 rounded-lg bg-muted p-0.5 group-data-[collapsible=icon]:grid-cols-1 group-data-[collapsible=icon]:justify-items-center">
-      <Button icon={Monitor} label={t("nav.modeLauncher")} active={mode === "launcher"} testId="mode-launcher"
+      className="inline-grid w-max shrink-0 auto-cols-max grid-flow-col gap-0.5 rounded-lg bg-muted p-0.5 group-data-[collapsible=icon]:grid-flow-row group-data-[collapsible=icon]:justify-items-center">
+      <Button icon={Monitor} label={t("nav.modeLauncherShort")} active={mode === "launcher"} testId="mode-launcher"
         onClick={() => useAccountStore.getState().exitWorkspace()} />
       <Button icon={MessagesSquare} label={t("nav.modeWorkspace")} active={mode === "workspace"} testId="mode-workspace"
         onClick={() => useAccountStore.getState().enterWorkspaceMode()} />

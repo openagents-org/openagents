@@ -41,7 +41,9 @@ export function SetupTypeInfo({
       label: t("agents.shared.aside.version"),
       value: !entry.installed
         ? <span className="text-muted-foreground">{t("agents.shared.aside.notInstalled")}</span>
-        : <span className="font-mono">{version ? `v${version}` : t("agents.shared.aside.installed")}</span>,
+        : version
+          ? <span className="font-mono">v{version}</span>
+          : <span>{t("agents.shared.aside.installed")}</span>,
     },
     platforms.length > 0 && {
       key: "platforms",

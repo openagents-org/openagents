@@ -13,7 +13,12 @@ interface UiState {
   // Deep-link request: when set, the Install page should auto-open this agent's
   // detail view (used by Dashboard banner click and tray-menu update items).
   installFocusAgent: string | null
-  setInstallFocusAgent: (name: string | null) => void
+  /**
+   * Where the page opened by `installFocusAgent` goes back to, when that is
+   * not the marketplace list — the setup form it was opened from.
+   */
+  installFocusReturn: string | null
+  setInstallFocusAgent: (name: string | null, returnTab?: string) => void
 
   // Deep-link request for a page's own "create" dialog, so the dashboard's
   // "New agent" / "Create workspace" buttons open the real flow instead of just
@@ -99,7 +104,9 @@ export const useUiStore = create<UiState>((set) => ({
       : set({ currentTab: tab === 'agents' ? 'dashboard' : tab }),
 
   installFocusAgent: null,
-  setInstallFocusAgent: (name) => set({ installFocusAgent: name }),
+  installFocusReturn: null,
+  setInstallFocusAgent: (name, returnTab) =>
+    set(name ? { installFocusAgent: name, installFocusReturn: returnTab ?? null } : { installFocusAgent: null }),
 
   pendingCreate: null,
   pendingCreateType: null,

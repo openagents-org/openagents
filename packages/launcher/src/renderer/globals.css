@@ -534,11 +534,11 @@ code {
      buttons the OS draws and collapses in full screen, while the header holds
      the sidebar toggle and survives it. Keep them equal. */
   --mode-bar-h: 40px;
-  /* The sidebar's icon rail — shadcn's own width on every platform. */
-  --rail-icon-width: 3rem;
-  /* The header's left padding while the sidebar is the icon rail. On macOS the
-     traffic lights (x 16–76) are wider than the rail and run on over the
-     header, so it starts its toggle after them there. */
+  /* The sidebar's icon rail. Wider than shadcn's 3rem: each entry is its icon
+     over a short word (see sidebar/rail-label.tsx), and on macOS the rail also
+     holds the traffic lights in its top row. */
+  --rail-icon-width: 5rem;
+  /* The header's left padding while the sidebar is the icon rail. */
   --header-inset-rail: 0.75rem;
   /* Room for the OS-drawn window controls at the right end of the header. */
   --window-controls-w: 140px;
@@ -554,14 +554,14 @@ code {
 :root[data-platform="darwin"] {
   /* macOS draws its buttons on the left, so nothing is reserved on the right. */
   --window-controls-w: 0px;
-  /* The rail is narrower than the traffic lights (they start at x=16 and the
-     green one ends around 76px, `trafficLightPosition` in main/index.ts), so
-     the header clears them instead of the rail growing to hold them: 48px of
-     rail plus this is about 88px, a little past the lights. In px, because
-     AppKit's buttons do not scale with Settings → Appearance → UI scale. */
-  --header-inset-rail: 40px;
+  /* The rail holds the traffic lights whole (x 12 to about 72,
+     `trafficLightPosition` in main/index.ts) in its top row, the way a
+     messenger's side rail does, so the header beside it starts at its own
+     edge instead of after lights that ran on over it. In px, because AppKit's
+     buttons do not scale with Settings → Appearance → UI scale. */
+  --rail-icon-width: 80px;
   --traffic-lights-h: var(--titlebar-h);
-  /* The lights end around x=76; a little past that. */
+  /* The lights end around x=72; a little past that. */
   --traffic-lights-w: 80px;
 }
 
@@ -579,6 +579,13 @@ code {
   --traffic-lights-h: 0px;
   --traffic-lights-w: 0px;
   --window-controls-w: 0px;
+}
+
+/* The sidebar takes a width from re-measuring at once rather than animating
+   to it; see AppFrame. */
+[data-instant-width] [data-slot="sidebar-gap"],
+[data-instant-width] [data-slot="sidebar-container"] {
+  transition: none;
 }
 
 /* A drag region is invisible by definition, and on macOS the rail is the ONLY

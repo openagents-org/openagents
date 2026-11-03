@@ -14,6 +14,7 @@ import { SidebarTrigger } from "@renderer/components/ui/sidebar"
 import { useUiStore } from "@renderer/store/ui"
 import { HeaderTooltip } from "./header-tooltip"
 import { NotificationBell } from "./notification-bell"
+import { LanguageMenu } from "./language-menu"
 import { ThemeMenu } from "./theme-menu"
 import { TopSearch } from "./top-search"
 
@@ -66,6 +67,7 @@ export function AppHeader(): React.JSX.Element {
       </Breadcrumb>
       <div className="titlebar-no-drag ml-auto flex shrink-0 items-center gap-1 pr-3">
         <TopSearch />
+        <LanguageMenu />
         <ThemeMenu />
         <NotificationBell />
       </div>

@@ -76,7 +76,11 @@
     "qrcode": "Show QR code",
     "deviceBadgeHint": "This machine is paired to this workspace as a node — agents can be installed and run on it from there.",
     "repair": "Join again",
-    "openInApp": "Open in app"
+    "enter": "Enter workspace",
+    "agentCount_one": "{{count}} agent",
+    "agentCount_other": "{{count}} agents",
+    "activeAt": "active {{time}}",
+    "noActivity": "no activity yet"
   },
   "health": {
     "healthy": "Healthy",
@@ -167,23 +171,5 @@
     "bodyAgents": "The workspace has been removed from this machine, and the {{count}} agents filed under it were unbound — the instances and their data stay. Joining the same workspace again files them back under it.",
     "rejoin": "Join again",
     "dismiss": "Dismiss"
-  },
-  "device": {
-    "loading": "Reading device status…",
-    "statusUnavailable": "Device status is unavailable. Retrying…",
-    "connectedCount_one": "Connected to {{count}} workspace",
-    "connectedCount_other": "Connected to {{count}} workspaces",
-    "localOnly": "Not connected to any workspace yet."
-  },
-  "table": {
-    "columns": {
-      "workspace": "Workspace",
-      "status": "Status",
-      "agents": "Agents",
-      "lastActive": "Last active",
-      "actions": "Actions"
-    },
-    "agentCount_one": "{{count}} agent",
-    "agentCount_other": "{{count}} agents"
   }
 }

@@ -158,9 +158,9 @@ export function LauncherUpdate({
   const checking = status === "checking"
   return (
     <Panel
-      // Green only once a check has actually come back clean; before that the
-      // panel states the version without claiming it is the newest one.
-      tone={status === "not-available" ? "success" : "neutral"}
+      // Neutral either way: being on the newest version is the normal state,
+      // not news. Colour is kept for what needs the reader (an update, an error).
+      tone="neutral"
       icon={
         checking ? (
           <Loader2 className="size-5 animate-spin" />
@@ -208,19 +208,19 @@ function ReleaseNotesLink(): React.JSX.Element {
   )
 }
 
+// A plain card in every state but a failure; what the state is shows in the
+// icon's colour on a grey disc, not in a tinted panel.
 const TONE: Record<string, string> = {
-  accent: "border-(--accent-border) bg-(--accent-bg)",
-  warning: "border-(--warning-border) bg-(--warning-bg)",
+  accent: "",
+  warning: "",
   danger: "border-(--danger-border) bg-(--danger-bg)",
-  success: "",
   neutral: "",
 }
 
 const ICON_TONE: Record<string, string> = {
-  accent: "bg-(--accent-bg) text-(--accent)",
-  warning: "bg-(--warning-bg) text-(--warning-text)",
+  accent: "bg-muted text-foreground",
+  warning: "bg-muted text-(--warning)",
   danger: "bg-(--danger-bg) text-(--danger-text)",
-  success: "bg-(--success-bg) text-(--success-text)",
   neutral: "bg-muted text-muted-foreground",
 }
 

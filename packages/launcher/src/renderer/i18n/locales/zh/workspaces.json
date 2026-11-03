@@ -73,10 +73,13 @@
       "otherDeployment": "这个工作区不在当前连接的服务器上，只能在浏览器中打开。"
     },
     "more": "更多操作",
-    "qrcode": "点击查看二维码",
+    "qrcode": "显示二维码",
     "deviceBadgeHint": "这台机器作为节点接入了该工作区 —— 可以在工作区里给它安装并运行智能体。",
     "repair": "重新加入",
-    "openInApp": "在应用内打开"
+    "enter": "进入工作区",
+    "agentCount_other": "{{count}} 个智能体",
+    "activeAt": "{{time}}活跃",
+    "noActivity": "暂无活动"
   },
   "health": {
     "healthy": "正常",
@@ -167,21 +170,5 @@
     "bodyAgents": "该工作区已从本机移除，原先归属它的 {{count}} 个智能体已解除绑定（实例与数据保留）。重新加入同一个工作区会自动把它们绑回去。",
     "rejoin": "重新加入",
     "dismiss": "知道了"
-  },
-  "device": {
-    "loading": "正在读取设备状态…",
-    "statusUnavailable": "暂时无法获取设备状态，正在重试…",
-    "connectedCount_other": "已连接 {{count}} 个工作区",
-    "localOnly": "还没有连接工作区。"
-  },
-  "table": {
-    "columns": {
-      "workspace": "工作区",
-      "status": "状态",
-      "agents": "智能体数量",
-      "lastActive": "最近活跃",
-      "actions": "操作"
-    },
-    "agentCount": "{{count}} 个"
   }
 }

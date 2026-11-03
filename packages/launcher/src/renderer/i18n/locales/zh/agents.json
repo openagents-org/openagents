@@ -79,15 +79,6 @@
       "copied": "已复制",
       "close": "关闭"
     },
-    "columns": {
-      "agent": "智能体",
-      "provider": "类型 / 模型",
-      "auth": "认证方式",
-      "workspace": "工作区",
-      "status": "状态",
-      "lastActive": "最近活跃",
-      "actions": "操作"
-    },
     "more": "更多操作",
     "totalCount": "共 {{count}} 条",
     "perPage": "每页显示",
@@ -96,13 +87,22 @@
     "nextPage": "下一页",
     "addHint": "快速接入新的智能体实例",
     "readiness": "配置状态",
+    "columns": {
+      "agent": "智能体",
+      "workspace": "工作区",
+      "model": "模型",
+      "status": "状态",
+      "actions": "操作"
+    },
     "emptyNoFilterMatch": "你的智能体当前都不处于这个状态。",
     "workspaceLine": "工作区 · {{name}}",
     "emptyTitle": "还没有智能体",
     "emptyNoMatchTitle": "没有匹配的智能体",
     "emptyNoFilterMatchTitle": "该筛选下没有智能体",
     "rename": "重命名",
-    "theWorkspace": "工作区"
+    "theWorkspace": "工作区",
+    "defaultModel": "默认模型",
+    "noWorkspace": "未加入"
   },
   "newDialog": {
     "title": "新建智能体",
@@ -208,6 +208,7 @@
   },
   "detail": {
     "back": "返回智能体市场",
+    "backToSetup": "返回配置",
     "uninstallTitle": "卸载 {{name}}？",
     "uninstallBody": "这将从你的系统中移除 <1>{{name}}</1>。该类型已配置的智能体可能会停止工作。",
     "alsoRemoveEnv": "同时删除已保存的环境变量",
@@ -391,7 +392,6 @@
     },
     "aside": {
       "title": "配置信息",
-      "type": "类型",
       "device": "运行设备",
       "workspace": "连接工作区",
       "pickLater": "添加后选择",

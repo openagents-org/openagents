@@ -25,6 +25,7 @@ import {
   SECTION_GROUPS,
   type SectionId,
 } from "@renderer/pages/settings/section-config"
+import { RAIL_BUTTON, RailLabel } from "./rail-label"
 
 /** Leave the Workspace if needed, then show one settings module. */
 function openSection(id: SectionId): void {
@@ -80,10 +81,11 @@ export function NavSettings(): React.JSX.Element {
             isActive={showing && !open}
             tooltip={label}
             data-testid="nav-settings"
+            className={RAIL_BUTTON}
           >
             <Settings />
-            <span>{label}</span>
-            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+            <RailLabel label={label} short={t("nav.items.settings.short")} />
+            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>

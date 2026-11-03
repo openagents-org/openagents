@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus } from "lucide-react"
+import { Plus, RefreshCw } from "lucide-react"
 
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
@@ -10,7 +10,7 @@ import {
   EmptyDescription,
   EmptyHeader,
 } from "@renderer/components/ui/empty"
-import { WorkspaceRow } from "@renderer/components/workspaces/workspace-row"
+import { WorkspaceCard } from "@renderer/components/workspaces/workspace-card"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
 import { WorkspaceRemoveDialog } from "@renderer/components/workspaces/WorkspaceRemoveDialog"
 import { WorkspaceRevokedNotice } from "@renderer/components/workspaces/WorkspaceRevokedNotice"
@@ -20,6 +20,7 @@ import { useUiStore } from "@renderer/store/ui"
 import { useWorkspacePrefs } from "@renderer/store/workspace-prefs"
 import { workspaceUrl } from "@renderer/lib/workspace-urls"
 import type { Workspace } from "@renderer/types"
+import { cn } from "@renderer/lib/utils"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
   useWorkspacesData,
@@ -28,9 +29,14 @@ import {
 } from "./use-workspaces-data"
 import { useWorkspaceOpening } from "./use-workspace-opening"
 import { WorkspacesToolbar } from "./components/workspaces-toolbar"
-import { DeviceSummary } from "./components/device-summary"
 import { WorkspacesEmpty } from "./components/workspaces-empty"
-import { WorkspacesTable } from "./components/workspaces-table"
+
+/**
+ * Search, filters and sort earn their row only past this many workspaces. A
+ * device usually joins one to three, and a toolbar of four filters over a
+ * single card was most of the page.
+ */
+const TOOLBAR_MIN = 6
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -152,30 +158,37 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         // page keeps its action. Joins, never creates: the dialog takes a
         // pairing code for a workspace that already exists, and a device can
         // hold several at once, so it stays however many are listed.
+        // Refresh beside it, labelled like every other page-level refresh, so
+        // it stays in reach while the toolbar is hidden.
         actions={
-          <Button data-testid="workspace-join-open" onClick={openQuick}>
-            <Plus />
-            {t("workspaces.join")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" disabled={refreshing} onClick={runRefresh}>
+              <RefreshCw className={cn(refreshing && "animate-spin")} />
+              {t("workspaces.refresh")}
+            </Button>
+            <Button data-testid="workspace-join-open" onClick={openQuick}>
+              <Plus />
+              {t("workspaces.join")}
+            </Button>
+          </div>
         }
       />
 
-      {/* No stats row: the toolbar chips already carry each bucket's count, and
-          a page that prints the same four numbers twice reads as padding. */}
+      {/* No stats row and no device line: each card says its own state, the
+          toolbar chips count them once there are enough to filter, and the
+          sidebar already names this computer. */}
       <div className="scroll-edge flex-1 overflow-y-auto px-9 pt-5 pb-6">
-        <DeviceSummary />
-
-        <WorkspacesToolbar
-          search={search}
-          onSearch={setSearch}
-          filter={filter}
-          onFilter={setFilter}
-          stats={stats}
-          sort={sort}
-          onSort={setSort}
-          onRefresh={runRefresh}
-          refreshing={refreshing}
-        />
+        {workspaces.length >= TOOLBAR_MIN && (
+          <WorkspacesToolbar
+            search={search}
+            onSearch={setSearch}
+            filter={filter}
+            onFilter={setFilter}
+            stats={stats}
+            sort={sort}
+            onSort={setSort}
+          />
+        )}
 
         <WorkspaceRevokedNotice
           notices={notices}
@@ -200,9 +213,9 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             onShowAll={() => setFilter("all")}
           />
         ) : (
-          <WorkspacesTable>
+          <div className="flex flex-col gap-3">
             {filtered.map((c) => (
-              <WorkspaceRow
+              <WorkspaceCard
                 key={c.ws.id}
                 data={c}
                 onCopyUrl={() => copyUrl(c.ws)}
@@ -220,7 +233,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onRepair={openQuick}
               />
             ))}
-          </WorkspacesTable>
+          </div>
         )}
       </div>
 

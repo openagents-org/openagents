@@ -60,7 +60,7 @@ export function McpTargetList({
               <span className="flex items-center gap-1.5">
                 <span className="text-xs font-medium">{target.label}</span>
                 {target.configured && (
-                  <span className="text-3xs text-(--success-text)">
+                  <span className="text-3xs text-muted-foreground">
                     {t("connections.mcp.alreadyConfigured")}
                   </span>
                 )}

@@ -55,7 +55,7 @@ export default function MessageBubble({
             </span>
           )}
           <span className="text-3xs text-(--text-tertiary)">{formatTime(message.createdAt)}</span>
-          {isPending && <span className="text-3xs text-(--warning-text)">{t('chat.bubble.sending')}</span>}
+          {isPending && <span className="text-3xs text-muted-foreground">{t('chat.bubble.sending')}</span>}
         </div>
         <div className={cn(
           'rounded-(--radius) px-3 py-2',

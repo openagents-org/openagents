@@ -273,9 +273,7 @@ export function ModelField({
                           <span
                             className={cn(
                               "truncate text-2xs",
-                              m.deprecated
-                                ? "text-(--warning-text)"
-                                : "text-(--text-tertiary)",
+                              "text-(--text-tertiary)",
                             )}
                           >
                             {detail.join(" — ")}

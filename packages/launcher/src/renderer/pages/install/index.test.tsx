@@ -313,6 +313,33 @@ describe("deep links", () => {
     ).toBeInTheDocument()
   })
 
+  // Opened from the setup form's "Versions & uninstall": the form stayed open
+  // on Connect Agents, and Back has to return to it, not to the list.
+  it("goes back to the setup form it was opened from", async () => {
+    useUiStore.getState().setInstallFocusAgent("codex", "dashboard")
+    useUiStore.setState({ currentTab: "install" })
+    render(<Install showToast={showToast} />)
+
+    await userEvent.click(await screen.findByRole("button", { name: "Back to setup" }))
+
+    expect(useUiStore.getState().currentTab).toBe("dashboard")
+  })
+
+  // Uninstalled while that form waited: the form closes, so Back is the list's.
+  it("goes back to the list once the type is uninstalled from that page", async () => {
+    useUiStore.getState().setInstallFocusAgent("codex", "dashboard")
+    useUiStore.setState({ currentTab: "install" })
+    render(<Install showToast={showToast} />)
+    await screen.findByRole("button", { name: "Back to setup" })
+
+    act(() => {
+      useInstallStore.getState().startJob({ agent: "codex", verb: "uninstall" })
+      useInstallStore.getState().updateJob("codex", { phase: "done" })
+    })
+
+    expect(await screen.findByRole("button", { name: "Back to Agent Marketplace" })).toBeInTheDocument()
+  })
+
   it("returns to the list when the signal is bumped while open", async () => {
     useUiStore.setState({ installFocusAgent: "codex", installListSignal: 3 })
     render(<Install showToast={showToast} />)
