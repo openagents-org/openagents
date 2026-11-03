@@ -1339,6 +1339,13 @@ class OpenCodeAdapter extends BaseAdapter {
     let category;
     if (isPostinstallStubOutput(hay)) {
       category = 'install_incomplete';
+    } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
+      // The CLI refused a flag this adapter always passes, so it is not a
+      // build we support (one whose version string we could not read gets
+      // through the preflight). It printed its usage too, and that came out
+      // as "produced output this version could not parse", which said nothing
+      // about reinstalling.
+      category = 'unsupported_version';
     } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
       category = 'auth_failed';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {

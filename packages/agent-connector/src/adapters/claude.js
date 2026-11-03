@@ -746,6 +746,11 @@ class ClaudeAdapter extends BaseAdapter {
    * silent for too long while a message is in flight.  Pauses during
    * tool execution (awaitingToolResult) since long-running commands
    * like builds or sleep produce no stdout legitimately.
+   *
+   * It only stops the process. What the channel is told depends on what
+   * happens next, so the caller says it (see _silenceNotice): it used to post
+   * "became unresponsive and was restarted" itself, and the caller then also
+   * posted "No response generated (exit code unknown)".
    */
   _startWatchdog(pp) {
     this._stopWatchdog(pp);
@@ -771,21 +776,49 @@ class ClaudeAdapter extends BaseAdapter {
         this._log(`Watchdog: process unresponsive for ${consecutiveTimeouts * 15}s on ${pp.msgChannel} — killing`);
         if (tail) this._log(`stderr: ${tail}`);
         this._stopWatchdog(pp);
-        try {
-          await this.sendError(
-            pp.msgChannel,
-            'Agent process became unresponsive and was restarted.' +
-              (tail ? `\n\n\`\`\`\n${tail}\n\`\`\`` : ''),
-          );
-        } catch {}
         if (pp.messageResolve) {
           const resolve = pp.messageResolve;
           pp.messageResolve = null;
-          resolve({ exited: true, error: new Error('watchdog timeout') });
+          resolve({ exited: true, watchdog: true, stderrTail: tail, error: new Error('watchdog timeout') });
         }
         this._killPersistentProc(pp.msgChannel);
       }
     }, this._WATCHDOG_INTERVAL_MS);
+  }
+
+  /** How long the watchdog waits, in whole minutes, for the channel. */
+  _watchdogMinutes() {
+    return Math.max(1, Math.round((this._WATCHDOG_INTERVAL_MS * this._WATCHDOG_MAX_TIMEOUTS) / 60_000));
+  }
+
+  /**
+   * What the channel reads when the watchdog stopped a turn for good.
+   *
+   * Tool runs pause the watchdog, so silence this long is Claude waiting on
+   * the model. That is almost always the API or the relay not answering, and
+   * the user can check that; "the agent process became unresponsive" sent
+   * them looking at the agent instead.
+   */
+  _silenceNotice(stderrTail) {
+    return `Claude produced no output for ${this._watchdogMinutes()} minutes, so this turn was stopped. ` +
+      'This usually means the model API (or the relay this agent uses) is not responding. ' +
+      'Check it, then send the message again.' +
+      (stderrTail ? `\n\n\`\`\`\n${stderrTail}\n\`\`\`` : '');
+  }
+
+  /**
+   * A status line for Claude Code's own `api_retry` event, or '' when it
+   * carries nothing to show. Without it the channel saw nothing at all while
+   * the CLI retried a failing request for minutes.
+   */
+  _apiRetryStatus(event) {
+    const attempt = Number(event && event.attempt);
+    if (!attempt) return '';
+    const max = Number(event.max_retries);
+    const why = event.error_status
+      ? `HTTP ${event.error_status}`
+      : this._redact(String(event.error || '')).slice(0, 60).trim();
+    return `Claude's API request failed${why ? ` (${why})` : ''}, retrying (${max ? `${attempt}/${max}` : attempt})…`;
   }
 
   _stopWatchdog(pp) {
@@ -973,6 +1006,11 @@ class ClaudeAdapter extends BaseAdapter {
         const message = event.message || '';
         if (subtype === 'background_tasks_changed') {
           pp.backgroundTasks = Array.isArray(event.tasks) ? event.tasks.length : 0;
+          return;
+        }
+        if (subtype === 'api_retry') {
+          const status = this._apiRetryStatus(event);
+          if (status) { try { await this.sendStatus(pp.msgChannel, status); } catch {} }
           return;
         }
         if (subtype.includes('compact') || String(message).toLowerCase().includes('compact')) {
@@ -1401,6 +1439,17 @@ class ClaudeAdapter extends BaseAdapter {
         } else {
           // Process died mid-message — fall through to spawn a fresh one
           this._log(`Persistent process died, falling back to fresh spawn for ${msgChannel}`);
+          if (result.watchdog) {
+            // A long-lived process can wedge on its own, so one restart is
+            // worth it. If the fresh one goes silent too, the spawn path below
+            // stops and says why.
+            try {
+              await this.sendStatus(
+                msgChannel,
+                `Claude produced no output for ${this._watchdogMinutes()} minutes. Restarting it and sending your message again.`,
+              );
+            } catch {}
+          }
         }
       }
     }
@@ -1487,6 +1536,13 @@ class ClaudeAdapter extends BaseAdapter {
 
         if (result.exited) {
           this._log(`Process exited during first message (attempt ${attempt + 1})`);
+          if (result.watchdog) {
+            // Silence is not a session that failed to resume. Retrying without
+            // it threw the session away, posted "could not be resumed", and
+            // waited out the same silence again.
+            try { await this.sendError(msgChannel, this._silenceNotice(result.stderrTail)); } catch {}
+            break;
+          }
           if (attempt === 0 && this._channelSessions[msgChannel]) {
             this._log(`Stale session detected, retrying without resume`);
             delete this._channelSessions[msgChannel];
