@@ -111,7 +111,7 @@ jobs:
             local name=$1 key=$2 url=$3 body=$4; shift 4
             [ -z "$key" ] && { echo "$name: no key"; return; }
             local hdrs=(-H "Content-Type: application/json"); for h in "$@"; do hdrs+=(-H "$h"); done
-            local code
+            local code; rm -f /tmp/preflight.json
             code=$(curl -s -o /tmp/preflight.json -w '%{http_code}' -m 60 "${hdrs[@]}" -d "$body" "$url") || true
             local msg
             msg=$(node -e "try{const j=require('/tmp/preflight.json');const e=j.error||j;console.log(String(e.message||e.type||'').slice(0,200))}catch{console.log('')}")
