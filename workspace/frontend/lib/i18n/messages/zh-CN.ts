@@ -386,6 +386,8 @@ export const messages: Messages = {
     setupMethod: "设置方式",
     desktopApp: "桌面应用",
     terminalServer: "命令行",
+    commandLineTarget: "用于远程机器和服务器",
+    desktopAppTarget: "用于你的电脑",
     setupOs: "操作系统",
     installCliTitle: "在电脑或服务器上安装 OpenAgents",
     installAppTitle: "下载并打开桌面应用",

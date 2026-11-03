@@ -393,6 +393,8 @@ export const messages = {
     setupMethod: "Setup method",
     desktopApp: "Desktop app",
     terminalServer: "Command line",
+    commandLineTarget: "For remote machines & servers",
+    desktopAppTarget: "For your computer",
     setupOs: "Operating system",
     installCliTitle: "Install OpenAgents on your computer or server",
     installAppTitle: "Download and open the desktop app",
