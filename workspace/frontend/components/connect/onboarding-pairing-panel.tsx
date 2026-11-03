@@ -52,9 +52,9 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
         <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
         <div className="mt-5 grid grid-cols-2 gap-3" role="group" aria-label={t('onboarding.setupMethod')}>
           {([
-            { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget' },
-            { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget' },
-          ] as const).map(({ id, icon: Icon, label, hint }) => {
+            { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
+            { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }] },
+          ] as const).map(({ id, icon: Icon, label, hint, platforms }) => {
             const active = method === id;
             return (
               <button type="button" key={id} aria-pressed={active} onClick={() => setMethod(id)}
@@ -63,6 +63,13 @@ export function OnboardingPairingPanel({ pairing, onDismiss }: { pairing: Pairin
                 <span className="min-w-0 flex-1">
                   <span className={cn('block pr-3 text-sm font-semibold', active && 'text-[#2f6bff]')}>{t(label)}</span>
                   <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
+                  <span className="mt-2 flex items-center gap-2.5">
+                    {platforms.map((platform) => (
+                      <img key={platform.icon} src={`/icons/platforms/${platform.icon}.svg`}
+                        alt={platform.label} title={platform.label} width={14} height={14}
+                        className="size-3.5 object-contain opacity-60 dark:invert" />
+                    ))}
+                  </span>
                 </span>
                 <span aria-hidden="true" className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', active ? 'border-[#2f6bff] bg-[#2f6bff] text-white' : 'border-border')}>
                   {active && <Check className="size-2.5" />}
