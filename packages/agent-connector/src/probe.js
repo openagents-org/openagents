@@ -92,7 +92,8 @@ function scrub(text) {
   if (!text) return '';
   const masked = String(text)
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-****')
-    .replace(/(api[-_ ]?key["':\s=]+)[A-Za-z0-9_-]{8,}/gi, '$1****')
+    // Not a plain word: "Incorrect API key provided: sk-…" lost "provided".
+    .replace(/(api[-_ ]?key["':\s=]+)(?![a-z]+\b)[A-Za-z0-9_-]{8,}/gi, '$1****')
     .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer ****');
   // Then everything the adapters strip from quoted CLI text: a Codex probe
   // that failed after printing a token-shaped blob showed that blob as its
@@ -386,7 +387,10 @@ function failureMessage(res, code, timeoutMs) {
   // says why the CLI failed, and neither does a stack frame: a crashed Node
   // shim showed only its last frames, `…(file:///C:/…/codex.js:108:9) at
   // file:///…`, with the `Error:` line above them cut off. JSON and URLs stay.
-  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim())
+  // Each line is scrubbed before that test: a provider that echoes the whole
+  // key (`401 Incorrect API key provided: sk-proj-…`) had the one line that
+  // explains the failure dropped as encoded.
+  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
     .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
   const all = [...lines(res.stderr), ...lines(res.stdout)];
   const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);

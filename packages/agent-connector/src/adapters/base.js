@@ -1297,6 +1297,10 @@ class BaseAdapter {
         continue;
       }
 
+      // The cursor stops moving (or none comes back) only once the poll has
+      // reached the end of the stream. An empty `messages` alone does not say
+      // that: it is the page after events for other agents were dropped.
+      const caughtUp = !rawCursor || rawCursor === this._lastEventId;
       if (rawCursor) {
         this._lastEventId = rawCursor;
         this._persistCursor(rawCursor);
@@ -1306,7 +1310,7 @@ class BaseAdapter {
       // (a skewed local clock must not make a live agent go deaf).
       const isReplay = this._resumedFromCursor || this._unanchored;
       this._resumedFromCursor = false;
-      if (messages.length === 0) this._unanchored = false;
+      if (caughtUp) this._unanchored = false;
       const staleByChannel = {};
 
       // Deduplicate

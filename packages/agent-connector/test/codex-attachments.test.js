@@ -489,4 +489,40 @@ describe('Codex CLI mode — resuming a thread', () => {
     assert.strictEqual(adapter.sent.length, 1);
     assert.match(adapter.sent[0].content, /429 Too Many Requests/);
   });
+
+  it('still drops a stale thread when early stderr mentions a quota', async () => {
+    const stderr = [
+      'WARN codex_core::config: quota header missing from last response',
+      ...Array.from({ length: 8 }, (_, i) => `INFO codex_core::session: loading step ${i}`),
+      'ERROR codex_exec: no rollout found for thread id thread-1',
+    ].join('\n');
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [
+        { responseText: '', exitCode: 1, errorMessage: 'no rollout found for thread id thread-1', stderr },
+        { responseText: 'fresh answer', exitCode: 0 },
+      ],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 2);
+    assert.ok(!calls[1].includes('resume'));
+    assert.strictEqual(adapter._channelThreads.general, undefined);
+    assert.deepStrictEqual(adapter.sent, [{ kind: 'response', channel: 'general', content: 'fresh answer' }]);
+  });
+
+  it('keeps the thread and reports once when stderr ends in a 429', async () => {
+    const stderr = [
+      'INFO codex_core::session: resuming thread-1',
+      'ERROR codex_exec: exceeded retry limit, last status: 429 Too Many Requests',
+    ].join('\n');
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [{ responseText: '', exitCode: 1, stderr }],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(adapter._channelThreads.general, 'thread-1');
+    assert.strictEqual(adapter.sent.length, 1);
+    assert.match(adapter.sent[0].content, /429/);
+  });
 });

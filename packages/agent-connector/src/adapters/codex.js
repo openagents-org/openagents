@@ -750,8 +750,13 @@ class CodexAdapter extends BaseAdapter {
    * conversation, and the same refused request was sent a second time.
    */
   static _serviceRefused({ errorMessage, stderr } = {}) {
-    const text = `${errorMessage || ''}\n${stderr || ''}`;
-    return /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i.test(text);
+    const refused = /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i;
+    if (refused.test(String(errorMessage || ''))) return true;
+    // Only the end of stderr, where the reason the run died is: a stale
+    // thread whose earlier log mentioned a quota was kept, and every later
+    // message in that channel failed until restart.
+    const lastLines = String(stderr || '').split(/\r?\n/).filter((l) => l.trim()).slice(-5).join('\n');
+    return refused.test(lastLines);
   }
 
   /**

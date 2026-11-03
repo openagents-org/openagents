@@ -174,6 +174,18 @@ describe('failureMessage', () => {
     assert.ok(failureMessage(res, CODE.CLI_ERROR, 120000).includes('Unauthorized_for_this_model'));
   });
 
+  it('keeps a failure line that echoes the full key, with the key masked', () => {
+    const key = `sk-proj-${'aB3dE5fG7hJ9kL1m'.repeat(10)}`;
+    const plain = `Error: 401 Incorrect API key provided: ${key}`;
+    const json = JSON.stringify({ error: { message: `Incorrect API key provided: ${key}. You can find your API key at https://platform.openai.com/account/api-keys.`, type: 'invalid_request_error', code: 'invalid_api_key' } });
+    for (const stderr of [plain, json]) {
+      const msg = failureMessage({ code: 1, stdout: '', stderr }, CODE.INVALID_API_KEY, 120000);
+      assert.match(msg, /Incorrect API key provided/);
+      assert.ok(!msg.includes('aB3dE5fG7hJ9'), msg);
+      assert.ok(!msg.includes(key.slice(8, 30)), msg);
+    }
+  });
+
   it('masks a JWT inside a sentence', () => {
     const jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl';
     assert.ok(!scrub(`refresh failed for ${jwt} at login`).includes('eyJzdWIi'));
