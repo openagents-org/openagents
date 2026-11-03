@@ -265,6 +265,52 @@ describe('Codex — what of stderr is quoted', () => {
     });
     assert.match(detail, /lost its connection/);
   });
+
+  // codex warns of a timed-out model refresh on runs that then fail for
+  // another reason; that warning is not evidence of a lost connection.
+  const REFRESH_WARN = '2026-10-29T13:09:20.000000Z  WARN codex_models_manager::manager: failed to refresh available models: request timed out';
+
+  it('gives no network advice for a quota, with a timed-out refresh warning in stderr', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: 'Quota exceeded. Check your plan and billing details.',
+      stderr: [BANNER, REFRESH_WARN].join('\n'),
+      exitCode: 1,
+    });
+    assert.strictEqual(detail, 'Quota exceeded. Check your plan and billing details.');
+  });
+
+  it('gives no network advice for a rejected model, with a timed-out refresh warning in stderr', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: 'stream error: 400 Bad Request: model not supported',
+      stderr: [BANNER, REFRESH_WARN].join('\n'),
+      exitCode: 1,
+    });
+    assert.strictEqual(detail, 'stream error: 400 Bad Request: model not supported');
+  });
+
+  it('keeps the upgrade hint, not network advice, for a model that needs a newer Codex (#649)', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: '{"detail":"The \'gpt-5.6-sol\' model requires a newer version of Codex."}',
+      stderr: [BANNER, REFRESH_WARN].join('\n'),
+      exitCode: 1,
+    });
+    assert.ok(detail.startsWith("The 'gpt-5.6-sol' model requires a newer version of Codex."), detail);
+    assert.match(detail, /Update the Codex CLI from OpenAgents Launcher/);
+    assert.doesNotMatch(detail, /lost its connection/);
+  });
+
+  it('still names the network when stderr ends in a real connection error', () => {
+    const detail = CodexAdapter._failureDetail({
+      stderr: [
+        BANNER,
+        REFRESH_WARN,
+        '2026-10-29T13:09:30.000000Z ERROR codex_core::client: stream disconnected before completion: error sending request for url (https://api.openai.com/v1/responses)',
+      ].join('\n'),
+      exitCode: 1,
+    });
+    assert.match(detail, /stream disconnected before completion/);
+    assert.match(detail, /lost its connection to the model service/);
+  });
 });
 
 // ---------------------------------------------------------------------------

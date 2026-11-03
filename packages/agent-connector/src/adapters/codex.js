@@ -63,9 +63,16 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 const CODEX_CONNECTION_FAILURE = /error sending request|Connection failed|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion|workspace routing discovery (?:failed|timed out)|request timed out/i;
 // codex retrying a failed connection by itself: "Reconnecting... 2/5 (why)".
 const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i;
-// The service answered and said no. That is a key, a plan or a quota, and
-// network advice would send the user the wrong way.
-const SERVICE_REFUSAL = /\b40[13]\b|\b429\b|unauthori[sz]ed|forbidden|usage limit/i;
+// The service answered and said no: a key, a plan, a quota, or a model it
+// will not serve. Network advice would send the user the wrong way. The
+// terms of _serviceRefused, less "error sending request" (that one is a
+// connection failure), plus a 400 and a rejected model.
+const SERVICE_REFUSAL = /\b(400|401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthori[sz]ed|forbidden|model_not_found|model\b[^\n]{0,80}?\b(?:not supported|does not exist|not available)/i;
+// How many of stderr's last lines count as evidence of a lost connection.
+// codex logs `WARN … failed to refresh available models: request timed out`
+// on runs that then fail for another reason (a quota, a model), and the
+// whole of stderr read as a network failure.
+const CONNECTION_EVIDENCE_LINES = 5;
 
 class CodexAdapter extends BaseAdapter {
   /**
@@ -856,8 +863,8 @@ class CodexAdapter extends BaseAdapter {
       const record = CODEX_LOG_RECORD.exec(line);
       if (record) {
         const [, level, message] = record;
-        const bucket = level === 'ERROR' ? errors : notes;
-        if (message && !bucket.includes(message)) bucket.push(message);
+        const bucket = level === 'ERROR' ? errors : level === 'WARN' ? notes : null;
+        if (bucket && message && !bucket.includes(message)) bucket.push(message);
       } else if (!BENIGN_CLI_OUTPUT.test(line)) {
         (CODEX_SIDE_NOTE.test(line) ? notes : said).push(line);
       }
@@ -898,26 +905,37 @@ class CodexAdapter extends BaseAdapter {
    * through untouched.
    */
   static _explain(detail, stderr = '') {
+    // Ahead of the network check: a model that needs a newer Codex can
+    // arrive with connection warnings in stderr, and the upgrade is the fix.
+    if (/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
+      return `${detail}\n\nUpdate the Codex CLI from OpenAgents Launcher ` +
+        '(Agents → Codex → Update), or run `npm install -g @openai/codex@latest`, ' +
+        'then try again. Picking an older model also works around it for now.';
+    }
     // The other half of a connection failure: it is this device's network,
     // not Codex and not the agent's settings. Without it the user saw log
     // lines about websockets and a model list. The reason quoted can be as
-    // bare as "workspace routing discovery failed", so stderr counts as
-    // evidence too, and a refusal anywhere in either rules it out.
+    // bare as "workspace routing discovery failed", so the end of stderr
+    // counts as evidence too, and a refusal in either rules it out.
+    // Only the last few lines, and not codex's warnings: it warns of a timed
+    // out model refresh on runs that then fail for a quota or a model.
     // Not the lines of codex's own ChatGPT MCP connector: they report its
     // sign-in to a side service, and an "AuthRequired" there says nothing
     // about why the run failed.
-    const logged = String(stderr || '').split(/\r?\n/).filter((l) => !/rmcp::/.test(l)).join('\n');
+    const logged = String(stderr || '').split(/\r?\n/)
+      .filter((l) => {
+        if (!l.trim() || /rmcp::/.test(l)) return false;
+        const record = CODEX_LOG_RECORD.exec(l.trim());
+        return !record || record[1] === 'ERROR';
+      })
+      .slice(-CONNECTION_EVIDENCE_LINES)
+      .join('\n');
     const evidence = `${detail}\n${logged}`;
     if (CODEX_CONNECTION_FAILURE.test(evidence) && !SERVICE_REFUSAL.test(evidence)) {
       return `${detail}\n\nCodex lost its connection to the model service (OpenAI, or the base URL ` +
         "this agent is set to). Check this device's network, proxy or firewall, then try again.";
     }
-    if (!/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
-      return detail;
-    }
-    return `${detail}\n\nUpdate the Codex CLI from OpenAgents Launcher ` +
-      '(Agents → Codex → Update), or run `npm install -g @openai/codex@latest`, ' +
-      'then try again. Picking an older model also works around it for now.';
+    return detail;
   }
 
   /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */
