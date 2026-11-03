@@ -21,9 +21,9 @@ export function ConnectAgentButton({ label, active, showLabels = true, onClick }
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={cn(
-        'h-8 gap-2 rounded-md bg-brand px-2 text-[13px] font-medium text-brand-foreground transition-colors',
-        'hover:bg-brand/90 hover:text-brand-foreground active:bg-brand/90 active:text-brand-foreground',
-        'data-active:bg-brand data-active:text-brand-foreground data-active:hover:bg-brand/90',
+        'h-8 gap-2 rounded-md bg-brand/10 px-2 text-[13px] font-medium text-brand transition-colors',
+        'hover:bg-brand/15 hover:text-brand active:bg-brand/20 active:text-brand',
+        'data-active:bg-brand/10 data-active:text-brand data-active:hover:bg-brand/15',
         'focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
         !showLabels && 'justify-center! px-0',
       )}
