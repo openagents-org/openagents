@@ -663,6 +663,8 @@ def remove_member(
 
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    if member.agent_type == "cloud:openagents":
+        return json_response(ResponseCode.FORBIDDEN, "Yumi is your built-in assistant and cannot be removed")
     denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
     if denied is not None:
         return denied

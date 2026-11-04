@@ -23,7 +23,7 @@ async function render() {
 }
 
 function button(label: string) {
-  return [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label || b.title === label)!;
+  return [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label || b.title === label)!;
 }
 
 beforeEach(() => {
@@ -46,13 +46,15 @@ afterEach(async () => {
 
 it('launches a named agent and refreshes the workspace roster', async () => {
   await render();
-  const input = container.querySelector<HTMLInputElement>('input')!;
-  expect(button('connect.acentaLaunch').disabled).toBe(true);
+  expect(container.querySelector('input')).toBeNull();
+  await act(async () => button('connect.acentaGetStarted').click());
+  const input = document.querySelector<HTMLInputElement>('input')!;
+  expect(button('connect.acentaContinue').disabled).toBe(true);
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, ' Research helper ');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await act(async () => button('connect.acentaLaunch').click());
+  await act(async () => button('connect.acentaContinue').click());
   expect(api.launchHostedAgent).toHaveBeenCalledWith('Research helper');
   expect(onChanged).toHaveBeenCalled();
 });
@@ -83,12 +85,14 @@ it('sends the user to Acenta when setup (sign-in and payment) is needed', async 
   vi.stubGlobal('location', { ...window.location, assign });
   api.launchHostedAgent.mockResolvedValue({ setupUrl: 'https://acenta.ai/launch/box-1' });
   await render();
-  const input = container.querySelector<HTMLInputElement>('input')!;
+  expect(container.querySelector('input')).toBeNull();
+  await act(async () => button('connect.acentaGetStarted').click());
+  const input = document.querySelector<HTMLInputElement>('input')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Helper');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await act(async () => button('connect.acentaLaunch').click());
+  await act(async () => button('connect.acentaContinue').click());
   expect(assign).toHaveBeenCalledWith('https://acenta.ai/launch/box-1');
   expect(onChanged).not.toHaveBeenCalled();
 });

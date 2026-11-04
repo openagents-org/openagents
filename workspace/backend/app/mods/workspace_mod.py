@@ -309,6 +309,10 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
     if not member:
         return None
 
+    if member.agent_type == "cloud:openagents":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Yumi is your built-in assistant and cannot be removed")
+
     was_master = member.role == "master"
     # Soft-delete: keep the row (status='removed') so a re-add can reactivate
     # the agent and so _handle_agent_join can refuse to resurrect it. Hard-
