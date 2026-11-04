@@ -1,0 +1,17 @@
+{
+  "version": "1.1.12",
+  "date": "2026-11-04",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Agents shown with their official icons",
+        "zh": "智能体图标改用官方图标"
+      },
+      "description": {
+        "en": "Claude Code, Codex, Cursor, DeepSeek, Gemini, Qwen Code and other agents now use the same icons as their own sites and apps, at a consistent size, and stay clear in both light and dark mode.",
+        "zh": "Claude Code、Codex、Cursor、DeepSeek、Gemini、Qwen Code 等智能体改用与其官网、客户端一致的图标，尺寸统一，在浅色与深色模式下均清晰可辨。"
+      }
+    }
+  ]
+}

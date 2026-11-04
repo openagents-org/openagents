@@ -124,7 +124,7 @@ export function EmptyState() {
                   )}
                 >
                   <div className="size-10 flex items-center justify-center">
-                    <AgentIcon name={entry.name} size={40} />
+                    <AgentIcon name={entry.name} size={32} />
                   </div>
                   <div className="min-w-0 w-full">
                     <div className="text-sm font-medium leading-tight truncate">{entry.label}</div>

@@ -1,1 +1,20 @@
-<svg fill="currentColor" fill-rule="evenodd" height="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>Pi</title><rect x="2.8" y="5.2" width="18.4" height="3.1" rx="1.55"></rect><rect x="6.1" y="7.6" width="3.1" height="11.4" rx="1.55"></rect><rect x="14.8" y="7.6" width="3.1" height="11.4" rx="1.55"></rect></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24"><rect width="24" height="24" rx="5.5" fill="#09090B"/><svg x="5.040" y="5.040" width="13.920" height="13.920" viewBox="165.000 165.000 470.000 470.000">
+  <rect width="800" height="800" rx="120" fill="#09090b"/>
+  <path fill="#fff" fill-rule="evenodd" d="
+    M165.29 165.29
+    H517.36
+    V400
+    H400
+    V517.36
+    H282.65
+    V634.72
+    H165.29
+    Z
+    M282.65 282.65
+    V400
+    H400
+    V282.65
+    Z
+  "/>
+  <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+</svg></svg>

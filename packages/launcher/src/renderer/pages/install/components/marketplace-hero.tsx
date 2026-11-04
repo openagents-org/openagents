@@ -160,8 +160,6 @@ function HeroSlide({
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-6">
-        {/* The mark on its own light tile, as the workspace's agent gallery
-            draws it — legible on either theme. */}
         <AgentIcon type={slide.name} size={80} />
 
         <div className="flex min-w-0 flex-1 flex-col">

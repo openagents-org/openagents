@@ -5,7 +5,7 @@ import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Pl
 import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
-import { uniqueAgentName } from '@/lib/agent-name';
+import { defaultAgentNameBase, uniqueAgentName } from '@/lib/agent-name';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -142,16 +142,9 @@ function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
 
 export type GalleryStatus = ReturnType<typeof runtimeStatus>;
 
-/** Logo chip on a white surface so dark agent marks stay legible in dark mode. */
+/** An agent's app icon at gallery size. */
 export function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
-  return (
-    <span
-      className={cn('inline-flex items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 dark:ring-white/10 shrink-0', className)}
-      style={{ width: size, height: size }}
-    >
-      <AgentIcon name={name} size={Math.round(size * 0.55)} />
-    </span>
-  );
+  return <AgentIcon name={name} size={size} className={className} />;
 }
 
 export function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
@@ -448,7 +441,7 @@ export function AgentSetup({
   );
   const startType = editAgent ? null : draft?.type ?? initialType ?? null;
   const [selected, setSelected] = useState<string | null>(editAgent?.type ?? startType);
-  const [name, setName] = useState(editAgent?.name ?? draft?.name ?? (startType ? uniqueAgentName(startType, takenNames) : ''));
+  const [name, setName] = useState(editAgent?.name ?? draft?.name ?? (startType ? uniqueAgentName(defaultAgentNameBase(startType), takenNames) : ''));
   // The label people see, editable after creation — unlike `name`, which is the
   // agent's identity (config, env files, @mentions) and stays fixed.
   const [displayName, setDisplayName] = useState(editAgent?.displayName ?? '');
@@ -546,7 +539,7 @@ export function AgentSetup({
     setSelected(typeName);
     if (nameTouchedFor.current !== typeName) {
       nameTouchedFor.current = null;
-      setName(uniqueAgentName(typeName, takenNames));
+      setName(uniqueAgentName(defaultAgentNameBase(typeName), takenNames));
     }
     setWorkingDir('');
     setApiKey('');
@@ -1072,7 +1065,7 @@ export function AgentSetup({
                 already runs is a different name away, nothing more. */}
             {!isEdit && selected && (
               <p data-testid="agent-setup-name-hint" className="text-xs text-muted-foreground">
-                {t('connect.agentNameMultiHint', { first: selected, second: `${selected}-2` })}
+                {t('connect.agentNameMultiHint', { first: defaultAgentNameBase(selected), second: `${defaultAgentNameBase(selected)}-2` })}
               </p>
             )}
             {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
@@ -1494,9 +1487,7 @@ export function AgentSetup({
 
             {/* Agent hero */}
             <div className="flex items-center gap-4">
-              <div className="size-14 shrink-0 rounded-2xl border bg-muted/40 flex items-center justify-center shadow-sm">
-                <AgentIcon name={selectedEntry.name} size={34} />
-              </div>
+              <AgentIcon name={selectedEntry.name} size={56} className="shadow-sm" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-semibold truncate">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : selectedEntry.label}</h3>

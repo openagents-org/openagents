@@ -54,52 +54,6 @@ const EMPTY_PROVIDERS: CloudAgentProvider[] = [];
 
 const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
 
-// ---------------------------------------------------------------------------
-// Brand colors for local agents and cloud providers
-// ---------------------------------------------------------------------------
-
-const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
-  claude:    { bg: 'bg-orange-500',  text: 'text-white' },
-  codex:     { bg: 'bg-green-600',   text: 'text-white' },
-  gemini:    { bg: 'bg-blue-500',    text: 'text-white' },
-  openclaw:  { bg: 'bg-violet-600',  text: 'text-white' },
-  amp:       { bg: 'bg-rose-500',    text: 'text-white' },
-  aider:     { bg: 'bg-emerald-500', text: 'text-white' },
-  goose:     { bg: 'bg-amber-600',   text: 'text-white' },
-  cline:     { bg: 'bg-cyan-500',    text: 'text-white' },
-  copilot:   { bg: 'bg-indigo-500',  text: 'text-white' },
-  opencode:  { bg: 'bg-teal-500',    text: 'text-white' },
-  nanoclaw:  { bg: 'bg-pink-500',    text: 'text-white' },
-  cursor:    { bg: 'bg-zinc-800',    text: 'text-white' },
-  hermes:    { bg: 'bg-yellow-500',  text: 'text-white' },
-  kimi:      { bg: 'bg-sky-500',     text: 'text-white' },
-  deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
-  commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
-  openworker: { bg: 'bg-blue-600',   text: 'text-white' },
-  codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
-  codearts:  { bg: 'bg-red-600',     text: 'text-white' },
-  'mimo-code': { bg: 'bg-orange-500', text: 'text-white' },
-  qoder:     { bg: 'bg-emerald-500', text: 'text-white' },
-  'qoder-cn': { bg: 'bg-emerald-500', text: 'text-white' },
-  'qwen-code': { bg: 'bg-violet-700', text: 'text-white' },
-  kiro: { bg: 'bg-purple-600', text: 'text-white' },
-};
-
-const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
-  openai:    { bg: 'bg-zinc-900 dark:bg-zinc-100', text: 'text-white dark:text-zinc-900', accent: 'border-zinc-300 dark:border-zinc-600' },
-  google:    { bg: 'bg-blue-500',    text: 'text-white', accent: 'border-blue-300 dark:border-blue-700' },
-  xai:       { bg: 'bg-zinc-700 dark:bg-zinc-300', text: 'text-white dark:text-zinc-900', accent: 'border-zinc-300 dark:border-zinc-600' },
-  deepseek:  { bg: 'bg-blue-700',    text: 'text-white', accent: 'border-blue-300 dark:border-blue-700' },
-};
-
-function getAgentBrand(name: string) {
-  return AGENT_BRANDS[name] || { bg: 'bg-zinc-500', text: 'text-white' };
-}
-
-function getProviderBrand(name: string) {
-  return PROVIDER_BRANDS[name] || { bg: 'bg-zinc-500', text: 'text-white', accent: 'border-zinc-300' };
-}
-
 function CategoryIcon({ category, className }: { category: string; className?: string }) {
   if (category === 'image') return <ImageIcon className={cn('text-violet-500', className)} />;
   if (category === 'audio') return <Volume2 className={cn('text-amber-500', className)} />;
@@ -1031,10 +985,8 @@ function NodeCard({
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex -space-x-1.5">
                   {previewAgents.map((a) => (
-                    <div key={a.name} className="relative" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
-                      <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
-                        <AgentIcon name={a.type} size={13} />
-                      </span>
+                    <div key={a.name} className="relative flex" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
+                      <AgentIcon name={a.type} size={20} chip className="outline-2 outline-background" />
                       <span className={cn(
                         'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-background',
                         online && a.status === 'running' ? 'bg-green-500' : 'bg-zinc-400',
@@ -1042,7 +994,7 @@ function NodeCard({
                     </div>
                   ))}
                   {extraAgents > 0 && (
-                    <div className="h-5 min-w-5 px-1 rounded-md border bg-muted ring-2 ring-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                    <div className="h-5 min-w-5 px-1 rounded-md border bg-muted outline-2 outline-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
                       +{extraAgents}
                     </div>
                   )}
@@ -1140,9 +1092,7 @@ function NodeCard({
                 return (
                 <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
                   <div className="flex items-center gap-2.5">
-                    <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center relative">
-                      <AgentIcon name={p.type} size={22} />
-                    </div>
+                    <AgentIcon name={p.type} size={32} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">@{p.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{p.type}</div>
@@ -1204,9 +1154,7 @@ function NodeCard({
                 return (
                   <div key={a.name} className="rounded-lg border bg-background p-3 flex flex-col gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center">
-                        <AgentIcon name={a.type} size={22} />
-                      </div>
+                      <AgentIcon name={a.type} size={32} />
                       <div className="flex-1 min-w-0">
                         <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">{a.displayName || `@${a.name}`}</button>
                         <div className="text-xs text-muted-foreground truncate">{a.displayName ? `@${a.name} · ${a.type}` : a.type}</div>
@@ -1684,7 +1632,6 @@ function LocalAgentsTab({
       {/* Agent grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {catalog.map((entry) => {
-          const brand = getAgentBrand(entry.name);
           const isSelected = selectedAgent === entry.name;
           return (
             <button
@@ -2267,7 +2214,6 @@ function CloudAgentsTab({
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {groupProviders.map((p) => {
-                const brand = getProviderBrand(p.name);
                 return (
                   <button
                     key={p.name}

@@ -146,7 +146,7 @@ function AgentCard({
       )}
     >
       <div className="flex items-start gap-3">
-        <AgentIcon type={agent.name} size={36} />
+        <AgentIcon type={agent.name} size={32} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="truncate text-base font-semibold">
