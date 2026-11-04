@@ -11,6 +11,8 @@ import type {
   BrowserTabLimits,
   CloudAgentConfig,
   CloudAgentProvider,
+  HostedAgent,
+  HostedAgentProvider,
   DMConversation,
   EventPollResponse,
   KanbanTask,
@@ -1660,6 +1662,35 @@ class WorkspaceApi {
 
   async removeCloudAgent(agentName: string): Promise<void> {
     await this.request<unknown>(`/v1/cloud-agents/${agentName}?network=${this.workspaceId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hosted agents (Acenta)
+  // ---------------------------------------------------------------------------
+
+  async getHostedProviders(): Promise<HostedAgentProvider[]> {
+    const res = await this.request<{ providers: HostedAgentProvider[] }>('/v1/hosted-agents/providers', { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    return res.providers;
+  }
+
+  async listHostedAgents(): Promise<HostedAgent[]> {
+    const res = await this.request<{ hosted_agents: HostedAgent[] }>(
+      `/v1/hosted-agents?network=${this.requireWorkspace()}`
+    );
+    return res.hosted_agents;
+  }
+
+  async launchHostedAgent(displayName: string): Promise<HostedAgent> {
+    return this.request<HostedAgent>('/v1/hosted-agents', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), display_name: displayName, provider: 'acenta' }),
+    });
+  }
+
+  async removeHostedAgent(agentName: string): Promise<void> {
+    await this.request<unknown>(`/v1/hosted-agents/${encodeURIComponent(agentName)}?network=${this.requireWorkspace()}`, {
       method: 'DELETE',
     });
   }

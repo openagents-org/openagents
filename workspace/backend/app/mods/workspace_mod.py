@@ -318,6 +318,13 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
     member.status = "removed"
     db.flush()
 
+    # A provider-hosted runtime loses its credential now; callers ask the
+    # provider to terminate it once this transaction commits.
+    from app.services import hosted_agents
+    hosted = hosted_agents.release(db, workspace.id, agent_name)
+    if hosted is not None:
+        event.metadata["hosted_agent_id"] = hosted.id
+
     new_master_name = None
 
     # If removed agent was master, promote the next available (non-removed) agent

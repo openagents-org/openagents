@@ -1799,6 +1799,20 @@ export const messages = {
     yumiAdd: 'Re-add Yumi',
     yumiAdded: 'Yumi added',
 
+    acentaTitle: 'Acenta cloud agent',
+    acentaSubtitle: 'A coding agent (OpenCode) in its own always-on cloud box, with files, tools and a model included. $29/month per box, 7-day free trial. You finish setup on Acenta.',
+    acentaFinishSetup: 'Finish setup',
+    acentaNamePlaceholder: 'Name, e.g. Research helper',
+    acentaLaunch: 'Launch',
+    acentaLaunched: '"{name}" is starting. It comes online in a few minutes.',
+    acentaLaunchFailed: 'Could not launch the cloud agent',
+    acentaUnavailable: 'Acenta cloud agents are coming soon.',
+    acentaStarting: 'Starting',
+    acentaOnline: 'Online',
+    acentaOffline: 'Offline',
+    acentaRemoveConfirm: 'Remove "{name}"? Its cloud box and files are deleted. Workspace conversations are kept.',
+    acentaRemoved: 'Removed "{name}"',
+
     // Nodes (connect-a-node)
     nodeHeading: 'My connected devices',
     nodeSubtitle: 'Your private connections to this workspace. Agents connected through them belong to you and start private.',

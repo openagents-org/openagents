@@ -1144,6 +1144,37 @@ class CloudAgentConfig(Base):
     )
 
 
+class HostedAgent(Base):
+    """An agent whose runtime an external provider (Acenta) hosts for this workspace.
+
+    Unlike CloudAgentConfig, the server never calls a model for it: the hosted
+    runtime joins as a normal agent over a dedicated connection (``node_id``),
+    so presence comes from real heartbeats. Deleting that connection revokes
+    the runtime's credential.
+    """
+    __tablename__ = "hosted_agents"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(Text, nullable=False, default="acenta")
+    # Assigned by the provider; NULL until the launch call returns.
+    agent_name = Column(Text, nullable=True)
+    display_name = Column(Text, nullable=False)
+    external_id = Column(Text, nullable=True)
+    node_id = Column(UUID(as_uuid=False), ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
+    owner_email = Column(Text, nullable=False)
+    # launching | setup (owner must finish sign-in/payment on Acenta) | active | terminating
+    status = Column(Text, nullable=False, default="launching")
+    # Acenta launch page while status is "setup"; it requires the owner's sign-in.
+    setup_url = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "agent_name", name="uq_hosted_agent_workspace_name"),
+        Index("idx_hosted_agent_workspace", "workspace_id"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Chat-platform integrations (Slack / Telegram bridges)
 # ---------------------------------------------------------------------------
