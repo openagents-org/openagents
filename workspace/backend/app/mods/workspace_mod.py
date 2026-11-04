@@ -1622,6 +1622,8 @@ async def _route_with_llm(
         content=content,
     )
 
+    from app.services import router_health
+
     def classify(client, provider, model, max_tokens):
         if provider == "openai":
             response = client.chat.completions.create(
@@ -1648,7 +1650,7 @@ async def _route_with_llm(
                 from app.services.message_router import get_client
                 client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
                 provider, model = "openai", config.MESSAGE_ROUTER_MODEL
-                raw_result = classify(client, provider, model, 500)
+                raw_result = router_health.timed("message", lambda: classify(client, provider, model, 500))
                 valid_targets = {f"next:{name.lower()}" for name in candidate_names}
                 if raw_result.lower() not in {"stop", "ask"} | valid_targets:
                     raise ValueError("Classifier returned an invalid routing decision")
@@ -1664,14 +1666,14 @@ async def _route_with_llm(
                 client, provider = _get_llm_client()
                 model = _get_router_model()
                 client = client.with_options(timeout=15, max_retries=0)
-                raw_result = classify(client, provider, model, 256)
+                raw_result = router_health.timed("general", lambda: classify(client, provider, model, 256))
                 valid_targets = {f"next:{name.lower()}" for name in candidate_names}
                 if raw_result.lower() not in {"stop", "ask"} | valid_targets:
                     raise ValueError("Router backup returned an invalid routing decision")
         else:
             client, provider = _get_llm_client()
             model = _get_router_model()
-            raw_result = classify(client, provider, model, 256)
+            raw_result = router_health.timed("general", lambda: classify(client, provider, model, 256))
 
         # Case-insensitive keyword detection but preserve original case
         # of the agent name so we can match it against participants
