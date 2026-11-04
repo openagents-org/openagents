@@ -22,9 +22,10 @@ const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 
-/** Types whose endpoint is one device-wide config file of their own. OpenClaw
- *  left it: each keyed agent gets a private store (adapters/openclaw.js). */
-const SHARED_NATIVE_CONFIG = new Set(['hermes']);
+/** Types whose endpoint is one device-wide config file of their own. None
+ *  left: OpenClaw gives each keyed agent a private store (adapters/openclaw.js)
+ *  and Hermes a provider of its own in its config.yaml (adapters/hermes.js). */
+const SHARED_NATIVE_CONFIG = new Set();
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -751,11 +752,9 @@ class Daemon {
    * set up in the launcher onto another one's key, endpoint and model: add a
    * second DeepSeek or CodeArts agent from the workspace, and the first one
    * ran on the new one's settings from its next restart.
-   * Hermes keeps sharing: its endpoint lives in one config file of its own
-   * for the whole device, which only a save to <type>.env updates (index.js
-   * _configureNativeAuth), so a key kept on the agent would never reach it.
-   * OpenClaw writes each keyed agent's private openclaw.json from the agent's
-   * own env when it starts, so it keeps its key on the agent like the rest.
+   * OpenClaw writes each keyed agent's private openclaw.json, and Hermes each
+   * keyed agent's own provider, from the agent's own env when it runs, so
+   * both keep their keys on the agent like the rest.
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);

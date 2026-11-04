@@ -112,6 +112,22 @@ test('checkInstallPrereqs: hermes declares git', () => {
   assert.ok(hermes.install.requires.includes('git'), 'hermes must require git');
 });
 
+test('checkInstallPrereqs: requires_on skips a dependency on the platforms it does not list', () => {
+  const entry = { install: { requires: ['git'], requires_on: { git: ['windows'] } } };
+  // A platform it is not listed for is never probed, whatever the machine has.
+  assert.deepStrictEqual(checkInstallPrereqs(entry, 'darwin'), { ok: true, missing: [] });
+  assert.deepStrictEqual(checkInstallPrereqs(entry, 'linux'), { ok: true, missing: [] });
+});
+
+test('checkInstallPrereqs: Claude Code needs git only on Windows', () => {
+  // macOS and Linux install it with npm alone; a mac without the Command Line
+  // Tools was sent to install them before it could get Claude.
+  const claude = require('../registry.json').find((e) => e.name === 'claude');
+  assert.ok(claude.install.requires.includes('git'));
+  assert.deepStrictEqual(claude.install.requires_on.git, ['windows']);
+  assert.deepStrictEqual(checkInstallPrereqs(claude, 'darwin'), { ok: true, missing: [] });
+});
+
 test('missingPrereqError: carries a machine-readable payload and a readable message', () => {
   const missing = [
     {
