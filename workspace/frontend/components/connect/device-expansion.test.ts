@@ -38,7 +38,7 @@ vi.mock('@/components/agents/agent-setup', () => ({
   ),
 }));
 vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: ({ onSetup }: { onSetup?: () => void }) => React.createElement('section', null, React.createElement('h1', null, 'Connect your agents to your workspace'), React.createElement('button', { onClick: onSetup }, 'Banner setup')) }));
-vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing }: { pairing: { code: string } }) => React.createElement('div', { 'data-testid': 'guided-pairing' }, pairing.code) }));
+vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing, onRegenerate, regenerating }: { pairing: { code: string }; onRegenerate?: () => void; regenerating?: boolean }) => React.createElement(React.Fragment, null, React.createElement('div', { 'data-testid': 'guided-pairing' }, pairing.code), onRegenerate && React.createElement('button', { onClick: onRegenerate, disabled: regenerating }, 'Renew pairing')) }));
 let root: Root;
 let container: HTMLDivElement;
 function device(nodeId: string, status = 'online'): WorkspaceNode {
@@ -214,4 +214,21 @@ it('places the banner above both connection tabs without the redundant title bar
   await act(async () => button('Banner setup').click());
   expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
   expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
+});
+
+
+it('keeps the pairing form on renewal failure and replaces the code after a successful retry', async () => {
+  fixture.needsFirstDevice = true;
+  api.createPairingCode
+    .mockResolvedValueOnce({ code: 'EXPIRED-CODE', expiresAt: new Date(Date.now() - 1000).toISOString(), expiresInSeconds: 0 })
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValueOnce({ code: 'RENEWED-CODE', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 1800 });
+  await render([]);
+  await act(async () => button('Renew pairing').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toContain('EXPIRED-CODE');
+  expect(button('Renew pairing').disabled).toBe(false);
+  await act(async () => button('Renew pairing').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toContain('RENEWED-CODE');
+  expect(button('connect.tabCloud')).toBeDefined();
+  expect(api.createPairingCode).toHaveBeenCalledTimes(3);
 });

@@ -392,9 +392,9 @@ export function ConnectAgentView({
           </div>
         ) : activeTab === 'node' && showFirstDeviceSetup ? (
           <>
-            <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
+            <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
               {pairing ? (
-                <OnboardingPairingPanel pairing={pairing} onDismiss={close} />
+                <OnboardingPairingPanel pairing={pairing} onDismiss={close} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} />
               ) : pairingError ? (
                 <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
                   <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
@@ -2445,7 +2445,22 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   const [connected, setConnected] = useState(false);
   const [connectedNodeId, setConnectedNodeId] = useState<string>();
   const [errored, setErrored] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const baselineRef = useRef<Set<string>>(new Set());
+
+  const regenerate = async () => {
+    setRegenerating(true);
+    try {
+      const code = await workspaceApi.createPairingCode();
+      setPairing(code);
+      capture('pairing_code_generated', { source: 'guided_wizard' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   // On mount: snapshot existing nodes, then either jump to step 3 (a node is
   // already here) or mint a pairing code.
@@ -2509,10 +2524,10 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
       <div className="flex-1 overflow-y-auto">
         <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-8 sm:px-6 sm:py-9">
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
 
           {pairing ? (
-            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} />
+            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} onRegenerate={regenerate} regenerating={regenerating} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}
