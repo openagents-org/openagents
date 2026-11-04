@@ -696,6 +696,15 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/health/router/{role}")
+def router_health(role: str):
+    """Routing model availability and latency (role: message | general).
+    503 when fewer than 90% of recent calls succeeded or there is no data."""
+    from app.services.router_health import summary
+    status, body = summary(role)
+    return JSONResponse(body, status_code=status)
+
+
 @app.get("/ready")
 def readiness():
     """Readiness uses this worker's real connection pool; /health is liveness."""
