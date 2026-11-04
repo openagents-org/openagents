@@ -30,6 +30,8 @@ import { HtmlArtifactPreview } from './html-artifact-preview';
 import { isMyAddress, myAddress } from '@/lib/dm';
 import { HumanAvatar } from './human-avatar';
 import { humanMessageContent } from '@/lib/message-content';
+import { YumiAgentLocation } from './yumi-agent-location';
+import { isYumiWelcome } from '@/lib/yumi-onboarding';
 import { useHumanNames } from '@/hooks/use-team-roster';
 
 interface Attachment {
@@ -177,6 +179,8 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const humanNames = useHumanNames();
   const selfMention = currentUser.isAuthenticated && currentUser.id.includes('@') ? currentUser.id.toLowerCase() : undefined;
   const agent = agents.find((a) => a.agentName === message.senderName);
+  const yumiWelcome = isYumiWelcome(message, agent);
+  const displayContent = yumiWelcome ? t('yumiOnboarding.greeting') : message.content;
   const rawAttachments = (message.metadata?.attachments as Record<string, unknown>[]) || [];
   const attachments: Attachment[] = rawAttachments.map((a) => ({
     fileId: (a.fileId || a.file_id || '') as string,
@@ -191,7 +195,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(displayContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -318,7 +322,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             ) : (
               <>
                 <ReplyCitation citation={message.metadata.reply_to as ReplyCitationData | undefined} />
-                <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
+                <MarkdownContent content={displayContent} agentNames={agentNames} agentLabels={agentLabels} humanNames={humanNames} selfMention={selfMention} />
                 <Attachments items={attachments} senderAgentName={message.senderName} />
                 <MessageArtifacts content={message.content} attachedIds={attachments.map(item => item.fileId)} />
               </>
@@ -333,7 +337,8 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
 
             {/* Tap-to-ask chips (e.g. Yumi's seeded welcome). Only on the
                 trailing message: once the user replies, the moment is over. */}
-            {isLast && onSuggestion && Array.isArray(message.metadata?.suggestions) && (
+            {isLast && yumiWelcome && <YumiAgentLocation />}
+            {isLast && !yumiWelcome && onSuggestion && Array.isArray(message.metadata?.suggestions) && (
               <div className="mt-2.5 flex flex-wrap gap-2">
                 {(message.metadata.suggestions as string[]).slice(0, 4).map((s) => (
                   <button

@@ -469,6 +469,14 @@ export const messages = {
     minimize: 'Minimize',
     collapsedHint: 'What can Yumi do? View the guide',
   },
+  yumiOnboarding: {
+    greeting: 'Hi, I’m Yumi, your built-in assistant. I can help you connect a coding agent like Claude Code or Codex to this workspace.',
+    question: 'Where will your agent run?',
+    computer: 'On my computer',
+    computerHint: 'Desktop app · macOS or Windows',
+    remote: 'On a remote machine',
+    remoteHint: 'Command line · servers and SSH',
+  },
   yumiDmIntro: {
     greeting: 'Hi, I’m your help assistant! Ask me whenever connecting a device or adding an agent gets stuck. I can also help you manage agents and answer questions about the workspace.',
     stepsTitle: 'To connect your first local agent:',

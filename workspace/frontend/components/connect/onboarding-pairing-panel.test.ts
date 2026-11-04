@@ -92,3 +92,29 @@ it.each(['Command line', 'Desktop app'])('renews an expired code without resetti
   await act(async () => button('NEWX-CODE').click());
   expect(copy).toHaveBeenCalledWith('NEWX-CODE');
 });
+
+
+it('honors an explicit location choice while allowing manual changes until another request', async () => {
+  const computer = { method: 'desktop' as const };
+  await render(pairing, { methodRequest: computer });
+  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelectorAll('a')).toHaveLength(3);
+  await act(async () => button('Command line').click());
+  await render(pairing, { methodRequest: computer });
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  await render(pairing, { methodRequest: { method: 'desktop' } });
+  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  await render(pairing, { methodRequest: { method: 'terminal' } });
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+});
+
+
+it('preserves a manual setup choice when a cached panel becomes visible again', async () => {
+  const request = { method: 'desktop' as const };
+  const cached = (visible: boolean) => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(React.Activity, { mode: visible ? 'visible' : 'hidden', children: React.createElement(OnboardingPairingPanel, { pairing, methodRequest: request }) }) }));
+  await act(async () => cached(true));
+  await act(async () => button('Command line').click());
+  await act(async () => cached(false));
+  await act(async () => cached(true));
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+});

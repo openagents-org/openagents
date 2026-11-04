@@ -800,3 +800,20 @@ def test_yumi_does_not_advertise_identity_only_device_pairing():
     names = {tool['function']['name'] for tool in build_tools()}
     assert 'create_pairing_code' not in names
     assert 'list_nodes' in names
+
+
+def test_seeded_welcome_asks_where_the_agent_will_run(db, yumi_enabled):
+    from app.access import provision_workspace
+    from app.models import User
+    user = User(email="location-onboarding@example.com", display_name="New User")
+    db.add(user)
+    db.flush()
+    workspace = provision_workspace(db, user)
+    greeting = db.execute(select(EventRecord).where(
+        EventRecord.network_id == workspace.id,
+        EventRecord.source == "openagents:yumi",
+        EventRecord.type == "workspace.message.posted",
+    )).scalar_one()
+    assert "Where will your agent run?" in greeting.payload["content"]
+    assert greeting.metadata_["onboarding"] == "agent_location"
+    assert greeting.metadata_["suggestions"] == ["On my computer", "On a remote machine"]
