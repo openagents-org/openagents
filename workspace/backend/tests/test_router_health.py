@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import cache
-from app.config import config
+import app.config
 from app.services import router_health
 
 
@@ -42,6 +42,8 @@ class FakeRedis:
 def redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr(cache, '_lazy_client', lambda: fake)
+    # Other tests reload app.config; patch whichever object is current now.
+    config = app.config.config
     monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'router-small')
     monkeypatch.setattr(config, 'MESSAGE_ROUTER_BASE_URL', 'https://router.example/v1')
     monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', 'k')
@@ -110,7 +112,7 @@ def test_old_samples_fall_out_of_the_window(client, redis, probes, monkeypatch):
 
 def test_unknown_role_and_missing_config(client, redis, monkeypatch):
     assert client.get('/health/router/nope').status_code == 404
-    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', '')
+    monkeypatch.setattr(app.config.config, 'MESSAGE_ROUTER_MODEL', '')
     assert client.get('/health/router/message').json()['status'] == 'not_configured'
 
 
