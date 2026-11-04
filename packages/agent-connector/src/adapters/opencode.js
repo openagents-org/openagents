@@ -159,7 +159,10 @@ class OpenCodeAdapter extends BaseAdapter {
     // opencode hangs waiting for interactive provider/model selection.
     // Connected agents run unattended: let the CLI resolve permission prompts
     // automatically instead of rejecting tools outside the working directory.
-    const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--dir', runCwd, '--model', model];
+    // --thinking adds the model's reasoning to the JSON stream as `reasoning`
+    // events, shown live as thinking (like Claude and Codex). Available since
+    // the minimum supported 1.17.0.
+    const args = ['run', '--format', 'json', '--thinking', '--dangerously-skip-permissions', '--dir', runCwd, '--model', model];
     if (sessionId) args.push('--session', sessionId);
     return args;
   }
@@ -504,6 +507,7 @@ class OpenCodeAdapter extends BaseAdapter {
     const eventType = String(event.type || '').toLowerCase();
     if (['step_start', 'step-start', 'step_finish', 'step-finish', 'tool_use', 'tool'].includes(eventType)) return null;
     if (OpenCodeAdapter._isToolEvent(event)) return null;
+    if (OpenCodeAdapter._isReasoningEvent(event)) return null;
     if (eventType.includes('error')) return null;
 
     const part = event.part;
@@ -574,6 +578,13 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   async _handleStreamEvent(event, msgChannel, responseState = null) {
+    // Reasoning is a live thinking trace only: it never counts toward the reply.
+    const reasoning = OpenCodeAdapter._reasoningFromEvent(event);
+    if (reasoning !== null) {
+      if (reasoning.trim()) await this.sendThinking(msgChannel, reasoning.trim());
+      return;
+    }
+
     const status = OpenCodeAdapter._toolStatusFromEvent(event);
     if (status) {
       // A tool call resets `finalText` (the "text since the last tool"), so the
@@ -1262,6 +1273,24 @@ class OpenCodeAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   /** True when an event is a tool call, across opencode's version-varying shapes. */
+  /** A `--thinking` reasoning event (`{type:"reasoning", part:{type:"reasoning", text}}`). */
+  static _isReasoningEvent(event) {
+    if (!event || typeof event !== 'object') return false;
+    if (String(event.type || '').toLowerCase() === 'reasoning') return true;
+    const part = event.part;
+    return !!(part && typeof part === 'object' && String(part.type || '').toLowerCase() === 'reasoning');
+  }
+
+  /** Reasoning text from a reasoning event ('' when empty), or null for any other event. */
+  static _reasoningFromEvent(event) {
+    if (!OpenCodeAdapter._isReasoningEvent(event)) return null;
+    const part = (event.part && typeof event.part === 'object') ? event.part : event;
+    const text = part.text || part.content || '';
+    // Summaries of several reasoning steps arrive glued together
+    // ("**Checking A****Testing B**"); give each heading its own paragraph.
+    return typeof text === 'string' ? text.replace(/\*\*\*\*(?=\S)/g, '**\n\n**') : '';
+  }
+
   static _isToolEvent(event) {
     if (!event || typeof event !== 'object') return false;
     const t = String(event.type || '').toLowerCase();
