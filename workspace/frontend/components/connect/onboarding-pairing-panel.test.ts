@@ -22,8 +22,8 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   copy.mockClear(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
-async function render(value = pairing) {
-  await act(async () => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(OnboardingPairingPanel, { pairing: value }) })));
+async function render(value = pairing, extra: Partial<React.ComponentProps<typeof OnboardingPairingPanel>> = {}) {
+  await act(async () => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(OnboardingPairingPanel, { pairing: value, ...extra }) })));
 }
 function button(text: string) {
   return [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes(text))!;
@@ -65,4 +65,30 @@ it('stops offering an expired pairing code on both setup paths', async () => {
   const copies = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy command"]');
   expect(copies[0].disabled).toBe(false);
   expect(copies[1].disabled).toBe(true);
+});
+
+
+it.each(['Command line', 'Desktop app'])('renews an expired code without resetting %s choices', async (method) => {
+  const renew = vi.fn();
+  const expired = { ...pairing, expiresAt: new Date(Date.now() - 1000).toISOString() };
+  await render(expired, { onRegenerate: renew });
+  await act(async () => button(method).click());
+  if (method === 'Command line') await act(async () => button('Windows').click());
+  expect(button('TEST-CODE').disabled).toBe(true);
+  await act(async () => button('Get a new code').click());
+  expect(renew).toHaveBeenCalledTimes(1);
+  await render(expired, { onRegenerate: renew, regenerating: true });
+  const pending = button('Generating code');
+  expect(pending.disabled).toBe(true);
+  await act(async () => pending.click());
+  expect(renew).toHaveBeenCalledTimes(1);
+  await render({ ...pairing, code: 'NEWX-CODE' }, { onRegenerate: renew });
+  expect(button(method).getAttribute('aria-pressed')).toBe('true');
+  if (method === 'Command line') {
+    expect(button('Windows').getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('code')?.textContent).toContain('install.ps1');
+  } else expect(container.querySelectorAll('a')).toHaveLength(3);
+  expect(button('NEWX-CODE').disabled).toBe(false);
+  await act(async () => button('NEWX-CODE').click());
+  expect(copy).toHaveBeenCalledWith('NEWX-CODE');
 });

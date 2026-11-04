@@ -416,6 +416,8 @@ export const messages: Messages = {
     connectCliHint: "将配对码粘贴到正在运行安装程序的终端。",
     enterAppCodeHint: "将配对码粘贴到桌面应用，将电脑连接到此工作区。",
     expiredHint: "配对码已过期，请重新打开设置以获取新码。",
+    newPairingCode: "获取新配对码",
+    renewCodeHint: "获取新的配对码即可继续，当前安装方式和操作系统选择会保留。",
     waitingComputerHint: "正在等待你的电脑连接",
     nextAgentTitle: "下一步：选择智能体",
     nextAgentBody: "连接成功后将自动打开智能体设置。",

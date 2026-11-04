@@ -423,6 +423,8 @@ export const messages = {
     connectCliHint: "Paste it into the terminal running the installer.",
     enterAppCodeHint: "Paste it into the desktop app to link your computer to this workspace.",
     expiredHint: "Code expired. Reopen setup to get a new one.",
+    newPairingCode: "Get a new code",
+    renewCodeHint: "Get a new code to continue. Your setup choices will stay the same.",
     waitingComputerHint: "Waiting for your computer to connect",
     nextAgentTitle: "Next: choose your agent",
     nextAgentBody: "Agent setup will open automatically once it connects.",
