@@ -467,6 +467,7 @@ export function AgentSetup({
   // never sent it.
   const [baseUrl, setBaseUrl] = useState(draft?.baseUrl ?? '');
   const [model, setModel] = useState(editAgent?.model ?? draft?.model ?? '');
+  const [customModel, setCustomModel] = useState(false);
   const [codexWireApi, setCodexWireApi] = useState<'responses' | 'chat'>(editAgent ? (editAgent.codexWireApi || 'chat') : (draft?.codexWireApi ?? 'responses'));
   // When editing an agent that has a key on the node, open the credentials
   // section up front so the masked key (and the keep-if-blank rule) is visible
@@ -552,6 +553,7 @@ export function AgentSetup({
     setApiKey('');
     setBaseUrl('');
     setModel('');
+    setCustomModel(false);
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
     setByokAccessId('');
     resetByokChecks();
@@ -1325,8 +1327,12 @@ export function AgentSetup({
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
-                value={model.trim() || AUTO_MODEL}
-                onValueChange={(v) => setModel(v === AUTO_MODEL ? '' : v)}
+                value={selected === 'pi' && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
+                onValueChange={(v) => {
+                  if (selected === 'pi' && v === CUSTOM_MODEL) { setCustomModel(true); return; }
+                  setCustomModel(false);
+                  setModel(v === AUTO_MODEL ? '' : v);
+                }}
               >
                 <SelectTrigger aria-label={t('connect.nodeModel')} className="h-10 w-full">
                   <SelectValue />
@@ -1339,11 +1345,22 @@ export function AgentSetup({
                   {unlistedModel && (
                     <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
                   )}
+                  {selected === 'pi' && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}
                 </SelectContent>
               </Select>
+              {selected === 'pi' && customModel && (
+                <Input
+                  data-testid="agent-setup-custom-model"
+                  aria-label={t('connect.byokCustomModel')}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={t('connect.byokCustomModel')}
+                  className="h-10 text-sm font-mono"
+                />
+              )}
               {accountModels && (
                 <p data-testid="agent-setup-account-models" className="text-xs text-muted-foreground">
-                  {t('connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+                  {t(selected === 'pi' ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
                 </p>
               )}
             </div>

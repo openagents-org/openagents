@@ -1971,6 +1971,7 @@ export const messages: Messages = {
     nodeBackToAgents: '返回智能体列表',
     nodeModel: '模型',
     nodeModelAuto: '自动（智能体默认）',
+    nodeModelDeviceHint: '列表由设备上的 {label} 提供；各模型能否调用取决于已登录账号的权限。',
     nodeModelAccountHint: '列表来自设备上 {label} 登录的账号，是这个账号能用的模型。',
     nodeModelUnlisted: '{model}（不在列表中）',
     nodeWorkingDir: '工作目录',

@@ -16,6 +16,7 @@
  */
 
 const os = require('os');
+const { stripVTControlCharacters } = require('node:util');
 // spawn() here is the WSL bridge from ./wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -125,11 +126,47 @@ function parseQoderModels(text) {
 }
 
 /**
+ * Pi --list-models prints the configured providers' catalog as a table, not a
+ * per-model subscription entitlement check. Qualify ids so identical model
+ * names on different signed-in providers remain selectable without ambiguity.
+ */
+function parsePiModels(text, env = {}) {
+  const selectedProvider = String(env.PI_PROVIDER || '').trim().toLowerCase();
+  const seen = new Map();
+  let inTable = false;
+  for (const raw of stripVTControlCharacters(String(text || '')).split(/\r?\n/)) {
+    const fields = raw.trim().split(/\s+/);
+    if (fields.join(' ') === 'provider model context max-out thinking images') {
+      inTable = true;
+      continue;
+    }
+    if (!inTable || fields.length !== 6 ||
+        !/^\d+(?:\.\d+)?[KM]?$/i.test(fields[2]) ||
+        !/^\d+(?:\.\d+)?[KM]?$/i.test(fields[3]) ||
+        !/^(yes|no)$/.test(fields[4]) || !/^(yes|no)$/.test(fields[5])) continue;
+    const [provider, model] = fields;
+    if (!/^[\w.-]+$/.test(provider) || !cleanId(model)) continue;
+    if (selectedProvider && provider.toLowerCase() !== selectedProvider) continue;
+    const id = cleanId(`${provider}/${model}`);
+    if (!id || seen.has(id)) continue;
+    seen.set(id, { id, label: cleanLabel(`${model} (${provider})`, id) });
+    if (seen.size >= MAX_MODELS) break;
+  }
+  return [...seen.values()];
+}
+
+/**
  * How each CLI is asked. Claude Code has no command for it; its SDK control
  * protocol does, and a run that is sent the request and then end-of-input
  * answers and exits without a prompt ever reaching a model.
  */
 const LISTERS = {
+  pi: {
+    args: ['--no-approve', '--no-extensions', '--no-skills', '--list-models'],
+    parse: parsePiModels,
+    timeoutMs: 30_000,
+    env: { PI_SKIP_VERSION_CHECK: '1', NO_COLOR: '1' },
+  },
   codex: {
     args: ['debug', 'models'],
     parse: parseCodexModels,
@@ -279,9 +316,9 @@ async function listCliModels(connector, type, opts = {}) {
   });
   // A run killed for taking too long may still have answered: Claude Code
   // replies before it finishes starting up.
-  const models = lister.parse(res.stdout);
+  const models = lister.parse(res.stdout, agentEnv);
   if (models.length) return { type, ok: true, models };
   return fail(res.error || 'The CLI listed no models.');
 }
 
-module.exports = { listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels };
+module.exports = { listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels };

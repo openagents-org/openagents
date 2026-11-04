@@ -2008,6 +2008,7 @@ export const messages = {
     nodeBackToAgents: 'Back to agents',
     nodeModel: 'Model',
     nodeModelAuto: 'Auto (agent default)',
+    nodeModelDeviceHint: 'These models are reported by {label} on the device. Access to each model depends on the signed-in account.',
     nodeModelAccountHint: 'These are the models {label} on the device offers the account it is signed in to.',
     nodeModelUnlisted: '{model} (not in this list)',
     nodeWorkingDir: 'Working directory',
