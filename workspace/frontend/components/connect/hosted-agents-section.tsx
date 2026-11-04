@@ -95,23 +95,29 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="space-y-2">
-      <div className="rounded-xl border bg-background p-5">
-        <div className="flex items-start gap-4">
-          <img src="/providers/acenta.png" alt="" className="size-12 shrink-0 rounded-xl object-contain" />
+      <div className="overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50/80 via-background to-background dark:border-orange-900/50 dark:from-orange-950/20">
+        <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-6">
+          <img src="/providers/acenta.svg" alt="" className="size-14 shrink-0 rounded-xl" />
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold">{t('connect.acentaTitle')}</h3>
-            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{t('connect.acentaSubtitle')}</p>
-            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available} size="sm" className="mt-4">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h3 className="text-lg font-semibold tracking-tight">Acenta</h3>
+              <span className="rounded-full border border-orange-200/70 bg-orange-100/60 px-2 py-0.5 text-xs font-medium text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200">{t('connect.acentaHostedBadge')}</span>
+            </div>
+            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">{t('connect.acentaMarketplaceDescription')}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{t('connect.acentaMarketplaceSetup')}</p>
+          </div>
+          <div className="shrink-0 sm:ml-2">
+            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available} className="w-full sm:w-auto">
               {t('connect.acentaGetStarted')} <ArrowUpRight className="size-3.5 ml-1.5" />
             </Button>
-            {!provider.available && <p className="mt-2 text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
+            {!provider.available && <p className="mt-2 max-w-48 text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
           </div>
         </div>
       </div>
       <Dialog open={setupOpen} onOpenChange={(open) => { if (!launching) setSetupOpen(open); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('connect.acentaTitle')}</DialogTitle>
+            <DialogTitle className="flex items-center gap-3"><img src="/providers/acenta.svg" alt="" className="size-9 rounded-lg" />{t('connect.acentaTitle')}</DialogTitle>
             <DialogDescription>{t('connect.acentaSetupHint')}</DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -136,7 +142,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
         const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
         return (
           <div key={agent.agentName} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background">
-            <img src="/providers/acenta.png" alt="Acenta" className="size-7 shrink-0 rounded-md object-contain" />
+            <img src="/providers/acenta.svg" alt="Acenta" className="size-7 shrink-0 rounded-md object-contain" />
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium truncate">{agent.displayName}</div>
               <div className="text-xs text-muted-foreground font-mono truncate">@{agent.agentName}</div>
