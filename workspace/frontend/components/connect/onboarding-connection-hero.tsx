@@ -68,7 +68,7 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
 
           {/* Agent marks float freely through the scene. */}
           <g className="oa-scene-float">
-            <circle cx="166" cy="122" r="36" fill="#e8c4a6" />
+            <circle cx="166" cy="122" r="36" fill="#ffffff" />
             <image href="/icons/agents/claude.svg" x="144" y="100" width="44" height="44" />
             <text x="166" y="181" textAnchor="middle" fill="#475569" fontSize="12" fontFamily="inherit">Claude Code</text>
           </g>

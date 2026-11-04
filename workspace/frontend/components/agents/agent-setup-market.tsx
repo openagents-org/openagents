@@ -103,7 +103,7 @@ function MarketCard({ entry, status, checking, onPick }: {
       className="group flex flex-col gap-3 rounded-xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-foreground/20 hover:bg-accent/40"
     >
       <div className="flex items-center gap-3">
-        <MarketLogo name={entry.name} size={40} className="rounded-lg" />
+        <MarketLogo name={entry.name} size={32} className="rounded-lg" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold leading-tight truncate">{entry.label}</div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground truncate">{entry.vendor || entry.tags?.[0] || ''}</div>

@@ -95,7 +95,7 @@ function Row({
           width; the short ones after it stay sized to their content. */}
       <TableCell className="w-full max-w-0">
         <div className="flex items-center gap-3">
-          <AgentIcon type={entry.name} size={30} />
+          <AgentIcon type={entry.name} size={28} />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">
               {entry.label || entry.name}

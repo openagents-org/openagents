@@ -1,7 +1,7 @@
 {
   "name": "codebuddy",
-  "label": "CodeBuddy Code (WorkBuddy)",
-  "description": "Tencent's CodeBuddy Code CLI — the same engine the WorkBuddy desktop app runs, driven headlessly",
+  "label": "WorkBuddy (CodeBuddy)",
+  "description": "Tencent WorkBuddy's agent engine (the CodeBuddy Code CLI), driven headlessly — same account and credits as the WorkBuddy desktop app; its built-in office plugins are not included",
   "homepage": "https://www.codebuddy.ai",
   "tags": [
     "workbuddy",
@@ -14,7 +14,7 @@
   "order": 999,
   "catalog": true,
   "vendor": "Tencent",
-  "tagline": "The terminal agent behind Tencent's WorkBuddy desktop app — same engine, same account, driven headlessly. Installed with npm.",
+  "tagline": "The engine behind Tencent's WorkBuddy desktop app — same account and credits, driven headlessly. Installed with npm.",
   "logo": {
     "key": "codebuddy"
   },

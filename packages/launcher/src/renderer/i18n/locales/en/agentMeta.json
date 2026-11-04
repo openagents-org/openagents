@@ -20,7 +20,7 @@
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
-    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
+    "codebuddy": "Tencent WorkBuddy's agent engine (the CodeBuddy Code CLI), driven headlessly — same account and credits as the WorkBuddy desktop app. WorkBuddy's built-in office plugins (slides, documents, spreadsheets) are not included.",
     "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key.",
     "mimo-code": "Xiaomi's MiMo Code terminal coding agent, driven headlessly with a MiMo API key or any OpenAI-compatible endpoint — one session per channel.",
     "qoder": "Qoder's terminal coding agent, driven headlessly on a Qoder account sign-in or a personal access token — one session per channel.",

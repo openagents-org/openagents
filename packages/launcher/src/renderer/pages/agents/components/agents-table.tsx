@@ -107,7 +107,7 @@ export function AgentsTable({
                 >
                   <TableCell className="max-w-0 pr-4 pl-6">
                     <div className="flex min-w-0 items-center gap-3">
-                      <AgentIcon type={agent.type} size={36} />
+                      <AgentIcon type={agent.type} size={32} />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium group-hover:underline" title={agentLabel(agent)}>
                           {agentLabel(agent)}

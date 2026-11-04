@@ -166,12 +166,10 @@ export function WorkspaceCard({
       {agents.length > 0 && (
         <div className="hidden shrink-0 items-center -space-x-1.5 md:flex" title={agents.map((a) => a.displayName || a.name).join(", ")}>
           {agents.slice(0, AGENTS_SHOWN).map((a) => (
-            <span key={a.name} className="rounded-md ring-2 ring-card">
-              <AgentIcon type={a.type} size={24} />
-            </span>
+            <AgentIcon key={a.name} type={a.type} size={24} chip className="outline-2 outline-card" />
           ))}
           {agents.length > AGENTS_SHOWN && (
-            <span className="flex size-6 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground ring-2 ring-card">
+            <span className="flex size-6 items-center justify-center rounded-md bg-muted text-xs text-muted-foreground outline-2 outline-card">
               +{agents.length - AGENTS_SHOWN}
             </span>
           )}
