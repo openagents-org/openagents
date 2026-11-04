@@ -91,20 +91,39 @@ class TestProvisioning:
         assert len(members) == 1
 
 
+class TestRemovalProtection:
+    def test_all_removal_routes_preserve_yumi(self, client, yumi_enabled):
+        data = _create_workspace(client)
+        ws_id, token = data["workspaceId"], data["token"]
+        headers = {"X-Workspace-Token": token}
+        for method, path, kwargs in [
+            ("DELETE", "/v1/cloud-agents/yumi", {"params": {"network": ws_id}}),
+            ("DELETE", f"/v1/workspaces/{ws_id}/members/yumi", {}),
+            ("POST", "/v1/remove", {"json": {"network": ws_id, "agent_name": "yumi"}}),
+        ]:
+            response = client.request(method, path, headers=headers, **kwargs)
+            assert response.status_code == 403, response.text
+            assert "openagents:yumi" in [a["address"] for a in _discover(client, ws_id, token)]
+
+
 class TestKeylessReadd:
-    def test_readd_yumi_without_key(self, client, yumi_enabled):
+    def test_readd_yumi_without_key(self, client, yumi_enabled, db):
         data = _create_workspace(client)
         ws_id, token = data["workspaceId"], data["token"]
 
-        # Remove the built-in agent (hard delete, as the UI does).
+        # The built-in assistant cannot be deleted through the API.
         resp = client.request(
             "DELETE", f"/v1/cloud-agents/yumi",
             params={"network": ws_id}, headers={"X-Workspace-Token": token},
         )
-        assert resp.status_code == 200
-        assert "openagents:yumi" not in [a["address"] for a in _discover(client, ws_id, token)]
+        assert resp.status_code == 403
+        assert "openagents:yumi" in [a["address"] for a in _discover(client, ws_id, token)]
 
-        # Re-add via the Connect view path: provider "openagents", NO api key.
+        db.query(CloudAgentConfig).filter_by(workspace_id=ws_id, agent_name="yumi").delete()
+        db.query(WorkspaceMember).filter_by(workspace_id=ws_id, agent_name="yumi").delete()
+        db.commit()
+
+        # Legacy workspaces missing Yumi can still be reprovisioned without a key.
         resp = client.post("/v1/cloud-agents", json={
             "network": ws_id,
             "agent_name": "yumi",
@@ -448,9 +467,9 @@ class TestModelLocked:
         ws_id, token = data["workspaceId"], data["token"]
         headers = {"X-Workspace-Token": token}
 
-        resp = client.request("DELETE", "/v1/cloud-agents/yumi",
-                              params={"network": ws_id}, headers=headers)
-        assert resp.status_code == 200
+        db.query(CloudAgentConfig).filter_by(workspace_id=ws_id, agent_name="yumi").delete()
+        db.query(WorkspaceMember).filter_by(workspace_id=ws_id, agent_name="yumi").delete()
+        db.commit()
 
         resp = client.post("/v1/cloud-agents", json={
             "network": ws_id, "agent_name": "yumi", "provider": "openagents",

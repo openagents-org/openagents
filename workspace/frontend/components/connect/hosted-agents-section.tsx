@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Cloud, Loader2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { HostedAgent, HostedAgentProvider } from '@/lib/types';
@@ -24,6 +26,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const confirm = useConfirm();
   const [provider, setProvider] = useState<HostedAgentProvider | null>(null);
   const [hosted, setHosted] = useState<HostedAgent[]>([]);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [name, setName] = useState('');
   const [launching, setLaunching] = useState(false);
 
@@ -50,7 +53,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   const handleLaunch = async () => {
     const label = name.trim();
-    if (!label) return;
+    if (!label || launching) return;
     setLaunching(true);
     try {
       const launched = await workspaceApi.launchHostedAgent(label);
@@ -62,6 +65,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
       }
       toast.success(t('connect.acentaLaunched', { name: label }));
       setName('');
+      setSetupOpen(false);
       load();
       onChanged();
     } catch (err: unknown) {
@@ -91,35 +95,39 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="space-y-2">
-      <div className="px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5 space-y-2.5">
-        <div className="flex items-center gap-3">
-          <div className="size-9 shrink-0 rounded-md bg-primary/10 flex items-center justify-center">
-            <Cloud className="size-5 text-primary" />
-          </div>
+      <div className="rounded-xl border bg-background p-5">
+        <div className="flex items-start gap-4">
+          <img src="/providers/acenta.png" alt="" className="size-12 shrink-0 rounded-xl object-contain" />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold leading-tight">{t('connect.acentaTitle')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{t('connect.acentaSubtitle')}</div>
+            <h3 className="text-sm font-semibold">{t('connect.acentaTitle')}</h3>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{t('connect.acentaSubtitle')}</p>
+            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available} size="sm" className="mt-4">
+              {t('connect.acentaGetStarted')} <ArrowUpRight className="size-3.5 ml-1.5" />
+            </Button>
+            {!provider.available && <p className="mt-2 text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
           </div>
         </div>
-        {provider.available ? (
-          <div className="flex gap-2">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleLaunch(); }}
-              placeholder={t('connect.acentaNamePlaceholder')}
-              maxLength={60}
-              className="h-8 text-sm"
-            />
-            <Button onClick={handleLaunch} disabled={launching || !name.trim()} size="sm" className="shrink-0">
-              {launching && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-              {t('connect.acentaLaunch')}
-            </Button>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</div>
-        )}
       </div>
+      <Dialog open={setupOpen} onOpenChange={(open) => { if (!launching) setSetupOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('connect.acentaTitle')}</DialogTitle>
+            <DialogDescription>{t('connect.acentaSetupHint')}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <Label htmlFor="acenta-agent-name">{t('connect.agentName')}</Label>
+            <Input id="acenta-agent-name" value={name} onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLaunch(); } }}
+              placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching} className="mt-2" />
+          </DialogBody>
+          <DialogFooter>
+            <Button onClick={handleLaunch} disabled={launching || !name.trim()}>
+              {launching && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+              {t('connect.acentaContinue')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {hosted.map((agent) => {
         const online = agent.presence === 'online';
@@ -128,7 +136,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
         const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
         return (
           <div key={agent.agentName} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background">
-            <Cloud className="size-4 text-muted-foreground shrink-0" />
+            <img src="/providers/acenta.png" alt="Acenta" className="size-7 shrink-0 rounded-md object-contain" />
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium truncate">{agent.displayName}</div>
               <div className="text-xs text-muted-foreground font-mono truncate">@{agent.agentName}</div>

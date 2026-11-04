@@ -200,39 +200,6 @@ export function ConnectAgentView({
     ? `${token.slice(0, 8)}${'•'.repeat(8)}${token.slice(-4)}`
     : token;
 
-  // The built-in Yumi assistant uses the server-held key for the `openagents`
-  // provider, so it is present when a roster agent is flagged builtin/named yumi
-  // or a cloud agent named yumi exists. The dedicated card is hidden then.
-  const yumiPresent = useMemo(
-    () =>
-      agents.some((a) => a.builtin || a.agentName === 'yumi') ||
-      cloudAgents.some((a) => a.agentName === 'yumi'),
-    [agents, cloudAgents],
-  );
-
-  const handleAddBuiltinYumi = async () => {
-    setSaving(true);
-    try {
-      await workspaceApi.addCloudAgent({
-        agentName: 'yumi',
-        provider: 'openagents',
-        // Ignored by the backend: the built-in's model is fixed by server
-        // config, and POST /cloud-agents overrides whatever is sent for
-        // provider "openagents".
-        model: '',
-        apiKey: '',
-      });
-      toast.success(t('connect.yumiAdded'));
-      capture('cloud_agent_created', { provider: 'openagents', agent: 'yumi', builtin: true });
-      refreshWorkspace();
-      loadCloudAgents();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('connect.cloudAgentAddFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleAddCloudAgent = async () => {
     // The `openagents` provider injects the server-held key, so it is exempt
     // from the API-key requirement the generic provider forms enforce.
@@ -460,8 +427,6 @@ export function ConnectAgentView({
             saving={saving}
             onAdd={handleAddCloudAgent}
             onRemove={handleRemoveCloudAgent}
-            showBuiltinCard={!yumiPresent}
-            onAddBuiltin={handleAddBuiltinYumi}
             onHostedChanged={refreshWorkspace}
           />
         )}
@@ -1920,8 +1885,6 @@ function CloudAgentsTab({
   saving,
   onAdd,
   onRemove,
-  showBuiltinCard,
-  onAddBuiltin,
   onHostedChanged,
 }: {
   providers: CloudAgentProvider[];
@@ -1946,8 +1909,6 @@ function CloudAgentsTab({
   saving: boolean;
   onAdd: () => void;
   onRemove: (name: string) => void;
-  showBuiltinCard: boolean;
-  onAddBuiltin: () => void;
   onHostedChanged: () => void;
 }) {
   const t = useT();
@@ -1961,13 +1922,8 @@ function CloudAgentsTab({
     if (first) setCfgName(first.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
   }, [isTokenPay, tokenPay.models, setCfgModel, setCfgName]);
 
-  const providerGroups = [
-    { label: t('connect.groupChat'), names: ['openai', 'anthropic', 'google', 'xai', 'deepseek', 'mistral', 'sensenova'] },
-    { label: t('connect.groupSearch'), names: ['perplexity', 'manus'] },
-    { label: t('connect.groupFast'), names: ['groq', 'together', 'fireworks', 'openrouter', 'tokenpay', 'sambanova', 'cerebras'] },
-    { label: t('connect.groupMedia'), names: ['stability', 'replicate', 'fal', 'elevenlabs'] },
-    { label: t('connect.groupCustom'), names: ['custom'] },
-  ];
+  const marketplaceProviders = providers.filter((p) => ['perplexity', 'manus', 'tokenpay'].includes(p.name));
+  const connectedAgents = cloudAgents.filter((agent) => !agent.managed && agent.provider !== 'openagents');
 
   // When a provider is selected, show config view instead of grid
   if (selectedProviderInfo) {
@@ -2181,75 +2137,35 @@ function CloudAgentsTab({
   // Grid view — no provider selected
   return (
     <div className="p-4 space-y-3">
-      {/* Built-in Yumi — re-add the OpenAgents onboarding assistant (no API key) */}
-      {showBuiltinCard && (
-        <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5">
-          <img
-            src="/yumi-avatar.png"
-            alt="Yumi"
-            className="size-9 shrink-0 rounded-md object-cover"
-            draggable={false}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold leading-tight">{t('connect.yumiTitle')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{t('connect.yumiSubtitle')}</div>
-          </div>
-          <Button
-            onClick={onAddBuiltin}
-            disabled={saving}
-            size="sm"
-            className="shrink-0"
-          >
-            {saving && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-            {t('connect.yumiAdd')}
-          </Button>
-        </div>
-      )}
-
+      <div className="mb-5">
+        <h2 className="text-lg font-semibold">{t('connect.cloudMarketplaceTitle')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('connect.cloudMarketplaceHint')}</p>
+      </div>
       <HostedAgentsSection onChanged={onHostedChanged} />
-
-      {providerGroups.map((group) => {
-        const groupProviders = group.names
-          .map((n) => providers.find((p) => p.name === n))
-          .filter(Boolean) as typeof providers;
-        if (groupProviders.length === 0) return null;
-        return (
-          <div key={group.label}>
-            <div className="flex items-center gap-2 mb-1.5 px-0.5">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{group.label}</span>
-              <div className="flex-1 border-t" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {marketplaceProviders.map((p) => (
+          <button key={p.name} onClick={() => onSelectProvider(p.name)}
+            className="group flex items-start gap-3 rounded-xl border bg-background p-4 text-left hover:bg-accent/50 hover:border-foreground/20 transition-colors">
+            <div className="size-10 shrink-0 flex items-center justify-center rounded-lg bg-muted/50">
+              <ProviderIcon name={p.name} size={28} />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {groupProviders.map((p) => {
-                return (
-                  <button
-                    key={p.name}
-                    onClick={() => onSelectProvider(p.name)}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 text-left transition-all"
-                  >
-                    <div className="size-6 shrink-0 flex items-center justify-center">
-                      <ProviderIcon name={p.name} size={22} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium leading-tight truncate">{p.label}</div>
-                      <div className="text-xs text-muted-foreground">{p.name === 'tokenpay' ? t('connect.tokenpayModelsHint') : t('connect.providerModelCount', { count: p.models.length })}</div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{p.label}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(p.name === 'perplexity' ? 'connect.perplexityDescription' : p.name === 'manus' ? 'connect.manusDescription' : 'connect.tokenDanceDescription')}</p>
             </div>
-          </div>
-        );
-      })}
+            <ChevronRight className="size-4 shrink-0 mt-1 text-muted-foreground" />
+          </button>
+        ))}
+      </div>
 
       {/* Connected cloud agents */}
-      {cloudAgents.length > 0 && (
+      {connectedAgents.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('connect.connected')}</span>
             <div className="flex-1 border-t" />
           </div>
-          {cloudAgents.map((agent) => (
+          {connectedAgents.map((agent) => (
             <div
               key={agent.agentName}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background"
