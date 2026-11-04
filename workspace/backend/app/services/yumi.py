@@ -195,11 +195,11 @@ def provision_yumi(db, workspace) -> bool:
 
 
 # Plain-text fallbacks for clients without the structured location choices.
-WELCOME_SUGGESTIONS = ["On my computer", "On a remote machine"]
+WELCOME_SUGGESTIONS = ["On a remote machine", "On my computer"]
 
 WELCOME_GREETING = (
-    "Hi, I'm **Yumi**, your built-in assistant. I can help you connect a "
-    "coding agent like Claude Code or Codex to this workspace.\n\n"
+    "Hi, I'm **Yumi**, your built-in assistant. First, let's connect your agent "
+    "to this workspace.\n\n"
     "Where will your agent run?"
 )
 

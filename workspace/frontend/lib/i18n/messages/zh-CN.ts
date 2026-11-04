@@ -463,7 +463,7 @@ export const messages: Messages = {
     collapsedHint: 'Yumi 能做什么？查看指南',
   },
   yumiOnboarding: {
-    greeting: '你好，我是 Yumi，你的内置助手。我可以帮你将 Claude Code、Codex 等编程智能体连接到这个工作区。',
+    greeting: '你好，我是 Yumi，你的内置助手。首先，让我们将你的智能体连接到这个工作区。',
     question: '你想在哪台机器上运行智能体？',
     computer: '在我的电脑上',
     computerHint: '桌面应用 · macOS 或 Windows',
