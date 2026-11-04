@@ -462,6 +462,14 @@ export const messages: Messages = {
     minimize: '收起',
     collapsedHint: 'Yumi 能做什么？查看指南',
   },
+  yumiOnboarding: {
+    greeting: '你好，我是 Yumi，你的内置助手。我可以帮你将 Claude Code、Codex 等编程智能体连接到这个工作区。',
+    question: '你想在哪台机器上运行智能体？',
+    computer: '在我的电脑上',
+    computerHint: '桌面应用 · macOS 或 Windows',
+    remote: '在远程机器上',
+    remoteHint: '命令行 · 服务器与 SSH',
+  },
   yumiDmIntro: {
     greeting: '你好，我是你的答疑小助手！连接设备、添加智能体遇到问题，可以问我。我也能帮你管理智能体，解答关于工作区的任何问题。',
     stepsTitle: '连接你的第一个本地智能体：',

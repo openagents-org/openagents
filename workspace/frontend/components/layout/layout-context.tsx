@@ -116,6 +116,7 @@ export const RAIL_WIDTH_EXPANDED = 180;
 
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
+export type ConnectSetupRequest = { method: 'desktop' | 'terminal' };
 
 interface LayoutState {
   selectedArtifact: ArtifactReference | null;
@@ -130,6 +131,8 @@ interface LayoutState {
   setViewMode: (mode: ViewMode) => void;
   /** Switch view and open/collapse the list panel to match it */
   openView: (mode: ViewMode) => void;
+  openConnectSetup: (method: ConnectSetupRequest['method']) => void;
+  connectSetupRequest: ConnectSetupRequest | null;
   /** Open Connect Agents straight on the add-agent gallery of a device. */
   openAddAgent: () => void;
   /** Set by `openAddAgent` until the connect view acts on it. */
@@ -298,6 +301,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     setMobilePane(mode === 'files' ? 'detail' : 'list');
   };
 
+  const [connectSetupRequest, setConnectSetupRequest] = useState<ConnectSetupRequest | null>(null);
+  const openConnectSetup = (method: ConnectSetupRequest['method']) => {
+    // A fresh request also handles choosing the same location after changing modes manually.
+    setConnectSetupRequest({ method });
+    openView('connect');
+  };
+
   const [addAgentPending, setAddAgentPending] = useState(false);
   const openAddAgent = () => {
     setAddAgentPending(true);
@@ -347,6 +357,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       pendingTaskChannel,
       setPendingTaskChannel,
       openView,
+      openConnectSetup,
+      connectSetupRequest,
       openAddAgent,
       addAgentPending,
       consumeAddAgent,

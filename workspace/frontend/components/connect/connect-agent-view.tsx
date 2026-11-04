@@ -80,7 +80,7 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView } = useLayout();
+  const { openView, connectSetupRequest } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
@@ -88,6 +88,13 @@ export function ConnectAgentView({
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
+  const appliedSetupRequest = useRef(connectSetupRequest);
+  useEffect(() => {
+    if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
+      appliedSetupRequest.current = connectSetupRequest;
+      setSelectedTab('node');
+    }
+  }, [connectSetupRequest]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -394,7 +401,7 @@ export function ConnectAgentView({
           <>
             <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
               {pairing ? (
-                <OnboardingPairingPanel pairing={pairing} onDismiss={close} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} />
+                <OnboardingPairingPanel pairing={pairing} onDismiss={close} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} methodRequest={connectSetupRequest} />
               ) : pairingError ? (
                 <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
                   <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
@@ -2413,7 +2420,15 @@ function OnboardingSteps({ current, thisComputer = false }: { current: number; t
 function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; onDismiss?: () => void }) {
   const host = desktopHost();
   const { workspace } = useWorkspace();
-  const [otherDevice, setOtherDevice] = useState(false);
+  const { connectSetupRequest } = useLayout();
+  const [otherDevice, setOtherDevice] = useState(connectSetupRequest?.method === 'terminal');
+  const appliedLocationRequest = useRef(connectSetupRequest);
+  useEffect(() => {
+    if (connectSetupRequest && connectSetupRequest !== appliedLocationRequest.current) {
+      appliedLocationRequest.current = connectSetupRequest;
+      setOtherDevice(connectSetupRequest.method === 'terminal');
+    }
+  }, [connectSetupRequest]);
   const [connectedNodeId, setConnectedNodeId] = useState<string | null>(null);
   // Older preload versions can briefly coexist with an updated bundle in dev.
   if (!host?.getComputerStatus || !workspace) return <RemoteNodeOnboardingStep footer={footer} onBack={onDismiss} />;

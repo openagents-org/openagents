@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -25,15 +25,23 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
 }
 
 /** Guided setup: one installation path at a time, followed by a clear next step. */
-export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false }: {
+export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false, methodRequest }: {
   pairing: PairingCode;
   onDismiss?: () => void;
   onRegenerate?: () => void;
   regenerating?: boolean;
+  methodRequest?: { method: 'desktop' | 'terminal' } | null;
 }) {
   const t = useT();
   const isMobile = useIsMobile();
-  const [method, setMethod] = useState<'desktop' | 'terminal'>('terminal');
+  const [method, setMethod] = useState<'desktop' | 'terminal'>(methodRequest?.method ?? 'terminal');
+  const appliedMethodRequest = useRef(methodRequest);
+  useEffect(() => {
+    if (methodRequest && methodRequest !== appliedMethodRequest.current) {
+      appliedMethodRequest.current = methodRequest;
+      setMethod(methodRequest.method);
+    }
+  }, [methodRequest]);
   const [os, setOs] = useState<'unix' | 'windows'>(() =>
     typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix');
   const [now, setNow] = useState(Date.now);
