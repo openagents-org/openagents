@@ -102,14 +102,12 @@ function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; s
   }
 
   return (
-    <div className="flex shrink-0 -space-x-1.5">
+    <div className="flex shrink-0 -space-x-1">
       {shown.map((agent) => (
-        <div key={agent.agentName} className="rounded-full ring-2 ring-background">
-          <AgentAvatar name={agent.agentName} size={18} />
-        </div>
+        <AgentAvatar key={agent.agentName} name={agent.agentName} size={18} stacked />
       ))}
       {extra > 0 && (
-        <div className="flex size-4.5 items-center justify-center rounded-full bg-muted text-[7px] font-medium text-muted-foreground ring-2 ring-background">
+        <div className="flex size-4.5 items-center justify-center rounded-md bg-muted text-[7px] font-medium text-muted-foreground ring-2 ring-background">
           +{extra}
         </div>
       )}

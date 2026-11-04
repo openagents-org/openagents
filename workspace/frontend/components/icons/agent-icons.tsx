@@ -12,6 +12,26 @@ interface IconProps {
 
 const ICON_BASE = typeof window !== 'undefined' && (window as unknown as { api?: unknown }).api ? 'icons' : '/icons/agents';
 
+/** Every icon in public/icons/agents — agent types and model providers. */
+export const ICON_NAMES: ReadonlySet<string> = new Set([
+  'aider', 'amp', 'anthropic', 'antigravity', 'cerebras', 'claude', 'cline', 'codearts', 'codebuddy',
+  'codex', 'commandcode', 'copilot', 'cursor', 'custom', 'deepseek', 'default', 'elevenlabs', 'fal',
+  'fireworks', 'gemini', 'google', 'goose', 'groq', 'hermes', 'kimi', 'kiro', 'manus', 'mimo-code',
+  'mini-swe-agent', 'mistral', 'nanoclaw', 'openai', 'openclaw', 'opencode', 'openrouter', 'openworker',
+  'perplexity', 'pi', 'qoder', 'qoder-cn', 'qwen-code', 'replicate', 'sambanova', 'sensenova',
+  'stability', 'together', 'xai', 'yaml-agent',
+]);
+
+/** The corner rounding of an icon `size` px across. */
+export function iconRadius(size: number): string {
+  return size >= 48 ? 'rounded-xl' : size >= 32 ? 'rounded-lg' : 'rounded-md';
+}
+
+/** Whether `name` has its own icon file. */
+export function hasIcon(name: string): boolean {
+  return ICON_NAMES.has(name);
+}
+
 /**
  * Icons whose official form is a bare full-colour mark rather than an app tile
  * (Qwen's blue mark, Gemini's spark, most model providers). They are drawn as
@@ -49,7 +69,7 @@ function IconWrapper({ name, size = 20, chip = false, className }: { name: strin
         'inline-flex shrink-0 items-center justify-center',
         (!bare || chip) && 'overflow-hidden ring-1 ring-black/10 dark:ring-white/10',
         bare && chip && 'bg-background',
-        size >= 48 ? 'rounded-xl' : size >= 32 ? 'rounded-lg' : 'rounded-md',
+        iconRadius(size),
         className,
       )}
       style={{ width: size, height: size }}
