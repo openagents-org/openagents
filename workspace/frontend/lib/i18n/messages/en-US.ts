@@ -470,7 +470,7 @@ export const messages = {
     collapsedHint: 'What can Yumi do? View the guide',
   },
   yumiOnboarding: {
-    greeting: 'Hi, I’m Yumi, your built-in assistant. I can help you connect a coding agent like Claude Code or Codex to this workspace.',
+    greeting: 'Hi, I’m Yumi, your built-in assistant. First, let’s connect your agent to this workspace.',
     question: 'Where will your agent run?',
     computer: 'On my computer',
     computerHint: 'Desktop app · macOS or Windows',

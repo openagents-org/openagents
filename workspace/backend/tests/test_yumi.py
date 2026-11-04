@@ -816,4 +816,4 @@ def test_seeded_welcome_asks_where_the_agent_will_run(db, yumi_enabled):
     )).scalar_one()
     assert "Where will your agent run?" in greeting.payload["content"]
     assert greeting.metadata_["onboarding"] == "agent_location"
-    assert greeting.metadata_["suggestions"] == ["On my computer", "On a remote machine"]
+    assert greeting.metadata_["suggestions"] == ["On a remote machine", "On my computer"]
