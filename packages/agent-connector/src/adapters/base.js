@@ -192,6 +192,8 @@ class BaseAdapter {
     // Set when the user explicitly stops this adapter (vs an error/revoke), so a
     // clean stop is never mislabeled as an error.
     this._stopRequested = false;
+    this._activeRequests = new Set();
+    this._auxiliaryProcesses = new Set();
     // Acts for this one agent: X-Agent-Name on every request (permission model v1.1).
     this.client = new WorkspaceClient(this.endpoint, { agentName: this.agentName });
     this._lastEventId = null;
@@ -328,6 +330,7 @@ class BaseAdapter {
    * file once, not on every tick. Never throws — status is best-effort.
    */
   _reportStatus(reason, message) {
+    if (this._stopRequested) return;
     const key = `${reason || ''}|${message || ''}`;
     if (key === this._lastReportedStatusKey) return;
     this._lastReportedStatusKey = key;
@@ -418,49 +421,55 @@ class BaseAdapter {
   }
 
   async run() {
+    if (this._stopRequested) return;
     this._running = true;
-
-    // Announce agent to workspace
-    await this._joinWorkspace();
-
-    // Sync workspace-managed skills into disabledModules
+    let heartbeatInterval, responseInterval, controlPoller;
     try {
-      const agents = await Promise.race([
-        this.client.getAgents(this.workspaceId, this.token),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('skill sync timed out (10s)')), 10000)),
-      ]);
-      const self = agents.find((a) => a.agentName === this.agentName);
-      if (self && self.enabledSkills) {
-        const { skillsToDisabledModules } = require('../skill-catalog');
-        this.disabledModules = skillsToDisabledModules(self.enabledSkills);
-        this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
-      }
-      if (self && self.model) {
-        this.workspaceModel = self.model;
-        this._log(`Synced model from workspace: ${this.workspaceModel}`);
-      }
-    } catch (e) {
-      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`, 'warn');
-    }
+      // Announce agent to workspace
+      await this._joinWorkspace();
+      if (this._stopRequested) return;
 
-    // Fast-path operations (control-event cursor + heartbeat + control poll)
-    // run BEFORE the message-cursor advance. Even though _skipExistingEvents
-    // is fast on a healthy backend, we don't want slash commands gated on
-    // its success — keeping these paths independent makes /restart and
-    // /status responsive immediately after join.
-    await this._skipExistingControlEvents();
-    const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
-    const responseInterval = setInterval(() => this._flushResponses(), 10000);
-    void this._flushResponses();
-    const controlPoller = this._controlPollerLoop();
+      // Sync workspace-managed skills into disabledModules
+      try {
+        const agents = await Promise.race([
+          this.client.getAgents(this.workspaceId, this.token),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('skill sync timed out (10s)')), 10000)),
+        ]);
+        const self = agents.find((a) => a.agentName === this.agentName);
+        if (self && self.enabledSkills) {
+          const { skillsToDisabledModules } = require('../skill-catalog');
+          this.disabledModules = skillsToDisabledModules(self.enabledSkills);
+          this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
+        }
+        if (self && self.model) {
+          this.workspaceModel = self.model;
+          this._log(`Synced model from workspace: ${this.workspaceModel}`);
+        }
+      } catch (e) {
+        this._log(`Warning: skill sync failed (non-fatal): ${e.message}`, 'warn');
+      }
 
-    try {
+      // Fast-path operations (control-event cursor + heartbeat + control poll)
+      // run BEFORE the message-cursor advance. Even though _skipExistingEvents
+      // is fast on a healthy backend, we don't want slash commands gated on
+      // its success — keeping these paths independent makes /restart and
+      // /status responsive immediately after join.
+      if (this._stopRequested) return;
+      await this._skipExistingControlEvents();
+      if (this._stopRequested) return;
+      heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+      responseInterval = setInterval(() => this._flushResponses(), 10000);
+      void this._flushResponses();
+      controlPoller = this._controlPollerLoop();
+
       // Send initial heartbeat
       try { await this._heartbeat(); } catch (e) {
         this._log(`Heartbeat failed (non-fatal): ${e.message}`, 'warn');
       }
+      if (this._stopRequested) return;
       // Slow path: only the message-poll loop waits for this.
       await this._skipExistingEvents();
+      if (this._stopRequested) return;
       this._log('Starting poll loop...');
       await this._pollLoop();
     } finally {
@@ -470,6 +479,7 @@ class BaseAdapter {
       clearInterval(responseInterval);
       if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
+      if (this._stopPromise) await this._stopPromise;
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
       } catch {}
@@ -477,8 +487,89 @@ class BaseAdapter {
   }
 
   stop() {
+    if (this._stopRequested) return this._stopPromise;
+    // Terminal for this instance. Unlike channel Stop, no later turn may
+    // enter it, including a worker already suspended outside the poll loop.
     this._stopRequested = true;
     this._running = false;
+    const channels = this._channelsWithWork();
+    const children = [...Object.values(this._channelProcesses || {}), ...this._auxiliaryProcesses];
+    this._markStopRequested(null);
+    for (const channel of channels) {
+      this._mutedChannels.add(channel);
+      this._stoppingChannels.add(channel);
+    }
+    this._wakeControlPoller();
+    if (this._presenceHeartbeatTimer) {
+      clearTimeout(this._presenceHeartbeatTimer);
+      this._presenceHeartbeatTimer = null;
+    }
+    // Start all cancellation hooks together. A slow channel must not delay
+    // cancelling another; failures must survive both daemon finalization paths.
+    const failures = [];
+    const cancel = async (work) => {
+      try {
+        const result = await work();
+        if (result === 'failed' || result === false) throw new Error('Termination could not be confirmed');
+      } catch (e) {
+        failures.push(this._redact(e.message || String(e)));
+      }
+    };
+    this._stopPromise = Promise.all([
+      ...channels.map(channel => cancel(() => this._stopChannelWork(channel))),
+      cancel(() => this._stopSharedWork()),
+      cancel(() => this._stopLifecycleWork()),
+      ...[...this._auxiliaryProcesses].map(proc => cancel(() => this._stopProcess(proc))),
+    ]).then(async () => {
+      // Some older kill helpers return nothing even when signalling failed.
+      // Check the owned children captured before hooks remove registrations.
+      if (children.some(proc => this._processStillAlive(proc))) failures.push('An owned child is still running');
+      const result = { ok: failures.length === 0 };
+      if (!result.ok) {
+        result.message = `Agent stop failed: ${failures.join('; ')}`;
+        this._exitInfo = { reason: REASON.STOP_FAILED, message: result.message };
+        this._log(result.message, 'error');
+      }
+      // The thread UI derives working state from its last message, not the
+      // agent's offline state. This one lifecycle notice bypasses terminal mute.
+      await Promise.all(channels.map(channel => this._announceTerminalStop(channel, result.ok)));
+      return result;
+    });
+    return this._stopPromise;
+  }
+
+  _processStillAlive(proc) {
+    if (!proc || !Number.isInteger(proc.pid) || proc.pid <= 0) return false;
+    if (proc.exitCode != null || proc.signalCode != null) return false;
+    try { process.kill(proc.pid, 0); return true; }
+    catch (e) { return e.code !== 'ESRCH'; }
+  }
+
+  async _announceTerminalStop(channel, stopped) {
+    if (!channel) return;
+    try {
+      await this.client.sendMessage(this.workspaceId, channel, this.token,
+        stopped
+          ? 'Task interrupted — daemon restarting. Send another message to continue.'
+          : 'Stopping failed — some agent work could not be confirmed stopped. Check the launcher before restarting.',
+        { senderType: 'agent', senderName: this.agentName,
+          metadata: { agent_mode: this._mode, lifecycle_stop: true }, sessionId: this._sessionId });
+    } catch (e) {
+      this._log(`Could not post the terminal interruption notice: ${this._redact(e.message)}`, 'warn');
+    }
+  }
+
+  /** Resources owned by the instance, kept alive by a channel Stop. */
+  async _stopLifecycleWork() {}
+
+  /** Auxiliary CLI probes are owned too, even outside a channel turn. */
+  _trackAuxiliaryProcess(proc) {
+    this._auxiliaryProcesses.add(proc);
+    proc.once('close', () => this._auxiliaryProcesses.delete(proc));
+    if (this._stopRequested) Promise.resolve(this._stopProcess(proc)).catch(e => {
+      this._log(`Terminal stop failed: ${this._redact(e.message)}`, 'warn');
+    });
+    return proc;
   }
 
   // ------------------------------------------------------------------
@@ -590,6 +681,7 @@ class BaseAdapter {
   }
 
   async _heartbeat() {
+    if (this._stopRequested) return;
     try {
       await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId, this.presenceFields());
       this._heartbeatFailStreak = 0;
@@ -645,6 +737,7 @@ class BaseAdapter {
   }
 
   async _pollControl() {
+    if (this._stopRequested) return;
     try {
       const events = await this._withinControlDeadline(
         this.client.pollControl(
@@ -657,6 +750,7 @@ class BaseAdapter {
       // not moved, so the next one asks for the same events again.
       if (events === CONTROL_DEADLINE_HIT) return;
       for (const ev of events) {
+        if (this._stopRequested) return;
         if (ev.id) this._lastControlId = ev.id;
         const payload = ev.payload || {};
         const action = payload.action;
@@ -745,7 +839,7 @@ class BaseAdapter {
    */
   _stopRequestedDuringTurn(channel) {
     const started = this._channelRunGeneration[channel];
-    return started !== undefined && this._stopGenerationFor(channel) !== started;
+    return this._stopRequested || (started !== undefined && this._stopGenerationFor(channel) !== started);
   }
 
   /**
@@ -764,6 +858,7 @@ class BaseAdapter {
    *   4. announce the stop last — the UI reads the latest message.
    */
   async _handleUserStop(channel) {
+    if (this._stopRequested) return;
     const channels = channel ? [channel] : this._channelsWithWork();
     // A repeat stop for a thread that has not started a new turn since its
     // last stop — the workspace client re-sends Stop after 3s while it still
@@ -801,7 +896,8 @@ class BaseAdapter {
    * runs somewhere other than `_channelProcesses` extend this.
    */
   _channelsWithWork() {
-    return [...new Set([...this._channelBusy, ...Object.keys(this._channelProcesses || {})])];
+    return [...new Set([...this._channelBusy, ...Object.keys(this._channelProcesses || {}),
+      ...[...this._activeRequests].map(req => req._oaChannel)])];
   }
 
   /**
@@ -815,13 +911,21 @@ class BaseAdapter {
    * HTTP requests) override it, and call super for their child processes.
    */
   async _stopChannelWork(channel) {
+    let aborted = false;
+    for (const req of this._activeRequests) {
+      if (req._oaChannel !== channel) continue;
+      req.destroy(new Error('LLM API request stopped'));
+      this._activeRequests.delete(req);
+      aborted = true;
+    }
     const procs = this._channelProcesses || {};
     const proc = procs[channel];
-    if (!proc) return this._channelBusy.has(channel) ? 'stopped' : 'idle';
+    if (!proc) return aborted || this._channelBusy.has(channel) ? 'stopped' : 'idle';
     this._log(`Stopping process for channel=${channel}`);
     const ended = typeof this._stopProcess === 'function'
       ? await this._stopProcess(proc)
       : undefined;
+    if (ended === false || (this._stopRequested && this._processStillAlive(proc))) return 'failed';
     delete procs[channel];
     // `_stopProcess` implementations that can tell return false for a kill
     // they could not confirm; the rest return nothing.
@@ -836,6 +940,7 @@ class BaseAdapter {
    * channel until its next turn starts.
    */
   async _finishUserStop(channel, outcome = 'stopped') {
+    if (this._stopRequested) return;
     if (!channel || this._stopNoticeSent.has(channel)) return;
     this._stopNoticeSent.add(channel);
     await this.cleanupTodos(channel);
@@ -853,6 +958,7 @@ class BaseAdapter {
    * (/stopped|stopping failed/i).
    */
   async _announceUserStop(channel, outcome) {
+    if (this._stopRequested) return;
     const content = this._stopNoticeText(outcome);
     try {
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
@@ -918,7 +1024,7 @@ class BaseAdapter {
 
   /** True while a stopped channel is waiting for its next turn. */
   _isMuted(channel) {
-    return !!channel && this._mutedChannels.has(channel);
+    return this._stopRequested || (!!channel && this._mutedChannels.has(channel));
   }
 
   /**
@@ -1119,6 +1225,7 @@ class BaseAdapter {
       `- Network: \`${this.workspaceId}\``;
 
     try {
+      if (this._stopRequested) return;
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
@@ -1156,6 +1263,7 @@ class BaseAdapter {
     } catch (e) {
       this._log(`Routines: failed to list: ${e && e.message ? e.message : e}`, 'warn');
       try {
+        if (this._stopRequested) return;
         await this.client.sendMessage(
           this.workspaceId, channel, this.token,
           `**Routines for \`${this.agentName}\`**\n\n_Failed to fetch routines._`,
@@ -1190,6 +1298,7 @@ class BaseAdapter {
     }
 
     try {
+      if (this._stopRequested) return;
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
@@ -1293,10 +1402,12 @@ class BaseAdapter {
             );
           }
         }
+        if (this._stopRequested) break;
         await this._sleep(5000);
         continue;
       }
 
+      if (this._stopRequested) break;
       // The cursor stops moving (or none comes back) only once the poll has
       // reached the end of the stream. An empty `messages` alone does not say
       // that: it is the page after events for other agents were dropped.
@@ -1384,6 +1495,7 @@ class BaseAdapter {
       } else {
         delay = Math.min(WARM_INTERVAL + (idleCount - WARM_POLLS) * 1000, 15000);
       }
+      if (this._stopRequested) break;
       await this._sleep(delay);
     }
   }
@@ -1393,6 +1505,7 @@ class BaseAdapter {
   // ------------------------------------------------------------------
 
   async _dispatchMessage(msg) {
+    if (this._stopRequested) return;
     // Use sessionId only if it looks like a channel, not an agent target
     let channel = this.channelName || 'general';
     if (msg.sessionId && !msg.sessionId.startsWith('openagents:') && !msg.sessionId.startsWith('agent:')) {
@@ -1444,6 +1557,7 @@ class BaseAdapter {
   }
 
   async _channelWorker(channel, msg) {
+    if (this._stopRequested) return;
     this._channelBusy.add(channel);
     this._schedulePresenceHeartbeat();
     // Messages an adapter queues for itself (Claude's todo nudge) carry no
@@ -1456,7 +1570,7 @@ class BaseAdapter {
 
     let next = msg;
     let first = true;
-    while (next) {
+    while (next && !this._stopRequested) {
       const current = next;
       const generation = generationOf(current);
       try {
@@ -1478,7 +1592,7 @@ class BaseAdapter {
         if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
-        if (generation !== this._stopGenerationFor(channel)) {
+        if (this._stopRequested || generation !== this._stopGenerationFor(channel)) {
           dropped++;
         } else {
           this._channelRunGeneration[channel] = generation;
@@ -1501,6 +1615,7 @@ class BaseAdapter {
       const queue = this._channelQueues[channel];
       next = queue && queue.length ? queue.shift() : null;
     }
+    if (this._stopRequested) delete this._channelQueues[channel];
     if (dropped) this._log(`Stop in ${channel} — dropped ${dropped} message(s) accepted before it`);
     this._channelBusy.delete(channel);
     delete this._requesterEmail[channel];
@@ -1790,6 +1905,7 @@ class BaseAdapter {
     if (!title) return;
     try {
       const info = await this.client.getSession(this.workspaceId, channel, this.token);
+      if (this._stopRequested) return;
       if (!info.titleManuallySet && SESSION_DEFAULT_RE.test(info.title || '')) {
         await this.client.updateSession(
           this.workspaceId, channel, this.token,
@@ -1869,10 +1985,12 @@ class BaseAdapter {
       log: (message, level) => this._log(message, level),
       onRevoked: () => this._onSessionRevoked(),
       prepare: async (entry) => {
+        if (this._stopRequested) throw new Error('Agent stopped');
         // Old/custom servers may not support idempotency. Never blindly retry
         // an ambiguous send against one of those servers.
         const safeRetry = this.client.supportsMessageDelivery
           ? await this.client.supportsMessageDelivery() : false;
+        if (this._stopRequested) throw new Error('Agent stopped');
         let published = { content: entry.content, attachments: [] };
         if (!(this.disabledModules || new Set()).has('files') && entry.channel && !entry.channel.startsWith('dm:') && this.client.uploadFile) {
           published = await publishResponseArtifacts({
@@ -1898,11 +2016,13 @@ class BaseAdapter {
   }
 
   async _flushResponses() {
+    if (this._stopRequested) return;
     try { await this._replyOutbox().flush(); }
     catch { this._log('Could not drain the response outbox; saved replies retained.', 'error'); }
   }
 
   async cleanupTodos(channel) {
+    if (this._stopRequested) return;
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
         all: false, source: `openagents:${this.agentName}`,
@@ -1915,6 +2035,7 @@ class BaseAdapter {
         status: (t.status === 'pending' || t.status === 'in_progress') ? 'cancelled' : t.status,
         assignee: t.assignee,
       }));
+      if (this._stopRequested) return;
       await this.client.putTodos(this.workspaceId, channel, this.token, updated, {
         source: `openagents:${this.agentName}`,
       });
@@ -1946,6 +2067,7 @@ class BaseAdapter {
       });
     } catch (e) {
       if (e instanceof SessionRevokedError) { this._onSessionRevoked(); return; }
+      if (this._isMuted(channel)) return;
       // Fallback to event-based approach for older backends
       const lines = todos.map((t) => {
         const icon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '🔄' : '⬜';

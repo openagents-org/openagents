@@ -170,7 +170,7 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
    * other providers, so "Model not found" — would take it.
    */
   async _ensureFallbackModel(channel = '') {
-    if (this._fallbackModel) return;
+    if (this._stopRequestedDuringTurn(channel) || this._fallbackModel) return;
     const route = this._route();
     if (route.providerId !== 'xiaomi' || route.model) return;
     const binary = this._opencodeBinary || this._findOpencodeBinary();
@@ -220,15 +220,22 @@ class MiMoCodeAdapter extends OpenCodeAdapter {
     return true;
   }
 
-  async _stopChannelWork(channel) {
-    const looking = this._killModelLookup(channel);
-    const outcome = await super._stopChannelWork(channel);
-    return looking && outcome === 'idle' ? 'stopped' : outcome;
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...this._modelLookups.keys()])];
   }
 
-  stop() {
-    for (const channel of [...this._modelLookups.keys()]) this._killModelLookup(channel);
-    super.stop();
+  async _stopChannelWork(channel) {
+    const lookup = this._modelLookups.get(channel);
+    let looking;
+    if (this._stopRequested && lookup) {
+      if (await this._stopProcess(lookup) === false) return 'failed';
+      this._modelLookups.delete(channel);
+      looking = true;
+    } else {
+      looking = this._killModelLookup(channel);
+    }
+    const outcome = await super._stopChannelWork(channel);
+    return looking && outcome === 'idle' ? 'stopped' : outcome;
   }
 
   /** `provider/model`, or '' when none is given for a sign-in or a non-MiMo endpoint. */

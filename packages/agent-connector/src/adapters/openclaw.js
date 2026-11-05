@@ -421,6 +421,7 @@ class OpenClawAdapter extends BaseAdapter {
 
   /** `openclaw doctor --fix --non-interactive`, resolved to {ok, detail}. */
   _runDoctorRepair() {
+    if (this._stopRequested) return Promise.resolve({ ok: false, detail: 'Agent stopped' });
     return new Promise((resolve) => {
       const binary = this._openclawBinary || this._findOpenclawBinary();
       if (!binary) { resolve({ ok: false, detail: 'OpenClaw binary not found' }); return; }
@@ -434,12 +435,14 @@ class OpenClawAdapter extends BaseAdapter {
           env: this._spawnEnv(),
           cwd: this.workingDir || process.env.HOME || '/',
           timeout: DOCTOR_REPAIR_TIMEOUT_MS,
+          detached: !IS_WINDOWS,
           windowsHide: true,
         });
       } catch (err) {
         resolve({ ok: false, detail: err.message });
         return;
       }
+      this._trackAuxiliaryProcess(proc);
       proc.stdout.on('data', keepTail);
       proc.stderr.on('data', keepTail);
       proc.on('error', (err) => resolve({ ok: false, detail: err.message }));

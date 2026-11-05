@@ -691,17 +691,6 @@ class OpenCodeAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * Override BaseAdapter.stop so daemon shutdown also tears down in-flight
-   * opencode subprocesses cleanly.
-   */
-  stop() {
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.'
-    ).catch(() => {});
-    super.stop();
-  }
-
   async _stopProcess(proc) {
     if (!proc || proc.exitCode !== null) return;
     try {

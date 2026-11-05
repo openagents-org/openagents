@@ -490,6 +490,7 @@ class DeepSeekAdapter extends BaseAdapter {
    * cancelled while waiting. Rethrows a genuine bootstrap failure.
    */
   async _awaitBootstrap(channel) {
+    if (this._stoppedBeforeStart(channel)) return false;
     const shared = this._ensureBootstrap();
     // This waiter may lose the race; without a handler its rejection would
     // surface as an unhandled promise rejection.
@@ -682,7 +683,7 @@ class DeepSeekAdapter extends BaseAdapter {
   async _stopSharedWork() {
     const proc = this._channelProcesses[BOOTSTRAP_KEY];
     if (!proc) return;
-    await this._stopProcess(proc);
+    if (await this._stopProcess(proc) === false) return 'failed';
     delete this._channelProcesses[BOOTSTRAP_KEY];
   }
 
