@@ -1190,16 +1190,17 @@ async function cmdModels(connector, flags, positional) {
   // looked up as an agent: the first agent of a type is often named after it.
   let type = target;
   let agentEnv;
+  let agentName;
   if (flags && flags['sign-in']) {
     agentEnv = { [AUTH_MODE_KEY]: CLI_LOGIN };
   } else {
     try {
       const agent = connector.config.getAgent(target);
-      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; }
+      if (agent) { type = agent.type || 'openclaw'; agentEnv = agent.env || {}; agentName = agent.name; }
     } catch {}
   }
 
-  const result = await connector.listCliModels(type, { agentEnv });
+  const result = await connector.listCliModels(type, { agentEnv, agentName });
 
   if (flags && flags.json) {
     // Machine consumers (the daemon's model sweep) read ONLY stdout JSON —

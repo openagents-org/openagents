@@ -136,6 +136,28 @@ describe("readiness for an agent set up on the sign-in tab", () => {
   const signedIn = { OPENAGENTS_AUTH_MODE: "cli_login" }
   const typeReady = { installed: true, ready: true, auth_mode: "api_key", execution_mode: "direct" }
 
+  it("labels a signed-in Hermes by its own auth mode despite an old type key", () => {
+    const h = resolver({ LLM_API_KEY: "old-type-key" }, { loginIsAuthed: () => true })
+      .reconcileAgentHealth("hermes", signedIn, typeReady) as Record<string, unknown>
+    expect(h.ready).toBe(true)
+    expect(h.auth_mode).toBe("cli_login")
+    expect(h.execution_mode).toBe("subprocess")
+  })
+
+  it("does not make a signed-out Hermes ready on a type key it never receives", () => {
+    const h = resolver({ LLM_API_KEY: "old-type-key" }, { loginIsAuthed: () => false })
+      .reconcileAgentHealth("hermes", signedIn, typeReady) as Record<string, unknown>
+    expect(h.ready).toBe(false)
+    expect(h.reason).toBe("login_required")
+    expect(h.auth_mode).toBeNull()
+  })
+
+  it("still labels a Hermes explicitly using the type key as API key", () => {
+    const h = resolver({ LLM_API_KEY: "old-type-key" }, { loginIsAuthed: () => true })
+      .reconcileAgentHealth("hermes", {}, typeReady) as Record<string, unknown>
+    expect(h.auth_mode).toBe("api_key")
+  })
+
   it("reads CLI login, not the key saved for its type", () => {
     // The core drops that key for this agent, so the label must not claim it.
     const h = resolver({ OPENAI_API_KEY: "sk-old" }, { loginIsAuthed: () => true })
