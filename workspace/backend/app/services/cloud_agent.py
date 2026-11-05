@@ -226,6 +226,8 @@ async def _invoke_chat_agent(
     api_key = cloud_config.api_key
     base_url = cloud_config.base_url
     system_prompt = cloud_config.system_prompt
+    if (event_data.get("metadata") or {}).get("client_platform") == "mobile":
+        system_prompt += "\n\n" + yumi.YUMI_MOBILE_CLIENT_NOTE
     thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
     if isinstance(thread_instructions, str) and thread_instructions.strip():
         system_prompt = (system_prompt or "") + "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]

@@ -490,6 +490,23 @@ or features.
 """
 
 
+
+# Appended to the system prompt when the human is writing from the mobile app,
+# whose screens differ from the web sidebar described in YUMI_SYSTEM_PROMPT.
+YUMI_MOBILE_CLIENT_NOTE = """\
+THE HUMAN IS ON THE MOBILE APP. A phone cannot run agents itself; agents run
+on a computer paired to the workspace. When explaining how to connect, use the
+app's screens instead of the web sidebar:
+1. On the computer, install the OpenAgents desktop app from openagents.org and
+sign in with the same account — the phone notices the device by itself. (Or in
+the app: Members tab → Connect another device, and enter the pairing code shown
+there into the desktop app.)
+2. In the app: Members tab → Add an agent on a device, pick the agent type
+(e.g. Codex, Claude Code) and the model, and create it.
+3. Back on the Chats tab, tap + at the bottom right to start a session with it.
+Keep the computer awake and online."""
+
+
 async def workspace_state_summary(api: WorkspaceApi) -> str:
     """A short, live snapshot (via the API) injected into the system prompt so
     Yumi is grounded in what actually exists. Never raises — on API failure it
