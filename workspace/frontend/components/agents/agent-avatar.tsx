@@ -34,28 +34,27 @@ interface AgentAvatarProps {
   showStatus?: boolean;
   className?: string;
   square?: boolean;
-  /** A ring in the page colour, for avatars stacked over each other. */
+  /** On the page colour, ringed in it, for avatars stacked over each other. */
   stacked?: boolean;
 }
 
 /**
- * An agent's avatar: its type's icon, as the launcher draws it, so agents read
- * as Claude Code, Codex… at a glance. Agents of the same type share the icon;
- * their names tell them apart. An agent whose type has no icon gets a pattern
- * generated from its name.
+ * An agent's avatar: its type's icon, so agents read as Claude Code, Codex… at
+ * a glance. Drawn plain — no frame, and no white behind a mark — so it sits on
+ * the workspace's own background; vendor tiles in a colour keep it. Agents of
+ * the same type share the icon; their names tell them apart. An agent whose
+ * type has no icon gets a pattern generated from its name.
  */
 export function AgentAvatar({ name, type, size = 28, status, showStatus = false, className, square = false, stacked = false }: AgentAvatarProps) {
   const knownType = useAgentType(name);
   const icon = isYumi(name) ? null : avatarIconFor(type === undefined ? knownType : type);
   const shape = icon ? iconRadius(size) : square ? 'rounded-lg' : 'rounded-full';
   return (
-    // The stacking ring goes on this box rather than the icon, where it would
-    // cover the hairline that keeps a white tile apart from a white page.
-    <div className={cn('relative flex shrink-0', stacked && ['ring-2 ring-background', shape], className)} style={{ width: size, height: size }}>
+    // Stacked, the box is filled with the page colour so the icon before it
+    // does not show through a mark with no tile of its own.
+    <div className={cn('relative flex shrink-0', stacked && ['bg-background ring-2 ring-background', shape], className)} style={{ width: size, height: size }}>
       {icon ? (
-        // On a chip, so marks without a tile of their own (Codex, OpenClaw…)
-        // are the same square as the rest.
-        <AgentIcon name={icon} size={size} chip />
+        <AgentIcon name={icon} size={size} plain />
       ) : (
         <div className={cn(shape, 'overflow-hidden')} style={{ width: size, height: size }}>
           {isYumi(name) ? (
