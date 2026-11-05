@@ -287,40 +287,4 @@ describe('AgentConnector native auth for a Hermes sign-in', () => {
       undo();
     }
   });
-
-  for (const auth of [
-    { LLM_API_KEY: 'sk-own', LLM_BASE_URL: 'https://relay.example/v1' },
-    { OPENAGENTS_AUTH_MODE: 'cli_login' },
-  ]) {
-    it(`keeps a Hermes model-only edit out of native config for ${auth.OPENAGENTS_AUTH_MODE || 'a key'}`, () => {
-      const { calls, undo } = stubHermes();
-      try {
-        const connector = new AgentConnector({ configDir: tmpDir });
-        connector.addAgent({ name: 'h', type: 'hermes', env: { ...auth, LLM_MODEL: 'first-model' } });
-        const before = { configure: calls.configure.length, restore: calls.restore };
-        // Settings may submit the full instance env, even if only the model changed.
-        connector.saveAgentInstanceEnv('h', { ...auth, LLM_MODEL: 'gpt-5.6-sol' });
-        assert.equal(connector.getAgentInstanceEnv('h').LLM_MODEL, 'gpt-5.6-sol');
-        assert.equal(calls.configure.length, before.configure);
-        assert.equal(calls.restore, before.restore);
-      } finally {
-        undo();
-      }
-    });
-  }
-
-  it('does not write the per-agent model into native config while configuring its endpoint', () => {
-    const { calls, undo } = stubHermes();
-    try {
-      const connector = new AgentConnector({ configDir: tmpDir });
-      connector.addAgent({ name: 'h', type: 'hermes', env: { LLM_API_KEY: 'sk-own', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'agent-model' } });
-      assert.equal(calls.configure[0].LLM_MODEL, undefined);
-      assert.equal(connector.getAgentInstanceEnv('h').LLM_MODEL, 'agent-model');
-      connector.saveAgentInstanceEnv('h', { LLM_API_KEY: 'sk-updated', LLM_MODEL: 'updated-model' });
-      assert.equal(calls.configure.at(-1).LLM_API_KEY, 'sk-updated');
-      assert.equal(calls.configure.at(-1).LLM_MODEL, undefined);
-    } finally {
-      undo();
-    }
-  });
 });

@@ -33,6 +33,45 @@ describe("loginVerdict", () => {
     expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, "  GitHub        ✓ ghp-...test\n  Anthropic     ✗ (not set)", 0)).toBe(false)
   })
 
+  // `hermes status` since Hermes 2026-10 (upstream a3149156e): a summary only,
+  // the sections above need --full. Layout from hermes_cli/status.py.
+  const hermesSummary = (providers: string, eol = "\n"): string => [
+    "",
+    "  Model:        claude-sonnet-4-6",
+    "  Provider:     Anthropic",
+    `  Providers:    ${providers}`,
+    "  Gateway:      stopped",
+    "  Platforms:    none configured",
+    "  Jobs:         none",
+    "  Run 'hermes status --full' for every section",
+    "",
+  ].join(eol)
+
+  it("recognises a sign-in in Hermes's default summary", () => {
+    const hermes = HOSTED_LOGIN_AGENTS.hermes
+    expect(loginVerdict(hermes, hermesSummary("Anthropic, OpenAI Codex"), 0)).toBe(true)
+    expect(loginVerdict(hermes, hermesSummary("Nous Portal", "\r\n"), 0)).toBe(true)
+    expect(loginVerdict(hermes, hermesSummary("none connected"), 0)).toBe(false)
+    expect(loginVerdict(hermes, hermesSummary("none connected", "\r\n"), 0)).toBe(false)
+  })
+
+  it("does not take OpenAgents' own per-agent Hermes providers for a sign-in", () => {
+    const hermes = HOSTED_LOGIN_AGENTS.hermes
+    expect(loginVerdict(hermes, hermesSummary("openagents-hermes1"), 0)).toBe(false)
+    expect(loginVerdict(hermes, hermesSummary("openagents-a, openagents-hermes-1-1a2b3c"), 0)).toBe(false)
+    expect(loginVerdict(hermes, hermesSummary("openagents-a, Nous Portal"), 0)).toBe(true)
+    expect(loginVerdict(hermes, hermesSummary("Nous Portal, openagents-a"), 0)).toBe(true)
+  })
+
+  it("leans to ready when Hermes's summary could not list its providers", () => {
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, hermesSummary("unknown"), 0)).toBe(true)
+  })
+
+  it("matches the core's Hermes pattern in the registry", () => {
+    const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../../../../../registry/hermes.json"), "utf-8"))
+    expect(HOSTED_LOGIN_AGENTS.hermes.loggedInPattern?.source).toBe(registry.check_ready.logged_in_pattern)
+  })
+
   it("reads codex as SIGNED OUT despite its non-zero exit", () => {
     // The regression: this used to be null, and health.ts treats null
     // optimistically, so a signed-out codex looked usable.

@@ -539,12 +539,17 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loginClearsEnv: ["CURSOR_API_KEY"],
   },
   hermes: {
-    // OAuth providers print "✓ logged in". Hermes reports usable Anthropic
-    // credentials in its API Keys section as "Anthropic ✓ <redacted>", even
-    // when every OAuth-provider row is signed out. Tool keys must not count.
+    // Hermes since 2026-10 prints a one-screen summary by default, whose
+    // "Providers:" row lists the providers it has credentials for ("none
+    // connected" when there are none). OpenAgents' own per-agent entries
+    // (openagents-<name>, written for keyed agents) appear there too and are
+    // not a sign-in. "unknown" (Hermes could not tell) leans to ready.
+    // Older Hermes printed every section: OAuth rows read "✓ logged in", and
+    // Anthropic credentials read "Anthropic ✓ <redacted>" under API Keys,
+    // where tool keys must not count. Same pattern as registry/hermes.json.
     loginCommand: "hermes setup",
     statusArgs: ["status"],
-    loggedInPattern: /✓\s*logged in|(?:^|[\r\n])[ \t]*Anthropic[ \t]+✓(?:[ \t]|$)/i,
+    loggedInPattern: /✓\s*logged in|(?:^|[\r\n])[ \t]*Anthropic[ \t]+✓(?:[ \t]|$)|(?:^|[\r\n])[ \t]*Providers:(?:[^,\r\n]*,)*[ \t]*(?!openagents-|none connected[ \t]*(?:[\r\n]|$))[^,\s]/i,
   },
 }
 

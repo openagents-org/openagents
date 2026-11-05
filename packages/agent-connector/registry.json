@@ -603,7 +603,7 @@
       "status_args": [
         "status"
       ],
-      "logged_in_pattern": "✓\\s*logged in|(?:^|[\\r\\n])[ \\t]*Anthropic[ \\t]+✓(?:[ \\t]|$)",
+      "logged_in_pattern": "✓\\s*logged in|(?:^|[\\r\\n])[ \\t]*Anthropic[ \\t]+✓(?:[ \\t]|$)|(?:^|[\\r\\n])[ \\t]*Providers:(?:[^,\\r\\n]*,)*[ \\t]*(?!openagents-|none connected[ \\t]*(?:[\\r\\n]|$))[^,\\s]",
       "login_command": "hermes setup",
       "not_ready_message": "Hermes not configured — run: hermes setup",
       "env_vars": [

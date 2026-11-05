@@ -604,17 +604,15 @@ class HermesAdapter extends BaseAdapter {
       '--source', this.hermesSource,
       '--max-turns', String(this.maxTurns),
     );
-    // Override only this invocation; writing model.default would change every
-    // agent using the same Hermes profile. Resolve again for resumed turns.
+    const endpoint = this._endpoint();
+    if (endpoint) args.push('--provider', endpoint.provider);
+    // One model flag for keyed and signed-in agents alike: the workspace's
+    // pick, else the agent's own. Only this invocation, never model.default,
+    // which every agent on the same profile reads. Resolved again per turn.
     const model = this.modelLabel();
     if (model) args.push('--model', model);
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     if (this.yolo) args.push('--yolo');
-    const endpoint = this._endpoint();
-    if (endpoint) {
-      args.push('--provider', endpoint.provider);
-      if (endpoint.model) args.push('-m', endpoint.model);
-    }
     return args;
   }
 
@@ -639,7 +637,6 @@ class HermesAdapter extends BaseAdapter {
       provider: HermesAdapter.providerName(this.agentName),
       baseUrl,
       apiKey: String(env.LLM_API_KEY || env.OPENAI_API_KEY || '').trim(),
-      model: String(env.LLM_MODEL || '').trim(),
     };
   }
 

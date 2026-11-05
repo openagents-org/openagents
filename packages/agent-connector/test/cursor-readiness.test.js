@@ -292,6 +292,58 @@ describe('Hermes readiness — status times out after reporting credentials', ()
   it('does not accept output from an unrelated spawn failure', () => {
     assert.equal(timedOutStatus('OpenAI Codex  ✓ logged in\n', 'EACCES'), null);
   });
+
+  it('keeps the summary Providers row printed before a slow gateway check', () => {
+    assert.equal(timedOutStatus('  Provider:     Anthropic\n  Providers:    Anthropic\n'), true);
+  });
+
+  it('an incomplete summary without a provider remains unknown', () => {
+    assert.equal(timedOutStatus('  Provider:     Auto\n  Providers:    none connected\n'), null);
+  });
+});
+
+// `hermes status` since Hermes 2026-10 (upstream a3149156e) is a summary; the
+// sections the patterns above read need --full. Layout from hermes_cli/status.py.
+function hermesSummary(providers, eol = '\n') {
+  return [
+    '',
+    '  Model:        claude-sonnet-4-6',
+    '  Provider:     Anthropic',
+    `  Providers:    ${providers}`,
+    '  Gateway:      stopped',
+    '  Platforms:    none configured',
+    '  Jobs:         none',
+    "  Run 'hermes status --full' for every section",
+    '',
+  ].join(eol);
+}
+
+describe('Hermes readiness — the default summary', () => {
+  const spec = () => require('../registry.json').find((entry) => entry.name === 'hermes').check_ready;
+
+  it('a provider with credentials is a sign-in, none connected is not', () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('Anthropic, OpenAI Codex'), 0), true);
+    assert.equal(loginVerdict(spec(), hermesSummary('Nous Portal', '\r\n'), 0), true);
+    assert.equal(loginVerdict(spec(), hermesSummary('none connected'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('none connected', '\r\n'), 0), false);
+  });
+
+  it("OpenAgents' own per-agent providers are not a sign-in", () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-hermes1'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-a, openagents-hermes-1-1a2b3c'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-a, Nous Portal'), 0), true);
+  });
+
+  it('leans to ready when Hermes could not list its providers', () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('unknown'), 0), true);
+  });
+
+  it('stays fast on a very long Providers row', () => {
+    const started = Date.now();
+    const row = `${'openagents-x, '.repeat(5000)}none connected`;
+    assert.equal(loginVerdict(spec(), hermesSummary(row), 0), false);
+    assert.ok(Date.now() - started < 1000);
+  });
 });
 
 describe('loginVerdict', () => {
