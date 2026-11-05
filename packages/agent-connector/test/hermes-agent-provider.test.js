@@ -84,8 +84,16 @@ describe('a keyed Hermes agent', () => {
   it('runs on its own provider and model', () => {
     const a = makeHermes('hermes1', { LLM_BASE_URL: 'https://one.example/v1/', LLM_API_KEY: 'sk-one', LLM_MODEL: 'm-one' });
     const args = a._buildHermesCmd('hi', null);
-    assert.deepEqual(args.slice(args.indexOf('--provider')), ['--provider', 'openagents-hermes1', '-m', 'm-one']);
+    assert.deepEqual(args.slice(args.indexOf('--provider')), ['--provider', 'openagents-hermes1', '--model', 'm-one']);
     assert.ok(!args.includes('sk-one'), 'the key is never an argument');
+  });
+
+  it('passes one model, and the workspace pick wins over the saved one', () => {
+    const a = makeHermes('hermes1', { LLM_BASE_URL: 'https://one.example/v1', LLM_API_KEY: 'sk-one', LLM_MODEL: 'm-one' });
+    a.workspaceModel = 'm-two';
+    const args = a._buildHermesCmd('hi', null);
+    assert.equal(args.filter((arg) => arg === '--model' || arg === '-m').length, 1);
+    assert.equal(args[args.indexOf('--model') + 1], 'm-two');
   });
 
   it('an agent on the sign-in passes neither', () => {
@@ -93,6 +101,7 @@ describe('a keyed Hermes agent', () => {
     const args = a._buildHermesCmd('hi', null);
     assert.ok(!args.includes('--provider'));
     assert.ok(!args.includes('-m'));
+    assert.ok(!args.includes('--model'));
   });
 
   it('writes its URL and key variable, never the key, into its profile\'s config', async () => {
