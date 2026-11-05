@@ -133,11 +133,7 @@ class AgentConnector {
    */
   _configureAgentNativeAuth(agentType, agentEnv, agentName) {
     const typeEnv = typeEnvFor(agentType, this.env.load(agentType), this.registry, agentEnv);
-    const nativeEnv = { ...typeEnv, ...agentEnv };
-    // The instance model travels as chat --model, never model.default in a
-    // shared Hermes profile. Native endpoint/key setup still works as before.
-    if (agentType === 'hermes') delete nativeEnv.LLM_MODEL;
-    this._configureNativeAuth(agentType, nativeEnv, agentName);
+    this._configureNativeAuth(agentType, { ...typeEnv, ...agentEnv }, agentName);
     // A Hermes agent moved to the `hermes setup` sign-in gets back the
     // provider an earlier version's custom endpoint replaced. (A keyed Hermes
     // agent writes its own provider when it runs: HermesAdapter._endpoint.)
@@ -298,10 +294,7 @@ class AgentConnector {
     // Preserve native auth side effects for agents that need them while
     // keeping the model choice scoped to this individual agent.
     const agentType = agent.type || 'openclaw';
-    const nativeAuthChanged = agentType !== 'hermes' || Object.keys(env).some((key) =>
-      key !== 'MODEL' && !key.endsWith('_MODEL') && key !== 'OPENAGENTS_MODEL_MODE'
-      && String(agent.env?.[key] || '') !== String(saved[key] || ''));
-    if (nativeAuthChanged) this._configureAgentNativeAuth(agentType, saved, agentName);
+    this._configureAgentNativeAuth(agentType, saved, agentName);
 
     return { success: true };
   }
