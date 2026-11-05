@@ -557,6 +557,49 @@ def list_commands(
     return success_response([_format_command(c) for c in cmds])
 
 
+@_both("get", "/{node_id}/agent-name")
+def check_agent_name(
+    node_id: str,
+    name: str = Query(..., min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Whether `name` is free for a new agent on this connection.
+
+    The same rule `create_agent` enforces, asked before submitting so a form
+    can flag a clash while the name is typed. Discovery cannot answer this:
+    it hides personal agents the viewer was not granted, yet their names are
+    still taken workspace-wide. Says only *that* a name is taken, never by
+    whom — no more than a refused create would reveal.
+
+    `reason`: `on_device` (this connection already has it) or `workspace`
+    (another connection does); null when available.
+    """
+    node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
+    if not node:
+        return json_response(ResponseCode.NOT_FOUND, "Node not found")
+    workspace = db.execute(
+        select(Workspace).where(Workspace.id == node.workspace_id)
+    ).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _can_access_connection(db, workspace, node, x_workspace_token, authorization):
+        return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage its agents")
+
+    wanted = name.strip()
+    reason = None
+    if any(isinstance(a, dict) and a.get("name") == wanted for a in (node.agents or [])):
+        reason = "on_device"
+    else:
+        from app.models import WorkspaceMember
+        member = db.get(WorkspaceMember, (str(workspace.id), wanted))
+        if member is not None:
+            same = member.node_id == node.id and member.owner_email == node.owner_email
+            reason = "on_device" if same else "workspace"
+    return success_response({"name": wanted, "available": reason is None, "reason": reason})
+
+
 @_both("post", "/commands/{command_id}/result")
 def post_command_result(
     command_id: str,
