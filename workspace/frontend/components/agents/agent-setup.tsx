@@ -724,9 +724,10 @@ export function AgentSetup({
     return runtime?.cliModels?.length ? runtime.cliModels : null;
   }, [signInChosen, selected, baseUrl, editAgent, runtimeByType]);
   const pickerModels = useMemo(
-    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : modelOptions),
-    [accountModels, modelOptions],
+    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : selected === 'hermes' ? [] : modelOptions),
+    [accountModels, modelOptions, selected],
   );
+  const allowsCustomModel = selected === 'hermes' || selected === 'pi';
   // A model the list does not hold (one saved before, or one the account is
   // no longer offered) is still shown as the one picked, not as a blank.
   const unlistedModel = model.trim() && pickerModels && !pickerModels.some((m) => m.id === model.trim()) ? model.trim() : null;
@@ -1415,9 +1416,9 @@ export function AgentSetup({
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
               <Select
-                value={selected === 'pi' && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
+                value={allowsCustomModel && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
                 onValueChange={(v) => {
-                  if (selected === 'pi' && v === CUSTOM_MODEL) { setCustomModel(true); return; }
+                  if (allowsCustomModel && v === CUSTOM_MODEL) { setCustomModel(true); return; }
                   setCustomModel(false);
                   setModel(v === AUTO_MODEL ? '' : v);
                 }}
@@ -1433,10 +1434,10 @@ export function AgentSetup({
                   {unlistedModel && (
                     <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
                   )}
-                  {selected === 'pi' && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}
+                  {allowsCustomModel && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}
                 </SelectContent>
               </Select>
-              {selected === 'pi' && customModel && (
+              {allowsCustomModel && customModel && (
                 <Input
                   data-testid="agent-setup-custom-model"
                   aria-label={t('connect.byokCustomModel')}
@@ -1448,7 +1449,7 @@ export function AgentSetup({
               )}
               {accountModels && (
                 <p data-testid="agent-setup-account-models" className="text-xs text-muted-foreground">
-                  {t(selected === 'pi' ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+                  {t(allowsCustomModel ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
                 </p>
               )}
             </div>

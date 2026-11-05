@@ -16,6 +16,7 @@ import { AgentSetup, type AgentSetupApi } from './agent-setup';
 import codexEntry from '../../../backend/registry/codex.json';
 import claudeEntry from '../../../backend/registry/claude.json';
 import piEntry from '../../../backend/registry/pi.json';
+import hermesEntry from '../../../backend/registry/hermes.json';
 
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({ useT: () => t }));
@@ -42,9 +43,10 @@ const detailOf = (entry: object, models: { id: string; label: string }[]) => ({ 
 const DETAILS: Record<string, unknown> = {
   codex: detailOf(codexEntry, CATALOG_CODEX),
   pi: detailOf(piEntry, piEntry.models),
+  hermes: detailOf(hermesEntry, hermesEntry.models),
   claude: detailOf(claudeEntry, [{ id: 'claude-opus-5', label: 'Opus 5' }]),
 };
-const LABELS: Record<string, string> = { codex: codexEntry.label, claude: claudeEntry.label, pi: piEntry.label };
+const LABELS: Record<string, string> = { codex: codexEntry.label, claude: claudeEntry.label, pi: piEntry.label, hermes: hermesEntry.label };
 
 async function open({ type = 'codex', runtime, editAgent, accesses = [] }: { type?: string; runtime: Partial<NodeRuntime>; editAgent?: NodeAgent; accesses?: unknown[] }) {
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
@@ -200,4 +202,22 @@ it('can return a saved Pi custom model to the automatic model choice', async () 
   expect(host.querySelector('[data-testid="agent-setup-custom-model"]')).toBeNull();
   await act(async () => button(messages.connect.nodeSaveChanges).click());
   expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', expect.objectContaining({ model: '' }));
+});
+
+it('offers Hermes models from its active provider and submits the native model id', async () => {
+  const api = await open({ type: 'hermes', runtime: { cliModels: [{ id: 'gpt-6-astra', label: 'gpt-6-astra (openai-codex)' }] } });
+  expect(offered()).toContain('gpt-6-astra');
+  expect(offered()).not.toContain('anthropic/claude-sonnet-4.6');
+  await choose(modelSelect()!, 'gpt-6-astra');
+  await act(async () => button(messages.connect.agentAddTitle).click());
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'create_agent', expect.objectContaining({
+    type: 'hermes', model: 'gpt-6-astra', authMode: 'cli_login',
+  }));
+});
+
+it('offers Hermes automatic and custom models without substituting the Nous Portal catalog', async () => {
+  await open({ type: 'hermes', runtime: {} });
+  expect(offered()).toEqual(['__custom__']);
+  await choose(modelSelect()!, '__custom__');
+  expect(host.querySelector('[data-testid="agent-setup-custom-model"]')).not.toBeNull();
 });

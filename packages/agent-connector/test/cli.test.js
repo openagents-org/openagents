@@ -54,6 +54,19 @@ function envWithoutTokens(extra = {}) {
 }
 
 describe('CLI', () => {
+  it('models --sign-in returns structured JSON even for a CLI with no model lister', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-model-command-'));
+    try {
+      const result = runCapture({}, 'models', 'gemini', '--json', '--sign-in', '--config', dir);
+      assert.equal(result.code, 1);
+      assert.deepEqual(JSON.parse(result.stdout), {
+        type: 'gemini', ok: false, models: [], error: 'The gemini CLI cannot be asked for its models.',
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps native OpenClaw test side effects inside the temporary home', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-native-home-'));
     const hostHome = path.join(root, 'host');

@@ -10,7 +10,8 @@
 import path from "path"
 import fs from "fs"
 import os from "os"
-import { spawn } from "child_process"
+import { execFile, spawn } from "child_process"
+import { stripVTControlCharacters } from "node:util"
 import {
   DUAL_LOGIN_AGENTS,
   HOSTED_LOGIN_AGENTS,
@@ -177,9 +178,10 @@ export function loginVerdict(
   out: string,
   code: number | null,
 ): boolean | null {
-  if (spec.loggedInPattern?.test(out)) return true
-  if (spec.loggedOutPattern?.test(out)) return false
-  const definitive = !!out.trim() && code === 0
+  const text = stripVTControlCharacters(out)
+  if (spec.loggedInPattern?.test(text)) return true
+  if (spec.loggedOutPattern?.test(text)) return false
+  const definitive = !!text.trim() && code === 0
   if (!definitive) return null
   // A clean run that matched nothing means the opposite of whichever direction
   // the spec is written in.
@@ -346,7 +348,12 @@ export class LoginProbe {
         const child = this.spawnAgentCli(
           bin,
           spec.statusArgs,
-          this.deps.getSavedTypeEnv(type),
+          {
+            ...this.deps.getSavedTypeEnv(type),
+            // Hermes prints login rows before running slow terminal/plugin
+            // diagnostics. Python otherwise buffers those rows in a pipe.
+            ...(type === "hermes" ? { PYTHONUNBUFFERED: "1" } : {}),
+          },
         )
         let out = ""
         let settled = false
@@ -356,14 +363,34 @@ export class LoginProbe {
           clearTimeout(timer)
           settle(value)
         }
-        const timer = setTimeout(() => {
+        const stop = (): void => {
           try {
-            child.kill()
+            // Windows .cmd and Python launchers leave their real CLI running
+            // if only the wrapper is killed. Match the login flow's cleanup.
+            if (process.platform === "win32" && child.pid) {
+              execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {})
+            } else {
+              child.kill()
+            }
           } catch {}
+        }
+        const timer = setTimeout(() => {
           finish(null)
-        }, 8000)
-        child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
-        child.stderr?.on("data", (c: Buffer) => (out += c.toString("utf-8")))
+          stop()
+        }, type === "hermes" ? 30_000 : 8000)
+        const read = (text: string): void => {
+          if (settled) return
+          out += text
+          // Only explicit positive evidence can settle an incomplete Hermes
+          // report: signed-out rows for other providers say nothing yet.
+          if (type === "hermes" && loginVerdict(spec, out, null) === true) {
+            finish(true)
+            stop()
+          }
+        }
+        // Decode across chunk boundaries, including a split UTF-8 check mark.
+        child.stdout?.setEncoding("utf-8").on("data", read)
+        child.stderr?.setEncoding("utf-8").on("data", read)
         child.on("error", () => finish(null))
         child.on("close", (code) => finish(loginVerdict(spec, out, code)))
       } catch {
