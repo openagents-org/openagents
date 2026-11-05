@@ -176,6 +176,8 @@ export const messages = {
     allStatuses: "All statuses",
     list: "List view",
     board: "Board view",
+    split: "Split view",
+    selectIssue: "Select an issue to view alongside the list.",
     loadMore: "Load more",
     emptyTitle: "Every project starts with a conversation",
     emptyDescription: "Share a problem or an idea with your team. Decide what comes next, together.",

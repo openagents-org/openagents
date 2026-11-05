@@ -11,6 +11,7 @@ import {
   Check,
   LayoutList,
   KanbanSquare,
+  Columns2,
   MessageSquare,
   Plus,
   Search,
@@ -63,7 +64,9 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       ? null
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
+  const selectedRef = useRef(selected);
   const selectIssue = (id: string | null) => {
+    selectedRef.current = id;
     const outer = new URL(window.location.href);
     const isHashRoute = outer.hash.startsWith('#/');
     const url = isHashRoute ? new URL(outer.hash.slice(1), outer.origin) : outer;
@@ -81,7 +84,9 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   }, [pendingIssueId, setPendingIssueId]);
   useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
-  const [board, setBoard] = useState(false);
+  const [view, setView] = useState<'list' | 'board' | 'split'>('list');
+  const board = view === 'board';
+  const split = view === 'split' && !showWork;
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
@@ -102,6 +107,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       // Drop a poll in flight: it may still list the issue.
       ++requestVersion.current;
       setIssues((current) => current.filter((i) => i.id !== issue.id));
+      if (selectedRef.current === issue.id) selectIssue(null);
       reload();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -177,12 +183,14 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     return <div key={issue.id} className="relative">
     <button
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
+      aria-current={split && selected === issue.id ? true : undefined}
       onClick={() => selectIssue(issue.id)}
       className={cn(
         'group w-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
+        split && selected === issue.id && 'bg-muted ring-1 ring-inset ring-border',
         working && 'thread-wip',
         finished && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
@@ -284,7 +292,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     </div>;
   };
 
-  if (selected)
+  if (selected && !split)
     return (
       <IssueDiscussion
         key={selected}
@@ -297,7 +305,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       />
     );
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="@container/issues flex h-full min-h-0 min-w-0 flex-col bg-background">
       {/* New issue sits beside the title, as the list panels' New buttons do:
           in the header's right corner it went unnoticed on a wide screen. */}
       <DetailHeader
@@ -378,11 +386,11 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               size="icon"
               className={cn(
                 'size-6 rounded-sm [&_svg]:size-3.5',
-                !board && 'bg-background shadow-xs',
+                view === 'list' && 'bg-background shadow-xs',
               )}
               aria-label={t('issues.list')}
-              aria-pressed={!board}
-              onClick={() => setBoard(false)}
+              aria-pressed={view === 'list'}
+              onClick={() => { setView('list'); selectIssue(null); }}
             >
               <LayoutList />
             </Button>
@@ -395,14 +403,26 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               )}
               aria-label={t('issues.board')}
               aria-pressed={board}
-              onClick={() => setBoard(true)}
+              onClick={() => { setView('board'); selectIssue(null); }}
             >
               <KanbanSquare />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('size-6 rounded-sm [&_svg]:size-3.5', split && 'bg-background shadow-xs')}
+              aria-label={t('issues.split')}
+              title={t('issues.split')}
+              aria-pressed={split}
+              onClick={() => setView('split')}
+            >
+              <Columns2 />
             </Button>
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto" aria-busy={loading}>
+      <div className="flex min-h-0 flex-1">
+      <div className={cn('min-h-0 min-w-0 flex-1 overflow-auto', split && '@[800px]/issues:w-[36%] @[800px]/issues:max-w-[420px] @[800px]/issues:flex-none @[800px]/issues:border-r', split && selected && 'hidden @[800px]/issues:block')} aria-label={t('issues.list')} aria-busy={loading}>
         {error && (
           <div className="px-5 pt-5 sm:px-8">
             <ErrorNotice message={error} retry={reload} />
@@ -490,6 +510,16 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
             </Button>
           </div>
         )}
+      </div>
+      {split && <section aria-label={t('issues.discussion')} className={cn('min-h-0 min-w-0 flex-1', !selected && 'hidden @[800px]/issues:block')}>
+        {selected ? <IssueDiscussion
+          key={selected}
+          id={selected}
+          embedded
+          onBack={() => { selectIssue(null); reload(); }}
+          onChanged={reload}
+        /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">{t('issues.selectIssue')}</div>}
+      </section>}
       </div>
       </>}
       <IssueEditor
