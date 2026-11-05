@@ -224,9 +224,19 @@ class Daemon {
     try {
       // By agent name, not type: the probe runs on this agent's own env, so a
       // signed-in agent is tested on its sign-in, not the type's saved key.
-      const r = await this._runAgn(['probe', name, '--json']);
       let parsed = null;
-      try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+      let r;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        r = await this._runAgn(['probe', name, '--json']);
+        parsed = null;
+        try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+        // The child found no agent of that name while this daemon has one: it
+        // read daemon.yaml mid-save (Windows). Ask once more instead of
+        // keeping "No agent named '<name>' on this device" for an hour.
+        const unseen = parsed && parsed.code === 'unknown_type' && this.config.getAgent(name);
+        if (!unseen || attempt > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       if (!parsed || typeof parsed !== 'object') {
         // The probe process itself died before it could answer — a fault on
         // this device's OpenAgents install, not in the agent.
@@ -268,6 +278,24 @@ class Daemon {
     if (!became.size) return;
     const due = this.config.getAgents().filter((a) => became.has(a.type)
       && this._probes[a.name] && SETUP_INCOMPLETE.has(this._probes[a.name].code));
+    if (!due.length) return;
+    (async () => {
+      for (const a of due) {
+        try { await this._probeAgent(a.name); } catch {}
+      }
+      this._nodeHeartbeat();
+    })();
+  }
+
+  /**
+   * The connection test of an agent whose runtime was the wrong version ran
+   * before the repair (or at creation, while it was under way) and said
+   * "<version> is not supported"; nothing tested it again until the hourly
+   * sweep, so the device card kept that error for an agent that now worked.
+   */
+  _reprobeAfterRepair(agentType) {
+    const due = this.config.getAgents().filter((a) => (a.type || 'openclaw') === agentType
+      && this._probes[a.name] && this._probes[a.name].code === 'version_incompatible');
     if (!due.length) return;
     (async () => {
       for (const a of due) {
@@ -1984,7 +2012,10 @@ async _runNodeCommand(n, cmd) {
 
     if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
     const next = adapter.preflight();
-    if (next && next.ok !== false) this._log(`${name}: supported ${agentType} runtime installed`);
+    if (next && next.ok !== false) {
+      this._log(`${name}: supported ${agentType} runtime installed`);
+      this._reprobeAfterRepair(agentType);
+    }
     return next;
   }
 

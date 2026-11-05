@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT, networkErrorText } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -39,7 +39,15 @@ const MAX_INLINE_ATTACHMENT_CHARS = 50000;
 // then went quiet left the run hanging forever with nothing in the log.
 // Overridable per instance (_directIdleTimeoutMs / _directTotalTimeoutMs).
 const DIRECT_IDLE_TIMEOUT_MS = 120000;
+// The overall deadline is checked, not enforced, while the model is still
+// producing: a reasoning model thinking for minutes (22k streamed events in one
+// report) was cut off at 300s and everything it had sent was thrown away. Each
+// time it comes due with new text or reasoning since the last check it moves
+// on by the same step, up to the hard ceiling below; a stream that only sends
+// keep-alives, or nothing new, still ends there. What reply text there is at
+// that point is posted, marked as cut off.
 const DIRECT_TOTAL_TIMEOUT_MS = 300000;
+const DIRECT_HARD_TIMEOUT_MS = 900000;
 const TEXT_FILE_RE = /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|xml|html?|log|sql|sh|py|js|mjs|cjs|ts|tsx|jsx|java|go|rs|rb|php|c|h|cc|cpp|hpp|cs|swift|kt)$/i;
 
 // How much of a failure's own words reach the channel.
@@ -983,13 +991,23 @@ class CodexAdapter extends BaseAdapter {
       const mod = parsed.protocol === 'https:' ? https : http;
       const idleMs = this._directIdleTimeoutMs || DIRECT_IDLE_TIMEOUT_MS;
       const totalMs = this._directTotalTimeoutMs || DIRECT_TOTAL_TIMEOUT_MS;
+      const hardMs = Math.max(totalMs, this._directHardTimeoutMs || DIRECT_HARD_TIMEOUT_MS);
       const started = Date.now();
       // What arrived before things stopped, so a stalled relay can be told
       // apart from one that answered in a shape we don't read.
       const progress = { status: 0, bytes: 0, events: 0 };
+      let reply = null; // what the stream has carried so far, once it is one
       const seconds = () => Math.round((Date.now() - started) / 1000);
-      const note = () => `HTTP ${progress.status || 'no response'}, ${progress.bytes} bytes, `
-        + `${progress.events} events, ${seconds()}s`;
+      const contentChars = () => (reply ? reply.text.length + reply.reasoning.length + reply.toolArgs.length : 0);
+      // Text and reasoning counted apart: "still thinking" and "a relay
+      // sending empty events" looked the same as bytes and events alone.
+      const note = () => {
+        const content = reply && contentChars()
+          ? `, ${reply.text.length} reply chars, ${reply.reasoning.length} reasoning chars`
+          : '';
+        return `HTTP ${progress.status || 'no response'}, ${progress.bytes} bytes, `
+          + `${progress.events} events${content}, ${seconds()}s`;
+      };
 
       let settled = false;
       let deadline = null;
@@ -1024,7 +1042,7 @@ class CodexAdapter extends BaseAdapter {
           return;
         }
 
-        const reply = { text: '', reasoning: '', toolArgs: '', error: '', finishReason: '' };
+        reply = { text: '', reasoning: '', toolArgs: '', error: '', finishReason: '' };
         let streamed = false;
         let body = ''; // the raw response, kept until it turns out to be an SSE stream
         let buffer = '';
@@ -1068,14 +1086,30 @@ class CodexAdapter extends BaseAdapter {
           `The LLM API stopped responding, no data for ${Math.round(idleMs / 1000)}s (${note()})`));
         req.destroy();
       });
-      deadline = setTimeout(() => {
-        finish(new Error(
-          `The LLM API request went past ${Math.round(totalMs / 1000)}s with no usable reply (${note()})`));
+      let charsAtCheck = 0;
+      const onDeadline = () => {
+        const elapsed = Date.now() - started;
+        const chars = contentChars();
+        if (chars > charsAtCheck && elapsed < hardMs) {
+          charsAtCheck = chars;
+          deadline = setTimeout(onDeadline, Math.min(totalMs, hardMs - elapsed));
+          if (deadline.unref) deadline.unref();
+          return;
+        }
+        const partial = reply ? CodexAdapter._completionText(reply) : '';
+        if (partial) {
+          this._log(`Direct API reply cut off at ${seconds()}s (${note()})`);
+          finish(null, `${partial}\n\n_(Cut off: the model was still writing after ${seconds()}s.)_`);
+        } else {
+          const what = reply && reply.reasoning ? 'still thinking, no reply text yet' : 'no usable reply';
+          finish(new Error(`The LLM API request went past ${seconds()}s with ${what} (${note()})`));
+        }
         req.destroy();
-      }, totalMs);
+      };
+      deadline = setTimeout(onDeadline, totalMs);
       if (deadline.unref) deadline.unref();
 
-      req.on('error', (err) => finish(err));
+      req.on('error', (err) => finish(err && err.message ? err : new Error(networkErrorText(err))));
       req.write(payload);
       req.end();
     });

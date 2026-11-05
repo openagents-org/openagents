@@ -198,6 +198,28 @@ describe('Hermes: a session that is gone', () => {
     assert.deepEqual(seen.responses, ['BANANA-42']);
   });
 
+  it('is replaced when it was started on credentials no longer in config.yaml', async () => {
+    const pinned = "⚠️ This chat can't use the API key it was started with any more "
+      + '(model.api_key: removed from config.yaml since this session started), so nothing can run in it.';
+    for (const stale of [
+      ran({ exitCode: 1, text: pinned, sessionId: 'S1' }),
+      ran({ exitCode: 1, detail: pinned }),
+    ]) {
+      const { a, seen } = makeHermes({
+        session: 'S1',
+        transcript,
+        script: [stale, ran({ text: 'BANANA-42', sessionId: 'S2' })],
+      });
+
+      await say(a, 'what was the codeword?');
+
+      assert.deepEqual(seen.runs.map((r) => r.resumeId), ['S1', null]);
+      assert.match(seen.runs[1].prompt, /## Recent Workspace Messages\n- alice: remember BANANA-42\n/);
+      assert.deepEqual(savedSessions(a), { [CHANNEL]: 'S2' });
+      assert.deepEqual([seen.responses, seen.errors], [['BANANA-42'], []]);
+    }
+  });
+
   it('is forgotten even when the new session cannot start either', async () => {
     const { a, seen } = makeHermes({
       session: 'S1',

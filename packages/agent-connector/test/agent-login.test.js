@@ -68,6 +68,7 @@ describe('agn login', () => {
           HOME: home,
           USERPROFILE: home,
           OPENAGENTS_SKIP_UPDATE_CHECK: '1',
+          OPENAGENTS_SKIP_SHELL_PATH: '1',
           ...env,
         },
       });
@@ -120,12 +121,24 @@ describe('agn login', () => {
     assert.equal(fs.readFileSync(log, 'utf-8').trim().split('\n')[0], 'login');
   });
 
-  it('says what is missing instead of running anything', () => {
+  // The binary lookup always searches these, whatever PATH the test passes
+  // (paths.js _basePATH). A real codex there (a global npm install next to
+  // this node) would be found and its `codex login` run for real: a browser
+  // tab on the developer's machine and an orphaned process holding port 1455.
+  const realCodexReachable = [path.dirname(process.execPath), '/usr/local/bin', '/opt/homebrew/bin']
+    .some((dir) => fs.existsSync(path.join(dir, 'codex')));
+
+  it('says an agent is not installed instead of running anything', {
+    skip: realCodexReachable && 'a real codex is installed on this machine; running this would start its login',
+  }, () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-login-'));
     const missing = runLogin(home, {}, 'codex');
     assert.equal(missing.code, 1);
     assert.match(missing.stdout, /not installed on this device.*agn install codex/);
+  });
 
+  it('says what is missing for an agent with no sign-in, an unknown name or no name', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-login-'));
     const keyOnly = runLogin(home, {}, 'openclaw');
     assert.equal(keyOnly.code, 1);
     assert.match(keyOnly.stdout, /has no sign-in of its own/);

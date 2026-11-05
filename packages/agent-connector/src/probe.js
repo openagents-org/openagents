@@ -549,6 +549,13 @@ async function probeAgentType(connector, type, opts = {}) {
   const timeoutMs = opts.timeoutMs
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
+  // What the CLI needs set to answer headless at all, declared per agent
+  // (Gemini refuses to run in a folder it does not trust, and the probe runs
+  // in the home directory). The agent's own value, if any, stands.
+  const probeEnv = (entry.probe && entry.probe.env) || {};
+  for (const [name, value] of Object.entries(probeEnv)) {
+    if (env[name] == null) env[name] = String(value);
+  }
 
   const baseUrl = directBaseUrl(entry, agentEnv);
   const protocol = directProtocol(type, agentEnv);
@@ -608,7 +615,11 @@ async function probeAgentType(connector, type, opts = {}) {
     // same question directly: one round trip, and it says why.
     const unexplained = code === CODE.TIMEOUT || code === CODE.CLI_ERROR || code === CODE.EMPTY_RESPONSE;
     if (unexplained && canCallDirect) {
-      const direct = await directApiVerdict(agentEnv, entry, model, baseUrl, protocol);
+      // `[1m]` is Claude Code's own 1M-context switch (`deepseek-v4-pro[1m]`),
+      // taken off before its requests go out; sent as part of the name, the
+      // relay would reject a model the agent actually runs on.
+      const wireModel = model ? String(model).replace(/\[1m\]$/i, '') : model;
+      const direct = await directApiVerdict(agentEnv, entry, wireModel, baseUrl, protocol);
       if (direct) return done(direct);
     }
     if (unexplained && staticVerdict) return done(staticVerdict);

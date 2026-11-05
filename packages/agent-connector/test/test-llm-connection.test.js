@@ -129,3 +129,26 @@ describe('testLLMConnection — a dropped connection', () => {
     assert.equal(hits, 2);
   });
 });
+
+describe('testLLMConnection — every address of the host refused', () => {
+  it('says why instead of failing on the missing body', async () => {
+    // localhost resolves to ::1 and 127.0.0.1; Node 20+ tries both and raises
+    // an AggregateError whose own message is empty.
+    const r = await testLLMConnection({ OPENAI_API_KEY: 'x', OPENAI_BASE_URL: 'http://localhost:1/v1' }, { model: 'm' });
+    assert.equal(r.success, false);
+    assert.match(r.error, /ECONNREFUSED/);
+    assert.doesNotMatch(r.error, /reading 'slice'/);
+  });
+});
+
+describe('networkErrorText', () => {
+  const { networkErrorText } = require('../src/adapters/utils');
+  it('reads the reasons of an AggregateError whose message is empty', () => {
+    const e = new AggregateError([new Error('connect ECONNREFUSED ::1:443'), new Error('connect ECONNREFUSED 127.0.0.1:443')], '');
+    assert.equal(networkErrorText(e), 'connect ECONNREFUSED ::1:443; connect ECONNREFUSED 127.0.0.1:443');
+  });
+  it('falls back to the code, then a fixed text', () => {
+    assert.equal(networkErrorText(Object.assign(new Error(''), { code: 'ETIMEDOUT' })), 'ETIMEDOUT');
+    assert.equal(networkErrorText(null), 'unknown network error');
+  });
+});
