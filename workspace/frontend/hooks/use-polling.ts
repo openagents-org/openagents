@@ -73,10 +73,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   const [hasOlder, setHasOlder] = useState(false);
   // Increments when messages are bulk-replaced (backfill/session switch) to signal scroll-to-bottom
   const [generation, setGeneration] = useState(0);
-  // Bumped when the tab returns to the foreground so the SSE connection is
-  // torn down and re-established (mobile browsers suspend/kill backgrounded
-  // EventSource connections, which otherwise leaves the UI stuck on a stale
-  // "thinking…" after the answer already arrived).
+  // Visibility changes tear down background transports and reconnect on return.
   const [reconnectNonce, setReconnectNonce] = useState(0);
 
   // Refs for cursor tracking
@@ -94,6 +91,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   // agent is mid-work. Drives fast polling in the fallback path so the final
   // answer lands quickly even when the user is idle (common while waiting).
   const agentWorkingRef = useRef(false);
+  const pollInFlightRef = useRef<{ sessionId: string } | null>(null);
 
   // Reset when session changes
   useEffect(() => {
@@ -207,7 +205,11 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
   // Forward poll: fetch new messages since the newest known
   const poll = useCallback(async () => {
-    if (!sessionId || !historyLoadedRef.current) return;
+    const isVisible = () => document.visibilityState !== 'hidden';
+    if (!sessionId || !historyLoadedRef.current || !isVisible()) return;
+    if (pollInFlightRef.current?.sessionId === sessionId) return;
+    const flight = { sessionId };
+    pollInFlightRef.current = flight;
 
     try {
       // Keep fetching while there are more events (handles bursts of status
@@ -216,7 +218,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       // the batches this loop is still backfilling.
       let cursor = newestIdRef.current;
       let hasMore = true;
-      while (hasMore) {
+      while (hasMore && isVisible()) {
         const result = dmPair
           ? await (async () => {
               const r = await workspaceApi.pollConversation(dmPair[0], dmPair[1], {
@@ -247,6 +249,8 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       }
     } catch {
       // Polling error — will retry on next interval
+    } finally {
+      if (pollInFlightRef.current === flight) pollInFlightRef.current = null;
     }
   }, [sessionId, dmPair, bumpNewest]);
 
@@ -288,7 +292,8 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
   // Initial load + SSE with polling fallback
   useEffect(() => {
-    if (!sessionId || !enabled) return;
+    if (!sessionId || !enabled || document.visibilityState === 'hidden') return;
+    let cancelled = false;
 
     if (!historyLoadedRef.current) {
       // History hydration excludes intermediate step events (thinking/status/
@@ -302,7 +307,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       // events), the cursor is null and the poll loop would page through
       // the channel's entire event log from the beginning.
       loadHistory().then((ok) => {
-        if (ok && newestIdRef.current) poll();
+        if (!cancelled && ok && newestIdRef.current) poll();
       });
     }
 
@@ -310,14 +315,26 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     const isDM = sessionId.startsWith('dm:');
     let eventSource: EventSource | null = null;
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    let usingSSE = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let connectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 5_000;
+    let polling = false;
+    let pollGeneration = 0;
     // clearTimeout cannot stop a timer that already fired and is awaiting
     // poll(); without this flag that callback re-schedules after cleanup and
     // the old loop runs forever. Every re-run (each tab refocus bumps the
     // reconnect nonce) could leak one more 2s loop.
-    let cancelled = false;
+    const stopPolling = () => {
+      polling = false;
+      pollGeneration++;
+      if (timeout) clearTimeout(timeout);
+      timeout = null;
+    };
 
     const startPolling = () => {
+      if (cancelled || polling) return;
+      polling = true;
+      const generation = ++pollGeneration;
       const getDelay = () => {
         // Poll fast while an agent is actively working, regardless of user
         // idle — otherwise a 15s backoff strands the UI on "thinking…" for
@@ -327,8 +344,9 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
         return idle > 60_000 ? 15_000 : 2_000;
       };
       const schedule = () => {
-        if (cancelled) return;
+        if (cancelled || !polling || generation !== pollGeneration) return;
         timeout = setTimeout(async () => {
+          timeout = null;
           await poll();
           schedule();
         }, getDelay());
@@ -336,14 +354,46 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       schedule();
     };
 
-    if (!isDM) {
+    const connect = () => {
+      if (cancelled) return;
+      const retry = () => {
+        if (cancelled || retryTimeout) return;
+        // A transient disconnect must not leave a visible thread polling for
+        // the rest of its lifetime. Rebuild the URL to pick up refreshed auth.
+        const delay = retryDelay + Math.floor(Math.random() * retryDelay * 0.2);
+        retryDelay = Math.min(retryDelay * 2, 60_000);
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          connect();
+        }, delay);
+      };
       try {
         const sseUrl = workspaceApi.getSSEUrl(sessionId);
-        eventSource = new EventSource(sseUrl);
-        usingSSE = true;
+        const source = new EventSource(sseUrl);
+        eventSource = source;
+        const failed = () => {
+          if (cancelled || eventSource !== source) return;
+          source.close();
+          eventSource = null;
+          if (connectTimeout) clearTimeout(connectTimeout);
+          connectTimeout = null;
+          startPolling();
+          retry();
+        };
+        // Some intermediaries stall without opening or raising an error.
+        connectTimeout = setTimeout(failed, 10_000);
+        source.onopen = () => {
+          if (cancelled || eventSource !== source) return;
+          if (connectTimeout) clearTimeout(connectTimeout);
+          connectTimeout = null;
+          retryDelay = 5_000;
+          stopPolling();
+          // The stream is live-only: backfill messages missed while reconnecting.
+          if (newestIdRef.current) void poll();
+        };
 
-        eventSource.onmessage = (ev) => {
-          if (sessionId !== currentSessionRef.current) return;
+        source.onmessage = (ev) => {
+          if (cancelled || eventSource !== source || sessionId !== currentSessionRef.current) return;
           try {
             const event = JSON.parse(ev.data);
             // The SSE stream carries every event for the channel, not just
@@ -360,23 +410,21 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
           }
         };
 
-        eventSource.onerror = () => {
-          eventSource?.close();
-          eventSource = null;
-          usingSSE = false;
-          startPolling();
-        };
+        source.onerror = failed;
       } catch {
         startPolling();
+        retry();
       }
-    } else {
-      startPolling();
-    }
+    };
+    if (isDM) startPolling();
+    else connect();
 
     return () => {
       cancelled = true;
       if (eventSource) eventSource.close();
-      if (timeout) clearTimeout(timeout);
+      stopPolling();
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (connectTimeout) clearTimeout(connectTimeout);
     };
   }, [sessionId, enabled, poll, loadHistory, reconnectNonce]);
 
@@ -388,9 +436,12 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   useEffect(() => {
     if (!sessionId || !enabled) return;
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible') return;
-      lastActivityRef.current = Date.now();
-      poll();
+      if (document.visibilityState === 'visible') {
+        lastActivityRef.current = Date.now();
+        poll();
+      }
+      // Also tear down the stream/fallback timers when hidden. Other workspace
+      // discovery/notification mechanisms remain responsible for background UI.
       setReconnectNonce((n) => n + 1);
     };
     document.addEventListener('visibilitychange', onVisibility);
