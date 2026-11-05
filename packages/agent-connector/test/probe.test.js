@@ -64,6 +64,15 @@ describe('classifyFailure', () => {
     assert.equal(classifyFailure('still working...', { timedOut: true }), CODE.TIMEOUT);
   });
 
+  it('does not read Claude Code\'s unknown-model signal as the reason a run failed', () => {
+    // Printed before every request on a relay model; the probe strips it so
+    // a timeout stays unexplained and goes on to the direct API check.
+    const { stripCliNoise } = require('../src/adapters/utils');
+    const output = stripCliNoise('[claude-code:unrecognized_model] {"model":"deepseek-v4-pro[1m]","query_source":"sdk"}\n');
+    assert.equal(output.trim(), '');
+    assert.equal(classifyFailure(output, { timedOut: true }), CODE.TIMEOUT);
+  });
+
   it('classifies unknown-model errors without a timeout too', () => {
     assert.equal(
       classifyFailure("There's an issue with the selected model (claude-opus-4-6)."),
@@ -296,6 +305,21 @@ describe('probeAgentType', () => {
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.method, 'cli');
     assert.equal(r.reply, 'hi there');
+  });
+
+  it('runs the CLI with the env its probe declares, under the agent\'s own values', async () => {
+    const entry = {
+      name: 'gemini', label: 'Gemini CLI',
+      probe: {
+        args: ['-e', 'console.log(`${process.env.OA_PROBE_FLAG}/${process.env.OA_PROBE_OWN}`)'],
+        env: { OA_PROBE_FLAG: 'true', OA_PROBE_OWN: 'declared' },
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'gemini', { agentEnv: { OA_PROBE_OWN: 'mine' } });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.reply, 'true/mine');
   });
 
   it('classifies a failing CLI probe and returns guidance', async () => {

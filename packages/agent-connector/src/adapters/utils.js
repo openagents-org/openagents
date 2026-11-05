@@ -247,8 +247,30 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * from stdin...", which filled the smoke test's timeout message. Node's own
  * process warnings ("(node:1234) Warning: …", "(Use `node --trace-warnings
  * ...`") come ahead of the real error from npm-shipped CLIs like CodeBuddy.
+ * Newer Claude Code reports an unknown model as a one-line signal instead,
+ * "[claude-code:unrecognized_model] {"model":…}", on every run against a relay
+ * model; read as the failure, it turned a timed-out smoke test into "wrong
+ * model" and skipped the direct API check that would have said why.
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
+
+/**
+ * What a failed socket says went wrong. Node 20+ tries every address a host
+ * resolves to (happy eyeballs); when all of them fail it raises an
+ * AggregateError whose own message is EMPTY, with the reasons on `errors` and
+ * the code on `code`. Read as `e.message` alone that was "": the smoke test
+ * took it for success and crashed on the missing body ("Cannot read
+ * properties of undefined (reading 'slice')"), and a chat run failed with no
+ * reason at all.
+ */
+function networkErrorText(err) {
+  if (!err) return 'unknown network error';
+  if (err.message) return err.message;
+  const inner = Array.isArray(err.errors)
+    ? [...new Set(err.errors.map((e) => e && e.message).filter(Boolean))].join('; ')
+    : '';
+  return inner || err.code || String(err) || 'unknown network error';
+}
 
 /** CLI output with the known-harmless lines taken out. */
 function stripCliNoise(text) {
@@ -257,6 +279,7 @@ function stripCliNoise(text) {
 
 module.exports = {
   SESSION_DEFAULT_RE,
+  networkErrorText,
   BENIGN_CLI_OUTPUT,
   stripCliNoise,
   decodeConsoleOutput,

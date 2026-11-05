@@ -22,6 +22,8 @@ const VENDOR_HOSTS = /(^|\.)(openai\.com|moonshot\.ai|deepseek\.com|anthropic\.c
 const MODEL_REJECTED =
   /model.{0,60}?(is not available|does not exist|not found|unknown model|invalid model|no such model|not supported)|model_not_found/is;
 
+const { networkErrorText } = require('./adapters/utils');
+
 /** One HTTP request. Resolves { status, data } or { error }; never rejects. */
 function request(url, { method = 'POST', headers = {}, body = null, timeout = 15000 } = {}) {
   const https = require('https');
@@ -36,7 +38,7 @@ function request(url, { method = 'POST', headers = {}, body = null, timeout = 15
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => resolve({ status: res.statusCode, data }));
     });
-    req.on('error', (e) => resolve({ error: e.message }));
+    req.on('error', (e) => resolve({ error: networkErrorText(e) }));
     // Name the host and the deadline: a bare "Request timed out" on the
     // device card did not say whether the provider or the network was slow.
     req.on('timeout', () => { req.destroy(); resolve({ error: `Request to ${parsedUrl.host} timed out after ${Math.round(timeout / 1000)}s` }); });
@@ -94,7 +96,8 @@ const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
 /** Read one completion response into the result shape. */
 function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
-  const { status, data } = res;
+  const status = res.status;
+  const data = String(res.data == null ? '' : res.data);
   if (status >= 400 && OUTPUT_LIMIT_REACHED.test(data || '')) {
     return { success: true, model: model || '?', response: '' };
   }

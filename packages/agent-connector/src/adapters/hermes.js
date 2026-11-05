@@ -62,6 +62,14 @@ const TOOLSET_WARNING_RE = /^Warning: Unknown toolsets:/;
 // (t("cli.resume.session_not_found")), so this only matches the English text;
 // under another locale a lost session is not recognised as lost.
 const SESSION_NOT_FOUND_RE = /session not found/i;
+// What Hermes says when a resumed session was opened on credentials that are
+// no longer in config.yaml: "This chat can't use the API key it was started
+// with any more (model.api_key: removed from config.yaml since this session
+// started), so nothing can run in it." A session pins its credentials, so a
+// session begun on the device-wide `model:` key an earlier version wrote
+// (handed back once each agent got a provider of its own) could never run
+// again; only a new session can. English only, like SESSION_NOT_FOUND_RE.
+const SESSION_CREDENTIALS_GONE_RE = /(?:can't|cannot) use the (?:API key|credentials?) it was started with|removed from config\.yaml since this session started/i;
 const MAX_HISTORY_ENTRIES = 12;
 const OPENAGENTS_RULES = [
   '\n## OpenAgents-specific Rules',
@@ -826,6 +834,11 @@ class HermesAdapter extends BaseAdapter {
   async _converse(channelName, content) {
     const resumeId = this._channelSessions[channelName] || null;
     const run = await this._attemptTurn(channelName, content, resumeId);
+    if (resumeId && !run.stopped && SESSION_CREDENTIALS_GONE_RE.test(`${run.text || ''}\n${run.detail || ''}`)) {
+      this._log(`Hermes session ${resumeId} was started on credentials no longer in config.yaml, starting a new one`);
+      this._forgetSession(channelName);
+      return this._attemptTurn(channelName, content, null);
+    }
     const neverBegan = !run.stopped && run.exitCode !== 0 && !run.sessionId;
     if (!resumeId || !neverBegan) return run;
 

@@ -57,13 +57,17 @@ describe('OpenCode — version pin & install (8.1)', () => {
     assert.equal(model.required, true);
   });
 
-  it('classifies versions: too-old=unsupported, in-range=ok, newer=degraded, junk=unknown', () => {
+  it('classifies versions: too-old=unsupported, in-range=ok, newer=degraded, 2.x=unsupported, junk=unknown', () => {
     assert.equal(OpenCodeAdapter._classifyVersion('1.0.0'), 'unsupported');
     assert.equal(OpenCodeAdapter._classifyVersion('1.16.9'), 'unsupported');
     assert.equal(OpenCodeAdapter._classifyVersion('1.17.0'), 'ok');
     assert.equal(OpenCodeAdapter._classifyVersion('1.17.11'), 'ok');
     assert.equal(OpenCodeAdapter._classifyVersion('1.18.0'), 'degraded');
-    assert.equal(OpenCodeAdapter._classifyVersion('2.0.0'), 'degraded');
+    assert.equal(OpenCodeAdapter._classifyVersion('1.19.5'), 'degraded');
+    // OpenCode 2 is a new command line (`run` has no --dir): blocked up front
+    // instead of failing every message with "Unrecognized flag: --dir".
+    assert.equal(OpenCodeAdapter._classifyVersion('2.0.0'), 'unsupported');
+    assert.equal(OpenCodeAdapter._classifyVersion('2.2.5'), 'unsupported');
     assert.equal(OpenCodeAdapter._classifyVersion(null), 'unknown');
     assert.equal(OpenCodeAdapter._classifyVersion('opencode-dev'), 'unknown');
   });
@@ -102,6 +106,25 @@ describe('OpenCode — preflight (8.2)', () => {
     const r = preflightWith({ binary: null });
     assert.equal(r.ok, false);
     assert.equal(r.category, 'cli_not_found');
+  });
+
+  it('looks again when the path found at start-up no longer exists', () => {
+    const adapter = makeAdapter();
+    adapter._opencodeBinary = path.join(os.tmpdir(), 'oa-opencode-gone', 'opencode.exe');
+    adapter._versionProbe = { version: '1.0.0', executable: true, stub: false, ts: Date.now() };
+    adapter._findOpencodeBinary = () => process.execPath;
+    let probed = null;
+    adapter._detectCliVersion = (b) => { probed = b; return { version: '1.17.11', executable: true }; };
+    adapter._preflight('thread');
+    assert.equal(adapter._opencodeBinary, process.execPath);
+    assert.equal(probed, process.execPath);
+    assert.equal(adapter._versionProbe, null, 'the old copy\'s version is not reused');
+  });
+
+  it('unsupported_version for OpenCode 2.x, before any run', () => {
+    const r = preflightWith({ probe: { version: '2.2.5', executable: true } });
+    assert.equal(r.ok, false);
+    assert.equal(r.category, 'unsupported_version');
   });
 
   it('cli_not_executable when --version cannot run', () => {
