@@ -7,6 +7,7 @@ require('./win-console').installWindowsHideDefault();
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
+const { loginCommandOf } = require('./agent-login');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -386,6 +387,25 @@ async function cmdRuntimes(connector, flags) {
       // which judges the type again with its agents' env, said Ready. Judge it
       // the way the daemon launches it: a type is ready when one of its agents
       // is.
+      //
+      // That key is that agent's alone: a new agent of the type does not get
+      // it. `typeReady` keeps the type's own answer (<type>.env, this
+      // process's environment, the CLI's sign-in) for the add form, which
+      // otherwise read Ready and added an agent with no key at all.
+      const typeReady = !!h.ready;
+      // Whether the CLI itself is signed in on this device, keys aside: what an
+      // agent added on "the account signed in on the device" runs on, the add
+      // form's only choice besides a key. Null for a type with no sign-in. A
+      // type ready on a key never said whether it is signed in as well, so
+      // only that case is asked again, with keys not counting.
+      let signedIn = null;
+      if (loginCommandOf(e)) {
+        if (!h.installed || !h.ready) signedIn = false;
+        else if (h.auth_mode === 'cli_login') signedIn = true;
+        else {
+          try { signedIn = !!connector.healthCheck(e.name, { cliLogin: true }).ready; } catch { signedIn = false; }
+        }
+      }
       let agentEnv = null;
       if (h.installed && !h.ready) {
         for (const a of agents) {
@@ -417,6 +437,8 @@ async function cmdRuntimes(connector, flags) {
         type: e.name,
         installed: !!h.installed,
         ready: !!h.ready,
+        typeReady,
+        signedIn,
         version: h.version || null,
         reason: h.reason || null,
         message: h.message || null,

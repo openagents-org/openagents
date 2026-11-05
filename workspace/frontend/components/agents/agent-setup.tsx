@@ -118,6 +118,12 @@ const NO_ACCESS = '__none__';
 // the saved access it came from, and a key saved on the device (the launcher
 // saves them there) has none.
 const KEEP_CURRENT = '__keep_current__';
+// A key-only agent on the key its type has on the device (<type>.env, the
+// launcher's Credentials, an environment variable): nothing to send for it.
+const DEVICE_KEY = '__device_key__';
+// The account the type's CLI is signed in to on the device, offered for every
+// type with a sign-in and picked for the user once the device says it is.
+const SIGN_IN = '__sign_in__';
 const AUTO_MODEL = '__auto__';
 const CUSTOM_MODEL = '__custom__';
 /** How long "Detecting…" may stay up before it gives way to a retry. */
@@ -128,12 +134,19 @@ const DETECT_DEADLINE_MS = 45_000;
  *  every other type keeps what this form sends on the agent alone. */
 const SHARED_CONFIG_TYPES = new Set(['hermes']);
 
-/** Derive the per-type detection status shown as a badge in the gallery. */
-function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined) {
+/** Derive the per-type detection status shown as a badge in the gallery.
+ *  `onKey`: the agent being edited runs on a key of its own. */
+function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined, onKey = false) {
   if (!rt) return 'unknown' as const;
-  if (rt.installed && rt.ready) return 'ready' as const;
-  if (rt.installed && !rt.ready) return 'needs_login' as const;
-  return 'not_installed' as const;
+  if (!rt.installed) return 'not_installed' as const;
+  // `ready` also counts a key one agent of the type holds, which a new agent,
+  // or one with no key of its own, never gets: the add form said a keyless
+  // DeepSeek was ready, and it failed on its first message. A type with a
+  // sign-in is ready on the sign-in alone, the only choice besides a key the
+  // form offers it. Devices too old to say are judged on `ready`.
+  if (rt.signedIn ?? rt.typeReady ?? rt.ready) return 'ready' as const;
+  if (onKey && rt.reason !== 'version_incompatible') return 'ready' as const;
+  return 'needs_login' as const;
 }
 
 // ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
@@ -515,7 +528,16 @@ export function AgentSetup({
   }, [detecting]);
 
   const selectedEntry = catalog.find((e) => e.name === selected);
-  const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined);
+  // An agent on a key opens on that key, not on "sign in on the device": the
+  // select showed the sign-in for an agent running on a relay key, which is
+  // exactly how nobody could tell which of a device's two codex setups an
+  // agent was on. Devices that do not report authMode say so by a key or an
+  // endpoint of their own.
+  const editOnKey = !!editAgent && (editAgent.authMode !== undefined
+    ? editAgent.authMode === 'api_key'
+    : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
+  // An agent being edited is judged on what it runs on, not on its type.
+  const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined, editOnKey);
   const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
   // A button beside "Needs login", not a bare link: it is the one thing to do
   // about that state.
@@ -546,6 +568,9 @@ export function AgentSetup({
     setBaseUrl('');
     setModel('');
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
+    setUseDeviceKey(false);
+    setSignInPick(null);
+    setCredsTouched(false);
     setByokAccessId('');
     resetByokChecks();
   };
@@ -621,21 +646,64 @@ export function AgentSetup({
       : a.provider !== 'custom-anthropic',
   );
   const [byokAccessId, setByokAccessId] = useState(draft?.modelAccessId ?? '');
-  // An agent on a key opens on that key, not on "sign in on the device": the
-  // select showed the sign-in for an agent running on a relay key, which is
-  // exactly how nobody could tell which of a device's two codex setups an
-  // agent was on. Devices that do not report authMode say so by a key or an
-  // endpoint of their own.
-  const editOnKey = !!editAgent && (editAgent.authMode !== undefined
-    ? editAgent.authMode === 'api_key'
-    : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
   const [keepCurrent, setKeepCurrent] = useState(editOnKey);
-  // A type whose CLI has its own sign-in (codex login, claude login…): the
-  // no-key choice means that sign-in, and the device is told so (authMode),
-  // or the agent would run on whatever key the device saved for its type.
+  // A type whose CLI has its own sign-in (codex login, claude login…): an
+  // agent on it is marked so on the device (authMode), or it would run on
+  // whatever key the device saved for its type.
   const signInType = byok && !!detail?.check_ready?.login_command;
-  const signInChosen = signInType && !byokAccessId && !keepCurrent && !apiKey.trim();
   const loginCommand = detail?.check_ready?.login_command || '';
+  const selectedRuntime = selected ? runtimeByType[selected] : undefined;
+  // The command that signs the CLI in on the device, where it has one.
+  const deviceLoginCommand = selectedRuntime?.loginCommand || loginCommand
+    || (selected && HINT_ONLY_SIGN_IN[selected]?.command) || '';
+  // A type with no sign-in of its own at all (DeepSeek, Qwen Code, OpenClaw…).
+  const keyOnly = byok && !deviceLoginCommand;
+  const noKeyPicked = !byokAccessId && !keepCurrent && !apiKey.trim();
+  // A type with a sign-in always offers it. Whether the device is signed in
+  // is a best guess for some (codex and codebuddy are `unverifiable`), so it
+  // only picks the default and the message: a signed-in user the detection
+  // missed must still be able to pick their own account. `signedIn` from
+  // devices new enough; a type ready on its sign-in, or ready at all, from
+  // older ones.
+  const signInOffered = byok && !keyOnly;
+  const signedInOnDevice = !!selectedRuntime?.installed && !!(selectedRuntime.signedIn
+    ?? (selectedRuntime.auth ? selectedRuntime.auth.mode === 'subscription' : selectedRuntime.ready));
+  // Null until picked, so the default follows a detection that can arrive
+  // after the form opens. An agent being edited opens on the sign-in it runs
+  // on: one marked so, or, from a device too old to say, one with no key of
+  // its own.
+  const [signInPick, setSignInPick] = useState<boolean | null>(editAgent
+    ? editAgent.authMode === 'cli_login' || (editAgent.authMode === undefined && !editOnKey)
+    : null);
+  const onSignIn = signInOffered && noKeyPicked && (signInPick ?? signedInOnDevice);
+  // With no key, a sign-in agent runs on the CLI's sign-in, and the device is
+  // told so (authMode), or it would run on whatever key it saved for the type.
+  const signInChosen = signInType && noKeyPicked;
+  // The key a key-only type has on the device (typeReady), which an agent
+  // with none of its own runs on, and so opens on when edited. An agent on a
+  // key of its own keeps that.
+  const deviceKeyOffered = keyOnly && !editOnKey && !!selectedRuntime?.typeReady;
+  const [useDeviceKey, setUseDeviceKey] = useState(!!editAgent && !editOnKey);
+  const onDeviceKey = deviceKeyOffered && useDeviceKey && noKeyPicked;
+  // OpenCode Zen's free `opencode/…` models need neither.
+  const keylessModel = (detail?.check_ready?.keyless_model_prefixes || [])
+    .some((prefix) => !!prefix && model.trim().startsWith(prefix));
+  // A key-only agent cannot answer without a key, and "no key" is reliable
+  // for it: an add with none is refused every time ("Add anyway" let in
+  // DeepSeek agents that failed on their first message). An edit is refused
+  // only once its credentials were changed: a rename goes through.
+  const keyMissing = keyOnly && noKeyPicked && !onDeviceKey && !keylessModel;
+  const [credsTouched, setCredsTouched] = useState(false);
+  const keyRequired = keyMissing && (!isEdit || credsTouched);
+  // A sign-in agent the device does not look signed in for: said, and an add
+  // asks once more ("Add anyway"), since the detection can be wrong and
+  // signing in later is a fine plan. Never a block, and an edit only warns.
+  // One not installed yet cannot be signed in before it exists.
+  const signInUnconfirmed = signInOffered && noKeyPicked && !keylessModel
+    && !!selectedRuntime?.installed && !signedInOnDevice;
+  const [credsError, setCredsError] = useState(false);
+  const credsFieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setCredsError(false); }, [keyMissing, signInUnconfirmed, selected]);
   // The models the device's own CLI offers its sign-in (a ChatGPT or Claude
   // subscription), for an agent that will run on that sign-in ("sign in on
   // the device" picked) rather than on a key. The catalog's list is the
@@ -671,17 +739,6 @@ export function AgentSetup({
   const [modelError, setModelError] = useState<string | null>(null);
   const modelFieldRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setModelError(null); }, [model, selected, baseUrl, byok]);
-  // A new agent on a device with no sign-in for its type cannot answer until
-  // it is signed in or given a key. The first Add points at the warning and
-  // turns the button into "Add anyway"; the second adds it (the detection can
-  // be wrong, and signing in later is a fine plan). An agent not installed
-  // yet gets no warning, since its CLI cannot be signed in before it exists.
-  const credsMissing = byok && !isEdit && selectedStatus === 'needs_login'
-    && !byokAccessId && !keepCurrent && !apiKey.trim();
-  const [credsError, setCredsError] = useState(false);
-  const credsFieldRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { setCredsError(false); }, [credsMissing, selected]);
-
   const failModel = (message: string) => {
     // No model field on screen yet (the key's model list is still loading):
     // the form-wide line is the only place left to say it.
@@ -794,10 +851,9 @@ export function AgentSetup({
     if (!isEdit && node.agents.some((agent) => agent.name === n)) { setNameError(t('connect.agentNameExists')); return; }
     if (!isEdit && takenNames.has(n)) { setNameError(t('connect.agentNameTaken', { name: n })); return; }
     setNameError(null);
-    // A custom endpoint cannot choose a usable model from the agent's built-in
-    // provider defaults. Leaving this blank previously saved the key and URL
-    // while the agent kept running its old/default OpenAI model.
-    if (credsMissing && !credsError) {
+    // A key-only agent with no key: point at the credentials, every time. A
+    // sign-in not confirmed: point at it once; the next click adds anyway.
+    if (keyRequired || (signInUnconfirmed && !isEdit && !credsError)) {
       setCredsError(true);
       requestAnimationFrame(() => {
         credsFieldRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
@@ -805,6 +861,9 @@ export function AgentSetup({
       });
       return;
     }
+    // A custom endpoint cannot choose a usable model from the agent's built-in
+    // provider defaults. Leaving this blank previously saved the key and URL
+    // while the agent kept running its old/default OpenAI model.
     if (baseUrl.trim() && !model.trim()) { failModel(t('connect.nodeCustomModelRequired')); return; }
     if (byok && byokAccessId && !model.trim()) { failModel(t('connect.byokModelRequired')); return; }
     if (customCodex && codexWireApi === 'responses' && !supportsCodexMode) { setError(t('connect.codexModeUpdate')); return; }
@@ -933,7 +992,7 @@ export function AgentSetup({
     const saveButton = (
       <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
-        {isEdit ? t('connect.nodeSaveChanges') : credsMissing && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
+        {isEdit ? t('connect.nodeSaveChanges') : signInUnconfirmed && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
     const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
@@ -1086,6 +1145,7 @@ export function AgentSetup({
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
                   <Key className="size-3.5 text-muted-foreground" />{t('connect.byokTitle')}
+                  {keyOnly && <span data-testid="agent-setup-title-required" className="text-destructive">*</span>}
                 </span>
                 {byokTest.state === 'ok' && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -1100,8 +1160,11 @@ export function AgentSetup({
                   <Plus className="size-3.5 mr-1.5" />{t('connect.byokAddAccess')}
                 </Button>
                 <Select
-                  value={byokAccessId || (keepCurrent ? KEEP_CURRENT : NO_ACCESS)}
+                  value={byokAccessId || (keepCurrent ? KEEP_CURRENT : onSignIn ? SIGN_IN : onDeviceKey ? DEVICE_KEY : NO_ACCESS)}
                   onValueChange={(v) => {
+                    setSignInPick(v === SIGN_IN);
+                    setUseDeviceKey(v === DEVICE_KEY);
+                    setCredsTouched(true);
                     if (v === KEEP_CURRENT) {
                       setKeepCurrent(true);
                       setByokAccessId('');
@@ -1111,7 +1174,7 @@ export function AgentSetup({
                       return;
                     }
                     setKeepCurrent(false);
-                    pickAccess(v === NO_ACCESS ? '' : v);
+                    pickAccess([NO_ACCESS, SIGN_IN, DEVICE_KEY].includes(v) ? '' : v);
                   }}
                 >
                   <SelectTrigger aria-label={t('connect.byokTitle')} className="h-10 min-w-0 flex-1">
@@ -1125,11 +1188,16 @@ export function AgentSetup({
                           : t('connect.byokKeepCurrentPlain')}
                       </SelectItem>
                     )}
+                    {/* Nothing picked yet: a key-only type cannot be added on it. */}
                     <SelectItem value={NO_ACCESS}>
-                      {signInType && loginCommand
-                        ? t('connect.byokDeviceSignIn', { command: (selected && runtimeByType[selected]?.loginCommand) || loginCommand })
-                        : t('connect.byokProviderNone')}
+                      {keyOnly ? t('connect.byokPickKey') : t('connect.byokPickCredential')}
                     </SelectItem>
+                    {signInOffered && (
+                      <SelectItem value={SIGN_IN}>{t('connect.byokDeviceSignIn', { command: deviceLoginCommand })}</SelectItem>
+                    )}
+                    {deviceKeyOffered && (
+                      <SelectItem value={DEVICE_KEY}>{t('connect.byokDeviceKey')}</SelectItem>
+                    )}
                     {byokAccessOptions.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.label} · {a.apiKeyMasked}
@@ -1139,11 +1207,31 @@ export function AgentSetup({
                 </Select>
               </div>
 
-              {/* No key picked on a device with no sign-in either. Adding is
-                  first points here, then lets it through as "Add anyway"
-                  (credsMissing); editing an existing agent only warns.
-                  Re-detect is the way back for someone who just signed in. */}
-              {selectedStatus === 'needs_login' && !byokAccessId && !keepCurrent && !apiKey.trim() && (
+              {/* A key-only type with no key. Re-detect brings in a key set
+                  up on the device meanwhile. */}
+              {keyMissing && (
+                <p
+                  data-testid="agent-setup-creds-required"
+                  role={credsError ? 'alert' : undefined}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-muted-foreground')}
+                >
+                  {t('connect.byokKeyRequired', { label: selectedEntry?.label || selected || '' })}
+                  {!deviceKeyOffered && selectedStatus !== 'not_installed' && (
+                    <>
+                      {' '}{t('connect.byokKeyAddedOnDevice')}{' '}
+                      <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
+                        <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                        {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
+                      </button>
+                    </>
+                  )}
+                </p>
+              )}
+              {/* A sign-in the device did not confirm. Adding first points
+                  here, then lets it through as "Add anyway"; editing only
+                  warns. Re-detect is the way back for someone who just
+                  signed in. */}
+              {signInUnconfirmed && (
                 <p
                   data-testid="agent-setup-not-signed-in"
                   role={credsError ? 'alert' : undefined}
@@ -1154,6 +1242,11 @@ export function AgentSetup({
                     <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
                     {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
                   </button>
+                </p>
+              )}
+              {onDeviceKey && (
+                <p data-testid="agent-setup-device-key-hint" className="text-xs text-muted-foreground">
+                  {t('connect.byokDeviceKeyHint', { label: selectedEntry?.label || selected || '', device: node.name || node.hostname || '' })}
                 </p>
               )}
 

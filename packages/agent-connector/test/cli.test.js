@@ -262,6 +262,88 @@ describe('CLI', () => {
     }
   });
 
+  it('runtimes --json: typeReady does not count a key one agent holds', { skip: process.platform === 'win32' }, () => {
+    // A device with one DeepSeek agent on its own key reported the type ready,
+    // the add form said "Ready", and the agent added next had no key at all.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const bin = path.join(tmpDir, 'bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'dsh'), '#!/bin/sh\necho "0.2.1-rc.5"\n', { mode: 0o755 });
+      const env = {
+        ...process.env, HOME: tmpDir, USERPROFILE: tmpDir,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        DEEPSEEK_API_KEY: '', LLM_API_KEY: '',
+      };
+      const detect = () => JSON.parse(execFileSync(process.execPath,
+        [CLI, 'runtimes', '--json', '--types', 'deepseek', '--config', tmpDir],
+        { encoding: 'utf-8', timeout: 20000, env }).trim())[0];
+
+      const none = detect();
+      assert.equal(none.installed, true);
+      assert.equal(none.ready, false);
+      assert.equal(none.typeReady, false);
+
+      fs.writeFileSync(path.join(tmpDir, 'daemon.yaml'),
+        'version: 2\nagents:\n- name: deepseek-keyed\n  type: deepseek\n  env: {"LLM_API_KEY":"sk-test-agent-key-1234"}\n- name: deepseek\n  type: deepseek\nnetworks: []\n');
+      const agentKey = detect();
+      assert.equal(agentKey.ready, true, 'the type still works on this device');
+      assert.equal(agentKey.typeReady, false, 'a new agent does not get that key');
+
+      // A key saved for the type is one every agent without its own runs on.
+      fs.mkdirSync(path.join(tmpDir, 'env'));
+      fs.writeFileSync(path.join(tmpDir, 'env', 'deepseek.env'), 'DEEPSEEK_API_KEY=sk-test-type-key-5678\n');
+      const typeKey = detect();
+      assert.equal(typeKey.ready, true);
+      assert.equal(typeKey.typeReady, true);
+      assert.equal(typeKey.signedIn, null, 'DeepSeek has no sign-in to report');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runtimes --json: signedIn is the CLI\'s own sign-in, never a key', { skip: process.platform === 'win32' }, () => {
+    // The add form offers "the account signed in on the device" only when
+    // there is one. A key the type has made it read ready, signed in or not.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const bin = path.join(tmpDir, 'bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'kimi'), '#!/bin/sh\necho "kimi, version 1.0.0"\n', { mode: 0o755 });
+      const env = {
+        ...process.env, HOME: tmpDir, USERPROFILE: tmpDir,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        KIMI_API_KEY: '', MOONSHOT_API_KEY: '', LLM_API_KEY: '',
+      };
+      const detect = () => JSON.parse(execFileSync(process.execPath,
+        [CLI, 'runtimes', '--json', '--types', 'kimi', '--config', tmpDir],
+        { encoding: 'utf-8', timeout: 20000, env }).trim())[0];
+      const signIn = () => {
+        const dir = path.join(tmpDir, '.kimi-code', 'credentials');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'kimi-code.json'), '{"refresh_token":"rt-test-1234"}');
+      };
+
+      assert.equal(detect().signedIn, false);
+
+      fs.mkdirSync(path.join(tmpDir, 'env'));
+      fs.writeFileSync(path.join(tmpDir, 'env', 'kimi.env'), 'KIMI_API_KEY=sk-test-type-key-5678\n');
+      const keyOnly = detect();
+      assert.equal(keyOnly.ready, true);
+      assert.equal(keyOnly.signedIn, false, 'a key is not a sign-in');
+
+      signIn();
+      const both = detect();
+      assert.equal(both.auth.mode, 'api_key', 'the key still answers for the type');
+      assert.equal(both.signedIn, true);
+
+      fs.rmSync(path.join(tmpDir, 'env', 'kimi.env'));
+      assert.equal(detect().signedIn, true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('logs with temp config returns empty', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
     try {

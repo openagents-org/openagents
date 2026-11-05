@@ -2893,7 +2893,9 @@ export class AgentManager extends EventEmitter {
     if (!Object.keys(agentEnv).length) return core
     try {
       const withAgents = healthCheck.call(this._connector, type, { agentEnv }) as { ready?: boolean } | null
-      return withAgents?.ready ? withAgents : core
+      // Ready on an agent's own key, which a new agent does not get: the add
+      // form reads `typeReady` so it does not offer the type as ready.
+      return withAgents?.ready ? { ...withAgents, typeReady: false } : core
     } catch {
       return core
     }

@@ -64,7 +64,10 @@ export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreat
     } })
     const runtimes = await Promise.all(available.map(async (entry) => {
       const health = await bounded(window.api.healthCheck(entry.name), 8000).catch(() => null)
+      // Adding: a type ready only on another agent's key is not ready for the new one. Editing has no
+      // per-agent key status here to judge the agent on, so it keeps the type's answer.
       return health ? { type: entry.name, installed: health.installed ?? entry.installed, ready: !!health.ready,
+        ...(agent ? {} : { typeReady: health.typeReady }),
         version: health.version ?? null, reason: health.reason ?? null, message: health.message ?? null } : null
     }))
     if (mounted.current && version === loadVersion.current) setData((previous) => previous ? { ...previous, node: { ...previous.node, runtimes: runtimes.filter((runtime) => runtime !== null) } } : null)
@@ -234,9 +237,13 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const loginModels = keyForm ? [] : fields.filter((field) => hasModelPicker(type, field.name))
   const unprobeable = isUnprobeable(type)
   const unprobeableReason = agentCredentials(type).reason
+  // A new agent does not get a key another agent of the type holds. Its message then is that
+  // agent's "Ready", so the banner says the generic not-ready line instead.
+  const shownReady = !!health && (name ? health.ready : (health.typeReady ?? health.ready))
   return <div className="space-y-4">
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {health && (installed || !loginCmd) && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: installed ? health.message || null : t("agents.loginStatus.installOnAdd") }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
+    {health && (installed || !loginCmd) && <AuthStatusBanner authInfo={{ ready: shownReady, authMode: health.auth_mode || null,
+      message: !installed ? t("agents.loginStatus.installOnAdd") : shownReady === health.ready ? health.message || null : null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
     {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => chooseTab(value as "cli" | "key")}>
       <TabsList className="grid w-full grid-cols-2">
