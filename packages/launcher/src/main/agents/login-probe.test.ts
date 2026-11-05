@@ -20,6 +20,19 @@ describe("loginVerdict", () => {
   const claude = DUAL_LOGIN_AGENTS.claude
   const cursor = HOSTED_LOGIN_AGENTS.cursor
 
+  it("recognises Hermes OAuth with ANSI colors between the check mark and login text", () => {
+    const out = "Nous Portal  ✗ not logged in\nOpenAI Codex  \x1b[32m✓\x1b[0m logged in\n"
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, out, 0)).toBe(true)
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, "OpenAI Codex  \x1b[31m✗\x1b[0m not logged in", 0)).toBe(false)
+  })
+
+  it("recognises Hermes Anthropic credentials without requiring another provider login", () => {
+    const out = "  Provider:     Anthropic\n  Anthropic     \x1b[32m✓\x1b[0m sk-ant-...test\n  Nous Portal   ✗ not logged in\n  OpenAI Codex  ✗ not logged in\n"
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, out, 0)).toBe(true)
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, "  Anthropic     ✗ (not set)\n  Nous Portal   ✗ not logged in", 0)).toBe(false)
+    expect(loginVerdict(HOSTED_LOGIN_AGENTS.hermes, "  GitHub        ✓ ghp-...test\n  Anthropic     ✗ (not set)", 0)).toBe(false)
+  })
+
   it("reads codex as SIGNED OUT despite its non-zero exit", () => {
     // The regression: this used to be null, and health.ts treats null
     // optimistically, so a signed-out codex looked usable.

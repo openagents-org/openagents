@@ -34,13 +34,14 @@ export function CodexModeField({ form }: { form: AgentSetupForm }) {
 export function CuratedModelField({ form, pickerModels }: { form: AgentSetupForm; pickerModels: { id: string; label: string }[] }) {
   const t = useT();
   const { selected, selectedEntry, model, setModel, customModel, setCustomModel, creds } = form;
+  const allowsCustomModel = selected === 'hermes' || selected === 'pi';
   return (
     <Field>
       <FieldLabel>{t('connect.nodeAgentModelOptional')}</FieldLabel>
       <Select
-        value={selected === 'pi' && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
+        value={allowsCustomModel && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
         onValueChange={(v) => {
-          if (selected === 'pi' && v === CUSTOM_MODEL) { setCustomModel(true); return; }
+          if (allowsCustomModel && v === CUSTOM_MODEL) { setCustomModel(true); return; }
           setCustomModel(false);
           setModel(v === AUTO_MODEL ? '' : v);
         }}
@@ -56,10 +57,10 @@ export function CuratedModelField({ form, pickerModels }: { form: AgentSetupForm
           {creds.unlistedModel && (
             <SelectItem value={creds.unlistedModel}>{t('connect.nodeModelUnlisted', { model: creds.unlistedModel })}</SelectItem>
           )}
-          {selected === 'pi' && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}</SelectGroup>
+          {allowsCustomModel && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}</SelectGroup>
         </SelectContent>
       </Select>
-      {selected === 'pi' && customModel && (
+      {allowsCustomModel && customModel && (
         <Input
           data-testid="agent-setup-custom-model"
           aria-label={t('connect.byokCustomModel')}
@@ -71,7 +72,7 @@ export function CuratedModelField({ form, pickerModels }: { form: AgentSetupForm
       )}
       {creds.accountModels && (
         <FieldDescription data-testid="agent-setup-account-models">
-          {t(selected === 'pi' ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
+          {t(allowsCustomModel ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
         </FieldDescription>
       )}
     </Field>

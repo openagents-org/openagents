@@ -102,6 +102,42 @@ function makeHermes({ script = [], session = null, transcript = [], version = CU
 const say = (a, content) => a._handleMessage({ content, sessionId: CHANNEL });
 const savedSessions = (a) => JSON.parse(fs.readFileSync(a._sessionsFile, 'utf-8'));
 
+describe('Hermes per-agent model selection', () => {
+  it('passes each agent model to the CLI without changing its native config', () => {
+    const first = makeHermes({ env: { LLM_MODEL: 'gpt-5.6-sol' } }).a;
+    const second = makeHermes({ env: { LLM_MODEL: 'gpt-6-astra' } }).a;
+    const config = path.join(first._hermesHome, 'config.yaml');
+    const original = 'model:\n  default: native-default\n  provider: openai-codex\n';
+    fs.writeFileSync(config, original);
+
+    for (const [agent, expected] of [[first, 'gpt-5.6-sol'], [second, 'gpt-6-astra']]) {
+      const args = agent._buildHermesCmd('hello');
+      assert.equal(args[args.indexOf('--model') + 1], expected);
+      assert.equal(args.filter((arg) => arg === '--model').length, 1);
+    }
+    assert.equal(fs.readFileSync(config, 'utf-8'), original);
+  });
+
+  it('uses a changed workspace model on resumed turns and preserves profile arguments', () => {
+    const { a } = makeHermes({ env: { LLM_MODEL: 'saved-model' } });
+    a.workspaceModel = ' workspace-model ';
+    a.hermesProfile = 'work';
+    const args = a._buildHermesCmd('hello', 'S1');
+    assert.deepEqual(args.slice(0, 3), ['-p', 'work', 'chat']);
+    assert.equal(args[args.indexOf('--model') + 1], 'workspace-model');
+    assert.equal(args[args.indexOf('--resume') + 1], 'S1');
+
+    a.workspaceModel = 'second-model';
+    const next = a._buildHermesCmd('next', 'S1');
+    assert.equal(next[next.indexOf('--model') + 1], 'second-model');
+  });
+
+  it('leaves the CLI default in control when no model is selected', () => {
+    const { a } = makeHermes({ env: { HERMES_MODEL: '', LLM_MODEL: '' } });
+    assert.equal(a._buildHermesCmd('hello').includes('--model'), false);
+  });
+});
+
 describe('Hermes: a thread keeps its session', () => {
   it('resumes the stored session and sends the user message alone', async () => {
     const { a, seen } = makeHermes({

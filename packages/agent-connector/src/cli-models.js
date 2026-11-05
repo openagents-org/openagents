@@ -17,10 +17,12 @@
 
 const os = require('os');
 const { stripVTControlCharacters } = require('node:util');
+const fs = require('fs');
+const path = require('path');
 // spawn() here is the WSL bridge from ./wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
-const { spawn } = require('./wsl');
+const { spawn, isWslBinary, wslBinaryPath, toUncPath, toWslPath } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary } = require('./adapters/health-status');
 const { stripForCliLogin, typeEnvFor } = require('./env');
@@ -125,6 +127,57 @@ function parseQoderModels(text) {
   return [...seen.values()].slice(0, MAX_MODELS);
 }
 
+/** Hermes has an interactive model picker, so ask its installed Python package. */
+function hermesModelsCommand(binary) {
+  const inWsl = isWslBinary(binary);
+  const paths = inWsl ? path.posix : path;
+  const local = (file) => inWsl ? toUncPath(file) : file;
+  const original = inWsl ? wslBinaryPath(binary) : binary;
+  let resolved = original;
+  if (!inWsl) {
+    try { resolved = fs.realpathSync(binary); } catch {}
+  }
+  const dirs = [...new Set([paths.dirname(resolved), paths.dirname(original)])];
+  const windows = process.platform === 'win32' && !inWsl;
+  const candidates = [];
+  for (const dir of dirs) {
+    candidates.push(paths.join(dir, windows ? 'python.exe' : 'python'));
+    // The official installer puts the launcher in <home>/bin and Python in
+    // <home>/hermes-agent/venv. Use the installation belonging to this binary.
+    candidates.push(paths.join(dir, '..', 'hermes-agent', 'venv', windows ? 'Scripts' : 'bin', windows ? 'python.exe' : 'python'));
+    candidates.push(paths.join(dir, 'venv', 'bin', 'python'));
+    // Unix installer shims explicitly exec their venv interpreter. Read the
+    // literal path only; never execute or source a launcher to discover it.
+    if (!windows) {
+      try {
+        const shim = fs.readFileSync(local(resolved), 'utf8').slice(0, 4096);
+        const interpreter = /^exec "([^"\r\n]+\/python[\d.]*)" /m.exec(shim);
+        if (interpreter && paths.isAbsolute(interpreter[1])) candidates.unshift(interpreter[1]);
+      } catch {}
+    }
+  }
+  const python = candidates.find((file) => {
+    try { return fs.statSync(local(file)).isFile(); } catch { return false; }
+  });
+  const helper = path.join(__dirname, 'hermes-models.py');
+  return python ? { binary: inWsl ? `wsl:${python}` : python, args: [inWsl ? toWslPath(helper) : helper] } : null;
+}
+
+function parseHermesModels(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return []; }
+  const provider = cleanId(parsed && parsed.provider);
+  if (!provider || !Array.isArray(parsed.models)) return [];
+  const seen = new Map();
+  for (const value of parsed.models) {
+    const id = cleanId(value);
+    if (!id || seen.has(id)) continue;
+    seen.set(id, { id, label: cleanLabel(`${id} (${provider})`, id) });
+    if (seen.size >= MAX_MODELS) break;
+  }
+  return [...seen.values()];
+}
+
 /**
  * Pi --list-models prints the configured providers' catalog as a table, not a
  * per-model subscription entitlement check. Qualify ids so identical model
@@ -166,6 +219,12 @@ const LISTERS = {
     parse: parsePiModels,
     timeoutMs: 30_000,
     env: { PI_SKIP_VERSION_CHECK: '1', NO_COLOR: '1' },
+  },
+  hermes: {
+    command: hermesModelsCommand,
+    parse: parseHermesModels,
+    timeoutMs: 30_000,
+    env: { PYTHONIOENCODING: 'utf-8', NO_COLOR: '1' },
   },
   codex: {
     args: ['debug', 'models'],
@@ -308,7 +367,13 @@ async function listCliModels(connector, type, opts = {}) {
   } catch {}
   const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv, ...(lister.env || {}) }, connector.registry, opts.agentEnv);
 
-  const res = await runCli(binary, lister.args, {
+  const command = lister.command ? lister.command(binary) : { binary, args: lister.args };
+  if (!command) return fail('Could not locate the Python installation used by Hermes.');
+  if (type === 'hermes' && opts.agentName) {
+    const profile = require('./adapters/hermes').prototype._resolveProfile(null, opts.agentName);
+    if (profile !== 'default') command.args.push(profile);
+  }
+  const res = await runCli(command.binary, command.args, {
     env,
     timeoutMs: opts.timeoutMs || lister.timeoutMs,
     input: lister.input,

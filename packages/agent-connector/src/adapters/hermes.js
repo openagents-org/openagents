@@ -604,6 +604,10 @@ class HermesAdapter extends BaseAdapter {
       '--source', this.hermesSource,
       '--max-turns', String(this.maxTurns),
     );
+    // Override only this invocation; writing model.default would change every
+    // agent using the same Hermes profile. Resolve again for resumed turns.
+    const model = this.modelLabel();
+    if (model) args.push('--model', model);
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     if (this.yolo) args.push('--yolo');
     const endpoint = this._endpoint();

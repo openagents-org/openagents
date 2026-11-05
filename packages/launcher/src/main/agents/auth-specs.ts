@@ -539,12 +539,12 @@ export const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loginClearsEnv: ["CURSOR_API_KEY"],
   },
   hermes: {
-    // `hermes setup` is the interactive wizard; `hermes status` prints a rich
-    // report where a configured auth provider reads "✓ logged in" (everything
-    // unconfigured reads "✗ not logged in"), so match the positive marker.
+    // OAuth providers print "✓ logged in". Hermes reports usable Anthropic
+    // credentials in its API Keys section as "Anthropic ✓ <redacted>", even
+    // when every OAuth-provider row is signed out. Tool keys must not count.
     loginCommand: "hermes setup",
     statusArgs: ["status"],
-    loggedInPattern: /✓\s*logged in/i,
+    loggedInPattern: /✓\s*logged in|(?:^|[\r\n])[ \t]*Anthropic[ \t]+✓(?:[ \t]|$)/i,
   },
 }
 
