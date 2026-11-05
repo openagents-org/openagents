@@ -874,3 +874,59 @@ it('keeps selected knowledge on failure and prevents empty searches from submitt
   await click(button('Assign to an agent'));
   expect(host.querySelector('[aria-label="Remove Support guide"]')).toBeNull();
 });
+
+it('keeps the filtered list mounted while switching and closing issues in split view', async () => {
+  const second = { ...issue, id: 'issue-2', title: 'Review onboarding' };
+  mocks.api.listIssues.mockResolvedValue({ issues: [issue, second], next_offset: null });
+  mocks.api.getIssue.mockImplementation(async (id: string) => id === second.id ? second : issue);
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  expect(host.textContent).toContain('Select an issue to view alongside the list.');
+  const list = host.querySelector('div[aria-label="List view"]')!;
+  const search = host.querySelector('input[aria-label="Search issues"]') as HTMLInputElement;
+  await fill(search, 'onboarding');
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  list.scrollTop = 120;
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(issue.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-1');
+  await click(host.querySelector('button[aria-label="Review onboarding · Open"]')!);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(second.title);
+  expect(host.querySelector('[aria-current="true"]')?.textContent).toContain(second.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-2');
+  expect(search.value).toBe('onboarding');
+  expect(list.scrollTop).toBe(120);
+  await click(button('Issues'));
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('[aria-current="true"]')).toBeNull();
+});
+
+it('returns to list or board view without leaving an invisible selected issue', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"]')).toBeNull();
+  expect(host.querySelector('button[aria-label="Board view"]')?.getAttribute('aria-pressed')).toBe('true');
+  await click(host.querySelector('button[aria-label="List view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('input[aria-label="Search issues"]')).toBeNull();
+  expect(host.querySelector('h1')?.textContent).toBe(issue.title);
+});
+
+it('clears the split detail when its issue is deleted from the list', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Delete issue “Improve onboarding”"]')!);
+  expect(mocks.api.deleteIssue).toHaveBeenCalledWith(issue.id);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"] h1')).toBeNull();
+});

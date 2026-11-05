@@ -169,6 +169,8 @@ export const messages: Messages = {
     allStatuses: "所有状态",
     list: "列表视图",
     board: "看板视图",
+    split: "分栏视图",
+    selectIssue: "选择一个事项，在列表旁查看详情。",
     loadMore: "加载更多",
     emptyTitle: "从值得讨论的事情开始",
     emptyDescription: "提出问题、探索想法，或与团队规划变更。准备好后再邀请智能体参与。",
