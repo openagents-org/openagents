@@ -360,6 +360,13 @@
     "useTerminal": "用终端登录",
     "verifying": "正在确认登录…"
   },
+  "codexApiMode": {
+    "label": "API 模式",
+    "responses": "编程 Agent · Responses API",
+    "chat": "仅聊天 · Chat Completions API",
+    "responsesHint": "通过 Codex CLI 运行，支持工具和会话记忆。需要安装 Codex，且接口支持 Responses API。",
+    "chatHint": "直接向接口发送聊天请求，不使用 Codex 工具或 CLI 会话记忆。"
+  },
   "shared": {
     "thisComputer": "此电脑",
     "runsHere": "运行设备：此电脑",

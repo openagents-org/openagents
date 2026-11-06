@@ -182,6 +182,122 @@ describe("httpRequestOnce timeouts", () => {
  * matched no branch fell through to the generic OpenAI path and came back as
  * "No API key to test for this agent", with the key plainly in the form.
  */
+describe("testLLMConnection Codex wire API", () => {
+  const env = {
+    OPENAI_API_KEY: "test-key",
+    OPENAI_BASE_URL: "https://relay.example.com/v1",
+    CODEX_MODEL: "test-model",
+  }
+
+  it.each([
+    ["codex", "responses", "responses"],
+    ["codex", "chat", "chat/completions"],
+    ["openclaw", "responses", "chat/completions"],
+  ])("routes the actual manager call for %s / %s", async (agentType, mode, endpoint) => {
+    const { AgentManager } = await import("../agent-manager")
+    script = [ok(endpoint === "responses" ? JSON.stringify({ output_text: "Hello" }) : CHAT_OK("test-model"))]
+    // Invoke the real method without bootstrapping a daemon or reading credentials.
+    const manager = Object.create(AgentManager.prototype) as InstanceType<typeof AgentManager>
+    const result = await manager.testLLM({ ...env, CODEX_WIRE_API: mode }, agentType)
+    expect(result.success).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe(`https://relay.example.com/v1/${endpoint}`)
+  })
+
+  it.each([
+    { output_text: "Hello from Responses" },
+    { output: [{ content: [{ type: "output_text", text: "Hello from Responses" }] }] },
+  ])("uses Responses and reads its reply: %j", async (reply) => {
+    script = [ok(JSON.stringify({ model: "test-model", ...reply }))]
+    const result = await testLLMConnection(
+      { ...env, CODEX_WIRE_API: "responses" },
+      "codex",
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe("https://relay.example.com/v1/responses")
+    expect(calls[0].method).toBe("POST")
+    expect(calls[0].headers.authorization).toBe("Bearer test-key")
+    expect(JSON.parse(calls[0].body)).toEqual({
+      model: "test-model", input: "Say hi in 5 words.", max_output_tokens: 16,
+    })
+    expect(result).toEqual({
+      success: true, model: "test-model", response: "Hello from Responses",
+    })
+  })
+
+  it.each(["chat", "", undefined])("preserves Chat for mode %s", async (mode) => {
+    script = [ok(CHAT_OK("test-model"))]
+    const result = await testLLMConnection(
+      { ...env, ...(mode === undefined ? {} : { CODEX_WIRE_API: mode }) },
+      "codex",
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe("https://relay.example.com/v1/chat/completions")
+    expect(JSON.parse(calls[0].body)).toEqual({
+      model: "test-model", max_tokens: 16,
+      messages: [{ role: "user", content: "Say hi in 5 words." }],
+    })
+    expect(result).toEqual({
+      success: true, model: "test-model", response: "Hi there, how are you?",
+    })
+  })
+
+  it("matches the Codex adapter's case-insensitive Responses mode", async () => {
+    script = [ok(JSON.stringify({ output_text: "Hi" }))]
+    const result = await testLLMConnection(
+      { ...env, CODEX_WIRE_API: "RESPONSES" },
+      "codex",
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe("https://relay.example.com/v1/responses")
+    expect(result.response).toBe("Hi")
+  })
+
+  it("reports a rejected Responses request without falling back to Chat", async () => {
+    script = [{ kind: "ok", status: 401, body: "invalid api key" }]
+    const result = await testLLMConnection(
+      { ...env, CODEX_WIRE_API: "responses" },
+      "codex",
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe("https://relay.example.com/v1/responses")
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("HTTP 401")
+  })
+
+  it.each(["opencode", "openclaw", undefined])(
+    "ignores Codex mode for agent %s",
+    async (agentType) => {
+      script = [ok(CHAT_OK("test-model"))]
+      const result = await testLLMConnection(
+        { ...env, CODEX_WIRE_API: "responses" },
+        agentType,
+      )
+      expect(result.success).toBe(true)
+      expect(calls).toHaveLength(1)
+      expect(calls[0].url).toBe("https://relay.example.com/v1/chat/completions")
+      expect(JSON.parse(calls[0].body)).toHaveProperty("messages")
+    },
+  )
+
+  it("discovers the model before probing Responses when no model is configured", async () => {
+    script = [
+      ok(JSON.stringify({ data: [{ id: "served-model" }] })),
+      ok(JSON.stringify({ model: "served-model", output_text: "Hi" })),
+    ]
+    const result = await testLLMConnection(
+      { ...env, CODEX_MODEL: "", CODEX_WIRE_API: "responses" },
+      "codex",
+    )
+    expect(calls.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: "GET", url: "https://relay.example.com/v1/models" },
+      { method: "POST", url: "https://relay.example.com/v1/responses" },
+    ])
+    expect(JSON.parse(calls[1].body).model).toBe("served-model")
+    expect(result).toEqual({ success: true, model: "served-model", response: "Hi" })
+  })
+})
+
 describe("testLLMConnection routing", () => {
   // The form shows the registry's default base URL but an untouched field
   // never lands in its values, so the probe got none — and a MiMo key was
