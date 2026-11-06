@@ -3,6 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { stripVTControlCharacters } = require('node:util');
 const { execSync, execFileSync, exec, execFile, spawnSync } = require('child_process');
 const {
   whichBinary,
@@ -94,7 +95,7 @@ function loginVerdict(checkReady, out, code) {
   };
   const signedIn = compile(checkReady && checkReady.logged_in_pattern);
   const signedOut = compile(checkReady && checkReady.logged_out_pattern);
-  const text = String(out || '');
+  const text = stripVTControlCharacters(String(out || ''));
   if (signedIn && signedIn.test(text)) return true;
   if (signedOut && signedOut.test(text)) return false;
   if (!text.trim() || code !== 0) return null;
@@ -1340,8 +1341,11 @@ class Installer {
     let verdict = null;
     try {
       const run = this._spawnLoginStatus(binary, args, command);
-      if (!run.error) {
-        verdict = loginVerdict(checkReady, `${run.stdout || ''}\n${run.stderr || ''}`, run.status);
+      if (!run.error || run.error.code === 'ETIMEDOUT') {
+        // Hermes can report a login before unrelated terminal/plugin checks
+        // time out. Keep explicit evidence, but never infer a verdict from an
+        // incomplete report merely because it did not match a pattern.
+        verdict = loginVerdict(checkReady, `${run.stdout || ''}\n${run.stderr || ''}`, run.error ? null : run.status);
       }
     } catch {}
 
@@ -1361,14 +1365,18 @@ class Installer {
     const opts = {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: getEnhancedEnv(),
+      env: { ...getEnhancedEnv(), PYTHONUNBUFFERED: '1' },
       cwd: os.homedir(),
       timeout: LOGIN_STATUS_TIMEOUT_MS,
       windowsHide: true,
     };
     if (bridgedCommandString(binary, args)) return run(command, { ...opts, shell: true });
     if (process.platform === 'win32') {
-      const own = resolveCursorNodeEntry(binary, opts.env);
+      // Cursor's default-install fallback belongs only to Cursor. Looking it
+      // up for Hermes (or any other CLI) ran Cursor's status in its place.
+      const own = /^(?:cursor-agent|agent)(?:\.(?:cmd|bat|exe|ps1))?$/i.test(path.basename(binary))
+        ? resolveCursorNodeEntry(binary, opts.env)
+        : null;
       if (!own) return run(command, { ...opts, shell: true });
       const [node, entry] = own;
       // What cursor-agent.cmd would have set before handing over to node.

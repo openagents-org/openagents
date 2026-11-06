@@ -376,7 +376,12 @@ class Daemon {
     const own = Object.entries(a.env || {})
       .filter(([k]) => !skip.has(k))
       .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
-    return crypto.createHash('sha256').update(JSON.stringify([a.type, own])).digest('hex');
+    const identity = [a.type, own];
+    if (a.type === 'hermes' && a.name) {
+      const profile = require('./adapters/hermes').prototype._resolveProfile(null, a.name);
+      if (profile !== 'default') identity.push(profile);
+    }
+    return crypto.createHash('sha256').update(JSON.stringify(identity)).digest('hex');
   }
 
   /**

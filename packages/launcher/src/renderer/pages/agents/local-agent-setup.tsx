@@ -10,7 +10,7 @@ import { AuthStatusBanner, CliLoginBlock } from "@renderer/components/agent-auth
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
-import { hasModelPicker } from "@renderer/lib/model-fields"
+import { hasModelPicker, isModelField } from "@renderer/lib/model-fields"
 import { isCliLoginDetected, modelsForTab, preferredAuthTab } from "@renderer/lib/agent-auth"
 import { isCliLogin } from "../../../shared/agent-auth-mode"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "@renderer/types"
@@ -157,7 +157,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   }
   const publish = (next: Record<string, string>, fs = fields, tab = tabRef.current): void => callback.current({ type, name, fields: fs, values: next, initial: initial.current,
     blocked: blockedBy(next), reveal, authTab: loginCmd && fs.length > 0 && decided.current ? tab : undefined })
-  const modelNames = (fs: EnvField[]): string[] => fs.filter((field) => hasModelPicker(type, field.name)).map((field) => field.name)
+  const modelNames = (fs: EnvField[]): string[] => fs.filter((field) => isModelField(field.name)).map((field) => field.name)
   // What a tab shows once chosen: the sign-in tab drops a model that came with the type's key.
   const shownFor = (tab: "cli" | "key", next: Record<string, string>, fs = fields): Record<string, string> =>
     decided.current ? modelsForTab(tab, modelNames(fs), next, typeEnv.current, instanceEnv.current) : next

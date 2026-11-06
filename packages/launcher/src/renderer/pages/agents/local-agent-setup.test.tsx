@@ -18,6 +18,11 @@ const FIELDS: Record<string, EnvField[]> = {
     { name: "CODEBUDDY_API_KEY", required: true, password: true },
     { name: "CODEBUDDY_BASE_URL" },
   ] as EnvField[],
+  hermes: [
+    { name: "LLM_API_KEY", password: true },
+    { name: "LLM_BASE_URL" },
+    { name: "LLM_MODEL" },
+  ] as EnvField[],
 }
 
 let api: Api
@@ -128,6 +133,17 @@ describe("LocalConfigurationFields — signing in instead of a key", () => {
     return onChange
   }
   const last = (onChange: ReturnType<typeof open>) => onChange.mock.calls.at(-1)?.[0]
+
+  it("drops the inherited Hermes relay model even though its sign-in tab has no model picker", async () => {
+    const { onChange } = setup("hermes", { LLM_API_KEY: "old-key", LLM_MODEL: "qwen3.7-plus" },
+      { name: "hermes", installed: true, check_ready: { login_command: "hermes setup" } })
+    const user = userEvent.setup()
+    await user.click(await screen.findByTestId("auth-tab-cli"))
+    await waitFor(() => expect(last(onChange)?.authTab).toBe("cli"))
+    expect(last(onChange)?.values.LLM_MODEL).toBe("")
+    await user.click(screen.getByTestId("auth-tab-key"))
+    await waitFor(() => expect(last(onChange)?.values.LLM_MODEL).toBe("qwen3.7-plus"))
+  })
 
   it("a new agent on the sign-in tab does not take the model saved with the type's key", async () => {
     const onChange = open(undefined, { CODEX_MODEL: "openai-gpt-oss-20b" })
