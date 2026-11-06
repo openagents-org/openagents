@@ -8,6 +8,7 @@ uses the openai library with a per-provider base_url.
 
 import base64
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -194,7 +195,7 @@ _BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
             ModelInfo("anthropic/claude-opus-5", "chat", "Claude Opus 5"),
             ModelInfo("grok/grok-4.3", "chat", "Grok 4.3"),
             ModelInfo("deepseek/deepseek-v4-pro", "chat", "DeepSeek V4 Pro"),
-            ModelInfo("minimax/minimax-m2.7", "chat", "MiniMax M2.7"),
+            ModelInfo("minimax/minimax-m3", "chat", "MiniMax M3"),
             ModelInfo("qwen/qwen3.7-max", "chat", "Qwen3.7 Max"),
         ],
     ),
@@ -416,6 +417,31 @@ async def list_models_live(provider: str, api_key: str, base_url: Optional[str] 
             if mid:
                 out.append({"id": mid, "label": mid, "category": "chat"})
         out.sort(key=lambda x: x["id"])
+        # Curate ordinary MiniMax text suggestions only on verified gateways.
+        # Explicit/saved model IDs remain accepted by validate_provider_model;
+        # custom endpoints and other providers keep their advertised models.
+        minimax_models = {
+            ("orcarouter", "https://api.orcarouter.ai/v1"): [
+                "minimax/minimax-m3",
+            ],
+            ("openrouter", "https://openrouter.ai/api/v1"): [
+                "minimax/minimax-m3.1-flash:free",
+                "minimax/minimax-m3",
+            ],
+        }.get((provider, base))
+        if minimax_models is not None:
+            def is_minimax_text(model):
+                return re.match(r"minimax/minimax-(?:m\d|(?:text-)?01)", model["id"].lower()) is not None
+
+            out = [
+                m for m in out
+                if not is_minimax_text(m) or m["id"] in minimax_models
+            ]
+            current = iter(sorted(
+                (m for m in out if is_minimax_text(m)),
+                key=lambda m: minimax_models.index(m["id"]),
+            ))
+            out = [next(current) if is_minimax_text(m) else m for m in out]
         return out[:300]
 
 
