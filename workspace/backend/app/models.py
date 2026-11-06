@@ -1244,6 +1244,24 @@ class ShareSnapshot(Base):
     )
 
 
+class FilePublicLink(Base):
+    """An open link to one file: anyone holding the token can read it without
+    signing in. One live link per file; revoking stamps revoked_at."""
+    __tablename__ = "file_public_links"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(Text, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, unique=True, nullable=False)
+    created_by = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_file_public_links_file", "file_id"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Skill authoring + public registry (MVP)
 # ---------------------------------------------------------------------------
