@@ -119,6 +119,34 @@ INLINE_SAFE_CONTENT_TYPES = {
 }
 
 
+def file_response(record: FileRecord, data: bytes, disposition: str) -> Response:
+    """The bytes of [record] with its name in Content-Disposition."""
+    # RFC 6266 / RFC 5987: HTTP headers are Latin-1 only, so non-ASCII
+    # filenames (e.g. "多媒体文件.txt") have to go through the
+    # filename*=UTF-8''<percent-encoded> form with an ASCII fallback.
+    # Without this, Starlette raises during header encoding and the
+    # whole response becomes a 500.
+    filename = record.filename or "file"
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    # Quotes and backslashes break the quoted-string in filename="..."
+    ascii_fallback = ascii_fallback.replace("\\", "_").replace('"', "_")
+    encoded = quote(filename, safe="")
+    return Response(
+        content=data,
+        media_type=record.content_type,
+        headers={
+            "Content-Disposition": (
+                f'{disposition}; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{encoded}"
+            ),
+            "Content-Length": str(len(data)),
+            # Never let the browser MIME-sniff a download into an executable
+            # type (e.g. sniff a "text/plain" file as HTML).
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 def _organize_filename(filename: str, content_type: str, folder: Optional[str] = None) -> str:
     """Use the personal default for bare names, preserving explicit destinations."""
     # Already in a folder — don't reorganize
@@ -1880,32 +1908,7 @@ def download_file(
     ct = (record.content_type or "").split(";")[0].strip().lower()
     disposition = "inline" if ct in INLINE_SAFE_CONTENT_TYPES else "attachment"
 
-    # RFC 6266 / RFC 5987: HTTP headers are Latin-1 only, so non-ASCII
-    # filenames (e.g. "多媒体文件.txt") have to go through the
-    # filename*=UTF-8''<percent-encoded> form with an ASCII fallback.
-    # Without this, Starlette raises during header encoding and the
-    # whole response becomes a 500.
-    filename = record.filename or "file"
-    ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
-    # Quotes and backslashes break the quoted-string in filename="..."
-    ascii_fallback = ascii_fallback.replace("\\", "_").replace('"', "_")
-    encoded = quote(filename, safe="")
-    disposition_header = (
-        f'{disposition}; filename="{ascii_fallback}"; '
-        f"filename*=UTF-8''{encoded}"
-    )
-
-    return Response(
-        content=data,
-        media_type=record.content_type,
-        headers={
-            "Content-Disposition": disposition_header,
-            "Content-Length": str(len(data)),
-            # Never let the browser MIME-sniff a download into an executable
-            # type (e.g. sniff a "text/plain" file as HTML).
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
+    return file_response(record, data, disposition)
 
 
 # ---------------------------------------------------------------------------
