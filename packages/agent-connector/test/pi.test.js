@@ -466,6 +466,51 @@ describe('PiAdapter — launch command', () => {
     await shutdown(a);
   });
 
+  it('isolates a workspace API key from native provider login credentials', async () => {
+    const log = path.join(tmpRoot, `argv-isolated-key-${Date.now()}.json`);
+    const secret = 'workspace-provider-key';
+    const a = makeAdapter({
+      agentEnv: {
+        FAKE_SCENARIO: 'complete',
+        FAKE_ARGV_LOG: log,
+        PI_MODEL: 'relay-model',
+        PI_BASE_URL: 'https://api.deepseek.com',
+        PI_API_KEY: secret,
+      },
+    });
+    try {
+      await a._handleMessage(msg('hello'));
+      const snap = readArgvLog(log);
+      const provider = snap.argv[snap.argv.indexOf('--provider') + 1];
+      assert.equal(provider, 'openagents-openai');
+      assert.equal(snap.env.PI_PROVIDER, 'openai');
+      assert.equal(snap.env.PI_API_KEY, secret);
+      assert.ok(!snap.argv.some((arg) => String(arg).includes(secret)));
+    } finally {
+      await shutdown(a);
+    }
+  });
+
+  it('preserves a Pi-managed custom provider when no Launcher endpoint is configured', async () => {
+    const log = path.join(tmpRoot, `argv-pi-managed-${Date.now()}.json`);
+    const a = makeAdapter({
+      agentEnv: {
+        FAKE_SCENARIO: 'complete',
+        FAKE_ARGV_LOG: log,
+        PI_PROVIDER: 'custom',
+        PI_MODEL: 'existing-model',
+        PI_API_KEY: 'launcher-key-without-endpoint',
+      },
+    });
+    try {
+      await a._handleMessage(msg('hello'));
+      const snap = readArgvLog(log);
+      assert.equal(snap.argv[snap.argv.indexOf('--provider') + 1], 'custom');
+    } finally {
+      await shutdown(a);
+    }
+  });
+
   it('requires provider and model before launching a custom base URL', async () => {
     const a = makeAdapter({
       agentEnv: { FAKE_SCENARIO: 'complete', PI_BASE_URL: 'https://relay.example/v1' },
@@ -496,7 +541,7 @@ describe('PiAdapter — launch command', () => {
       let registered;
       configure({ registerProvider: (provider, config) => { registered = { provider, config }; } });
 
-      assert.equal(registered.provider, 'anthropic');
+      assert.equal(registered.provider, 'openagents-anthropic');
       assert.equal(registered.config.baseUrl, 'https://relay.example');
       assert.equal(registered.config.api, 'anthropic-messages');
       assert.equal(registered.config.apiKey, 'relay-key-in-memory-only');
@@ -533,7 +578,7 @@ describe('PiAdapter — launch command', () => {
       let registered;
       configure({ registerProvider: (provider, config) => { registered = { provider, config }; } });
 
-      assert.equal(registered.provider, 'deepseek');
+      assert.equal(registered.provider, 'openagents-deepseek');
       assert.equal(registered.config.baseUrl, 'https://api.deepseek.com/v1');
       assert.equal(registered.config.api, 'openai-completions');
       assert.equal(registered.config.apiKey, 'native-key-in-memory-only');

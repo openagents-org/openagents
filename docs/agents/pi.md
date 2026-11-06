@@ -222,12 +222,33 @@ adapter leaves that file completely alone. So both work:
   `~/.pi/agent/auth.json` contains at least one top-level provider entry (values
   are never logged or returned; an auto-created empty `{}` stays signed out), **or**
 - set a provider API key in the launcher — it is injected as an environment
-  variable.
+  variable. With a model and a supported native provider or explicit base URL,
+  the adapter registers a process-local `openagents-<provider>` so a stored credential
+  for the native provider cannot override that key or reach a relay endpoint.
+  Without a Launcher key, Pi continues to reuse its existing login.
 
 **API keys are never passed as command-line arguments.** `--api-key` is never
 emitted, so a key cannot appear in `ps`, a crash dump, a log line, the registry
 or a session file. A test asserts the key is absent from argv and present in
 the child's environment.
+
+### Workspace model selection
+
+For a Pi agent using the device's existing sign-in, the workspace model picker
+uses the models reported by `pi --list-models` on that device. The launcher
+reports these through `agn models pi --json --sign-in` without sending a model
+prompt. Choices use provider-qualified ids such as `openai/gpt-6.1-sol`, so
+models with the same name on different providers remain distinct.
+
+Pi reports its configured providers' catalogs; inclusion does not guarantee
+that the signed-in subscription can call every listed model. Choose a model
+supported by that account. If the device cannot list models yet, select
+**Custom model id…** in the workspace to enter an id directly.
+
+**Automatic (agent default)** leaves the model to Pi's saved settings and session.
+Signing in does not replace an old default model with a subscription-compatible
+one. An explicit model selection applies to this agent without changing other
+agents or the user's global Pi settings.
 
 ### Custom endpoints
 
