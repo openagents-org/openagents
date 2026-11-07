@@ -11,7 +11,7 @@ import { YumiDmIntro } from './yumi-dm-intro';
 import { ChatInput, type PendingFile } from './chat-input';
 import { ReplyCitation, citationFor } from './reply-citation';
 import { ThreadStatusBar } from './thread-status-bar';
-import { EmptyConversation, EmptyState } from './empty-state';
+import { EmptyConversation } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { useThreadBrowserMessages } from '@/hooks/use-thread-browser-messages';
@@ -171,7 +171,9 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, loading: workspaceLoading, workspaceLoadError, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
+  const hasConnectedAgent = agents.some((agent) => !agent.builtin && agent.status === 'online');
+  const needsConnection = !workspaceLoading && !workspaceLoadError && !hasConnectedAgent;
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   // Snapshot on open: polling replaces routine objects, and the dialog resets
@@ -227,6 +229,7 @@ export function ChatView() {
   const {
     isMobile,
     openMobileList,
+    openView,
     viewMode,
     splitBrowser,
     setSplitBrowser,
@@ -292,8 +295,8 @@ export function ChatView() {
     initialMessages: initialMessagesRef.current,
   });
   const { notifyFocus, notifyBlur, notifyTyping } = useComposingSignal(currentSessionId);
-  // Every step shows by default; the toggle is there to hide them.
-  const [showAllSteps, setShowAllSteps] = useState(true);
+  // Keep command history out of the conversation by default; opt in with the steps toggle.
+  const [showAllSteps, setShowAllSteps] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -926,7 +929,7 @@ export function ChatView() {
           the thread for it. Shown for single-agent threads too, not just groups. */}
       {(() => {
         const participants = currentSession?.participants || [];
-        if (participants.length === 0) return null;
+        if (participants.length === 0 || needsConnection) return null;
         const byName = new Map(agents.map((a) => [a.agentName, a]));
         const offline = participants.filter((p) => byName.get(p)?.status === 'offline');
         if (offline.length === 0) return null;
@@ -1009,6 +1012,12 @@ export function ChatView() {
         );
       })()}
 
+      {needsConnection && !dmWithPerson && (
+        <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b bg-brand/5 px-4 py-2 text-xs text-muted-foreground">
+          <span>{t('chat.connectAgentNotice')}</span>
+          <button type="button" onClick={() => openView('connect')} className="shrink-0 rounded text-brand font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('nav.connectAgent')}</button>
+        </div>
+      )}
       {/* Messages */}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         <ThreadLiveBrowser key={`live-browser:${currentSessionId}`} messages={browserMessages} />
@@ -1033,7 +1042,7 @@ export function ChatView() {
             return dmBuiltin ? (
               <YumiDmIntro agentLabel={agentLabel(dmBuiltin)} onQuick={(text) => handleSend(text)} />
             ) : (
-              isDM ? <EmptyConversation name={dmTitle || undefined} human={dmWithPerson} self={dmCounterpart === myAddr} /> : <EmptyState />
+              isDM ? <EmptyConversation name={dmTitle || undefined} human={dmWithPerson} self={dmCounterpart === myAddr} /> : <EmptyConversation human={!hasConnectedAgent} />
             );
           })()
         ) : (

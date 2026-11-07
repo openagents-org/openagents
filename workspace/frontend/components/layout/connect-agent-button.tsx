@@ -2,6 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { SidebarMenuButton } from '@/components/ui/sidebar';
+import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
 
 type ConnectAgentButtonProps = {
@@ -13,6 +14,8 @@ type ConnectAgentButtonProps = {
 
 /** Shared connection entry point for the desktop rail and mobile drawer. */
 export function ConnectAgentButton({ label, active, showLabels = true, onClick }: ConnectAgentButtonProps) {
+  const { agents, loading, workspaceLoadError } = useWorkspace();
+  const needsAgent = !loading && !workspaceLoadError && !agents.some((agent) => !agent.builtin && agent.status === 'online');
   return (
     <SidebarMenuButton
       aria-label={label}
@@ -26,6 +29,7 @@ export function ConnectAgentButton({ label, active, showLabels = true, onClick }
         'data-active:bg-brand/10 data-active:text-brand data-active:hover:bg-brand/15',
         'focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
         !showLabels && 'justify-center! px-0',
+        needsAgent && !active && 'ring-2 ring-brand/50 ring-offset-2 ring-offset-sidebar',
       )}
     >
       <Plus aria-hidden="true" />

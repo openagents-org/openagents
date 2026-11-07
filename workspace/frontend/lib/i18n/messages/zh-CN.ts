@@ -536,6 +536,7 @@ export const messages: Messages = {
     removeFromThread: '从会话中移除',
     stop: '停止',
     stopping: '停止中…',
+    connectAgentNotice: '连接智能体后即可获得 AI 回复。你仍然可以在这里阅读和发送消息。',
     showAllSteps: '显示中间完整步骤',
     showLatestSteps: '只显示最新步骤',
     hideBrowserPreview: '隐藏浏览器预览',
