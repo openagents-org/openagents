@@ -5,7 +5,7 @@ type: "simple"
 
 config:
   agent_id: "bedrock-claude-001"
-  model_name: "anthropic.claude-3-sonnet-20240229-v1:0"
+  model_name: "anthropic.claude-sonnet-5-5"
   
   # Specify Bedrock provider
   provider: "bedrock"

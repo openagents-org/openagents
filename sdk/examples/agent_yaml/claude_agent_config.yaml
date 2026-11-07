@@ -5,7 +5,7 @@ type: "simple"
 
 config:
   agent_id: "claude-assistant-001"
-  model_name: "claude-3-5-sonnet-20241022"
+  model_name: "claude-sonnet-5-5"
   
   # Specify Anthropic provider
   provider: "claude"
