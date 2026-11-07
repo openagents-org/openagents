@@ -75,6 +75,10 @@ const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i
 // will not serve. Network advice would send the user the wrong way. The
 // terms of _serviceRefused, less "error sending request" (that one is a
 // connection failure), plus a 400 and a rejected model.
+// An endpoint refusing a field of the request. Codex sends the same fields
+// (client_metadata among them) on every turn and has no setting to drop one,
+// so on a custom Responses provider this fails every run.
+const PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
 const SERVICE_REFUSAL = /\b(400|401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthori[sz]ed|forbidden|model_not_found|model\b[^\n]{0,80}?\b(?:not supported|does not exist|not available)/i;
 // How many of stderr's last lines count as evidence of a lost connection.
 // codex logs `WARN … failed to refresh available models: request timed out`
@@ -777,7 +781,7 @@ class CodexAdapter extends BaseAdapter {
    * reply, instead of a generic "No response generated".
    */
   async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
-    const detail = CodexAdapter._failureDetail(result);
+    const detail = CodexAdapter._failureDetail(result, { customProvider: this._customProvider });
     if (partial) {
       const body = detail
         ? `It stopped before finishing this task.\n\n> ${detail}`
@@ -825,13 +829,13 @@ class CodexAdapter extends BaseAdapter {
    * The cap applies to the quoted reason, before the advice is added, so a
    * long stderr cannot push the advice out of the message.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null } = {}) {
     const raw = String(errorMessage || '').trim()
       || CodexAdapter._stderrReason(stderr)
       || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
-    return reason ? CodexAdapter._explain(reason, stderr) : '';
+    return reason ? CodexAdapter._explain(reason, stderr, { customProvider }) : '';
   }
 
   /**
@@ -896,8 +900,14 @@ class CodexAdapter extends BaseAdapter {
       for (const key of ['detail', 'message', 'error']) {
         const v = parsed && parsed[key];
         if (typeof v === 'string' && v.trim()) return v.trim();
-        // OpenAI also nests as { error: { message } }.
-        if (v && typeof v.message === 'string' && v.message.trim()) return v.message.trim();
+        // OpenAI also nests as { error: { message } }. Its `param` names the
+        // field a 400 is about — "Unsupported Responses request parameter."
+        // alone did not say which.
+        if (v && typeof v.message === 'string' && v.message.trim()) {
+          const message = v.message.trim();
+          const param = typeof v.param === 'string' ? v.param.trim() : '';
+          return param && !message.includes(param) ? `${message} (parameter: ${param})` : message;
+        }
       }
     } catch {}
     return text;
@@ -912,7 +922,20 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail, stderr = '') {
+  static _explain(detail, stderr = '', { customProvider = null } = {}) {
+    // A custom Responses endpoint refusing a field Codex always sends. Nothing
+    // the user retries changes that; which endpoint to use, or the chat-only
+    // mode, does.
+    if (customProvider && PARAM_REFUSED.test(detail)) {
+      let host = '';
+      try { host = new URL(customProvider.baseUrl).host; } catch {}
+      const m = /\(parameter: ([^)]+)\)/.exec(detail);
+      return `${detail}\n\nThe endpoint this agent is set to${host ? ` (${host})` : ''} takes Responses API requests ` +
+        `but refuses ${m ? `the "${m[1]}" field` : 'a field'} that the Codex CLI sends with every one of them, ` +
+        'and Codex has no setting to leave it out — so every run here will fail the same way. Point the agent ' +
+        'at an endpoint that supports the full Responses API, or edit the agent and set Agent capabilities to ' +
+        '"Chat only · Chat Completions API" (it then answers without running tools on this device).';
+    }
     // Ahead of the network check: a model that needs a newer Codex can
     // arrive with connection warnings in stderr, and the upgrade is the fix.
     if (/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {

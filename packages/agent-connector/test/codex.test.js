@@ -339,6 +339,53 @@ describe('Codex — user-visible failure message', () => {
   });
 });
 
+// What codex-cli 0.167.0 emits when its Responses endpoint refuses a field
+// it sends on every turn, verbatim from a run against a relay that does.
+// Reported 2026-11-07: the channel only ever read "Unsupported Responses
+// request parameter." — no field, nothing to do about it.
+const PARAM_REFUSED_TURN = '{"error":{"message":"Unsupported Responses request parameter.","type":"invalid_request_error","param":"client_metadata","code":"unsupported_parameter"}}';
+
+describe('Codex — a Responses endpoint that refuses a field Codex sends', () => {
+  const relay = { baseUrl: 'https://relay.example.com/v1', reasoningEffort: null };
+
+  it('names the field the endpoint refused', () => {
+    assert.strictEqual(CodexAdapter._unwrap(PARAM_REFUSED_TURN),
+      'Unsupported Responses request parameter. (parameter: client_metadata)');
+    // Not twice when the message already says it.
+    assert.strictEqual(
+      CodexAdapter._unwrap('{"error":{"message":"Unknown parameter: client_metadata","param":"client_metadata"}}'),
+      'Unknown parameter: client_metadata');
+  });
+
+  it('says every run there will fail, and what to change, on a custom provider', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: PARAM_REFUSED_TURN, stderr: '', exitCode: 1 }, { customProvider: relay });
+    const [quoted, advice] = detail.split('\n\n');
+    assert.strictEqual(quoted, 'Unsupported Responses request parameter. (parameter: client_metadata)');
+    assert.match(advice, /\(relay\.example\.com\) takes Responses API requests but refuses the "client_metadata" field/);
+    assert.match(advice, /every run here will fail the same way/);
+    assert.match(advice, /Agent capabilities to "Chat only · Chat Completions API"/);
+    assert.doesNotMatch(detail, /lost its connection/);
+  });
+
+  it('reaches the channel through the adapter\'s own provider', async () => {
+    const sent = [];
+    const fake = { _customProvider: relay, sendError: async (_c, content) => { sent.push(content); } };
+    await CodexAdapter.prototype._sendRunFailure.call(fake, 'chan', { errorMessage: PARAM_REFUSED_TURN, exitCode: 1, turnFailed: true });
+    assert.match(sent[0], /Codex couldn't run/);
+    assert.match(sent[0], /> Unsupported Responses request parameter\. \(parameter: client_metadata\)/);
+    assert.match(sent[0], /Chat only · Chat Completions API/);
+  });
+
+  it('gives no such advice on OpenAI itself, or for a refusal that is not about a field', () => {
+    const native = CodexAdapter._failureDetail({ errorMessage: PARAM_REFUSED_TURN, exitCode: 1 });
+    assert.strictEqual(native, 'Unsupported Responses request parameter. (parameter: client_metadata)');
+    const model = CodexAdapter._failureDetail(
+      { errorMessage: '{"error":{"message":"The model `gpt-9` does not exist","param":"model"}}', exitCode: 1 },
+      { customProvider: relay });
+    assert.doesNotMatch(model, /Agent capabilities/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // a run that spoke, then died
 // ---------------------------------------------------------------------------

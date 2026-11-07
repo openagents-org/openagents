@@ -14,6 +14,7 @@ src/
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
   agent-login.js     `agn login <agent>`: runs the agent CLI's own sign-in, found where OpenAgents installed it (not on the user's PATH), on device auth when headless (codex)
   postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
+  native-build.js    The per-platform optional dependency that holds codex / claude-code / opencode-ai's native binary, and whether npm left it out — the installer installs it on its own before any placeholder repair
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
   mcp-server.js      JSON-RPC 2.0 over stdio: exposes workspace tools to agents via MCP protocol
@@ -145,6 +146,7 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
+An npm install that exits 0 without the per-platform package holding the native build (npm drops a failed optional download silently; `omit=optional` skips them all): `native-build.test.js`. The installer installs that one package with `--include=optional --no-save`, then re-runs the wrapper's script where it copies the binary (claude-code, opencode-ai).
 
 Failure reporting: `run-failure.test.js` (the shared rules),
 `adapter-failure-reporting.test.js` (what each adapter's channel is actually

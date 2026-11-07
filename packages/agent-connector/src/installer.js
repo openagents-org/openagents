@@ -27,6 +27,7 @@ const { checkInstallPrereqs, missingPrereqError } = require('./install-preflight
 const { detectShadowedNodeShims, shadowedNodeWarning } = require('./node-shims');
 const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
+const { nativeBuildFor } = require('./native-build');
 const { classifyClineAuth } = require('./adapters/cline-stream');
 
 /**
@@ -1806,18 +1807,14 @@ class Installer {
             if (onData) onData(`\nDone! ${agentType} is now installed.\n`);
             resolve({ success: true, command: displayCmd });
           };
-          // An npm package whose postinstall was skipped exits 0 with a
-          // placeholder where its CLI should be. See _findPostinstallStub.
-          const stub = this._findPostinstallStub(agentType);
-          if (stub) {
-            this._repairPostinstallStub(agentType, stub, onData).then((problem) => {
-              if (!problem) return markDone();
-              if (onData) onData(`\n${problem}\n`);
-              reject(new Error(problem));
-            }, reject);
-            return;
-          }
-          markDone();
+          // An npm install can exit 0 with no runnable CLI: the native build
+          // left out, or the postinstall skipped. See finishNpmInstall (null
+          // for an agent that is not an npm install).
+          this.finishNpmInstall(agentType, onData).then((problem) => {
+            if (!problem) return markDone();
+            if (onData) onData(`\n${problem}\n`);
+            reject(new Error(problem));
+          }, reject);
         } else {
           // A partial install can leave a placeholder stub at
           // bin/<binary>.exe and npm-generated cmd-shims under
@@ -1913,7 +1910,25 @@ class Installer {
    * every other package and every other install.
    */
   _rebuildWithScripts(pkgName, prefix) {
-    const args = ['rebuild', pkgName, '--prefix', prefix, '--ignore-scripts=false', '--foreground-scripts'];
+    return this._runNpmIn(prefix, ['rebuild', pkgName, '--prefix', prefix, '--ignore-scripts=false', '--foreground-scripts']);
+  }
+
+  /**
+   * Install the per-platform package that holds a wrapper's native build, on
+   * its own (see native-build.js). `--include=optional` outranks an
+   * `omit=optional` in an npmrc for this one command; `--no-save` keeps it out
+   * of the runtime's package.json, so the next update resolves it afresh with
+   * the wrapper's new version instead of pinning this one.
+   */
+  _installNativeBuildPackage(build, prefix) {
+    return this._runNpmIn(prefix, [
+      'install', `${build.name}@${build.spec}`, '--prefix', prefix,
+      '--no-save', '--include=optional', '--foreground-scripts',
+    ]);
+  }
+
+  /** Run npm with an argv (never a shell string) in `prefix`; resolves its output, rejects with it. */
+  _runNpmIn(prefix, args) {
     const env = this._buildShellEnv();
     const run = this._execFileForTest || execFile;
     const runNpm = (file, argv, extra = {}) => new Promise((resolve, reject) => {
@@ -1936,9 +1951,10 @@ class Installer {
       const win = process.platform === 'win32';
       const npm = whichBinary('npm') || (win ? 'npm.cmd' : 'npm');
       // npm.cmd is a batch file and only runs through cmd.exe. With shell:true
-      // Node joins the argv with spaces, so quote the ones that contain any.
+      // Node joins the argv with spaces, so quote the ones that contain any —
+      // or a character cmd.exe would act on (a `^1.2.3` version range).
       if (win && /\.(cmd|bat)$/i.test(npm)) {
-        const q = (a) => (/\s/.test(a) ? `"${a}"` : a);
+        const q = (a) => (/[\s^&|<>()]/.test(a) ? `"${a}"` : a);
         return runNpm(q(npm), args.map(q), { shell: true });
       }
       return runNpm(npm, args);
@@ -1961,8 +1977,86 @@ class Installer {
    * package already taken back out.
    */
   async finishNpmInstall(agentType, onData) {
+    // The native build first: with it missing, claude-code's and opencode-ai's
+    // postinstall ran and had nothing to copy, and re-running the script (the
+    // placeholder repair below) cannot help until it is there.
+    const missing = this._findMissingNativeBuild(agentType);
+    let nativeRestored = false;
+    if (missing) {
+      const problem = await this._restoreNativeBuild(agentType, missing, onData);
+      if (problem) return problem;
+      nativeRestored = true;
+    }
     const stub = this._findPostinstallStub(agentType);
-    return stub ? this._repairPostinstallStub(agentType, stub, onData) : null;
+    return stub ? this._repairPostinstallStub(agentType, stub, onData, { nativeRestored }) : null;
+  }
+
+  /**
+   * The managed copy of an agent's npm package — `{ pkgName, pkgDir, prefix }`
+   * — or null when it is not an npm install or is not there.
+   */
+  _managedNpmPackage(agentType) {
+    const entry = this.registry.getEntry(agentType);
+    const pkgName = this._npmPackageFor(entry && entry.install);
+    if (!pkgName) return null;
+    const prefixes = [getRuntimePrefix(agentType), path.join(os.homedir(), '.openagents', 'nodejs')];
+    for (const prefix of prefixes) {
+      const pkgDir = path.join(prefix, 'node_modules', ...pkgName.split('/'));
+      if (fs.existsSync(path.join(pkgDir, 'package.json'))) return { pkgName, pkgDir, prefix };
+    }
+    return null;
+  }
+
+  /**
+   * The managed copy of an agent whose per-platform native build npm left out
+   * (see native-build.js), or null — also when the package has none to check.
+   *
+   * @returns {{ pkgName: string, pkgDir: string, prefix: string, build: object } | null}
+   */
+  _findMissingNativeBuild(agentType) {
+    const managed = this._managedNpmPackage(agentType);
+    if (!managed) return null;
+    const build = nativeBuildFor(managed.pkgDir);
+    if (!build || build.installed) return null;
+    return { ...managed, build };
+  }
+
+  /**
+   * Install the native build npm left out. Resolves null once it is in place,
+   * otherwise the message to show — with the package taken back out, as for a
+   * placeholder that cannot be repaired: left in place it reads as installed.
+   */
+  async _restoreNativeBuild(agentType, missing, onData) {
+    const entry = this.registry.getEntry(agentType);
+    const label = (entry && entry.label) || agentType;
+    const { build, prefix, pkgDir } = missing;
+    if (onData) {
+      onData(`\nnpm did not install ${build.name}, the package that holds ${label}'s native build for `
+        + `${build.target} (an optional dependency of ${build.pkgName}). Installing it on its own now.\n`);
+    }
+    let output = '';
+    try {
+      output = await this._installNativeBuildPackage(build, prefix);
+    } catch (e) {
+      output = (e && e.message) || '';
+    }
+    const now = nativeBuildFor(pkgDir);
+    if (now && now.installed) {
+      try { clearBinaryLookupCache(); } catch {}
+      if (onData) onData(`${build.name} is in place: ${now.installed}\n`);
+      return null;
+    }
+    try {
+      this._cleanStaleShims(agentType);
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    } catch {}
+    const tail = output.trim().slice(-2000);
+    return `${label} was downloaded, but not its native build for this computer: npm did not install `
+      + `${build.name} (an optional dependency of ${build.pkgName}), so ${label} cannot start. npm leaves `
+      + 'an optional dependency out without failing the install when its download fails, or when optional '
+      + 'dependencies are turned off (omit=optional in an npmrc). Installing it on its own failed too. '
+      + `Check this computer's connection to the npm registry, then install ${label} again.`
+      + (tail ? `\n\nnpm output:\n${tail}` : '');
   }
 
   /**
@@ -1986,22 +2080,25 @@ class Installer {
    * restores nothing, and with no placeholder left to notice the install gets
    * recorded as good.
    */
-  async _repairPostinstallStub(agentType, stub, onData) {
+  async _repairPostinstallStub(agentType, stub, onData, { nativeRestored = false } = {}) {
     const entry = this.registry.getEntry(agentType);
     const label = (entry && entry.label) || agentType;
     // The user asked npm to skip install scripts; this lets them say the
     // repair must not run one either.
     const optedOut = scriptRepairDisabled();
+    // With the native build only just restored, the script did run — it had
+    // nothing to copy. Otherwise npm skipped it.
+    const why = nativeRestored
+      ? `${stub.pkgName}'s install script ran before its native build was there, so the ${label} CLI is `
+        + 'still a placeholder.'
+      : `npm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
+        + 'a placeholder.';
     let output = '';
     if (optedOut) {
-      if (onData) {
-        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
-          + 'a placeholder. OPENAGENTS_NO_SCRIPT_REPAIR=1 is set, so it is not being run.\n');
-      }
+      if (onData) onData(`\n${why} OPENAGENTS_NO_SCRIPT_REPAIR=1 is set, so it is not being run.\n`);
     } else {
       if (onData) {
-        onData(`\nnpm skipped ${stub.pkgName}'s install script (ignore-scripts), so the ${label} CLI is only `
-          + 'a placeholder. Running it for this one package now — set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse.\n');
+        onData(`\n${why} Running it for this one package now — set OPENAGENTS_NO_SCRIPT_REPAIR=1 to refuse.\n`);
       }
       try {
         output = await this._rebuildWithScripts(stub.pkgName, stub.prefix);
@@ -2019,6 +2116,15 @@ class Installer {
       fs.rmSync(path.join(stub.prefix, 'node_modules', stub.pkgName), { recursive: true, force: true });
     } catch {}
     const tail = output.trim().slice(-2000);
+    if (nativeRestored) {
+      return `${label} was downloaded, but its setup could not be finished: ${stub.pkgName}'s `
+        + 'install script did not put its native build in place, so its CLI is only a placeholder. '
+        + (optedOut
+          ? 'OPENAGENTS_NO_SCRIPT_REPAIR=1 stops OpenAgents from running the script again. '
+          : 'Running the script again did not produce the binary either. ')
+        + `Install ${label} again.`
+        + (tail ? `\n\nnpm output:\n${tail}` : '');
+    }
     return `${label} was downloaded, but its setup could not be finished: ${stub.pkgName}'s `
       + 'postinstall script did not run, so its CLI is only a placeholder. npm is set to skip '
       + 'install scripts (ignore-scripts=true in an npmrc), and '

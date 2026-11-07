@@ -152,3 +152,57 @@ describe('networkErrorText', () => {
     assert.equal(networkErrorText(null), 'unknown network error');
   });
 });
+
+// Codex in Responses mode sends client_metadata on every turn. A relay that
+// refuses it passed the chat/completions test and failed every run.
+describe('testLLMConnection — the Responses API, asked the way Codex asks it', () => {
+  let server;
+  let base;
+  const seen = [];
+  let refuse = false;
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        seen.push({ url: req.url, body: parsed });
+        res.setHeader('content-type', 'application/json');
+        if (refuse && parsed.client_metadata) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: { message: 'Unsupported Responses request parameter.', type: 'invalid_request_error', param: 'client_metadata', code: 'unsupported_parameter' } }));
+          return;
+        }
+        res.end(JSON.stringify({
+          model: parsed.model,
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'Hi there, how are you' }] }],
+        }));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${server.address().port}/v1`;
+  });
+  after(() => new Promise((r) => server.close(r)));
+
+  it('posts to /responses with the fields Codex sends, and reads the reply', async () => {
+    refuse = false;
+    const res = await testLLMConnection({ OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: base }, { model: 'gpt-5.5', protocol: 'responses' });
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.equal(res.response, 'Hi there, how are you');
+    const last = seen.at(-1);
+    assert.equal(last.url, '/v1/responses');
+    assert.equal(last.body.model, 'gpt-5.5');
+    assert.equal(typeof last.body.client_metadata.session_id, 'string');
+    assert.equal(last.body.store, false);
+    assert.equal(last.body.messages, undefined);
+  });
+
+  it('fails, with the endpoint\'s own words, where the endpoint refuses one', async () => {
+    refuse = true;
+    const res = await testLLMConnection({ OPENAI_API_KEY: 'sk-test-123456', OPENAI_BASE_URL: base }, { model: 'gpt-5.5', protocol: 'responses' });
+    assert.equal(res.success, false);
+    assert.match(res.error, /^HTTP 400: .*Unsupported Responses request parameter.*"param":"client_metadata"/);
+  });
+});
+

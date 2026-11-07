@@ -481,6 +481,40 @@ describe('probeAgentType', () => {
     }
   });
 
+  it('tests a Codex agent in Responses mode on the Responses API, and names a refused field', async () => {
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    const calls = [];
+    const refusal = 'HTTP 400: {"error":{"message":"Unsupported Responses request parameter.","type":"invalid_request_error","param":"client_metadata","code":"unsupported_parameter"}}';
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (_env, opts) => { calls.push(opts); return { success: false, error: refusal }; } },
+    };
+    try {
+      const entry = { name: 'codex', label: 'Codex', probe: { args: ['exec', 'hi'], timeout_s: 30, skip_cli_with_key: true } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const relay = { OPENAI_API_KEY: 'sk-relay', OPENAI_BASE_URL: 'https://relay.example/v1' };
+
+      const r = await probeAgentType(c, 'codex', { agentEnv: { ...relay, CODEX_WIRE_API: 'responses' } });
+      assert.equal(calls.at(-1).protocol, 'responses');
+      assert.equal(r.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(r));
+      const text = r.guidance.join('\n');
+      assert.match(text, /refuses the "client_metadata" field that Codex sends with every one of them/);
+      assert.match(text, /Chat only · Chat Completions API/);
+
+      // Chat-only mode (direct API) keeps the chat test, and a parameter
+      // refusal there is not read as an incompatible endpoint.
+      const chat = await probeAgentType(c, 'codex', { agentEnv: { ...relay, CODEX_WIRE_API: 'chat' } });
+      assert.equal(calls.at(-1).protocol, undefined);
+      assert.notEqual(chat.code, CODE.ENDPOINT_INCOMPATIBLE);
+      // OpenAI itself is never tested as a custom Responses provider.
+      await probeAgentType(c, 'codex', { agentEnv: { OPENAI_API_KEY: 'sk-x', OPENAI_BASE_URL: 'https://api.openai.com/v1', CODEX_WIRE_API: 'responses' } });
+      assert.equal(calls.at(-1).protocol, undefined);
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
   it('skips the API call for an agent whose key is not a model API key', async () => {
     const path = require.resolve('../src/utils');
     const saved = require.cache[path];

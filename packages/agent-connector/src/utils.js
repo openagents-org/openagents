@@ -22,6 +22,7 @@ const VENDOR_HOSTS = /(^|\.)(openai\.com|moonshot\.ai|deepseek\.com|anthropic\.c
 const MODEL_REJECTED =
   /model.{0,60}?(is not available|does not exist|not found|unknown model|invalid model|no such model|not supported)|model_not_found/is;
 
+const crypto = require('crypto');
 const { networkErrorText } = require('./adapters/utils');
 
 /** One HTTP request. Resolves { status, data } or { error }; never rejects. */
@@ -94,7 +95,7 @@ async function servedModels(apiBase, headers) {
 const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
 
 /** Read one completion response into the result shape. */
-function completionResult(res, { isAnthropic, model }) {
+function completionResult(res, { isAnthropic, isResponses = false, model }) {
   if (res.error) return { success: false, error: res.error };
   const status = res.status;
   const data = String(res.data == null ? '' : res.data);
@@ -106,6 +107,10 @@ function completionResult(res, { isAnthropic, model }) {
     let text, usedModel;
     if (isAnthropic) {
       text = (parsed.content || [{}])[0].text || '';
+      usedModel = parsed.model || model || '?';
+    } else if (isResponses) {
+      const item = (Array.isArray(parsed.output) ? parsed.output : []).find((o) => o && Array.isArray(o.content));
+      text = parsed.output_text || (item && item.content.map((c) => (c && c.text) || '').join('')) || '';
       usedModel = parsed.model || model || '?';
     } else {
       text = (parsed.choices || [{}])[0]?.message?.content || '';
@@ -131,8 +136,10 @@ function completionResult(res, { isAnthropic, model }) {
  *   ANTHROPIC_MODEL), which `env` alone does not say; see agent-model.js.
  * @param {string} [opts.baseUrl] - The endpoint, when the caller knows it from
  *   a variable of the agent's own (DEEPSEEK_BASE_URL); see probe.js.
- * @param {'anthropic'|'openai'} [opts.protocol] - The API to speak, when the
- *   agent's config names it (Pi's PI_API_FORMAT) rather than its env shape.
+ * @param {'anthropic'|'openai'|'responses'} [opts.protocol] - The API to speak,
+ *   when the agent's config names it (Pi's PI_API_FORMAT, Codex's
+ *   CODEX_WIRE_API) rather than its env shape. 'responses' is OpenAI's
+ *   Responses API, asked the way the Codex CLI asks it (see below).
  * @returns {Promise<{success: boolean, model?: string, response?: string, error?: string}>}
  */
 async function testLLMConnection(env, opts = {}) {
@@ -206,16 +213,34 @@ async function testLLMConnection(env, opts = {}) {
     candidates = listed.includes(fallback) ? listed : listed.concat(fallback);
   }
 
+  const isResponses = opts.protocol === 'responses';
   let last = null;
   for (const candidate of candidates) {
-    const requestBody = {
-      model: candidate,
-      messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
-    };
-    if (hasKimiConfig) requestBody.max_tokens = 32;
-    else requestBody.max_completion_tokens = 32;
-    const res = await requestCompletion(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
-    last = completionResult(res, { isAnthropic: false, model: candidate });
+    let requestBody, url;
+    if (isResponses) {
+      // With the fields the Codex CLI sends on every turn that a minimal
+      // request leaves out. A relay that refuses one ("Unsupported Responses
+      // request parameter", param client_metadata) passed a plain
+      // chat/completions test here and then failed every message.
+      url = `${baseUrl}/responses`;
+      requestBody = {
+        model: candidate,
+        input: 'Say hi in 5 words.',
+        max_output_tokens: 16,
+        store: false,
+        client_metadata: { session_id: crypto.randomUUID() },
+      };
+    } else {
+      url = `${baseUrl}/chat/completions`;
+      requestBody = {
+        model: candidate,
+        messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
+      };
+      if (hasKimiConfig) requestBody.max_tokens = 32;
+      else requestBody.max_completion_tokens = 32;
+    }
+    const res = await requestCompletion(url, { headers, body: JSON.stringify(requestBody) });
+    last = completionResult(res, { isAnthropic: false, isResponses, model: candidate });
     if (last.success) return last;
     // Only a model WE picked moves on to the next one. A configured model is
     // sent as configured and its rejection reported as-is.

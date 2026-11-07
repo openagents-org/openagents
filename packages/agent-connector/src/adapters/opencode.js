@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
@@ -91,6 +91,7 @@ const FAILURE_MESSAGES = {
   permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
 
@@ -1373,6 +1374,9 @@ class OpenCodeAdapter extends BaseAdapter {
    * { category, diagnostic, detail }.
    */
   static _classifyFailure({ code, signal, stdout, stderr, stdoutErr } = {}) {
+    // OpenCode colours its errors even into a pipe; quoted as they came, the
+    // channel showed "\x1b[91m\x1b[1mError: \x1b[0m…".
+    stderr = stripAnsi(stderr);
     const err = stdoutErr || OpenCodeAdapter._extractErrorFromStdout(stdout || '');
     const status = err && err.status ? String(err.status) : '';
     const msg = (err && err.message) || '';
@@ -1383,9 +1387,15 @@ class OpenCodeAdapter extends BaseAdapter {
     const hay = `${name} ${status} ${msg} ${stderr || ''}`.toLowerCase();
     const has = (re) => re.test(hay);
 
+    const configError = OpenCodeAdapter._configError(stderr);
     let category;
     if (isPostinstallStubOutput(hay)) {
       category = 'install_incomplete';
+    } else if (configError) {
+      // Checked before the provider patterns: what is wrong with the file is
+      // free text ("Unrecognized key: model", "got {…401…}") that would read
+      // as a bad model or a rejected key.
+      category = 'config_invalid';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets
@@ -1419,8 +1429,50 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'unknown_error';
     }
 
-    const detail = OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
+    const detail = configError
+      ? OpenCodeAdapter._redact(configError).slice(0, 500)
+      : OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
     return { category, diagnostic, detail };
+  }
+
+  /**
+   * OpenCode's refusal of a config file, as one line: which file, and what is
+   * wrong with it — or null. Its two shapes (opencode-ai 1.17.11):
+   *
+   *   Error: Configuration is invalid at <file>
+   *   ↳ Expected { readonly "type": "local", ... } | …, got {"url":"…"} mcp.upsy
+   *   ↳ Missing key mcp.upsy.enabled
+   *
+   *   Error: Config file at <file> is not valid JSON(C):
+   *   --- JSONC Input --- … --- Errors ---
+   *   ValueExpected at line 1, column 15
+   *      Line 1: {"provider": {,}
+   *                           ^
+   *
+   * The first 200 characters of stderr usually ended inside the file's path,
+   * before the reason.
+   */
+  static _configError(text) {
+    const lines = stripAnsi(text).split(/\r?\n/);
+    const at = lines.findIndex((l) => /configuration is invalid|config file at .+ is not valid json/i.test(l));
+    if (at < 0) return null;
+    const head = lines[at].trim().replace(/^error:\s*/i, '').replace(/:\s*$/, '');
+    const reasons = [];
+    for (const l of lines.slice(at + 1)) {
+      const m = l.trim().match(/^↳\s*(.+)$/);
+      if (m) reasons.push(m[1]);
+    }
+    if (!reasons.length) {
+      const start = lines.findIndex((l) => l.trim() === '--- Errors ---');
+      for (const l of start < 0 ? [] : lines.slice(start + 1)) {
+        const t = l.trim();
+        if (/^---/.test(t)) break;
+        // The echoed source line and its caret, not reasons.
+        if (!t || /^line \d+:/i.test(t) || /^\^+$/.test(t)) continue;
+        reasons.push(t);
+      }
+    }
+    return reasons.length ? `${head}: ${reasons.join('; ')}` : head;
   }
 
   /** Category for an exit-0 run that produced no final assistant text. */
