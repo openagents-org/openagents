@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from app.access import extract_bearer, resolve_current_user
-from app.firebase_auth import looks_like_workspace_session
+from app.firebase_auth import looks_like_workspace_session, verify_identity_claims
 from app.config import config
 from app.database import get_db
 from app.response import ResponseCode, json_response, success_response
@@ -47,7 +47,19 @@ def campaign_status(
         bearer = extract_bearer(authorization)
         if bearer and not looks_like_workspace_session(bearer):
             campaign.sync_email_verification(db, user, bearer)
-    return success_response(campaign.status_payload(db, user))
+    # Keys are minted here only. A raw Firebase bearer may belong to an account
+    # created straight in Firebase, skipping openagents.org sign-up (captcha,
+    # per-IP cap): require openagents.org to know the account before minting.
+    # Workspace sessions come from the openagents.org hand-off (or Apple), so
+    # they are trusted as before.
+    confirmed = True
+    if db.get(campaign.CampaignAccount, user.id) is None:
+        bearer = extract_bearer(authorization)
+        if bearer and not looks_like_workspace_session(bearer):
+            claims = verify_identity_claims(bearer) or {}
+            if claims.get("provider") == "firebase":
+                confirmed = campaign.account_api_confirms(bearer) is True
+    return success_response(campaign.status_payload(db, user, account_confirmed=confirmed))
 
 
 @router.get("/models")
