@@ -14,6 +14,12 @@ unreachable from the dashboard.
 Two live cases produced this: the dashboard verification harness (it uses a
 fresh ``dashboard-verification-<hex>`` name as a scratch scope and posts into
 it) and the workflow engine's task threads (``task:<uuid>``).
+
+The same dead end exists for a *deleted* thread: issue and task deletion only
+set ``Channel.status = "deleted"``, the resolver had no status filter so it
+returned the tombstone, and ``uq_channels_ws_name`` covers every status so the
+name can never be created again. A post into it is therefore just as stranded
+until the row is revived.
 """
 
 from sqlalchemy import select
@@ -120,3 +126,76 @@ def test_materialized_thread_keeps_visibility_invariant(client, workspace, db):
     assert channel.name == MARK
     assert channel.title is None
     assert channel.created_by == "openagents:agent-alpha"
+
+
+def test_message_to_a_deleted_thread_revives_it(client, workspace, db):
+    """A deleted thread is a tombstone whose name can never be reused
+    (`uq_channels_ws_name` spans every status). A message into it must revive
+    the row instead of storing a message nobody can reach."""
+    assert _post(client, workspace, MARK, "before delete").status_code == 200
+    channel = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace["id"], Channel.name == MARK,
+        )
+    ).scalar_one()
+    channel.status = "deleted"
+    db.commit()
+
+    response = _post(client, workspace, MARK, "after delete")
+    assert response.status_code == 200, response.text
+    db.refresh(channel)
+    assert channel.status == "active", "posting left the thread deleted — invisible again"
+
+    # Id is preserved (the messages still belong to the same thread) ...
+    assert db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace["id"], Channel.name == MARK,
+        )
+    ).scalar_one().id == channel.id
+    # ... and the thread is reachable again, not merely stored.
+    discovery = client.get(
+        f"/v1/discover?network={workspace['id']}", headers=_headers(workspace),
+    ).json()["data"]
+    assert any(c["address"] == f"channel/{MARK}" for c in discovery["channels"])
+    participants = client.get(
+        f"/v1/channels/{MARK}/participants?network={workspace['id']}",
+        headers=_headers(workspace),
+    )
+    assert participants.status_code == 200, participants.text
+
+
+def test_revival_of_a_deleted_thread_keeps_its_identity(client, workspace, db):
+    """Reviving must not re-run channel.create: title, owner, visibility and
+    members stay exactly as the deleted thread had them."""
+    from app.models import ChannelHumanMember, ChannelMember
+
+    assert _post(client, workspace, MARK).status_code == 200
+    channel = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace["id"], Channel.name == MARK,
+        )
+    ).scalar_one()
+    channel.title = "Parked work"
+    channel.visibility = "private"
+    channel.owner_email = "owner@example.test"
+    db.add(ChannelHumanMember(channel_id=channel.id, user_email="owner@example.test"))
+    db.add(ChannelMember(channel_id=channel.id, agent_name="agent-beta"))
+    channel.status = "deleted"
+    db.commit()
+    channel_id = channel.id
+
+    assert _post(client, workspace, MARK, "resumed").status_code == 200
+    db.expire_all()  # the request used its own session; drop our cached copy
+    revived = db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    ).scalar_one()
+    assert revived.status == "active"
+    assert revived.title == "Parked work"
+    assert revived.visibility == "private"
+    assert revived.owner_email == "owner@example.test"
+    assert {m.user_email for m in db.execute(
+        select(ChannelHumanMember).where(ChannelHumanMember.channel_id == channel_id)
+    ).scalars()} == {"owner@example.test"}
+    assert {m.agent_name for m in db.execute(
+        select(ChannelMember).where(ChannelMember.channel_id == channel_id)
+    ).scalars()} >= {"agent-beta"}

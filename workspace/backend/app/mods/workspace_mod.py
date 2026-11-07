@@ -2292,6 +2292,17 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         ).scalar_one_or_none()
         if channel is None:
             channel = _materialize_channel(event, payload, workspace, db, channel_name)
+        elif channel.status == "deleted":
+            # A deleted thread is a tombstone, and `uq_channels_ws_name` spans
+            # every status, so its name can never be created again. A message
+            # into it would store and read back over `GET /v1/events?channel=`
+            # yet stay out of `/v1/discover`, because every thread endpoint
+            # filters `status != "deleted"` and answers 404. A message is
+            # evidence the thread is live again — revive it (title, owner and
+            # members are untouched).
+            channel.status = "active"
+            event.metadata["channel_revived"] = True
+            logger.info("workspace_mod: revived deleted thread %s", channel_name)
 
     from app.services.personal_assistant import is_personal_channel
     personal_channel = channel is not None and is_personal_channel(db, channel)
