@@ -12,6 +12,7 @@ from app.models import (
     CampaignAccount,
     CampaignGrant,
     EventRecord,
+    Node,
     User,
     Workspace,
     WorkspaceMember,
@@ -29,16 +30,22 @@ def _mk_user(db, email="u@example.com", verified=True):
     return user
 
 
-def _mk_workspace(db, user):
+def _mk_workspace(db, user, device=True):
+    """A workspace owned by `user`. By default it has a registered launcher
+    device, like a real user's (decision 2026-11-07: agents with nothing real
+    behind them don't count); pass device=False to model an API-only setup."""
     ws = Workspace(id=str(uuid.uuid4()), slug=uuid.uuid4().hex[:8], name="My Workspace")
     db.add(ws)
     db.add(WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner"))
+    if device:
+        db.add(Node(workspace_id=ws.id, node_key=uuid.uuid4().hex, hostname="dev-laptop", owner_email=user.email))
     db.commit()
     return ws
 
 
-def _mk_member(db, ws, name, agent_type):
-    db.add(WorkspaceMember(workspace_id=str(ws.id), agent_name=name, agent_type=agent_type))
+def _mk_member(db, ws, name, agent_type, server_host=None, working_dir=None):
+    db.add(WorkspaceMember(workspace_id=str(ws.id), agent_name=name, agent_type=agent_type,
+                           server_host=server_host, working_dir=working_dir))
     db.commit()
 
 
@@ -678,3 +685,83 @@ def test_plain_address_still_earns_when_plus_rule_is_on(db, campaign_on, gateway
     user = _mk_user(db, "monaf7276@gmail.com")
     assert campaign.ineligible_reason(user) is None
     assert campaign.ensure_account(db, user) is not None
+
+
+# --- Real backing for agents + openagents.org account (decision 2026-11-07) --
+
+def test_api_only_agent_earns_nothing(db, campaign_on, gateway):
+    """The 11-05 script: no device, fake agents on localhost:/tmp answering themselves."""
+    user = _mk_user(db, "p659179391090249761@gmail.com")
+    ws = _mk_workspace(db, user, device=False)
+    campaign.ensure_account(db, user)
+    with patch.object(campaign, "SessionLocal", lambda: _NoCloseSession(db)):
+        _mk_member(db, ws, "p1cli", "claude", server_host="localhost", working_dir="/tmp")
+        _mk_member(db, ws, "p1helper", "codex", server_host="localhost", working_dir="/tmp")
+        campaign.on_agent_joined(str(ws.id), "claude")
+        campaign.on_agent_joined(str(ws.id), "codex")
+        _mk_message(db, ws, "human:user")
+        _mk_message(db, ws, "openagents:p1cli")
+        campaign.on_agent_message(str(ws.id), "openagents:p1cli")
+        campaign.on_agent_message(str(ws.id), "openagents:p1helper")
+    campaign.reconcile(db, user.id)
+    assert campaign.total_granted(db, user.id) == 5.0      # signup only
+    assert campaign._connected_agent_types(db, user.id) == set()
+
+
+def test_agent_with_a_real_host_counts_without_a_registered_device(db, campaign_on, gateway):
+    """Older launchers/CLIs don't register a node but report the machine name."""
+    user = _mk_user(db, "legacy@gmail.com")
+    ws = _mk_workspace(db, user, device=False)
+    campaign.ensure_account(db, user)
+    _mk_member(db, ws, "claude-1", "claude", server_host="Stefs-Mac-Mini.local")
+    assert campaign._connected_agent_types(db, user.id) == {"claude"}
+
+
+def test_registered_device_makes_a_localhost_agent_count(db, campaign_on, gateway):
+    user = _mk_user(db, "node@gmail.com")
+    ws = _mk_workspace(db, user, device=True)
+    _mk_member(db, ws, "claude-1", "claude", server_host="localhost")
+    assert campaign._connected_agent_types(db, user.id) == {"claude"}
+
+
+def test_milestone_hooks_do_not_mint_a_key(db, campaign_on, gateway):
+    user = _mk_user(db, "nokey@gmail.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert db.get(CampaignAccount, user.id) is None
+    # The status view mints the key and reconcile catches the milestone up.
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["apiKey"]
+    assert campaign.total_granted(db, user.id) == 25.0
+
+
+def test_no_key_without_an_openagents_account(db, campaign_on, gateway):
+    user = _mk_user(db, "direct-firebase@gmail.com")
+    _mk_workspace(db, user)
+    assert campaign.status_payload(db, user, account_confirmed=False) == {"enabled": False}
+    assert db.get(CampaignAccount, user.id) is None
+    assert campaign.status_payload(db, user, account_confirmed=True)["apiKey"]
+
+
+def test_existing_key_is_kept_even_if_account_check_fails(db, campaign_on, gateway):
+    user = _mk_user(db, "had-key@gmail.com")
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=11, api_key="sk-old"))
+    db.commit()
+    assert campaign.status_payload(db, user, account_confirmed=False)["apiKey"] == "sk-old"
+
+
+@pytest.mark.parametrize("status,expected", [(200, True), (404, False), (500, None), (401, None)])
+def test_account_api_confirms(monkeypatch, status, expected):
+    monkeypatch.setattr(config, "ACCOUNT_API_URL", "https://endpoint.example")
+    resp = MagicMock(); resp.status_code = status
+    monkeypatch.setattr(campaign.httpx, "get", lambda *a, **k: resp)
+    assert campaign.account_api_confirms("firebase-id-token") is expected
+
+
+def test_account_api_confirms_without_bearer_or_on_error(monkeypatch):
+    monkeypatch.setattr(config, "ACCOUNT_API_URL", "https://endpoint.example")
+    assert campaign.account_api_confirms(None) is None
+    def boom(*a, **k): raise RuntimeError("down")
+    monkeypatch.setattr(campaign.httpx, "get", boom)
+    assert campaign.account_api_confirms("t") is None
