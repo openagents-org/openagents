@@ -575,8 +575,8 @@ class GeminiProvider(BaseModelProvider):
 
         # For now, simple text completion (tool calling requires more complex setup)
         if gemini_messages:
-            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else ""
-            response = await self.client.generate_content_async(last_message)
+            # Send the whole conversation, not just the last turn.
+            response = await self.client.generate_content_async(gemini_messages)
 
             result = {"content": response.text, "tool_calls": []}
 
