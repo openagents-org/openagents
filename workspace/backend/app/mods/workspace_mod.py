@@ -1448,6 +1448,19 @@ def _get_llm_client():
     return _llm_client, provider
 
 
+def _anthropic_text(resp) -> str:
+    """Join the text blocks of an Anthropic response.
+
+    Models that think by default put a ``thinking`` block first, so
+    ``content[0]`` is not guaranteed to carry ``.text``.
+    """
+    return "".join(
+        getattr(b, "text", "") or ""
+        for b in (resp.content or [])
+        if getattr(b, "type", None) == "text"
+    )
+
+
 async def _route_with_llm(
     channel, new_event: Event, db, workspace, workflow_instruction: Optional[str] = None,
     allow_human_stop: bool = False, allowed_agents: Optional[List[str]] = None,
@@ -1646,7 +1659,7 @@ async def _route_with_llm(
             **({"temperature": 0} if allow_human_stop else {}),
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        return _anthropic_text(response).strip()
 
     try:
         if dedicated_classifier:
@@ -1880,7 +1893,7 @@ def _classify_task_progress(task, latest_content: str, db, workspace) -> str:
                 model=model, max_tokens=15,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw = resp.content[0].text.strip()
+            raw = _anthropic_text(resp).strip()
         result = raw.lower()
         logger.info("Task classifier: %s (task=%s)", raw, task.id)
         if "need_input" in result:

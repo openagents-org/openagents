@@ -922,7 +922,7 @@ def generate_member_description(
     """
     from app.models import EventRecord
     from app.mods.workspace_mod import (
-        _get_llm_client, _get_router_model, _get_router_api_key,
+        _anthropic_text, _get_llm_client, _get_router_model, _get_router_api_key,
     )
 
     workspace = db.execute(
@@ -1002,7 +1002,7 @@ def generate_member_description(
                 model=model, max_tokens=60,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = resp.content[0].text.strip()
+            text = _anthropic_text(resp).strip()
     except Exception as e:
         logger.error("generate-description failed for %s: %s", agent_name, e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to generate description")

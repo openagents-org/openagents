@@ -232,7 +232,12 @@ def _linked_task(db, workspace_id: str, channel_name: str) -> Optional[KanbanTas
 
 def _judge(prompt: str) -> Optional[str]:
     """Run a one-token judgment on the router model; None if no LLM/available."""
-    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+    from app.mods.workspace_mod import (
+        _anthropic_text,
+        _get_llm_client,
+        _get_router_api_key,
+        _get_router_model,
+    )
 
     if not _get_router_api_key():
         return None
@@ -247,7 +252,7 @@ def _judge(prompt: str) -> Optional[str]:
         resp = client.messages.create(
             model=model, max_tokens=10, messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text.strip().lower()
+        return _anthropic_text(resp).strip().lower()
     except Exception as exc:
         logger.warning("workflow judge failed: %s", exc)
         return None
