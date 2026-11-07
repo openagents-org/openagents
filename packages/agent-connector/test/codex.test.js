@@ -644,3 +644,65 @@ describe('Codex — what counts as a stale thread', () => {
     assert.match(sent[0].m, /lost its connection/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CODEX_SANDBOX_MODE knob (issue #774)
+// ---------------------------------------------------------------------------
+
+describe('Codex — CODEX_SANDBOX_MODE knob', () => {
+  const makeFake = (agentEnv) =>
+    Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv,
+      workspaceModel: null,
+      _directModel: '',
+      _directApiKey: '',
+      _directBaseUrl: '',
+      _codexBin: 'codex',
+      _channelThreads: {},
+      workingDir: '',
+      _buildSystemContext: () => 'system context',
+      _log: () => {},
+      _spawnCodex: async (cmd) => ({ cmd, responseText: 'ok', exitCode: 0 }),
+      sendResponse: async () => {},
+    });
+
+  it('keeps the legacy bypass flag when CODEX_SANDBOX_MODE is unset', async () => {
+    const fake = makeFake({});
+    let cmd;
+    fake._spawnCodex = async (c) => {
+      cmd = c;
+      return { responseText: 'ok', exitCode: 0 };
+    };
+    await fake._handleViaSubprocess('hello', 'general');
+
+    assert.ok(cmd.includes('--dangerously-bypass-approvals-and-sandbox'));
+    assert.ok(!cmd.includes('--sandbox'));
+  });
+
+  it('runs under the codex sandbox when CODEX_SANDBOX_MODE=workspace-write', async () => {
+    const fake = makeFake({ CODEX_SANDBOX_MODE: 'workspace-write' });
+    let cmd;
+    fake._spawnCodex = async (c) => {
+      cmd = c;
+      return { responseText: 'ok', exitCode: 0 };
+    };
+    await fake._handleViaSubprocess('hello', 'general');
+
+    assert.ok(cmd.includes('--sandbox'));
+    assert.strictEqual(cmd[cmd.indexOf('--sandbox') + 1], 'workspace-write');
+    assert.ok(!cmd.includes('--dangerously-bypass-approvals-and-sandbox'));
+  });
+
+  it('falls back to the bypass flag for an unknown CODEX_SANDBOX_MODE value', async () => {
+    const fake = makeFake({ CODEX_SANDBOX_MODE: 'yolo-plus' });
+    let cmd;
+    fake._spawnCodex = async (c) => {
+      cmd = c;
+      return { responseText: 'ok', exitCode: 0 };
+    };
+    await fake._handleViaSubprocess('hello', 'general');
+
+    assert.ok(cmd.includes('--dangerously-bypass-approvals-and-sandbox'));
+    assert.ok(!cmd.includes('--sandbox'));
+  });
+});
