@@ -1809,6 +1809,9 @@ class BaseAdapter {
   async sendStatus(channel, content, extraMeta) {
     if (this._isMuted(channel)) return;
     try {
+      // Status lines quote tool calls ("Bash › curl ...") that can carry this
+      // agent's own token or env credentials; every member can read the channel.
+      content = this._redact(content);
       await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
