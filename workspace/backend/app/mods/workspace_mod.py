@@ -2112,6 +2112,70 @@ def _director_rule(event, channel, mentions: List[str], sender_email: Optional[s
     return "non_director" if mentions else "informational"
 
 
+def _materialize_channel(event: Event, payload: dict, workspace, db, channel_name: str):
+    """Create the Channel row for a thread name that does not exist yet.
+
+    `POST /v1/events` accepts any `channel/<name>` target, but only
+    `network.channel.create` used to insert a `channels` row. A message to a
+    never-created name therefore landed in an invisible thread: the event
+    stored and read back over `GET /v1/events?channel=<name>`, yet the name
+    never appeared in `/v1/discover` and every thread endpoint answered 404,
+    so the thread could not be opened from the dashboard. The verification
+    harness (fresh scratch scope per run) and the workflow engine's task
+    threads both hit this.
+
+    Materializing here instead of trusting every emitter keeps one rule for
+    all of them: the post succeeds into a real thread, and the reply the
+    router sends afterwards lands in a channel the pipeline can resolve.
+
+    The visibility invariant follows `_handle_channel_create`: an identified
+    human creator owns a private thread, anything else stays public so the
+    thread is reachable. An agent or system post is additive only — it never
+    widens an existing thread.
+    """
+    from app.models import Channel, ChannelHumanMember, ChannelMember
+    from app.services.access_model import normalize_visibility
+    from app.services.message_identity import human_sender_email
+
+    creator_email = human_sender_email(payload, event.metadata)
+    identified_human = bool(creator_email) and (event.source or "").startswith("human:")
+    visibility = normalize_visibility(payload.get("visibility")) if payload.get("visibility") else None
+    if visibility not in ("private", "public"):
+        visibility = "private" if identified_human else "public"
+
+    channel = Channel(
+        workspace_id=workspace.id,
+        name=channel_name,
+        title=payload.get("channel_title"),
+        created_by=event.source,
+        status="active",
+        visibility=visibility,
+        owner_email=creator_email if identified_human else None,
+        director_email=creator_email if identified_human else None,
+    )
+    db.add(channel)
+    db.flush()
+
+    if creator_email:
+        db.add(ChannelHumanMember(channel_id=channel.id, user_email=creator_email))
+        db.flush()
+
+    for agent_name in payload.get("participants") or []:
+        if agent_name and agent_name != "__no_response__":
+            db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
+    # An agent's own post is a participation signal; make it poll its thread.
+    if (event.source or "").startswith("openagents:"):
+        agent_name = event.source[len("openagents:"):]
+        if agent_name and agent_name not in (payload.get("participants") or []):
+            db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
+    db.flush()
+
+    logger.info("workspace_mod: materialized missing thread %s", channel_name)
+    event.metadata["channel_id"] = str(channel.id)
+    event.metadata["channel_materialized"] = True
+    return channel
+
+
 
 _PERSON_MENTION_RE = re.compile(r"(?<![\w.@-])@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
@@ -2226,6 +2290,8 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 Channel.name == channel_name,
             )
         ).scalar_one_or_none()
+        if channel is None:
+            channel = _materialize_channel(event, payload, workspace, db, channel_name)
 
     from app.services.personal_assistant import is_personal_channel
     personal_channel = channel is not None and is_personal_channel(db, channel)

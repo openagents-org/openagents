@@ -91,7 +91,7 @@ def test_created_thread_is_discoverable_and_answerable(client, workspace):
 
 def test_existing_thread_is_reused_not_duplicated(client, workspace, db):
     """A channel that already exists is not recreated on the next message."""
-    existing = workspace["channel"]
+    existing = workspace["channel"]["name"]
     before = len(db.execute(
         select(Channel).where(Channel.workspace_id == workspace["id"])
     ).scalars().all())
