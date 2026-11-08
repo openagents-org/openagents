@@ -1,15 +1,28 @@
 import { useCallback, useMemo, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
-import type { WorkspaceMessage } from '@/lib/types';
+import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 
 export interface QueuedMessage {
   queueId: string;
   content: string;
+  /** Sent to a busy agent, which has not confirmed queueing it yet. */
+  pending?: boolean;
 }
+
+/** A message sent while an agent in the thread was busy: treated as queued
+ *  until the agent's own queue report replaces it (or it times out). */
+export interface PendingQueueEntry {
+  id: string;
+  content: string;
+  sentAt: number;
+}
+
+/** How long a pending entry waits for the agent's queue report. */
+export const PENDING_QUEUE_MS = 8000;
 
 /** Messages an agent has queued and not yet processed, oldest first. The
  *  connector reports them as status messages carrying queue metadata. */
-export function deriveQueuedMessages(messages: WorkspaceMessage[], cancelled: ReadonlySet<string> = new Set()): QueuedMessage[] {
+export function deriveQueuedMessages(messages: WorkspaceMessage[], cancelled: ReadonlySet<string> = new Set(), pending: PendingQueueEntry[] = []): QueuedMessage[] {
   const processed = new Set<string>(cancelledQueueIds(messages));
   for (const msg of messages) {
     if (msg.messageType !== 'status') continue;
@@ -29,7 +42,10 @@ export function deriveQueuedMessages(messages: WorkspaceMessage[], cancelled: Re
     seen.add(qid);
     queued.push({ queueId: qid, content: meta.queued_message as string });
   }
-  return queued.reverse();
+  return [
+    ...queued.reverse(),
+    ...unresolvedPending(messages, pending).map((p) => ({ queueId: p.id, content: p.content, pending: true })),
+  ];
 }
 
 const QUEUE_CANCEL_PREFIX = '__queue_cancel:';
@@ -43,6 +59,36 @@ function queueMeta(msg: WorkspaceMessage): { id: string; text?: string; processe
     text: typeof meta.queued_message === 'string' ? meta.queued_message : undefined,
     processed: meta.queue_status === 'processed',
   };
+}
+
+const STEP_TYPES = new Set(['status', 'thinking', 'todos']);
+/** How recent a working step must be to count as "busy" without presence. */
+const RECENT_STEP_MS = 120_000;
+
+/**
+ * Whether an agent is mid-task in this thread, so a new message would be
+ * queued. Presence (busy_channels) can lag by a discovery poll, so the
+ * thread itself has the last word: a finished reply means it is done, and a
+ * fresh working step means it is still going.
+ */
+export function agentBusyInThread(agent: Pick<WorkspaceAgent, 'agentName' | 'busyChannels'>, channel: string, messages: WorkspaceMessage[], now = Date.now()): boolean {
+  let last: WorkspaceMessage | undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.senderType === 'agent' && msg.senderName === agent.agentName && msg.messageType !== 'loading') { last = msg; break; }
+  }
+  if ((agent.busyChannels ?? []).includes(channel)) return !last || last.messageType !== 'chat';
+  if (!last || !STEP_TYPES.has(last.messageType)) return false;
+  const at = last.createdAt ? Date.parse(last.createdAt) : NaN;
+  return Number.isFinite(at) && now - at < RECENT_STEP_MS;
+}
+
+/** Pending entries the agent has not reported on yet. Its queue report
+ *  carries the first 200 characters, so that prefix resolves an entry. */
+export function unresolvedPending(messages: WorkspaceMessage[], pending: PendingQueueEntry[]): PendingQueueEntry[] {
+  if (!pending.length) return pending;
+  const reported = messages.map((m) => queueMeta(m)?.text?.trim()).filter((text): text is string => !!text);
+  return pending.filter((p) => !reported.some((text) => p.content.trim().startsWith(text)));
 }
 
 /** Queue ids the user cancelled, from the queue_cancel events they posted. */
@@ -62,7 +108,7 @@ function cancelledQueueIds(messages: WorkspaceMessage[]): string[] {
  * the sender's message is matched on that: the latest earlier message from a
  * person whose text starts the same way.
  */
-export function arrangeQueuedMessages(messages: WorkspaceMessage[]): WorkspaceMessage[] {
+export function arrangeQueuedMessages(messages: WorkspaceMessage[], pending: PendingQueueEntry[] = []): WorkspaceMessage[] {
   const hidden = new Set<string>();
   const releaseAt = new Map<string, WorkspaceMessage>();  // processed status id → the queued message
   const queuedBy = new Map<string, WorkspaceMessage>();     // queue id → the queued message
@@ -86,6 +132,18 @@ export function arrangeQueuedMessages(messages: WorkspaceMessage[]): WorkspaceMe
       break;
     }
   });
+  // Messages sent to a busy agent stay hidden while its queue report is on the way.
+  for (const entry of unresolvedPending(messages, pending)) {
+    const text = entry.content.trim();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i];
+      if (candidate.senderType !== 'human' && candidate.senderType !== 'user') continue;
+      if (candidate.messageType !== 'chat' || hidden.has(candidate.messageId)) continue;
+      if (candidate.content.trim() !== text) continue;
+      hidden.add(candidate.messageId);
+      break;
+    }
+  }
   if (!hidden.size && !messages.some((m) => queueMeta(m) || m.messageType === 'queue_cancel')) return messages;
 
   const arranged: WorkspaceMessage[] = [];
@@ -98,9 +156,9 @@ export function arrangeQueuedMessages(messages: WorkspaceMessage[]): WorkspaceMe
   return arranged;
 }
 
-export function useQueuedMessages(channelName: string | null, messages: WorkspaceMessage[]) {
+export function useQueuedMessages(channelName: string | null, messages: WorkspaceMessage[], pending: PendingQueueEntry[] = []) {
   const [cancelled, setCancelled] = useState<Set<string>>(new Set());
-  const queued = useMemo(() => deriveQueuedMessages(messages, cancelled), [messages, cancelled]);
+  const queued = useMemo(() => deriveQueuedMessages(messages, cancelled, pending), [messages, cancelled, pending]);
   const cancel = useCallback(async (queueId: string) => {
     if (!channelName) return;
     setCancelled((prev) => new Set(prev).add(queueId));
