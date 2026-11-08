@@ -245,7 +245,7 @@ interface WorkspaceContextValue {
   createTask: (input: { issueId?: string; title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<KanbanTask>;
   updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<void>;
   /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
-  runTask: (id: string, agent?: string) => Promise<void>;
+  runTask: (id: string, agent?: string) => Promise<KanbanTask>;
   /** Stop a running task: halts the agent and returns the card to Backlog. */
   stopTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
@@ -1176,6 +1176,7 @@ export function WorkspaceProvider({
   const runTask = useCallback(async (id: string, agent?: string) => {
     const task = await workspaceApi.assignTask(id, agent);
     setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
+    return task;
   }, []);
 
   const stopTask = useCallback(async (id: string) => {
