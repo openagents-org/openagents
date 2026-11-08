@@ -448,11 +448,26 @@ describe('kimi-stream helpers', () => {
     w.push(`${WIRE.taskTerminated('bash-1')}\n`);
     assert.equal(w.busy, false);
 
-    // A turn that ended without a call's result does not hold the run open.
+    // A turn that ended without a call's result does not hold the run open,
+    // and neither does a step that began without one (its tools are done).
     w.push(`${WIRE.toolCall('call_3')}\n`);
     assert.equal(w.busy, true);
     w.push(`${WIRE.turnEnded}\n`);
     assert.equal(w.busy, false);
+    w.push(`${WIRE.toolCall('call_4')}\n${WIRE.stepBegin}\n`);
+    assert.equal(w.busy, false);
+  });
+
+  it('opens nothing for records from before the run started', () => {
+    const since = Date.now();
+    const w = new KimiWireTracker({ since });
+    // Left by an earlier run that was stopped mid-tool.
+    w.push(`${WIRE.toolCall('call_old', since - 60_000)}\n${WIRE.taskStarted('bash-old', since - 60_000)}\n`);
+    assert.equal(w.busy, false);
+    w.push(`${WIRE.toolCall('call_new', since + 5)}\n`);
+    assert.equal(w.busy, true);
+    w.push(`${WIRE.toolResult('call_new')}\n${WIRE.taskStarted('bash-new', since + 9)}\n`);
+    assert.deepEqual([...w.tasks], ['bash-new']);
   });
 
   it('keys a working directory exactly as Kimi Code files its sessions', () => {
@@ -464,17 +479,20 @@ describe('kimi-stream helpers', () => {
   });
 });
 
-// Session journal lines in the shape Kimi Code 2.5.2 writes them.
-const loopEvent = (event) => JSON.stringify({ type: 'context.append_loop_event', agentId: 'main', event, time: 1 });
-const taskEvent = (type, taskId, status) => JSON.stringify({
-  type, agentId: 'main', info: { taskId, description: 'bg', status, detached: true, kind: 'process', command: 'cd /tmp && make', parentToolCallId: 'call_1' }, time: 1,
-});
+// Session journal lines in the shape Kimi Code 2.5.2 writes them. Kimi
+// stamps each with `time`; left out here unless a test needs one from
+// before the run (records from before a run's start open nothing).
+const stamp = (record, time) => JSON.stringify(time === undefined ? record : { ...record, time });
+const loopEvent = (event, time) => stamp({ type: 'context.append_loop_event', agentId: 'main', event }, time);
+const taskEvent = (type, taskId, status, time) => stamp({
+  type, agentId: 'main', info: { taskId, description: 'bg', status, detached: true, kind: 'process', command: 'cd /tmp && make', parentToolCallId: 'call_1' },
+}, time);
 const WIRE = {
   stepBegin: loopEvent({ type: 'step.begin', uuid: 'u1', turnId: '0', step: 1 }),
   llmRequest: JSON.stringify({ type: 'llm.request', agentId: 'main', kind: 'loop', provider: 'openai', model: 'kimi-k2.6', maxTokens: 32768 }),
-  toolCall: (id) => loopEvent({ type: 'tool.call', uuid: `c-${id}`, turnId: '0', step: 1, toolCallId: id, name: 'Bash', args: { command: 'cd /tmp && python3 build.py' } }),
+  toolCall: (id, time) => loopEvent({ type: 'tool.call', uuid: `c-${id}`, turnId: '0', step: 1, toolCallId: id, name: 'Bash', args: { command: 'cd /tmp && python3 build.py' } }, time),
   toolResult: (id) => loopEvent({ type: 'tool.result', parentUuid: `c-${id}`, toolCallId: id, result: { output: 'ok' } }),
-  taskStarted: (id) => taskEvent('task.started', id, 'running'),
+  taskStarted: (id, time) => taskEvent('task.started', id, 'running', time),
   taskTerminated: (id) => taskEvent('task.terminated', id, 'completed'),
   turnEnded: JSON.stringify({ type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' }),
 };
@@ -485,12 +503,18 @@ const WIRE = {
 const FAKE_KIMI = `
 const fs = require('fs');
 const path = require('path');
-const { FAKE_JOURNAL, FAKE_BUSY_MS, FAKE_WIRE, FAKE_WIRE_START, FAKE_WIRE_END } = process.env;
+const { FAKE_JOURNAL, FAKE_BUSY_MS, FAKE_WIRE, FAKE_WIRE_REWRITE, FAKE_WIRE_START, FAKE_WIRE_END } = process.env;
 process.stderr.write('which: no gh\\n');
 // Like a tool run in print mode: the journal says a tool started, then
 // nothing at all until it ends.
 if (FAKE_WIRE) {
   fs.mkdirSync(path.dirname(FAKE_WIRE), { recursive: true });
+  // Kimi's own repair of a journal whose last line was cut off: the valid
+  // prefix, written to a new file that replaces it.
+  if (FAKE_WIRE_REWRITE) {
+    fs.writeFileSync(FAKE_WIRE + '.tmp', FAKE_WIRE_REWRITE);
+    fs.renameSync(FAKE_WIRE + '.tmp', FAKE_WIRE);
+  }
   fs.appendFileSync(FAKE_WIRE, FAKE_WIRE_START);
   setTimeout(() => {
     fs.appendFileSync(FAKE_WIRE, FAKE_WIRE_END);
@@ -531,6 +555,7 @@ describe('KimiAdapter idle watchdog', () => {
       FAKE_JOURNAL: journal ? path.join(bucket, journal) : '',
       FAKE_BUSY_MS: String(busyMs),
       FAKE_WIRE: wire ? path.join(bucket, wire.file) : '',
+      FAKE_WIRE_REWRITE: wire && wire.rewrite ? wire.rewrite.map((l) => `${l}\n`).join('') : '',
       FAKE_WIRE_START: wire ? (wire.start || []).map((l) => `${l}\n`).join('') : '',
       FAKE_WIRE_END: wire ? (wire.end || []).map((l) => `${l}\n`).join('') : '',
     });
@@ -652,7 +677,43 @@ describe('KimiAdapter idle watchdog', () => {
       busyMs: 60_000,
       args: ['-S', 'session_old'],
       existing: ['session_old'],
-      wire: { file: 'session_old/agents/main/wire.jsonl', before: [WIRE.toolCall('call_old')] },
+      wire: { file: 'session_old/agents/main/wire.jsonl', before: [WIRE.toolCall('call_old', 1)] },
+    });
+    assert.ok(result.timedOutMs > 0);
+    assert.equal(result.timedOutInTool, false);
+  });
+
+  // A run stopped mid-write leaves a cut-off last line; resuming, Kimi
+  // rewrites the journal to its valid prefix as a new file. The offset taken
+  // at the start pointed past where this run's records then landed.
+  it('still sees a running tool after Kimi replaces the resumed session\'s journal', async () => {
+    const earlier = [WIRE.stepBegin, WIRE.toolCall('call_old', 1)];
+    const { result, logs } = await runFakeKimi({
+      busyMs: 3500,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      wire: {
+        file: 'session_old/agents/main/wire.jsonl',
+        // The cut-off line is a big tool result, longer than all this run
+        // writes before its tool call: that call lands before the old offset.
+        before: [...earlier, `{"type":"context.append_loop_event","agentId":"main","event":{"type":"tool.result","toolCallId":"call_old","result":{"output":"${'x'.repeat(5000)}`],
+        rewrite: earlier,
+        start: [WIRE.stepBegin, WIRE.llmRequest, WIRE.toolCall('call_new')],
+        end: [WIRE.toolResult('call_new')],
+      },
+    });
+    assert.equal(result.timedOutMs, 0, JSON.stringify(logs));
+    assert.equal(result.ok, true);
+    assert.ok(logs.some((l) => /a tool it started is still running/.test(l)));
+  });
+
+  it('does not count what the replaced journal kept from the earlier run', async () => {
+    const earlier = [WIRE.stepBegin, WIRE.toolCall('call_old', 1), WIRE.taskStarted('bash-old', 1)];
+    const { result } = await runFakeKimi({
+      busyMs: 60_000,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      wire: { file: 'session_old/agents/main/wire.jsonl', before: [...earlier, '{"type":"tas'], rewrite: earlier },
     });
     assert.ok(result.timedOutMs > 0);
     assert.equal(result.timedOutInTool, false);

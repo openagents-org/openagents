@@ -778,12 +778,18 @@ class KimiAdapter extends LlmDirectAdapter {
     let known = [];
     try { known = fs.readdirSync(bucket); } catch {}
     const s = args.indexOf('-S');
-    const watch = { bucket, known: new Set(known), resumeId: s >= 0 ? args[s + 1] : null, wires: new Map() };
-    // A resumed session's journal is read from where it stands now: a tool
-    // call an earlier, stopped run left open must not count as running.
+    const watch = {
+      bucket, known: new Set(known), resumeId: s >= 0 ? args[s + 1] : null, wires: new Map(), since: Date.now(),
+    };
+    // A resumed session's journal is read on from where it stands now. Not
+    // needed for correctness (records from before `since` open nothing), but
+    // a long session's journal is not read whole on every run.
     for (const name of this._runSessionDirs(watch)) {
       const file = this._mainWirePath(watch, name);
-      try { watch.wires.set(file, this._newWire(fs.statSync(file).size)); } catch {}
+      try {
+        const st = fs.statSync(file);
+        watch.wires.set(file, this._newWire(watch, st.size, st.ino));
+      } catch {}
     }
     return watch;
   }
@@ -800,8 +806,8 @@ class KimiAdapter extends LlmDirectAdapter {
     return path.join(watch.bucket, name, 'agents', 'main', 'wire.jsonl');
   }
 
-  _newWire(offset = 0) {
-    return { offset, decoder: new StringDecoder('utf8'), tracker: new KimiWireTracker() };
+  _newWire(watch, offset = 0, ino = null) {
+    return { offset, ino, decoder: new StringDecoder('utf8'), tracker: new KimiWireTracker({ since: watch.since }) };
   }
 
   /**
@@ -820,16 +826,24 @@ class KimiAdapter extends LlmDirectAdapter {
   /**
    * Whether this run's main agent has a tool call or a background task still
    * running, by its session journal (see KimiWireTracker). Each journal is
-   * read on from where the last look stopped.
+   * read on from where the last look stopped — unless Kimi replaced it: it
+   * rewrites a journal whose last line was cut off (a run stopped mid-write)
+   * to its valid prefix, and migrates old ones, both as a new file. The old
+   * offset then points past this run's records; such a file is read again
+   * from the start.
    */
   _kimiToolRunning(watch) {
     let running = false;
     for (const name of this._runSessionDirs(watch)) {
       const file = this._mainWirePath(watch, name);
       let wire = watch.wires.get(file);
-      if (!wire) { wire = this._newWire(); watch.wires.set(file, wire); }
       try {
-        const size = fs.statSync(file).size;
+        const st = fs.statSync(file);
+        if (!wire || st.ino !== wire.ino || st.size < wire.offset) {
+          wire = this._newWire(watch, 0, st.ino);
+          watch.wires.set(file, wire);
+        }
+        const size = st.size;
         if (size > wire.offset) {
           const buf = Buffer.alloc(size - wire.offset);
           const fd = fs.openSync(file, 'r');
@@ -838,7 +852,7 @@ class KimiAdapter extends LlmDirectAdapter {
           wire.tracker.push(wire.decoder.write(buf));
         }
       } catch {}
-      if (wire.tracker.busy) running = true;
+      if (wire && wire.tracker.busy) running = true;
     }
     return running;
   }

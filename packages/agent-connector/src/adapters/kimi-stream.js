@@ -308,16 +308,25 @@ function encodeKimiWorkDirKey(workDir) {
  * Print mode says nothing while a tool runs — not even the tool call, which
  * only comes out with its result — but the journal records each step as it
  * happens (verified v2.5.2):
- *   {type:"context.append_loop_event", event:{type:"tool.call", toolCallId}}    when the tool starts
- *   {type:"context.append_loop_event", event:{type:"tool.result", toolCallId}}  when it ends
+ *   {type:"context.append_loop_event", event:{type:"step.begin"}}              a model step starts
+ *   {type:"context.append_loop_event", event:{type:"tool.call", toolCallId}}    a tool starts
+ *   {type:"context.append_loop_event", event:{type:"tool.result", toolCallId}}  it ends
  *   {type:"task.started", info:{taskId}} / {type:"task.terminated", info:{taskId}}
  *     a background task (Bash run_in_background), which the run waits on
- * Kimi bounds both itself: a foreground command at 300s, a task at its
- * timeoutMs. Lines it does not know are skipped, so a journal of another
- * shape only ever reads as "nothing running".
+ * Every record carries `time`, ms since the epoch. Kimi bounds both itself: a
+ * foreground command at 300s, a task at its timeoutMs.
+ *
+ * A record from before `since` (the run's start) opens nothing: it belongs to
+ * an earlier run, maybe one that was stopped mid-tool. A step begins only
+ * after the previous step's tools have returned, so `step.begin` closes any
+ * call still open — as does `turn.ended`; a task outlives both. Lines it does
+ * not know are skipped. A journal whose shape changed reads as "nothing
+ * running", or — if starts are still recognized and ends are not — as a
+ * tool running until the next step: never as a reason to stop a run earlier.
  */
 class KimiWireTracker {
-  constructor() {
+  constructor({ since = 0 } = {}) {
+    this._since = since;
     this._partial = '';
     this.toolCalls = new Set();
     this.tasks = new Set();
@@ -331,16 +340,17 @@ class KimiWireTracker {
       let e;
       try { e = JSON.parse(line); } catch { continue; }
       if (!e || typeof e !== 'object') continue;
+      const current = !(typeof e.time === 'number' && e.time < this._since);
       const ev = e.event && typeof e.event === 'object' ? e.event : null;
-      if (e.type === 'context.append_loop_event' && ev && typeof ev.toolCallId === 'string') {
-        if (ev.type === 'tool.call') this.toolCalls.add(ev.toolCallId);
+      if (e.type === 'context.append_loop_event' && ev && ev.type === 'step.begin') {
+        this.toolCalls.clear();
+      } else if (e.type === 'context.append_loop_event' && ev && typeof ev.toolCallId === 'string') {
+        if (ev.type === 'tool.call' && current) this.toolCalls.add(ev.toolCallId);
         else if (ev.type === 'tool.result') this.toolCalls.delete(ev.toolCallId);
       } else if ((e.type === 'task.started' || e.type === 'task.terminated') && e.info && typeof e.info.taskId === 'string') {
-        if (e.type === 'task.started') this.tasks.add(e.info.taskId);
+        if (e.type === 'task.started') { if (current) this.tasks.add(e.info.taskId); }
         else this.tasks.delete(e.info.taskId);
       } else if (e.type === 'turn.ended') {
-        // Every tool call of a turn has its result by then; one that does not
-        // must not hold later turns open. A task outlives its turn.
         this.toolCalls.clear();
       }
     }
