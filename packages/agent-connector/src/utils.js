@@ -95,7 +95,7 @@ async function servedModels(apiBase, headers) {
 const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
 
 /** Read one completion response into the result shape. */
-function completionResult(res, { isAnthropic, isResponses = false, model }) {
+function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
   const status = res.status;
   const data = String(res.data == null ? '' : res.data);
@@ -108,10 +108,6 @@ function completionResult(res, { isAnthropic, isResponses = false, model }) {
     if (isAnthropic) {
       text = (parsed.content || [{}])[0].text || '';
       usedModel = parsed.model || model || '?';
-    } else if (isResponses) {
-      const item = (Array.isArray(parsed.output) ? parsed.output : []).find((o) => o && Array.isArray(o.content));
-      text = parsed.output_text || (item && item.content.map((c) => (c && c.text) || '').join('')) || '';
-      usedModel = parsed.model || model || '?';
     } else {
       text = (parsed.choices || [{}])[0]?.message?.content || '';
       usedModel = parsed.model || model || '?';
@@ -122,6 +118,83 @@ function completionResult(res, { isAnthropic, isResponses = false, model }) {
     if (status >= 400) return { success: false, error: `HTTP ${status}: ${data.slice(0, 200)}` };
     return { success: false, error: `Invalid response: ${data.slice(0, 200)}` };
   }
+}
+
+/**
+ * The one field the Responses test adds that the Codex CLI does not send
+ * (codex-api's ResponsesApiRequest has no such field): it caps what the test
+ * costs. An endpoint refusing it says nothing about the agent, so the test
+ * asks again without it.
+ */
+const PROBE_ONLY_FIELD = 'max_output_tokens';
+
+/**
+ * The Responses API test, sent the way the Codex CLI sends every turn:
+ * streamed, `store: false`, `client_metadata`, the input as message items. A
+ * relay that refuses one of those ("Unsupported Responses request
+ * parameter", param client_metadata) passed a plain chat/completions test
+ * and then failed every message; one that only streams failed a non-streamed
+ * test and then chatted fine.
+ *
+ * @returns {Promise<{ res: object, result: object }>} the last raw response and its reading
+ */
+async function requestResponses(url, headers, model) {
+  const body = {
+    model,
+    stream: true,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say hi in 5 words.' }] }],
+    store: false,
+    client_metadata: { session_id: crypto.randomUUID() },
+    [PROBE_ONLY_FIELD]: 16,
+  };
+  const send = () => requestCompletion(url, {
+    headers: { ...headers, Accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+  });
+  let res = await send();
+  let result = responsesResult(res, model);
+  // A refusal's whole body, but only the failure event out of a stream: a
+  // stream echoes the request's fields back in its response.created event.
+  const refusal = result.success || res.error ? '' : (res.status >= 400 ? String(res.data || '') : result.error);
+  if (refusal.includes(PROBE_ONLY_FIELD)) {
+    delete body[PROBE_ONLY_FIELD];
+    res = await send();
+    result = responsesResult(res, model);
+  }
+  return { res, result };
+}
+
+/**
+ * Read a streamed Responses reply the way the Codex CLI reads it: good once
+ * `response.completed` arrives — or `response.incomplete`, the cap this test
+ * sets — bad on `response.failed` or an `error` event. A stream that ends
+ * before either fails the CLI's turn too ("stream closed before
+ * response.completed"), and so does a single JSON body in place of a stream.
+ */
+function responsesResult(res, model) {
+  if (res.error) return { success: false, error: res.error };
+  const data = String(res.data == null ? '' : res.data);
+  if (res.status >= 400) return { success: false, error: `HTTP ${res.status}: ${data.slice(0, 200)}` };
+  let text = '';
+  for (const line of data.split(/\r?\n/)) {
+    const m = /^data:\s?(.*)$/.exec(line);
+    if (!m) continue;
+    let evt;
+    try { evt = JSON.parse(m[1]); } catch { continue; }
+    const type = evt && evt.type;
+    if (type === 'response.output_text.delta' && typeof evt.delta === 'string') {
+      text += evt.delta;
+    } else if (type === 'response.completed' || type === 'response.incomplete') {
+      return { success: true, model: (evt.response && evt.response.model) || model || '?', response: text.slice(0, 80) };
+    } else if (type === 'response.failed' || type === 'error') {
+      const err = (evt.response && evt.response.error) || evt.error || evt;
+      return { success: false, error: `${type}: ${JSON.stringify(err).slice(0, 200)}` };
+    }
+  }
+  if (/^\s*[{[]/.test(data)) {
+    return { success: false, error: `Answered with a JSON body, not the event stream the Codex CLI reads: ${data.slice(0, 200)}` };
+  }
+  return { success: false, error: `Stream ended before response.completed: ${data.slice(0, 200)}` };
 }
 
 /**
@@ -161,7 +234,12 @@ async function testLLMConnection(env, opts = {}) {
     ? opts.protocol === 'anthropic'
     : hasAnthropicConfig || baseUrl.includes('anthropic');
 
-  if (!isAnthropic && !baseUrl.endsWith('/v1')) {
+  const isResponses = opts.protocol === 'responses';
+  // The Codex CLI calls <base_url>/responses on the URL as configured
+  // (adapters/codex.js): an endpoint at /codex answered /codex/responses and
+  // 404'd the /codex/v1/responses this used to test.
+  if (isResponses) baseUrl = baseUrl.replace(/\/+$/, '');
+  else if (!isAnthropic && !baseUrl.endsWith('/v1')) {
     baseUrl += '/v1';
   }
 
@@ -217,34 +295,21 @@ async function testLLMConnection(env, opts = {}) {
     candidates = listed.includes(fallback) ? listed : listed.concat(fallback);
   }
 
-  const isResponses = opts.protocol === 'responses';
   let last = null;
   for (const candidate of candidates) {
-    let requestBody, url;
+    let res;
     if (isResponses) {
-      // With the fields the Codex CLI sends on every turn that a minimal
-      // request leaves out. A relay that refuses one ("Unsupported Responses
-      // request parameter", param client_metadata) passed a plain
-      // chat/completions test here and then failed every message.
-      url = `${baseUrl}/responses`;
-      requestBody = {
-        model: candidate,
-        input: 'Say hi in 5 words.',
-        max_output_tokens: 16,
-        store: false,
-        client_metadata: { session_id: crypto.randomUUID() },
-      };
+      ({ res, result: last } = await requestResponses(`${baseUrl}/responses`, headers, candidate));
     } else {
-      url = `${baseUrl}/chat/completions`;
-      requestBody = {
+      const requestBody = {
         model: candidate,
         messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
       };
       if (hasKimiConfig) requestBody.max_tokens = 32;
       else requestBody.max_completion_tokens = 32;
+      res = await requestCompletion(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
+      last = completionResult(res, { isAnthropic: false, model: candidate });
     }
-    const res = await requestCompletion(url, { headers, body: JSON.stringify(requestBody) });
-    last = completionResult(res, { isAnthropic: false, isResponses, model: candidate });
     if (last.success) return last;
     // Only a model WE picked moves on to the next one. A configured model is
     // sent as configured and its rejection reported as-is.

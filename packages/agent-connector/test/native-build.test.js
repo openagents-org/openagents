@@ -152,24 +152,39 @@ const CLAUDE_STUB = [
   '',
 ].join('\n');
 
+// opencode-ai 1.17.11's bin/opencode.exe as published.
+const OPENCODE_STUB = [
+  'echo "Error: opencode-ai\'s postinstall script was not run." >&2',
+  'echo "" >&2',
+  'echo "This occurs when using --ignore-scripts during installation, or when using a" >&2',
+  'echo "package manager like pnpm that does not run postinstall scripts by default." >&2',
+  'exit 1',
+  '',
+].join('\n');
+
+const AGENTS = {
+  codex: { pkg: '@openai/codex', label: 'Codex', bin: 'bin/codex.js', optional: codexOptional(), stub: null },
+  claude: { pkg: '@anthropic-ai/claude-code', label: 'Claude Code', bin: 'bin/claude.exe', optional: claudeOptional(), stub: CLAUDE_STUB },
+  opencode: { pkg: 'opencode-ai', label: 'OpenCode', bin: 'bin/opencode.exe', optional: opencodeOptional(), stub: OPENCODE_STUB },
+};
+
 /**
- * Run `body` in a child whose HOME is `tmp`, with an Installer for codex and
- * claude. `body` has: inst, AGENT (the agent type), pkgDir, prefix, build()
+ * Run `body` in a child whose HOME is `tmp`, with an Installer for codex,
+ * claude or opencode. `body` has: inst, AGENT (the agent type), pkgDir, prefix, build()
  * (what nativeBuildFor says now), plantWrapper(), plantNative() — where npm
  * hoists the build — and nativeCalls / rebuildCalls, the stubbed npm runs.
  */
 function scenario(agent, body, extraEnv = {}) {
-  const pkgName = agent === 'codex' ? '@openai/codex' : '@anthropic-ai/claude-code';
-  const optional = agent === 'codex' ? codexOptional() : claudeOptional();
+  const a = AGENTS[agent];
   const script = `
     const fs = require('fs'), path = require('path'), cp = require('child_process');
     const { EventEmitter } = require('events');
     const { Installer } = require(${JSON.stringify(INSTALLER)});
     const { nativeBuildFor } = require(${JSON.stringify(NATIVE)});
     const AGENT = ${JSON.stringify(agent)};
-    const PKG = ${JSON.stringify(pkgName)};
+    const PKG = ${JSON.stringify(a.pkg)};
     const CMD = 'npm install -g ' + PKG;
-    const LABEL = AGENT === 'codex' ? 'Codex' : 'Claude Code';
+    const LABEL = ${JSON.stringify(a.label)};
     const registry = { getEntry: (n) => (n === AGENT
       ? { name: AGENT, label: LABEL, install: { binary: AGENT, macos: CMD, linux: CMD, windows: CMD } }
       : null) };
@@ -177,18 +192,18 @@ function scenario(agent, body, extraEnv = {}) {
     const inst = new Installer(registry, cfg);
     const prefix = path.join(cfg, 'runtimes', AGENT);
     const pkgDir = path.join(prefix, 'node_modules', ...PKG.split('/'));
-    const binRel = AGENT === 'codex' ? 'bin/codex.js' : 'bin/claude.exe';
+    const binRel = ${JSON.stringify(a.bin)};
     const bin = path.join(pkgDir, binRel);
     const REAL = Buffer.alloc(8192);
-    const STUB = ${JSON.stringify(CLAUDE_STUB)};
+    const STUB = ${JSON.stringify(a.stub)};
     const plantWrapper = () => {
       fs.mkdirSync(path.dirname(bin), { recursive: true });
       fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({
-        name: PKG, version: '1.0.0', bin: { [AGENT]: binRel }, optionalDependencies: ${JSON.stringify(optional)},
+        name: PKG, version: '1.0.0', bin: { [AGENT]: binRel }, optionalDependencies: ${JSON.stringify(a.optional)},
       }));
-      // codex's bin is a JS launcher; claude-code's is the placeholder until
-      // its postinstall copies the native binary over it.
-      fs.writeFileSync(bin, AGENT === 'codex' ? REAL : STUB);
+      // codex's bin is a JS launcher; claude-code's and opencode-ai's are the
+      // placeholder until their postinstall copies the native binary over it.
+      fs.writeFileSync(bin, STUB || REAL);
     };
     const build = () => nativeBuildFor(pkgDir);
     const plantNative = () => {
@@ -350,6 +365,39 @@ describe('native build left out — claude-code', () => {
   });
 });
 
+describe('native build left out — opencode-ai', () => {
+  // opencode-ai 1.17.11's postinstall, when npm left the build out, installs
+  // it into a temp directory, copies the binary over bin/opencode.exe and
+  // deletes the directory: the package is gone and the CLI works.
+  it('leaves alone an install whose postinstall fetched the build itself — even with the registry out of reach', () => {
+    const r = scenario('opencode', `
+      inst._execShell = async () => { plantWrapper(); fs.writeFileSync(bin, REAL); return 'added 1 package'; };
+      nativeInstall(() => { throw new Error('npm error code ECONNRESET'); });
+      const res = await inst.install('opencode');
+      return { success: res.success, nativeCalls, marked: marked(), pkgLeft: fs.existsSync(pkgDir), installed: build().installed };
+    `);
+    assert.equal(r.success, true);
+    assert.deepEqual(r.nativeCalls, [], 'no second install of a build that is already in place');
+    assert.equal(r.installed, null, 'the platform package really is absent');
+    assert.equal(r.marked, true);
+    assert.equal(r.pkgLeft, true, 'the working install is not removed');
+  });
+
+  it('still restores the build while the placeholder stands', () => {
+    const r = scenario('opencode', `
+      npmLeaves(false);
+      nativeInstall(() => { plantNative(); return ''; });
+      rebuild(() => { fs.writeFileSync(bin, REAL); return ''; });
+      const res = await inst.install('opencode');
+      return { success: res.success, nativeCalls: nativeCalls.length, rebuildCalls, size: fs.statSync(bin).size };
+    `);
+    assert.equal(r.success, true);
+    assert.equal(r.nativeCalls, 1);
+    assert.deepEqual(r.rebuildCalls, ['opencode-ai']);
+    assert.equal(r.size, 8192);
+  });
+});
+
 describe('native build left out — the npm command', () => {
   it('installs that one package, optional dependencies on, without saving it — an argv, not a shell string', () => {
     const r = scenario('codex', `
@@ -366,6 +414,25 @@ describe('native build left out — the npm command', () => {
     assert.equal(r.call.opts.windowsHide, true);
     assert.equal(r.call.opts.cwd, r.prefix);
     if (process.platform !== 'win32') assert.ok(!r.call.opts.shell, 'no shell off Windows');
+  });
+
+  it('uses the registry the install itself used (the mainland mirror), and none where the user chose one', () => {
+    const body = `
+      plantWrapper();
+      let call = null;
+      inst._resolveNodeNpmCli = () => null;
+      inst._execFileForTest = (file, args, opts, cb) => { call = { args }; cb(null, 'ok', ''); };
+      await inst._installNativeBuildPackage(build(), prefix);
+      return call.args;
+    `;
+    const cn = scenario('codex', body, { OPENAGENTS_DOWNLOAD_REGION: 'cn', npm_config_registry: '' });
+    const i = cn.indexOf('--registry');
+    assert.ok(i > 0, JSON.stringify(cn));
+    assert.match(cn[i + 1], /npmmirror\.com/);
+    const own = scenario('codex', body, { OPENAGENTS_DOWNLOAD_REGION: 'cn', npm_config_registry: 'https://npm.corp.example' });
+    assert.equal(own.includes('--registry'), false, 'the user\'s own registry is left to npm');
+    const global = scenario('codex', body, { OPENAGENTS_DOWNLOAD_REGION: 'global', npm_config_registry: '' });
+    assert.equal(global.includes('--registry'), false);
   });
 });
 

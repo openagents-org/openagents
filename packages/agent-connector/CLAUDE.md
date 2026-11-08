@@ -146,7 +146,7 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
-An npm install that exits 0 without the per-platform package holding the native build (npm drops a failed optional download silently; `omit=optional` skips them all): `native-build.test.js`. The installer installs that one package with `--include=optional --no-save`, then re-runs the wrapper's script where it copies the binary (claude-code, opencode-ai).
+An npm install that exits 0 without the per-platform package holding the native build (npm drops a failed optional download silently; `omit=optional` skips them all): `native-build.test.js`. The installer installs that one package with `--include=optional --no-save` (from the same `installRegistry()` mirror as the main install), then re-runs the wrapper's script where it copies the binary (claude-code, opencode-ai). A wrapper whose bin is already the real binary is left alone without the package: opencode-ai's postinstall fetches the build into a temp dir itself and deletes it after copying.
 
 Failure reporting: `run-failure.test.js` (the shared rules),
 `adapter-failure-reporting.test.js` (what each adapter's channel is actually

@@ -1918,12 +1918,16 @@ class Installer {
    * its own (see native-build.js). `--include=optional` outranks an
    * `omit=optional` in an npmrc for this one command; `--no-save` keeps it out
    * of the runtime's package.json, so the next update resolves it afresh with
-   * the wrapper's new version instead of pinning this one.
+   * the wrapper's new version instead of pinning this one. From the registry
+   * the install itself used (installRegistry): where the official one is out
+   * of reach, the build's download is the one most likely to have failed.
    */
   _installNativeBuildPackage(build, prefix) {
+    const registry = installRegistry();
     return this._runNpmIn(prefix, [
       'install', `${build.name}@${build.spec}`, '--prefix', prefix,
       '--no-save', '--include=optional', '--foreground-scripts',
+      ...(registry ? ['--registry', registry] : []),
     ]);
   }
 
@@ -2018,6 +2022,17 @@ class Installer {
     if (!managed) return null;
     const build = nativeBuildFor(managed.pkgDir);
     if (!build || build.installed) return null;
+    // opencode-ai's postinstall fetches the build itself when npm left it out,
+    // copies the binary over its placeholder and deletes the package again
+    // (see COPIED_INTO_BIN). Installing it once more was redundant, and when
+    // that failed the working install was removed. Read off disk, not run:
+    // on Windows the placeholder is shell text named .exe.
+    if (build.copiedIntoBin) {
+      const entry = this.registry.getEntry(agentType);
+      const binary = (entry && entry.install && entry.install.binary) || agentType;
+      const bin = resolveManagedNpmPackageBin(agentType, managed.pkgName, binary);
+      if (bin && !isPostinstallStub(bin)) return null;
+    }
     return { ...managed, build };
   }
 

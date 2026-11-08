@@ -48,6 +48,16 @@ const NATIVE_BUILDS = {
   },
 };
 
+/**
+ * Wrappers whose postinstall copies the native build over their own bin
+ * placeholder. Once it has, the CLI runs without the per-platform package:
+ * opencode-ai's postinstall, finding that npm left it out, installs it into a
+ * temp directory, copies the binary from there and deletes the directory. A
+ * missing package next to a real binary is a working install. codex is not
+ * listed: bin/codex.js resolves the package on every run.
+ */
+const COPIED_INTO_BIN = new Set(['@anthropic-ai/claude-code', 'opencode-ai']);
+
 /** musl libc, detected the way claude-code's install.cjs does it. */
 function isMusl() {
   if (process.platform !== 'linux') return false;
@@ -87,10 +97,12 @@ function findInstalled(pkgDir, name) {
  *
  * @param {string} pkgDir  the wrapper's directory (…/node_modules/@openai/codex)
  * @returns {{ pkgName: string, version: string, name: string, spec: string,
- *   accepted: string[], installed: string|null, target: string } | null}
+ *   accepted: string[], installed: string|null, target: string,
+ *   copiedIntoBin: boolean } | null}
  *   null when the package is not one of NATIVE_BUILDS, or lists no build for
  *   this platform (nothing to check). `name`/`spec` are what to install —
- *   spec as the wrapper lists it, `npm:` aliases included.
+ *   spec as the wrapper lists it, `npm:` aliases included. `copiedIntoBin`:
+ *   see COPIED_INTO_BIN.
  */
 function nativeBuildFor(pkgDir, { platform = process.platform, arch = process.arch, musl = isMusl() } = {}) {
   const pkg = readJson(path.join(pkgDir, 'package.json'));
@@ -113,7 +125,8 @@ function nativeBuildFor(pkgDir, { platform = process.platform, arch = process.ar
     accepted,
     installed,
     target: `${platform}-${arch}${platform === 'linux' && musl ? '-musl' : ''}`,
+    copiedIntoBin: COPIED_INTO_BIN.has(pkg.name),
   };
 }
 
-module.exports = { nativeBuildFor, findInstalled, isMusl, NATIVE_BUILDS };
+module.exports = { nativeBuildFor, findInstalled, isMusl, NATIVE_BUILDS, COPIED_INTO_BIN };
