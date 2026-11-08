@@ -1124,6 +1124,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     unreadCount: ch.unread_count,
     readAt: ch.read_at,
     completionAt: ch.completion_at,
+    forkedFrom: ch.forked_from ?? null,
     ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
     ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
@@ -1586,3 +1587,14 @@ export interface AgentService {
 export type AgentServiceInput = Pick<AgentService, 'agent_name' | 'name' | 'description' | 'example_requests' | 'required_inputs' | 'request_approver_email'> & { instructions: string };
 
 export type MessageReaction = { emoji: string; count: number; mine: boolean };
+
+// ── Thread fork lineage ──
+export interface NetworkChannel {
+  /** Name of the thread this one was forked from. */
+  forked_from?: string | null;
+}
+
+export interface WorkspaceSession {
+  /** Name of the thread this one was forked from. */
+  forkedFrom?: string | null;
+}

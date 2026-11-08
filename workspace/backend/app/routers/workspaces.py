@@ -216,6 +216,7 @@ def _format_channel(ch: Channel, db=None) -> dict:
         "orchestrationInstruction": ch.orchestration_instruction,
         "workflowId": ch.workflow_id,
         "resumeFrom": ch.resume_from,
+        "forkedFrom": ch.forked_from,
         "status": ch.status,
         "starred": bool(ch.starred),
         "isChannel": bool(ch.is_channel),

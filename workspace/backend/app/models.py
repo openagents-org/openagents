@@ -228,6 +228,9 @@ class Channel(Base):
     created_by = Column(Text, nullable=True)
     master_agent = Column(Text, nullable=True)       # per-channel master
     resume_from = Column(Text, nullable=True)         # channel name to resume context from
+    # Thread fork lineage: the source thread's name and the last message copied.
+    forked_from = Column(Text, nullable=True)
+    forked_at_event_id = Column(Text, nullable=True)
     # Multi-agent collaboration mode for this thread:
     #   "dynamic"  → LLM router picks next speaker (generic prompt) [default]
     #   "master"   → deterministic star: humans + sub-agents route to the
