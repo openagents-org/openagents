@@ -551,7 +551,6 @@ export const messages = {
     shareConversation: 'Share conversation',
     forkThreadFailed: 'Could not fork this thread',
     forkedFrom: 'Forked from {title}',
-    forkedFromUnavailable: 'Forked from another thread',
     copyMessage: 'Copy message',
     copyFailed: 'Failed to copy',
     agentWorking: 'Agent is working',
