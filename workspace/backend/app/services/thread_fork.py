@@ -8,6 +8,7 @@ they join. Later activity in either thread never reaches the other.
 """
 
 import copy
+import time
 import uuid
 from typing import Optional
 
@@ -30,6 +31,7 @@ from app.models import (
 _SKIPPED_MESSAGE_TYPES = {"thinking", "status", "todos", "approval"}
 
 FORK_TITLE_SUFFIX = " (fork)"
+FORK_NOTICE = "thread_forked"
 
 
 def _forkable(record: EventRecord) -> bool:
@@ -118,10 +120,35 @@ def fork_channel(db: Session, source: Channel, owner_email: str, *, title: Optio
         ))
     if records:
         fork.forked_at_event_id = records[-1].id
-        fork.last_event_at = records[-1].timestamp
-        # The copied history is already read by the person who forked it.
-        db.add(ReadMarker(workspace_id=source.workspace_id, user_email=owner_email,
-                          session_id=fork.name, read_at=records[-1].timestamp,
-                          updated_at=records[-1].timestamp))
+
+    # A system notice closes the copied history so people and agents can see
+    # where the fork starts. It targets no agent and is never routed.
+    source_title = source.title or "Untitled thread"
+    notice_ts = max(int(time.time() * 1000), (records[-1].timestamp + 1) if records else 0)
+    db.add(EventRecord(
+        id=str(uuid.uuid4()),
+        network_id=source.workspace_id,
+        type="workspace.message.posted",
+        source="system:workspace",
+        target=f"channel/{fork.name}",
+        payload={
+            "content": f"This thread was forked from \u201c{source_title}\u201d.",
+            "message_type": "chat",
+            "sender_type": "system",
+            "sender_name": "System",
+        },
+        metadata_={
+            "target_agents": ["__no_response__"],
+            "system_notice": FORK_NOTICE,
+            "forked_from": source.name,
+            "forked_from_title": source_title,
+        },
+        timestamp=notice_ts,
+        visibility="channel",
+    ))
+    fork.last_event_at = notice_ts
+    # The copied history is already read by the person who forked it.
+    db.add(ReadMarker(workspace_id=source.workspace_id, user_email=owner_email,
+                      session_id=fork.name, read_at=notice_ts, updated_at=notice_ts))
     db.flush()
     return fork
