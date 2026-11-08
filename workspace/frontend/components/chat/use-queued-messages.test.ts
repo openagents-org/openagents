@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceMessage } from '@/lib/types';
-import { arrangeQueuedMessages, deriveQueuedMessages } from './use-queued-messages';
+import { agentBusyInThread, arrangeQueuedMessages, deriveQueuedMessages, unresolvedPending } from './use-queued-messages';
 
 const human = (id: string, content: string, messageType = 'chat'): WorkspaceMessage => ({
   messageId: id, senderId: 'me', senderAddress: 'human:me@example.com', sessionId: 't', senderType: 'human', senderName: 'me',
@@ -76,5 +76,41 @@ describe('arrangeQueuedMessages', () => {
   it('returns the same array when nothing is queued', () => {
     const messages = [human('u1', 'hi'), agent('a1', 'hello')];
     expect(arrangeQueuedMessages(messages)).toBe(messages);
+  });
+});
+
+describe('pending queue entries', () => {
+  const ids = (messages: WorkspaceMessage[]) => messages.map((m) => m.messageId);
+  const entry = { id: 'p1', content: 'Also add pricing', sentAt: 0 };
+
+  it('hides a message sent to a busy agent before its queue report arrives', () => {
+    const messages = [human('u1', 'Build the page'), human('u2', 'Also add pricing')];
+    expect(ids(arrangeQueuedMessages(messages, [entry]))).toEqual(['u1']);
+    expect(deriveQueuedMessages(messages, new Set(), [entry])).toEqual([{ queueId: 'p1', content: 'Also add pricing', pending: true }]);
+  });
+
+  it('hands over to the agent queue report once it arrives', () => {
+    const messages = [human('u2', 'Also add pricing'), status('s1', { queue_id: 'q1', queued_message: 'Also add pricing' })];
+    expect(unresolvedPending(messages, [entry])).toEqual([]);
+    expect(deriveQueuedMessages(messages, new Set(), [entry])).toEqual([{ queueId: 'q1', content: 'Also add pricing' }]);
+    expect(ids(arrangeQueuedMessages(messages, [entry]))).toEqual([]);
+  });
+});
+
+describe('agentBusyInThread', () => {
+  const at = (msg: WorkspaceMessage, iso: string) => ({ ...msg, createdAt: iso });
+  const now = Date.parse('2026-11-08T12:00:00Z');
+  const working = status('s1', {});
+
+  it('trusts presence until the agent posts a finished reply', () => {
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: ['t'] }, 't', [human('u1', 'go')], now)).toBe(true);
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: ['t'] }, 't', [human('u1', 'go'), working], now)).toBe(true);
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: ['t'] }, 't', [working, agent('a1', 'Done.')], now)).toBe(false);
+  });
+
+  it('counts a fresh working step as busy when presence lags', () => {
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: [] }, 't', [at(working, '2026-11-08T11:59:30Z')], now)).toBe(true);
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: [] }, 't', [at(working, '2026-11-08T11:50:00Z')], now)).toBe(false);
+    expect(agentBusyInThread({ agentName: 'a', busyChannels: [] }, 't', [agent('a1', 'Done.')], now)).toBe(false);
   });
 });

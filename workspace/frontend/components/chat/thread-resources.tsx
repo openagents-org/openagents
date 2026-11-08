@@ -20,10 +20,10 @@ import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
 import type { WorkspaceMessage } from '@/lib/types';
-import { useQueuedMessages } from './use-queued-messages';
+import { useQueuedMessages, type PendingQueueEntry } from './use-queued-messages';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
-export function ThreadResources({ messages = [], queueMessages = [] }: { messages?: WorkspaceMessage[]; queueMessages?: WorkspaceMessage[] }) {
+export function ThreadResources({ messages = [], queueMessages = [], pendingQueue = [] }: { messages?: WorkspaceMessage[]; queueMessages?: WorkspaceMessage[]; pendingQueue?: PendingQueueEntry[] }) {
   const t = useT();
   const collaboration = useThreadCollaboration();
   const [saving, setSaving] = useState(false);
@@ -46,7 +46,7 @@ export function ThreadResources({ messages = [], queueMessages = [] }: { message
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
-  const { queued, cancel: cancelQueued } = useQueuedMessages(currentSessionId, queueMessages);
+  const { queued, cancel: cancelQueued } = useQueuedMessages(currentSessionId, queueMessages, pendingQueue);
   // A newly queued message opens the Queue tab; it disappears once the queue drains.
   const queuedCount = useRef(queued.length);
   useEffect(() => {
@@ -80,8 +80,8 @@ export function ThreadResources({ messages = [], queueMessages = [] }: { message
           <ul {...queueDrag} ref={queueRow} aria-label={t('threadResources.queue')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {queued.map((q, i) => <li key={q.queueId} className="flex w-64 shrink-0 snap-start flex-col gap-1 rounded-lg border bg-background p-2">
               <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">{t('threadResources.queuedPosition', { position: i + 1 })}</span>
-                <button type="button" onClick={() => void cancelQueued(q.queueId)} aria-label={t('threadStatus.cancelQueuedMessage')} title={t('threadStatus.cancelQueuedMessage')} className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3" />{t('common.cancel')}</button>
+                <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">{q.pending ? t('threadResources.queuing') : t('threadResources.queuedPosition', { position: i + 1 })}</span>
+                {!q.pending && <button type="button" onClick={() => void cancelQueued(q.queueId)} aria-label={t('threadStatus.cancelQueuedMessage')} title={t('threadStatus.cancelQueuedMessage')} className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3" />{t('common.cancel')}</button>}
               </div>
               <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-4" title={q.content}>{q.content}</p>
             </li>)}

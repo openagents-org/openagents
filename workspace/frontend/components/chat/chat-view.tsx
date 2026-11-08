@@ -28,7 +28,7 @@ import { HumanProfile } from './human-profile';
 import { AddThreadParticipants } from './add-thread-participants';
 import { ResponseModeControl } from './response-mode-control';
 import { ForkTag } from './fork-thread';
-import { arrangeQueuedMessages } from './use-queued-messages';
+import { agentBusyInThread, arrangeQueuedMessages, PENDING_QUEUE_MS, type PendingQueueEntry } from './use-queued-messages';
 import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -484,8 +484,21 @@ export function ChatView() {
     [sessionMessages, sessionOptimisticMessages]
   );
   const browserMessages = useThreadBrowserMessages(displayMessages);
+  // Messages sent while an agent here is busy count as queued until its queue
+  // report arrives, so they never flash into the chat log first.
+  const [pendingQueue, setPendingQueue] = useState<(PendingQueueEntry & { sessionId: string })[]>([]);
+  const sessionPendingQueue = useMemo(
+    () => pendingQueue.filter((p) => p.sessionId === currentSessionId),
+    [pendingQueue, currentSessionId],
+  );
+  useEffect(() => {
+    if (!pendingQueue.length) return;
+    const next = Math.min(...pendingQueue.map((p) => p.sentAt + PENDING_QUEUE_MS));
+    const timer = setTimeout(() => setPendingQueue((prev) => prev.filter((p) => p.sentAt + PENDING_QUEUE_MS > Date.now())), Math.max(0, next - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [pendingQueue]);
   // Queued messages wait in the Queue tab, not in the chat log.
-  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages), [displayMessages]);
+  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages, sessionPendingQueue), [displayMessages, sessionPendingQueue]);
 
   const startEditingTitle = () => {
     setTitleDraft(currentSession?.title || '');
@@ -613,10 +626,22 @@ export function ChatView() {
         content, mentions, mentionedHumans, dmCounterpart: isDM ? dmCounterpart : null,
         responseMode: threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') ? currentSession?.responseMode || 'proactive' : undefined,
       });
+      // An agent here that is mid-task will queue anything routed to it. The
+      // routing result (below) confirms or clears this guess.
+      const busyHere = new Set(isDM ? [] : agents
+        .filter((a) => (currentSession?.participants || []).includes(a.agentName) && agentBusyInThread(a, currentSessionId, displayMessages))
+        .map((a) => a.agentName));
+      const mentionedAgents = mentions.map((m) => normalizeAgentAddress(m) || m);
+      const maybeQueued = busyHere.size > 0 && !!userContent.trim()
+        && (mentionedAgents.length ? mentionedAgents.some((name) => busyHere.has(name)) : mentionedHumans.length === 0);
+      const pendingId = `pending-${timestamp}`;
+      if (maybeQueued) {
+        setPendingQueue((prev) => [...prev, { id: pendingId, sessionId: currentSessionId, content: userContent, sentAt: timestamp }]);
+      }
       setOptimisticMessages((prev) => [
         ...prev.filter((m) => m.sessionId !== currentSessionId),
         userOptimisticMsg,
-        ...(expectResponse ? [loadingOptimisticMsg] : []),
+        ...(expectResponse && !maybeQueued ? [loadingOptimisticMsg] : []),
       ]);
       setScrollKey((k) => k + 1);
 
@@ -668,8 +693,12 @@ export function ChatView() {
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
           replyingTo?.messageId,
         );
+        // Still queued only if routing picked a busy agent; otherwise show it now.
+        const routedTo: string[] = Array.isArray(sent.metadata?.target_agents) ? sent.metadata.target_agents : [];
+        const queuedNow = maybeQueued && routedTo.some((name) => busyHere.has(name));
+        if (maybeQueued && !queuedNow) setPendingQueue((prev) => prev.filter((p) => p.id !== pendingId));
         // The server can also suppress replies (for example, the director rule).
-        setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
+        setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, queuedNow ? undefined : loadingOptimisticMsg));
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
           has_mentions: mentions.length > 0,
@@ -678,6 +707,7 @@ export function ChatView() {
         forceRefresh();
       } catch (err) {
         if (replyingTo) setReplyTargets(previous => ({ ...previous, [currentSessionId]: previous[currentSessionId] || replyingTo }));
+        setPendingQueue((prev) => prev.filter((p) => p.id !== `pending-${timestamp}`));
         // Remove optimistic messages on error
         setOptimisticMessages((prev) =>
           prev.filter(
@@ -706,7 +736,7 @@ export function ChatView() {
         }
       }
     },
-    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode, currentSession?.humanCount]
+    [replyTarget, currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents, displayMessages, isDM, dmCounterpart, myAddr, setCurrentSessionId, currentSession?.participants, currentSession?.master, currentSession?.responseMode, currentSession?.humanCount]
   );
 
   const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
@@ -926,7 +956,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadResources key={currentSessionId} messages={browserMessages} queueMessages={displayMessages} />
+      <ThreadResources key={currentSessionId} messages={browserMessages} queueMessages={displayMessages} pendingQueue={sessionPendingQueue} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
