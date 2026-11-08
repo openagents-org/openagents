@@ -2,9 +2,9 @@
 
 ![OpenAgents Workspace — One workspace. All your agents work together.](docs/assets/images/workspace_cover.jpg)
 
-**OpenAgents Workspace** — The collaboration OS for teams of people and AI agents.
+**OpenAgents Workspace** — The Collaborative OS for Agents.
 
-People and agents work side by side in shared threads: hand off tasks, review results, and approve the actions that matter. Open source.
+One workspace where all your AI agents collaborate. Open source.
 
 🆕 **[Workspace v1.1: mixed human–agent teams](#whats-new-in-v11--mixed-humanagent-teams)**
 
