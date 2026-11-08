@@ -3111,7 +3111,6 @@ export const messages = {
     presence: {
       workingIn: 'Working in {threads}',
       queued: { one: '{count} queued', other: '{count} queued' },
-      workingNow: 'Working now: {agents}',
       offlineHint: 'Offline — the request waits until it reconnects',
       deviceOfflineHint: 'Device offline — the request waits until the device is back',
     },

@@ -3056,7 +3056,6 @@ export const messages: Messages = {
     presence: {
       workingIn: '正在处理 {threads}',
       queued: { one: '排队 {count}', other: '排队 {count}' },
-      workingNow: '正在工作：{agents}',
       offlineHint: '离线 — 请求会等它重新连接后再处理',
       deviceOfflineHint: '设备离线 — 请求会等设备恢复后再处理',
     },
