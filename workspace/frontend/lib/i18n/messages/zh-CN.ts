@@ -544,6 +544,7 @@ export const messages: Messages = {
     shareConversation: '分享对话',
     forkThreadFailed: '无法复制此线程',
     forkedFrom: '复制自 {title}',
+    forkTag: '分支',
     copyMessage: '复制消息',
     copyFailed: '复制失败',
     agentWorking: '智能体正在工作',
