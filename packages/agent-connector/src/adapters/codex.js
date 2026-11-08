@@ -63,6 +63,12 @@ const CODEX_LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|
 // Things codex says beside a run rather than about it, such as a config key
 // it skipped. Quoted only when nothing else was said.
 const CODEX_SIDE_NOTE = /^warning:/i;
+// ERROR records codex logs beside a run, not about it: a skill file it could
+// not parse (it skips that skill and answers anyway, verified with codex-cli
+// 0.167), and its own ChatGPT connector (rmcp) losing a side connection. In
+// the field they came first in stderr and were quoted as the reason a run
+// failed. Quoted only when nothing else was logged.
+const CODEX_SIDE_ERROR = /\brmcp::|failed to load skill\b/;
 // Codex's wording when the model service could not be reached or the stream
 // dropped. Seen in the field from devices that cannot reach OpenAI, and
 // reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
@@ -71,14 +77,14 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 const CODEX_CONNECTION_FAILURE = /error sending request|Connection failed|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion|workspace routing discovery (?:failed|timed out)|request timed out/i;
 // codex retrying a failed connection by itself: "Reconnecting... 2/5 (why)".
 const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i;
-// The service answered and said no: a key, a plan, a quota, or a model it
-// will not serve. Network advice would send the user the wrong way. The
-// terms of _serviceRefused, less "error sending request" (that one is a
-// connection failure), plus a 400 and a rejected model.
 // An endpoint refusing a field of the request. Codex sends the same fields
 // (client_metadata among them) on every turn and has no setting to drop one,
 // so on a custom Responses provider this fails every run.
 const PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
+// The service answered and said no: a key, a plan, a quota, or a model it
+// will not serve. Network advice would send the user the wrong way. The
+// terms of _serviceRefused, less "error sending request" (that one is a
+// connection failure), plus a 400 and a rejected model.
 const SERVICE_REFUSAL = /\b(400|401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthori[sz]ed|forbidden|model_not_found|model\b[^\n]{0,80}?\b(?:not supported|does not exist|not available)/i;
 // How many of stderr's last lines count as evidence of a lost connection.
 // codex logs `WARN … failed to refresh available models: request timed out`
@@ -830,8 +836,14 @@ class CodexAdapter extends BaseAdapter {
    * long stderr cannot push the advice out of the message.
    */
   static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null } = {}) {
+    // A clean exit with no turn.failed and no error event is codex saying the
+    // turn finished; it just wrote no reply. Whatever stderr holds then is not
+    // why (a skill it skipped, its ChatGPT connector), and quoting it read as
+    // "failed to complete this run > failed to load skill …" for a run that
+    // had not failed.
+    const finished = exitCode === 0 && !signal;
     const raw = String(errorMessage || '').trim()
-      || CodexAdapter._stderrReason(stderr)
+      || (finished ? '' : CodexAdapter._stderrReason(stderr))
       || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
@@ -858,7 +870,8 @@ class CodexAdapter extends BaseAdapter {
    * (or "Reading additional input from stdin...") on every run. A plain tail
    * of the last lines was mostly that noise. So, in order: lines the CLI
    * printed for a person; failing those, its ERROR records with timestamp and
-   * module stripped; failing those, its warnings. The banner and known-harmless
+   * module stripped; failing those, its warnings and the ERROR records it logs
+   * beside a run (CODEX_SIDE_ERROR). The banner and known-harmless
    * lines are never a reason: a clean exit with only the banner reads as "no
    * reply", not as "> Reading prompt from stdin...".
    *
@@ -875,7 +888,8 @@ class CodexAdapter extends BaseAdapter {
       const record = CODEX_LOG_RECORD.exec(line);
       if (record) {
         const [, level, message] = record;
-        const bucket = level === 'ERROR' ? errors : level === 'WARN' ? notes : null;
+        const side = level === 'WARN' || (level === 'ERROR' && CODEX_SIDE_ERROR.test(line));
+        const bucket = side ? notes : level === 'ERROR' ? errors : null;
         if (bucket && message && !bucket.includes(message)) bucket.push(message);
       } else if (!BENIGN_CLI_OUTPUT.test(line)) {
         (CODEX_SIDE_NOTE.test(line) ? notes : said).push(line);

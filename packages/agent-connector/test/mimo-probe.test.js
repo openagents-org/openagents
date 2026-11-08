@@ -139,7 +139,7 @@ describe('other agents retain their health-check routing', () => {
   for (const example of [
     { type: 'openclaw', env: { LLM_API_KEY: 'agent-key' }, url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
     { type: 'kimi', env: { KIMI_API_KEY: 'agent-key' }, url: 'https://api.moonshot.ai/v1/chat/completions', model: 'kimi-k2.6' },
-    { type: 'claude', env: { ANTHROPIC_API_KEY: 'agent-key' }, url: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514' },
+    { type: 'claude', env: { ANTHROPIC_API_KEY: 'agent-key' }, url: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-5-5' },
   ]) {
     it(example.type, async (t) => {
       const requests = captureRequests(t);

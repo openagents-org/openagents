@@ -313,6 +313,52 @@ describe('Codex — what of stderr is quoted', () => {
   });
 });
 
+/**
+ * Field report 2026-11-08: one agent's channel read "Codex failed to complete
+ * this run. > failed to load skill …/impeccable/SKILL.md: invalid YAML" twice,
+ * and other channels quoted codex's ChatGPT connector ("worker quit with fatal:
+ * Transport channel closed …"). codex-cli 0.167 skips a skill it cannot parse
+ * and answers anyway: the line is logged on every run, failed or not.
+ */
+describe('Codex — log lines written beside a run are not its failure', () => {
+  // Verbatim from codex-cli 0.167.0 with a SKILL.md whose front matter has a line without a colon.
+  const SKILL = '2026-11-08T05:00:34.736481Z ERROR codex_core::session::session: failed to load skill '
+    + '/Users/u/.codex/skills/impeccable/SKILL.md: invalid YAML: could not find expected \':\' at line 4 column 1, '
+    + 'while scanning a simple key at line 3 column 1';
+  const RMCP = '2026-11-08T02:50:52.116025Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel '
+    + 'closed, when Client(HttpRequest(HttpRequest("error decoding response body")))';
+  const QUOTA = '2026-11-08T05:00:40.000000Z ERROR codex_core::session: turn error: You\'ve hit your usage limit.';
+
+  it('a clean exit with no reply says so, whatever stderr holds', async () => {
+    for (const stderr of [SKILL, RMCP, `${SKILL}\n${RMCP}`]) {
+      assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 0 }), '');
+      const sent = [];
+      await CodexAdapter.prototype._sendRunFailure.call(
+        { sendError: async (c, content) => { sent.push(content); } },
+        'chan', { responseText: '', stderr, exitCode: 0, turnStarted: true },
+      );
+      assert.match(sent[0], /finished without producing a reply/);
+      assert.doesNotMatch(sent[0], /failed to load skill|Transport channel closed/);
+    }
+  });
+
+  it('a clean exit still quotes codex\'s own error event', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: 'Reconnecting... 5/5 (request timed out)', stderr: SKILL, exitCode: 0 });
+    assert.match(detail, /Reconnecting/);
+  });
+
+  it('a failed run quotes the real error, not the skill or connector line before it', () => {
+    const detail = CodexAdapter._failureDetail({ stderr: [SKILL, RMCP, QUOTA].join('\n'), exitCode: 1 });
+    assert.match(detail, /usage limit/);
+    assert.doesNotMatch(detail, /failed to load skill|Transport channel closed/);
+  });
+
+  it('quotes them only when codex logged nothing else', () => {
+    const detail = CodexAdapter._failureDetail({ stderr: SKILL, exitCode: 1 });
+    assert.match(detail, /failed to load skill/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // _sendRunFailure
 // ---------------------------------------------------------------------------

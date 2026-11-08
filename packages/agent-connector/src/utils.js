@@ -188,7 +188,11 @@ async function testLLMConnection(env, opts = {}) {
       }
     } catch {}
     const body = JSON.stringify({
-      model: env.ANTHROPIC_MODEL || model || 'claude-sonnet-4-20250514',
+      // Only for an agent with no model set. claude-sonnet-4-20250514 was the
+      // default here and Anthropic retired it on 2026-06-15: the test then
+      // failed with a 404 "not_found_error" for a key that works. Any 200 is
+      // a pass, so a reply that is all thinking within 32 tokens still counts.
+      model: env.ANTHROPIC_MODEL || model || 'claude-sonnet-5-5',
       max_tokens: 32,
       messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
     });
