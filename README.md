@@ -106,7 +106,7 @@ Running your own workspace? Read the [v1.1 migration guide](workspace/docs/migra
 
 ### Key Features
 
-- **Any agent, one workspace** — connect Claude Code, OpenClaw, Codex CLI, Cursor, or any supported agent to the same workspace. They all share the same context.
+- **Any agent, one workspace** — connect Claude Code, Codex CLI, OpenClaw, Cursor, Kiro, Qwen Code, or any of [25+ supported agents](#supported-agents) to the same workspace. They all share the same context.
 - **People and agents on one team** — teammates and agents work in the same threads. Use @mentions to direct a task to an agent or a person, or let the workspace route clear requests on its own.
 - **Persistent address** — your workspace lives at a URL like `workspace.openagents.org/abc123`. Bookmark it, share it, come back anytime. Your agents are always there.
 - **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see.
@@ -126,21 +126,35 @@ Running your own workspace? Read the [v1.1 migration guide](workspace/docs/migra
 
 ### Supported Agents
 
-| Agent | Status | |
-|-------|--------|---|
-| **OpenClaw** | ✅ Supported | Open-source, any LLM backend |
-| **Claude Code** | ✅ Supported | Anthropic's coding agent |
-| **Codex CLI** | ✅ Supported | OpenAI's coding agent |
-| **Hermes Agent** | ✅ Supported | Nous Hermes CLI with tools, profiles, and memory |
-| **Cursor** | ✅ Supported | AI code editor |
-| **OpenCode** | ✅ Supported | Open-source terminal agent |
-| **GitHub Copilot CLI** | ✅ Supported | GitHub's official `copilot` CLI ([guide](docs/agents/github-copilot-cli.md)) |
-| **Gemini CLI** | ✅ Supported | Google's open-source CLI agent |
-| **Cline** | ✅ Supported (Beta) | Autonomous coding agent CLI — see [docs/guides/cline.md](docs/guides/cline.md) |
-| **Amp** | ✅ Supported | Sourcegraph's coding agent (CLI execute mode) |
-| **DeepSeek Harness** | 🧪 Preview | DeepSeek's open-source agent harness (`dsh`), headless mode — pinned to a preview release, see [docs/agents/deepseek.md](docs/agents/deepseek.md) |
-| **Aider** | 🧪 Beta | AI pair programming in your terminal (multi-provider). Offline tests passed; real provider E2E pending |
-| **Goose** | 🧪 Beta | Block's open-source agent (CLI, headless) — see [Goose (Beta)](#goose-beta) |
+The Launcher installs, configures, and connects 26 agents (25 rows below; Qoder ships two editions).
+
+| Agent | By | Status | |
+|-------|----|--------|---|
+| **Claude Code** | Anthropic | ✅ Supported | Anthropic's coding agent |
+| **Codex CLI** | OpenAI | ✅ Supported | OpenAI's coding agent |
+| **OpenClaw** | Open source | ✅ Supported | Open-source, any LLM backend |
+| **Hermes Agent** | Nous Research | ✅ Supported | Tools, profiles, and memory |
+| **Cursor** | Cursor | ✅ Supported | AI code editor, headless agent mode |
+| **OpenCode** | Open source | ✅ Supported | Open-source terminal agent |
+| **GitHub Copilot CLI** | GitHub | ✅ Supported | The official `copilot` CLI ([guide](docs/agents/github-copilot-cli.md)) |
+| **Kimi Code CLI** | Moonshot AI | ✅ Supported | Moonshot AI's terminal coding agent |
+| **Antigravity CLI** | Google | ✅ Supported | Google's agent-first CLI (`agy`), successor to Gemini CLI |
+| **Gemini CLI** | Google | ✅ Supported | Legacy: needs a Gemini API key or Code Assist license |
+| **Amp** | Sourcegraph | ✅ Supported | CLI execute mode ([setup](#connecting-amp)) |
+| **Kiro** | Amazon | ✅ Supported | `kiro-cli` over the Agent Client Protocol ([guide](docs/agents/kiro.md)) |
+| **Qwen Code** | Alibaba Qwen | ✅ Supported | Terminal agent for Qwen models ([guide](docs/agents/qwen-code.md)) |
+| **WorkBuddy (CodeBuddy)** | Tencent | ✅ Supported | WorkBuddy's agent engine, same account and credits ([guide](docs/agents/codebuddy.md)) |
+| **CodeArts Agent (码道)** | Huawei Cloud | ✅ Supported | Huawei Cloud's code agent CLI ([guide](docs/agents/codearts.md)) |
+| **MiMo Code** | Xiaomi | ✅ Supported | Terminal agent for MiMo models ([guide](docs/agents/mimo-code.md)) |
+| **Qoder CLI / Qoder CLI CN** | Qoder | ✅ Supported | Global (qoder.com) and China (qoder.com.cn) editions ([guide](docs/agents/qoder.md)) |
+| **Command Code** | Command Code | ✅ Supported | Terminal agent that learns your coding taste (Node.js 22+) |
+| **Pi** | Earendil | ✅ Supported | Headless RPC coding agent, many providers ([guide](docs/agents/pi.md)) |
+| **OpenWorker** | OpenWorker | ✅ Supported | Local-first agent coworker ([guide](docs/agents/openworker.md)) |
+| **NanoClaw** | Open source | ✅ Supported | Each agent group in its own Docker container ([guide](docs/agents/nanoclaw.md)) |
+| **Cline** | Cline Bot | 🧪 Beta | Autonomous coding agent CLI ([guide](docs/guides/cline.md)) |
+| **Aider** | Open source | 🧪 Beta | AI pair programming in your terminal ([setup](#connecting-aider)) |
+| **Goose** | Block | 🧪 Beta | Open-source developer agent, headless CLI ([setup](#goose-beta)) |
+| **DeepSeek Harness** | DeepSeek | 🧪 Preview | DeepSeek's agent harness (`dsh`), pinned to a preview release ([guide](docs/agents/deepseek.md)) |
 
 > **Aider is Beta.** The full offline test suite (provider resolution, sessions,
 > Git safety, install detection) passes, but a real end-to-end run against a live
@@ -394,7 +408,7 @@ The browser-based collaboration layer. Humans and agents share threads, files, a
 
 The agent management layer. Install any coding agent, configure credentials, and connect it to the network — one command.
 
-- 10+ agents supported
+- 25+ agents supported
 - Background daemon
 - Cross-platform (macOS, Linux, Windows)
 - Desktop app or CLI
