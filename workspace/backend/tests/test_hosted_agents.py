@@ -20,6 +20,7 @@ class FakeAcenta:
         self.state = "queued"
         self.launch_url = None
         self.status_error = None
+        self.elsewhere = False  # whether the launched agent is also in other workspaces
 
     def __call__(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))
@@ -45,6 +46,10 @@ class FakeAcenta:
         if method == "DELETE" and path.startswith("/box-9/workspaces/"):
             self.disconnected = (path, kwargs["params"])
             return {"id": "box-9", "in_this_workspace": False}
+        if method == "DELETE" and path.startswith("/box-1/workspaces/"):
+            if not self.elsewhere:
+                raise hosting.ProviderError("An agent needs at least one workspace.", 409)
+            return {"id": "box-1", "in_this_workspace": False}
         if path.endswith("/terminate"):
             if self.terminate_status:
                 raise hosting.ProviderError("down", self.terminate_status)
@@ -244,3 +249,13 @@ def test_failed_add_rolls_back_the_connection(client, db, workspace, people, ace
     r = client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]}, headers=_bearer("mia", workspace))
     assert r.status_code == 400 and "up to 3" in r.json()["message"]
     assert _hosted(db) == [] and db.query(Node).count() == 0
+
+
+def test_removing_a_launched_agent_that_works_elsewhere_only_disconnects_it(client, db, workspace, people, acenta):
+    _launch(client, workspace)
+    acenta.elsewhere = True
+    r = client.delete(f"/v1/hosted-agents/acenta-1a2b3c4d?network={workspace['id']}", headers=_bearer("mia", workspace))
+    assert r.status_code == 200, r.text
+    assert acenta.calls[-1][0] == "DELETE" and acenta.calls[-1][1] == f"/box-1/workspaces/{workspace['id']}"
+    assert not any(call[1].endswith("/terminate") for call in acenta.calls)
+    assert _hosted(db) == []

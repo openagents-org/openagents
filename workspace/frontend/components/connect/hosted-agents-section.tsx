@@ -100,14 +100,16 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     }
   };
 
-  const handleRemove = async (agent: HostedAgent) => {
+  // Removing an agent from this workspace only disconnects it while it works in
+  // other workspaces too; it is ended only when this is its last one.
+  const handleRemove = async (agent: HostedAgent, elsewhere = !!agent.linked) => {
     const ok = await confirm({
       title: t('connect.remove'),
-      description: agent.linked
+      description: elsewhere
         ? t('connect.acentaDisconnectConfirm', { name: agent.displayName })
         : t('connect.acentaRemoveConfirm', { name: agent.displayName }),
       confirmText: t('connect.remove'),
-      destructive: !agent.linked,
+      destructive: !elsewhere,
     });
     if (!ok) return;
     try {
@@ -140,9 +142,9 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     );
   };
 
-  const removeButton = (agent: HostedAgent) => (
+  const removeButton = (agent: HostedAgent, elsewhere?: boolean) => (
     <button
-      onClick={() => handleRemove(agent)}
+      onClick={() => handleRemove(agent, elsewhere ?? !!agent.linked)}
       className="size-6 flex items-center justify-center rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 transition-colors"
       title={t('connect.remove')}
     >
@@ -212,7 +214,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
               </div>
             </div>
             {agent.inThisWorkspace ? (
-              <>{here ? presence(here) : agent.launchUrl ? <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a> : null}{here && removeButton(here)}</>
+              <>{here ? presence(here) : agent.launchUrl ? <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a> : null}{here && removeButton(here, agent.workspaces > 1)}</>
             ) : agent.launchUrl ? (
               <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a>
             ) : (

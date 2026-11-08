@@ -170,7 +170,17 @@ def finish_termination(hosted_id: str) -> None:
             return
         if hosted.external_id:
             try:
-                _disconnect(hosted) if hosted.status == "unlinking" else _terminate(hosted)
+                if hosted.status == "unlinking":
+                    _disconnect(hosted)
+                else:
+                    # An agent is only ended when this was its last workspace;
+                    # otherwise it just leaves this one and keeps working elsewhere.
+                    try:
+                        _disconnect(hosted)
+                    except ProviderError as error:
+                        if error.status != 409:
+                            raise
+                        _terminate(hosted)
             except ProviderError as error:
                 logger.warning("hosted_agents: terminate %s failed (%s); will retry", hosted_id, error.status)
                 return
