@@ -5,7 +5,10 @@ Hosted cloud agents — agents whose runtime Acenta provisions and runs.
 GET    /v1/hosted-agents/providers   Provider availability
 GET    /v1/hosted-agents             List hosted agents in a workspace
 POST   /v1/hosted-agents             Launch a hosted agent
-DELETE /v1/hosted-agents/{name}      Remove it and terminate its runtime
+DELETE /v1/hosted-agents/{name}      Remove it: terminate a launched runtime, or
+                                     disconnect an agent added from Acenta
+GET    /v1/hosted-agents/acenta/agents                  The user's Acenta agents
+POST   /v1/hosted-agents/acenta/agents/{id}/connect     Add one to this workspace
 
 Launching mints a dedicated connection (a Node of device_type "hosted") whose
 token is handed to Acenta. The runtime joins with that token as a normal
@@ -51,6 +54,8 @@ def _format(hosted: HostedAgent, member: Optional[WorkspaceMember]) -> dict:
         "displayName": hosted.display_name,
         "provider": hosted.provider,
         "status": hosted.status,
+        "linked": hosted.status == "linked",
+        "externalId": hosted.external_id,
         "setupUrl": hosted.setup_url if hosted.status == "setup" else None,
         "presence": effective_agent_status(member) if member else "offline",
         "ownerEmail": hosted.owner_email,
@@ -87,7 +92,7 @@ def list_hosted_agents(
     }
     visible = []
     for hosted in rows:
-        if hosted.status == "terminating":
+        if hosted.status in ("terminating", "unlinking"):
             hosting.schedule_termination(hosted.id)  # retry cleanup Acenta has not confirmed
             continue
         if hosted.status == "setup":
@@ -111,6 +116,132 @@ def list_hosted_agents(
         if hosted.agent_name:
             visible.append(_format(hosted, members.get(hosted.agent_name)))
     return success_response({"hosted_agents": visible})
+
+
+def _member_user(db, workspace, authorization):
+    """The signed-in workspace member acting on their own Acenta agents, else an error response."""
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return None, json_response(ResponseCode.UNAUTHORIZED, "Sign in to use your Acenta agents")
+    email = user.email.strip().lower()
+    if workspace_human_roles(db, workspace).get(email) not in _LAUNCH_ROLES:
+        return None, json_response(ResponseCode.FORBIDDEN, "Only workspace members can add cloud agents")
+    return user, None
+
+
+def _placeholder_member(db, workspace, agent_name: str, display_name: str, node, email: str):
+    """Placeholder until the runtime's first /v1/join, bound to the hosted
+    connection so only that token can join as this agent."""
+    naming.lock_member_namespace(db, workspace.id)
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+    # The name is a label only; keep it off when it would shadow another member.
+    label = None if naming.find_alias_clash(db, workspace.id, display_name, exclude_agent=agent_name) else display_name
+    if member is None:
+        member = WorkspaceMember(
+            workspace_id=str(workspace.id), agent_name=agent_name, display_name=label,
+            role="member", agent_type="opencode", node_id=node.id, owner_email=node.owner_email,
+            visibility="personal", status="offline",
+            description="Cloud agent hosted on Acenta",
+        )
+        db.add(member)
+    else:
+        member.display_name = member.display_name or label
+        member.description = member.description or "Cloud agent hosted on Acenta"
+        member.node_id = node.id
+    return member
+
+
+@router.get("/hosted-agents/acenta/agents")
+def list_my_acenta_agents(
+    network: str = Query(..., description="Workspace ID or slug"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """The signed-in user's Acenta agents and whether each is already here."""
+    workspace = _resolve_workspace(db, network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    user, denied = _member_user(db, workspace, authorization)
+    if denied is not None:
+        return denied
+    if not hosting.enabled():
+        return success_response({"hasAccount": False, "agents": [], "agentLimit": 0})
+    email = user.email.strip().lower()
+    try:
+        result = hosting.list_for_user(subject=user.firebase_uid or email, email=email, workspace_id=str(workspace.id))
+    except hosting.ProviderError as error:
+        return json_response(ResponseCode.BAD_REQUEST, str(error))
+    agents = [{
+        "id": a.get("id"), "name": a.get("name"), "agentName": a.get("agent_name"), "state": a.get("state"),
+        "tier": a.get("tier"), "url": a.get("url"), "launchUrl": a.get("launch_url"),
+        "inThisWorkspace": bool(a.get("in_this_workspace")), "workspaces": a.get("workspaces") or 0,
+        "workspaceLimit": a.get("workspace_limit") or 0,
+    } for a in result.get("agents", [])]
+    return success_response({"hasAccount": bool(result.get("has_account")), "agents": agents,
+                             "agentLimit": result.get("agent_limit") or 0})
+
+
+class ConnectAcentaAgentRequest(BaseModel):
+    network: str
+
+
+@router.post("/hosted-agents/acenta/agents/{external_id}/connect")
+def connect_acenta_agent(
+    external_id: str,
+    body: ConnectAcentaAgentRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Add one of the user's existing Acenta agents to this workspace."""
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    user, denied = _member_user(db, workspace, authorization)
+    if denied is not None:
+        return denied
+    if not hosting.enabled():
+        return json_response(ResponseCode.CONFLICT, "Acenta cloud agents are not available yet")
+    email = user.email.strip().lower()
+    hosted = HostedAgent(workspace_id=str(workspace.id), provider=hosting.PROVIDER, display_name="Acenta agent",
+                         owner_email=email, external_id=external_id, status="linking")
+    db.add(hosted)
+    db.flush()
+    node = Node(workspace_id=str(workspace.id), owner_email=email, node_key=f"hosted:{hosted.id}",
+                name="Acenta agent", hostname="acenta.ai", device_type=HOSTED_DEVICE_TYPE,
+                token=secrets.token_urlsafe(32))
+    db.add(node)
+    db.flush()
+    hosted.node_id = node.id
+    db.commit()
+    try:
+        result = hosting.connect(external_id=external_id, subject=user.firebase_uid or email, email=email,
+                                 workspace=workspace, token=node.token)
+        agent_name, display_name = result["agent_name"], result.get("name") or "Acenta agent"
+    except (hosting.ProviderError, KeyError, TypeError) as error:
+        db.delete(node)
+        db.delete(hosted)
+        db.commit()
+        message = str(error) if isinstance(error, hosting.ProviderError) else "Acenta returned an unexpected response"
+        return json_response(ResponseCode.BAD_REQUEST, message)
+    node.name = f"Acenta · {display_name}"
+    hosted.display_name = display_name
+    hosted.agent_name = agent_name
+    hosted.status = "linked"
+    member = _placeholder_member(db, workspace, agent_name, display_name, node, email)
+    db.commit()
+    logger.info("hosted_agents: added Acenta agent %s (%s) to workspace %s", agent_name, external_id, workspace.id)
+    return success_response(_format(hosted, member))
 
 
 class LaunchHostedAgentRequest(BaseModel):
@@ -174,28 +305,7 @@ def launch_hosted_agent(
         logger.warning("hosted_agents: launch failed in %s: %s", workspace.id, message)
         return json_response(ResponseCode.BAD_REQUEST, message)
 
-    naming.lock_member_namespace(db, workspace.id)
-    member = db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace.id,
-            WorkspaceMember.agent_name == agent_name,
-        )
-    ).scalar_one_or_none()
-    # The name is a label only; keep it off when it would shadow another member.
-    label = None if naming.find_alias_clash(db, workspace.id, display_name, exclude_agent=agent_name) else display_name
-    if member is None:
-        # Placeholder until the runtime's first /v1/join; bound to the hosted
-        # connection so only that token can join as this agent.
-        member = WorkspaceMember(
-            workspace_id=str(workspace.id), agent_name=agent_name, display_name=label,
-            role="member", agent_type="opencode", node_id=node.id, owner_email=email,
-            visibility="personal", status="offline",
-            description="Cloud agent hosted on Acenta",
-        )
-        db.add(member)
-    else:
-        member.display_name = member.display_name or label
-        member.description = member.description or "Cloud agent hosted on Acenta"
+    member = _placeholder_member(db, workspace, agent_name, display_name, node, email)
     hosted.agent_name = agent_name
     hosted.external_id = external_id
     hosting.apply_state(hosted, result)
@@ -221,7 +331,7 @@ def remove_hosted_agent(
         select(HostedAgent).where(
             HostedAgent.workspace_id == str(workspace.id),
             HostedAgent.agent_name == agent_name,
-            HostedAgent.status != "terminating",
+            HostedAgent.status.notin_(("terminating", "unlinking")),
         )
     ).scalar_one_or_none()
     if hosted is None:

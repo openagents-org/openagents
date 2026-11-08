@@ -33,6 +33,18 @@ class FakeAcenta:
             if self.status_error:
                 raise hosting.ProviderError("gone", self.status_error)
             return {"id": "box-1", "state": self.state, "launch_url": self.launch_url}
+        if method == "GET" and path == "":
+            self.listed = kwargs["params"]
+            return {"has_account": True, "agent_limit": 3, "agents": [
+                {"id": "box-9", "name": "my-helper", "agent_name": "acenta-9f9f9f9f", "state": "ready", "tier": "standard",
+                 "url": "https://acenta.test/agents/box-9", "launch_url": None, "in_this_workspace": False,
+                 "workspaces": 1, "workspace_limit": 3}]}
+        if method == "POST" and path == "/box-9/workspaces":
+            self.connected = kwargs["json"]
+            return {"id": "box-9", "name": "my-helper", "agent_name": "acenta-9f9f9f9f", "in_this_workspace": True, "workspaces": 2}
+        if method == "DELETE" and path.startswith("/box-9/workspaces/"):
+            self.disconnected = (path, kwargs["params"])
+            return {"id": "box-9", "in_this_workspace": False}
         if path.endswith("/terminate"):
             if self.terminate_status:
                 raise hosting.ProviderError("down", self.terminate_status)
@@ -186,3 +198,49 @@ def test_abandoned_checkout_is_cleaned_up(client, db, workspace, people, acenta)
     assert db.query(Node).count() == 0
     member = db.query(WorkspaceMember).filter_by(agent_name="acenta-1a2b3c4d").one()
     assert member.status == "removed"
+
+
+def test_user_sees_their_acenta_agents_and_adds_one_here(client, db, workspace, people, acenta):
+    mine = client.get(f"/v1/hosted-agents/acenta/agents?network={workspace['id']}", headers=_bearer("mia", workspace))
+    assert mine.status_code == 200, mine.text
+    data = mine.json()["data"]
+    assert data["hasAccount"] and data["agents"][0]["name"] == "my-helper" and not data["agents"][0]["inThisWorkspace"]
+    assert acenta.listed["workspace_id"] == workspace["id"] and acenta.listed["email"]
+    r = client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]},
+                    headers=_bearer("mia", workspace))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["linked"] and r.json()["data"]["agentName"] == "acenta-9f9f9f9f"
+    hosted = _hosted(db)[0]
+    node = db.get(Node, hosted.node_id)
+    # Acenta gets a dedicated connection for this workspace, and the agent joins with it.
+    assert acenta.connected["workspace"]["token"] == node.token and acenta.connected["workspace"]["id"] == workspace["id"]
+    joined = client.post("/v1/join", json={"network": workspace["id"], "agent_name": "acenta-9f9f9f9f",
+                                           "agent_type": "opencode", "token": node.token})
+    assert joined.status_code == 200, joined.text
+    member = db.query(WorkspaceMember).filter_by(agent_name="acenta-9f9f9f9f").one()
+    assert member.display_name == "my-helper"
+
+
+def test_removing_an_added_agent_only_disconnects_it(client, db, workspace, people, acenta):
+    client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]}, headers=_bearer("mia", workspace))
+    r = client.delete(f"/v1/hosted-agents/acenta-9f9f9f9f?network={workspace['id']}", headers=_bearer("mia", workspace))
+    assert r.status_code == 200, r.text
+    path, params = acenta.disconnected
+    assert path == f"/box-9/workspaces/{workspace['id']}" and params["email"]
+    assert not any(call[1].endswith("/terminate") for call in acenta.calls)
+    assert _hosted(db) == []
+
+
+def test_only_members_can_list_or_add_their_agents(client, db, workspace, people, acenta):
+    assert client.get(f"/v1/hosted-agents/acenta/agents?network={workspace['id']}",
+                      headers={"X-Workspace-Token": workspace["token"]}).status_code == 401
+    assert client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]},
+                       headers=_bearer("vic", workspace)).status_code == 403
+    assert acenta.calls == []
+
+
+def test_failed_add_rolls_back_the_connection(client, db, workspace, people, acenta):
+    acenta.fail = "An agent can join up to 3 workspaces. Disconnect one first."
+    r = client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]}, headers=_bearer("mia", workspace))
+    assert r.status_code == 400 and "up to 3" in r.json()["message"]
+    assert _hosted(db) == [] and db.query(Node).count() == 0

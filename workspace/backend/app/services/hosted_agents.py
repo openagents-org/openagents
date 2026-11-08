@@ -84,6 +84,30 @@ def launch(*, request_key: str, name: str, subject: str, email: str, display_nam
     })
 
 
+def list_for_user(*, subject: str, email: str, workspace_id: str) -> dict:
+    """The user's Acenta agents (same OpenAgents identity, else same email)."""
+    return _request("GET", "", params={"subject": subject, "email": email, "workspace_id": workspace_id})
+
+
+def connect(*, external_id: str, subject: str, email: str, workspace, token: str, channel: str = "general") -> dict:
+    """Add one of the user's existing Acenta agents to this workspace over a connection we minted."""
+    return _request("POST", f"/{external_id}/workspaces", json={
+        "user": {"subject": subject, "email": email},
+        "workspace": {"id": str(workspace.id), "slug": workspace.slug or "", "name": workspace.name,
+                      "token": token, "channel": channel},
+    })
+
+
+def _disconnect(hosted: HostedAgent) -> None:
+    try:
+        # The owner's email identifies their Acenta account (subject unknown here).
+        _request("DELETE", f"/{hosted.external_id}/workspaces/{hosted.workspace_id}",
+                 params={"subject": hosted.owner_email, "email": hosted.owner_email})
+    except ProviderError as error:
+        if error.status != 404:  # already disconnected on Acenta's side
+            raise
+
+
 def status(hosted: HostedAgent) -> dict:
     return _request("GET", f"/{hosted.external_id}", params={"workspace_id": str(hosted.workspace_id)})
 
@@ -126,7 +150,9 @@ def release(db, workspace_id, agent_name: str) -> Optional[HostedAgent]:
         if node is not None:
             db.delete(node)
         hosted.node_id = None
-    hosted.status = "terminating"
+    # An existing agent added from the owner's Acenta account only leaves this
+    # workspace; one launched here is terminated.
+    hosted.status = "unlinking" if hosted.status in ("linked", "unlinking") else "terminating"
     return hosted
 
 
@@ -140,11 +166,11 @@ def finish_termination(hosted_id: str) -> None:
     db = session_factory()
     try:
         hosted = db.get(HostedAgent, hosted_id)
-        if hosted is None or hosted.status != "terminating":
+        if hosted is None or hosted.status not in ("terminating", "unlinking"):
             return
         if hosted.external_id:
             try:
-                _terminate(hosted)
+                _disconnect(hosted) if hosted.status == "unlinking" else _terminate(hosted)
             except ProviderError as error:
                 logger.warning("hosted_agents: terminate %s failed (%s); will retry", hosted_id, error.status)
                 return
