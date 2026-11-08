@@ -150,3 +150,15 @@ it('disables adding an agent that is already in as many workspaces as it can joi
   await render();
   expect(button('connect.acentaAddHere').disabled).toBe(true);
 });
+
+
+it('treats removing a launched agent that works elsewhere as a disconnect', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [{ ...myAgent, inThisWorkspace: true, workspaces: 2 }], agentLimit: 3 });
+  api.listHostedAgents.mockResolvedValue([{ agentName: 'acenta-9f9f9f9f', displayName: 'my-helper', provider: 'acenta', status: 'active', linked: false,
+    setupUrl: null, presence: 'online', ownerEmail: 'a@b.c', createdAt: null }]);
+  confirm.mockResolvedValueOnce(true);
+  await render();
+  await act(async () => button('connect.remove').click());
+  expect(confirm.mock.calls[0][0].description).toBe('connect.acentaDisconnectConfirm');
+  expect(confirm.mock.calls[0][0].destructive).toBe(false);
+});
