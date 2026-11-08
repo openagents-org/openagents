@@ -149,3 +149,13 @@ def test_providers_load_from_files():
     assert loaded, "cloud_providers/*.json should be present"
     assert set(PROVIDERS) == set(loaded)
     assert any(m.id == "claude-fable-5" for m in PROVIDERS["anthropic"].models)
+
+
+def test_runcrate_provider_in_catalog():
+    """Runcrate is an OpenAI-compatible provider with chat models and a key link."""
+    from app.services.cloud_providers import PROVIDERS
+    runcrate = PROVIDERS["runcrate"]
+    assert runcrate.base_url == "https://api.runcrate.ai/v1"
+    assert runcrate.key_url and runcrate.key_url.startswith("https://www.runcrate.ai/")
+    assert runcrate.models and all(m.category == "chat" for m in runcrate.models)
+    assert any(m.id == "deepseek-ai/DeepSeek-V3.2" for m in runcrate.models)
