@@ -174,7 +174,7 @@ interface WorkspaceContextValue {
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
   /** Fork a thread and open the copy; resolves to the new thread's name. */
-  forkSession: (sessionId: string) => Promise<string>;
+  forkSession: (sessionId: string, title?: string) => Promise<string>;
   createSession: (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
@@ -1958,8 +1958,8 @@ export function WorkspaceProvider({
     return session;
   }, [agents, currentUser.id]);
 
-  const forkSession = useCallback(async (sessionId: string) => {
-    const fork = await workspaceApi.forkChannel(sessionId);
+  const forkSession = useCallback(async (sessionId: string, title?: string) => {
+    const fork = await workspaceApi.forkChannel(sessionId, title);
     capture('thread_forked', {});
     await refreshDiscovery();
     setCurrentSessionId(fork.name);
