@@ -151,17 +151,14 @@ async function requestResponses(url, headers, model) {
     headers: { ...headers, Accept: 'text/event-stream' },
     body: JSON.stringify(body),
   });
-  let res = await send();
-  let result = responsesResult(res, model);
-  // A refusal's whole body, but only the failure event out of a stream: a
-  // stream echoes the request's fields back in its response.created event.
-  const refusal = result.success || res.error ? '' : (res.status >= 400 ? String(res.data || '') : result.error);
-  if (refusal.includes(PROBE_ONLY_FIELD)) {
-    delete body[PROBE_ONLY_FIELD];
-    res = await send();
-    result = responsesResult(res, model);
-  }
-  return { res, result };
+  const res = await send();
+  const { result, refusal } = readResponses(res, model);
+  // The field the refusal names, or — when it names none — its text.
+  const refused = refusal && (refusal.param ? refusal.param === PROBE_ONLY_FIELD : refusal.text.includes(PROBE_ONLY_FIELD));
+  if (!refused) return { res, result };
+  delete body[PROBE_ONLY_FIELD];
+  const again = await send();
+  return { res: again, result: readResponses(again, model).result };
 }
 
 /**
@@ -170,11 +167,24 @@ async function requestResponses(url, headers, model) {
  * sets — bad on `response.failed` or an `error` event. A stream that ends
  * before either fails the CLI's turn too ("stream closed before
  * response.completed"), and so does a single JSON body in place of a stream.
+ *
+ * @returns {{ result: object, refusal: { param: string, text: string } | null }}
+ *   the reading, and — only for an HTTP error or a failed/error event — what
+ *   the endpoint refused, whole: the field it names (`param`, '' when it
+ *   names none) and its full text. Never read off anything else: a stream's
+ *   response.created event, and a JSON body, echo the request's own fields.
  */
-function responsesResult(res, model) {
-  if (res.error) return { success: false, error: res.error };
+function readResponses(res, model) {
+  if (res.error) return { result: { success: false, error: res.error }, refusal: null };
   const data = String(res.data == null ? '' : res.data);
-  if (res.status >= 400) return { success: false, error: `HTTP ${res.status}: ${data.slice(0, 200)}` };
+  if (res.status >= 400) {
+    let param = '';
+    try {
+      const parsed = JSON.parse(data);
+      param = String((parsed.error && parsed.error.param) || parsed.param || '');
+    } catch {}
+    return { result: { success: false, error: `HTTP ${res.status}: ${data.slice(0, 200)}` }, refusal: { param, text: data } };
+  }
   let text = '';
   for (const line of data.split(/\r?\n/)) {
     const m = /^data:\s?(.*)$/.exec(line);
@@ -185,16 +195,23 @@ function responsesResult(res, model) {
     if (type === 'response.output_text.delta' && typeof evt.delta === 'string') {
       text += evt.delta;
     } else if (type === 'response.completed' || type === 'response.incomplete') {
-      return { success: true, model: (evt.response && evt.response.model) || model || '?', response: text.slice(0, 80) };
+      const result = { success: true, model: (evt.response && evt.response.model) || model || '?', response: text.slice(0, 80) };
+      return { result, refusal: null };
     } else if (type === 'response.failed' || type === 'error') {
       const err = (evt.response && evt.response.error) || evt.error || evt;
-      return { success: false, error: `${type}: ${JSON.stringify(err).slice(0, 200)}` };
+      // param and code first, so a long message is what the cut drops: the
+      // probe reads the refused field off this text (probe.js refusedParam).
+      const shown = JSON.stringify({ param: err.param, code: err.code, ...err }).slice(0, 200);
+      return {
+        result: { success: false, error: `${type}: ${shown}` },
+        refusal: { param: String(err.param || ''), text: JSON.stringify(err) },
+      };
     }
   }
   if (/^\s*[{[]/.test(data)) {
-    return { success: false, error: `Answered with a JSON body, not the event stream the Codex CLI reads: ${data.slice(0, 200)}` };
+    return { result: { success: false, error: `Answered with a JSON body, not the event stream the Codex CLI reads: ${data.slice(0, 200)}` }, refusal: null };
   }
-  return { success: false, error: `Stream ended before response.completed: ${data.slice(0, 200)}` };
+  return { result: { success: false, error: `Stream ended before response.completed: ${data.slice(0, 200)}` }, refusal: null };
 }
 
 /**

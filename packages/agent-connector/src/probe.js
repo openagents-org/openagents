@@ -354,15 +354,18 @@ function codexResponsesMode(env) {
 const RESPONSES_PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
 
 // The one field the Responses test adds that the CLI never sends (utils.js
-// asks again without it when it is refused). A refusal naming it is about the
+// asks again without it when it is refused). A refusal of it is about the
 // test, not about every Codex turn.
-const RESPONSES_PROBE_ONLY = /max_output_tokens/;
+const RESPONSES_PROBE_ONLY = 'max_output_tokens';
 
 /** The code for a failed direct test: the general reading, or the Responses-only one above. */
 function directFailureCode(error, protocol) {
   const text = String(error || '');
-  if (protocol === 'responses' && RESPONSES_PARAM_REFUSED.test(text) && !RESPONSES_PROBE_ONLY.test(text)) {
-    return CODE.ENDPOINT_INCOMPATIBLE;
+  if (protocol === 'responses' && RESPONSES_PARAM_REFUSED.test(text)) {
+    // The field the refusal names, or — when it names none — its text.
+    const param = refusedParam(text);
+    const probeOnly = param ? param === RESPONSES_PROBE_ONLY : text.includes(RESPONSES_PROBE_ONLY);
+    if (!probeOnly) return CODE.ENDPOINT_INCOMPATIBLE;
   }
   return classifyFailure(error, {});
 }

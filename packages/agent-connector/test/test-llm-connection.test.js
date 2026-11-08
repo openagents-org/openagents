@@ -161,8 +161,12 @@ describe('testLLMConnection — the Responses API, asked the way Codex asks it',
   const seen = [];
   // What the relay does: 'stream' (only streams, like the Codex CLI expects),
   // 'refuse' (client_metadata), 'refuse-cap' (max_output_tokens only),
-  // 'fail-in-stream' (200, then an error event), 'json' (ignores stream).
+  // 'fail-in-stream' (200, then an error event), 'json' (ignores stream),
+  // 'created-only' (response.created, then the stream ends),
+  // 'refuse-cap-in-stream' / 'refuse-in-stream' (200, then an error event
+  // whose long message comes before its param).
   let mode = 'stream';
+  const LONG = 'The upstream provider rejected this request. '.repeat(8);
 
   const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
 
@@ -188,7 +192,7 @@ describe('testLLMConnection — the Responses API, asked the way Codex asks it',
         if (mode === 'refuse-cap' && 'max_output_tokens' in parsed) return refusal('max_output_tokens');
         if (mode === 'json') {
           res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({ model: parsed.model, output: [] }));
+          res.end(JSON.stringify({ model: parsed.model, max_output_tokens: parsed.max_output_tokens ?? null, output: [] }));
           return;
         }
         if (parsed.stream !== true) {
@@ -199,6 +203,16 @@ describe('testLLMConnection — the Responses API, asked the way Codex asks it',
         res.setHeader('content-type', 'text/event-stream');
         // The created event echoes the request, max_output_tokens included.
         const response = { id: 'resp_1', model: parsed.model, max_output_tokens: parsed.max_output_tokens ?? null };
+        const refusedInStream = (param) => res.end(sse([
+          { type: 'response.created', response },
+          { type: 'error', code: 'unsupported_parameter', message: `${LONG}Unsupported parameter: ${param}`, param },
+        ]));
+        if (mode === 'refuse-cap-in-stream' && 'max_output_tokens' in parsed) return refusedInStream('max_output_tokens');
+        if (mode === 'refuse-in-stream') return refusedInStream('client_metadata');
+        if (mode === 'created-only') {
+          res.end(sse([{ type: 'response.created', response }]));
+          return;
+        }
         if (mode === 'fail-in-stream') {
           res.end(sse([
             { type: 'response.created', response },
@@ -273,10 +287,42 @@ describe('testLLMConnection — the Responses API, asked the way Codex asks it',
     assert.equal(seen.length - before, 1);
   });
 
-  it('fails where a JSON body comes back in place of the stream the CLI reads', async () => {
+  it('fails where a JSON body comes back in place of the stream the CLI reads — once, though it echoes max_output_tokens', async () => {
     mode = 'json';
+    const before = seen.length;
     const res = await test();
     assert.equal(res.success, false);
     assert.match(res.error, /not the event stream the Codex CLI reads/);
+    assert.equal(seen.length - before, 1);
+  });
+
+  it('does not ask again for a stream that ends after response.created echoed max_output_tokens', async () => {
+    mode = 'created-only';
+    const before = seen.length;
+    const res = await test();
+    assert.equal(res.success, false);
+    assert.match(res.error, /^Stream ended before response\.completed/);
+    assert.match(res.error, /max_output_tokens/, 'the echo is in what is shown');
+    assert.equal(seen.length - before, 1);
+  });
+
+  it('asks again when an error event refuses max_output_tokens after a long message', async () => {
+    mode = 'refuse-cap-in-stream';
+    const before = seen.length;
+    const res = await test();
+    assert.equal(res.success, true, JSON.stringify(res));
+    const sent = seen.slice(before);
+    assert.equal(sent.length, 2);
+    assert.equal('max_output_tokens' in sent[1].body, false);
+  });
+
+  it('keeps the refused field in what it shows when a long message comes first', async () => {
+    mode = 'refuse-in-stream';
+    const before = seen.length;
+    const res = await test();
+    assert.equal(res.success, false);
+    assert.equal(seen.length - before, 1);
+    assert.ok(LONG.length > 200);
+    assert.match(res.error, /^error: \{"param":"client_metadata","code":"unsupported_parameter"/);
   });
 });

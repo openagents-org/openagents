@@ -518,7 +518,7 @@ describe('probeAgentType', () => {
   it('does not blame Codex for a refused max_output_tokens — the test sends it, the CLI never does', async () => {
     const path = require.resolve('../src/utils');
     const saved = require.cache[path];
-    const refusal = 'HTTP 400: {"error":{"message":"Unsupported parameter: max_output_tokens","type":"invalid_request_error","param":"max_output_tokens","code":"unsupported_parameter"}}';
+    let refusal = 'HTTP 400: {"error":{"message":"Unsupported parameter: max_output_tokens","type":"invalid_request_error","param":"max_output_tokens","code":"unsupported_parameter"}}';
     require.cache[path] = {
       id: path, filename: path, loaded: true,
       exports: { testLLMConnection: async () => ({ success: false, error: refusal }) },
@@ -526,9 +526,16 @@ describe('probeAgentType', () => {
     try {
       const entry = { name: 'codex', label: 'Codex', probe: { args: ['exec', 'hi'], timeout_s: 30, skip_cli_with_key: true } };
       const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
-      const r = await probeAgentType(c, 'codex', { agentEnv: { OPENAI_API_KEY: 'sk-relay', OPENAI_BASE_URL: 'https://relay.example/v1', CODEX_WIRE_API: 'responses' } });
+      const agentEnv = { OPENAI_API_KEY: 'sk-relay', OPENAI_BASE_URL: 'https://relay.example/v1', CODEX_WIRE_API: 'responses' };
+      const r = await probeAgentType(c, 'codex', { agentEnv });
       assert.notEqual(r.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(r));
       assert.doesNotMatch(r.guidance.join('\n'), /sends with every one of them/);
+
+      // A refusal that names another field is the endpoint's, whatever else its message mentions.
+      refusal = 'error: {"param":"client_metadata","code":"unsupported_parameter","message":"Unsupported parameter: client_metadata (max_output_tokens is fine)"}';
+      const other = await probeAgentType(c, 'codex', { agentEnv });
+      assert.equal(other.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(other));
+      assert.match(other.guidance.join('\n'), /refuses the "client_metadata" field/);
     } finally {
       if (saved) require.cache[path] = saved; else delete require.cache[path];
     }
