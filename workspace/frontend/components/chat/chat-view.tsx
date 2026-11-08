@@ -923,7 +923,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
-      <ThreadResources key={currentSessionId} messages={browserMessages} />
+      <ThreadResources key={currentSessionId} messages={browserMessages} queueMessages={displayMessages} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the
           user knows a reply may not come. When ALL are offline it's a stronger
@@ -1085,7 +1085,7 @@ export function ChatView() {
             cramped on a 27" 4K, where the pane itself is 2000px+ wide. */}
         {(!isDM || dmWritable) && (
           <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
-            {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
+            {currentSessionId && <ThreadStatusBar channelName={currentSessionId} />}
             {replyTarget && <ReplyCitation citation={citationFor(replyTarget)} onCancel={() => setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }))} />}
             <ChatInput conversationId={currentSessionId}
               onSend={handleSend}
