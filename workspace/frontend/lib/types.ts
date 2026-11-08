@@ -886,12 +886,37 @@ export interface HostedAgentProvider {
   url: string;
 }
 
+/** One of the signed-in user's Acenta agents, as seen from this workspace. */
+export interface AcentaAgent {
+  id: string;
+  name: string;
+  agentName: string;
+  state: string;
+  tier: string | null;
+  url: string;
+  /** Acenta's launch page while the agent waits for sign-in or payment. */
+  launchUrl: string | null;
+  inThisWorkspace: boolean;
+  workspaces: number;
+  workspaceLimit: number;
+}
+
+export interface AcentaAccount {
+  /** False until the user has an Acenta account (same OpenAgents sign-in or email). */
+  hasAccount: boolean;
+  agents: AcentaAgent[];
+  agentLimit: number;
+}
+
 /** An agent whose runtime a provider hosts; it joins like any other agent. */
 export interface HostedAgent {
   agentName: string;
   displayName: string;
   provider: string;
-  status: 'launching' | 'setup' | 'active' | 'terminating';
+  status: 'launching' | 'setup' | 'active' | 'terminating' | 'linked';
+  /** Added here from the owner's Acenta account; removing only disconnects it. */
+  linked?: boolean;
+  externalId?: string | null;
   /** Acenta launch page (sign-in and payment) while status is "setup". */
   setupUrl: string | null;
   /** From the agent's own heartbeats. */

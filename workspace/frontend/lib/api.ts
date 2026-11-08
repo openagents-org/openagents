@@ -13,6 +13,7 @@ import type {
   CloudAgentProvider,
   HostedAgent,
   HostedAgentProvider,
+  AcentaAccount,
   DMConversation,
   EventPollResponse,
   KanbanTask,
@@ -1686,6 +1687,19 @@ class WorkspaceApi {
     return this.request<HostedAgent>('/v1/hosted-agents', {
       method: 'POST',
       body: JSON.stringify({ network: this.requireWorkspace(), display_name: displayName, provider: 'acenta' }),
+    });
+  }
+
+  /** The signed-in user's Acenta agents, marked with whether each is already here. */
+  async listMyAcentaAgents(): Promise<AcentaAccount> {
+    return this.request<AcentaAccount>(`/v1/hosted-agents/acenta/agents?network=${this.requireWorkspace()}`);
+  }
+
+  /** Add one of the user's existing Acenta agents to this workspace. */
+  async connectAcentaAgent(id: string): Promise<HostedAgent> {
+    return this.request<HostedAgent>(`/v1/hosted-agents/acenta/agents/${encodeURIComponent(id)}/connect`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
     });
   }
 
