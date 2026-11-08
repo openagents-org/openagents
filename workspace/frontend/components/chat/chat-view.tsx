@@ -28,6 +28,7 @@ import { HumanProfile } from './human-profile';
 import { AddThreadParticipants } from './add-thread-participants';
 import { ResponseModeControl } from './response-mode-control';
 import { ForkTag } from './fork-thread';
+import { arrangeQueuedMessages } from './use-queued-messages';
 import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -483,6 +484,8 @@ export function ChatView() {
     [sessionMessages, sessionOptimisticMessages]
   );
   const browserMessages = useThreadBrowserMessages(displayMessages);
+  // Queued messages wait in the Queue tab, not in the chat log.
+  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages), [displayMessages]);
 
   const startEditingTitle = () => {
     setTitleDraft(currentSession?.title || '');
@@ -501,7 +504,7 @@ export function ChatView() {
   // Update last message cache for thread list preview
   useEffect(() => {
     if (!currentSessionId) return;
-    const lastMsg = displayMessages[displayMessages.length - 1];
+    const lastMsg = chatLogMessages[chatLogMessages.length - 1];
     if (lastMsg) {
       const isTerminalStatus = /stopped|stopping failed/i.test(lastMsg.content);
       const isWorking = !isTerminalStatus && (
@@ -513,7 +516,7 @@ export function ChatView() {
     } else {
       updateLastMessage(currentSessionId, '', '', false, false);
     }
-  }, [currentSessionId, displayMessages, updateLastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentSessionId, chatLogMessages, updateLastMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track whether the agent is actively working in this session
   const prevActiveSessionRef = useRef<string | null>(null);
@@ -1049,7 +1052,7 @@ export function ChatView() {
           })()
         ) : (
           <ChatMessages
-            messages={displayMessages}
+            messages={chatLogMessages}
             agents={agents}
             showAllSteps={showAllSteps}
             scrollKey={scrollKey}
