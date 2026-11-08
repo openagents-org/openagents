@@ -14,7 +14,7 @@ export const messages: Messages = {
     restore: '显示浏览器预览',
     waiting: '正在等待浏览器画面…',
   },
-  threadResources: {"roleThisThread": "本会话：", "roleWorkspace": "工作区默认：", "scrollLeft": "向左滚动", "scrollRight": "向右滚动", "title": "会话资源", "agents": "智能体", "expand": "展开资源", "collapse": "收起资源", "guide": "为每个智能体明确分工：调研、执行或审核。", "noRole": "告诉这个智能体可以如何协助。", "instruct": "添加指令", "instructAgent": "给 {agent} 的指令", "instructions": "智能体指令", "placeholder": "希望它负责什么？说明目标、交付内容和注意事项。", "draftHint": "在消息框中确认后发送。", "addDraft": "加入消息", "cancel": "取消指令", "empty": "此会话中共享的文件和浏览器会话将显示在这里。", "liveBrowser": "实时浏览器", "browsing": "{agent} 正在浏览"},
+  threadResources: {"roleThisThread": "本会话：", "roleWorkspace": "工作区默认：", "scrollLeft": "向左滚动", "scrollRight": "向右滚动", "title": "会话资源", "agents": "智能体", "expand": "展开资源", "collapse": "收起资源", "guide": "为每个智能体明确分工：调研、执行或审核。", "noRole": "告诉这个智能体可以如何协助。", "instruct": "添加指令", "instructAgent": "给 {agent} 的指令", "instructions": "智能体指令", "placeholder": "希望它负责什么？说明目标、交付内容和注意事项。", "draftHint": "在消息框中确认后发送。", "addDraft": "加入消息", "cancel": "取消指令", "empty": "此会话中共享的文件和浏览器会话将显示在这里。", "liveBrowser": "实时浏览器", "browsing": "{agent} 正在浏览", "queue": "队列", "queuedPosition": "排队 #{position}"},
   issueWork: {"context": "上下文（可选）", "contextPlaceholder": "搜索知识…", "contextEmpty": "没有匹配的知识条目。", "contextUnavailable": "不可用的上下文", "removeContext": "移除 {name}", "finished": "智能体已完成工作", "assignAgent": "分配给智能体", "assignHint": "选择智能体，并将指令发布到讨论中。", "instruction": "指令（可选）", "instructionPlaceholder": "你希望智能体做什么？", "send": "分配给智能体", "closed": "重新打开议题后可请智能体处理。", "working": "{agents} 正在处理", "noAgents": "你有权使用的智能体目前均不在线。", "edit": "编辑智能体工作", "delete": "删除智能体工作","threads": "关联会话","add": "添加智能体工作", "setupHint": "为此议题准备智能体或工作流。点击运行后才会开始执行。", "hint": "在此跟踪智能体进度。运行完成不会自动关闭议题。", "empty": "暂无运行。可添加智能体或工作流，或在讨论中提及智能体。", "openIssue": "打开议题", "runs": "运行记录", "back": "返回议题"},
   threadCollaboration: { rolloutPending: "此服务器尚未启用按会话设置职责。启用前，智能体使用其工作区描述。", saved: "已保存此会话的协作职责", reviewAfter: "完成后交给", noReview: "无需审核", noReviewer: "此会话中没有其他智能体可以审核", onlyHere: "仅对当前会话生效，并在此会话中覆盖该智能体的工作区描述。", noPermission: "只有会话所有者、已加入的管理员或该智能体的所有者可以修改。" },
   reviewHandoff: { sent: "已交给审核：{agents}", blocked: "审核需要先获得使用权限：{agents}" },
@@ -601,7 +601,6 @@ export const messages: Messages = {
   threadStatus: {
     inProgress: '{count} 项进行中',
     pending: '{count} 项待处理',
-    queued: '排队中:{content}',
     now: '即将触发',
     cancelAllTasks: '取消所有任务',
     cancelTimer: '取消计时',
