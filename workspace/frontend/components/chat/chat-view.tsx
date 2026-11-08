@@ -27,6 +27,7 @@ import { ThreadParticipantCount } from './thread-participant-count';
 import { HumanProfile } from './human-profile';
 import { AddThreadParticipants } from './add-thread-participants';
 import { ResponseModeControl } from './response-mode-control';
+import { ForkThreadButton, ForkedFromNote } from './fork-thread';
 import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -897,6 +898,9 @@ export function ChatView() {
           >
             <Share2 className="size-3.5" />
           </Button>}
+          {!isDM && !personalAssistantConversation && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
+            <ForkThreadButton key={`fork:${currentSessionId}`} channelName={currentSessionId} />
+          )}
           {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (
             <ThreadSettings key={`thread-settings:${currentSessionId}`} session={currentSession} />
           )}
@@ -921,6 +925,7 @@ export function ChatView() {
             </Button>
           )}
       </DetailHeader>
+      {currentSession?.forkedFrom && <ForkedFromNote forkedFrom={currentSession.forkedFrom} />}
       <ThreadResources key={currentSessionId} messages={browserMessages} />
 
       {/* Offline-agent warning — surfaces when any participant is offline so the

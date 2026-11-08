@@ -2792,6 +2792,14 @@ class WorkspaceApi {
     });
   }
 
+  /** Copy a thread's settings, agents and history into a new private thread. */
+  async forkChannel(channel: string, title?: string): Promise<{ name: string; title: string | null }> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(title ? { title } : {}) }),
+    });
+  }
+
   /** Self-join a public thread. */
   async joinChannel(channel: string): Promise<unknown> {
     return this.request(`/v1/channels/${encodeURIComponent(channel)}/join`, {
