@@ -993,13 +993,15 @@ export function WorkspaceProvider({
                 sort: 'desc',
                 limit: 10,
               });
-              if (result.events.length === 0) return null;
-              const latest = result.events[0];
+              // Queue-cancel signals are bookkeeping, never a preview.
+              const events = result.events.filter((e) => (e.payload as Record<string, string>)?.message_type !== 'queue_cancel');
+              if (events.length === 0) return null;
+              const latest = events[0];
               const latestPayload = latest.payload as Record<string, string>;
               const latestType = latestPayload?.message_type || 'chat';
               const isAgentWorking = latestType === 'status' || latestType === 'thinking';
               // Find the latest chat/thinking message (not status) for preview
-              const lastChat = result.events.find((e) => {
+              const lastChat = events.find((e) => {
                 const mt = (e.payload as Record<string, string>)?.message_type || 'chat';
                 return mt !== 'status' && mt !== 'thinking';
               });
