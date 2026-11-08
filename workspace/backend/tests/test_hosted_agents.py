@@ -259,3 +259,30 @@ def test_removing_a_launched_agent_that_works_elsewhere_only_disconnects_it(clie
     assert acenta.calls[-1][0] == "DELETE" and acenta.calls[-1][1] == f"/box-1/workspaces/{workspace['id']}"
     assert not any(call[1].endswith("/terminate") for call in acenta.calls)
     assert _hosted(db) == []
+
+
+def _member(db, workspace, agent_name, display_name=None, status="online"):
+    db.add(WorkspaceMember(workspace_id=workspace["id"], agent_name=agent_name, display_name=display_name,
+                           role="member", agent_type="opencode", status=status))
+    db.commit()
+
+
+def test_adding_an_agent_whose_name_is_taken_is_refused(client, db, workspace, people, acenta):
+    _member(db, workspace, "helper-bot", display_name="My-Helper")  # same name, different case
+    r = client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]}, headers=_bearer("mia", workspace))
+    assert r.status_code == 409 and "already has an agent or member named" in r.json()["message"]
+    assert _hosted(db) == [] and db.query(Node).count() == 0
+    assert not any(call[0] == "POST" for call in acenta.calls)  # Acenta was only asked for the agent's name
+
+
+def test_a_removed_member_does_not_block_the_name(client, db, workspace, people, acenta):
+    _member(db, workspace, "old-helper", display_name="my-helper", status="removed")
+    r = client.post("/v1/hosted-agents/acenta/agents/box-9/connect", json={"network": workspace["id"]}, headers=_bearer("mia", workspace))
+    assert r.status_code == 200, r.text
+
+
+def test_launching_with_a_taken_name_is_refused(client, db, workspace, people, acenta):
+    _member(db, workspace, "research-helper")
+    r = _launch(client, workspace, name="Research-Helper")
+    assert r.status_code == 409 and "already has an agent or member named" in r.json()["message"]
+    assert acenta.calls == []

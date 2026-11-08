@@ -129,6 +129,28 @@ def _member_user(db, workspace, authorization):
     return user, None
 
 
+def _name_taken(db, workspace, name: str, exclude_agent: Optional[str] = None) -> Optional[str]:
+    """The current member already using this name (as id or label), if any."""
+    target = naming.fold_alias(name)
+    rows = db.execute(
+        select(WorkspaceMember.agent_name, WorkspaceMember.display_name).where(
+            WorkspaceMember.workspace_id == workspace.id, WorkspaceMember.status != "removed",
+        )
+    ).all()
+    for agent_name, display_name in rows:
+        if agent_name == exclude_agent:
+            continue
+        if naming.fold_alias(agent_name) == target or (display_name and naming.fold_alias(display_name) == target):
+            return display_name or agent_name
+    return None
+
+
+def _name_taken_response(name: str, clash: str):
+    return json_response(ResponseCode.CONFLICT,
+                         f"This workspace already has an agent or member named “{clash}”. "
+                         f"Rename “{name}” on Acenta (or rename the other one), then add it again.")
+
+
 def _placeholder_member(db, workspace, agent_name: str, display_name: str, node, email: str):
     """Placeholder until the runtime's first /v1/join, bound to the hosted
     connection so only that token can join as this agent."""
@@ -213,6 +235,17 @@ def connect_acenta_agent(
     if not hosting.enabled():
         return json_response(ResponseCode.CONFLICT, "Acenta cloud agents are not available yet")
     email = user.email.strip().lower()
+    try:
+        mine = hosting.list_for_user(subject=user.firebase_uid or email, email=email, workspace_id=str(workspace.id))
+    except hosting.ProviderError as error:
+        return json_response(ResponseCode.BAD_REQUEST, str(error))
+    agent = next((a for a in mine.get("agents", []) if a.get("id") == external_id), None)
+    if agent is None:
+        return json_response(ResponseCode.NOT_FOUND, "This Acenta agent could not be found")
+    naming.lock_member_namespace(db, workspace.id)
+    clash = _name_taken(db, workspace, agent.get("name") or "", exclude_agent=agent.get("agent_name"))
+    if clash:
+        return _name_taken_response(agent.get("name") or "This agent", clash)
     hosted = HostedAgent(workspace_id=str(workspace.id), provider=hosting.PROVIDER, display_name="Acenta agent",
                          owner_email=email, external_id=external_id, status="linking")
     db.add(hosted)
@@ -277,6 +310,9 @@ def launch_hosted_agent(
     display_name = body.display_name.strip()
     if not 1 <= len(display_name) <= 60 or naming.has_unsafe_chars(display_name):
         return json_response(ResponseCode.BAD_REQUEST, "Name must be 1-60 characters")
+    clash = _name_taken(db, workspace, display_name)
+    if clash:
+        return json_response(ResponseCode.CONFLICT, f"This workspace already has an agent or member named “{clash}”. Choose another name.")
 
     hosted = HostedAgent(workspace_id=str(workspace.id), provider=hosting.PROVIDER,
                          display_name=display_name, owner_email=email)
