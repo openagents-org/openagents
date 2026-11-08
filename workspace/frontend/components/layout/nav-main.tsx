@@ -102,7 +102,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
+                isActive={!onboarding && viewMode === item.mode}
                 onClick={() => {
                   if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); }
                   openView(item.mode);

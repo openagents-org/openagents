@@ -125,7 +125,6 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   knowledge: "views.knowledge",
   browser: "views.browser",
   issues: "views.issues",
-  tasks: "views.issues",
   workflows: "views.workflows",
   routines: "views.routines",
   inbox: "views.inbox",

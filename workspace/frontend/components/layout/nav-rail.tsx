@@ -355,7 +355,7 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
+                    isActive={!onboarding && viewMode === item.mode}
                     onClick={() => { if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); } openView(item.mode); }}
                   >
                     {item.icon}

@@ -181,12 +181,11 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
-  it('announces task retirement on the tasks board and links to Team issues', async () => {
-    await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-    expect(host.querySelector('[role="note"]')?.textContent).toContain('My agent tasks will be retired');
-    await click(button('Go to Team issues'));
-    expect(host.querySelector('[role="note"]')).toBeNull();
-    expect(button('Team issues').getAttribute('aria-pressed')).toBe('true');
+  it('shows team issues only, with no My agent tasks tab', async () => {
+    await act(async () => root.render(createElement(IssuesView)));
+    expect(host.textContent).not.toContain('My agent tasks');
+    expect(host.textContent).not.toContain('Team issues');
+    expect(button('Active issues')).toBeTruthy();
   });
 
   it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(
@@ -572,15 +571,6 @@ it('searches the assignee picker and saves a selected person', async () => {
 });
 
 
-it('keeps existing standalone work reachable inside Issues', async () => {
-  mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-  expect(host.textContent).toContain('Existing task');
-  expect(host.textContent).toContain('New issue');
-  expect(host.textContent).not.toContain('New task');
-});
-
-
 it('creates a human-assigned issue and waits for attachments to upload', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
     { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
@@ -626,9 +616,9 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
-it('offers only human assignees even when creating from My agent tasks', async () => {
+it('offers only human assignees even when an agent is online', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'online' }];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  await act(async () => root.render(createElement(IssuesView)));
   await click(button('New issue'));
   await fill(host.querySelector('input[required]')!, 'Investigation');
   expect(button('Create issue').disabled).toBe(false);
