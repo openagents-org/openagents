@@ -543,6 +543,7 @@ export const messages = {
     removeFromThread: 'Remove from thread',
     stop: 'Stop',
     stopping: 'Stopping...',
+    connectAgentNotice: 'Connect an agent to get AI replies. You can still read and send messages here.',
     showAllSteps: 'Show all steps',
     showLatestSteps: 'Show only the latest steps',
     hideBrowserPreview: 'Hide browser preview',

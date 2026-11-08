@@ -148,24 +148,12 @@ export function Wrapper() {
   // hidden from the sidebar, so it must not silently block onboarding either —
   // otherwise the workspace looks empty yet never onboards (matches nav's rule).
   const hasAgents = agents.some((a) => isRecentAgent(a) && !a.builtin);
-  // Guided onboarding takes over only for a genuinely fresh workspace: no real
-  // agent AND no user-created threads yet. Gating on threads protects an
-  // established workspace (with history) from being hijacked by onboarding
-  // when its agent happens to be offline > 1h.
-  //
-  // Two carve-outs keep that gate honest:
-  //  • Yumi's seeded "Welcome" thread (mobile funnel) is created by the
-  //    backend in EVERY fresh workspace — a builtin-led thread is not user
-  //    activity, or no workspace would ever onboard.
-  //  • Only an explicit DM selection (clicking Yumi in the sidebar → a `dm:`
-  //    id) overrides the takeover. Auto-selection picks channel ids, so a
-  //    plain `!currentSessionId` gate would let the seeded thread's
-  //    auto-selection suppress onboarding too.
+  // Keep setup available from Connect Agent without replacing conversations.
   const userSessions = sessions.filter(
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !onboardingDismissed && !hasAgents && userSessions.length === 0 && (viewMode === 'threads' || viewMode === 'connect') &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'connect' &&
     !currentSessionId?.startsWith('dm:');
 
   const dismissOnboarding = () => {
