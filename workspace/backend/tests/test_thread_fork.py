@@ -59,12 +59,6 @@ def test_fork_copies_settings_agents_and_history(client, db, workspace, people):
     assert data["participants"] == ["agent-alpha"]
 
     copied = _messages(db, workspace, data["name"])
-    notice = copied.pop()
-    assert notice.source == "system:workspace"
-    assert notice.payload["content"] == "This thread was forked from \u201csrc\u201d."
-    assert notice.metadata_["system_notice"] == "thread_forked"
-    assert notice.metadata_["forked_from"] == "src" and notice.metadata_["target_agents"] == ["__no_response__"]
-    assert notice.timestamp > copied[-1].timestamp
     assert [m.payload["content"] for m in copied] == ["plan the launch", "Here is the plan"]
     original_ids = {m.id for m in _messages(db, workspace, "src")}
     assert not original_ids & {m.id for m in copied}
@@ -106,5 +100,4 @@ def test_public_thread_fork_is_private_to_the_forker(client, db, workspace, peop
     _post(client, workspace, channel="open", by="mia", content="hello", headers=_bearer("mia", workspace))
     data = _fork(client, workspace, "open", "adam").json()["data"]
     assert data["visibility"] == "private" and data["ownerEmail"] == "adam@acme.test"
-    contents = [m.payload["content"] for m in _messages(db, workspace, data["name"])]
-    assert contents == ["hello", "This thread was forked from \u201copen\u201d."]
+    assert [m.payload["content"] for m in _messages(db, workspace, data["name"])] == ["hello"]

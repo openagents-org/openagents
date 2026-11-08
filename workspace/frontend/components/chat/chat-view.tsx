@@ -27,6 +27,7 @@ import { ThreadParticipantCount } from './thread-participant-count';
 import { HumanProfile } from './human-profile';
 import { AddThreadParticipants } from './add-thread-participants';
 import { ResponseModeControl } from './response-mode-control';
+import { ForkTag } from './fork-thread';
 import { ThreadSettings } from './thread-settings';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -790,6 +791,7 @@ export function ChatView() {
               {currentSession?.title || t('header.untitledThread')}
             </h2>
           )}
+          {!isDM && !editingTitle && currentSession?.forkedFrom && <ForkTag forkedFrom={currentSession.forkedFrom} />}
           {!isDM && threadPrivacyApplies(currentSessionId) && currentSession && (
             <span className="inline-flex shrink-0 text-muted-foreground" title={t(currentSession.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')} aria-label={t(currentSession.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')}>
               {currentSession.visibility === 'private' ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}

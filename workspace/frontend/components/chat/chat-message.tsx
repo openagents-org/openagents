@@ -33,7 +33,6 @@ import { humanMessageContent } from '@/lib/message-content';
 import { YumiAgentLocation } from './yumi-agent-location';
 import { isYumiWelcome } from '@/lib/yumi-onboarding';
 import { useHumanNames } from '@/hooks/use-team-roster';
-import { ForkedNotice } from './fork-thread';
 
 interface Attachment {
   fileId: string;
@@ -203,16 +202,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
       toast.error(t('chat.copyFailed'));
     }
   };
-
-  // A fork's "copied from" divider (system notice, never routed).
-  if (message.metadata?.system_notice === 'thread_forked') {
-    return (
-      <ForkedNotice
-        forkedFrom={typeof message.metadata.forked_from === 'string' ? message.metadata.forked_from : undefined}
-        title={typeof message.metadata.forked_from_title === 'string' ? message.metadata.forked_from_title : undefined}
-      />
-    );
-  }
 
   // Status messages — subtle inline
   if (isSystem) {
