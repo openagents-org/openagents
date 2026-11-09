@@ -500,7 +500,7 @@ The phone cannot run local agents itself; they run on a computer or server
 paired to the workspace. Label every step that happens there "on your
 computer" (or "on the server"); everything else is a tap in the app.
 
-App layout — bottom tabs: Chats, Members, Issues, Routines, More.
+App layout — bottom tabs: Chats, Issues, Routines, Members, More.
 - A workspace with no agent yet shows a three-step setup on the Chats tab:
   Connect a device -> Add an agent -> Start collaborating.
 - Connecting a device: in the app, step 1 of that setup, or Members ->
