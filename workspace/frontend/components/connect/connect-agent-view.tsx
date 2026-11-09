@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
@@ -16,7 +15,6 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
-import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
 import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
@@ -46,7 +44,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ExpandableError } from './expandable-error';
-import { desktopDownloads } from '@/lib/desktop-downloads';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -460,8 +457,6 @@ export function ConnectAgentView({
 // Nodes Tab — devices running the launcher daemon (connect-a-node)
 // ---------------------------------------------------------------------------
 
-const INSTALL_COMMAND = 'curl -fsSL https://openagents.org/install.sh | bash';
-const INSTALL_COMMAND_WIN = 'irm https://openagents.org/install.ps1 | iex';
 
 function deviceIcon(deviceType: string, className?: string) {
   switch (deviceType) {
@@ -482,221 +477,6 @@ function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
 }
 
 /** A monospace command line with a copy button. */
-function CommandRow({ command }: { command: string }) {
-  const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
-      <code className="flex-1 min-w-0 text-xs font-mono text-zinc-100 overflow-x-auto whitespace-nowrap">
-        {command}
-      </code>
-      <button
-        onClick={copy}
-        className="shrink-0 size-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-white/10 transition-colors"
-        title={t('connect.nodeCopyCommand')}
-      >
-        {copied ? <Check className="size-3.5 text-green-400" /> : <Copy className="size-3.5" />}
-      </button>
-    </div>
-  );
-}
-
-/** One numbered step in the pairing walkthrough, with a connector rail. */
-function PairingStep({
-  n,
-  title,
-  last = false,
-  children,
-}: {
-  n: number;
-  title: string;
-  last?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex gap-3.5">
-      <div className="flex flex-col items-center">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-          {n}
-        </span>
-        {!last && <span className="mt-1.5 w-px flex-1 bg-border" />}
-      </div>
-      <div className={cn('min-w-0 flex-1', !last && 'pb-6')}>
-        <div className="text-sm font-semibold leading-6">{title}</div>
-        <div className="mt-2.5 space-y-2.5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function PairingPanel({
-  pairing,
-  onDismiss,
-}: {
-  pairing: PairingCode;
-  onDismiss: () => void;
-}) {
-  const t = useT();
-  const isMobile = useIsMobile();
-  const [codeCopied, setCodeCopied] = useState(false);
-  const [os, setOs] = useState<'unix' | 'windows'>(() =>
-    typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
-  );
-  const [remaining, setRemaining] = useState(() =>
-    Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)),
-  );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setRemaining(Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [pairing.expiresAt]);
-
-  const expired = remaining <= 0;
-  const minutes = Math.max(1, Math.ceil(remaining / 60));
-
-  const copyCode = () => {
-    navigator.clipboard.writeText(pairing.code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
-  };
-
-  return (
-    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="px-5 py-3.5 border-b flex items-center justify-between">
-        <span className="text-sm font-semibold">{t('connect.nodePairingTitle')}</span>
-        <span className={cn(
-          'text-xs font-medium rounded-full px-2.5 py-1',
-          expired ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
-        )}>
-          {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes })}
-        </span>
-      </div>
-
-      <div className="p-5">
-        {/* Shortcut: the agent the person already has open connects itself. */}
-        <details className="mb-5 rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-3">
-          <summary className="cursor-pointer text-xs font-medium text-foreground">{t('connect.agentJoinFallback')}</summary>
-          <div className="mt-3 space-y-2">
-            <AgentJoinInstruction code={pairing.code} disabled={expired} />
-            <p className="text-xs text-muted-foreground">{t('connect.agentJoinHint')}</p>
-          </div>
-        </details>
-
-        {/* Step 1 — get the launcher (desktop app or CLI). On a phone the
-            download links are dead ends (the launcher runs on a computer),
-            so point at the laptop instead and keep the CLI path for servers. */}
-        <PairingStep n={1} title={isMobile ? t('connect.nodeMobileStep1Title') : t('connect.nodeStep1Title')}>
-          {isMobile && (
-            <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3.5 space-y-1.5">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Laptop className="size-4 shrink-0 text-primary" />
-                <span>
-                  {t('connect.nodeMobileGoTo1')}{' '}
-                  <span className="font-mono font-bold text-primary">openagents.org</span>{' '}
-                  {t('connect.nodeMobileGoTo2')}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('connect.nodeMobileTime')}</p>
-            </div>
-          )}
-          <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
-          <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
-            {desktopDownloads(t).map((d) => (
-              <a
-                key={d.os}
-                href={d.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border hover:border-primary/40 hover:bg-primary/[0.03] transition-colors"
-              >
-                <Download className="size-3.5" />{d.os}
-              </a>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3 py-0.5">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t('connect.nodeStepOr')}
-            </span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallCli')}</div>
-            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted">
-              {([
-                { id: 'unix', label: t('connect.nodeOsUnix') },
-                { id: 'windows', label: t('connect.nodeOsWindows') },
-              ] as const).map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => setOs(o.id)}
-                  className={cn(
-                    'px-2.5 py-1 text-xs font-medium rounded-md transition-colors',
-                    os === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
-        </PairingStep>
-
-        {/* Step 2 — enter the pairing code */}
-        <PairingStep n={2} title={t('connect.nodeStep2Title')}>
-          <button
-            onClick={copyCode}
-            disabled={expired}
-            className={cn(
-              'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
-              expired
-                ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-border bg-muted/30 hover:bg-muted/60',
-            )}
-            title={t('connect.nodeCopyCode')}
-          >
-            <span className="text-4xl leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
-            {codeCopied
-              ? <Check className="size-6 text-green-500" />
-              : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
-          </button>
-          <p className="text-xs text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
-          <p className="text-xs text-muted-foreground">{t('connect.nodeCliPairingHint')}</p>
-          <CommandRow command={`agn device connect ${pairing.code}`} />
-          {isMobile && (
-            <p className="text-xs text-muted-foreground">{t('connect.nodeMobileCodeHint')}</p>
-          )}
-        </PairingStep>
-
-        {/* Step 3 — live "waiting for the device" indicator; auto-closes when a
-            node connects (the parent watches the node list and dismisses this). */}
-        <PairingStep n={3} title={t('connect.nodeStep3Title')} last>
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="relative flex size-5 shrink-0 items-center justify-center">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
-                <Loader2 className="size-5 animate-spin text-primary" />
-              </span>
-              <span className="text-xs font-medium truncate">{t('connect.nodeWaiting')}</span>
-            </div>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
-          </div>
-        </PairingStep>
-      </div>
-    </div>
-  );
-}
-
 /**
  * A Start/Stop sent to a device, shown on the card until its state moves off
  * `from`. A restart is a stop and then a start: the start waits until the
@@ -1594,7 +1374,7 @@ function NodesTab({
 
       {/* Pairing code panel, or the connect button */}
       {pairing ? (
-        <PairingPanel pairing={pairing} onDismiss={onDismissPairing} />
+        <OnboardingPairingPanel pairing={pairing} onDismiss={onDismissPairing} onRegenerate={onGenerate} regenerating={pairingLoading} stepLabel={t('connect.connectAnotherDevice')} />
       ) : loadFailed && nodes.length === 0 ? null : nodes.length === 0 ? (
         <Button onClick={onGenerate} disabled={pairingLoading} className="w-full h-12 text-sm" variant="primary" size="lg">
           {pairingLoading ? (

@@ -1856,6 +1856,7 @@ export const messages: Messages = {
     agentJoinTarget: '已在使用 Claude Code 或 Codex',
     agentJoinStepTitle: '将这段话粘贴到 Claude Code 或 Codex',
     agentJoinHint: '智能体会运行一条命令：安装 OpenAgents、连接这台电脑，并以自己的身份加入此工作区，沿用相同的登录方式，并记得你们当前的对话。电脑重启后也会自动恢复。',
+    connectAnotherDevice: '连接设备',
     agentJoinFallback: '已经在用 Claude Code 或 Codex？改为把这段话粘贴给它',
     agentJoinWaiting: '正在等待你的智能体连接',
     agentJoinPrompt: '把你自己连接到我的 OpenAgents 工作区。请在 shell 中运行下面的命令。它需要联网，请在沙箱之外运行。运行后告诉我它的输出。\n\n{command}',

@@ -26,12 +26,14 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
 }
 
 /** Guided setup: one installation path at a time, followed by a clear next step. */
-export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false, methodRequest }: {
+export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false, methodRequest, stepLabel }: {
   pairing: PairingCode;
   onDismiss?: () => void;
   onRegenerate?: () => void;
   regenerating?: boolean;
   methodRequest?: { method: 'desktop' | 'terminal' } | null;
+  /** Small label above the title; defaults to the first-run "Step 1 of 2" label. */
+  stepLabel?: string;
 }) {
   const t = useT();
   const isMobile = useIsMobile();
@@ -67,7 +69,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   return (
     <section className="overflow-hidden rounded-2xl border border-border/80 bg-background shadow-[0_4px_24px_-12px_#17255426]" aria-label={t('onboarding.setupComputer')}>
       <div className="border-b border-border/70 px-5 py-5 sm:px-6">
-        <p className="mb-2 text-[11px] font-medium text-muted-foreground">{t('onboarding.deviceStepLabel')}</p>
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">{stepLabel ?? t('onboarding.deviceStepLabel')}</p>
         <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
         <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3" role="group" aria-label={t('onboarding.setupMethod')}>

@@ -1893,6 +1893,7 @@ export const messages = {
     agentJoinTarget: 'Already in Claude Code or Codex',
     agentJoinStepTitle: 'Paste this into Claude Code or Codex',
     agentJoinHint: 'Your agent runs one command. It installs OpenAgents, connects this computer, and joins this workspace as itself, signed in the same way and remembering your current conversation. It also starts again after a restart.',
+    connectAnotherDevice: 'Connect a device',
     agentJoinFallback: 'Already using Claude Code or Codex? Paste this into it instead',
     agentJoinWaiting: 'Waiting for your agent to connect',
     agentJoinPrompt: 'Connect yourself to my OpenAgents workspace. Run this command in your shell. It needs network access, so run it outside any sandbox. Then tell me what it printed.\n\n{command}',
