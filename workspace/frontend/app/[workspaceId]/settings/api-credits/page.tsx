@@ -96,14 +96,19 @@ export default function ApiCreditsSettingsPage() {
   const [models, setModels] = useState<string[] | null>(null);
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
-  const toggleModels = () => {
-    setModelsOpen((open) => !open);
-    if (!models && idToken) {
-      getCampaignModels(idToken)
-        .then((r) => setModels(r.models))
-        .catch(() => setModels([]));
-    }
-  };
+  const toggleModels = () => setModelsOpen((open) => !open);
+
+  // Loaded up front: the hint under the Base URL names what the gateway serves
+  // right now. It used to be a fixed list, and when the gateway narrowed to one
+  // model people kept configuring the ones the page still recommended.
+  useEffect(() => {
+    if (!idToken) return;
+    let cancelled = false;
+    getCampaignModels(idToken)
+      .then((r) => { if (!cancelled) setModels(r.models); })
+      .catch(() => { if (!cancelled) setModels([]); });
+    return () => { cancelled = true; };
+  }, [idToken]);
 
   const copyModel = (id: string) => {
     navigator.clipboard.writeText(id);
@@ -129,7 +134,9 @@ export default function ApiCreditsSettingsPage() {
     );
   }
 
-  if (!status?.enabled) {
+  // The campaign ended: people who already hold a key still see it and its usage.
+  const ended = !status?.enabled && !!status?.ended;
+  if (!status || (!status.enabled && !ended)) {
     return (
       <div>
         <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
@@ -151,15 +158,26 @@ export default function ApiCreditsSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
+      <SectionHeader title={t('campaign.pageTitle')} description={t(ended ? 'campaign.endedDescription' : 'campaign.pageDescription')} />
+
+      {ended && (
+        <div className="rounded-xl border bg-background p-5">
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <Gift className="size-4 text-emerald-600 dark:text-emerald-400" />
+            {t('campaign.endedTitle', { total: fmt(status.grandTotalUsd ?? total) })}
+          </span>
+          <p className="mt-1.5 text-sm text-muted-foreground">{t('campaign.endedBody')}</p>
+        </div>
+      )}
 
       {/* Unverified: the key and the first rewards are already here; the rest
           of the ladder waits for a confirmed address. */}
-      {status.requiresEmailVerification && (
+      {!ended && status.requiresEmailVerification && (
         <VerifyEmailGate email={status.email || ''} idToken={idToken} allowance={status.unverifiedAllowanceUsd} cap={cap} />
       )}
 
-      {/* Overall progress */}
+      {/* Overall progress, missions and daily bonus only while the campaign runs */}
+      {!ended && <>
       <div className="rounded-xl border bg-background p-5">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-semibold">
@@ -223,6 +241,7 @@ export default function ApiCreditsSettingsPage() {
           </p>
         )}
       </div>
+      </>}
 
       {/* API key + usage */}
       {key && (
@@ -295,7 +314,11 @@ export default function ApiCreditsSettingsPage() {
           </code>
           <CopyBtn value={`${status.gatewayUrl}/v1`} title={t('campaign.howtoBaseUrl')} />
         </div>
-        <p className="mt-2.5 text-xs text-muted-foreground">{t('campaign.howtoModels')}</p>
+        {models && models.length > 0 && (
+          <p className="mt-2.5 text-xs text-muted-foreground">
+            {t('campaign.howtoModels', { models: models.slice(0, 5).join(', ') })}
+          </p>
+        )}
 
         {/* Full model catalog, on demand */}
         <button

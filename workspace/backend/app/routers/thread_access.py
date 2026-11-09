@@ -6,6 +6,7 @@
           owner_email: owner (hand over) or admin (forced transfer) — audited as
           event `network.channel.transfer`
     POST  /v1/channels/{name}/join {network}      public threads: self-join
+    POST  /v1/channels/{name}/fork {network, title?}  copy a thread you can read
     GET   /v1/admin/private-threads?network=      admin: METADATA of private threads
 
 `visibility` accepts 'private' | 'public' and the legacy alias 'workspace'
@@ -226,6 +227,41 @@ def join_thread(
     added = add_channel_participant(db, ch, ctx.viewer.email)
     db.commit()
     return success_response({"joined": True, "already_participant": not added, "channel": ch.name})
+
+
+class ThreadForkRequest(BaseModel):
+    network: str
+    title: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.post("/channels/{channel}/fork")
+def fork_thread(
+    channel: str,
+    body: ThreadForkRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Copy a thread's settings, agents and history into a new private thread
+    owned by the caller. The original thread is not changed."""
+    ctx, err = _load(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    if not ctx.viewer.is_human or not ctx.viewer.email:
+        return json_response(ResponseCode.BAD_REQUEST, "Forking a thread needs a signed-in person")
+    ch = _get_channel(db, ctx, channel)
+    if ch is None or not can_view_channel(db, ctx.wid, ctx.viewer, ch):
+        return json_response(ResponseCode.NOT_FOUND, "Thread not found")
+    from app.services.personal_assistant import is_personal_channel
+    if is_personal_channel(db, ch):
+        return json_response(ResponseCode.FORBIDDEN, "Personal Yumi conversations cannot be forked")
+    from app.routers.workspaces import _format_channel
+    from app.services.thread_fork import fork_channel
+    fork = fork_channel(db, ch, ctx.viewer.email, title=body.title)
+    db.commit()
+    db.refresh(fork)
+    logger.info("thread_access: %s forked %s into %s", ctx.viewer.email, ch.name, fork.name)
+    return success_response(_format_channel(fork, db))
 
 
 @router.get("/admin/private-threads")

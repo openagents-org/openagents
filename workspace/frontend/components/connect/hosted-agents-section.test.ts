@@ -6,6 +6,7 @@ import { HostedAgentsSection } from './hosted-agents-section';
 
 const api = vi.hoisted(() => ({
   getHostedProviders: vi.fn(), listHostedAgents: vi.fn(), launchHostedAgent: vi.fn(), removeHostedAgent: vi.fn(),
+  listMyAcentaAgents: vi.fn(), connectAcentaAgent: vi.fn(),
 }));
 const confirm = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
@@ -30,6 +31,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.getHostedProviders.mockResolvedValue([{ name: 'acenta', label: 'Acenta', available: true, harness: 'opencode', url: 'https://acenta.ai' }]);
   api.listHostedAgents.mockResolvedValue([]);
+  api.listMyAcentaAgents.mockReset().mockResolvedValue({ hasAccount: false, agents: [], agentLimit: 3 });
+  api.connectAcentaAgent.mockReset().mockResolvedValue({});
   api.launchHostedAgent.mockReset().mockResolvedValue({ setupUrl: null });
   api.removeHostedAgent.mockReset().mockResolvedValue(undefined);
   confirm.mockReset();
@@ -105,4 +108,57 @@ it('offers to finish setup for a launch waiting on Acenta', async () => {
   const link = container.querySelector<HTMLAnchorElement>('a')!;
   expect(link.href).toBe('https://acenta.ai/launch/box-1');
   expect(link.textContent).toContain('connect.acentaFinishSetup');
+});
+
+
+const myAgent = { id: 'box-9', name: 'my-helper', agentName: 'acenta-9f9f9f9f', state: 'ready', tier: 'standard',
+  url: 'https://acenta.ai/agents/box-9', launchUrl: null, inThisWorkspace: false, workspaces: 1, workspaceLimit: 3 };
+
+it('tells someone without an Acenta account that setup creates one', async () => {
+  await render();
+  expect(container.textContent).toContain('connect.acentaNoAccount');
+  expect(button('connect.acentaGetStarted')).toBeTruthy();
+});
+
+it('lists the user’s Acenta agents and adds one to this workspace', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [myAgent], agentLimit: 3 });
+  await render();
+  expect(container.textContent).toContain('connect.acentaYourAgents');
+  expect(container.textContent).toContain('my-helper');
+  expect(button('connect.acentaNewAgent')).toBeTruthy();
+  await act(async () => button('connect.acentaAddHere').click());
+  expect(api.connectAcentaAgent).toHaveBeenCalledWith('box-9');
+  expect(onChanged).toHaveBeenCalled();
+});
+
+it('shows an agent already here with its presence and disconnects instead of deleting it', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [{ ...myAgent, inThisWorkspace: true, workspaces: 2 }], agentLimit: 3 });
+  api.listHostedAgents.mockResolvedValue([{ agentName: 'acenta-9f9f9f9f', displayName: 'my-helper', provider: 'acenta', status: 'linked', linked: true,
+    setupUrl: null, presence: 'online', ownerEmail: 'a@b.c', createdAt: null }]);
+  confirm.mockResolvedValueOnce(true);
+  await render();
+  expect(container.textContent).toContain('connect.acentaInThisWorkspace');
+  expect(container.textContent).toContain('connect.acentaOnline');
+  expect(button('connect.acentaAddHere')).toBeUndefined();
+  await act(async () => button('connect.remove').click());
+  expect(confirm.mock.calls[0][0].description).toBe('connect.acentaDisconnectConfirm');
+  expect(api.removeHostedAgent).toHaveBeenCalledWith('acenta-9f9f9f9f');
+});
+
+it('disables adding an agent that is already in as many workspaces as it can join', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [{ ...myAgent, workspaces: 3 }], agentLimit: 3 });
+  await render();
+  expect(button('connect.acentaAddHere').disabled).toBe(true);
+});
+
+
+it('treats removing a launched agent that works elsewhere as a disconnect', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [{ ...myAgent, inThisWorkspace: true, workspaces: 2 }], agentLimit: 3 });
+  api.listHostedAgents.mockResolvedValue([{ agentName: 'acenta-9f9f9f9f', displayName: 'my-helper', provider: 'acenta', status: 'active', linked: false,
+    setupUrl: null, presence: 'online', ownerEmail: 'a@b.c', createdAt: null }]);
+  confirm.mockResolvedValueOnce(true);
+  await render();
+  await act(async () => button('connect.remove').click());
+  expect(confirm.mock.calls[0][0].description).toBe('connect.acentaDisconnectConfirm');
+  expect(confirm.mock.calls[0][0].destructive).toBe(false);
 });

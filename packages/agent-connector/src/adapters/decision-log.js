@@ -146,6 +146,8 @@ function isRecapEligible(msg, currentMessage) {
   if (!msg) return false;
   const mt = msg.messageType || 'chat';
   if (mt === 'status' || mt === 'thinking' || mt === 'loading') return false;
+  // Control signals (a queue cancel) are not conversation for the agent.
+  if (mt === 'queue_cancel') return false;
   const text = (msg.content || '').trim();
   if (!text) return false;
   if (text === currentMessage) return false;

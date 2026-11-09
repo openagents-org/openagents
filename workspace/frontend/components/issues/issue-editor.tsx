@@ -27,10 +27,13 @@ export function IssueEditor({
   onOpenChange,
   issue,
   onSaved,
+  boardId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   issue?: WorkspaceIssue;
+  /** Board a new issue is filed on (default: Team issues). */
+  boardId?: string;
   onSaved: (issue: WorkspaceIssue) => void;
 }) {
   const t = useT();
@@ -75,6 +78,7 @@ export function IssueEditor({
             ...input,
             assignee: assignee || null,
             ...(channel ? { channel_name: channel } : {}),
+            ...(boardId ? { board_id: boardId } : {}),
           });
       onSaved(result);
     } catch (e) {
