@@ -361,6 +361,13 @@
     "useTerminal": "Sign in in a terminal",
     "verifying": "Confirming sign-in…"
   },
+  "codexApiMode": {
+    "label": "API mode",
+    "responses": "Coding agent · Responses API",
+    "chat": "Chat only · Chat Completions API",
+    "responsesHint": "Runs the Codex CLI with tools and conversation memory. Requires Codex to be installed and an endpoint that supports the Responses API.",
+    "chatHint": "Sends chat requests directly to your endpoint, without Codex tools or CLI session memory."
+  },
   "shared": {
     "thisComputer": "This Computer",
     "runsHere": "Runs on: This Computer",

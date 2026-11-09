@@ -517,6 +517,7 @@ async function probeGemini(o: {
  */
 export async function testLLMConnection(
   env: Record<string, string>,
+  agentType?: string,
 ): Promise<LLMTestResult> {
   const pick = (...names: string[]): string => {
     for (const n of names) {
@@ -1041,6 +1042,9 @@ export async function testLLMConnection(
       // true of the vendor APIs these defaults belong to, and false of every
       // relay and gateway (they answer /models, and that answer wins).
       fallbackModel: hasKimi ? "kimi-k2.6" : "gpt-4o-mini",
+      // OpenAI fields are shared by several agents; only Codex owns this mode.
+      responsesApi:
+        agentType === "codex" && pick("CODEX_WIRE_API").toLowerCase() === "responses",
     })
   } catch (e) {
     return { success: false, error: (e as Error)?.message || "Request failed" }
