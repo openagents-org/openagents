@@ -83,8 +83,12 @@ const DSH_BUILTIN_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
 /** The pi-ai route an OpenAI-compatible gateway is served through. */
 const GATEWAY_PROVIDER = 'openai-gateway';
 
-/** The model a gateway route runs when none is configured. */
-const DEFAULT_GATEWAY_MODEL = 'deepseek-v4-flash';
+/**
+ * The model a gateway route runs when none is configured: the one the
+ * OpenAgents gateway serves. It has since narrowed to this single id and
+ * refuses `deepseek-v4-flash` with "This gateway only allows: …".
+ */
+const DEFAULT_GATEWAY_MODEL = 'deepseek-v4.1-flash';
 
 /** Where DeepSeek's own model list is read (its OpenAI-style root). */
 const DEEPSEEK_MODELS_BASE = 'https://api.deepseek.com/v1';

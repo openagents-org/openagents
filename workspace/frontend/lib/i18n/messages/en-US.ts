@@ -2593,7 +2593,7 @@ export const messages = {
     howtoTitle: 'How to use your credits',
     howtoBody: 'Your key works with any OpenAI-compatible client or agent — OpenCode, Hermes, PI Agent and more. Point the client at the base URL below and pick a model.',
     howtoBaseUrl: 'Base URL',
-    howtoModels: 'Popular models: deepseek-4-flash, deepseek-v4-pro, alibaba-qwen3-32b, kimi-k2.6, glm-5.2',
+    howtoModels: 'Models available now: {models}',
     showAllModels: 'Show all supported models',
     hideModels: 'Hide models',
     modelsCount: '{count} models available — click one to copy its id',

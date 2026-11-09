@@ -71,7 +71,43 @@ const CREDS_CLASSIFIERS = {
   cline_providers(creds) {
     return classifyClineAuth(creds, {}).state;
   },
+  // ~/.copilot/config.json lists the GitHub accounts `copilot` /login signed
+  // in. An empty list (or no file) is not "signed out": a GH_TOKEN or a gh
+  // sign-in works without it, so that stays for the run to decide.
+  copilot_logged_in_users(creds) {
+    const users = creds && creds.loggedInUsers;
+    return Array.isArray(users) && users.length > 0 ? 'ready' : 'unknown';
+  },
 };
+
+/**
+ * JSON that may carry `//` and `/* *\/` comments (JSONC). Copilot writes its
+ * config.json with a two-line `//` header, so a strict parse read a signed-in
+ * user's file as unparseable. Comments are removed outside strings only.
+ */
+function parseJsonLoose(raw) {
+  const text = String(raw);
+  try { return JSON.parse(text); } catch { /* fall through to JSONC */ }
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      out += '\n';
+    } else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end === -1 ? text.length : end + 1;
+    } else {
+      out += c;
+    }
+  }
+  return JSON.parse(out);
+}
 
 /** The named classifier's verdict, or null when the entry names none. */
 function classifyCreds(checkReady, creds) {
@@ -1080,7 +1116,7 @@ class Installer {
         if (fs.existsSync(credsPath)) {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
-          const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+          const creds = parseJsonLoose(fs.readFileSync(credsPath, 'utf-8'));
           const verdict = classifyCreds(checkReady, creds);
           if (verdict) return verdict === 'ready';
           if (checkReady.creds_key) return !!creds[checkReady.creds_key];
@@ -1093,6 +1129,18 @@ class Installer {
     // without reading the secret out, which is what _checkMacKeychain avoids.
     if (checkReady.keychain_service && process.platform === 'darwin') {
       if (this._checkMacKeychain(checkReady.keychain_service)) {
+        return true;
+      }
+    }
+
+    // An item named by service AND account. A separate field from
+    // keychain_service so an older core, which would match on the service
+    // alone, skips it rather than reading someone else's item as a sign-in.
+    // agy keeps its Google sign-in as service `gemini`, account `antigravity`:
+    // the same pair it stores on Windows as the target `gemini:antigravity`.
+    const item = checkReady.keychain_item;
+    if (item && item.service && item.account && process.platform === 'darwin') {
+      if (this._checkMacKeychain(item.service, item.account)) {
         return true;
       }
     }
@@ -1201,7 +1249,7 @@ class Installer {
       if (checkReady.creds_classifier) {
         const raw = fs.readFileSync(p, 'utf-8');
         let parsed;
-        try { parsed = JSON.parse(raw); } catch { parsed = { __parse_error: true }; }
+        try { parsed = parseJsonLoose(raw); } catch { parsed = { __parse_error: true }; }
         const verdict = classifyCreds(checkReady, parsed);
         if (verdict) return verdict === 'ready' ? 'present' : verdict === 'unknown' ? 'unknown' : 'absent';
       }
@@ -1285,11 +1333,12 @@ class Installer {
    *
    * Cached like _checkWindowsCredential, and never waited on in Electron main.
    */
-  _checkMacKeychain(service) {
+  _checkMacKeychain(service, account = null) {
     if (!service) return false;
-    const cached = keychainItemCache.get(service);
+    const cacheKey = account ? `${service}\u0000${account}` : service;
+    const cached = keychainItemCache.get(cacheKey);
     const fresh = cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS;
-    const args = ['find-generic-password', '-s', service];
+    const args = ['find-generic-password', '-s', service, ...(account ? ['-a', account] : [])];
     if (!fresh && canBlock()) {
       let found = false;
       try {
@@ -1299,20 +1348,20 @@ class Installer {
         });
         found = !run.error && run.status === 0;
       } catch {}
-      keychainItemCache.set(service, { found, ts: Date.now() });
-    } else if (!fresh && !keychainRefreshing.has(service)) {
+      keychainItemCache.set(cacheKey, { found, ts: Date.now() });
+    } else if (!fresh && !keychainRefreshing.has(cacheKey)) {
       // Answer from the last lookup now; the refresh lands for the next call.
-      keychainRefreshing.add(service);
+      keychainRefreshing.add(cacheKey);
       try {
         execFile('security', args, { timeout: 5000 }, (err) => {
-          keychainRefreshing.delete(service);
-          keychainItemCache.set(service, { found: !err, ts: Date.now() });
+          keychainRefreshing.delete(cacheKey);
+          keychainItemCache.set(cacheKey, { found: !err, ts: Date.now() });
         });
       } catch {
-        keychainRefreshing.delete(service);
+        keychainRefreshing.delete(cacheKey);
       }
     }
-    return !!(keychainItemCache.get(service) || {}).found;
+    return !!(keychainItemCache.get(cacheKey) || {}).found;
   }
 
   /**
@@ -3119,4 +3168,4 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict, credentialListHasTarget };
+module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict, credentialListHasTarget, parseJsonLoose };
