@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown, Plus, Search, Tag, UserRound } from 'lucide-react';
+import { Check, ChevronDown, KanbanSquare, Plus, Search, Tag, UserRound } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { useMe } from '@/hooks/use-me';
 import { useT } from '@/lib/i18n';
-import type { IssueDetail, TeamMember } from '@/lib/types';
+import type { IssueBoard, IssueDetail, TeamMember } from '@/lib/types';
 import { IssueLabel } from './issue-label';
 import { IssueDueDate } from './issue-due-date';
 import { Input } from '@/components/ui/input';
@@ -20,12 +20,14 @@ function AssigneeAvatar({ id }: { id: string }) {
 
 export function IssueProperties({ issue, busy, update }: {
   issue: IssueDetail; busy: boolean;
-  update: (values: { due_date?: string | null; assignee?: string | null; labels?: string[] }) => void;
+  update: (values: { due_date?: string | null; assignee?: string | null; labels?: string[]; board_id?: string }) => void;
 }) {
   const { workspace, agents } = useWorkspace();
   const me = useMe(workspace?.workspaceId);
   const t = useT();
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const [boards, setBoards] = useState<IssueBoard[]>([]);
+  useEffect(() => { let active = true; void workspaceApi.listIssueBoards().then(value => { if (active) setBoards(value); }).catch(() => {}); return () => { active = false; }; }, [workspace?.workspaceId]);
   const [label, setLabel] = useState('');
   const [addingLabel, setAddingLabel] = useState(false);
   const [knownLabels, setKnownLabels] = useState<string[]>([]);
@@ -87,6 +89,18 @@ export function IssueProperties({ issue, busy, update }: {
       </Popover>
     </section>
     <IssueDueDate issue={issue} busy={busy} canEdit={!!actor && actor === issue.created_by.toLowerCase()} update={update} />
+    {boards.length > 1 && <section className="space-y-2">
+      <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><KanbanSquare className="size-3" />{t('issues.boardLabel')}</h3>
+      <select
+        aria-label={t('issues.moveToBoard')}
+        disabled={busy}
+        value={issue.board_id || 'team'}
+        onChange={event => update({ board_id: event.target.value })}
+        className="h-8 w-full rounded-md border bg-background px-2 text-xs disabled:opacity-50"
+      >
+        {boards.map(board => <option key={board.id} value={board.id}>{board.default ? t('issues.teamBoard') : board.name}</option>)}
+      </select>
+    </section>}
     <section className="space-y-2.5">
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-medium text-muted-foreground">{t('issues.labels')}</h3>

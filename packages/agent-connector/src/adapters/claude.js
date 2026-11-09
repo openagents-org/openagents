@@ -1603,15 +1603,19 @@ class ClaudeAdapter extends BaseAdapter {
 
 /**
  * @anthropic-ai/claude-code ships a placeholder where its native binary goes
- * and swaps the real one in from a postinstall script. With that script
- * skipped (`ignore-scripts=true` in an npmrc, pnpm, bun) the placeholder is
- * what runs: shell text on macOS/Linux, and on Windows a `claude.exe` the OS
- * will not start (spawn EFTYPE).
+ * and swaps the real one in from a postinstall script, copied out of a
+ * per-platform optional dependency. Skip that script (`ignore-scripts=true` in
+ * an npmrc, pnpm, bun) or lose that dependency (npm drops one whose download
+ * fails, or under omit=optional) and the placeholder is what runs: shell text
+ * on macOS/Linux, and on Windows a `claude.exe` the OS will not start (spawn
+ * EFTYPE). Which of the two happened is the installer's to find out; a
+ * reinstall from the launcher handles both (installer.finishNpmInstall).
  */
-ClaudeAdapter.INSTALL_INCOMPLETE = 'Claude Code is installed, but its setup never finished: the '
-  + '@anthropic-ai/claude-code package\'s postinstall script did not run (npm `ignore-scripts`, or a '
-  + 'pnpm/bun install), so the `claude` command is only a placeholder. Reinstall Claude Code from the '
-  + 'launcher — or, for a copy you installed yourself, run '
-  + '`npm install -g @anthropic-ai/claude-code --ignore-scripts=false` — then retry.';
+ClaudeAdapter.INSTALL_INCOMPLETE = 'Claude Code is installed, but its setup never finished, so the '
+  + '`claude` command is only a placeholder: either the @anthropic-ai/claude-code package\'s postinstall '
+  + 'script did not run (npm `ignore-scripts`, or a pnpm/bun install), or npm left out the per-platform '
+  + 'package that holds the native binary (its download failed, or optional dependencies are turned off). '
+  + 'Reinstall Claude Code from the launcher — or, for a copy you installed yourself, run '
+  + '`npm install -g @anthropic-ai/claude-code --ignore-scripts=false --include=optional` — then retry.';
 
 module.exports = ClaudeAdapter;

@@ -72,6 +72,9 @@
       "-p",
       "hi"
     ],
+    "env": {
+      "GEMINI_CLI_TRUST_WORKSPACE": "true"
+    },
     "timeout_s": 120
   },
   "env_config": [],

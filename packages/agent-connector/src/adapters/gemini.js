@@ -290,6 +290,11 @@ class GeminiAdapter extends BaseAdapter {
 
     let cmd;
     const cleanEnv = { ...(this.agentEnv || process.env) };
+    // Without it a Gemini CLI with folder trust on (the default for a Google
+    // sign-in) stops with "Gemini CLI is not running in a trusted directory"
+    // in any working directory the user never trusted by hand. It is what the
+    // CLI's own --skip-trust sets; an explicit value of the user's stands.
+    if (cleanEnv.GEMINI_CLI_TRUST_WORKSPACE == null) cleanEnv.GEMINI_CLI_TRUST_WORKSPACE = 'true';
 
     let _shouldRetry = false;
     for (let attempt = 0; attempt < 2; attempt++) {

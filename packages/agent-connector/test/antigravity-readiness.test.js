@@ -81,6 +81,14 @@ describe('antigravity registry check_ready', () => {
     // 'unknown' verdict a live try instead of refusing the run.
     assert.equal(ENTRY.check_ready.unverifiable, true);
   });
+
+  it('declares the same item for the macOS Keychain, by service and account', () => {
+    // go-keyring stores one pair as `service:account` in Credential Manager
+    // and as service + account in the Keychain.
+    assert.deepEqual(ENTRY.check_ready.keychain_item, { service: 'gemini', account: 'antigravity' });
+    // Not keychain_service: an older core would match any `gemini` item.
+    assert.equal(ENTRY.check_ready.keychain_service, undefined);
+  });
 });
 
 describe('credentialListHasTarget', () => {
@@ -146,5 +154,51 @@ describe('antigravity readiness', () => {
     // The distinction that lets the run be attempted anyway.
     assert.equal(r.auth_status, 'unknown');
     assert.match(r.message, /agy/);
+  });
+});
+
+describe('antigravity readiness on macOS', () => {
+  /** Run `fn` as if this were macOS, and put the platform back afterwards. */
+  function onMac(fn) {
+    const real = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    try {
+      return fn();
+    } finally {
+      Object.defineProperty(process, 'platform', real);
+    }
+  }
+
+  it('reports the sign-in in the Keychain as ready', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const asked = [];
+    inst._checkMacKeychain = (service, account) => { asked.push([service, account]); return true; };
+    const r = onMac(() => evaluate(inst));
+    assert.equal(r.ready, true);
+    assert.equal(r.auth_mode, 'cli_login');
+    assert.deepEqual(asked, [['gemini', 'antigravity']]);
+  });
+
+  it('stays unknown, not signed out, when the Keychain has no such item', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._checkMacKeychain = () => false;
+    const r = onMac(() => evaluate(inst));
+    assert.equal(r.ready, false);
+    assert.equal(r.auth_status, 'unknown');
+  });
+
+  it('asks `security` for the item by service and account, never its secret', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const calls = [];
+    inst._spawnSyncForTest = (...a) => { calls.push(a); return { status: 0 }; };
+    const { setBlockingProbes } = require('../src/probe-mode');
+    setBlockingProbes(true);
+    try {
+      assert.equal(inst._checkMacKeychain('gemini-acct-test', 'antigravity'), true);
+    } finally {
+      setBlockingProbes(null);
+    }
+    assert.deepEqual(calls[0][1], ['find-generic-password', '-s', 'gemini-acct-test', '-a', 'antigravity']);
+    assert.ok(!calls[0][1].includes('-w'));
   });
 });

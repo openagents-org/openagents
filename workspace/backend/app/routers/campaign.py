@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from app.access import extract_bearer, resolve_current_user
-from app.firebase_auth import looks_like_workspace_session
+from app.firebase_auth import looks_like_workspace_session, verify_identity_claims
 from app.config import config
 from app.database import get_db
 from app.response import ResponseCode, json_response, success_response
@@ -35,7 +35,9 @@ def campaign_status(
     db: Session = Depends(get_db),
 ):
     if not campaign.enabled():
-        return success_response({"enabled": False})
+        # Ended campaign: existing key holders still see their key and balance.
+        user = resolve_current_user(db, authorization) if campaign.holders_visible() else None
+        return success_response(campaign.ended_payload(db, user) if user else {"enabled": False})
     user = resolve_current_user(db, authorization)
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign-in required")
@@ -47,7 +49,19 @@ def campaign_status(
         bearer = extract_bearer(authorization)
         if bearer and not looks_like_workspace_session(bearer):
             campaign.sync_email_verification(db, user, bearer)
-    return success_response(campaign.status_payload(db, user))
+    # Keys are minted here only. A raw Firebase bearer may belong to an account
+    # created straight in Firebase, skipping openagents.org sign-up (captcha,
+    # per-IP cap): require openagents.org to know the account before minting.
+    # Workspace sessions come from the openagents.org hand-off (or Apple), so
+    # they are trusted as before.
+    confirmed = True
+    if db.get(campaign.CampaignAccount, user.id) is None:
+        bearer = extract_bearer(authorization)
+        if bearer and not looks_like_workspace_session(bearer):
+            claims = verify_identity_claims(bearer) or {}
+            if claims.get("provider") == "firebase":
+                confirmed = campaign.account_api_confirms(bearer) is True
+    return success_response(campaign.status_payload(db, user, account_confirmed=confirmed))
 
 
 @router.get("/models")
@@ -57,10 +71,13 @@ def campaign_models(
 ):
     """Model ids available on the campaign gateway (proxied — the gateway has
     no CORS, so the browser can't ask it directly)."""
-    if not campaign.enabled():
+    if not campaign.enabled() and not campaign.holders_visible():
         return success_response({"models": []})
-    if not resolve_current_user(db, authorization):
+    user = resolve_current_user(db, authorization)
+    if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign-in required")
+    if not campaign.enabled() and db.get(campaign.CampaignAccount, user.id) is None:
+        return success_response({"models": []})
     now = time.time()
     if now - _models_cache["at"] > _MODELS_TTL_S or not _models_cache["ids"]:
         try:

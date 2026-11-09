@@ -118,7 +118,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
             return (
               <div key={agent.agentName} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <AgentAvatar name={agent.agentName} size={32} />
+                  <AgentAvatar name={agent.agentName} type={agent.agentType} size={32} />
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                       <span className="truncate">{agentLabel(agent)}</span>

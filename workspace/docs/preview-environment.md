@@ -14,11 +14,11 @@ Configured at the user's request October 26, 2026. Preview is a separate applica
 
 ## Deployment
 
-The systemd timer `openagents-preview-develop.timer` checks the public `develop` branch every two minutes. A root-owned tracker fetches the exact commit without repository credentials, builds both images on the droplet and invokes the guarded deployer. Builds have a 2.5 GB per-process memory limit and run serially with low scheduling priority. A failed commit is retried after 30 minutes, or immediately when develop changes. Existing services stay up while images build.
+The systemd timer `openagents-preview-tracker.timer` checks the public `develop` branch every two minutes. `Environment=PREVIEW_BRANCH=` in `openagents-preview-tracker.service` selects the branch (default `develop`). A root-owned tracker fetches the exact commit without repository credentials, builds both images on the droplet and invokes the guarded deployer. Builds have a 2.5 GB per-process memory limit and run serially with low scheduling priority. A failed commit is retried after 30 minutes, or immediately when develop changes. Existing services stay up while images build.
 
-Manual run: `ssh root@164.92.127.159 systemctl start openagents-preview-develop.service`.
+Manual run: `ssh root@164.92.127.159 systemctl start openagents-preview-tracker.service`.
 
-Logs: `journalctl -u openagents-preview-develop.service`. Status: `systemctl list-timers openagents-preview-develop.timer`. Use `/usr/local/sbin/openagents-preview-track-develop --retry` to retry a failed build immediately.
+Logs: `journalctl -u openagents-preview-tracker.service`. Status: `systemctl list-timers openagents-preview-tracker.timer`. Use `/usr/local/sbin/openagents-preview-track-branch --retry` to retry a failed build immediately.
 
 The deployer validates the full SHA, image revision labels and local DB URL, takes a PostgreSQL dump, stops application writers, runs Alembic, starts both images, reloads nginx and checks API readiness and frontend routing. Failure restores only the isolated database and previous images. Large incoming archives retain the latest two builds; Docker images and DB backups require periodic disk-space review. Production uses its existing separate release process.
 
@@ -26,7 +26,7 @@ The deployer validates the full SHA, image revision labels and local DB URL, tak
 
 ## Host setup
 
-Copy `workspace/operations/preview/` to a root-owned staging directory and run `provision.py` as root. It generates dedicated database and signing secrets and copies only public login settings from the previous preview container. It installs root-owned tracker/deployer scripts and systemd units. Enable the timer only after validating the first isolated deployment and switching the public proxy.
+Copy `workspace/operations/preview/` to a root-owned staging directory and run `provision.py` as root. It generates dedicated database and signing secrets and copies only public login settings from the previous preview container. It installs root-owned tracker/deployer scripts and systemd units, retires the earlier `openagents-preview-develop` tracker and enables `openagents-preview-tracker.timer` so tracking continues without a gap. On a brand-new host, run `systemctl disable --now openagents-preview-tracker.timer` right after provisioning and re-enable it only after validating the first isolated deployment and switching the public proxy.
 
 The first stack is validated on `127.0.0.1:8081`; then stop the legacy stack, set `PREVIEW_HTTP_BIND=0.0.0.0:80` in the root-only `.env` and recreate nginx. Keep the old config and data volumes. Never run `docker compose down -v` as part of a deployment.
 

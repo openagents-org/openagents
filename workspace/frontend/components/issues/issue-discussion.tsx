@@ -67,15 +67,25 @@ import {
   useIssueTime,
 } from './issue-ui';
 
+function EmbeddedHeader({ title, children }: { title: React.ReactNode; children?: React.ReactNode; titleInHeader?: boolean }) {
+  return <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-5">
+    <div className="min-w-0">{title}</div>
+    {children}
+  </div>;
+}
+
 export function IssueDiscussion({
   id,
   onBack,
   onChanged,
+  embedded = false,
 }: {
+  embedded?: boolean;
   id: string;
   onBack: () => void;
   onChanged: () => void;
 }) {
+  const Header = embedded ? EmbeddedHeader : DetailHeader;
   const t = useT();
   const confirmDelete = useConfirmIssueDelete();
   const { timeAgo } = useFormatters();
@@ -269,7 +279,7 @@ export function IssueDiscussion({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <DetailHeader
+      <Header
         titleInHeader
         title={
           <div className="flex min-w-0 items-center gap-2 text-xs">
@@ -288,7 +298,7 @@ export function IssueDiscussion({
         }
       >
         <Button
-          className="lg:hidden"
+          className={cn(!embedded && 'lg:hidden')}
           variant="ghost"
           size="sm"
           aria-expanded={detailsOpen}
@@ -297,7 +307,7 @@ export function IssueDiscussion({
           <PanelRight />
           {t('issues.details')}
         </Button>
-      </DetailHeader>
+      </Header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {(error || loadError) && (
           <div className="mx-auto max-w-6xl px-5 pt-5 sm:px-8">
@@ -318,8 +328,8 @@ export function IssueDiscussion({
             </div>
           )
         ) : (
-          <div className="mx-auto grid min-h-full max-w-[1200px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_264px]">
-            <main className="min-w-0 px-5 pb-12 pt-7 sm:px-9 sm:pt-9 lg:px-10">
+          <div className={cn('mx-auto grid min-h-full max-w-[1200px] grid-cols-1', !embedded && 'lg:grid-cols-[minmax(0,1fr)_264px]')}>
+            <main className={cn('min-w-0 px-5 pb-12 pt-7', !embedded && 'sm:px-9 sm:pt-9 lg:px-10')}>
               <header className="mb-8">
                 <div className="mb-3 flex items-center gap-2">
                   <StatusBadge status={issue.status} />
@@ -624,7 +634,8 @@ export function IssueDiscussion({
             </main>
             <aside
               className={cn(
-                'order-first border-b border-border/60 bg-muted/10 px-5 py-7 sm:px-8 lg:order-last lg:block lg:border-b-0 lg:border-l lg:px-6 lg:py-9',
+                'order-first border-b border-border/60 bg-muted/10 px-5 py-7',
+                !embedded && 'sm:px-8 lg:order-last lg:block lg:border-b-0 lg:border-l lg:px-6 lg:py-9',
                 !detailsOpen && 'hidden',
               )}
               aria-label={t('issues.details')}

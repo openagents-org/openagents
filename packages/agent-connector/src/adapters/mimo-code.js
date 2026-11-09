@@ -92,6 +92,7 @@ const FAILURE_MESSAGES = {
   process_crashed: 'MiMo Code exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "MiMo Code's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   session_missing: 'MiMo Code no longer has this conversation\'s session. Send the message again to start a new one.',
+  config_invalid: 'MiMo Code would not start because one of its config files is invalid — the file and what is wrong with it are below. Correct or remove that entry, then retry.',
   unknown_error: 'MiMo Code failed for an undetermined reason. Open diagnostics or retry.',
 };
 

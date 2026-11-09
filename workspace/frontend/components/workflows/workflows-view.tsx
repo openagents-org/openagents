@@ -109,7 +109,7 @@ function RunWorkflowDialog({
 }: {
   workflow: Workflow | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => void;
+  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[] }) => void;
 }) {
   const t = useT();
   const [title, setTitle] = useState('');
@@ -126,11 +126,11 @@ function RunWorkflowDialog({
     }
   }, [workflow]);
 
-  const submit = (run: boolean) => {
+  const submit = () => {
     // Description is required; an empty title gets a derived preview
     // ("first few words…") from the backend.
     if (!description.trim()) return;
-    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, fileIds, run });
+    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, fileIds });
     onOpenChange(false);
   };
 
@@ -150,7 +150,7 @@ function RunWorkflowDialog({
             placeholder={t('tasks.fieldDescriptionPlaceholder')}
             rows={4}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(true);
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
             }}
           />
           <Input
@@ -165,10 +165,7 @@ function RunWorkflowDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="outline" onClick={() => submit(false)} disabled={!description.trim()}>
-            {t('tasks.create')}
-          </Button>
-          <Button onClick={() => submit(true)} disabled={!description.trim()} className="gap-1.5">
+          <Button onClick={submit} disabled={!description.trim()} className="gap-1.5">
             <Play className="size-3.5" />
             {t('workflows.createAndRun')}
           </Button>
@@ -183,7 +180,7 @@ function RunWorkflowDialog({
 export function WorkflowsView() {
   const {
     workflows, refreshWorkflows, createWorkflow, updateWorkflow, deleteWorkflow,
-    tasks, createTask, runTask,
+    tasks, createTask, runTask, setCurrentSessionId,
   } = useWorkspace();
   const { openView } = useLayout();
   const t = useT();
@@ -225,7 +222,7 @@ export function WorkflowsView() {
     });
   };
 
-  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => {
+  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[] }) => {
     const task = await createTask({
       title: input.title,
       description: input.description,
@@ -234,9 +231,12 @@ export function WorkflowsView() {
       fileIds: input.fileIds,
       status: 'backlog',
     });
-    if (input.run) await runTask(task.id);
-    // Land the user on the board so they see the card (running or queued).
-    openView('tasks');
+    const started = await runTask(task.id);
+    // Follow the run in its working thread.
+    if (started.channelName) {
+      setCurrentSessionId(started.channelName);
+      openView('threads');
+    }
   };
 
   const templateMenuItems = (

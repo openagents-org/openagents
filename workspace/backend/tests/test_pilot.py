@@ -235,3 +235,16 @@ def test_pilot_grant_still_refused_for_blocked_domain(client, db, pilot_on, gate
     r = client.post("/v1/admin/pilot/grant", json={"email": "bot@mailinator.com"}, headers=H)
     assert r.status_code == 400 and "blocked" in r.json()["message"]
     assert db.query(CampaignGrant).filter_by(user_id=user.id, milestone="pilot").count() == 0
+
+
+def test_pilot_needs_a_registered_device(client, db, pilot_on, gateway):  # noqa: F811
+    """Fake API agents with a canned reply passed eligibility before 2026-11-07."""
+    user = _mk_user(db, "i790a1794026813426031@gmail.com")
+    ws = _mk_workspace(db, user, device=False)
+    _mk_member(db, ws, "a1cli", "claude", server_host="Real-Host")   # even with a host name
+    _conversation_days(db, ws, "a1cli", [0])
+    d = client.get(f"/v1/admin/pilot/eligibility?email={user.email}", headers=H).json()["data"]
+    assert d["pilot"]["eligible"] is False
+    assert any("registered device" in r for r in d["pilot"]["reasons"])
+    r = client.post("/v1/admin/pilot/grant", json={"email": user.email}, headers=H)
+    assert r.status_code == 400
