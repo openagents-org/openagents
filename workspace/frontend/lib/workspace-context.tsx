@@ -3,6 +3,7 @@
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AgentTypesProvider } from '@/components/agents/agent-types';
 import { useMe } from '@/hooks/use-me';
 import { ApiError, workspaceApi } from './api';
 import { StopRequestTracker, confirmsStop } from './stop-requests';
@@ -2329,7 +2330,7 @@ export function WorkspaceProvider({
         openSessionByChannel,
       }}
     >
-      {children}
+      <AgentTypesProvider agents={agents}>{children}</AgentTypesProvider>
     </WorkspaceContext.Provider>
   );
 }
