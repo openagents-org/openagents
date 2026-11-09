@@ -228,6 +228,9 @@ class Channel(Base):
     created_by = Column(Text, nullable=True)
     master_agent = Column(Text, nullable=True)       # per-channel master
     resume_from = Column(Text, nullable=True)         # channel name to resume context from
+    # Thread fork lineage: the source thread's name and the last message copied.
+    forked_from = Column(Text, nullable=True)
+    forked_at_event_id = Column(Text, nullable=True)
     # Multi-agent collaboration mode for this thread:
     #   "dynamic"  → LLM router picks next speaker (generic prompt) [default]
     #   "master"   → deterministic star: humans + sub-agents route to the
@@ -827,9 +830,26 @@ class TodoRecord(Base):
     )
 
 
+class IssueBoard(Base):
+    """An extra issue board. Issues with no board are on the default
+    "Team issues" board, which is not stored and cannot be removed."""
+    __tablename__ = "issue_boards"
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    created_by = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_issue_boards_workspace", "workspace_id"),
+    )
+
+
 class Issue(Base):
     """A durable team discussion; creating one never starts agent work."""
     __tablename__ = "issues"
+    # NULL = the default "Team issues" board.
+    board_id = Column(Text, ForeignKey("issue_boards.id", ondelete="SET NULL"), nullable=True, index=False)
 
     knowledge_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     file_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
@@ -849,7 +869,10 @@ class Issue(Base):
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
 
-    __table_args__ = (Index("idx_issues_workspace_status", "workspace_id", "status"),)
+    __table_args__ = (
+        Index("idx_issues_workspace_status", "workspace_id", "status"),
+        Index("idx_issues_board", "board_id"),
+    )
 
 
 class IssueAgentSharing(Base):
@@ -1163,7 +1186,8 @@ class HostedAgent(Base):
     external_id = Column(Text, nullable=True)
     node_id = Column(UUID(as_uuid=False), ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
     owner_email = Column(Text, nullable=False)
-    # launching | setup (owner must finish sign-in/payment on Acenta) | active | terminating
+    # launching | setup (owner must finish sign-in/payment on Acenta) | active | terminating,
+    # or linked | unlinking for an existing agent added from the owner's Acenta account
     status = Column(Text, nullable=False, default="launching")
     # Acenta launch page while status is "setup"; it requires the owner's sign-in.
     setup_url = Column(Text, nullable=True)

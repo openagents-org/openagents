@@ -104,6 +104,19 @@ describe('GeminiAdapter — what a run posts', () => {
     assert.equal(a._channelSessions['chan-1'], 'S-new');
   });
 
+  it('runs with the working directory trusted, unless the agent says otherwise', async () => {
+    const a = makeAdapter();
+    script = [{ events: [{ type: 'result', status: 'success' }] }];
+    await a._handleMessage(MSG);
+    assert.equal(spawns[0].opts.env.GEMINI_CLI_TRUST_WORKSPACE, 'true');
+
+    const b = makeAdapter();
+    b.agentEnv = { GEMINI_CLI_TRUST_WORKSPACE: 'false' };
+    script = [{ events: [{ type: 'result', status: 'success' }] }];
+    await b._handleMessage(MSG);
+    assert.equal(spawns[1].opts.env.GEMINI_CLI_TRUST_WORKSPACE, 'false');
+  });
+
   it('still says so when a clean run produced no text', async () => {
     const a = makeAdapter();
     script = [{ events: [{ type: 'result', status: 'success' }] }];

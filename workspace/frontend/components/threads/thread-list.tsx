@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
-  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
+  GitFork, MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -102,14 +102,12 @@ function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; s
   }
 
   return (
-    <div className="flex shrink-0 -space-x-1.5">
+    <div className="flex shrink-0 -space-x-1">
       {shown.map((agent) => (
-        <div key={agent.agentName} className="rounded-full ring-2 ring-background">
-          <AgentAvatar name={agent.agentName} size={18} />
-        </div>
+        <AgentAvatar key={agent.agentName} name={agent.agentName} size={18} stacked />
       ))}
       {extra > 0 && (
-        <div className="flex size-4.5 items-center justify-center rounded-full bg-muted text-[7px] font-medium text-muted-foreground ring-2 ring-background">
+        <div className="flex size-4.5 items-center justify-center rounded-md bg-muted text-[7px] font-medium text-muted-foreground ring-2 ring-background">
           +{extra}
         </div>
       )}
@@ -324,7 +322,7 @@ function ThreadRow({
 export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
-    activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
+    activeSessionIds, completedSessionIds, updateSession, renameSession, forkSession, dmConversations,
     unreadSessionIds, unreadThreadCounts, unreadDmSessionIds, unreadDmCounts, unreadSignals, refreshAgents, refreshDMConversations, currentUser, onlineUsers,
   } = useWorkspace();
   const me = myAddress(currentUser);
@@ -608,6 +606,27 @@ export function ThreadList() {
         >
           <Pencil className="size-4" />
           <span>{t('common.rename')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={async (e) => {
+            e.stopPropagation();
+            const title = (await prompt({
+              title: t('threads.forkTitle'),
+              description: t('threads.forkDescription'),
+              placeholder: t('threads.renamePlaceholder'),
+              defaultValue: `${session.title || t('threads.untitled')} (fork)`,
+              confirmText: t('threads.fork'),
+            }))?.trim();
+            if (!title) return;
+            try {
+              await forkSession(session.sessionId, title);
+            } catch {
+              toast.error(t('chat.forkThreadFailed'));
+            }
+          }}
+        >
+          <GitFork className="size-4" />
+          <span>{t('threads.forkMenu')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={(e) => {
           e.stopPropagation();

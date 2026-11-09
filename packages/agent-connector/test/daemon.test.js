@@ -1880,6 +1880,25 @@ describe('Daemon pid resolution (dual-source)', () => {
   });
 });
 
+describe('Daemon._probeAgent — the child reads daemon.yaml mid-save', () => {
+  it('asks once more when the child finds no agent this daemon has', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'luna', type: 'codex' });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._saveProbes = () => {};
+    const answers = [
+      { type: 'luna', ok: false, code: 'unknown_type', message: "No agent named 'luna' on this device" },
+      { type: 'codex', ok: true, code: 'ok', message: 'Responded' },
+    ];
+    let runs = 0;
+    daemon._runAgn = async () => ({ code: 0, stdout: JSON.stringify(answers[runs++]), stderr: '' });
+    const result = await daemon._probeAgent('luna');
+    assert.equal(runs, 2);
+    assert.equal(result.code, 'ok');
+    assert.equal(result.agent, 'luna');
+  });
+});
+
 describe('Daemon._repairRuntime', () => {
   const { Installer } = require('../src/installer');
   let realInstall;
@@ -1931,6 +1950,30 @@ describe('Daemon._repairRuntime', () => {
     assert.equal(a.forgotten, 1);
     assert.equal(infoA.lastError, null);
     assert.equal(daemon._runtimeRepairs.size, 0);
+  });
+
+  it('tests again the agents whose connection test said the version was wrong', async () => {
+    const state = { installed: false };
+    Installer.prototype.installStreaming = async () => { state.installed = true; return { success: true }; };
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'ds1', type: 'deepseek' });
+    config.addAgent({ name: 'ds2', type: 'deepseek' });
+    config.addAgent({ name: 'cx', type: 'codex' });
+    const daemon = makeDaemon();
+    daemon.config = config;
+    daemon._probes = {
+      ds1: { code: 'version_incompatible' },
+      ds2: { code: 'ok' },
+      cx: { code: 'version_incompatible' },
+    };
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); };
+    let beats = 0;
+    daemon._nodeHeartbeat = () => { beats += 1; };
+    await daemon._repairRuntime('ds1', 'deepseek', staleAdapter(state), { state: 'starting' }, { ok: false });
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(probed, ['ds1']);
+    assert.equal(beats, 1);
   });
 
   it('keeps the original reason when the install fails', async () => {

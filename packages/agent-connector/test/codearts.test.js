@@ -156,6 +156,8 @@ describe('CodeArts Agent — credentials and failures', () => {
   it('refuses to spawn without the key pair, naming where to get one', () => {
     const adapter = makeAdapter();
     adapter._opencodeBinary = '/fake/codearts';
+    // The preflight looks again for a binary whose file is gone.
+    adapter._findOpencodeBinary = () => '/fake/codearts';
     adapter._detectCliVersion = () => ({ version: '26.9.3', executable: true });
     const pf = adapter._preflight();
     assert.equal(pf.ok, false);

@@ -88,6 +88,20 @@ jobs:
     - name: Update npm for OIDC trusted publishing
       run: npm install -g npm@11
 
+    # The desktop app installs the core by extracting this tarball, with no
+    # `npm install` after it, so what the daemon requires (bundleDependencies)
+    # has to be inside it. npm packs a bundled dependency only from an
+    # installed node_modules and leaves it out without a word otherwise, which
+    # shipped cores whose OpenWorker agents all failed on "Cannot find module
+    # 'ws'". The check fails the publish instead.
+    - name: Install the bundled dependencies
+      working-directory: packages/agent-connector
+      run: npm ci --omit=dev --ignore-scripts
+
+    - name: Check the tarball carries them
+      working-directory: packages/agent-connector
+      run: node --test test/package-bundle.test.js
+
     - name: Publish to npm
       working-directory: packages/agent-connector
       # Skip when this exact version is already on npm so a push to develop that
