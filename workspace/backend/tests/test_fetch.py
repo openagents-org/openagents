@@ -89,7 +89,7 @@ class TestFetchChain:
         assert data["title"] == "Article"
         manager.render_page_text.assert_not_awaited()
 
-    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=(None, None))
     @patch("app.routers.fetch._static_fetch")
     def test_js_shell_escalates_to_browser_render(self, mock_static, _key, client):
         mock_static.return_value = {"html": JS_SHELL_HTML, "final_url": "https://notion.site/x", "status_code": 200}
@@ -110,8 +110,36 @@ class TestFetchChain:
         assert data["content_source"] == "browser"
         assert "Rendered Notion page" in data["content"]
         manager.render_page_text.assert_awaited_once()
+        # No configured key must reach the renderer as None, so local
+        # Playwright is used. Passing the (key, source) tuple is truthy and
+        # makes the renderer call Browser Fabric with "Bearer (None, None)".
+        assert manager.render_page_text.await_args.kwargs["api_key"] is None
 
-    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch(
+        "app.routers.fetch._resolve_bf_key",
+        new_callable=AsyncMock,
+        return_value=("bf_live_key", "workspace"),
+    )
+    @patch("app.routers.fetch._static_fetch")
+    def test_browser_render_passes_resolved_key_not_tuple(self, mock_static, _key, client):
+        mock_static.return_value = {"html": JS_SHELL_HTML, "final_url": "https://notion.site/x", "status_code": 200}
+        workspace = _create_workspace(client)
+
+        with patch("app.routers.fetch.BrowserManager") as mock_bm:
+            manager = MagicMock()
+            manager.render_page_text = AsyncMock(return_value={
+                "url": "https://notion.site/x",
+                "title": "Lunchbox",
+                "text": "Rendered Notion page content here. " * 100,
+            })
+            mock_bm.get.return_value = manager
+            resp = _fetch(client, workspace, "https://notion.site/x")
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["content_source"] == "browser"
+        assert manager.render_page_text.await_args.kwargs["api_key"] == "bf_live_key"
+
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=(None, None))
     @patch("app.routers.fetch._static_fetch")
     def test_login_wall_returns_auth_required(self, mock_static, _key, client):
         mock_static.return_value = {"html": JS_SHELL_HTML, "final_url": "https://notion.site/p", "status_code": 200}
@@ -146,7 +174,7 @@ class TestFetchChain:
         assert resp.status_code == 200
         manager.render_page_text.assert_not_awaited()
 
-    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=(None, None))
     @patch("app.routers.fetch._static_fetch")
     def test_render_timeout_surfaces_error_code(self, mock_static, _key, client):
         mock_static.return_value = {"html": JS_SHELL_HTML, "final_url": "https://slow.example.com", "status_code": 200}
@@ -241,7 +269,7 @@ class TestAssetsInResponse:
         assert [a["url"] for a in assets] == ["https://mmbiz.qpic.cn/x/640?wx_fmt=jpeg"]
         assert assets[0]["alt"] == "figure"
 
-    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=(None, None))
     @patch("app.routers.fetch._static_fetch")
     def test_rendered_read_returns_image_assets(self, mock_static, _key, client):
         mock_static.return_value = {
