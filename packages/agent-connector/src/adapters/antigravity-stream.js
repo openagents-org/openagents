@@ -185,7 +185,23 @@ const TIMEOUT_RE = /print-timeout|timed? ?out/i;
  * "No response generated. Please try again." dead end: the real reason was in
  * stderr all along, so surface it.
  */
-function classifyAgyFailure({ code, stderr, error, secrets = [] } = {}) {
+function classifyAgyFailure({
+  code, stderr, error, secrets = [], idleKilled = false, idleSeconds = null,
+} = {}) {
+  // The adapter's own idle watchdog SIGTERMs agy. agy then exits 1 with
+  // "error: interrupted". That is not a credential failure, and the sign-in
+  // paragraph below would send the operator looking at the wrong thing.
+  if (idleKilled) {
+    const seconds = Number(idleSeconds);
+    const waited = Number.isFinite(seconds) && seconds > 0
+      ? ` after ${seconds}s with no output`
+      : ' after a stretch with no output';
+    return {
+      kind: 'timeout',
+      message: `Antigravity CLI was stopped${waited}. The task was not replayed.`,
+    };
+  }
+
   // The docs describe `result.error` as {type, message}; agy 1.1.17 actually
   // emits a plain string ("authentication failed or timed out"). Take both.
   const err = error && typeof error === 'object' ? error : {};
@@ -232,6 +248,18 @@ function classifyAgyFailure({ code, stderr, error, secrets = [] } = {}) {
   }
   if (TIMEOUT_RE.test(text)) {
     return { kind: 'timeout', message: 'Antigravity CLI timed out before producing a response.' };
+  }
+  // agy prints this single line when the process is signalled (our idle
+  // kill, or an external interrupt) and then exits 1. It carries no other
+  // cause. Quoting it through the unknown branch appends sign-in guidance.
+  // eslint-disable-next-line no-control-regex
+  const plainStderr = String(stderr || '').replace(/\u001B\[[0-9;?]*[ -\/]*[@-~]/g, '').trim();
+  const plainErr = String(errText || '').trim();
+  if (/^error:\s*interrupted\s*$/i.test(plainStderr) || /^error:\s*interrupted\s*$/i.test(plainErr)) {
+    return {
+      kind: 'interrupted',
+      message: 'Antigravity CLI was interrupted before it finished. The task was not replayed.',
+    };
   }
   // Quoted into the channel, so stripped of secrets first: the agent's own
   // (`secrets`, by value) and anything shaped like one.
@@ -280,6 +308,18 @@ function stderrTail(stderr, { lines = 3, limit = 600 } = {}) {
 }
 
 /**
+ * A non-zero exit on the first attempt used to clear the stored conversation
+ * and retry, on the theory that agy no longer knew that id. An idle kill
+ * produces the same non-zero exit. Retrying it replays the whole prompt and
+ * hides the timeout.
+ */
+function agyShouldRetryStaleConversation({
+  failed, idleKilled = false, hasConversation = false, attempt = 0,
+} = {}) {
+  return Boolean(failed && !idleKilled && hasConversation && attempt === 0);
+}
+
+/**
  * Filesystem candidates for the agy binary, beyond a PATH lookup. The install
  * script targets ~/.local/bin on macOS/Linux and %LOCALAPPDATA%\agy\bin on
  * Windows. Pure: the adapter applies fs.existsSync.
@@ -302,5 +342,6 @@ module.exports = {
   toolPreview,
   AgyRunState,
   classifyAgyFailure,
+  agyShouldRetryStaleConversation,
   agyBinaryCandidates,
 };
