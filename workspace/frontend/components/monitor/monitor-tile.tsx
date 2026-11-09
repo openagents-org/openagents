@@ -146,9 +146,11 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
     >
       {/* Header: avatars + title + time */}
       <div className="flex items-center gap-2 mb-2 shrink-0">
-        <div className="flex -space-x-1 shrink-0">
+        <div className="flex -space-x-1.5 shrink-0">
           {sessionAgents.slice(0, 3).map((agent) => (
-            <AgentAvatar key={agent.agentName} name={agent.agentName} size={18} stacked />
+            <div key={agent.agentName} className="border-2 border-background rounded-full">
+              <AgentAvatar name={agent.agentName} size={18} />
+            </div>
           ))}
         </div>
         {session.starred && <Star className="size-3 text-amber-400 fill-amber-400 shrink-0" />}

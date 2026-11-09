@@ -12,26 +12,6 @@ interface IconProps {
 
 const ICON_BASE = typeof window !== 'undefined' && (window as unknown as { api?: unknown }).api ? 'icons' : '/icons/agents';
 
-/** Every icon in public/icons/agents — agent types and model providers. */
-export const ICON_NAMES: ReadonlySet<string> = new Set([
-  'aider', 'amp', 'anthropic', 'antigravity', 'cerebras', 'claude', 'cline', 'codearts', 'codebuddy',
-  'codex', 'commandcode', 'copilot', 'cursor', 'custom', 'deepseek', 'default', 'elevenlabs', 'fal',
-  'fireworks', 'gemini', 'google', 'goose', 'groq', 'hermes', 'kimi', 'kiro', 'manus', 'mimo-code',
-  'mini-swe-agent', 'mistral', 'nanoclaw', 'openai', 'openclaw', 'opencode', 'openrouter', 'openworker',
-  'perplexity', 'pi', 'qoder', 'qoder-cn', 'qwen-code', 'replicate', 'sambanova', 'sensenova',
-  'stability', 'together', 'xai', 'yaml-agent',
-]);
-
-/** The corner rounding of an icon `size` px across. */
-export function iconRadius(size: number): string {
-  return size >= 48 ? 'rounded-xl' : size >= 32 ? 'rounded-lg' : 'rounded-md';
-}
-
-/** Whether `name` has its own icon file. */
-export function hasIcon(name: string): boolean {
-  return ICON_NAMES.has(name);
-}
-
 /**
  * Icons whose official form is a bare full-colour mark rather than an app tile
  * (Qwen's blue mark, Gemini's spark, most model providers). They are drawn as
@@ -52,22 +32,14 @@ const BARE = new Set([
 const MONO = new Set(['goose']);
 
 /**
- * Tiles that are only a dark mark on white or cream. Drawn `plain`, such a
- * tile would be a light square on the page, so the mark alone
- * (public/icons/agents/marks) is drawn instead, in the text colour.
- */
-export const LIGHT_TILES: ReadonlySet<string> = new Set(['anthropic', 'hermes', 'mini-swe-agent', 'openai']);
-
-/**
  * An icon drawn the way the vendor draws it. Most are app tiles — a full-bleed
  * rounded square with its own background (the vendor's app icon, or the mark
  * on white or black where there is none) — and get a hairline so a white
  * tile's edge shows on a white surface. Bare marks get neither.
  */
-function IconWrapper({ name, size = 20, chip = false, plain = false, className }: { name: string; chip?: boolean; plain?: boolean } & IconProps) {
-  const markOnly = plain && LIGHT_TILES.has(name);
-  const bare = BARE.has(name) || markOnly;
-  const src = markOnly ? `${ICON_BASE}/marks/${name}.svg` : `${ICON_BASE}/${name}.svg`;
+function IconWrapper({ name, size = 20, chip = false, className }: { name: string; chip?: boolean } & IconProps) {
+  const bare = BARE.has(name);
+  const src = `${ICON_BASE}/${name}.svg`;
   // A bare mark filling its box reads larger than a tile's mark does, so it
   // is inset — further on a chip, which has a surface of its own.
   const mark = bare ? Math.round(size * (chip ? 0.72 : 0.8)) : size;
@@ -75,15 +47,14 @@ function IconWrapper({ name, size = 20, chip = false, plain = false, className }
     <span
       className={cn(
         'inline-flex shrink-0 items-center justify-center',
-        (!bare || chip) && 'overflow-hidden',
-        (!bare || chip) && !plain && 'ring-1 ring-black/10 dark:ring-white/10',
+        (!bare || chip) && 'overflow-hidden ring-1 ring-black/10 dark:ring-white/10',
         bare && chip && 'bg-background',
-        iconRadius(size),
+        size >= 48 ? 'rounded-xl' : size >= 32 ? 'rounded-lg' : 'rounded-md',
         className,
       )}
       style={{ width: size, height: size }}
     >
-      {MONO.has(name) || markOnly ? (
+      {MONO.has(name) ? (
         <span
           role="img"
           aria-label={name}
@@ -115,11 +86,10 @@ function IconWrapper({ name, size = 20, chip = false, plain = false, className }
 /**
  * `chip` draws every icon on the same rounded chip — for avatars stacked over
  * each other, where a bare mark with nothing behind it would run into its
- * neighbours. `plain` draws it with nothing around it — no hairline, and a
- * mark on a white tile without the tile — so it sits on the page as text does.
+ * neighbours.
  */
-export function AgentIcon({ name, className, size = 20, chip, plain }: { name: string; chip?: boolean; plain?: boolean } & IconProps) {
-  return <IconWrapper name={name} size={size} chip={chip} plain={plain} className={className} />;
+export function AgentIcon({ name, className, size = 20, chip }: { name: string; chip?: boolean } & IconProps) {
+  return <IconWrapper name={name} size={size} chip={chip} className={className} />;
 }
 
 export function ProviderIcon({ name, className, size = 20 }: { name: string } & IconProps) {
