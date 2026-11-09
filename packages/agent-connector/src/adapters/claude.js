@@ -26,6 +26,7 @@ const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, worksp
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { isPostinstallStub } = require('../postinstall-stub');
+const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -101,10 +102,16 @@ class ClaudeAdapter extends BaseAdapter {
    * @param {object} opts - BaseAdapter opts plus:
    * @param {Set} [opts.disabledModules]
    * @param {string} [opts.workingDir]
+   * @param {{session_id: string, transcript: string}} [opts.seedSession] -
+   *   A Claude Code conversation this agent was created from (`agn join`).
+   *   Each channel's first turn forks it, so the agent starts with what was
+   *   said there without ever writing to it.
    */
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    this._seedSession = opts.seedSession && opts.seedSession.session_id && opts.seedSession.transcript
+      ? opts.seedSession : null;
     /** @type {'mcp' | 'skills'} Tool integration mode */
     this.toolMode = opts.toolMode || 'skills';
     this._channelSessions = {}; // channel → Claude CLI session_id
@@ -160,7 +167,9 @@ class ClaudeAdapter extends BaseAdapter {
           delete this._channelProcesses[channel];
         }
         if (this._channelSessions[channel]) {
-          delete this._channelSessions[channel];
+          // null, not delete: the channel stays known, so a restart starts
+          // it fresh instead of forking the seed conversation again.
+          this._channelSessions[channel] = null;
           try { this._saveSessions(); } catch {}
           this._log(`Restart: cleared session for channel=${channel}`);
         } else {
@@ -507,17 +516,48 @@ class ClaudeAdapter extends BaseAdapter {
 
     // Resume existing conversation (skipped on retry after stale session)
     const sessionId = this._channelSessions[channelName];
+    let seeded = false;
     if (sessionId && !skipResume) {
       cmd.push('--resume', sessionId);
+    } else if (!skipResume && !Object.prototype.hasOwnProperty.call(this._channelSessions, channelName)) {
+      const seed = this._seedArgs();
+      if (seed) { cmd.push(...seed); seeded = true; }
     }
 
     // ── Skills mode: write SKILL.md, no MCP server ──
     if (this.toolMode === 'skills') {
-      return this._buildSkillsCmd(cmd, channelName);
+      return { ...this._buildSkillsCmd(cmd, channelName), seeded };
     }
 
     // ── MCP mode (default): spawn MCP server ──
-    return this._buildMcpCmd(cmd, channelName);
+    return { ...this._buildMcpCmd(cmd, channelName), seeded };
+  }
+
+  /**
+   * `--resume <seed> --fork-session` for a channel's first turn, or null.
+   * Claude Code resumes only sessions filed under the cwd it runs in, so the
+   * seed's transcript is copied there first (complete lines only: the chat it
+   * came from may still be open and writing). Copied at each use, so a new
+   * channel starts from the conversation as it is now. A transcript that is
+   * gone turns seeding off.
+   */
+  _seedArgs() {
+    const seed = this._seedSession;
+    if (!seed) return null;
+    try {
+      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
+      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
+      if (path.resolve(path.dirname(seed.transcript)) !== path.resolve(destDir)) {
+        snapshotTranscript(seed.transcript, destDir);
+      } else if (!fs.existsSync(seed.transcript)) {
+        throw new Error('transcript is gone');
+      }
+      return ['--resume', seed.session_id, '--fork-session'];
+    } catch (e) {
+      this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
+      this._seedSession = null;
+      return null;
+    }
   }
 
   /**
@@ -1180,7 +1220,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _resetSessionForPromptTooLong(msgChannel) {
     this._log('Prompt too long, clearing session and retrying');
-    delete this._channelSessions[msgChannel];
+    this._channelSessions[msgChannel] = null;
     this._saveSessions();
     await this._killPersistentProc(msgChannel);
     try {
@@ -1456,6 +1496,7 @@ class ClaudeAdapter extends BaseAdapter {
 
     let mcpConfigFile = null;
     let cmd;
+    let seeded = false;
 
     const cleanEnv = ClaudeAdapter._buildChildEnv(this.agentEnv || process.env);
 
@@ -1494,6 +1535,7 @@ class ClaudeAdapter extends BaseAdapter {
         });
         cmd = built.cmd;
         mcpConfigFile = built.mcpConfigFile;
+        seeded = !!built.seeded;
       } catch (e) {
         await this.sendError(msgChannel, e.message);
         return;
@@ -1512,7 +1554,7 @@ class ClaudeAdapter extends BaseAdapter {
         ]);
         pp.spawnMode = this._mode;
         pp.spawnModel = this.workspaceModel || null;
-        const resumed = attempt === 0 && !!this._channelSessions[msgChannel];
+        const resumed = attempt === 0 && (!!this._channelSessions[msgChannel] || seeded);
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         let result = await this._sendToPersistentProc(pp, effectiveContent);

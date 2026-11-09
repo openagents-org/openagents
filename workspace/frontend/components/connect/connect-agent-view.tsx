@@ -16,6 +16,7 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
 import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
@@ -284,14 +285,32 @@ export function ConnectAgentView({
 
   // When a node appears that wasn't there when the code was generated, the pair
   // succeeded → dismiss the panel; the new node is already in the list.
+  const [pairedNodeId, setPairedNodeId] = useState<string | null>(null);
+  const finishPairing = useCallback((nodeId: string | null) => {
+    setPairing(null);
+    setPairedNodeId(nodeId);
+    toast.success(t('connect.nodeConnectedToast'));
+    capture('node_connected', { source: 'workspace_ui' });
+  }, [t]);
   useEffect(() => {
     if (!pairing) return;
-    if (nodes.some((n) => !pairingBaselineRef.current.has(n.nodeId))) {
-      setPairing(null);
-      toast.success(t('connect.nodeConnectedToast'));
-      capture('node_connected', { source: 'workspace_ui' });
-    }
-  }, [nodes, pairing, t]);
+    const fresh = nodes.find((n) => !pairingBaselineRef.current.has(n.nodeId));
+    if (fresh) finishPairing(fresh.nodeId);
+  }, [nodes, pairing, finishPairing]);
+  // A device that was already paired keeps its node id, so also ask whether
+  // the code itself was used (an agent joining from a machine already
+  // connected here, the common case for `agn join`).
+  useEffect(() => {
+    if (!pairing || activeTab !== 'node') return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const status = await workspaceApi.getPairingCodeStatus(pairing.code);
+        if (!cancelled && status.redeemed) { finishPairing(status.nodeId); loadNodes(false); }
+      } catch { /* the node list keeps watching */ }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pairing, activeTab, finishPairing, loadNodes]);
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
@@ -394,6 +413,8 @@ export function ConnectAgentView({
             autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
+            pairedNodeId={pairedNodeId}
+            onAgentJoined={(name) => { requestFirstThread(name); openView('threads'); }}
             loading={nodesLoading}
             loaded={nodesLoaded}
             loadFailed={nodesError}
@@ -559,6 +580,15 @@ function PairingPanel({
       </div>
 
       <div className="p-5">
+        {/* Shortcut: the agent the person already has open connects itself. */}
+        <details className="mb-5 rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-3">
+          <summary className="cursor-pointer text-xs font-medium text-foreground">{t('connect.agentJoinFallback')}</summary>
+          <div className="mt-3 space-y-2">
+            <AgentJoinInstruction code={pairing.code} disabled={expired} />
+            <p className="text-xs text-muted-foreground">{t('connect.agentJoinHint')}</p>
+          </div>
+        </details>
+
         {/* Step 1 — get the launcher (desktop app or CLI). On a phone the
             download links are dead ends (the launcher runs on a computer),
             so point at the laptop instead and keep the CLI path for servers. */}
@@ -1222,6 +1252,8 @@ function NodesTab({
   autoAddAgent = false,
   preferredNodeId,
   onFirstAgentCreated,
+  pairedNodeId,
+  onAgentJoined,
   loading,
   loaded,
   loadFailed = false,
@@ -1238,6 +1270,10 @@ function NodesTab({
   autoAddAgent?: boolean;
   preferredNodeId?: string;
   onFirstAgentCreated?: (agentName: string) => void;
+  /** The device a pairing code from this view was just redeemed by. */
+  pairedNodeId?: string | null;
+  /** That device brought an agent along (`agn join`): go talk to it. */
+  onAgentJoined?: (agentName: string) => void;
   loading: boolean;
   /** A node load has finished at least once. */
   loaded: boolean;
@@ -1355,11 +1391,24 @@ function NodesTab({
   const autoAddedRef = useRef(false);
   useEffect(() => {
     if (!autoAddAgent || autoAddedRef.current) return;
+    if (pairedNodeId) {
+      // The device just paired here. Wait for its first heartbeat, which lists
+      // the agents it runs: one connected by `agn join` from inside Claude
+      // Code or Codex brings its agent along, so open a thread with that
+      // agent instead of the gallery.
+      const paired = nodes.find((n) => n.nodeId === pairedNodeId && n.status === 'online');
+      if (!paired) return;
+      autoAddedRef.current = true;
+      const joined = (paired.agents || [])[0];
+      if (joined) (onAgentJoined ?? onFirstAgentCreated)?.(joined.name);
+      else setAddingNodeId(paired.nodeId);
+      return;
+    }
     const target = preferredNodeId
       ? nodes.find((n) => n.nodeId === preferredNodeId && n.status === 'online')
       : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
-  }, [autoAddAgent, nodes, preferredNodeId]);
+  }, [autoAddAgent, nodes, preferredNodeId, pairedNodeId, onFirstAgentCreated, onAgentJoined]);
 
   // The sidebar's "+" beside Agents: open a device's gallery, this computer
   // first. Waits for the node list; with no device yet the list itself (and
