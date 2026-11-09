@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
     listIssueLabels: vi.fn(),
+    listIssueBoards: vi.fn(() => Promise.resolve([{ id: 'team', name: 'Team issues', default: true, active_count: 0, can_manage: false }])),
+    createIssueBoard: vi.fn(),
+    renameIssueBoard: vi.fn(),
+    deleteIssueBoard: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -38,7 +42,7 @@ const mocks = vi.hoisted(() => ({
     discover: vi.fn(),
   },
 }));
-vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm, usePrompt: () => vi.fn() }));
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
@@ -181,11 +185,29 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
-  it('shows team issues only, with no My agent tasks tab', async () => {
+  it('shows issue boards, Team issues first, with no My agent tasks tab', async () => {
     await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(host.textContent).not.toContain('My agent tasks');
-    expect(host.textContent).not.toContain('Team issues');
+    const tabs = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+    expect(tabs[0]).toContain('Team issues');
+    expect(host.textContent).toContain('New board');
     expect(button('Active issues')).toBeTruthy();
+    expect(mocks.api.listIssues).toHaveBeenCalledWith(expect.objectContaining({ board: 'team' }));
+  });
+
+  it('loads the selected board when switching boards', async () => {
+    mocks.api.listIssueBoards.mockResolvedValueOnce([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: true },
+    ]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const dev = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.textContent?.includes('Development')) as HTMLButtonElement;
+    expect(dev).toBeTruthy();
+    await act(async () => { dev.click(); await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
+    expect(dev.getAttribute('aria-selected')).toBe('true');
   });
 
   it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(

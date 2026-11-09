@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { DetailHeader } from '@/components/layout/app-header';
 import { IssueEditor } from './issue-editor';
 import { IssueDiscussion } from './issue-discussion';
+import { IssueBoardTabs, useIssueBoards } from './issue-boards';
 import {
   ErrorNotice,
   StatusIcon,
@@ -47,7 +48,8 @@ export function IssuesView() {
 }
 
 function IssueWorkspace() {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals } = useWorkspace();
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace } = useWorkspace();
+  const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
   const { pendingIssueId, setPendingIssueId } = useLayout();
   const t = useT();
@@ -123,6 +125,7 @@ function IssueWorkspace() {
               assignedToMe: status === 'mine',
               activeOnly,
               query,
+              board: boardId,
               offset: page * 100,
             }),
           ),
@@ -155,7 +158,7 @@ function IssueWorkspace() {
       clearTimeout(debounce);
       clearInterval(interval);
     };
-  }, [status, activeOnly, query, revision, pages]);
+  }, [status, activeOnly, query, revision, pages, boardId]);
 
   const preview = (description: string) =>
     description
@@ -294,6 +297,7 @@ function IssueWorkspace() {
         onBack={() => {
           selectIssue(null);
           reload();
+          void reloadBoards();
         }}
         onChanged={reload}
       />
@@ -313,6 +317,25 @@ function IssueWorkspace() {
         </div>}
       />
       <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-5 pt-3 sm:px-8">
+        <div className="w-full min-w-0">
+          <IssueBoardTabs
+            boards={boards}
+            boardId={boardId}
+            onSelect={(id) => {
+              if (id === boardId) return;
+              setBoardId(id);
+              setIssues([]);
+              setNextOffset(null);
+              setPages(1);
+              selectIssue(null);
+            }}
+            onChanged={(selectId) => {
+              void reloadBoards();
+              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null); }
+              reload();
+            }}
+          />
+        </div>
         <div
           className="flex items-center gap-5 overflow-x-auto"
           role="group"
@@ -499,10 +522,12 @@ function IssueWorkspace() {
       <IssueEditor
         open={createOpen}
         onOpenChange={setCreateOpen}
+        boardId={boardId}
         onSaved={(issue) => {
           setCreateOpen(false);
           selectIssue(issue.id);
           reload();
+          void reloadBoards();
         }}
       />
     </div>
