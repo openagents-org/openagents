@@ -36,8 +36,16 @@ def sdk_boundary(monkeypatch):
         )
     )
     model._async_client = transport
+    def generative_model(*args, **kwargs):
+        # Real model construction (incl. system_instruction), fake transport.
+        built = genai.GenerativeModel(*args, **kwargs)
+        built._async_client = transport
+        return built
+
     provider = GeminiProvider.__new__(GeminiProvider)
+    provider.model_name = "gemini-2.5-flash"
     provider.client = model
+    provider._genai = SimpleNamespace(GenerativeModel=generative_model)
     return provider, transport, genai.protos
 
 
@@ -50,10 +58,12 @@ def test_history_survives_real_sdk_serialization(sdk_boundary, system, assistant
         {"role": "assistant", "content": assistant},
         {"role": "user", "content": "What is my name?"},
     ]
-    expected = [("user", "My name is Ada."), ("model", assistant or ""), ("user", "What is my name?")]
+    expected = [("user", "My name is Ada.")]
+    if assistant:
+        expected.append(("model", assistant))
+    expected.append(("user", "What is my name?"))
     if system is not None:
         messages.insert(0, {"role": "system", "content": system})
-        expected = [("user", system), ("model", "I understand.")] + expected
     original = deepcopy(messages)
 
     result = asyncio.run(provider.chat_completion(messages))
@@ -64,9 +74,13 @@ def test_history_survives_real_sdk_serialization(sdk_boundary, system, assistant
     wire = protos.GenerateContentRequest.deserialize(protos.GenerateContentRequest.serialize(request))
     assert [(content.role, content.parts[0].text) for content in wire.contents] == expected
     assert all(len(content.parts) == 1 for content in wire.contents)
-    # An empty string is still a present text oneof; it is not a missing Part.
+    # Every sent Part carries text (empty turns are skipped, not sent as missing Parts).
     assert all(protos.Part.pb(content.parts[0]).WhichOneof("data") == "text" for content in wire.contents)
     assert not wire.tools
+    if system:
+        assert [part.text for part in wire.system_instruction.parts] == [system]
+    else:
+        assert not wire.system_instruction.parts
     assert result == {
         "content": "ok",
         "tool_calls": [],

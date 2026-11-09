@@ -3,7 +3,7 @@
 import asyncio
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,7 +14,10 @@ from openagents.lms.providers import GeminiProvider
 def provider():
     # Import and execute the real method, without configuring credentials or a model.
     provider = GeminiProvider.__new__(GeminiProvider)
+    provider.model_name = "gemini-test"
     provider.client = SimpleNamespace(generate_content_async=AsyncMock(return_value=SimpleNamespace(text="ok")))
+    # Models built with a system_instruction share the same fake transport.
+    provider._genai = SimpleNamespace(GenerativeModel=MagicMock(return_value=provider.client))
     return provider
 
 
@@ -36,31 +39,87 @@ def test_sends_ordered_full_conversation(provider, system):
     ]
     if system is not None:
         messages.insert(0, {"role": "system", "content": system})
-        expected = [
-            {"role": "user", "parts": [system]},
-            {"role": "model", "parts": ["I understand."]},
-        ] + expected
     original = deepcopy(messages)
 
     assert asyncio.run(provider.chat_completion(messages)) == {"content": "ok", "tool_calls": []}
     provider.client.generate_content_async.assert_awaited_once_with(expected)
     assert messages == original
+    if system is None:
+        provider._genai.GenerativeModel.assert_not_called()
+    else:
+        # System prompt uses Gemini's native system_instruction, not a fake turn.
+        provider._genai.GenerativeModel.assert_called_once_with("gemini-test", system_instruction=system)
 
 
-def test_preserves_empty_assistant_turn(provider):
+def test_multiple_system_messages_are_joined(provider):
     messages = [
+        {"role": "system", "content": "Be terse."},
+        {"role": "user", "content": "Hi"},
+        {"role": "system", "content": "Answer in French."},
+    ]
+    asyncio.run(provider.chat_completion(messages))
+    provider._genai.GenerativeModel.assert_called_once_with(
+        "gemini-test", system_instruction="Be terse.\n\nAnswer in French."
+    )
+    provider.client.generate_content_async.assert_awaited_once_with([{"role": "user", "parts": ["Hi"]}])
+
+
+@pytest.mark.parametrize("empty", [None, "", "   "])
+def test_skips_empty_turns(provider, empty):
+    messages = [
+        {"role": "system", "content": empty},
         {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": None},
+        {"role": "assistant", "content": empty},
         {"role": "user", "content": "Try again"},
+    ]
+    asyncio.run(provider.chat_completion(messages))
+    provider._genai.GenerativeModel.assert_not_called()
+    provider.client.generate_content_async.assert_awaited_once_with(
+        [
+            {"role": "user", "parts": ["Hello"]},
+            {"role": "user", "parts": ["Try again"]},
+        ]
+    )
+
+
+def test_tool_messages_and_tool_call_turns_are_not_malformed(provider):
+    messages = [
+        {"role": "user", "content": "Weather?"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "1", "function": {"name": "w"}}]},
+        {"role": "tool", "tool_call_id": "1", "content": "sunny"},
+        {"role": "assistant", "content": "It is sunny."},
+        {"role": "user", "content": "Thanks"},
     ]
     asyncio.run(provider.chat_completion(messages))
     provider.client.generate_content_async.assert_awaited_once_with(
         [
-            {"role": "user", "parts": ["Hello"]},
-            {"role": "model", "parts": [""]},
-            {"role": "user", "parts": ["Try again"]},
+            {"role": "user", "parts": ["Weather?"]},
+            {"role": "model", "parts": ["It is sunny."]},
+            {"role": "user", "parts": ["Thanks"]},
         ]
     )
+
+
+def test_list_content_is_flattened_to_text(provider):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe"},
+                {"type": "image_url", "image_url": {"url": "data:..."}},
+                {"type": "text", "text": "briefly."},
+            ],
+        },
+        {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:..."}}]},
+    ]
+    asyncio.run(provider.chat_completion(messages))
+    provider.client.generate_content_async.assert_awaited_once_with([{"role": "user", "parts": ["Describe\nbriefly."]}])
+
+
+def test_only_system_or_empty_messages_do_not_call_client(provider):
+    messages = [{"role": "system", "content": "Be terse."}, {"role": "assistant", "content": None}]
+    assert asyncio.run(provider.chat_completion(messages)) == {"content": "", "tool_calls": []}
+    provider.client.generate_content_async.assert_not_awaited()
 
 
 def test_empty_messages_do_not_call_client(provider):
