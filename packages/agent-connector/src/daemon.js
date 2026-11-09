@@ -20,7 +20,7 @@ const { configuredModel } = require('./agent-model');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 const { hostFreeEnv } = require('./host-agent');
 const { LogWriter } = require('./log-writer');
-const { redactDiagnostic } = require('./adapters/health-status');
+const { redactDiagnostic, REASON } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 
 /** Types whose endpoint is one device-wide config file of their own. None
@@ -1175,8 +1175,7 @@ async _runNodeCommand(n, cmd) {
         // drop a line into daemon.cmd for THIS process to poll back up, and the
         // new state then waited for the next 10s heartbeat. A Stop clicked in
         // the workspace could sit at "running" for half a minute. Report the
-        // new state as soon as it is set instead; stopAgent flips it to
-        // 'stopped' before it starts waiting on the agent to exit.
+        // current state immediately and the confirmed result after teardown.
         const settled = action === 'stop_agent' ? this.stopAgent(name) : this._startAgentIfIdle(name);
         this._nodeHeartbeat();
         await settled;
@@ -1367,11 +1366,11 @@ async _runNodeCommand(n, cmd) {
     }
 
     // Install signal handlers
-    const shutdown = () => this.stop();
+    const shutdown = () => this.stop().catch(e => this._log(`Shutdown failed: ${redactDiagnostic(e.message)}`, 'error'));
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
     if (!IS_WINDOWS && process.on) {
-      try { process.on('SIGHUP', () => this._reload()); } catch {}
+      try { process.on('SIGHUP', () => this._reload().catch(e => this._log(`Reload failed: ${redactDiagnostic(e.message)}`, 'error'))); } catch {}
     }
 
     // Crash guards. A bug in one adapter — a rejected fire-and-forget promise,
@@ -1489,9 +1488,14 @@ async _runNodeCommand(n, cmd) {
   /**
    * Gracefully stop all agents and exit.
    */
-  async stop() {
-    if (this._shuttingDown) return;
+  stop() {
+    if (this._shutdownPromise) return this._shutdownPromise;
     this._shuttingDown = true;
+    this._shutdownPromise = this._stop();
+    return this._shutdownPromise;
+  }
+
+  async _stop() {
     this._log('Shutting down...');
 
     if (this._statusInterval) clearInterval(this._statusInterval);
@@ -1508,7 +1512,7 @@ async _runNodeCommand(n, cmd) {
 
     // Kill all child processes
     const kills = Object.keys(this._processes).map((name) =>
-      this._killAgent(name, 5000)
+      this.stopAgent(name)
     );
     await Promise.all(kills);
 
@@ -1524,28 +1528,17 @@ async _runNodeCommand(n, cmd) {
    * Stop a single agent by name.
    */
   async stopAgent(agentName) {
+    const info = this._processes[agentName];
+    const adapter = this._adapters && this._adapters[agentName];
     this._stoppedAgents.add(agentName);
-    // Mark state as stopped immediately
-    if (this._processes[agentName]) {
-      this._processes[agentName].state = 'stopped';
-    }
+    // Keep the current runtime state until termination is confirmed.
     this._writeStatus();
-    // Stop the adapter directly if running
-    if (this._adapters && this._adapters[agentName]) {
-      this._adapters[agentName].stop();
-    }
     await this._killAgent(agentName, 5000);
-    // Wait for adapter loop to actually exit
-    for (let i = 0; i < 10; i++) {
-      if (!this._adapters || !this._adapters[agentName]) break;
-      await new Promise(r => setTimeout(r, 500));
-    }
-    // Force-clear the adapter slot if it's still hanging. Without this,
-    // a hung adapter.run() promise prevents the slot from ever being
-    // released, and subsequent start/restart commands see "already running".
-    if (this._adapters && this._adapters[agentName]) {
-      this._log(`WARNING: ${agentName} adapter did not exit after stop — force-releasing slot`, 'warn');
-      try { this._adapters[agentName].stop(); } catch {}
+    // Teardown and loop finalization are distinct: run() still owns workspace
+    // disconnect and poll cleanup after stop() has cancelled model work.
+    // Never release that owner merely because a grace period elapsed.
+    if (info && info.adapterRun) await info.adapterRun;
+    if (adapter && this._adapters[agentName] === adapter) {
       delete this._adapters[agentName];
     }
     this._writeStatus();
@@ -1587,17 +1580,6 @@ async _runNodeCommand(n, cmd) {
     }
 
     await this.stopAgent(agentName);
-
-    // stopAgent only waits 5s for `_adapters[name]` to disappear, but
-    // graceful adapter shutdown can take longer (control-poller cleanup,
-    // disconnect, in-flight CLI subprocess kill). If the adapter is still
-    // there when we reach _launchAgent, the duplicate-launch guard bails
-    // and the agent stays stuck in 'stopped'. Wait up to 20s so the
-    // launch sees a clean slate.
-    for (let i = 0; i < 40; i++) {
-      if (!this._adapters || !this._adapters[agentName]) break;
-      await new Promise(r => setTimeout(r, 500));
-    }
 
     this._stoppedAgents.delete(agentName);
 
@@ -1812,6 +1794,9 @@ async _runNodeCommand(n, cmd) {
   }
 
   _launchAgent(agentCfg) {
+    // A restart/reload may have been awaiting old finalization when shutdown
+    // began. The daemon's terminal boundary applies to every launch caller.
+    if (this._shuttingDown) return;
     const name = agentCfg.name;
     const type = agentCfg.type || 'openclaw';
 
@@ -1862,7 +1847,7 @@ async _runNodeCommand(n, cmd) {
       info.networkRef = agentCfg.network;
       info.connectionId = agentCfg.node_id;
       info.credentialToken = network.token;
-      this._adapterLoop(name, agentCfg, info, network);
+      info.adapterRun = this._adapterLoop(name, agentCfg, info, network);
     } else {
       // No workspace connected — agent is running locally
       info.state = 'running';
@@ -2095,6 +2080,10 @@ async _runNodeCommand(n, cmd) {
       this._log(`${name} preflight error (ignored, continuing): ${e.message}`, 'warn');
     }
 
+    // Repair can reject after a stop request. Its error fallback must obey
+    // the same terminal boundary as successful asynchronous preparation.
+    if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+
     // Store adapter reference for stop and duplicate detection
     this._adapters[name] = adapter;
 
@@ -2123,8 +2112,6 @@ async _runNodeCommand(n, cmd) {
       this._log(`${name} adapter error: ${info.lastError}`, 'error');
     }
 
-    delete this._adapters[name];
-
     // Final state: a clean stop (user stop / daemon shutdown) is NEVER an error.
     // A terminal failure recorded by the adapter (join/heartbeat/session-revoked)
     // or a crash surfaces as 'error' with its classified, redacted reason.
@@ -2132,7 +2119,17 @@ async _runNodeCommand(n, cmd) {
       this._shuttingDown ||
       this._stoppedAgents.has(name) ||
       (typeof adapter.wasStopRequested === 'function' && adapter.wasStopRequested());
-    if (userStopped) {
+    const stopExit = typeof adapter.getExitInfo === 'function' && adapter.getExitInfo();
+    // Keep the failed owner reachable: a restart must not lose a live child
+    // and launch a second instance after an unconfirmed termination.
+    if (this._adapters[name] === adapter && (!stopExit || stopExit.reason !== REASON.STOP_FAILED)) {
+      delete this._adapters[name];
+    }
+    if (stopExit && stopExit.reason === REASON.STOP_FAILED) {
+      info.state = 'error';
+      info.errorReason = stopExit.reason;
+      info.lastError = redactDiagnostic(stopExit.message);
+    } else if (userStopped) {
       info.state = 'stopped';
       info.lastError = null;
       info.errorReason = null;
@@ -2257,7 +2254,24 @@ async _runNodeCommand(n, cmd) {
   // ---------------------------------------------------------------------------
 
   async _killAgent(name, timeoutMs) {
+    // In-process adapters own their children; info.proc is null for them.
     const info = this._processes[name];
+    const adapter = this._adapters && this._adapters[name];
+    if (adapter) {
+      let result;
+      try { result = await adapter.stop(); }
+      catch (e) { result = { ok: false, message: e.message }; }
+      if (result && result.ok === false) {
+        const message = redactDiagnostic(result.message || 'Agent stop failed');
+        if (info) {
+          info.state = 'error';
+          info.errorReason = REASON.STOP_FAILED;
+          info.lastError = message;
+        }
+        this._writeStatus();
+        throw new Error(message);
+      }
+    }
     if (!info || !info.proc) {
       if (info) info.state = 'stopped';
       return;
@@ -2318,16 +2332,16 @@ async _runNodeCommand(n, cmd) {
         if (cmd.startsWith('stop:')) {
           const agentName = cmd.slice(5).trim();
           this._log(`Command: stop ${agentName}`);
-          this.stopAgent(agentName);
+          this.stopAgent(agentName).catch(e => this._log(`Stop failed: ${redactDiagnostic(e.message)}`, 'error'));
         } else if (cmd.startsWith('start:')) {
           this._startAgentIfIdle(cmd.slice(6).trim());
         } else if (cmd.startsWith('restart:')) {
           const agentName = cmd.slice(8).trim();
           this._log(`Command: restart ${agentName}`);
-          this.restartAgent(agentName);
+          this.restartAgent(agentName).catch(e => this._log(`Restart failed: ${redactDiagnostic(e.message)}`, 'error'));
         } else if (cmd === 'reload') {
           this._log('Command: reload');
-          this._reload();
+          this._reload().catch(e => this._log(`Reload failed: ${redactDiagnostic(e.message)}`, 'error'));
         } else if (cmd === 'detect') {
           // The launcher just saw a sign-in finish (or a key saved): re-detect
           // and report, so the workspace doesn't keep "Needs login" until the
@@ -2348,7 +2362,7 @@ async _runNodeCommand(n, cmd) {
       let debounce = null;
       this._configWatcher = fs.watch(this.config.configFile, () => {
         if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => this._reload(), 1000);
+        debounce = setTimeout(() => this._reload().catch(e => this._log(`Reload failed: ${redactDiagnostic(e.message)}`, 'error')), 1000);
       });
       this._configWatcher.on('error', () => {});
     } catch {}
@@ -2423,26 +2437,9 @@ async _runNodeCommand(n, cmd) {
     }
   }
 
-  /**
-   * Wait until the old adapter (if any) has fully released its slot in
-   * this._adapters before relaunching. stopAgent already waits up to 5s,
-   * but on slow shutdowns that can be too short — and _launchAgent's
-   * duplicate-check would then silently skip the relaunch, leaving the
-   * OLD adapter running instead of starting the new one.
-   */
+  /** Reload uses the same confirmed teardown/finalization as explicit Stop. */
   async _ensureAdapterCleared(name) {
-    for (let i = 0; i < 20; i++) {
-      if (!this._adapters || !this._adapters[name]) return;
-      await this._sleep(500);
-    }
-    // Last resort: force-clear the slot so the new adapter can start.
-    // The old adapter will exit on its next poll iteration since its
-    // entry in _stoppedAgents triggers adapter.stop() via checkStop.
-    if (this._adapters && this._adapters[name]) {
-      this._log(`WARNING: adapter '${name}' did not clear after 10s — force-releasing slot to avoid duplicate`, 'warn');
-      try { this._adapters[name].stop(); } catch {}
-      delete this._adapters[name];
-    }
+    if (this._adapters && this._adapters[name]) await this.stopAgent(name);
   }
 
   _writePid() {

@@ -378,6 +378,7 @@ class OpenWorkerAdapter extends BaseAdapter {
    * arriving together must not race two servers onto two ports.
    */
   async _ensureServer(workingDir) {
+    if (this._stopRequested) throw new Error('Agent stopped');
     if (this._server && this._server.proc && this._server.proc.exitCode === null
         && this._server.workingDir === workingDir) {
       return this._server;
@@ -404,6 +405,7 @@ class OpenWorkerAdapter extends BaseAdapter {
     const stateDir = this._provisionStateDir();
     const token = crypto.randomBytes(32).toString('hex');
     const port = await this._freePort();
+    if (this._stopRequested) throw new Error('Agent stopped');
     const args = buildServerArgs({
       host: '127.0.0.1',
       port,
@@ -453,6 +455,7 @@ class OpenWorkerAdapter extends BaseAdapter {
 
     try {
       await this._waitForHealth(server);
+      if (this._stopRequested) throw new Error('Agent stopped');
     } catch (e) {
       this._stopServer(server);
       throw e;
@@ -465,6 +468,7 @@ class OpenWorkerAdapter extends BaseAdapter {
   async _waitForHealth(server) {
     const deadline = Date.now() + SERVER_READY_TIMEOUT_MS;
     for (;;) {
+      if (this._stopRequested) throw new Error('Agent stopped');
       if (server.exited || server.spawnError) {
         const verdict = classifyServerFailure({
           code: server.exited ? server.exited.code : null,
@@ -538,10 +542,20 @@ class OpenWorkerAdapter extends BaseAdapter {
   // Stop / shutdown
   // ------------------------------------------------------------------
 
-  stop() {
-    super.stop();
+  async _stopLifecycleWork() {
     this._serverStopped = true;
-    void this._stopAllChannels('Agent stopped.').finally(() => this._stopServer());
+    const server = this._server;
+    if (!server || !server.proc) return;
+    const proc = server.proc;
+    // _stopServer already escalates after 3s. Observe exit rather than report
+    // success while its escalation timer is still outstanding.
+    const exited = new Promise(resolve => {
+      if (!this._processStillAlive(proc)) { resolve(true); return; }
+      const timer = setTimeout(() => resolve(!this._processStillAlive(proc)), 4000);
+      proc.once('exit', () => { clearTimeout(timer); resolve(true); });
+    });
+    this._stopServer();
+    if (!await exited) return 'failed';
   }
 
   /** A turn here is a socket to the engine, not a child process. */

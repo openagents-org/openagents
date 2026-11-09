@@ -604,6 +604,7 @@ class PiAdapter extends BaseAdapter {
         await this._killPersistentProc(channel, 'restart requested');
         this._clearSession(channel);
         try {
+          if (this._stopRequested) return;
           await this.client.sendMessage(this.workspaceId, channel, this.token,
             'Session restarted — the next message starts a fresh Pi session.',
             {
@@ -627,17 +628,8 @@ class PiAdapter extends BaseAdapter {
   }
 
   /**
-   * Daemon shutdown — tear down every Pi child so no orphan survives the
-   * launcher and no channel is left showing a stale "running" status.
-   * Fire-and-forget: daemon._killAgent allows a short grace period.
+   * Explicit control actions that tear down every Pi child and report it.
    */
-  stop() {
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.',
-    ).catch(() => {});
-    super.stop();
-  }
-
   async _stopAllProcesses(message = 'Execution stopped.') {
     const channels = Object.keys(this._persistentProcs);
     if (!channels.length) return;
@@ -655,9 +647,18 @@ class PiAdapter extends BaseAdapter {
    * `userStopped` goes on first so the turn that is winding down reports a
    * stop rather than a failure.
    */
+  _channelsWithWork() {
+    return [...new Set([...super._channelsWithWork(), ...Object.keys(this._persistentProcs)])];
+  }
+
   async _stopChannelWork(channel) {
     const pp = this._persistentProcs[channel];
     if (pp) pp.userStopped = true;
+    if (pp && this._stopRequested) {
+      await this._killPersistentProc(channel);
+      if (this._channelProcesses[channel] === pp.proc) delete this._channelProcesses[channel];
+      return 'stopped';
+    }
     // Abort goes over the RPC channel of the persistent record; a bare child
     // with no record is simply killed.
     if (!pp || !this._channelProcesses[channel]) return super._stopChannelWork(channel);
@@ -831,6 +832,7 @@ class PiAdapter extends BaseAdapter {
    * @returns {object} the persistent-process record
    */
   _spawnPersistentProc(channel, { piBin, args, workingDir, env, sessionId }) {
+    if (this._stoppedBeforeStart(channel)) throw new PiCancelledError('Agent stopped');
     const [cmd, ...spawnArgs] = this._spawnableCmd(piBin, args);
     this._log(`Spawning pi in ${workingDir}: ${redactArgs([cmd, ...spawnArgs]).join(' ')}`);
 

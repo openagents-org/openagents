@@ -29,6 +29,7 @@ const REASON = {
   HEARTBEAT_FAILED: 'heartbeat_failed',
   SESSION_REVOKED: 'session_revoked',
   ADAPTER_CRASHED: 'adapter_crashed',
+  STOP_FAILED: 'stop_failed',
 };
 
 // Reasons that represent a genuine failure the UI should surface as an error
@@ -40,6 +41,7 @@ const ERROR_REASONS = new Set([
   REASON.HEARTBEAT_FAILED,
   REASON.SESSION_REVOKED,
   REASON.ADAPTER_CRASHED,
+  REASON.STOP_FAILED,
 ]);
 
 /** True when a reason should render as a hard error (daemon state 'error'). */

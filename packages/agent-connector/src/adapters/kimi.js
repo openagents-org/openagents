@@ -240,6 +240,7 @@ class KimiAdapter extends LlmDirectAdapter {
         }
         this._clearSession(channel);
         try {
+          if (this._stopRequested) return;
           await this.client.sendMessage(this.workspaceId, channel, this.token,
             'Session restarted — next message starts a fresh Kimi session.',
             { senderType: 'agent', senderName: this.agentName, messageType: 'status',
@@ -255,15 +256,7 @@ class KimiAdapter extends LlmDirectAdapter {
     await super._onControlAction(action, payload);
   }
 
-  /** Daemon shutdown — tear down any in-flight kimi runs so threads don't
-   *  hang showing "running". Fire-and-forget; the daemon allows a short grace. */
-  stop() {
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.',
-    ).catch(() => {});
-    super.stop();
-  }
-
+  /** Explicit control teardown; terminal stop uses the base cancellation hooks. */
   async _stopAllProcesses(message = 'Execution stopped.') {
     const entries = Object.entries(this._channelProcesses);
     if (!entries.length) return;

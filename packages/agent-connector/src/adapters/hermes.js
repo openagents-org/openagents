@@ -425,13 +425,15 @@ class HermesAdapter extends BaseAdapter {
 
   /** What `hermes --version` prints; it opens with e.g. "Hermes Agent v0.21.4 (2026.9.24)". */
   _hermesVersionText() {
+    if (this._stopRequested) return Promise.reject(new Error('Agent stopped'));
     const { file, args } = bridgeSpawn(this._hermesBin, ['--version']);
     return new Promise((resolve, reject) => {
-      execFile(file, args, {
+      this._trackAuxiliaryProcess(execFile(file, args, {
+        detached: !IS_WINDOWS,
         env: { ...(this.agentEnv || process.env) },
         timeout: 20000,
         windowsHide: true,
-      }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))));
+      }, (err, stdout) => (err ? reject(err) : resolve(String(stdout)))));
     });
   }
 

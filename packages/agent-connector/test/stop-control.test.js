@@ -271,7 +271,7 @@ describe('agent stop control', () => {
     assert.deepEqual(responses, [{ channel: 'channelA', content: 'Execution stopped by user.' }]);
   });
 
-  it('OpenCode daemon stop calls _stopAllProcesses and then BaseAdapter stop', async () => {
+  it('OpenCode terminal stop kills owned work and posts one interruption', async () => {
     const adapter = new OpenCodeAdapter({
       workspaceId: 'ws',
       channelName: 'thread',
@@ -283,16 +283,19 @@ describe('agent stop control', () => {
     proc.exitCode = null;
 
     adapter._channelProcesses.thread = proc;
-    adapter._stopProcess = async () => {};
+    const killed = [];
+    adapter._stopProcess = async (child) => { killed.push(child); };
     const responses = [];
-    adapter.sendResponse = async (channel, content) => responses.push({ channel, content });
+    captureNotices(adapter, responses);
 
-    adapter.stop();
-    await sleep(100);
+    await adapter.stop();
+    await adapter.stop();
 
     assert.equal(adapter._stoppingChannels.has('thread'), true);
     assert.equal(adapter._channelProcesses.thread, undefined);
+    assert.deepEqual(killed, [proc]);
     assert.deepEqual(responses, [{ channel: 'thread', content: 'Task interrupted — daemon restarting. Send another message to continue.' }]);
+    assert.equal(adapter.wasStopRequested(), true);
     assert.equal(adapter._running, false);
   });
 
@@ -1366,4 +1369,32 @@ describe('the control poller cannot be silenced by one await', () => {
       await new Promise((resolve) => server.close(resolve));
     }
   });
+});
+
+
+describe('terminal stop applies to every adapter start boundary', () => {
+  for (const [type, spec] of [...Object.entries(START_RUN), ['codearts', START_RUN.opencode]]) {
+    if (!spec) continue;
+    it(`${type}: a stopped instance cannot start a fresh turn`, async () => {
+      const { adapter } = crossChannelAdapter(type);
+      await adapter.stop();
+      // No channel worker/generation exists: terminal state alone must fence it.
+      const registered = [];
+      adapter._onProcessRegistered = (channel, proc) => registered.push({ channel, proc });
+      assert.deepEqual(await spec.start(adapter, 'brand-new-channel'), spec.stopped);
+      assert.deepEqual(registered, []);
+    });
+  }
+  // OpenWorker owns a shared server/socket, tested in adapter-stop-lifecycle.
+  for (const type of [...PROCESS_ADAPTERS.filter(type => type !== 'openworker'), 'codearts', 'openclaw']) {
+    it(`${type}: terminal stop cancels every registered child once`, async () => {
+      const { adapter, killed } = crossChannelAdapter(type);
+      adapter._channelProcesses.channelA = fakeProc(801);
+      adapter._channelProcesses.channelB = fakeProc(802);
+      await adapter.stop();
+      await adapter.stop();
+      assert.deepEqual(killed.sort(), [801, 802]);
+      assert.deepEqual(Object.keys(adapter._channelProcesses), []);
+    });
+  }
 });

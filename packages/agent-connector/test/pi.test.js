@@ -1210,3 +1210,23 @@ async function waitFor(fn, timeoutMs = 5000) {
   }
   throw new Error('waitFor timed out');
 }
+
+
+it('terminal stop kills the persistent Pi child retained after a clean channel abort', async (t) => {
+  const a = makeAdapter({ agentEnv: { FAKE_SCENARIO: 'hang' } });
+  t.after(() => shutdown(a));
+  const turn = a._handleMessage(msg('long task', 'thread-a'));
+  await waitFor(() => a._persistentProcs['thread-a'] && a._persistentProcs['thread-a'].turnInFlight);
+  const pp = a._persistentProcs['thread-a'];
+  await a._onControlAction('stop', { channel: 'thread-a' });
+  await turn;
+  assert.equal(a._persistentProcs['thread-a'], pp);
+  assert.equal(pp.proc.exitCode, null);
+  await a.stop();
+  await a.stop();
+  assert.equal(a._persistentProcs['thread-a'], undefined);
+  assert.equal(a._channelProcesses['thread-a'], undefined);
+  assert.ok(pp.proc.exitCode !== null || pp.proc.signalCode !== null);
+  assert.equal(pp.watchdogTimer, null);
+  assert.equal(pp.pending.size, 0);
+});

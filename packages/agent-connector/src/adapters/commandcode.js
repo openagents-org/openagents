@@ -177,11 +177,6 @@ class CommandCodeAdapter extends BaseAdapter {
   // Shutdown
   // ------------------------------------------------------------------
 
-  stop() {
-    super.stop();
-    void this._stopAllProcesses('Agent stopped.');
-  }
-
   async _stopAllProcesses(message = 'Execution stopped.') {
     const entries = Object.entries(this._channelProcesses);
     if (!entries.length) return;

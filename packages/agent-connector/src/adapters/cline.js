@@ -151,6 +151,7 @@ class ClineAdapter extends BaseAdapter {
         }
         this._clearSession(channel);
         try {
+          if (this._stopRequested) return;
           await this.client.sendMessage(this.workspaceId, channel, this.token,
             'Session restarted — next message starts a fresh Cline session.',
             { senderType: 'agent', senderName: this.agentName, messageType: 'status',
@@ -166,15 +167,7 @@ class ClineAdapter extends BaseAdapter {
     await super._onControlAction(action, payload);
   }
 
-  /** Daemon shutdown — tear down any in-flight cline runs so threads don't
-   *  hang showing "running". Fire-and-forget; the daemon allows a short grace. */
-  stop() {
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.',
-    ).catch(() => {});
-    super.stop();
-  }
-
+  /** Explicit control teardown; terminal stop uses the base cancellation hooks. */
   async _stopAllProcesses(message = 'Execution stopped.') {
     const entries = Object.entries(this._channelProcesses);
     if (!entries.length) return;
@@ -887,15 +880,17 @@ class ClineAdapter extends BaseAdapter {
   }
 
   _readHistory(clineBin) {
+    if (this._stopRequested) return Promise.resolve(null);
     return new Promise((resolve) => {
       const [cmd, ...args] = this._spawnableCmd(clineBin, ['history', '--json', '--limit', '30']);
-      execFile(cmd, args, {
+      this._trackAuxiliaryProcess(execFile(cmd, args, {
+        detached: !IS_WINDOWS,
         encoding: 'utf-8', timeout: 10000, windowsHide: true,
         env: { ...(this.agentEnv || process.env) }, maxBuffer: 8 * 1024 * 1024,
       }, (err, stdout) => {
         if (err) { resolve(null); return; }
         try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
-      });
+      }));
     });
   }
 }
