@@ -9,10 +9,11 @@ are explicit test inputs; unavailable judgments must leave the run waiting.
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import select
+
 from app.models import KanbanTask, WorkflowRun
 from app.services.workflow import _judge as real_judge
 from app.services.workflow import run_advance
-from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
