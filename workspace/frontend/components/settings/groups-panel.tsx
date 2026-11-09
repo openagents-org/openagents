@@ -15,15 +15,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { AgentTypesProvider } from '@/components/agents/agent-types';
 import { GranteePicker, invalidateGranteeCandidates } from '@/components/sharing/grantee-picker';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { displayNameFromEmail } from '@/lib/collab';
 import { GROUP_MEMBER_KINDS, granteeChipLabel, granteeFromMember, granteeKey } from '@/lib/access-ui';
-import { networkAgentToWorkspaceAgent } from '@/lib/types';
-import type { Grantee, GroupMember, SecurityGroup, TeamMember, WorkspaceAgent } from '@/lib/types';
+import type { Grantee, GroupMember, SecurityGroup, TeamMember } from '@/lib/types';
 
 export function GroupsPanel({ editable, members }: { editable: boolean; members: TeamMember[] }) {
   const t = useT();
@@ -50,7 +48,6 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
   useEffect(() => { load(); }, [load]);
 
   const selected = useMemo(() => groups?.find((g) => g.id === selectedId) ?? null, [groups, selectedId]);
-  const agentTypes = useWorkspaceAgents(!!selected);
 
   const groupName = (g: SecurityGroup) =>
     g.kind === 'everyone' ? t('groups.everyoneName') : g.kind === 'guest' ? t('groups.guestName') : g.name;
@@ -220,42 +217,21 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
             {!selected ? (
               <p className="py-6 text-center text-sm text-muted-foreground">{t('groups.selectGroupHint')}</p>
             ) : (
-              <AgentTypesProvider agents={agentTypes}>
-                <GroupMembers
-                  key={selected.id}
-                  group={selected}
-                  title={t('groups.membersTitle', { name: groupName(selected) })}
-                  editable={editable && selected.kind === 'custom' && !selected.builtin}
-                  derived={selected.kind !== 'custom' || selected.builtin}
-                  memberName={memberName}
-                  onChanged={load}
-                />
-              </AgentTypesProvider>
+              <GroupMembers
+                key={selected.id}
+                group={selected}
+                title={t('groups.membersTitle', { name: groupName(selected) })}
+                editable={editable && selected.kind === 'custom' && !selected.builtin}
+                derived={selected.kind !== 'custom' || selected.builtin}
+                memberName={memberName}
+                onChanged={load}
+              />
             )}
           </div>
         </div>
       )}
     </div>
   );
-}
-
-/**
- * The workspace's agents, for the type icons on the avatars of a group's
- * members: settings pages are outside the workspace's own agent list. Loaded
- * once a group is open; until then, or if it fails, avatars use the pattern
- * generated from the name.
- */
-function useWorkspaceAgents(enabled: boolean): WorkspaceAgent[] {
-  const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    workspaceApi.discover()
-      .then((d) => { if (live) setAgents(d.agents.map(networkAgentToWorkspaceAgent)); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, [enabled]);
-  return agents;
 }
 
 // ── Members list for one group ───────────────────────────────────────────────
