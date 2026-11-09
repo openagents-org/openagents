@@ -366,6 +366,11 @@ describe('OpenCode — an invalid config file', () => {
       + 'ValueExpected at line 1, column 15; CloseBraceExpected at line 2, column 1');
   });
 
+  it('needs OpenCode\'s own error line, not the phrase quoted in other output', () => {
+    const stderr = 'INFO tool output: the docs say "Configuration is invalid at <path>" means a typo\nError: 401 Unauthorized\n';
+    assert.notEqual(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr }).category, 'config_invalid');
+  });
+
   it('is not mistaken for a model or key problem by what the reason says', () => {
     const stderr = '\x1b[91m\x1b[1mError: \x1b[0mConfiguration is invalid at /p/opencode.json\n↳ Unrecognized key: model_not_found 401\n';
     assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr }).category, 'config_invalid');

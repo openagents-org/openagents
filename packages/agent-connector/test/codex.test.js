@@ -430,6 +430,13 @@ describe('Codex — a Responses endpoint that refuses a field Codex sends', () =
       { customProvider: relay });
     assert.doesNotMatch(model, /Agent capabilities/);
   });
+
+  it('leaves a setting the chosen model does not support to the model, not the endpoint', () => {
+    const detail = CodexAdapter._failureDetail(
+      { errorMessage: '{"error":{"message":"Unsupported parameter: \'reasoning.effort\' is not supported with this model.","param":"reasoning.effort","code":"unsupported_parameter"}}', exitCode: 1 },
+      { customProvider: relay });
+    assert.doesNotMatch(detail, /every run here will fail|Agent capabilities/);
+  });
 });
 
 // ---------------------------------------------------------------------------

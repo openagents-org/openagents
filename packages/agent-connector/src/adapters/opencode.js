@@ -1454,7 +1454,8 @@ class OpenCodeAdapter extends BaseAdapter {
    */
   static _configError(text) {
     const lines = stripAnsi(text).split(/\r?\n/);
-    const at = lines.findIndex((l) => /configuration is invalid|config file at .+ is not valid json/i.test(l));
+    // OpenCode's own error line, not the phrase quoted somewhere else.
+    const at = lines.findIndex((l) => /^\s*(?:error:\s*)?(?:configuration is invalid at |config file at .+ is not valid json)/i.test(l));
     if (at < 0) return null;
     const head = lines[at].trim().replace(/^error:\s*/i, '').replace(/:\s*$/, '');
     const reasons = [];

@@ -366,7 +366,7 @@ const RESPONSES_PROBE_ONLY = 'max_output_tokens';
 /** The code for a failed direct test: the general reading, or the Responses-only one above. */
 function directFailureCode(error, protocol) {
   const text = String(error || '');
-  if (protocol === 'responses' && RESPONSES_PARAM_REFUSED.test(text)) {
+  if (protocol === 'responses' && RESPONSES_PARAM_REFUSED.test(text) && !/with this model|reasoning[._]/i.test(text)) {
     // The field the refusal names, or — when it names none — its text.
     const param = refusedParam(text);
     const probeOnly = param ? param === RESPONSES_PROBE_ONLY : text.includes(RESPONSES_PROBE_ONLY);

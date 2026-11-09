@@ -81,6 +81,9 @@ const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i
 // (client_metadata among them) on every turn and has no setting to drop one,
 // so on a custom Responses provider this fails every run.
 const PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
+// OpenAI's own "Unsupported parameter: 'reasoning.effort' is not supported with
+// this model" is about the model chosen, which the user can change.
+const MODEL_CAPABILITY_REFUSAL = /with this model|reasoning[._]/i;
 // The service answered and said no: a key, a plan, a quota, or a model it
 // will not serve. Network advice would send the user the wrong way. The
 // terms of _serviceRefused, less "error sending request" (that one is a
@@ -940,10 +943,10 @@ class CodexAdapter extends BaseAdapter {
     // A custom Responses endpoint refusing a field Codex always sends. Nothing
     // the user retries changes that; which endpoint to use, or the chat-only
     // mode, does.
-    if (customProvider && PARAM_REFUSED.test(detail)) {
+    if (customProvider && PARAM_REFUSED.test(detail) && !MODEL_CAPABILITY_REFUSAL.test(detail)) {
       let host = '';
       try { host = new URL(customProvider.baseUrl).host; } catch {}
-      const m = /\(parameter: ([^)]+)\)/.exec(detail);
+      const m = /\(parameter: ([^)]+)\)/.exec(detail) || /parameter:?\s*'([\w.[\]]+)'/i.exec(detail);
       return `${detail}\n\nThe endpoint this agent is set to${host ? ` (${host})` : ''} takes Responses API requests ` +
         `but refuses ${m ? `the "${m[1]}" field` : 'a field'} that the Codex CLI sends with every one of them, ` +
         'and Codex has no setting to leave it out — so every run here will fail the same way. Point the agent ' +
