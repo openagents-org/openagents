@@ -15,7 +15,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
 
-export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'issues' | 'tasks' | 'workflows' | 'routines' | 'inbox' | 'connect' | 'skills' | 'agents';
+export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'issues' | 'workflows' | 'routines' | 'inbox' | 'connect' | 'skills' | 'agents';
 
 /** The Files view has two halves the folder panel switches between. */
 export type FilesSection = 'folders' | 'trash';
@@ -116,6 +116,7 @@ export const RAIL_WIDTH_EXPANDED = 180;
 
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
+export type ConnectSetupRequest = { method: 'desktop' | 'terminal' };
 
 interface LayoutState {
   selectedArtifact: ArtifactReference | null;
@@ -130,6 +131,8 @@ interface LayoutState {
   setViewMode: (mode: ViewMode) => void;
   /** Switch view and open/collapse the list panel to match it */
   openView: (mode: ViewMode) => void;
+  openConnectSetup: (method: ConnectSetupRequest['method']) => void;
+  connectSetupRequest: ConnectSetupRequest | null;
   /** Open Connect Agents straight on the add-agent gallery of a device. */
   openAddAgent: () => void;
   /** Set by `openAddAgent` until the connect view acts on it. */
@@ -189,14 +192,11 @@ interface LayoutState {
   /** Patch one part of it and leave the rest alone. */
   setFilesBrowse: (updates: Partial<FilesBrowseState>) => void;
   /**
-   * Hand-off from other views (e.g. an Inbox notification) into the Tasks
-   * board: a `task:<id>` channel whose chat popup should open on arrival.
-   * TasksView consumes and clears it.
+   * Hand-off from other views (e.g. an Inbox notification) into the Issues
+   * view: the issue to open on arrival. IssuesView consumes and clears it.
    */
   pendingIssueId: string | null;
   setPendingIssueId: (id: string | null) => void;
-  pendingTaskChannel: string | null;
-  setPendingTaskChannel: (channel: string | null) => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -217,7 +217,6 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [pendingIssueId, setPendingIssueId] = useState<string | null>(null);
-  const [pendingTaskChannel, setPendingTaskChannel] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
   useEffect(() => {
     if (requestedResource(window.location.href)?.id || /\/threads\//.test(window.location.pathname) || new URLSearchParams(window.location.search).has('thread')) setMobilePane('detail');
@@ -298,6 +297,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     setMobilePane(mode === 'files' ? 'detail' : 'list');
   };
 
+  const [connectSetupRequest, setConnectSetupRequest] = useState<ConnectSetupRequest | null>(null);
+  const openConnectSetup = (method: ConnectSetupRequest['method']) => {
+    // A fresh request also handles choosing the same location after changing modes manually.
+    setConnectSetupRequest({ method });
+    openView('connect');
+  };
+
   const [addAgentPending, setAddAgentPending] = useState(false);
   const openAddAgent = () => {
     setAddAgentPending(true);
@@ -344,9 +350,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setFilesBrowse,
       pendingIssueId,
       setPendingIssueId,
-      pendingTaskChannel,
-      setPendingTaskChannel,
       openView,
+      openConnectSetup,
+      connectSetupRequest,
       openAddAgent,
       addAgentPending,
       consumeAddAgent,

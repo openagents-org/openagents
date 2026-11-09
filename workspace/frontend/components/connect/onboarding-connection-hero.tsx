@@ -4,11 +4,17 @@ import { ArrowLeft, ArrowRight, PlusSquare } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 
 /** A slim illustrated banner above the setup form. */
-export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceName: string; onBack?: () => void }) {
+export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { workspaceName: string; onBack?: () => void; onSetup?: () => void }) {
   const t = useT();
   const openSetup = () => {
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.getElementById('onboarding-device-setup')?.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
+    onSetup?.();
+    const scroll = () => {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      document.getElementById('onboarding-device-setup')?.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
+    };
+    // Switching from Cloud Agents mounts the local setup before the next frame.
+    if (document.getElementById('onboarding-device-setup')) scroll();
+    else window.requestAnimationFrame(scroll);
   };
   return (
     <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[#dce6f6] bg-[#f3f7ff] px-6 pb-7 pt-10 text-[#262626] sm:px-10" aria-labelledby="onboarding-connection-title">
@@ -62,7 +68,7 @@ export function OnboardingConnectionHero({ workspaceName, onBack }: { workspaceN
 
           {/* Agent marks float freely through the scene. */}
           <g className="oa-scene-float">
-            <circle cx="166" cy="122" r="36" fill="#e8c4a6" />
+            <circle cx="166" cy="122" r="36" fill="#ffffff" />
             <image href="/icons/agents/claude.svg" x="144" y="100" width="44" height="44" />
             <text x="166" y="181" textAnchor="middle" fill="#475569" fontSize="12" fontFamily="inherit">Claude Code</text>
           </g>

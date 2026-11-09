@@ -278,3 +278,45 @@ describe('Config.save', () => {
     assert.deepEqual(fs.readdirSync(tmpDir), ['daemon.yaml']);
   });
 });
+
+describe('Config.load while daemon.yaml is being rewritten', () => {
+  it('reads the agents once a writer that emptied the file has finished', async () => {
+    const cfg = new Config(tmpDir);
+    cfg.addAgent({ name: 'luna', type: 'codex' });
+    const text = fs.readFileSync(cfg.configFile, 'utf-8');
+    const { Worker } = require('worker_threads');
+    const worker = new Worker(
+      `const fs = require('fs'); const { workerData: w, parentPort } = require('worker_threads');
+       parentPort.on('message', () => setTimeout(() => { fs.writeFileSync(w.file, w.text); process.exit(0); }, 5));
+       parentPort.postMessage('ready');`,
+      { eval: true, workerData: { file: cfg.configFile, text } },
+    );
+    await new Promise((resolve) => worker.once('message', resolve));
+    // A writer that could not replace the file rewrites it in place: empty for a moment.
+    fs.writeFileSync(cfg.configFile, '');
+    worker.postMessage('go');
+    const agent = cfg.getAgent('luna');
+    await new Promise((resolve) => worker.on('exit', resolve));
+    assert.ok(agent, 'the agent is found, not read as an empty list');
+  });
+
+  it('does not keep waiting on a file that really is empty', () => {
+    const cfg = new Config(tmpDir);
+    fs.writeFileSync(cfg.configFile, '');
+    // Count reads rather than time them: a slow CI runner oversleeps the
+    // short pauses, and a wall-clock bound failed there while the schedule
+    // itself was right.
+    const realRead = fs.readFileSync;
+    let reads = 0;
+    fs.readFileSync = function (file, ...rest) {
+      if (file === cfg.configFile) reads++;
+      return realRead.call(this, file, ...rest);
+    };
+    try {
+      assert.deepEqual(cfg.getAgents(), []);
+    } finally {
+      fs.readFileSync = realRead;
+    }
+    assert.equal(reads, 3, 'an empty file is retried briefly, not through the whole busy schedule');
+  });
+});

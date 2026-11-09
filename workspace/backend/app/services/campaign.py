@@ -39,6 +39,7 @@ from app.models import (
     CampaignAccount,
     CampaignGrant,
     EventRecord,
+    Node,
     User,
     Workspace,
     WorkspaceMember,
@@ -71,6 +72,79 @@ CLOUD_TYPE_PREFIX = "cloud:"
 def _qualifies(agent_type) -> bool:
     """True when an agent type counts for campaign milestones."""
     return bool(agent_type) and not str(agent_type).startswith(CLOUD_TYPE_PREFIX)
+
+
+# Agents that join through the API with nothing behind them (decision
+# 2026-11-07): a script registered two fake "claude" agents per account
+# (server_host="localhost", working_dir="/tmp", no device) and had them answer
+# itself to collect every milestone. An agent only counts when something real
+# backs it: a launcher/CLI device registered in the workspace, a node link, or
+# at least a real host name (older launchers/CLIs that don't register a node).
+_LOOPBACK_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def _workspace_has_device(db: Session, workspace_id: str) -> bool:
+    return db.execute(
+        select(Node.id).where(Node.workspace_id == str(workspace_id)).limit(1)
+    ).scalar_one_or_none() is not None
+
+
+def _member_backed(db: Session, member: WorkspaceMember) -> bool:
+    if getattr(member, "node_id", None):
+        return True
+    host = (getattr(member, "server_host", None) or "").strip().lower()
+    if host not in _LOOPBACK_HOSTS:
+        return True
+    return _workspace_has_device(db, member.workspace_id)
+
+
+def _qualifying_member_type(db: Session, workspace_id: str, agent_name: str) -> Optional[str]:
+    """The agent's type when it counts for milestones (user-connected AND
+    backed by something real), else None."""
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == str(workspace_id),
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalars().first()
+    if member is None or not _qualifies(member.agent_type):
+        return None
+    return member.agent_type if _member_backed(db, member) else None
+
+
+def owned_has_device(db: Session, user_id: str) -> bool:
+    """True when any workspace the user owns has a registered device."""
+    ws_ids = _owned_workspace_ids(db, user_id)
+    if not ws_ids:
+        return False
+    return db.execute(
+        select(Node.id).where(Node.workspace_id.in_([str(w) for w in ws_ids])).limit(1)
+    ).scalar_one_or_none() is not None
+
+
+def account_api_confirms(bearer: Optional[str]) -> Optional[bool]:
+    """Does openagents.org have an account for this Firebase bearer?
+
+    True on 200, False on 404 (the token is valid but the account was never
+    created through openagents.org: a direct Firebase sign-up that skipped the
+    captcha and per-IP cap, decision 2026-11-07), None when it can't tell
+    (no bearer, network error) so the caller can retry later."""
+    if not bearer or not config.ACCOUNT_API_URL:
+        return None
+    try:
+        r = httpx.get(
+            f"{config.ACCOUNT_API_URL.rstrip('/')}/v1/me",
+            headers={"Authorization": f"Bearer {bearer}"},
+            timeout=5.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("campaign: account API lookup failed: %s", exc)
+        return None
+    if r.status_code == 200:
+        return True
+    if r.status_code == 404:
+        return False
+    return None
 
 
 def enabled() -> bool:
@@ -368,6 +442,12 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
         return False
     acct = db.get(CampaignAccount, user_id)
     if not acct:
+        # Keys are minted only by the status view, after the openagents.org
+        # account check (decision 2026-11-07). Background milestone hooks wait;
+        # reconcile() catches them up once the key exists. Admin-applied extras
+        # (pilot) may still mint.
+        if milestone not in EXTRA_MILESTONES:
+            return False
         acct = ensure_account(db, user)
         if not acct:
             return False
@@ -475,14 +555,14 @@ def _connected_agent_types(db: Session, user_id: str) -> set[str]:
     ws_ids = _owned_workspace_ids(db, user_id)
     if not ws_ids:
         return set()
-    types = db.execute(
-        select(WorkspaceMember.agent_type).distinct().where(
+    members = db.execute(
+        select(WorkspaceMember).where(
             WorkspaceMember.workspace_id.in_(ws_ids),
             WorkspaceMember.agent_type.isnot(None),
             WorkspaceMember.agent_type.notlike(f"{CLOUD_TYPE_PREFIX}%"),
         )
     ).scalars().all()
-    return {t for t in types if t}
+    return {m.agent_type for m in members if m.agent_type and _member_backed(db, m)}
 
 
 def on_agent_joined(workspace_id: str, agent_type: Optional[str]) -> None:
@@ -524,13 +604,8 @@ def _responding_agent_types(db: Session, user_id: str, min_ts_ms: Optional[int] 
     types: set[str] = set()
     for source, ws_id in sources:
         name = source.split(":", 1)[1]
-        member_type = db.execute(
-            select(WorkspaceMember.agent_type).where(
-                WorkspaceMember.workspace_id == str(ws_id),
-                WorkspaceMember.agent_name == name,
-            )
-        ).scalar_one_or_none()
-        if _qualifies(member_type):
+        member_type = _qualifying_member_type(db, str(ws_id), name)
+        if member_type:
             types.add(member_type)
     return types
 
@@ -557,13 +632,7 @@ def on_agent_message(workspace_id: str, source: str) -> None:
             return
         # The responder must be a user-connected agent (not Yumi).
         agent_name = source.split(":", 1)[1]
-        member_type = db.execute(
-            select(WorkspaceMember.agent_type).where(
-                WorkspaceMember.workspace_id == workspace_id,
-                WorkspaceMember.agent_name == agent_name,
-            )
-        ).scalar_one_or_none()
-        if not _qualifies(member_type):
+        if not _qualifying_member_type(db, workspace_id, agent_name):
             return
         # ... and a human must have spoken in this workspace, so an agent
         # posting unprompted doesn't unlock a "conversation".
@@ -667,7 +736,56 @@ def reconcile(db: Session, user_id: str) -> None:
 # Status (for the frontend checklist)
 # ---------------------------------------------------------------------------
 
-def status_payload(db: Session, user: User) -> dict:
+def holders_visible() -> bool:
+    """The campaign is off but its gateway is still configured: people who
+    already hold a key can see it and its balance; nobody earns anything."""
+    return bool(not enabled() and config.CAMPAIGN_GATEWAY_MASTER_KEY)
+
+
+def _key_usage(user_id: str) -> Optional[dict]:
+    try:
+        r = httpx.get(
+            f"{config.CAMPAIGN_GATEWAY_URL}/admin/keys",
+            params={"external_id": user_id},
+            headers=_headers(),
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        k = r.json()[0]
+        return {
+            "costUsdUsed": k.get("cost_usd_used"),
+            "costLimitUsd": k.get("cost_limit_usd"),
+            "isActive": k.get("is_active"),
+            "inputTokens": k.get("input_tokens_used"),
+            "outputTokens": k.get("output_tokens_used"),
+        }
+    except Exception:  # noqa: BLE001 — usage is decorative
+        return None
+
+
+def ended_payload(db: Session, user: User) -> dict:
+    """Read-only view for an existing key holder after the campaign ended.
+
+    `enabled` stays False so no checklist, reward prompt or onboarding nudge
+    renders; the credits page shows the key, what was granted and usage.
+    Never provisions a key or grants anything.
+    """
+    acct = db.get(CampaignAccount, user.id)
+    if acct is None or not acct.api_key:
+        return {"enabled": False}
+    grants = db.execute(select(CampaignGrant).where(CampaignGrant.user_id == user.id)).scalars().all()
+    return {
+        "enabled": False,
+        "ended": True,
+        "apiKey": acct.api_key,
+        "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
+        "totalGrantedUsd": float(sum(g.amount_usd for g in grants if g.milestone not in EXTRA_MILESTONES)),
+        "grandTotalUsd": float(sum(g.amount_usd for g in grants)),
+        "usage": _key_usage(user.id),
+    }
+
+
+def status_payload(db: Session, user: User, *, account_confirmed: bool = True) -> dict:
     """Everything the checklist UI needs. Provisions the key lazily on first
     view (that IS the signup milestone — the user completed login to get here).
     """
@@ -682,6 +800,10 @@ def status_payload(db: Session, user: User) -> dict:
         return {"enabled": False}
     if db.get(CampaignAccount, user.id) is None and mailbox_taken(db, user):
         return {"enabled": False}  # alias of an inbox that already has credits
+    if db.get(CampaignAccount, user.id) is None and not account_confirmed:
+        # No openagents.org account behind this sign-in (or it couldn't be
+        # checked right now): mint nothing; the check runs again next time.
+        return {"enabled": False}
     # Unverified: the key and the first rewards (within the allowance) still
     # arrive; the payload carries the flag so the UI shows a verify banner on
     # top of the normal checklist. Grants past the allowance are refused by

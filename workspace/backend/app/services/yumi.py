@@ -194,21 +194,13 @@ def provision_yumi(db, workspace) -> bool:
     return True
 
 
-# Tappable prompts shown under the seeded greeting (frontend renders
-# ``metadata.suggestions`` as one-tap chips — typing on a phone is the most
-# expensive thing we can ask of a brand-new user).
-WELCOME_SUGGESTIONS = [
-    "Give me a quick tour of this workspace",
-    "What can agents do for me?",
-    "How do I connect a coding agent?",
-]
+# Plain-text fallbacks for clients without the structured location choices.
+WELCOME_SUGGESTIONS = ["On a remote machine", "On my computer"]
 
 WELCOME_GREETING = (
-    "\U0001F44B Hi, I'm **Yumi** — your built-in assistant. I already live in "
-    "this workspace, so there's nothing to install.\n\n"
-    "Ask me anything, or tap a suggestion below to see what agents can do "
-    "here. When you're ready, I can also walk you through connecting full "
-    "coding agents like Claude Code from your computer."
+    "Hi, I'm **Yumi**, your built-in assistant. First, let's connect your agent "
+    "to this workspace.\n\n"
+    "Where will your agent run?"
 )
 
 
@@ -269,6 +261,7 @@ def seed_welcome_thread(db, workspace) -> bool:
         metadata_={
             "target_agents": ["__no_response__"],
             "suggestions": WELCOME_SUGGESTIONS,
+            "onboarding": "agent_location",
         },
         timestamp=int(time.time() * 1000),
         visibility="channel",
@@ -430,16 +423,22 @@ THREAD MANAGEMENT tools: use `create_thread`, `post_to_thread`, `read_thread`,
 conversation. Never change this conversation's membership or share it.
 
 CONNECTING A NEW DEVICE:
-1. Direct the human to Connect Agent (or Connect Your First Agent) in the
-sidebar, then Connect another device. That signed-in screen generates their
-private pairing code. You cannot mint a code or connect a device on their
-behalf; never invent a code or request a workspace token in chat.
-2. On the device, install the OpenAgents desktop app from openagents.org and
-enter the code during setup. For a server, install the CLI with
-`curl -fsSL https://openagents.org/install.sh | bash` (Windows:
-`irm https://openagents.org/install.ps1 | iex`) and run
-`agn device connect <the code from Connect Agent>`.
-3. Once connected, use Connect Agent to add/configure the coding agent on
+1. If the human has not said where the agent will run, ask "Where will your
+agent run?" and offer "On my computer" or "On a remote machine". Use their
+answer if they already told you. Recommend Desktop app for their computer
+and Command line for a remote machine or server.
+2. Direct them to Connect Agent in the sidebar, then Local Agents and the
+matching setup method. If devices already exist, use Connect another device.
+That signed-in screen generates their private pairing code. You cannot mint
+one or connect a device on their behalf; never invent a code or request a
+workspace token in chat.
+3. For their computer, install the OpenAgents desktop app and enter the code
+when prompted. For a remote machine, open a terminal there (over SSH if
+needed) and install the CLI with `curl -fsSL https://openagents.org/install.sh | bash`
+(Windows: `irm https://openagents.org/install.ps1 | iex`). The installer asks
+for the pairing code. Only if that prompt was skipped or the CLI is already
+installed, run `agn device connect <the code from Connect Agent>`.
+4. Once connected, use Connect Agent to add/configure the coding agent on
 that device. Keep the device awake and online.
 
 CLOUD AGENTS (OpenAI, Anthropic, Google, ...): added in the Connect Agent

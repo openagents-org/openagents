@@ -313,6 +313,52 @@ describe('Codex — what of stderr is quoted', () => {
   });
 });
 
+/**
+ * Field report 2026-11-08: one agent's channel read "Codex failed to complete
+ * this run. > failed to load skill …/impeccable/SKILL.md: invalid YAML" twice,
+ * and other channels quoted codex's ChatGPT connector ("worker quit with fatal:
+ * Transport channel closed …"). codex-cli 0.167 skips a skill it cannot parse
+ * and answers anyway: the line is logged on every run, failed or not.
+ */
+describe('Codex — log lines written beside a run are not its failure', () => {
+  // Verbatim from codex-cli 0.167.0 with a SKILL.md whose front matter has a line without a colon.
+  const SKILL = '2026-11-08T05:00:34.736481Z ERROR codex_core::session::session: failed to load skill '
+    + '/Users/u/.codex/skills/impeccable/SKILL.md: invalid YAML: could not find expected \':\' at line 4 column 1, '
+    + 'while scanning a simple key at line 3 column 1';
+  const RMCP = '2026-11-08T02:50:52.116025Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel '
+    + 'closed, when Client(HttpRequest(HttpRequest("error decoding response body")))';
+  const QUOTA = '2026-11-08T05:00:40.000000Z ERROR codex_core::session: turn error: You\'ve hit your usage limit.';
+
+  it('a clean exit with no reply says so, whatever stderr holds', async () => {
+    for (const stderr of [SKILL, RMCP, `${SKILL}\n${RMCP}`]) {
+      assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 0 }), '');
+      const sent = [];
+      await CodexAdapter.prototype._sendRunFailure.call(
+        { sendError: async (c, content) => { sent.push(content); } },
+        'chan', { responseText: '', stderr, exitCode: 0, turnStarted: true },
+      );
+      assert.match(sent[0], /finished without producing a reply/);
+      assert.doesNotMatch(sent[0], /failed to load skill|Transport channel closed/);
+    }
+  });
+
+  it('a clean exit still quotes codex\'s own error event', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: 'Reconnecting... 5/5 (request timed out)', stderr: SKILL, exitCode: 0 });
+    assert.match(detail, /Reconnecting/);
+  });
+
+  it('a failed run quotes the real error, not the skill or connector line before it', () => {
+    const detail = CodexAdapter._failureDetail({ stderr: [SKILL, RMCP, QUOTA].join('\n'), exitCode: 1 });
+    assert.match(detail, /usage limit/);
+    assert.doesNotMatch(detail, /failed to load skill|Transport channel closed/);
+  });
+
+  it('quotes them only when codex logged nothing else', () => {
+    const detail = CodexAdapter._failureDetail({ stderr: SKILL, exitCode: 1 });
+    assert.match(detail, /failed to load skill/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // _sendRunFailure
 // ---------------------------------------------------------------------------
@@ -336,6 +382,60 @@ describe('Codex — user-visible failure message', () => {
     assert.ok(msg.content.includes("Codex couldn't run"));
     assert.ok(msg.content.includes('without producing a reply'));
     assert.ok(!msg.content.includes('>'), 'no empty quote block');
+  });
+});
+
+// What codex-cli 0.167.0 emits when its Responses endpoint refuses a field
+// it sends on every turn, verbatim from a run against a relay that does.
+// Reported 2026-11-07: the channel only ever read "Unsupported Responses
+// request parameter." — no field, nothing to do about it.
+const PARAM_REFUSED_TURN = '{"error":{"message":"Unsupported Responses request parameter.","type":"invalid_request_error","param":"client_metadata","code":"unsupported_parameter"}}';
+
+describe('Codex — a Responses endpoint that refuses a field Codex sends', () => {
+  const relay = { baseUrl: 'https://relay.example.com/v1', reasoningEffort: null };
+
+  it('names the field the endpoint refused', () => {
+    assert.strictEqual(CodexAdapter._unwrap(PARAM_REFUSED_TURN),
+      'Unsupported Responses request parameter. (parameter: client_metadata)');
+    // Not twice when the message already says it.
+    assert.strictEqual(
+      CodexAdapter._unwrap('{"error":{"message":"Unknown parameter: client_metadata","param":"client_metadata"}}'),
+      'Unknown parameter: client_metadata');
+  });
+
+  it('says every run there will fail, and what to change, on a custom provider', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: PARAM_REFUSED_TURN, stderr: '', exitCode: 1 }, { customProvider: relay });
+    const [quoted, advice] = detail.split('\n\n');
+    assert.strictEqual(quoted, 'Unsupported Responses request parameter. (parameter: client_metadata)');
+    assert.match(advice, /\(relay\.example\.com\) takes Responses API requests but refuses the "client_metadata" field/);
+    assert.match(advice, /every run here will fail the same way/);
+    assert.match(advice, /Agent capabilities to "Chat only · Chat Completions API"/);
+    assert.doesNotMatch(detail, /lost its connection/);
+  });
+
+  it('reaches the channel through the adapter\'s own provider', async () => {
+    const sent = [];
+    const fake = { _customProvider: relay, sendError: async (_c, content) => { sent.push(content); } };
+    await CodexAdapter.prototype._sendRunFailure.call(fake, 'chan', { errorMessage: PARAM_REFUSED_TURN, exitCode: 1, turnFailed: true });
+    assert.match(sent[0], /Codex couldn't run/);
+    assert.match(sent[0], /> Unsupported Responses request parameter\. \(parameter: client_metadata\)/);
+    assert.match(sent[0], /Chat only · Chat Completions API/);
+  });
+
+  it('gives no such advice on OpenAI itself, or for a refusal that is not about a field', () => {
+    const native = CodexAdapter._failureDetail({ errorMessage: PARAM_REFUSED_TURN, exitCode: 1 });
+    assert.strictEqual(native, 'Unsupported Responses request parameter. (parameter: client_metadata)');
+    const model = CodexAdapter._failureDetail(
+      { errorMessage: '{"error":{"message":"The model `gpt-9` does not exist","param":"model"}}', exitCode: 1 },
+      { customProvider: relay });
+    assert.doesNotMatch(model, /Agent capabilities/);
+  });
+
+  it('leaves a setting the chosen model does not support to the model, not the endpoint', () => {
+    const detail = CodexAdapter._failureDetail(
+      { errorMessage: '{"error":{"message":"Unsupported parameter: \'reasoning.effort\' is not supported with this model.","param":"reasoning.effort","code":"unsupported_parameter"}}', exitCode: 1 },
+      { customProvider: relay });
+    assert.doesNotMatch(detail, /every run here will fail|Agent capabilities/);
   });
 });
 

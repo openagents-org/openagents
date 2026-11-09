@@ -216,6 +216,7 @@ def _format_channel(ch: Channel, db=None) -> dict:
         "orchestrationInstruction": ch.orchestration_instruction,
         "workflowId": ch.workflow_id,
         "resumeFrom": ch.resume_from,
+        "forkedFrom": ch.forked_from,
         "status": ch.status,
         "starred": bool(ch.starred),
         "isChannel": bool(ch.is_channel),
@@ -663,12 +664,18 @@ def remove_member(
 
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
+    if member.agent_type == "cloud:openagents":
+        return json_response(ResponseCode.FORBIDDEN, "Yumi is your built-in assistant and cannot be removed")
     denied = _connection_management_error(db, workspace, member, x_workspace_token, authorization)
     if denied is not None:
         return denied
 
+    from app.services import hosted_agents
+    hosted = hosted_agents.release(db, workspace.id, agent_name)
     db.delete(member)
     db.commit()
+    if hosted is not None:
+        hosted_agents.schedule_termination(hosted.id)
 
     return success_response({"agent_name": agent_name, "removed": True})
 

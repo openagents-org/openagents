@@ -255,16 +255,35 @@ const PROBES = {
   uv: { probe: probeUv, remedy: uvRemedy },
 };
 
+/** Registry platform names, as the `install` commands are keyed. */
+const REGISTRY_PLATFORM = { darwin: 'macos', linux: 'linux', win32: 'windows' };
+
+/**
+ * Whether `install.requires_on` limits a dependency to other platforms.
+ * Claude Code needs git only on Windows (it runs its shell through Git Bash);
+ * the npm install on macOS and Linux never touches git, yet a mac without the
+ * Command Line Tools was told to install them before it could get Claude.
+ * A separate field rather than a suffix inside `requires`, so an older core
+ * reading the same catalog keeps checking git everywhere instead of nowhere.
+ */
+function requiredHere(entry, name, platform) {
+  const only = entry.install.requires_on && entry.install.requires_on[name];
+  if (!Array.isArray(only)) return true;
+  return only.includes(REGISTRY_PLATFORM[platform] || platform);
+}
+
 /**
  * Check a registry entry's `install.requires` against the machine.
+ * @param {string} [platform] - seam for tests; production passes nothing.
  * @returns {{ ok: boolean, missing: Array<{name: string, action: string|null, summary: string, command: string, alternative: string|null}> }}
  */
-function checkInstallPrereqs(entry) {
+function checkInstallPrereqs(entry, platform = process.platform) {
   const requires = entry && entry.install ? entry.install.requires : null;
   if (!Array.isArray(requires) || requires.length === 0) return { ok: true, missing: [] };
 
   const missing = [];
   for (const name of requires) {
+    if (!requiredHere(entry, name, platform)) continue;
     const spec = PROBES[String(name || '').toLowerCase()];
     if (!spec) continue; // no probe → the installer's problem, not ours
     let result;

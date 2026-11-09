@@ -72,7 +72,7 @@ function AgentCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <AgentIcon type={entry.name} size={34} />
+          <AgentIcon type={entry.name} size={32} />
           <div className="min-w-0">
             <div className="truncate text-base font-semibold">
               {entry.label || entry.name}

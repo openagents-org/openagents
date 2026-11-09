@@ -309,6 +309,10 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
     if not member:
         return None
 
+    if member.agent_type == "cloud:openagents":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Yumi is your built-in assistant and cannot be removed")
+
     was_master = member.role == "master"
     # Soft-delete: keep the row (status='removed') so a re-add can reactivate
     # the agent and so _handle_agent_join can refuse to resurrect it. Hard-
@@ -317,6 +321,13 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
     # (issue #347)
     member.status = "removed"
     db.flush()
+
+    # A provider-hosted runtime loses its credential now; callers ask the
+    # provider to terminate it once this transaction commits.
+    from app.services import hosted_agents
+    hosted = hosted_agents.release(db, workspace.id, agent_name)
+    if hosted is not None:
+        event.metadata["hosted_agent_id"] = hosted.id
 
     new_master_name = None
 
@@ -1615,6 +1626,8 @@ async def _route_with_llm(
         content=content,
     )
 
+    from app.services import router_health
+
     def classify(client, provider, model, max_tokens):
         if provider == "openai":
             response = client.chat.completions.create(
@@ -1641,7 +1654,7 @@ async def _route_with_llm(
                 from app.services.message_router import get_client
                 client = get_client(config.MESSAGE_ROUTER_BASE_URL, config.MESSAGE_ROUTER_API_KEY)
                 provider, model = "openai", config.MESSAGE_ROUTER_MODEL
-                raw_result = classify(client, provider, model, 500)
+                raw_result = router_health.timed("message", lambda: classify(client, provider, model, 500))
                 valid_targets = {f"next:{name.lower()}" for name in candidate_names}
                 if raw_result.lower() not in {"stop", "ask"} | valid_targets:
                     raise ValueError("Classifier returned an invalid routing decision")
@@ -1657,14 +1670,14 @@ async def _route_with_llm(
                 client, provider = _get_llm_client()
                 model = _get_router_model()
                 client = client.with_options(timeout=15, max_retries=0)
-                raw_result = classify(client, provider, model, 256)
+                raw_result = router_health.timed("general", lambda: classify(client, provider, model, 256))
                 valid_targets = {f"next:{name.lower()}" for name in candidate_names}
                 if raw_result.lower() not in {"stop", "ask"} | valid_targets:
                     raise ValueError("Router backup returned an invalid routing decision")
         else:
             client, provider = _get_llm_client()
             model = _get_router_model()
-            raw_result = classify(client, provider, model, 256)
+            raw_result = router_health.timed("general", lambda: classify(client, provider, model, 256))
 
         # Case-insensitive keyword detection but preserve original case
         # of the agent name so we can match it against participants

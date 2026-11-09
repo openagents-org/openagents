@@ -206,9 +206,7 @@ export function AddModelAccessDialog({
           {/* Chosen provider + key form */}
           <div className="min-w-0 space-y-4 overflow-y-auto px-6 py-5">
             <div className="flex items-center gap-3">
-              <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted">
-                <ProviderIcon name={custom ? 'custom' : provider} size={28} />
-              </span>
+              <ProviderIcon name={custom ? 'custom' : provider} size={48} />
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{providerLabel(provider)}</div>
                 <div className="truncate text-xs text-muted-foreground">

@@ -64,6 +64,15 @@ describe('classifyFailure', () => {
     assert.equal(classifyFailure('still working...', { timedOut: true }), CODE.TIMEOUT);
   });
 
+  it('does not read Claude Code\'s unknown-model signal as the reason a run failed', () => {
+    // Printed before every request on a relay model; the probe strips it so
+    // a timeout stays unexplained and goes on to the direct API check.
+    const { stripCliNoise } = require('../src/adapters/utils');
+    const output = stripCliNoise('[claude-code:unrecognized_model] {"model":"deepseek-v4-pro[1m]","query_source":"sdk"}\n');
+    assert.equal(output.trim(), '');
+    assert.equal(classifyFailure(output, { timedOut: true }), CODE.TIMEOUT);
+  });
+
   it('classifies unknown-model errors without a timeout too', () => {
     assert.equal(
       classifyFailure("There's an issue with the selected model (claude-opus-4-6)."),
@@ -148,6 +157,40 @@ describe('failureMessage', () => {
     const code = classifyFailure(stderr, { timedOut: true });
     assert.equal(code, CODE.NETWORK);
     assert.ok(failureMessage(res, code, 120000).includes('chatgpt.com'));
+  });
+
+  it('quotes the model-list error, not the ChatGPT connector, when Codex cannot reach OpenAI', () => {
+    // Verbatim shape from the dashboard: a device that cannot reach chatgpt.com
+    // ran out the 120s clock, and the connector's line was quoted as the reason.
+    const stderr = [
+      '2026-11-08T05:37:58.539562Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed")))',
+      '2026-11-08T05:38:10.120000Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out',
+    ].join('\n');
+    const res = { code: null, timedOut: true, stdout: '', stderr };
+    const code = classifyFailure(stderr, { timedOut: true });
+    assert.equal(code, CODE.NETWORK, 'a lost connection, not a CLI waiting for a login prompt');
+    const msg = failureMessage(res, code, 120000);
+    assert.equal(msg, 'Timed out after 120s: ERROR codex_models_manager::manager: failed to refresh available models: request timed out');
+  });
+
+  it('reads Codex connection wording as a network failure', () => {
+    for (const text of [
+      'ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request',
+      'stream disconnected before completion: Transport error',
+      'failed to lookup address information: nodename nor servname provided',
+    ]) {
+      assert.equal(classifyFailure(text, { timedOut: true }), CODE.NETWORK, text);
+    }
+  });
+
+  it('puts what the CLI said in plain words ahead of its log records', () => {
+    const stderr = [
+      '2026-11-08T05:37:58Z ERROR codex_core::exec: something internal',
+      'Error: the configured workspace is read-only',
+    ].join('\n');
+    const msg = failureMessage({ code: 1, stdout: '', stderr }, CODE.CLI_ERROR, 120000);
+    assert.match(msg, /^Error: the configured workspace is read-only/);
+    assert.doesNotMatch(msg, /2026-11-08T/, 'the timestamp is dropped from a quoted log record');
   });
 
   it('reports the error line of a crash, not its stack frames', () => {
@@ -296,6 +339,21 @@ describe('probeAgentType', () => {
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.method, 'cli');
     assert.equal(r.reply, 'hi there');
+  });
+
+  it('runs the CLI with the env its probe declares, under the agent\'s own values', async () => {
+    const entry = {
+      name: 'gemini', label: 'Gemini CLI',
+      probe: {
+        args: ['-e', 'console.log(`${process.env.OA_PROBE_FLAG}/${process.env.OA_PROBE_OWN}`)'],
+        env: { OA_PROBE_FLAG: 'true', OA_PROBE_OWN: 'declared' },
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'gemini', { agentEnv: { OA_PROBE_OWN: 'mine' } });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.reply, 'true/mine');
   });
 
   it('classifies a failing CLI probe and returns guidance', async () => {
@@ -452,6 +510,66 @@ describe('probeAgentType', () => {
       const signedIn = await probeAgentType(c, 'codex', { agentEnv: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
       assert.equal(signedIn.method, 'cli', JSON.stringify(signedIn));
       assert.equal(signedIn.reply, 'from-cli');
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
+  it('tests a Codex agent in Responses mode on the Responses API, and names a refused field', async () => {
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    const calls = [];
+    const refusal = 'HTTP 400: {"error":{"message":"Unsupported Responses request parameter.","type":"invalid_request_error","param":"client_metadata","code":"unsupported_parameter"}}';
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (_env, opts) => { calls.push(opts); return { success: false, error: refusal }; } },
+    };
+    try {
+      const entry = { name: 'codex', label: 'Codex', probe: { args: ['exec', 'hi'], timeout_s: 30, skip_cli_with_key: true } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const relay = { OPENAI_API_KEY: 'sk-relay', OPENAI_BASE_URL: 'https://relay.example/v1' };
+
+      const r = await probeAgentType(c, 'codex', { agentEnv: { ...relay, CODEX_WIRE_API: 'responses' } });
+      assert.equal(calls.at(-1).protocol, 'responses');
+      assert.equal(r.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(r));
+      const text = r.guidance.join('\n');
+      assert.match(text, /refuses the "client_metadata" field that Codex sends with every one of them/);
+      assert.match(text, /Chat only · Chat Completions API/);
+
+      // Chat-only mode (direct API) keeps the chat test, and a parameter
+      // refusal there is not read as an incompatible endpoint.
+      const chat = await probeAgentType(c, 'codex', { agentEnv: { ...relay, CODEX_WIRE_API: 'chat' } });
+      assert.equal(calls.at(-1).protocol, undefined);
+      assert.notEqual(chat.code, CODE.ENDPOINT_INCOMPATIBLE);
+      // OpenAI itself is never tested as a custom Responses provider.
+      await probeAgentType(c, 'codex', { agentEnv: { OPENAI_API_KEY: 'sk-x', OPENAI_BASE_URL: 'https://api.openai.com/v1', CODEX_WIRE_API: 'responses' } });
+      assert.equal(calls.at(-1).protocol, undefined);
+    } finally {
+      if (saved) require.cache[path] = saved; else delete require.cache[path];
+    }
+  });
+
+  it('does not blame Codex for a refused max_output_tokens — the test sends it, the CLI never does', async () => {
+    const path = require.resolve('../src/utils');
+    const saved = require.cache[path];
+    let refusal = 'HTTP 400: {"error":{"message":"Unsupported parameter: max_output_tokens","type":"invalid_request_error","param":"max_output_tokens","code":"unsupported_parameter"}}';
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => ({ success: false, error: refusal }) },
+    };
+    try {
+      const entry = { name: 'codex', label: 'Codex', probe: { args: ['exec', 'hi'], timeout_s: 30, skip_cli_with_key: true } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const agentEnv = { OPENAI_API_KEY: 'sk-relay', OPENAI_BASE_URL: 'https://relay.example/v1', CODEX_WIRE_API: 'responses' };
+      const r = await probeAgentType(c, 'codex', { agentEnv });
+      assert.notEqual(r.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(r));
+      assert.doesNotMatch(r.guidance.join('\n'), /sends with every one of them/);
+
+      // A refusal that names another field is the endpoint's, whatever else its message mentions.
+      refusal = 'error: {"param":"client_metadata","code":"unsupported_parameter","message":"Unsupported parameter: client_metadata (max_output_tokens is fine)"}';
+      const other = await probeAgentType(c, 'codex', { agentEnv });
+      assert.equal(other.code, CODE.ENDPOINT_INCOMPATIBLE, JSON.stringify(other));
+      assert.match(other.guidance.join('\n'), /refuses the "client_metadata" field/);
     } finally {
       if (saved) require.cache[path] = saved; else delete require.cache[path];
     }

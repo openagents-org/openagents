@@ -6,6 +6,7 @@ import { workspaceApi } from '@/lib/api';
 import { agentLabel } from '@/lib/helpers';
 import { eventToMessage } from '@/lib/types';
 import type { WorkspaceMessage } from '@/lib/types';
+import { isControlMessage } from '@/lib/control-messages';
 import { MonitorTile } from './monitor-tile';
 import { MonitorOverlay } from './monitor-overlay';
 import { MessageSquarePlus, Search, X } from 'lucide-react';
@@ -63,7 +64,8 @@ export function MonitorGrid() {
           const msgs = result.events.map(eventToMessage);
 
           // Find indices of key messages (msgs sorted newest-first)
-          const lastUserIdx = msgs.findIndex((m) => m.senderType !== 'agent');
+          // A queue cancel is the user's click, not something they said.
+          const lastUserIdx = msgs.findIndex((m) => m.senderType !== 'agent' && !isControlMessage(m));
           const lastUser = lastUserIdx >= 0 ? msgs[lastUserIdx] : null;
 
           // Find last agent chat message (not status/thinking)

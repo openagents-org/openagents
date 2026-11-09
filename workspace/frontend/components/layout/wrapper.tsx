@@ -104,7 +104,7 @@ export function Wrapper() {
     const update = async () => {
       const url = new URL(window.location.href);
       const workspaceSlug = decodeURIComponent(url.pathname.split('/')[1]);
-      if (viewMode === 'issues' || viewMode === 'tasks') return;
+      if (viewMode === 'issues') return;
       if (viewMode === 'files' || viewMode === 'knowledge') {
         url.pathname = resourcePath(workspaceSlug, viewMode, viewMode === 'files' ? selectedFileId : selectedKnowledgeId);
       } else if (viewMode === 'threads' && currentSessionId) {
@@ -148,24 +148,12 @@ export function Wrapper() {
   // hidden from the sidebar, so it must not silently block onboarding either —
   // otherwise the workspace looks empty yet never onboards (matches nav's rule).
   const hasAgents = agents.some((a) => isRecentAgent(a) && !a.builtin);
-  // Guided onboarding takes over only for a genuinely fresh workspace: no real
-  // agent AND no user-created threads yet. Gating on threads protects an
-  // established workspace (with history) from being hijacked by onboarding
-  // when its agent happens to be offline > 1h.
-  //
-  // Two carve-outs keep that gate honest:
-  //  • Yumi's seeded "Welcome" thread (mobile funnel) is created by the
-  //    backend in EVERY fresh workspace — a builtin-led thread is not user
-  //    activity, or no workspace would ever onboard.
-  //  • Only an explicit DM selection (clicking Yumi in the sidebar → a `dm:`
-  //    id) overrides the takeover. Auto-selection picks channel ids, so a
-  //    plain `!currentSessionId` gate would let the seeded thread's
-  //    auto-selection suppress onboarding too.
+  // Keep setup available from Connect Agent without replacing conversations.
   const userSessions = sessions.filter(
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
   const showOnboarding =
-    !onboardingDismissed && !hasAgents && userSessions.length === 0 && (viewMode === 'threads' || viewMode === 'connect') &&
+    !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'connect' &&
     !currentSessionId?.startsWith('dm:');
 
   const dismissOnboarding = () => {
@@ -199,10 +187,6 @@ export function Wrapper() {
             </div>
           ) : viewMode === 'issues' ? (
             <div className="h-full bg-background overflow-hidden"><IssuesView /></div>
-          ) : viewMode === 'tasks' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <IssuesView initialWork />
-            </div>
           ) : viewMode === 'workflows' ? (
             <div className="h-full bg-background overflow-hidden">
               <WorkflowsView />
@@ -302,7 +286,7 @@ export function Wrapper() {
       <AppSidebar />
 
       <SidebarInset className="min-w-0">
-        {!showOnboarding && <AppHeader />}
+        {!showOnboarding && viewMode !== 'connect' && <AppHeader />}
         <div className="relative flex min-h-0 grow overflow-hidden">
           {showOnboarding ? (
             /* Guided first-agent setup owns the full Connect Agent surface. */
@@ -353,7 +337,6 @@ export function Wrapper() {
               {visitedViews.current.has('browser') && <Activity mode={viewMode === 'browser' ? 'visible' : 'hidden'}><BrowserView /></Activity>}
               {visitedViews.current.has('connect') && <Activity mode={viewMode === 'connect' ? 'visible' : 'hidden'}><ConnectAgentView /></Activity>}
               {visitedViews.current.has('issues') && <Activity mode={viewMode === 'issues' ? 'visible' : 'hidden'}><IssuesView /></Activity>}
-              {visitedViews.current.has('tasks') && <Activity mode={viewMode === 'tasks' ? 'visible' : 'hidden'}><IssuesView initialWork /></Activity>}
               {visitedViews.current.has('workflows') && <Activity mode={viewMode === 'workflows' ? 'visible' : 'hidden'}><WorkflowsView /></Activity>}
               {visitedViews.current.has('inbox') && <Activity mode={viewMode === 'inbox' ? 'visible' : 'hidden'}><InboxView /></Activity>}
               {visitedViews.current.has('skills') && <Activity mode={viewMode === 'skills' ? 'visible' : 'hidden'}><SkillsView /></Activity>}

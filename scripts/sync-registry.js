@@ -42,13 +42,11 @@ const WORKSPACE_PROVIDERS = path.join(ROOT, 'workspace', 'backend', 'cloud_provi
 /**
  * Every directory that needs an icon for an agent in the registry.
  *
- * These are NOT mirrors of registry/icons. Two of them hold icons that have no
- * registry entry at all (provider logos, the yaml-agent placeholder), and the
- * two under packages/ hold `fill="currentColor"` UI icons that follow the app
- * theme, where registry/ and the workspace frontend hold the tile artwork with
- * its own background. `pi.svg` differs between the two families for exactly
- * that reason. So an icon is only ever COPIED IN WHEN MISSING, never
- * overwritten — the check reports what is absent and leaves what is there.
+ * These are NOT mirrors of registry/icons: two of them hold icons that have no
+ * registry entry at all (provider logos, the yaml-agent placeholder). So an
+ * icon is only ever COPIED IN WHEN MISSING, never overwritten — the check
+ * reports what is absent and leaves what is there. When an agent's artwork
+ * changes, copy the new file into every directory here by hand.
  */
 const ICON_DIRS = [
   path.join(ROOT, 'packages', 'agent-connector', 'icons'),

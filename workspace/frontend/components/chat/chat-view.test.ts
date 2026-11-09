@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   ws: {} as Record<string, unknown>,
   threads: {} as Record<string, unknown[]>,
   seen: [] as unknown[][],
+  steps: [] as boolean[],
+  openView: vi.fn(),
   reply: null as null | ((message: WorkspaceMessage) => void),
   sent: [] as unknown[][],
   send: null as null | ((text: string) => Promise<void>),
@@ -26,7 +28,7 @@ vi.mock('@/hooks/use-composing-signal', () => ({
   useComposingSignal: () => ({ notifyFocus: () => {}, notifyBlur: () => {}, notifyTyping: () => {} }),
 }));
 vi.mock('@/components/layout/layout-context', () => ({
-  useLayout: () => ({ isMobile: false, viewMode: 'threads', splitBrowser: false, showBrowserPreview: false }),
+  useLayout: () => ({ openView: h.openView, isMobile: false, viewMode: 'threads', splitBrowser: false, showBrowserPreview: false }),
 }));
 vi.mock('@/lib/api', () => ({
   workspaceApi: {
@@ -54,7 +56,7 @@ vi.mock('@/hooks/use-polling', async () => {
   };
 });
 vi.mock('./chat-messages', () => ({
-  ChatMessages: ({ messages, onReply }: { messages: unknown[]; onReply: (message: WorkspaceMessage) => void }) => { h.seen.push(messages); h.reply = onReply; return null; },
+  ChatMessages: ({ messages, showAllSteps, onReply }: { messages: unknown[]; showAllSteps: boolean; onReply: (message: WorkspaceMessage) => void }) => { h.steps.push(showAllSteps); h.seen.push(messages); h.reply = onReply; return null; },
 }));
 vi.mock('./chat-input', () => ({
   ChatInput: ({ onSend }: { onSend: (text: string) => Promise<void> }) => { h.send = onSend; return null; },
@@ -66,7 +68,7 @@ vi.mock('./thread-live-browser', () => ({ ThreadLiveBrowser: () => null }));
 vi.mock('./agent-message-access', () => ({ AgentMessageAccessProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('./thread-resources', () => ({ ThreadResources: () => null }));
 vi.mock('./thread-status-bar', () => ({ ThreadStatusBar: () => null }));
-vi.mock('./empty-state', () => ({ EmptyState: () => null }));
+vi.mock('./empty-state', () => ({ EmptyConversation: () => React.createElement('div', {}, 'Empty conversation') }));
 vi.mock('./share-dialog', () => ({ ShareDialog: () => null }));
 vi.mock('./orchestration-control', () => ({ OrchestrationControl: () => null }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
@@ -115,6 +117,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   resetOptimisticStoreForTests();
+  h.steps = []; h.openView.mockClear();
   h.seen = []; h.sent = []; h.reply = null;
   h.threads = {
     'thread-a': [msg('a1', 'thread-a'), step('a2', 'thread-a')],
@@ -238,4 +241,28 @@ it('keeps routing attached to the sent message across thread switches until the 
   expect(pending()?.targetAgents).toEqual(['bot']);
   expect(shown().at(-1)).toBe('loading');
   spy.mockRestore();
+});
+
+
+it('defaults to compact steps while keeping messages readable with no connected agent', async () => {
+  h.ws.agents = [];
+  await open('thread-a');
+  expect(h.steps.at(-1)).toBe(false);
+  expect(shown()).toEqual(['chat', 'status']);
+  expect(container.textContent).toContain('chat.connectAgentNotice');
+  const connect = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'nav.connectAgent')!;
+  await act(async () => connect.click());
+  expect(h.openView).toHaveBeenCalledWith('connect');
+  expect(h.send).not.toBeNull();
+});
+
+it('uses a conversation empty state rather than an agent catalog when all agents are offline', async () => {
+  h.ws.agents = [{ agentName: 'bot', status: 'offline' }];
+  h.threads['thread-a'] = [];
+  await open('thread-a');
+  expect(container.textContent).toContain('Empty conversation');
+  expect(container.textContent).toContain('chat.connectAgentNotice');
+  h.ws.agents = [{ agentName: 'bot', status: 'online' }];
+  await open('thread-a');
+  expect(container.textContent).not.toContain('chat.connectAgentNotice');
 });

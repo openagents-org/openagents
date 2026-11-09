@@ -42,13 +42,18 @@ it('_runAgn timeout stops the CLI descendant as well as its wrapper', { timeout:
     const result = await Daemon.prototype._runAgn.call({}, ['runtimes', '--json'], { timeoutMs: 5000 });
     assert.equal(result.timedOut, true);
     assert.ok(fs.existsSync(pidFile), 'the descendant started before the timeout');
-    // taskkill is asynchronous on Windows. Give it time to finish, then
-    // check activity rather than PID existence (zombies retain PIDs on Linux).
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const size = fs.statSync(heartbeat).size;
-    assert.ok(size > 0, 'the descendant was active before the timeout');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(fs.statSync(heartbeat).size, size, 'the descendant kept running after timeout');
+    // taskkill is asynchronous on Windows and can take over a second on a
+    // busy runner, so wait for the heartbeat to go quiet instead of sampling
+    // it once. Activity, not PID existence (zombies retain PIDs on Linux).
+    assert.ok(fs.statSync(heartbeat).size > 0, 'the descendant was active before the timeout');
+    const deadline = Date.now() + 6000;
+    let quiet = false;
+    while (!quiet && Date.now() < deadline) {
+      const size = fs.statSync(heartbeat).size;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      quiet = fs.statSync(heartbeat).size === size;
+    }
+    assert.ok(quiet, 'the descendant kept running after timeout');
   } finally {
     if (wrapper) { try { wrapper.kill('SIGKILL'); } catch {} }
     if (fs.existsSync(pidFile)) {

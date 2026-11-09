@@ -22,9 +22,10 @@ const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 
-/** Types whose endpoint is one device-wide config file of their own. OpenClaw
- *  left it: each keyed agent gets a private store (adapters/openclaw.js). */
-const SHARED_NATIVE_CONFIG = new Set(['hermes']);
+/** Types whose endpoint is one device-wide config file of their own. None
+ *  left: OpenClaw gives each keyed agent a private store (adapters/openclaw.js)
+ *  and Hermes a provider of its own in its config.yaml (adapters/hermes.js). */
+const SHARED_NATIVE_CONFIG = new Set();
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -43,8 +44,10 @@ const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
 // not installed). Time alone does not change them, and re-running them every
 // hour re-reported the same failure all day; they are swept daily, and again
 // as soon as detection sees the type installed or signed in.
-const SETUP_INCOMPLETE = new Set(['not_ready', 'not_logged_in', 'missing_api_key', 'not_installed', 'install_failed']);
+const SETUP_INCOMPLETE = new Set(['not_ready', 'not_logged_in', 'missing_api_key', 'not_installed', 'install_failed', 'install_incomplete']);
 const SETUP_INCOMPLETE_MAX_AGE_MS = 24 * 3600 * 1000;
+// Probe results a runtime reinstall fixes: tested again as soon as one succeeds.
+const REPROBE_AFTER_REPAIR = new Set(['version_incompatible', 'install_incomplete']);
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -223,9 +226,19 @@ class Daemon {
     try {
       // By agent name, not type: the probe runs on this agent's own env, so a
       // signed-in agent is tested on its sign-in, not the type's saved key.
-      const r = await this._runAgn(['probe', name, '--json']);
       let parsed = null;
-      try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+      let r;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        r = await this._runAgn(['probe', name, '--json']);
+        parsed = null;
+        try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+        // The child found no agent of that name while this daemon has one: it
+        // read daemon.yaml mid-save (Windows). Ask once more instead of
+        // keeping "No agent named '<name>' on this device" for an hour.
+        const unseen = parsed && parsed.code === 'unknown_type' && this.config.getAgent(name);
+        if (!unseen || attempt > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       if (!parsed || typeof parsed !== 'object') {
         // The probe process itself died before it could answer — a fault on
         // this device's OpenAgents install, not in the agent.
@@ -267,6 +280,24 @@ class Daemon {
     if (!became.size) return;
     const due = this.config.getAgents().filter((a) => became.has(a.type)
       && this._probes[a.name] && SETUP_INCOMPLETE.has(this._probes[a.name].code));
+    if (!due.length) return;
+    (async () => {
+      for (const a of due) {
+        try { await this._probeAgent(a.name); } catch {}
+      }
+      this._nodeHeartbeat();
+    })();
+  }
+
+  /**
+   * The connection test of an agent whose runtime was the wrong version ran
+   * before the repair (or at creation, while it was under way) and said
+   * "<version> is not supported"; nothing tested it again until the hourly
+   * sweep, so the device card kept that error for an agent that now worked.
+   */
+  _reprobeAfterRepair(agentType) {
+    const due = this.config.getAgents().filter((a) => (a.type || 'openclaw') === agentType
+      && this._probes[a.name] && REPROBE_AFTER_REPAIR.has(this._probes[a.name].code));
     if (!due.length) return;
     (async () => {
       for (const a of due) {
@@ -751,11 +782,9 @@ class Daemon {
    * set up in the launcher onto another one's key, endpoint and model: add a
    * second DeepSeek or CodeArts agent from the workspace, and the first one
    * ran on the new one's settings from its next restart.
-   * Hermes keeps sharing: its endpoint lives in one config file of its own
-   * for the whole device, which only a save to <type>.env updates (index.js
-   * _configureNativeAuth), so a key kept on the agent would never reach it.
-   * OpenClaw writes each keyed agent's private openclaw.json from the agent's
-   * own env when it starts, so it keeps its key on the agent like the rest.
+   * OpenClaw writes each keyed agent's private openclaw.json, and Hermes each
+   * keyed agent's own provider, from the agent's own env when it runs, so
+   * both keep their keys on the agent like the rest.
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);
@@ -1985,7 +2014,10 @@ async _runNodeCommand(n, cmd) {
 
     if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
     const next = adapter.preflight();
-    if (next && next.ok !== false) this._log(`${name}: supported ${agentType} runtime installed`);
+    if (next && next.ok !== false) {
+      this._log(`${name}: supported ${agentType} runtime installed`);
+      this._reprobeAfterRepair(agentType);
+    }
     return next;
   }
 

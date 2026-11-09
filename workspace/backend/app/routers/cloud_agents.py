@@ -523,6 +523,8 @@ def remove_cloud_agent(
 
     if not cfg:
         return json_response(ResponseCode.NOT_FOUND, "Cloud agent not found")
+    if cfg.provider == YUMI_PROVIDER:
+        return json_response(ResponseCode.FORBIDDEN, "Yumi is your built-in assistant and cannot be removed")
     denied = _owner_error(db, workspace, cfg, x_workspace_token, authorization)
     if denied is not None:
         return denied

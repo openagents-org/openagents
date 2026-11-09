@@ -7,16 +7,17 @@ import type { WorkspaceNode } from '@/lib/types';
 
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
+  getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
-const fixture = vi.hoisted(() => ({ needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
+const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
 vi.mock('@/lib/account-api', () => ({ sendSetupEmail: api.sendSetupEmail }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
 }) }));
-vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, isMobile: false }) }));
-vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, connectSetupRequest: fixture.connectSetupRequest, isMobile: false }) }));
+vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => React.createElement('header', null, 'Connect Agent title bar') }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => null }));
@@ -36,8 +37,8 @@ vi.mock('@/components/agents/agent-setup', () => ({
     React.createElement('button', { onClick: onBack }, 'Back to devices'),
   ),
 }));
-vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: () => React.createElement('h1', null, 'Connect your agents to your workspace') }));
-vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing }: { pairing: { code: string } }) => React.createElement('div', { 'data-testid': 'guided-pairing' }, pairing.code) }));
+vi.mock('./onboarding-connection-hero', () => ({ OnboardingConnectionHero: ({ onSetup }: { onSetup?: () => void }) => React.createElement('section', null, React.createElement('h1', null, 'Connect your agents to your workspace'), React.createElement('button', { onClick: onSetup }, 'Banner setup')) }));
+vi.mock('./onboarding-pairing-panel', () => ({ OnboardingPairingPanel: ({ pairing, onRegenerate, regenerating, methodRequest }: { methodRequest?: { method: string }; pairing: { code: string }; onRegenerate?: () => void; regenerating?: boolean }) => React.createElement(React.Fragment, null, React.createElement('div', { 'data-testid': 'guided-pairing', 'data-method': methodRequest?.method }, pairing.code), onRegenerate && React.createElement('button', { onClick: onRegenerate, disabled: regenerating }, 'Renew pairing')) }));
 let root: Root;
 let container: HTMLDivElement;
 function device(nodeId: string, status = 'online'): WorkspaceNode {
@@ -48,6 +49,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   fixture.needsFirstDevice = false;
+  fixture.connectSetupRequest = null;
   fixture.mobile = false;
   fixture.idToken = null;
   api.sendSetupEmail.mockResolvedValue({ emailSent: true });
@@ -197,4 +199,55 @@ it('keeps the phone setup email action available in the shared tabbed setup', as
   await act(async () => button('onboarding.setupEmailCta').click());
   expect(api.sendSetupEmail).toHaveBeenCalledWith('test-id-token', 'test-workspace');
   expect(container.querySelector('[role="status"]')?.textContent).toContain('onboarding.setupEmailSent');
+});
+
+
+it('places the banner above both connection tabs without the redundant title bar', async () => {
+  fixture.needsFirstDevice = true;
+  await render([]);
+  const heading = container.querySelector('h1')!;
+  const tabs = container.querySelector('[role="group"][aria-label="connect.title"]')!;
+  expect(heading.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(container.querySelector('header')).toBeNull();
+  await act(async () => button('connect.tabCloud').click());
+  expect(container.querySelector('h1')).not.toBeNull();
+  expect(button('connect.tabNode')).toBeDefined();
+  await act(async () => button('Banner setup').click());
+  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
+});
+
+
+it('keeps the pairing form on renewal failure and replaces the code after a successful retry', async () => {
+  fixture.needsFirstDevice = true;
+  api.createPairingCode
+    .mockResolvedValueOnce({ code: 'EXPIRED-CODE', expiresAt: new Date(Date.now() - 1000).toISOString(), expiresInSeconds: 0 })
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValueOnce({ code: 'RENEWED-CODE', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 1800 });
+  await render([]);
+  await act(async () => button('Renew pairing').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toContain('EXPIRED-CODE');
+  expect(button('Renew pairing').disabled).toBe(false);
+  await act(async () => button('Renew pairing').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toContain('RENEWED-CODE');
+  expect(button('connect.tabCloud')).toBeDefined();
+  expect(api.createPairingCode).toHaveBeenCalledTimes(3);
+});
+
+
+it('applies a new Yumi location choice without replaying the old choice when a cached view returns', async () => {
+  fixture.needsFirstDevice = true;
+  fixture.connectSetupRequest = { method: 'desktop' };
+  api.listNodes.mockResolvedValue([]);
+  const renderCached = (visible: boolean) => root.render(React.createElement(React.Activity, { mode: visible ? 'visible' : 'hidden', children: React.createElement(ConnectAgentView) }));
+  await act(async () => renderCached(true));
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('desktop');
+  await act(async () => button('connect.tabCloud').click());
+  await act(async () => renderCached(false));
+  await act(async () => renderCached(true));
+  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  fixture.connectSetupRequest = { method: 'terminal' };
+  await act(async () => renderCached(true));
+  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('terminal');
 });

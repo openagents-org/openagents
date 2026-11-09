@@ -41,6 +41,13 @@ const { classifyRunFailure, classifiedError, isClassifiedError } = require('./ru
 const { maskSecretValues } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
+/** The variable each run hands its key in; every agent's provider names it as key_env. */
+const PROVIDER_KEY_ENV = 'OPENAGENTS_HERMES_API_KEY';
+// `hermes config set` calls from all Hermes agents in this process, one at a time.
+let configWrites = Promise.resolve();
+let legacyEndpointReleased = false;
+/** A Windows launcher script, which Node runs only through cmd.exe. */
+const isWindowsShim = (file) => /\.(cmd|bat)$/i.test(String(file || ''));
 const HERMES_INSTALL_HINT = IS_WINDOWS
   ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex"'
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
@@ -55,6 +62,14 @@ const TOOLSET_WARNING_RE = /^Warning: Unknown toolsets:/;
 // (t("cli.resume.session_not_found")), so this only matches the English text;
 // under another locale a lost session is not recognised as lost.
 const SESSION_NOT_FOUND_RE = /session not found/i;
+// What Hermes says when a resumed session was opened on credentials that are
+// no longer in config.yaml: "This chat can't use the API key it was started
+// with any more (model.api_key: removed from config.yaml since this session
+// started), so nothing can run in it." A session pins its credentials, so a
+// session begun on the device-wide `model:` key an earlier version wrote
+// (handed back once each agent got a provider of its own) could never run
+// again; only a new session can. English only, like SESSION_NOT_FOUND_RE.
+const SESSION_CREDENTIALS_GONE_RE = /(?:can't|cannot) use the (?:API key|credentials?) it was started with|removed from config\.yaml since this session started/i;
 const MAX_HISTORY_ENTRIES = 12;
 const OPENAGENTS_RULES = [
   '\n## OpenAgents-specific Rules',
@@ -155,6 +170,41 @@ class HermesAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   _findHermesBinary() {
+    const found = this._locateHermesBinary();
+    return IS_WINDOWS ? HermesAdapter.nativeExeFor(found) : found;
+  }
+
+  /**
+   * The hermes.exe a Windows `.cmd`/`.bat` launcher stands for, else `file`.
+   *
+   * Every turn runs `hermes chat -q <prompt>` with the prompt as an argument.
+   * Node will not start a `.cmd` without a shell (EINVAL since the
+   * CVE-2024-27980 fix), and a shell is no answer: cmd.exe re-reads the prompt
+   * text, so `&`, `|` or `%` in a message would run as commands. A launcher
+   * found first on PATH therefore failed every message with "spawn EINVAL".
+   * Looked for, in order: a hermes.exe beside it, an .exe the launcher names
+   * (absolute, or relative to its own folder as `%~dp0`), and the native
+   * installer's venv.
+   */
+  static nativeExeFor(file, { exists = fs.existsSync, read = fs.readFileSync, localAppData } = {}) {
+    if (!file || !isWindowsShim(file)) return file;
+    const dir = path.win32.dirname(file);
+    const candidates = [path.win32.join(dir, 'hermes.exe')];
+    let text = '';
+    try { text = String(read(file, 'utf8')).slice(0, 64 * 1024); } catch {}
+    for (const m of text.matchAll(/"?((?:%~?dp0%?\\?|[A-Za-z]:\\)[^"\r\n]*?\.exe)"?/gi)) {
+      const named = m[1].replace(/^%~?dp0%?\\?/i, `${dir}\\`);
+      candidates.push(path.win32.normalize(named));
+    }
+    const appData = localAppData || process.env.LOCALAPPDATA || path.win32.join(os.homedir(), 'AppData', 'Local');
+    candidates.push(path.win32.join(appData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe'));
+    for (const c of candidates) {
+      try { if (exists(c)) return c; } catch {}
+    }
+    return file;
+  }
+
+  _locateHermesBinary() {
     const home = os.homedir();
 
     // Tier 1: PATH (enriched env so we see the dirs the launcher adds; a fresh
@@ -556,7 +606,103 @@ class HermesAdapter extends BaseAdapter {
     );
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     if (this.yolo) args.push('--yolo');
+    const endpoint = this._endpoint();
+    if (endpoint) {
+      args.push('--provider', endpoint.provider);
+      if (endpoint.model) args.push('-m', endpoint.model);
+    }
     return args;
+  }
+
+  /**
+   * This agent's own endpoint, or null for one on Hermes's own sign-in.
+   *
+   * Hermes reads a custom endpoint only from its config.yaml, and once kept a
+   * single one for the whole device under `model:`. Every keyed Hermes agent
+   * wrote its URL and key there, so the last one saved ran all of them: a
+   * second agent on another relay took over the first one's endpoint, and a
+   * key rewritten under a running session ended it with
+   * "launch_credentials_unavailable". Each agent now has a provider of its
+   * own under `providers:`, named for the agent and picked per run with
+   * `--provider`; its key is never written to the file but read from this
+   * run's environment through the provider's `key_env`.
+   */
+  _endpoint() {
+    const env = this.agentEnv || {};
+    const baseUrl = String(env.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (!baseUrl) return null;
+    return {
+      provider: HermesAdapter.providerName(this.agentName),
+      baseUrl,
+      apiKey: String(env.LLM_API_KEY || env.OPENAI_API_KEY || '').trim(),
+      model: String(env.LLM_MODEL || '').trim(),
+    };
+  }
+
+  /**
+   * The `providers:` key for an agent. Hermes takes lower-case letters,
+   * digits, `-` and `_`; a name that had to be changed to fit gets a short
+   * hash of the original, so `Hermes 1` and `hermes-1` stay two providers.
+   */
+  static providerName(agentName) {
+    const raw = String(agentName || '');
+    const slug = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 40) || 'agent';
+    if (slug === raw) return `openagents-${slug}`;
+    const hash = crypto.createHash('sha1').update(raw).digest('hex').slice(0, 6);
+    return `openagents-${slug}-${hash}`;
+  }
+
+  /**
+   * Write this agent's provider into the config.yaml its runs read (its
+   * profile's), once per endpoint. `hermes config set` owns the schema and
+   * the file's location; writes from every Hermes agent in this daemon are
+   * queued, because each is a read-modify-write of the same file and two at
+   * once could drop one agent's entry.
+   */
+  async _ensureProvider(endpoint) {
+    const stamp = [this._hermesBin, this.hermesProfile, endpoint.provider, endpoint.baseUrl].join('\n');
+    if (this._providerStamp === stamp) return;
+    const profile = this.hermesProfile && this.hermesProfile !== 'default' ? ['-p', this.hermesProfile] : [];
+    const key = `providers.${endpoint.provider}`;
+    const write = async () => {
+      HermesAdapter.releaseLegacyEndpoint();
+      await this._hermesConfigSet([...profile, 'config', 'set', `${key}.api`, endpoint.baseUrl]);
+      await this._hermesConfigSet([...profile, 'config', 'set', `${key}.key_env`, PROVIDER_KEY_ENV]);
+    };
+    const queued = configWrites.then(write, write);
+    configWrites = queued.catch(() => {});
+    try {
+      await queued;
+    } catch (e) {
+      throw classifiedError(
+        `Hermes could not save this agent's endpoint to its config.yaml: ${this._redact(e && e.message)}`,
+      );
+    }
+    this._providerStamp = stamp;
+  }
+
+  /** One `hermes config set …`, in the environment this agent's runs get. */
+  _hermesConfigSet(args) {
+    const bridged = bridgeSpawn(this._hermesBin, args, { env: { ...(this.agentEnv || process.env) }, windowsHide: true });
+    return new Promise((resolve, reject) => {
+      execFile(bridged.file, bridged.args, { ...bridged.opts, timeout: 30000 }, (err, _stdout, stderr) => {
+        if (err) reject(new Error(String(stderr || '').trim() || err.message));
+        else resolve();
+      });
+    });
+  }
+
+  /**
+   * Hand back the device-wide `model:` lines an earlier version wrote for a
+   * keyed agent (restoreNativeAuth: only while they are still exactly what it
+   * wrote). No agent needs them now, and left in place they kept a relay and
+   * its key under the user's own `hermes` and every signed-in agent. Once per
+   * process.
+   */
+  static releaseLegacyEndpoint() {
+    if (legacyEndpointReleased) return;
+    legacyEndpointReleased = true;
+    try { HermesAdapter.restoreNativeAuth(); } catch {}
   }
 
   /**
@@ -575,11 +721,24 @@ class HermesAdapter extends BaseAdapter {
     if (this._stoppedBeforeStart(channelName)) {
       return { stopped: true, exitCode: null, text: '', sessionId: null, detail: '' };
     }
+    // Only a launcher script was found (nativeExeFor had no hermes.exe to
+    // swap in): say so instead of Node's bare "spawn EINVAL".
+    if (IS_WINDOWS && isWindowsShim(this._hermesBin) && !isWslBinary(this._hermesBin)) {
+      throw classifiedError(
+        `Hermes was found only as the launcher script ${this._hermesBin}, which cannot be run ` +
+        'with the message as an argument. Reinstall Hermes so that hermes.exe is present, ' +
+        `then restart the agent: ${HERMES_INSTALL_HINT}`,
+      );
+    }
+
+    const endpoint = this._endpoint();
+    if (endpoint) await this._ensureProvider(endpoint);
     const args = this._buildHermesCmd(prompt, resumeId);
-    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
+    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''})`);
 
     const env = { ...(this.agentEnv || process.env) };
     if (prefillFile) env[PREFILL_ENV] = prefillFile;
+    if (endpoint) env[PROVIDER_KEY_ENV] = endpoint.apiKey;
 
     // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
     // the bridge in ../wsl (which also forces detached off, there being no
@@ -675,6 +834,11 @@ class HermesAdapter extends BaseAdapter {
   async _converse(channelName, content) {
     const resumeId = this._channelSessions[channelName] || null;
     const run = await this._attemptTurn(channelName, content, resumeId);
+    if (resumeId && !run.stopped && SESSION_CREDENTIALS_GONE_RE.test(`${run.text || ''}\n${run.detail || ''}`)) {
+      this._log(`Hermes session ${resumeId} was started on credentials no longer in config.yaml, starting a new one`);
+      this._forgetSession(channelName);
+      return this._attemptTurn(channelName, content, null);
+    }
     const neverBegan = !run.stopped && run.exitCode !== 0 && !run.sessionId;
     if (!resumeId || !neverBegan) return run;
 
@@ -803,87 +967,17 @@ class HermesAdapter extends BaseAdapter {
     return removed;
   }
 
-  /**
-   * Point Hermes at a custom OpenAI-compatible endpoint from user-provided
-   * LLM_API_KEY / LLM_BASE_URL / LLM_MODEL values. Called by saveAgentEnv when
-   * type === 'hermes', same pattern as OpenClaw's configureNativeAuth.
-   *
-   * Hermes has no env-var path for a custom endpoint (OPENAI_BASE_URL is
-   * honored only for its built-in openai provider) — the supported form is the
-   * `model:` section of its config.yaml:
-   *   model: { default: <id>, provider: custom, base_url: <url>, api_key: <key> }
-   * Rather than hand-writing that YAML (and clobbering user config), drive
-   * Hermes's own `hermes config set` CLI: it owns the schema, merges into the
-   * existing file, and resolves its platform config path itself (~/.hermes on
-   * Unix, %LOCALAPPDATA%\hermes on native Windows, in-distro under WSL).
-   *
-   * Without this, a remotely-created hermes agent died on every message with
-   * "No inference provider configured" — the workspace's API-key field was a
-   * silent no-op for this type.
-   *
-   * Only acts when LLM_BASE_URL is set: a user signed in via `hermes setup`
-   * (the Nous login) must keep their own provider selection untouched.
-   *
-   * The `model:` lines this replaces are recorded (recordNativeAuth), so
-   * restoreNativeAuth can hand them back when an agent moves to the sign-in.
-   */
-  static configureNativeAuth(env) {
-    const vals = env || {};
-    const baseUrl = String(vals.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
-    if (!baseUrl) return { skipped: true, reason: 'no LLM_BASE_URL' };
-    const model = String(vals.LLM_MODEL || '').trim();
-    const apiKey = String(vals.LLM_API_KEY || '').trim();
-
-    // Borrow the adapter's binary resolution without running the constructor.
-    const probe = Object.create(HermesAdapter.prototype);
-    probe._log = () => {};
-    const bin = probe._findHermesBinary();
-    if (!bin) return { skipped: true, reason: 'hermes binary not found' };
-    // An in-distro hermes keeps its config inside WSL, out of reach of a file read.
-    const configFile = isWslBinary(bin) ? null : HermesAdapter.configFile();
-    const before = configFile ? readTextOrEmpty(configFile) : null;
-
-    const { execFileSync } = require('child_process');
-    const run = (args) => {
-      // Same rewrite the spawn bridge does, for the one call here that needs to
-      // be synchronous: an in-distro hermes is only reachable through wsl.exe.
-      const { file, args: argv } = bridgeSpawn(bin, args);
-      execFileSync(file, argv, {
-        stdio: 'ignore',
-        timeout: 20000,
-        windowsHide: true,
-      });
-    };
-
-    run(['config', 'set', 'model.provider', 'custom']);
-    run(['config', 'set', 'model.base_url', baseUrl]);
-    if (model) run(['config', 'set', 'model.default', model]);
-    if (apiKey) run(['config', 'set', 'model.api_key', apiKey]);
-    if (configFile) {
-      try { HermesAdapter.recordNativeAuth(configFile, before, readTextOrEmpty(configFile)); } catch {}
-    }
-    return { configured: true };
-  }
-
-  /** The default profile's config.yaml, the one `hermes config set` writes. */
-  static configFile(env = process.env) {
-    const homeEnv = String(env.HERMES_HOME || '').trim();
-    const home = homeEnv || (IS_WINDOWS
-      ? path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
-      : path.join(os.homedir(), '.hermes'));
-    return path.join(home, 'config.yaml');
-  }
-
-  /** Where the `model:` lines from before configureNativeAuth are kept. */
+  /** Where the `model:` lines replaced by an earlier version's custom endpoint are kept. */
   static nativeAuthRecordFile() {
     return path.join(os.homedir(), '.openagents', 'native-auth', 'hermes.json');
   }
 
   /**
-   * Remember what configureNativeAuth replaced. `original` is each managed
-   * `model:` line from before the FIRST custom endpoint, kept across later
-   * ones; `written` identifies each as configureNativeAuth left it, by hash
-   * only, so the key it wrote is not copied here.
+   * Remember what writing a custom endpoint into `model:` replaced (earlier
+   * versions did; each agent now has a provider of its own, see _endpoint).
+   * `original` is each managed `model:` line from before the FIRST custom
+   * endpoint, kept across later ones; `written` identifies each as that write
+   * left it, by hash only, so the key it wrote is not copied here.
    */
   static recordNativeAuth(configFile, beforeText, afterText) {
     const recordFile = HermesAdapter.nativeAuthRecordFile();
@@ -899,13 +993,13 @@ class HermesAdapter extends BaseAdapter {
   }
 
   /**
-   * Hand Hermes back the `model:` lines configureNativeAuth replaced, for an
-   * agent that now runs on the `hermes setup` sign-in. Without this the custom
+   * Hand Hermes back the `model:` lines an earlier version replaced with a
+   * custom endpoint, for an agent that now runs on the `hermes setup` sign-in
+   * (and, through releaseLegacyEndpoint, once for every device). Without this the custom
    * endpoint and key stayed in config.yaml, and the signed-in agent kept
    * calling them (401 once the key was gone or wrong).
    *
-   * Only while every one of them is still exactly what configureNativeAuth
-   * wrote: lines the user has changed since (`hermes setup`, `hermes model`)
+   * Only while every one of them is still exactly what that write left: lines the user has changed since (`hermes setup`, `hermes model`)
    * are theirs and stay. Either way the record is dropped.
    */
   static restoreNativeAuth() {
@@ -929,7 +1023,7 @@ class HermesAdapter extends BaseAdapter {
   }
 
   /**
-   * The lines of a config.yaml text that configureNativeAuth writes, verbatim
+   * The lines of a config.yaml text that a custom endpoint used to be written to, verbatim
    * or null where absent: the top-level `model:` line itself (`hermes config
    * set` turns a plain `model: <id>` into a mapping) and its `default`,
    * `provider`, `base_url` and `api_key` keys.
@@ -970,7 +1064,7 @@ class HermesAdapter extends BaseAdapter {
   }
 }
 
-// What configureNativeAuth writes into config.yaml: the `model:` line and these keys under it.
+// What a custom endpoint used to be written to in config.yaml: the `model:` line and these keys under it.
 const MODEL_KEYS = ['default', 'provider', 'base_url', 'api_key'];
 const MODEL_LINE_NAMES = ['header', ...MODEL_KEYS];
 
@@ -1000,10 +1094,6 @@ function locateModelLines(text) {
 
 function hashLine(line) {
   return line == null ? null : crypto.createHash('sha256').update(line).digest('hex');
-}
-
-function readTextOrEmpty(file) {
-  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
 }
 
 function readRecord(file) {

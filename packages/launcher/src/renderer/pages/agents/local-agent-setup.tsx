@@ -236,7 +236,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   const unprobeableReason = agentCredentials(type).reason
   return <div className="space-y-4">
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {health && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: health.message || null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
+    {health && (installed || !loginCmd) && <AuthStatusBanner authInfo={{ ready: health.ready, authMode: health.auth_mode || null, message: installed ? health.message || null : t("agents.loginStatus.installOnAdd") }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
     {loginCmd && fields.length > 0 && <Tabs value={authTab} onValueChange={(value) => chooseTab(value as "cli" | "key")}>
       <TabsList className="grid w-full grid-cols-2">

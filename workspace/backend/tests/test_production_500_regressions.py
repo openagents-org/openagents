@@ -91,7 +91,7 @@ def test_campaign_status_survives_first_login_race(db, monkeypatch):
     })
     monkeypatch.setattr(route.campaign, "enabled", lambda: True)
     monkeypatch.setattr(route.campaign, "ineligible_reason", lambda _: None)
-    monkeypatch.setattr(route.campaign, "status_payload", lambda *_: {"enabled": True})
+    monkeypatch.setattr(route.campaign, "status_payload", lambda *_, **__: {"enabled": True})
     response = route.campaign_status(authorization="Bearer test", db=db)
     assert response["data"]["enabled"] is True
 

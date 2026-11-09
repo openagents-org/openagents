@@ -347,8 +347,8 @@ describe('private patch', () => {
 
   it('names a model on a gateway route even when none is configured', () => {
     const { text } = buildPrivatePatch({ gatewayBaseUrl: 'https://relay.example.com/v1' });
-    assert.match(text, /^ {10}- id: "deepseek-v4-flash"$/m);
-    assert.match(text, /^ {4}model: "deepseek-v4-flash"$/m);
+    assert.match(text, /^ {10}- id: "deepseek-v4\.1-flash"$/m);
+    assert.match(text, /^ {4}model: "deepseek-v4\.1-flash"$/m);
   });
 
   it('quotes a hostile gateway URL instead of letting it inject YAML', () => {

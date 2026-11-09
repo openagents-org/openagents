@@ -22,8 +22,8 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   copy.mockClear(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
-async function render(value = pairing) {
-  await act(async () => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(OnboardingPairingPanel, { pairing: value }) })));
+async function render(value = pairing, extra: Partial<React.ComponentProps<typeof OnboardingPairingPanel>> = {}) {
+  await act(async () => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(OnboardingPairingPanel, { pairing: value, ...extra }) })));
 }
 function button(text: string) {
   return [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes(text))!;
@@ -65,4 +65,56 @@ it('stops offering an expired pairing code on both setup paths', async () => {
   const copies = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy command"]');
   expect(copies[0].disabled).toBe(false);
   expect(copies[1].disabled).toBe(true);
+});
+
+
+it.each(['Command line', 'Desktop app'])('renews an expired code without resetting %s choices', async (method) => {
+  const renew = vi.fn();
+  const expired = { ...pairing, expiresAt: new Date(Date.now() - 1000).toISOString() };
+  await render(expired, { onRegenerate: renew });
+  await act(async () => button(method).click());
+  if (method === 'Command line') await act(async () => button('Windows').click());
+  expect(button('TEST-CODE').disabled).toBe(true);
+  await act(async () => button('Get a new code').click());
+  expect(renew).toHaveBeenCalledTimes(1);
+  await render(expired, { onRegenerate: renew, regenerating: true });
+  const pending = button('Generating code');
+  expect(pending.disabled).toBe(true);
+  await act(async () => pending.click());
+  expect(renew).toHaveBeenCalledTimes(1);
+  await render({ ...pairing, code: 'NEWX-CODE' }, { onRegenerate: renew });
+  expect(button(method).getAttribute('aria-pressed')).toBe('true');
+  if (method === 'Command line') {
+    expect(button('Windows').getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('code')?.textContent).toContain('install.ps1');
+  } else expect(container.querySelectorAll('a')).toHaveLength(3);
+  expect(button('NEWX-CODE').disabled).toBe(false);
+  await act(async () => button('NEWX-CODE').click());
+  expect(copy).toHaveBeenCalledWith('NEWX-CODE');
+});
+
+
+it('honors an explicit location choice while allowing manual changes until another request', async () => {
+  const computer = { method: 'desktop' as const };
+  await render(pairing, { methodRequest: computer });
+  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelectorAll('a')).toHaveLength(3);
+  await act(async () => button('Command line').click());
+  await render(pairing, { methodRequest: computer });
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  await render(pairing, { methodRequest: { method: 'desktop' } });
+  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  await render(pairing, { methodRequest: { method: 'terminal' } });
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+});
+
+
+it('preserves a manual setup choice when a cached panel becomes visible again', async () => {
+  const request = { method: 'desktop' as const };
+  const cached = (visible: boolean) => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(React.Activity, { mode: visible ? 'visible' : 'hidden', children: React.createElement(OnboardingPairingPanel, { pairing, methodRequest: request }) }) }));
+  await act(async () => cached(true));
+  await act(async () => button('Command line').click());
+  await act(async () => cached(false));
+  await act(async () => cached(true));
+  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
 });

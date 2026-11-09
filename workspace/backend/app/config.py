@@ -164,6 +164,11 @@ class Config:
     # the answer turn (which dominates latency) for verbose models.
     YUMI_MAX_TOKENS: int = int(os.environ.get("YUMI_MAX_TOKENS", "800"))
 
+    # Acenta hosted agents ("Cloud" tab). Disabled unless both are set; the
+    # secret authenticates this server to Acenta's integration API.
+    ACENTA_API_URL: str = os.environ.get("ACENTA_API_URL", "")
+    ACENTA_INTEGRATION_SECRET: str = os.environ.get("ACENTA_INTEGRATION_SECRET", "")
+
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     GOOGLE_OAUTH_CLIENT_SECRET: str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")

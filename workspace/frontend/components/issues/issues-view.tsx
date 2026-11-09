@@ -1,16 +1,15 @@
 'use client';
 
-import { TasksView } from '@/components/tasks/tasks-view';
 import { useLayout } from '@/components/layout/layout-context';
 import { requestedResource, resourcePath } from '@/lib/resource-link';
 import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CircleDot,
-  Info,
   Check,
   LayoutList,
   KanbanSquare,
+  Columns2,
   MessageSquare,
   Plus,
   Search,
@@ -28,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { DetailHeader } from '@/components/layout/app-header';
 import { IssueEditor } from './issue-editor';
 import { IssueDiscussion } from './issue-discussion';
+import { IssueBoardTabs, useIssueBoards } from './issue-boards';
 import {
   ErrorNotice,
   StatusIcon,
@@ -41,29 +41,29 @@ import {
   useIssueTime,
 } from './issue-ui';
 
-export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
+export function IssuesView() {
   const { workspace } = useWorkspace();
   // A workspace switch must discard selection and pending requests.
-  return <IssueWorkspace key={workspace?.workspaceId} initialWork={initialWork} />;
+  return <IssueWorkspace key={workspace?.workspaceId} />;
 }
 
-function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals } = useWorkspace();
+function IssueWorkspace() {
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace } = useWorkspace();
+  const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
-  const unreadTotal = Object.values(unreadByIssue).reduce((sum, n) => sum + n, 0);
-  const { pendingTaskChannel, pendingIssueId, setPendingIssueId } = useLayout();
-  const [showWork, setShowWork] = useState(initialWork);
-  useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
+  const { pendingIssueId, setPendingIssueId } = useLayout();
   const t = useT();
   const issueTime = useIssueTime();
   const confirmDelete = useConfirmIssueDelete();
   const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
-    initialWork || typeof window === 'undefined'
+    typeof window === 'undefined'
       ? null
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
+  const selectedRef = useRef(selected);
   const selectIssue = (id: string | null) => {
+    selectedRef.current = id;
     const outer = new URL(window.location.href);
     const isHashRoute = outer.hash.startsWith('#/');
     const url = isHashRoute ? new URL(outer.hash.slice(1), outer.origin) : outer;
@@ -76,12 +76,13 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   useEffect(() => {
     if (!pendingIssueId) return;
     selectIssue(pendingIssueId);
-    setShowWork(false);
     setPendingIssueId(null);
   }, [pendingIssueId, setPendingIssueId]);
   useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
-  const [board, setBoard] = useState(false);
+  const [view, setView] = useState<'list' | 'board' | 'split'>('list');
+  const board = view === 'board';
+  const split = view === 'split';
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
@@ -102,6 +103,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       // Drop a poll in flight: it may still list the issue.
       ++requestVersion.current;
       setIssues((current) => current.filter((i) => i.id !== issue.id));
+      if (selectedRef.current === issue.id) selectIssue(null);
       reload();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -123,6 +125,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               assignedToMe: status === 'mine',
               activeOnly,
               query,
+              board: boardId,
               offset: page * 100,
             }),
           ),
@@ -155,7 +158,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       clearTimeout(debounce);
       clearInterval(interval);
     };
-  }, [status, activeOnly, query, revision, pages]);
+  }, [status, activeOnly, query, revision, pages, boardId]);
 
   const preview = (description: string) =>
     description
@@ -177,12 +180,14 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     return <div key={issue.id} className="relative">
     <button
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
+      aria-current={split && selected === issue.id ? true : undefined}
       onClick={() => selectIssue(issue.id)}
       className={cn(
         'group w-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
+        split && selected === issue.id && 'bg-muted ring-1 ring-inset ring-border',
         working && 'thread-wip',
         finished && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
@@ -284,7 +289,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
     </div>;
   };
 
-  if (selected)
+  if (selected && !split)
     return (
       <IssueDiscussion
         key={selected}
@@ -292,12 +297,13 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         onBack={() => {
           selectIssue(null);
           reload();
+          void reloadBoards();
         }}
         onChanged={reload}
       />
     );
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="@container/issues flex h-full min-h-0 min-w-0 flex-col bg-background">
       {/* New issue sits beside the title, as the list panels' New buttons do:
           in the header's right corner it went unnoticed on a wide screen. */}
       <DetailHeader
@@ -310,26 +316,26 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </Button>
         </div>}
       />
-      <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
-        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}
-          {unreadTotal > 0 && <span className="rounded-full bg-destructive px-1.5 text-xs text-white" aria-label={t('issues.unreadUpdates', { count: unreadTotal })}>{unreadTotal > 99 ? '99+' : unreadTotal}</span>}
-        </Button>
-        <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
-          {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
-        </Button>
-      </div>
-      {showWork ? <div className="flex min-h-0 flex-1 flex-col">
-        <div role="note" className="mx-5 mt-4 flex shrink-0 items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950/30 sm:mx-8">
-          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
-          <div>
-            <p className="font-medium">{t('issues.agentTasksRetirementTitle')}</p>
-            <p className="mt-1 text-muted-foreground">{t('issues.agentTasksRetirementDescription')}</p>
-            <button type="button" className="mt-2 font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setShowWork(false)}>{t('issues.goToTeamIssues')}</button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1"><TasksView onNewIssue={() => setCreateOpen(true)} onOpenIssue={selectIssue} /></div>
-      </div> : <>
       <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-5 pt-3 sm:px-8">
+        <div className="w-full min-w-0">
+          <IssueBoardTabs
+            boards={boards}
+            boardId={boardId}
+            onSelect={(id) => {
+              if (id === boardId) return;
+              setBoardId(id);
+              setIssues([]);
+              setNextOffset(null);
+              setPages(1);
+              selectIssue(null);
+            }}
+            onChanged={(selectId) => {
+              void reloadBoards();
+              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null); }
+              reload();
+            }}
+          />
+        </div>
         <div
           className="flex items-center gap-5 overflow-x-auto"
           role="group"
@@ -378,11 +384,11 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               size="icon"
               className={cn(
                 'size-6 rounded-sm [&_svg]:size-3.5',
-                !board && 'bg-background shadow-xs',
+                view === 'list' && 'bg-background shadow-xs',
               )}
               aria-label={t('issues.list')}
-              aria-pressed={!board}
-              onClick={() => setBoard(false)}
+              aria-pressed={view === 'list'}
+              onClick={() => { setView('list'); selectIssue(null); }}
             >
               <LayoutList />
             </Button>
@@ -395,14 +401,26 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               )}
               aria-label={t('issues.board')}
               aria-pressed={board}
-              onClick={() => setBoard(true)}
+              onClick={() => { setView('board'); selectIssue(null); }}
             >
               <KanbanSquare />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('size-6 rounded-sm [&_svg]:size-3.5', split && 'bg-background shadow-xs')}
+              aria-label={t('issues.split')}
+              title={t('issues.split')}
+              aria-pressed={split}
+              onClick={() => setView('split')}
+            >
+              <Columns2 />
             </Button>
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto" aria-busy={loading}>
+      <div className="flex min-h-0 flex-1">
+      <div className={cn('min-h-0 min-w-0 flex-1 overflow-auto', split && '@[800px]/issues:w-[36%] @[800px]/issues:max-w-[420px] @[800px]/issues:flex-none @[800px]/issues:border-r', split && selected && 'hidden @[800px]/issues:block')} aria-label={t('issues.list')} aria-busy={loading}>
         {error && (
           <div className="px-5 pt-5 sm:px-8">
             <ErrorNotice message={error} retry={reload} />
@@ -491,14 +509,25 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </div>
         )}
       </div>
-      </>}
+      {split && <section aria-label={t('issues.discussion')} className={cn('min-h-0 min-w-0 flex-1', !selected && 'hidden @[800px]/issues:block')}>
+        {selected ? <IssueDiscussion
+          key={selected}
+          id={selected}
+          embedded
+          onBack={() => { selectIssue(null); reload(); }}
+          onChanged={reload}
+        /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">{t('issues.selectIssue')}</div>}
+      </section>}
+      </div>
       <IssueEditor
         open={createOpen}
         onOpenChange={setCreateOpen}
+        boardId={boardId}
         onSaved={(issue) => {
           setCreateOpen(false);
           selectIssue(issue.id);
           reload();
+          void reloadBoards();
         }}
       />
     </div>
