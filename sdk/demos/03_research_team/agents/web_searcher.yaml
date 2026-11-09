@@ -87,6 +87,27 @@ config:
         required:
           - query
 
+    - name: "search_cloro"
+      description: "Live web search using cloro. Returns Google results, or the answer and cited sources of Google AI Mode or Bing AI Mode. Requires CLORO_API_KEY."
+      implementation: "tools.cloro_search.search_cloro"
+      input_schema:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The search query, or the prompt for an AI Mode engine"
+          engine:
+            type: string
+            description: "Engine: 'google' (default), 'aimode' or 'bing_aimode'"
+          num_results:
+            type: integer
+            description: "Number of results or sources (default 5)"
+          country:
+            type: string
+            description: "ISO 3166-1 alpha-2 country code (default 'US')"
+        required:
+          - query
+
   instruction: |
     You are the WEB SEARCHER. When you get a task, search and report results.
 
