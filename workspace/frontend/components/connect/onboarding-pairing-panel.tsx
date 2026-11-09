@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
+import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
+import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { desktopDownloads } from '@/lib/desktop-downloads';
@@ -34,7 +35,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
 }) {
   const t = useT();
   const isMobile = useIsMobile();
-  const [method, setMethod] = useState<'desktop' | 'terminal'>(methodRequest?.method ?? 'terminal');
+  const [method, setMethod] = useState<'desktop' | 'terminal' | 'agent'>(methodRequest?.method ?? 'terminal');
   const appliedMethodRequest = useRef(methodRequest);
   useEffect(() => {
     if (methodRequest && methodRequest !== appliedMethodRequest.current) {
@@ -53,6 +54,12 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   const remaining = new Date(pairing.expiresAt).getTime() - now;
   const expired = remaining <= 0;
   const terminal = method === 'terminal';
+  const fromAgent = method === 'agent';
+  const expiryBadge = (
+    <span className={cn('rounded-full px-2 py-1 text-[11px] font-medium', expired ? 'bg-destructive/5 text-destructive' : remaining < 300000 ? 'bg-amber-50 text-amber-700' : 'bg-muted/70 text-muted-foreground')} role="timer">
+      {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
+    </span>
+  );
   const install = os === 'windows'
     ? 'irm https://openagents.org/install.ps1 | iex'
     : 'curl -fsSL https://openagents.org/install.sh | bash';
@@ -63,10 +70,11 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
         <p className="mb-2 text-[11px] font-medium text-muted-foreground">{t('onboarding.deviceStepLabel')}</p>
         <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
         <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3" role="group" aria-label={t('onboarding.setupMethod')}>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3" role="group" aria-label={t('onboarding.setupMethod')}>
           {([
             { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
             { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }] },
+            { id: 'agent', icon: Bot, label: 'connect.agentJoinTitle', hint: 'connect.agentJoinTarget', platforms: [{ icon: 'agents/claude', label: 'Claude Code' }, { icon: 'agents/codex', label: 'Codex' }] },
           ] as const).map(({ id, icon: Icon, label, hint, platforms }) => {
             const active = method === id;
             return (
@@ -78,7 +86,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
                   <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
                   <span className="mt-1.5 flex items-center gap-2.5">
                     {platforms.map((platform) => (
-                      <img key={platform.icon} src={`/icons/platforms/${platform.icon}.svg`}
+                      <img key={platform.icon} src={platform.icon.startsWith('agents/') ? `/icons/${platform.icon}.svg` : `/icons/platforms/${platform.icon}.svg`}
                         alt={platform.label} title={platform.label} width={14} height={14}
                         className="size-3.5 object-contain opacity-60 dark:invert" />
                     ))}
@@ -93,6 +101,18 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
         </div>
       </div>
 
+      {fromAgent ? (
+      <div className="p-5 sm:p-6">
+        <div className="min-w-0 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold leading-7">{t('connect.agentJoinStepTitle')}</h3>
+            {expiryBadge}
+          </div>
+          <AgentJoinInstruction code={pairing.code} disabled={expired} />
+          <p className="text-[13px] leading-6 text-muted-foreground">{t('connect.agentJoinHint')}</p>
+        </div>
+      </div>
+      ) : (
       <div className="space-y-6 p-5 sm:p-6">
         <div className="flex gap-3">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2f6bff]/[0.07] text-xs font-semibold text-[#2f6bff]">1</span>
@@ -133,9 +153,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
           <div className="min-w-0 flex-1 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.connectCliTitle' : 'onboarding.enterAppCode')}</h3>
-              <span className={cn('rounded-full px-2 py-1 text-[11px] font-medium', expired ? 'bg-destructive/5 text-destructive' : remaining < 300000 ? 'bg-amber-50 text-amber-700' : 'bg-muted/70 text-muted-foreground')} role="timer">
-                {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
-              </span>
+              {expiryBadge}
             </div>
             <button type="button" onClick={() => copyToClipboard(pairing.code)} disabled={expired} aria-label={t('connect.nodeCopyCode')}
                 className="group flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-xl border border-[#2f6bff]/20 bg-[#2f6bff]/[0.025] px-3 py-4 transition-colors hover:border-[#2f6bff]/40 hover:bg-[#2f6bff]/[0.05] disabled:opacity-40">
@@ -155,13 +173,14 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
           </div>
         </div>
       </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-5 py-3 sm:px-6">
         <div className="flex min-w-[180px] flex-1 items-start gap-3" role="status">
           {!expired && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-[#2f6bff]" />}
           <div>
-            <p className="text-[13px] font-medium">{t(expired ? 'connect.nodePairingExpired' : 'onboarding.waitingComputerHint')}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(expired ? (onRegenerate ? 'onboarding.renewCodeHint' : 'onboarding.expiredHint') : 'onboarding.nextAgentBody')}</p>
+            <p className="text-[13px] font-medium">{t(expired ? 'connect.nodePairingExpired' : fromAgent ? 'connect.agentJoinWaiting' : 'onboarding.waitingComputerHint')}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(expired ? (onRegenerate ? 'onboarding.renewCodeHint' : 'onboarding.expiredHint') : fromAgent ? 'connect.agentJoinNext' : 'onboarding.nextAgentBody')}</p>
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">

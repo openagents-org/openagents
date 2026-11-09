@@ -429,6 +429,15 @@ class WorkspaceApi {
     });
   }
 
+  /**
+   * Whether a pairing code was used yet (only its creator may ask). A device
+   * that was already paired keeps its node id when it redeems a new code, so
+   * this — not a new entry in the node list — is how such a pairing shows.
+   */
+  async getPairingCodeStatus(code: string): Promise<{ redeemed: boolean; nodeId: string | null; expired: boolean }> {
+    return this.request(`/v1/workspaces/${this.requireWorkspace()}/pairing-codes/${encodeURIComponent(code)}`);
+  }
+
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,

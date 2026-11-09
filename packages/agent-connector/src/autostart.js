@@ -19,15 +19,63 @@ const HOME = process.env.HOME || process.env.USERPROFILE || '';
 
 const SERVICE_LABEL = 'org.openagents.connector';
 
+const DEFAULT_PATH = {
+  darwin: '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin',
+  linux: '/usr/local/bin:/usr/bin:/bin',
+};
+
+// Written into the service when set: what the daemon needs to find the
+// agents' CLIs and reach the network the way the installing shell did.
+// No credentials: a proxy URL with user:pass@ in it is left out.
+const SERVICE_ENV_KEYS = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
+  'https_proxy', 'http_proxy', 'all_proxy', 'no_proxy',
+  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'OPENAGENTS_ENDPOINT',
+];
+
+/**
+ * The environment a service is written with, taken from `env`. PATH drops
+ * entries that belong only to the installing process (npx's cache, a
+ * project's node_modules/.bin, relative entries). Returns `{ env, skipped }`,
+ * `skipped` naming variables left out because they carry credentials.
+ */
+function serviceEnv(env = process.env) {
+  const out = {};
+  const skipped = [];
+  for (const key of SERVICE_ENV_KEYS) {
+    const value = env[key];
+    if (typeof value !== 'string' || value === '' || /[\r\n]/.test(value)) continue;
+    if (/PROXY$/i.test(key) && value.includes('@')) { skipped.push(key); continue; }
+    out[key] = value;
+  }
+  if (out.PATH) {
+    const sep = IS_WINDOWS ? ';' : ':';
+    out.PATH = out.PATH.split(sep).filter((d) => d && path.isAbsolute(d)
+      && !/[\\/]_npx[\\/]/.test(d) && !/[\\/]node_modules[\\/]\.bin$/.test(d)).join(sep);
+  }
+  return { env: out, skipped };
+}
+
 /**
  * Enable autostart on login.
+ *
+ * @param {string} configDir
+ * @param {object} [opts]
+ * @param {string} [opts.cliPath] - the CLI entry to run; defaults to this
+ *   package's. Pass a stable one when this package runs from npx's cache.
+ * @param {string} [opts.nodeBin]
+ * @param {object} [opts.env] - variables for the service (see serviceEnv);
+ *   without it only a default PATH is written, as before.
  */
-function enable(configDir) {
-  const nodeBin = whichBinary('node') || process.execPath;
-  const cliPath = path.resolve(__dirname, '..', 'bin', 'agent-connector.js');
+function enable(configDir, opts = {}) {
+  const nodeBin = opts.nodeBin || whichBinary('node') || process.execPath;
+  const cliPath = opts.cliPath || path.resolve(__dirname, '..', 'bin', 'agent-connector.js');
+  const env = { PATH: DEFAULT_PATH[process.platform] || DEFAULT_PATH.linux, ...(opts.env || {}) };
 
-  if (IS_MACOS) return _enableMacOS(nodeBin, cliPath, configDir);
-  if (IS_LINUX) return _enableLinux(nodeBin, cliPath, configDir);
+  if (IS_MACOS) return _enableMacOS(nodeBin, cliPath, configDir, env);
+  if (IS_LINUX) return _enableLinux(nodeBin, cliPath, configDir, env);
   if (IS_WINDOWS) return _enableWindows(nodeBin, cliPath, configDir);
   throw new Error(`Autostart not supported on ${process.platform}`);
 }
@@ -67,14 +115,15 @@ function isEnabled() {
 
 // ---- macOS: launchd ----
 
-function _enableMacOS(nodeBin, cliPath, configDir) {
-  const plistDir = path.join(HOME, 'Library', 'LaunchAgents');
-  fs.mkdirSync(plistDir, { recursive: true });
+function _xml(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-  const plistPath = path.join(plistDir, `${SERVICE_LABEL}.plist`);
+function renderPlist(nodeBin, cliPath, configDir, env) {
   const logPath = path.join(configDir, 'daemon.log');
-
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+  const envXml = Object.entries(env)
+    .map(([k, v]) => `    <key>${_xml(k)}</key>\n    <string>${_xml(v)}</string>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -82,8 +131,8 @@ function _enableMacOS(nodeBin, cliPath, configDir) {
   <string>${SERVICE_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${nodeBin}</string>
-    <string>${cliPath}</string>
+    <string>${_xml(nodeBin)}</string>
+    <string>${_xml(cliPath)}</string>
     <string>up</string>
     <string>--foreground</string>
   </array>
@@ -92,16 +141,23 @@ function _enableMacOS(nodeBin, cliPath, configDir) {
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>${logPath}</string>
+  <string>${_xml(logPath)}</string>
   <key>StandardErrorPath</key>
-  <string>${logPath}</string>
+  <string>${_xml(logPath)}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
-    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+${envXml}
   </dict>
 </dict>
 </plist>`;
+}
+
+function _enableMacOS(nodeBin, cliPath, configDir, env) {
+  const plistDir = path.join(HOME, 'Library', 'LaunchAgents');
+  fs.mkdirSync(plistDir, { recursive: true });
+
+  const plistPath = path.join(plistDir, `${SERVICE_LABEL}.plist`);
+  const plist = renderPlist(nodeBin, cliPath, configDir, env);
 
   fs.writeFileSync(plistPath, plist, 'utf-8');
   execSync(`launchctl load -w "${plistPath}"`, { stdio: 'pipe', timeout: 5000 });
@@ -119,26 +175,36 @@ function _disableMacOS() {
 
 // ---- Linux: systemd user unit ----
 
-function _enableLinux(nodeBin, cliPath, configDir) {
-  const unitDir = path.join(HOME, '.config', 'systemd', 'user');
-  fs.mkdirSync(unitDir, { recursive: true });
+function _systemdQuote(v) {
+  return `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')}"`;
+}
 
-  const unitPath = path.join(unitDir, 'openagents-connector.service');
-
-  const unit = `[Unit]
+function renderUnit(nodeBin, cliPath, env) {
+  const envLines = Object.entries(env)
+    .map(([k, v]) => `Environment=${_systemdQuote(`${k}=${v}`)}`).join('\n');
+  return `[Unit]
 Description=OpenAgents Connector Daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=${nodeBin} ${cliPath} up --foreground
+ExecStart=${_systemdQuote(nodeBin)} ${_systemdQuote(cliPath)} up --foreground
 Restart=on-failure
 RestartSec=10
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+${envLines}
 
 [Install]
 WantedBy=default.target
 `;
+}
+
+function _enableLinux(nodeBin, cliPath, configDir, env) {
+  const unitDir = path.join(HOME, '.config', 'systemd', 'user');
+  fs.mkdirSync(unitDir, { recursive: true });
+
+  const unitPath = path.join(unitDir, 'openagents-connector.service');
+
+  const unit = renderUnit(nodeBin, cliPath, env);
 
   fs.writeFileSync(unitPath, unit, 'utf-8');
   execSync('systemctl --user daemon-reload', { stdio: 'pipe', timeout: 5000 });
@@ -175,4 +241,4 @@ function _disableWindows() {
   return { enabled: false };
 }
 
-module.exports = { enable, disable, isEnabled };
+module.exports = { enable, disable, isEnabled, serviceEnv, renderPlist, renderUnit };

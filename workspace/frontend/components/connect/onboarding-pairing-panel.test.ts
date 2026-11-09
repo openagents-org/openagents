@@ -118,3 +118,17 @@ it('preserves a manual setup choice when a cached panel becomes visible again', 
   await act(async () => cached(true));
   expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
 });
+
+it('gives instructions to paste into Claude Code or Codex, with the code in the command', async () => {
+  await render();
+  await act(async () => button('From your agent').click());
+  expect(button('From your agent').getAttribute('aria-pressed')).toBe('true');
+  const text = container.querySelector('pre')?.textContent || '';
+  expect(text).toContain('Connect yourself to my OpenAgents workspace.');
+  expect(text).toContain('npx -y @openagents-org/agent-launcher@latest join TEST-CODE');
+  await act(async () => button('Copy instructions').click());
+  expect(copy).toHaveBeenCalledWith(text);
+  expect(container.querySelector('[role="status"]')?.textContent).toContain('Waiting for your agent to connect');
+  await act(async () => vi.advanceTimersByTimeAsync(1800000));
+  expect(button('Copy instructions').disabled).toBe(true);
+});

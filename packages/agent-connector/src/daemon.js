@@ -18,6 +18,7 @@ const {
 } = require('./env');
 const { configuredModel } = require('./agent-model');
 const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
+const { hostFreeEnv } = require('./host-agent');
 const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
@@ -1664,8 +1665,10 @@ async _runNodeCommand(n, cmd) {
 
     const logFd = fs.openSync(logFile, 'a');
 
-    // Build env with enhanced PATH (ensures node/npm are findable)
-    const env = getEnhancedEnv();
+    // Build env with enhanced PATH (ensures node/npm are findable). Started
+    // from inside an agent's chat (`agn join`), the daemon must not carry
+    // that chat's session variables on to the agents it spawns.
+    const env = getEnhancedEnv(hostFreeEnv(process.env));
     // Ensure the directory containing the node binary is on PATH
     const nodeBinDir = path.dirname(bin);
     if (env.PATH && !env.PATH.includes(nodeBinDir)) {
@@ -2052,6 +2055,8 @@ async _runNodeCommand(n, cmd) {
         // .claude/skills there failed with EPERM. Root it under ~/.openagents.
         workingDir: agentCfg.path || defaultAgentWorkdir(name),
         toolMode: agentCfg.tool_mode || 'skills',
+        // The conversation `agn join` created this agent from (Claude Code).
+        seedSession: agentCfg.seed_session || null,
         // Live runtime/connectivity status → daemon.status.json (Agents list/TUI).
         onStatus: (update) => this._applyAdapterStatus(name, info, update),
         logSink: (level, msg) => this._logAs(`adapter [${name}]`, level, msg),
