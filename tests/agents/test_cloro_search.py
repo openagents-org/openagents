@@ -117,6 +117,11 @@ class TestSearchCloro:
             result = search_cloro("test")
         assert result == "cloro search error: Not enough credits"
 
+    def test_non_object_json_returns_message(self, api_key):
+        with patch("openagents.tools.cloro_search.requests.post", return_value=_response(["unexpected"])):
+            result = search_cloro("test")
+        assert result == "cloro search error: unexpected response (HTTP 200)"
+
     def test_request_exception_returns_message(self, api_key):
         with patch("openagents.tools.cloro_search.requests.post", side_effect=Exception("connection reset")):
             result = search_cloro("test")

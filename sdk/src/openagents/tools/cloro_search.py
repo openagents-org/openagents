@@ -3,7 +3,7 @@ cloro web search tool for OpenAgents.
 
 This module returns live Google results, or the answer and cited sources of
 Google AI Mode or Bing AI Mode, through the cloro API
-(https://cloro.dev/docs?utm_source=openagents&utm_medium=byok).
+(https://cloro.dev/docs).
 
 Requires: CLORO_API_KEY environment variable.
 Uses the core `requests` dependency, so no extra install is needed.
@@ -32,7 +32,7 @@ def _get_api_key() -> str:
     if not api_key:
         raise ValueError(
             "CLORO_API_KEY environment variable is required. "
-            "Get your key from: https://dashboard.cloro.dev/api-keys?utm_source=openagents&utm_medium=byok"
+            "Get your key from: https://dashboard.cloro.dev/api-keys"
         )
     return api_key
 
@@ -82,6 +82,10 @@ def search_cloro(query: str, engine: str = "google", num_results: int = 5, count
     except Exception as e:
         logger.error(f"cloro search failed: {e}")
         return f"cloro search error: {e}"
+
+    if not isinstance(data, dict):
+        logger.error(f"cloro search failed: unexpected response (HTTP {response.status_code})")
+        return f"cloro search error: unexpected response (HTTP {response.status_code})"
 
     # Failures arrive as {"success": false, "error": {"code": "...", "message": "..."}}.
     if not response.ok or not data.get("success"):
