@@ -390,6 +390,10 @@ async def _invoke_assistant_agent(
 
     system_prompt = cloud_config.system_prompt or yumi.YUMI_SYSTEM_PROMPT
     system_prompt = system_prompt + "\n\n" + await yumi.workspace_state_summary(api)
+    # Answer in terms of the app the user is actually holding.
+    platform_guide = yumi.client_platform_guide(event_data.get("metadata"))
+    if platform_guide:
+        system_prompt += "\n\n" + platform_guide
     thread_instructions = (event_data.get("metadata", {}).get("thread_agent_instructions") or {}).get(agent_name)
     if isinstance(thread_instructions, str) and thread_instructions.strip():
         system_prompt += "\n\nCollaboration instructions for this thread only:\n" + thread_instructions[:10000]

@@ -836,3 +836,23 @@ def test_seeded_welcome_asks_where_the_agent_will_run(db, yumi_enabled):
     assert "Where will your agent run?" in greeting.payload["content"]
     assert greeting.metadata_["onboarding"] == "agent_location"
     assert greeting.metadata_["suggestions"] == ["On a remote machine", "On my computer"]
+
+
+class TestClientPlatformGuide:
+    """Yumi answers a phone user in terms of the mobile app, not the web."""
+
+    def test_mobile_messages_get_the_mobile_guide(self):
+        from app.services import yumi
+        assert yumi.client_platform_guide({"client_platform": "mobile"}) == yumi.MOBILE_CLIENT_GUIDE
+        assert yumi.client_platform_guide({"client_platform": " Mobile "}) == yumi.MOBILE_CLIENT_GUIDE
+
+    def test_other_clients_get_nothing_extra(self):
+        from app.services import yumi
+        for metadata in (None, {}, {"client_platform": "web"}, {"client_platform": 1}, "mobile"):
+            assert yumi.client_platform_guide(metadata) == ""
+
+    def test_mobile_guide_points_at_app_screens(self):
+        from app.services import yumi
+        guide = yumi.MOBILE_CLIENT_GUIDE
+        for screen in ("Members", "Connect another device", "Add an agent", "Chats"):
+            assert screen in guide
