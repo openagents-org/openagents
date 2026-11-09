@@ -75,7 +75,9 @@ def message_data(event, limit=12000):
 
 
 async def decide(context):
-    from app.mods.workspace_mod import _get_llm_client, _get_router_model, _get_router_api_key
+    from app.mods.workspace_mod import (
+        _anthropic_text, _get_llm_client, _get_router_model, _get_router_api_key,
+    )
     dedicated = bool(config.MESSAGE_ROUTER_MODEL)
     if not config.ROUTER_LLM_ENABLED or not (
             (dedicated and config.MESSAGE_ROUTER_API_KEY) or _get_router_api_key()):
@@ -94,7 +96,7 @@ async def decide(context):
             raw = response.choices[0].message.content
         else:
             response = await asyncio.to_thread(client.messages.create, **args, timeout=15)
-            raw = response.content[0].text
+            raw = _anthropic_text(response)
         result = json.loads(raw)
         if not isinstance(result, dict) or result.get('action') not in ('next', 'ask', 'wait', 'stop'):
             raise ValueError('invalid decision')

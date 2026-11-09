@@ -206,7 +206,12 @@ def _generate_routine_context_sync(
     conversation_history: Optional[str] = None,
 ) -> str:
     """Call the LLM to expand a brief task description into comprehensive routine context."""
-    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+    from app.mods.workspace_mod import (
+        _anthropic_text,
+        _get_llm_client,
+        _get_router_api_key,
+        _get_router_model,
+    )
 
     fallback = _fallback_context(name, message, schedule_desc)
 
@@ -258,7 +263,7 @@ def _generate_routine_context_sync(
                 max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.content[0].text.strip()
+            return _anthropic_text(resp).strip()
     except Exception as exc:
         logger.warning("LLM context generation failed (%s), using fallback", exc)
         return fallback

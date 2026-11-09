@@ -524,7 +524,7 @@ def test_policy_classifier_uses_trusted_instructions_and_validates_json(monkeypa
     client = MagicMock()
     client.with_options.return_value = client
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"0":"no_match"}'))],
-                               content=[SimpleNamespace(text='{"0":"no_match"}')])
+                               content=[SimpleNamespace(type="text", text='{"0":"no_match"}')])
     client.chat.completions.create.return_value = response
     client.messages.create.return_value = response
     monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'test')
