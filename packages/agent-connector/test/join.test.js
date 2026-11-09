@@ -300,11 +300,12 @@ describe('ensureDurableInstall', () => {
 
 describe('autostart service environment', () => {
   it('keeps PATH and proxies, drops npx entries and proxies with a password', () => {
+    const abs = (...p) => path.resolve(path.sep, ...p);
     const { env, skipped } = autostart.serviceEnv({
-      PATH: '/h/.npm/_npx/a/node_modules/.bin:/usr/bin:rel:/h/.local/bin',
+      PATH: [abs('h', '.npm', '_npx', 'a', 'node_modules', '.bin'), abs('usr', 'bin'), 'rel', abs('h', '.local', 'bin')].join(path.delimiter),
       HTTPS_PROXY: 'http://u:p@proxy:1', HTTP_PROXY: 'http://proxy:2', SECRET_TOKEN: 'x',
     });
-    assert.equal(env.PATH, '/usr/bin:/h/.local/bin');
+    assert.equal(env.PATH, [abs('usr', 'bin'), abs('h', '.local', 'bin')].join(path.delimiter));
     assert.equal(env.HTTP_PROXY, 'http://proxy:2');
     assert.ok(!('HTTPS_PROXY' in env) && !('SECRET_TOKEN' in env));
     assert.deepEqual(skipped, ['HTTPS_PROXY']);
