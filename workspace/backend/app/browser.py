@@ -431,6 +431,35 @@ class BrowserManager:
                 result = await page.evaluate(expression)
                 return {"result": result}
 
+    async def upload_files(self, tab_id: str, selector: str, files: list,
+                           frame_selector: Optional[str] = None) -> dict:
+        """Attach files to a file input in the tab without a file dialog.
+
+        `files` items are {"name", "mime_type", "data_base64"}. Cloud tabs use
+        Browser Fabric's `upload_file` tool on the tab's existing session
+        (wakes a sleeping tab, same session id); local tabs use Playwright's
+        set_input_files directly. Fires input/change events like a real pick.
+        """
+        if self._is_cloud_tab(tab_id):
+            session_id = self._get_session(tab_id)
+            args: dict = {"selector": selector, "files": files}
+            if frame_selector:
+                args["frame_selector"] = frame_selector
+            result = await self._bf_call("upload_file", args, session_id, tab_id=tab_id)
+            return result.get("result", {}) or {}
+        import base64 as _b64
+        page = self._get_page(tab_id)
+        async with self._get_lock(tab_id):
+            root = page.frame_locator(frame_selector) if frame_selector else page
+            payloads = [{
+                "name": f["name"],
+                "mimeType": f.get("mime_type") or "application/octet-stream",
+                "buffer": _b64.b64decode(f["data_base64"]),
+            } for f in files]
+            await root.locator(selector).set_input_files(payloads, timeout=10_000)
+            return {"status": "attached", "file_count": len(payloads),
+                    "total_bytes": sum(len(p["buffer"]) for p in payloads)}
+
     async def human_input(self, tab_id: str, command: dict) -> dict:
         """Forward a gesture on a scaled screenshot to the same local page."""
         page = self._get_page(tab_id)

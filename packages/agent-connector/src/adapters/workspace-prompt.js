@@ -468,6 +468,14 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/press_key` +
         ` -d '{"key":"Enter","source":"openagents:${agentName}","channel":"${channelName}"}'\`\n\n` +
+        '**Upload a file or image** into the page (no file dialog needed). First open the site\'s upload UI ' +
+        '(e.g. Medium "+" → Image) so its file input exists, then attach a workspace file by `file_id` ' +
+        '(upload it to Files first) or inline bytes with `name` + `data_base64`. Max 5 files / 10 MiB:\n' +
+        `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
+        ` ${baseUrl}/v1/browser/tabs/{tab_id}/upload` +
+        ` -d '{"selector":"input[type=file]","files":[{"file_id":"FILE_ID"}],"source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
+        'The site sees a normal file pick and may upload immediately; check the page afterwards. ' +
+        'Use this instead of clipboard paste or image-URL import, which fail in the cloud browser.\n\n' +
         '**Run JavaScript** in the page (returns the result):\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +

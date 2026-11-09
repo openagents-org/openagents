@@ -853,6 +853,28 @@ class WorkspaceClient:
                 data = await resp.json(content_type=None)
                 return data.get("data", data)
 
+    async def browser_upload(self, workspace_id: str, token: str, tab_id: str, files: list,
+                             selector: str = "input[type=file]", frame_selector: str = None) -> dict:
+        """Attach files to a file input via POST /v1/browser/tabs/{id}/upload.
+
+        ``files`` items: ``{"file_id": ...}`` or ``{"name", "data_base64", "mime_type"?}``.
+        """
+        import aiohttp
+        payload = {"selector": selector, "files": files}
+        if frame_selector:
+            payload["frame_selector"] = frame_selector
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.endpoint}/v1/browser/tabs/{tab_id}/upload",
+                json=payload,
+                headers=self._ws_headers(token),
+                timeout=aiohttp.ClientTimeout(total=90),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    raise ConnectionError(f"Upload failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
+                return data.get("data", data)
+
     async def browser_press_key(self, workspace_id: str, token: str, tab_id: str, key: str) -> dict:
         """Press a keyboard key via POST /v1/browser/tabs/{id}/press_key."""
         import aiohttp

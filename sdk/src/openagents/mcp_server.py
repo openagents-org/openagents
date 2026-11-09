@@ -79,7 +79,8 @@ def create_mcp_server(
     _BROWSER_TOOLS = {"workspace_browser_open", "workspace_browser_navigate", "workspace_browser_click",
                       "workspace_browser_type", "workspace_browser_screenshot", "workspace_browser_snapshot",
                       "workspace_browser_list_tabs", "workspace_browser_close",
-                      "workspace_browser_press_key", "workspace_browser_evaluate"}
+                      "workspace_browser_press_key", "workspace_browser_evaluate",
+                      "workspace_browser_upload"}
     # Tunnel tools were removed along with the legacy Python daemon.
     _TUNNEL_TOOLS: set = set()
 
@@ -261,6 +262,21 @@ def create_mcp_server(
                         "expression": {"type": "string", "description": "JavaScript expression to evaluate"},
                     },
                     "required": ["tab_id", "expression"],
+                },
+            ),
+            types.Tool(
+                name="workspace_browser_upload",
+                description="Upload a file or image into a page's file input (no file dialog needed). Open the site's upload UI first (e.g. Medium '+' -> Image) so the input exists. Give a local file path, or a workspace file_id. Max 5 files / 10 MiB. The site may upload immediately; check the page afterwards.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tab_id": {"type": "string", "description": "Tab ID"},
+                        "path": {"type": "string", "description": "Path of a local file on this machine to upload"},
+                        "file_id": {"type": "string", "description": "ID of a workspace shared file (alternative to path)"},
+                        "selector": {"type": "string", "description": "CSS selector of the file input (default input[type=file])"},
+                        "frame_selector": {"type": "string", "description": "Optional CSS selector of an iframe containing the input"},
+                    },
+                    "required": ["tab_id"],
                 },
             ),
             types.Tool(
@@ -531,6 +547,31 @@ def create_mcp_server(
                 return [types.TextContent(
                     type="text",
                     text=f"Evaluate result: {result}",
+                )]
+
+            elif name == "workspace_browser_upload":
+                import base64 as _b64
+                import mimetypes as _mt
+                import os as _os
+                if arguments.get("path"):
+                    p = arguments["path"]
+                    with open(p, "rb") as fh:
+                        item = {"name": _os.path.basename(p), "data_base64": _b64.b64encode(fh.read()).decode()}
+                    mime = _mt.guess_type(p)[0]
+                    if mime:
+                        item["mime_type"] = mime
+                elif arguments.get("file_id"):
+                    item = {"file_id": arguments["file_id"]}
+                else:
+                    return [types.TextContent(type="text", text="Provide either path (local file) or file_id (workspace file).")]
+                selector = arguments.get("selector") or "input[type=file]"
+                result = await client.browser_upload(
+                    workspace_id=workspace_id, token=token, tab_id=arguments.get("tab_id", ""),
+                    files=[item], selector=selector, frame_selector=arguments.get("frame_selector"),
+                )
+                return [types.TextContent(
+                    type="text",
+                    text=f"Attached {', '.join(result.get('files') or []) or 'file'} to {selector} ({result.get('status', 'attached')}). Check the page to confirm the site accepted it.",
                 )]
 
             elif name == "workspace_browser_screenshot":

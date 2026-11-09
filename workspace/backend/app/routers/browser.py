@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -252,6 +253,26 @@ class EvaluateRequest(BaseModel):
     channel: Optional[str] = None
     expression: str  # JavaScript to execute in page context
     source: Optional[str] = None
+
+
+UPLOAD_MAX_FILES = 5
+UPLOAD_MAX_BYTES = 10 * 1024 * 1024  # Browser Fabric's per-call cap (decoded)
+
+
+class UploadFileItem(BaseModel):
+    """One file: either a workspace shared file (`file_id`) or inline bytes."""
+    file_id: Optional[str] = None
+    name: Optional[str] = None
+    mime_type: Optional[str] = None
+    data_base64: Optional[str] = None
+
+
+class UploadRequest(BaseModel):
+    channel: Optional[str] = None
+    source: Optional[str] = None
+    selector: str = "input[type=file]"
+    frame_selector: Optional[str] = None
+    files: list[UploadFileItem] = Field(..., min_length=1, max_length=UPLOAD_MAX_FILES)
 
 
 class ShareRequest(BaseModel):
@@ -1455,6 +1476,123 @@ async def evaluate_in_tab(
     await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "evaluate")
 
     return success_response({"tab_id": tab_id, "result": result.get("result")})
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/browser/tabs/{tab_id}/upload
+# ---------------------------------------------------------------------------
+
+def _resolve_upload_files(db, workspace, items, token, authorization):
+    """Turn request items into Browser Fabric upload payloads.
+
+    Returns (files, error_message). Shared files are read with the caller's
+    own file permissions; inline items must carry a name and base64 bytes.
+    """
+    import base64
+    import binascii
+    from app.models import FileRecord
+    from app.routers.files import _viewer_for as _file_viewer_for
+    from app.services.access_model import can_read_file
+    from app.storage import get_file_store
+
+    out, total = [], 0
+    viewer = None
+    for item in items:
+        if item.file_id:
+            record = db.execute(select(FileRecord).where(FileRecord.id == item.file_id)).scalar_one_or_none()
+            if not record or record.status != "active" or str(record.workspace_id) != str(workspace.id):
+                return None, f"File not found: {item.file_id}"
+            if viewer is None:
+                viewer = _file_viewer_for(db, workspace, token, authorization)
+            if not can_read_file(db, str(workspace.id), viewer, record):
+                return None, f"No access to file: {item.file_id}"
+            if total + (record.size or 0) > UPLOAD_MAX_BYTES:
+                return None, "Files exceed the 10 MiB upload limit"
+            try:
+                data = get_file_store().read(record.storage_key)
+            except FileNotFoundError:
+                return None, f"File data missing: {item.file_id}"
+            # Agent/base64 uploads are stored as "<folder>/YYYYMMDD_HHMMSS_<name>";
+            # give the website the original name.
+            name = item.name or re.sub(r"^\d{8}_\d{6}_", "", record.filename.rsplit("/", 1)[-1])
+            mime = item.mime_type or record.content_type or "application/octet-stream"
+        elif item.data_base64 and item.name:
+            try:
+                data = base64.b64decode(item.data_base64, validate=True)
+            except (binascii.Error, ValueError):
+                return None, f"Invalid base64 for {item.name}"
+            name, mime = item.name, item.mime_type
+        else:
+            return None, "Each file needs a file_id, or a name plus data_base64"
+        total += len(data)
+        if total > UPLOAD_MAX_BYTES:
+            return None, "Files exceed the 10 MiB upload limit"
+        payload = {"name": name.rsplit("/", 1)[-1], "data_base64": base64.b64encode(data).decode()}
+        if mime:
+            payload["mime_type"] = mime
+        out.append(payload)
+    return out, None
+
+
+@router.post("/tabs/{tab_id}/upload", dependencies=[Depends(_guard_browser_control)])
+async def upload_to_tab(
+    tab_id: str,
+    body: UploadRequest,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Attach files to a file input in the tab — no file dialog needed.
+
+    Open the site's upload UI first (e.g. Medium "+" -> Image) so its file
+    input exists, then call this with that input's selector. The site sees a
+    normal file pick (input/change events fire); many sites upload at once.
+    """
+    tab = _get_tab(db, tab_id)
+    if not tab or tab.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
+
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    files, err = await run_in_threadpool(
+        _resolve_upload_files, db, workspace, body.files, x_workspace_token, authorization,
+    )
+    if err:
+        return json_response(ResponseCode.BAD_REQUEST, err)
+
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
+    except UnsafeURLError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
+    manager = BrowserManager.get()
+    try:
+        result = await manager.upload_files(tab_id, body.selector, files, body.frame_selector)
+    except KeyError:
+        return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
+    except RuntimeError as e:
+        # Browser Fabric's sanitized codes: file_input_not_found,
+        # ambiguous_file_input, multiple_files_not_allowed, upload_too_large ...
+        return json_response(ResponseCode.BAD_REQUEST, f"Upload failed: {e}")
+    except Exception as e:
+        logger.error("Upload failed: %s", e)
+        return json_response(ResponseCode.INTERNAL_ERROR, f"Upload failed: {e}")
+
+    _touch(tab)
+    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "upload")
+
+    return success_response({
+        "tab_id": tab_id,
+        "status": result.get("status", "attached"),
+        "file_count": result.get("file_count", len(files)),
+        "total_bytes": result.get("total_bytes"),
+        "files": [f["name"] for f in files],
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -153,6 +153,20 @@ curl -s -X POST -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
   -d "{\"selector\":\"CSS_SELECTOR\",\"text\":\"TEXT\"}"
 ```
 
+**Upload a file or image into the page (no file dialog):**
+Open the site's upload UI first (for example Medium "+" → Image) so its file
+input exists. Attach a workspace file by `file_id` (upload it to Files first), or
+send inline bytes with `name`, optional `mime_type` and `data_base64`. Up to 5
+files and 10 MiB per call; `frame_selector` targets an iframe. The site sees a
+normal file pick and may upload immediately, so check the page afterwards. Use
+this instead of clipboard paste or image-URL import, which fail in the cloud browser.
+```bash
+curl -s -X POST -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
+  -H "Content-Type: application/json" \
+  "$OA_ENDPOINT/v1/browser/tabs/{tab_id}/upload" \
+  -d "{\"selector\":\"input[type=file]\",\"files\":[{\"file_id\":\"FILE_ID\"}]}"
+```
+
 **List open tabs:**
 ```bash
 curl -s -H "X-Workspace-Token: $OA_WORKSPACE_TOKEN" \
