@@ -7,6 +7,7 @@ vi.mock('@/lib/api', () => ({ workspaceApi: {
   pollConversation: h.dm, loadMessageHistory: h.history, pollMessages: h.poll, getSSEUrl: h.sse,
 } }));
 import { useMessagePolling } from './use-polling';
+import type { WorkspaceMessage } from '@/lib/types';
 
 const SESSION = 'dm:human:me@example.com,openagents:bot';
 function Probe() { useMessagePolling({ sessionId: SESSION }); return null; }
@@ -21,6 +22,10 @@ class FakeSource {
 }
 let root: Root;
 const empty = { events: [], has_more: false };
+const message = (sessionId: string, content: string): WorkspaceMessage => ({
+  messageId: `${sessionId}-message`, sessionId, senderType: 'human', senderName: 'User',
+  content, mentions: [], targetAgents: null, messageType: 'chat', metadata: {}, createdAt: null,
+});
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -37,6 +42,23 @@ beforeEach(() => {
   root = createRoot(document.createElement('div'));
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it('shows cached messages immediately on a switch and loading on an uncached switch', async () => {
+  const host = document.createElement('div');
+  root = createRoot(host);
+  const cached = message('cached', 'Cached conversation');
+  function View({ sessionId, initialMessages }: { sessionId: string; initialMessages?: WorkspaceMessage[] }) {
+    const state = useMessagePolling({ sessionId, initialMessages });
+    return React.createElement('div', null, state.loading ? 'Loading' : state.messages.map(m => m.content).join(',') || 'Empty');
+  }
+  await act(async () => root.render(React.createElement(View, { sessionId: 'cached', initialMessages: [cached] })));
+  expect(host.textContent).toBe('Cached conversation');
+  h.history.mockImplementation(() => new Promise(() => {}));
+  await act(async () => root.render(React.createElement(View, { sessionId: 'uncached' })));
+  expect(host.textContent).toBe('Loading');
+  await act(async () => root.render(React.createElement(View, { sessionId: 'cached', initialMessages: [cached] })));
+  expect(host.textContent).toBe('Cached conversation');
+});
 
 it('stops a poll loop whose request was in flight during cleanup', async () => {
   await act(async () => root.render(React.createElement(Probe)));

@@ -14,7 +14,7 @@ import { ThinkingMessage } from './thinking-message';
 import { WorkingBubble } from './working-bubble';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { isControlMessage } from '@/lib/control-messages';
@@ -276,6 +276,11 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 
   const scrollToBottom = useCallback(() => {
     if (totalCount === 0 || targetPendingRef.current) return;
+    // Land on the estimated bottom synchronously. On a thread switch the
+    // layout effect below runs before paint; waiting for the first animation
+    // frame would briefly show the top of a long conversation.
+    const initialElement = containerRef.current;
+    if (initialElement) initialElement.scrollTop = initialElement.scrollHeight;
     // Why a loop and not a single scrollTop=scrollHeight: the virtualizer
     // estimates every unmeasured row at 80px, so one corrective pin lands at
     // the *estimated* bottom. The real bottom rows (tall markdown, tables) are
@@ -340,7 +345,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
 
   // Auto-scroll on new messages — but NOT when the user has scrolled up to read
   // history, and NOT when older history is prepended at the top.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
