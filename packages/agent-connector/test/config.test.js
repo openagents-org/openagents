@@ -303,8 +303,20 @@ describe('Config.load while daemon.yaml is being rewritten', () => {
   it('does not keep waiting on a file that really is empty', () => {
     const cfg = new Config(tmpDir);
     fs.writeFileSync(cfg.configFile, '');
-    const started = Date.now();
-    assert.deepEqual(cfg.getAgents(), []);
-    assert.ok(Date.now() - started < 150);
+    // Count reads rather than time them: a slow CI runner oversleeps the
+    // short pauses, and a wall-clock bound failed there while the schedule
+    // itself was right.
+    const realRead = fs.readFileSync;
+    let reads = 0;
+    fs.readFileSync = function (file, ...rest) {
+      if (file === cfg.configFile) reads++;
+      return realRead.call(this, file, ...rest);
+    };
+    try {
+      assert.deepEqual(cfg.getAgents(), []);
+    } finally {
+      fs.readFileSync = realRead;
+    }
+    assert.equal(reads, 3, 'an empty file is retried briefly, not through the whole busy schedule');
   });
 });
