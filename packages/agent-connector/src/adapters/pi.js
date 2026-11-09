@@ -64,6 +64,8 @@ const {
   MIN_PI_VERSION,
 } = require('./pi-stream');
 
+const { launcherProviderId } = require('./pi-provider-config');
+
 const IS_WINDOWS = process.platform === 'win32';
 const LAUNCHER_PROVIDER_EXTENSION = path.join(__dirname, 'pi-launcher-provider.mjs');
 
@@ -1384,7 +1386,10 @@ class PiAdapter extends BaseAdapter {
       sessionDir: this._sessionDir,
       sessionId,
       appendSystemPrompt,
-      provider: cfg.provider,
+      // A stored Pi login wins over an extension's apiKey for the same
+      // provider. Keep Launcher-key requests in a separate provider namespace
+      // so a native login cannot authenticate a different endpoint.
+      provider: launcherProviderId({ ...cfg, apiKey: launcherKey }),
       model: cfg.model,
       thinking: cfg.thinking,
       sessionName: `${this.agentName}/${channel}`,

@@ -843,14 +843,18 @@ describe('Daemon', () => {
     daemon._runtimes = [
       { type: 'codex', installed: true, ready: true },
       { type: 'claude', installed: true, ready: false },
+      { type: 'pi', installed: true, ready: true },
       { type: 'gemini', installed: true, ready: true },
       { type: 'cursor', installed: false, ready: false },
     ];
     daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
+    const piModels = [{ id: 'openai/gpt-6.1-sol', label: 'gpt-6.1-sol (openai)' }];
+    daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('pi'))] = { models: piModels, askedAt: Date.now() };
     assert.deepEqual(daemon._heartbeatRuntimes(), [
       { type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS },
       // Not answered yet: the form keeps the catalog list.
       { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', cliModels: null },
+      { type: 'pi', installed: true, ready: true, loginCommand: 'agn login pi', cliModels: piModels },
       { type: 'gemini', installed: true, ready: true, loginCommand: 'agn login gemini' },
       { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor' },
     ]);
