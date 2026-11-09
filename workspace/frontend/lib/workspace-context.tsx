@@ -3,6 +3,7 @@
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AgentTypesProvider } from '@/components/agents/agent-types';
 import { useMe } from '@/hooks/use-me';
 import { ApiError, workspaceApi } from './api';
 import { StopRequestTracker, confirmsStop } from './stop-requests';
@@ -173,6 +174,8 @@ interface WorkspaceContextValue {
   setSelectedFileId: (id: string | null) => void;
   setSelectedKnowledgeId: (id: string | null) => void;
   setCurrentFilePath: (path: string) => void;
+  /** Fork a thread and open the copy; resolves to the new thread's name. */
+  forkSession: (sessionId: string, title?: string) => Promise<string>;
   createSession: (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
@@ -243,7 +246,7 @@ interface WorkspaceContextValue {
   createTask: (input: { issueId?: string; title: string; description?: string; status?: KanbanTask['status']; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<KanbanTask>;
   updateTask: (id: string, updates: { title?: string; description?: string; status?: KanbanTask['status']; position?: number; assignee?: string | null; workflowId?: string | null; knowledgeIds?: string[]; fileIds?: string[] }) => Promise<void>;
   /** Run a task: kicks off the agent (its stored assignee, or the one passed) and moves it to In Progress. */
-  runTask: (id: string, agent?: string) => Promise<void>;
+  runTask: (id: string, agent?: string) => Promise<KanbanTask>;
   /** Stop a running task: halts the agent and returns the card to Backlog. */
   stopTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
@@ -942,6 +945,7 @@ export function WorkspaceProvider({
               starred: remote.starred,
               pinned: remote.pinned,
               isChannel: remote.isChannel,
+              forkedFrom: remote.forkedFrom,
             };
           });
         return [...merged, ...newChannels];
@@ -990,13 +994,15 @@ export function WorkspaceProvider({
                 sort: 'desc',
                 limit: 10,
               });
-              if (result.events.length === 0) return null;
-              const latest = result.events[0];
+              // Queue-cancel signals are bookkeeping, never a preview.
+              const events = result.events.filter((e) => (e.payload as Record<string, string>)?.message_type !== 'queue_cancel');
+              if (events.length === 0) return null;
+              const latest = events[0];
               const latestPayload = latest.payload as Record<string, string>;
               const latestType = latestPayload?.message_type || 'chat';
               const isAgentWorking = latestType === 'status' || latestType === 'thinking';
               // Find the latest chat/thinking message (not status) for preview
-              const lastChat = result.events.find((e) => {
+              const lastChat = events.find((e) => {
                 const mt = (e.payload as Record<string, string>)?.message_type || 'chat';
                 return mt !== 'status' && mt !== 'thinking';
               });
@@ -1171,6 +1177,7 @@ export function WorkspaceProvider({
   const runTask = useCallback(async (id: string, agent?: string) => {
     const task = await workspaceApi.assignTask(id, agent);
     setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
+    return task;
   }, []);
 
   const stopTask = useCallback(async (id: string) => {
@@ -1955,6 +1962,14 @@ export function WorkspaceProvider({
     return session;
   }, [agents, currentUser.id]);
 
+  const forkSession = useCallback(async (sessionId: string, title?: string) => {
+    const fork = await workspaceApi.forkChannel(sessionId, title);
+    capture('thread_forked', {});
+    await refreshDiscovery();
+    setCurrentSessionId(fork.name);
+    return fork.name;
+  }, [refreshDiscovery, setCurrentSessionId]);
+
   // Guided onboarding: after the user's first agent is connected, open a thread
   // with it automatically once it joins the workspace. One-shot; only ever set
   // by the onboarding flow, so it never fires when adding agents later.
@@ -2214,6 +2229,7 @@ export function WorkspaceProvider({
         currentFilePath,
         setCurrentFilePath,
         createSession,
+        forkSession,
         requestFirstThread,
         renameSession,
         updateSession,
@@ -2314,7 +2330,7 @@ export function WorkspaceProvider({
         openSessionByChannel,
       }}
     >
-      {children}
+      <AgentTypesProvider agents={agents}>{children}</AgentTypesProvider>
     </WorkspaceContext.Provider>
   );
 }

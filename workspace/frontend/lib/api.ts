@@ -13,10 +13,12 @@ import type {
   CloudAgentProvider,
   HostedAgent,
   HostedAgentProvider,
+  AcentaAccount,
   DMConversation,
   EventPollResponse,
   KanbanTask,
   WorkspaceIssue,
+  IssueBoard,
   IssueDetail,
   IssueComment,
   IssueStatus,
@@ -1689,6 +1691,19 @@ class WorkspaceApi {
     });
   }
 
+  /** The signed-in user's Acenta agents, marked with whether each is already here. */
+  async listMyAcentaAgents(): Promise<AcentaAccount> {
+    return this.request<AcentaAccount>(`/v1/hosted-agents/acenta/agents?network=${this.requireWorkspace()}`);
+  }
+
+  /** Add one of the user's existing Acenta agents to this workspace. */
+  async connectAcentaAgent(id: string): Promise<HostedAgent> {
+    return this.request<HostedAgent>(`/v1/hosted-agents/acenta/agents/${encodeURIComponent(id)}/connect`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
   async removeHostedAgent(agentName: string): Promise<void> {
     await this.request<unknown>(`/v1/hosted-agents/${encodeURIComponent(agentName)}?network=${this.requireWorkspace()}`, {
       method: 'DELETE',
@@ -1931,14 +1946,33 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string; board?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
+      ...(input.board ? { board: input.board } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
       ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueBoards(): Promise<IssueBoard[]> {
+    const result = await this.request<{ boards: IssueBoard[] }>(this.issuePath('/boards'));
+    return result.boards;
+  }
+
+  async createIssueBoard(name: string): Promise<IssueBoard> {
+    return this.request(this.issuePath('/boards'), { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async renameIssueBoard(id: string, name: string): Promise<void> {
+    await this.request(this.issuePath(`/boards/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify({ name }) });
+  }
+
+  /** Deletes the board; its issues move to Team issues. */
+  async deleteIssueBoard(id: string): Promise<{ moved_issues: number }> {
+    return this.request(this.issuePath(`/boards/${encodeURIComponent(id)}`), { method: 'DELETE' });
   }
 
   async listIssueLabels(): Promise<string[]> {
@@ -1957,11 +1991,11 @@ class WorkspaceApi {
     await this.request(this.issuePath(`/${encodeURIComponent(id)}/my-agent-sharing`), { method: 'PATCH', body: JSON.stringify({ mode }) });
   }
 
-  async createIssue(input: { assignee?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title: string; description: string; source: string; source_name?: string; channel_name?: string }): Promise<WorkspaceIssue> {
+  async createIssue(input: { assignee?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title: string; description: string; source: string; source_name?: string; channel_name?: string; board_id?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; board_id?: string; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
@@ -2789,6 +2823,14 @@ class WorkspaceApi {
     return this.request(`/v1/channels/${encodeURIComponent(channel)}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    });
+  }
+
+  /** Copy a thread's settings, agents and history into a new private thread. */
+  async forkChannel(channel: string, title?: string): Promise<{ name: string; title: string | null }> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(title ? { title } : {}) }),
     });
   }
 

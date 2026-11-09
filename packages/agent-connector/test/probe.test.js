@@ -159,6 +159,40 @@ describe('failureMessage', () => {
     assert.ok(failureMessage(res, code, 120000).includes('chatgpt.com'));
   });
 
+  it('quotes the model-list error, not the ChatGPT connector, when Codex cannot reach OpenAI', () => {
+    // Verbatim shape from the dashboard: a device that cannot reach chatgpt.com
+    // ran out the 120s clock, and the connector's line was quoted as the reason.
+    const stderr = [
+      '2026-11-08T05:37:58.539562Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed")))',
+      '2026-11-08T05:38:10.120000Z ERROR codex_models_manager::manager: failed to refresh available models: request timed out',
+    ].join('\n');
+    const res = { code: null, timedOut: true, stdout: '', stderr };
+    const code = classifyFailure(stderr, { timedOut: true });
+    assert.equal(code, CODE.NETWORK, 'a lost connection, not a CLI waiting for a login prompt');
+    const msg = failureMessage(res, code, 120000);
+    assert.equal(msg, 'Timed out after 120s: ERROR codex_models_manager::manager: failed to refresh available models: request timed out');
+  });
+
+  it('reads Codex connection wording as a network failure', () => {
+    for (const text of [
+      'ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request',
+      'stream disconnected before completion: Transport error',
+      'failed to lookup address information: nodename nor servname provided',
+    ]) {
+      assert.equal(classifyFailure(text, { timedOut: true }), CODE.NETWORK, text);
+    }
+  });
+
+  it('puts what the CLI said in plain words ahead of its log records', () => {
+    const stderr = [
+      '2026-11-08T05:37:58Z ERROR codex_core::exec: something internal',
+      'Error: the configured workspace is read-only',
+    ].join('\n');
+    const msg = failureMessage({ code: 1, stdout: '', stderr }, CODE.CLI_ERROR, 120000);
+    assert.match(msg, /^Error: the configured workspace is read-only/);
+    assert.doesNotMatch(msg, /2026-11-08T/, 'the timestamp is dropped from a quoted log record');
+  });
+
   it('reports the error line of a crash, not its stack frames', () => {
     const stderr = [
       'file:///C:/Users/a/.openagents/runtimes/codex/node_modules/@openai/codex/bin/codex.js:108',

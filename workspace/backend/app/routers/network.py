@@ -657,6 +657,7 @@ def discover(
             "members_can_add_agents": bool(c.members_can_add_agents),
             "director_email": c.director_email,
             "created_by": c.created_by,
+            "forked_from": c.forked_from,
         })
 
     return success_response({

@@ -53,7 +53,13 @@
     "saved_env_key": "COPILOT_GITHUB_TOKEN",
     "login_command": "copilot",
     "unverifiable": true,
-    "not_ready_message": "Sign-in not confirmed. A token env var (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN) is one option; you may already be signed in via `copilot` /login or `gh auth`. Auth is confirmed when you run a task."
+    "creds_file": "~/.copilot/config.json",
+    "creds_no_parse": true,
+    "creds_classifier": "copilot_logged_in_users",
+    "creds_key": "loggedInUsers",
+    "not_ready_message": "Sign-in not confirmed. A token env var (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN) is one option; you may already be signed in via `copilot` /login or `gh auth`. Auth is confirmed when you run a task.",
+    "unknown_message": "Sign-in not confirmed. A token env var (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN) is one option; you may already be signed in via `copilot` /login or `gh auth`. Auth is confirmed when you run a task.",
+    "unreadable_message": "Sign-in not confirmed. A token env var (COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN) is one option; you may already be signed in via `copilot` /login or `gh auth`. Auth is confirmed when you run a task."
   },
   "env_config": [
     {

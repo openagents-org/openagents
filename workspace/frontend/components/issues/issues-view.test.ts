@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
     listIssueLabels: vi.fn(),
+    listIssueBoards: vi.fn(() => Promise.resolve([{ id: 'team', name: 'Team issues', default: true, active_count: 0, can_manage: false }])),
+    createIssueBoard: vi.fn(),
+    renameIssueBoard: vi.fn(),
+    deleteIssueBoard: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -38,7 +42,7 @@ const mocks = vi.hoisted(() => ({
     discover: vi.fn(),
   },
 }));
-vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm, usePrompt: () => vi.fn() }));
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
@@ -181,12 +185,29 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
-  it('announces task retirement on the tasks board and links to Team issues', async () => {
-    await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-    expect(host.querySelector('[role="note"]')?.textContent).toContain('My agent tasks will be retired');
-    await click(button('Go to Team issues'));
-    expect(host.querySelector('[role="note"]')).toBeNull();
-    expect(button('Team issues').getAttribute('aria-pressed')).toBe('true');
+  it('shows issue boards, Team issues first, with no My agent tasks tab', async () => {
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(host.textContent).not.toContain('My agent tasks');
+    const tabs = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+    expect(tabs[0]).toContain('Team issues');
+    expect(host.textContent).toContain('New board');
+    expect(button('Active issues')).toBeTruthy();
+    expect(mocks.api.listIssues).toHaveBeenCalledWith(expect.objectContaining({ board: 'team' }));
+  });
+
+  it('loads the selected board when switching boards', async () => {
+    mocks.api.listIssueBoards.mockResolvedValueOnce([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: true },
+    ]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const dev = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.textContent?.includes('Development')) as HTMLButtonElement;
+    expect(dev).toBeTruthy();
+    await act(async () => { dev.click(); await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
+    expect(dev.getAttribute('aria-selected')).toBe('true');
   });
 
   it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(
@@ -572,15 +593,6 @@ it('searches the assignee picker and saves a selected person', async () => {
 });
 
 
-it('keeps existing standalone work reachable inside Issues', async () => {
-  mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-  expect(host.textContent).toContain('Existing task');
-  expect(host.textContent).toContain('New issue');
-  expect(host.textContent).not.toContain('New task');
-});
-
-
 it('creates a human-assigned issue and waits for attachments to upload', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
     { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
@@ -626,9 +638,9 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
-it('offers only human assignees even when creating from My agent tasks', async () => {
+it('offers only human assignees even when an agent is online', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'online' }];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  await act(async () => root.render(createElement(IssuesView)));
   await click(button('New issue'));
   await fill(host.querySelector('input[required]')!, 'Investigation');
   expect(button('Create issue').disabled).toBe(false);

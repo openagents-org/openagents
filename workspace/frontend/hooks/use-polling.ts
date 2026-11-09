@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { eventToMessage } from '@/lib/types';
 import { compareMessages, mergeMessages } from '@/lib/message-merge';
@@ -93,8 +93,10 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   const agentWorkingRef = useRef(false);
   const pollInFlightRef = useRef<{ sessionId: string } | null>(null);
 
-  // Reset when session changes
-  useEffect(() => {
+  // Switch the displayed data before the browser paints the newly selected
+  // thread. A passive effect leaves one frame of the previous/empty thread,
+  // followed by another frame of the loading spinner on a cache miss.
+  useLayoutEffect(() => {
     currentSessionRef.current = sessionId;
     const nextDMPair = parseDMSession(sessionId);
     const scopedInitialMessages = sessionId && initialMessages
@@ -117,7 +119,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       oldestIdRef.current = null;
       historyLoadedRef.current = false;
       setHasOlder(false);
-      setLoading(false);
+      setLoading(!!sessionId);
     }
   }, [sessionId]); // intentionally omit initialMessages — only seed on session change
 

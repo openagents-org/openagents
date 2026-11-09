@@ -20,14 +20,16 @@ import { humanColor } from '@/lib/human-color';
 import { User } from 'lucide-react';
 import type { ApprovalRequest, NotificationItem } from '@/lib/types';
 
-function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
+/** Unread marker: red for high priority, blue otherwise. Once read it is
+ *  hidden but keeps its slot, so the avatar column does not shift. */
+function UnreadDot({ unread, priority }: { unread: boolean; priority: NotificationItem['priority'] }) {
   return (
     <span
+      aria-hidden
+      data-testid="inbox-unread-dot"
       className={cn(
         'size-2 rounded-full shrink-0 mt-1.5',
-        priority === 'high' && 'bg-red-500',
-        priority === 'normal' && 'bg-foreground/70',
-        priority === 'low' && 'bg-zinc-400',
+        !unread ? 'invisible' : priority === 'high' ? 'bg-red-500' : 'bg-blue-500',
       )}
     />
   );
@@ -105,7 +107,7 @@ export function NotificationCard({
       data-testid="inbox-row"
       data-action-kind={actionKind ?? undefined}
     >
-      <PriorityDot priority={notification.priority} />
+      <UnreadDot unread={!notification.isRead} priority={notification.priority} />
       {fromPerson ? (
         <span
           className="flex size-5 shrink-0 items-center justify-center rounded-full"

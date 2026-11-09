@@ -1,13 +1,11 @@
 'use client';
 
-import { TasksView } from '@/components/tasks/tasks-view';
 import { useLayout } from '@/components/layout/layout-context';
 import { requestedResource, resourcePath } from '@/lib/resource-link';
 import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CircleDot,
-  Info,
   Check,
   LayoutList,
   KanbanSquare,
@@ -29,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { DetailHeader } from '@/components/layout/app-header';
 import { IssueEditor } from './issue-editor';
 import { IssueDiscussion } from './issue-discussion';
+import { IssueBoardTabs, useIssueBoards } from './issue-boards';
 import {
   ErrorNotice,
   StatusIcon,
@@ -42,25 +41,23 @@ import {
   useIssueTime,
 } from './issue-ui';
 
-export function IssuesView({ initialWork = false }: { initialWork?: boolean }) {
+export function IssuesView() {
   const { workspace } = useWorkspace();
   // A workspace switch must discard selection and pending requests.
-  return <IssueWorkspace key={workspace?.workspaceId} initialWork={initialWork} />;
+  return <IssueWorkspace key={workspace?.workspaceId} />;
 }
 
-function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals } = useWorkspace();
+function IssueWorkspace() {
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace } = useWorkspace();
+  const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
-  const unreadTotal = Object.values(unreadByIssue).reduce((sum, n) => sum + n, 0);
-  const { pendingTaskChannel, pendingIssueId, setPendingIssueId } = useLayout();
-  const [showWork, setShowWork] = useState(initialWork);
-  useEffect(() => { if (pendingTaskChannel) { selectIssue(null); setShowWork(true); } }, [pendingTaskChannel]);
+  const { pendingIssueId, setPendingIssueId } = useLayout();
   const t = useT();
   const issueTime = useIssueTime();
   const confirmDelete = useConfirmIssueDelete();
   const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
-    initialWork || typeof window === 'undefined'
+    typeof window === 'undefined'
       ? null
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
@@ -79,14 +76,13 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
   useEffect(() => {
     if (!pendingIssueId) return;
     selectIssue(pendingIssueId);
-    setShowWork(false);
     setPendingIssueId(null);
   }, [pendingIssueId, setPendingIssueId]);
   useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
   const [view, setView] = useState<'list' | 'board' | 'split'>('list');
   const board = view === 'board';
-  const split = view === 'split' && !showWork;
+  const split = view === 'split';
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
@@ -129,6 +125,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
               assignedToMe: status === 'mine',
               activeOnly,
               query,
+              board: boardId,
               offset: page * 100,
             }),
           ),
@@ -161,7 +158,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
       clearTimeout(debounce);
       clearInterval(interval);
     };
-  }, [status, activeOnly, query, revision, pages]);
+  }, [status, activeOnly, query, revision, pages, boardId]);
 
   const preview = (description: string) =>
     description
@@ -300,6 +297,7 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         onBack={() => {
           selectIssue(null);
           reload();
+          void reloadBoards();
         }}
         onChanged={reload}
       />
@@ -318,26 +316,26 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
           </Button>
         </div>}
       />
-      <div className="flex shrink-0 items-center gap-1 border-b px-5 py-2 sm:px-8" role="group" aria-label={t('views.issues')}>
-        <Button size="sm" variant={!showWork ? 'secondary' : 'ghost'} aria-pressed={!showWork} onClick={() => setShowWork(false)}>{t('issues.teamIssues')}
-          {unreadTotal > 0 && <span className="rounded-full bg-destructive px-1.5 text-xs text-white" aria-label={t('issues.unreadUpdates', { count: unreadTotal })}>{unreadTotal > 99 ? '99+' : unreadTotal}</span>}
-        </Button>
-        <Button size="sm" variant={showWork ? 'secondary' : 'ghost'} aria-pressed={showWork} onClick={() => setShowWork(true)}>{t('issues.myAgentTasks')}
-          {tasks.filter(task => task.status === 'need_input').length > 0 && <span className="rounded-full bg-rose-500/10 px-1.5 text-xs text-rose-600">{tasks.filter(task => task.status === 'need_input').length}</span>}
-        </Button>
-      </div>
-      {showWork ? <div className="flex min-h-0 flex-1 flex-col">
-        <div role="note" className="mx-5 mt-4 flex shrink-0 items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950/30 sm:mx-8">
-          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
-          <div>
-            <p className="font-medium">{t('issues.agentTasksRetirementTitle')}</p>
-            <p className="mt-1 text-muted-foreground">{t('issues.agentTasksRetirementDescription')}</p>
-            <button type="button" className="mt-2 font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setShowWork(false)}>{t('issues.goToTeamIssues')}</button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1"><TasksView onNewIssue={() => setCreateOpen(true)} onOpenIssue={selectIssue} /></div>
-      </div> : <>
       <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-5 pt-3 sm:px-8">
+        <div className="w-full min-w-0">
+          <IssueBoardTabs
+            boards={boards}
+            boardId={boardId}
+            onSelect={(id) => {
+              if (id === boardId) return;
+              setBoardId(id);
+              setIssues([]);
+              setNextOffset(null);
+              setPages(1);
+              selectIssue(null);
+            }}
+            onChanged={(selectId) => {
+              void reloadBoards();
+              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null); }
+              reload();
+            }}
+          />
+        </div>
         <div
           className="flex items-center gap-5 overflow-x-auto"
           role="group"
@@ -521,14 +519,15 @@ function IssueWorkspace({ initialWork }: { initialWork: boolean }) {
         /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">{t('issues.selectIssue')}</div>}
       </section>}
       </div>
-      </>}
       <IssueEditor
         open={createOpen}
         onOpenChange={setCreateOpen}
+        boardId={boardId}
         onSaved={(issue) => {
           setCreateOpen(false);
           selectIssue(issue.id);
           reload();
+          void reloadBoards();
         }}
       />
     </div>

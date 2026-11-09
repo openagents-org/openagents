@@ -149,7 +149,12 @@ function classifyOutputText(text) {
   // was unreachable; a Codex that could not reach chatgpt.com ran out the
   // probe clock and was reported as waiting for interactive input. "Request
   // to <host> timed out" is the direct API test's own deadline (utils.js).
-  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer/.test(text)) return CODE.NETWORK;
+  // Codex (Rust) also says "Connection failed", "stream disconnected before
+  // completion" or, refreshing its model list, "failed to refresh available
+  // models: request timed out" — on a device that cannot reach chatgpt.com
+  // that was all the probe saw before its clock ran out, and it was reported
+  // as a CLI waiting for a login prompt.
+  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer|connection failed|stream disconnected before completion|failed to lookup address|dns error|tls handshake|failed to refresh available models: request timed out/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   // A sign-in that exists but has run out — Claude Code: "Failed to
@@ -450,8 +455,24 @@ function failureMessage(res, code, timeoutMs) {
   // Each line is scrubbed before that test: a provider that echoes the whole
   // key (`401 Incorrect API key provided: sk-proj-…`) had the one line that
   // explains the failure dropped as encoded.
-  const lines = (s) => String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
-    .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
+  //
+  // A CLI's own log records (`2026-11-08T05:37:58Z ERROR module: …`) are kept,
+  // shorn of the timestamp, but rank after what it said in plain words. Codex's
+  // built-in ChatGPT connector (`rmcp::…`) is left out altogether: its lines
+  // are about that side service, and they were quoted as the reason a Codex
+  // probe failed in place of the model-list error underneath them. Only when
+  // nothing else was said do they stand, rather than no reason at all.
+  const LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(?=(TRACE|DEBUG|INFO|WARN|ERROR)\s)/;
+  const SIDE_SERVICE = /\brmcp::|\bcodex_mcp::/;
+  const lines = (s) => {
+    const said = String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
+      .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
+    const own = said.filter((l) => !SIDE_SERVICE.test(l));
+    const kept = own.length ? own : said;
+    const plain = kept.filter((l) => !LOG_RECORD.test(l));
+    const logged = kept.filter((l) => LOG_RECORD.test(l)).map((l) => l.replace(LOG_RECORD, ''));
+    return [...plain, ...logged];
+  };
   const all = [...lines(res.stderr), ...lines(res.stdout)];
   const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);
   const detail = tail(telling || lines(res.stderr).join('\n') || lines(res.stdout).join('\n'), OUTPUT_CAP);

@@ -765,3 +765,41 @@ def test_account_api_confirms_without_bearer_or_on_error(monkeypatch):
     def boom(*a, **k): raise RuntimeError("down")
     monkeypatch.setattr(campaign.httpx, "get", boom)
     assert campaign.account_api_confirms("t") is None
+
+
+# ── Campaign ended: existing key holders keep a read-only view ────────────
+
+def test_ended_campaign_shows_holders_their_key_and_grants_nothing(db, campaign_on, gateway, monkeypatch):
+    holder = _mk_user(db, "holder@example.com")
+    campaign.ensure_account(db, holder)
+    campaign.grant(db, holder.id, "first_agent", 20.0)
+    newcomer = _mk_user(db, "new@example.com")
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    assert campaign.holders_visible()
+
+    view = campaign.ended_payload(db, holder)
+    assert view["enabled"] is False and view["ended"] is True
+    assert view["apiKey"] == "sk-demo-test" and view["totalGrantedUsd"] == 25.0
+    assert view["usage"]["costLimitUsd"] == 5.0
+
+    assert campaign.ended_payload(db, newcomer) == {"enabled": False}
+    assert db.query(CampaignAccount).filter_by(user_id=newcomer.id).count() == 0
+    grants_before = db.query(CampaignGrant).count()
+    assert campaign.grant(db, holder.id, "second_agent", 10.0) is False
+    assert db.query(CampaignGrant).count() == grants_before
+
+
+def test_no_holder_view_without_a_gateway(db, monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    monkeypatch.setattr(config, "CAMPAIGN_GATEWAY_MASTER_KEY", "")
+    assert not campaign.holders_visible()
+
+
+def test_status_route_serves_holders_after_the_campaign_ends(client, db, campaign_on, gateway, monkeypatch):
+    holder = _mk_user(db, "holder@example.com")
+    campaign.ensure_account(db, holder)
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    monkeypatch.setattr("app.routers.campaign.resolve_current_user", lambda db_, auth: holder if auth else None)
+    signed_in = client.get("/v1/campaign/status", headers={"Authorization": "Bearer x"}).json()["data"]
+    assert signed_in["ended"] is True and signed_in["apiKey"] == "sk-demo-test" and signed_in["enabled"] is False
+    assert client.get("/v1/campaign/status").json()["data"] == {"enabled": False}

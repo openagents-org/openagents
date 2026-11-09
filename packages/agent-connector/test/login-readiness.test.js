@@ -141,7 +141,7 @@ describe('claude', () => {
       process.env.PATH = `${dir}${path.delimiter}${prevPath}`;
       try {
         const cr = entry.check_ready;
-        assert.equal(inst._checkMacKeychain(cr.keychain_service, cr.creds_key), ready);
+        assert.equal(inst._checkMacKeychain(cr.keychain_service), ready);
       } finally {
         process.env.PATH = prevPath;
       }
