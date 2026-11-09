@@ -7,6 +7,7 @@ import { ConnectAgentView } from './connect-agent-view';
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
   modelProbe: vi.fn(), addCloudAgent: vi.fn(),
+  getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({

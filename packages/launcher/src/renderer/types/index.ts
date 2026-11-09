@@ -652,7 +652,8 @@ declare global {
       deleteAgentEnv(type: string): Promise<unknown>
       getAgentInstanceEnv(name: string): Promise<Record<string, string>>
       saveAgentInstanceEnv(name: string, env: Record<string, string>): Promise<unknown>
-      testLLM(env: Record<string, string>): Promise<{
+      /** `agentType` lets a blank base URL mean that agent's default endpoint. */
+      testLLM(env: Record<string, string>, agentType?: string): Promise<{
         success: boolean
         model?: string
         response?: string
@@ -730,6 +731,16 @@ declare global {
        */
       setChromeDimmed(dim: boolean): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
+      /** Whether the local connector (the daemon) runs on this device. */
+      getLocalConnector(): Promise<boolean | null>
+      /** Starts or stops the daemon, taking local agents online or offline. */
+      setLocalConnector(enabled: boolean): Promise<{
+        success: boolean
+        enabled: boolean
+        message?: string
+      }>
+      /** Pushed when the connector is switched from anywhere, Settings or not. */
+      onLocalConnectorChanged(cb: (enabled: boolean) => void): void
       exportSettings(): Promise<string>
       exportSettingsToFile(): Promise<{
         ok: boolean
@@ -759,10 +770,10 @@ declare global {
       }>
       listPaths(): Promise<{
         userData: string
-        logs: string
-        downloads: string
+        logs?: string
+        downloads?: string
         home: string
-        cache: string
+        cache?: string
         portableNode: string
         openagentsHome: string
       }>

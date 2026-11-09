@@ -11,10 +11,14 @@ import type {
   BrowserTabLimits,
   CloudAgentConfig,
   CloudAgentProvider,
+  HostedAgent,
+  HostedAgentProvider,
+  AcentaAccount,
   DMConversation,
   EventPollResponse,
   KanbanTask,
   WorkspaceIssue,
+  IssueBoard,
   IssueDetail,
   IssueComment,
   IssueStatus,
@@ -45,6 +49,9 @@ import type {
   WorkspaceAgent,
   WorkspaceCollaborator,
   WorkspaceCustomSkill,
+  WorkspaceSkillVersion,
+  RegistryLeaderboardEntry,
+  RegistrySkill,
   WorkspaceFile,
   WorkspaceInvitation,
   WorkspaceMe,
@@ -100,6 +107,13 @@ function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
     contentType: (raw.content_type || raw.contentType) as string | undefined,
     packageType: (raw.package_type || raw.packageType || 'md') as 'md' | 'zip',
     createdAt: (raw.created_at || raw.createdAt) as string | undefined,
+    workspaceSkillId: (raw.workspace_skill_id || raw.workspaceSkillId) as string | undefined,
+    version: raw.version as string | undefined,
+    versionId: (raw.version_id || raw.versionId) as string | undefined,
+    registrySkillId: (raw.registry_skill_id || raw.registrySkillId) as string | undefined,
+    forkedFromVersionId: (raw.forked_from_version_id || raw.forkedFromVersionId) as string | undefined,
+    unavailable: Boolean(raw.unavailable),
+    publicVisibility: (raw.public_visibility || raw.publicVisibility) as 'public' | 'unlisted' | undefined,
   };
 }
 
@@ -541,10 +555,10 @@ class WorkspaceApi {
     return this.request<import('./types').SkillCatalogEntry[]>('/v1/workspaces/skill-catalog');
   }
 
-  async installSkill(agentName: string, skillId: string): Promise<unknown> {
+  async installSkill(agentName: string, skillId: string, versionId?: string): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}/skills/install`, {
       method: 'POST',
-      body: JSON.stringify({ skill_id: skillId }),
+      body: JSON.stringify({ skill_id: skillId, version_id: versionId }),
     });
   }
 
@@ -601,6 +615,118 @@ class WorkspaceApi {
       name: meta.name,
       description: meta.description,
       filename: file.name,
+    });
+  }
+
+  /** Rolling install+fork ranking. Public, like the rest of registry reads. */
+  async getRegistryLeaderboard(
+    board: 'community' | 'official',
+    window: 7 | 30,
+  ): Promise<RegistryLeaderboardEntry[]> {
+    const params = new URLSearchParams({ board, window: String(window), limit: '10' });
+    const raw = await this.request<{ entries: RegistryLeaderboardEntry[] }>(
+      `/v1/registry/leaderboard?${params}`,
+    );
+    return raw.entries || [];
+  }
+
+  /** A private skill's version timeline, newest first. */
+  async getCustomSkillVersions(workspaceSkillId: string): Promise<WorkspaceSkillVersion[]> {
+    const raw = await this.request<{ versions: Record<string, unknown>[] }>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+    );
+    return (raw.versions || []).map(v => ({
+      versionId: v.version_id as string,
+      version: v.version as string,
+      versionSeq: v.version_seq as number,
+      packageType: v.package_type as 'md' | 'zip',
+      changelog: (v.changelog as string) || '',
+      fileId: v.file_id as string,
+      createdBy: v.created_by as string | undefined,
+      createdAt: v.created_at as string | undefined,
+    }));
+  }
+
+  /** Upload a file and pin it as the skill's next immutable private version. */
+  async createCustomSkillVersion(
+    workspaceSkillId: string,
+    file: File,
+    changelog: string,
+  ): Promise<WorkspaceSkillVersion> {
+    const uploaded = await this.uploadFile(file);
+    const raw = await this.request<Record<string, unknown>>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/custom/${workspaceSkillId}/versions`,
+      { method: 'POST', body: JSON.stringify({ file_id: uploaded.id, changelog }) },
+    );
+    return {
+      versionId: raw.version_id as string,
+      version: raw.version as string,
+      versionSeq: 0,
+      packageType: 'md',
+      changelog: (raw.changelog as string) || '',
+      fileId: uploaded.id,
+    };
+  }
+
+  /** Take a published skill off the registry, or list it again. */
+  async setRegistrySkillVisibility(skillId: string, visibility: 'public' | 'unlisted'): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/visibility`, {
+      method: 'POST',
+      body: JSON.stringify({ visibility }),
+    });
+  }
+
+  /** Withdraw one published version; it stays visible in the public history. */
+  async yankRegistryVersion(skillId: string, versionId: string): Promise<unknown> {
+    return this.request(`/v1/registry/skills/${skillId}/versions/${versionId}/yank`, { method: 'POST' });
+  }
+
+  /** Search public skills. The endpoint is intentionally usable without login. */
+  async getRegistrySkills(query = '', category?: string): Promise<RegistrySkill[]> {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    if (category && category !== 'all' && category !== 'custom') params.set('category', category);
+    params.set('limit', '100');
+    const raw = await this.request<{ skills: RegistrySkill[] }>(`/v1/registry/skills?${params}`);
+    return raw.skills || [];
+  }
+
+  async getRegistrySkill(namespace: string, slug: string): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/registry/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`,
+    );
+  }
+
+  async publishWorkspaceSkill(
+    workspaceSkillId: string,
+    options: { license: string; version?: string; changelog?: string },
+  ): Promise<RegistrySkill> {
+    return this.request<RegistrySkill>(
+      `/v1/workspaces/${this.requireWorkspace()}/skills/${workspaceSkillId}/publish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          license_spdx: options.license,
+          version: options.version,
+          changelog: options.changelog || 'Initial public release',
+        }),
+      },
+    );
+  }
+
+  async forkRegistrySkill(skillId: string, versionId?: string): Promise<WorkspaceCustomSkill> {
+    const raw = await this.request<Record<string, unknown>>(`/v1/registry/skills/${skillId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: this.requireWorkspace(), version_id: versionId }),
+    });
+    // The fork response is intentionally compact. Refreshing getCustomSkills()
+    // supplies the full file and version metadata to the UI.
+    return mapCustomSkill({
+      ...raw,
+      id: raw.slug,
+      workspace_skill_id: raw.id,
+      package_type: 'md',
+      source_type: 'workspace_file',
     });
   }
 
@@ -1542,6 +1668,48 @@ class WorkspaceApi {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Hosted agents (Acenta)
+  // ---------------------------------------------------------------------------
+
+  async getHostedProviders(): Promise<HostedAgentProvider[]> {
+    const res = await this.request<{ providers: HostedAgentProvider[] }>('/v1/hosted-agents/providers', { signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    return res.providers;
+  }
+
+  async listHostedAgents(): Promise<HostedAgent[]> {
+    const res = await this.request<{ hosted_agents: HostedAgent[] }>(
+      `/v1/hosted-agents?network=${this.requireWorkspace()}`
+    );
+    return res.hosted_agents;
+  }
+
+  async launchHostedAgent(displayName: string): Promise<HostedAgent> {
+    return this.request<HostedAgent>('/v1/hosted-agents', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), display_name: displayName, provider: 'acenta' }),
+    });
+  }
+
+  /** The signed-in user's Acenta agents, marked with whether each is already here. */
+  async listMyAcentaAgents(): Promise<AcentaAccount> {
+    return this.request<AcentaAccount>(`/v1/hosted-agents/acenta/agents?network=${this.requireWorkspace()}`);
+  }
+
+  /** Add one of the user's existing Acenta agents to this workspace. */
+  async connectAcentaAgent(id: string): Promise<HostedAgent> {
+    return this.request<HostedAgent>(`/v1/hosted-agents/acenta/agents/${encodeURIComponent(id)}/connect`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
+  async removeHostedAgent(agentName: string): Promise<void> {
+    await this.request<unknown>(`/v1/hosted-agents/${encodeURIComponent(agentName)}?network=${this.requireWorkspace()}`, {
+      method: 'DELETE',
+    });
+  }
+
   /** Mint a one-time Google OAuth consent URL. Authenticated via headers so
    * the workspace token never appears in a URL (logs, browser history). */
   async getGoogleOAuthUrl(agentName: string, model: string): Promise<{ url: string }> {
@@ -1778,14 +1946,33 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string; board?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
+      ...(input.board ? { board: input.board } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
       ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),
     }));
+  }
+
+  async listIssueBoards(): Promise<IssueBoard[]> {
+    const result = await this.request<{ boards: IssueBoard[] }>(this.issuePath('/boards'));
+    return result.boards;
+  }
+
+  async createIssueBoard(name: string): Promise<IssueBoard> {
+    return this.request(this.issuePath('/boards'), { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  async renameIssueBoard(id: string, name: string): Promise<void> {
+    await this.request(this.issuePath(`/boards/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify({ name }) });
+  }
+
+  /** Deletes the board; its issues move to Team issues. */
+  async deleteIssueBoard(id: string): Promise<{ moved_issues: number }> {
+    return this.request(this.issuePath(`/boards/${encodeURIComponent(id)}`), { method: 'DELETE' });
   }
 
   async listIssueLabels(): Promise<string[]> {
@@ -1804,16 +1991,20 @@ class WorkspaceApi {
     await this.request(this.issuePath(`/${encodeURIComponent(id)}/my-agent-sharing`), { method: 'PATCH', body: JSON.stringify({ mode }) });
   }
 
-  async createIssue(input: { assignee?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title: string; description: string; source: string; source_name?: string; channel_name?: string }): Promise<WorkspaceIssue> {
+  async createIssue(input: { assignee?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title: string; description: string; source: string; source_name?: string; channel_name?: string; board_id?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(), { method: 'POST', body: JSON.stringify(input) });
   }
 
-  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; source: string; source_name?: string }): Promise<WorkspaceIssue> {
+  async updateIssue(id: string, input: { due_date?: string | null; knowledge_ids?: string[]; file_ids?: string[]; title?: string; description?: string; status?: IssueStatus; assignee?: string | null; labels?: string[]; board_id?: string; source: string; source_name?: string }): Promise<WorkspaceIssue> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'PATCH', body: JSON.stringify(input) });
   }
 
-  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
+  async commentOnIssue(id: string, input: { knowledge_ids?: string[]; file_ids?: string[]; content?: string; source_event_id?: string; reply_to_event_id?: string; source: string; source_name?: string }): Promise<IssueComment> {
     return this.request(this.issuePath(`/${encodeURIComponent(id)}/comments`), { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  async deleteIssue(id: string): Promise<void> {
+    await this.request(this.issuePath(`/${encodeURIComponent(id)}`), { method: 'DELETE' });
   }
 
   async linkIssueThread(id: string, channelName: string): Promise<void> {
@@ -2215,7 +2406,7 @@ class WorkspaceApi {
   async listSignals(opts?: { limit?: number }): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
     const params = new URLSearchParams({
       network: this.workspaceId,
-      kinds: 'dm,mention',
+      kinds: 'dm,mention,issue',
       is_read: 'false',
       limit: String(opts?.limit ?? 100),
     });
@@ -2632,6 +2823,14 @@ class WorkspaceApi {
     return this.request(`/v1/channels/${encodeURIComponent(channel)}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    });
+  }
+
+  /** Copy a thread's settings, agents and history into a new private thread. */
+  async forkChannel(channel: string, title?: string): Promise<{ name: string; title: string | null }> {
+    return this.request(`/v1/channels/${encodeURIComponent(channel)}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), ...(title ? { title } : {}) }),
     });
   }
 

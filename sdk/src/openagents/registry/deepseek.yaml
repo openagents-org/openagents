@@ -32,12 +32,12 @@ install:
   binary: dsh
   npm_package: "@deepseek-ai/dsh"
   requires: [nodejs]
-  supported_version: "0.2.1-rc.2"
+  supported_version: "0.2.1-rc.5"
   verify: "dsh -V >/dev/null 2>&1"
   verify_win: "dsh -V >nul 2>nul"
-  macos: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
-  linux: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
-  windows: "npm install -g @deepseek-ai/dsh@0.2.1-rc.2"
+  macos: "npm install -g @deepseek-ai/dsh@0.2.1-rc.5"
+  linux: "npm install -g @deepseek-ai/dsh@0.2.1-rc.5"
+  windows: "npm install -g @deepseek-ai/dsh@0.2.1-rc.5"
 
 adapter:
   module: openagents.adapters.deepseek

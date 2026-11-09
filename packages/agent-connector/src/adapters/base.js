@@ -17,6 +17,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
@@ -197,6 +198,9 @@ class BaseAdapter {
     this._cursorFile = this._cursorFilePath();
     this._lastPersistedCursor = null;
     this._resumedFromCursor = false;
+    // No cursor and no head: polls read from the start of history until they
+    // come back empty (see _skipExistingEvents).
+    this._unanchored = false;
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
@@ -549,7 +553,15 @@ class BaseAdapter {
       this._lastEventId = head;
       this._persistCursor(head);
       this._log(`Skipped existing events, cursor at ${head}`);
+      return;
     }
+    // The head lookup failed (network not up yet, a 5xx) or the workspace is
+    // empty. Polling with no cursor reads from the start of history, and a
+    // fresh start is not a replay, so every old message that named this agent
+    // was run again, one after another — a Codex hitting 429 posted an error
+    // every ~20s for an hour. Age-filter until the backlog is drained.
+    this._unanchored = true;
+    this._log('Could not find the head of the event stream — skipping stale messages until caught up', 'warn');
   }
 
   // ------------------------------------------------------------------
@@ -947,6 +959,8 @@ class BaseAdapter {
     const installer = require('../skill-installer');
     const skill = (payload && payload.skill) || null;
     const skillId = skill && (skill.id || skill.skill_id);
+    const reportSkillId = skill && (skill.registry_skill_id || skill.registrySkillId) || skillId;
+    const versionId = skill && (skill.version_id || skill.versionId);
     if (!skillId) {
       this._log('skill.install: missing skill metadata in payload — ignoring');
       return;
@@ -957,7 +971,7 @@ class BaseAdapter {
     // initial DB write from the request hasn't propagated to this client.
     try {
       await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-        skillId, state: 'installing',
+        skillId: reportSkillId, state: 'installing', versionId,
       });
     } catch (e) {
       this._log(`skill.install: could not report 'installing' (non-fatal): ${e && e.message ? e.message : e}`, 'warn');
@@ -981,6 +995,22 @@ class BaseAdapter {
           workingDir: this.workingDir,
           log: (m) => this._log(`skill.install: ${m}`),
         });
+      } else if (sourceType === 'registry') {
+        if (!versionId) throw new Error('registry skill is missing version_id');
+        this._log(`skill.install: downloading registry version ${versionId}`);
+        const buffer = await this.client.readRegistryVersion(versionId, this.token);
+        if (!buffer || buffer.length === 0) throw new Error('registry artifact is empty');
+        const expected = skill.content_sha256 || skill.contentSha256;
+        const actual = crypto.createHash('sha256').update(buffer).digest('hex');
+        if (!expected || actual !== expected) {
+          throw new Error(`registry artifact sha256 mismatch (expected ${expected || 'missing'}, got ${actual})`);
+        }
+        result = installer.installUploadedSkill({
+          skill, buffer,
+          agentType: this.agentType,
+          workingDir: this.workingDir,
+          log: (m) => this._log(`skill.install: ${m}`),
+        });
       } else {
         result = installer.installSkill({
           skill,
@@ -991,7 +1021,8 @@ class BaseAdapter {
       }
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'installed', path: result.path, partial: result.partial === true,
+          skillId: reportSkillId, state: 'installed', path: result.path,
+          partial: result.partial === true, versionId,
         });
       } catch (e) {
         this._log(`skill.install: installed on disk but failed to report 'installed': ${e && e.message ? e.message : e}`, 'warn');
@@ -1003,7 +1034,7 @@ class BaseAdapter {
       this._log(`skill.install: FAILED "${skillId}": ${msg}`, 'error');
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'failed', error: msg,
+          skillId: reportSkillId, state: 'failed', error: msg, versionId,
         });
       } catch (e2) {
         this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`, 'warn');
@@ -1018,6 +1049,7 @@ class BaseAdapter {
     const installer = require('../skill-installer');
     const skill = (payload && payload.skill) || null;
     const skillId = skill && (skill.id || skill.skill_id);
+    const reportSkillId = skill && (skill.registry_skill_id || skill.registrySkillId) || skillId;
     if (!skillId) {
       this._log('skill.uninstall: missing skill metadata in payload — ignoring');
       return;
@@ -1032,7 +1064,7 @@ class BaseAdapter {
       this._log(`skill.uninstall: "${skillId}" removed=${result.removed}`);
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
-          skillId, state: 'uninstalled',
+          skillId: reportSkillId, state: 'uninstalled',
         });
       } catch (e) {
         this._log(`skill.uninstall: failed to report status: ${e && e.message ? e.message : e}`, 'warn');
@@ -1265,6 +1297,10 @@ class BaseAdapter {
         continue;
       }
 
+      // The cursor stops moving (or none comes back) only once the poll has
+      // reached the end of the stream. An empty `messages` alone does not say
+      // that: it is the page after events for other agents were dropped.
+      const caughtUp = !rawCursor || rawCursor === this._lastEventId;
       if (rawCursor) {
         this._lastEventId = rawCursor;
         this._persistCursor(rawCursor);
@@ -1272,8 +1308,9 @@ class BaseAdapter {
       // Only the first poll after resuming from a persisted cursor is a
       // replay; later polls carry live traffic and are never age-filtered
       // (a skewed local clock must not make a live agent go deaf).
-      const isReplay = this._resumedFromCursor;
+      const isReplay = this._resumedFromCursor || this._unanchored;
       this._resumedFromCursor = false;
+      if (caughtUp) this._unanchored = false;
       const staleByChannel = {};
 
       // Deduplicate
@@ -1868,7 +1905,7 @@ class BaseAdapter {
   async cleanupTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
       const hasActive = todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -1889,10 +1926,13 @@ class BaseAdapter {
   async getRemainingTodos(channel) {
     try {
       const result = await this.client.getTodos(this.workspaceId, channel, this.token, {
-        all: false,
+        all: false, source: `openagents:${this.agentName}`,
       });
       const todos = (result && result.todos) || [];
-      return todos.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      // Defend against older endpoints returning the entire channel's list.
+      return todos.filter((t) => (!t.created_by || t.created_by === `openagents:${this.agentName}`)
+        && (!t.assignee || t.assignee === this.agentName || t.assignee === `openagents:${this.agentName}`)
+        && (t.status === 'pending' || t.status === 'in_progress'));
     } catch {
       return [];
     }

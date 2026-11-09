@@ -104,9 +104,7 @@ export default function ModelAccessSettingsPage() {
           <div className="divide-y rounded-lg border">
             {entries.map((e) => (
               <div key={e.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="inline-flex size-9 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/5 dark:ring-white/10 shrink-0">
-                  <ProviderIcon name={e.provider} size={20} />
-                </span>
+                <ProviderIcon name={e.provider} size={32} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{e.label}</p>
                   <p className="truncate font-mono text-xs text-muted-foreground">

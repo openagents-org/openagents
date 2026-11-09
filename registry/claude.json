@@ -25,6 +25,11 @@
       "nodejs",
       "git"
     ],
+    "requires_on": {
+      "git": [
+        "windows"
+      ]
+    },
     "macos": "npm install -g @anthropic-ai/claude-code",
     "linux": "npm install -g @anthropic-ai/claude-code",
     "windows": "npm install -g @anthropic-ai/claude-code"
@@ -53,8 +58,8 @@
     "creds_file": "~/.claude/.credentials.json",
     "creds_key": "claudeAiOauth",
     "keychain_service": "Claude Code-credentials",
-    "not_ready_message": "Not logged in. Run: claude login",
-    "login_command": "claude login",
+    "not_ready_message": "Not logged in. Run: claude auth login",
+    "login_command": "claude auth login",
     "alt_check": "claude --print hi",
     "status_args": [
       "auth",

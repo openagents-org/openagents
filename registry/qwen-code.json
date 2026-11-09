@@ -1,0 +1,94 @@
+{
+  "name": "qwen-code",
+  "label": "Qwen Code",
+  "description": "Alibaba's open-source terminal coding agent for Qwen models, driven headless",
+  "homepage": "https://github.com/QwenLM/qwen-code",
+  "tags": [
+    "coding",
+    "cli",
+    "open-source",
+    "headless"
+  ],
+  "featured": false,
+  "order": 999,
+  "builtin": true,
+  "logo": {
+    "key": "qwen-code"
+  },
+  "support": {
+    "install": true,
+    "workspace": true,
+    "collaboration": true
+  },
+  "install": {
+    "binary": "qwen",
+    "npm_package": "@qwen-code/qwen-code",
+    "requires": [
+      "nodejs"
+    ],
+    "verify": "qwen --version",
+    "verify_win": "qwen --version",
+    "macos": "npm install -g @qwen-code/qwen-code",
+    "linux": "npm install -g @qwen-code/qwen-code",
+    "windows": "npm install -g @qwen-code/qwen-code"
+  },
+  "uninstall": {
+    "macos": "npm uninstall -g @qwen-code/qwen-code",
+    "linux": "npm uninstall -g @qwen-code/qwen-code",
+    "windows": "npm uninstall -g @qwen-code/qwen-code"
+  },
+  "adapter": {
+    "module": "openagents.adapters.qwen_code",
+    "class": "QwenCodeAdapter"
+  },
+  "launch": null,
+  "check_ready": {
+    "min_version": "0.16.0",
+    "env_vars": [
+      "OPENAI_API_KEY"
+    ],
+    "saved_env_key": "LLM_API_KEY",
+    "not_ready_message": "Not configured — set an API key and a model (press e). Qwen Code has no CLI sign-in; a Model Studio (DashScope) key works with the prefilled base URL."
+  },
+  "env_config": [
+    {
+      "name": "LLM_API_KEY",
+      "description": "API key for an OpenAI-compatible endpoint — a Model Studio (DashScope) key, or a Bailian Coding Plan key together with its own base URL.",
+      "required": true,
+      "password": true
+    },
+    {
+      "name": "LLM_BASE_URL",
+      "description": "OpenAI-compatible base URL, prefilled with Model Studio China. International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 — Coding Plan: https://coding.dashscope.aliyuncs.com/v1 (international: https://coding-intl.dashscope.aliyuncs.com/v1)",
+      "required": true,
+      "default": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "placeholder": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    {
+      "name": "LLM_MODEL",
+      "description": "Model id, e.g. qwen3.8-flash. Pick one the base URL serves — Coding Plan offers a shorter list than Model Studio.",
+      "required": true,
+      "placeholder": "qwen3.8-flash"
+    }
+  ],
+  "catalog": true,
+  "workspace_model": true,
+  "resolve_env": {
+    "rules": [
+      {
+        "from": "LLM_API_KEY",
+        "to": "OPENAI_API_KEY"
+      },
+      {
+        "from": "LLM_BASE_URL",
+        "to": "OPENAI_BASE_URL"
+      },
+      {
+        "from": "LLM_MODEL",
+        "to": "OPENAI_MODEL"
+      }
+    ]
+  },
+  "vendor": "Alibaba Qwen",
+  "tagline": "Qwen's terminal coding agent, on your Model Studio or Coding Plan key."
+}

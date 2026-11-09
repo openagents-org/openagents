@@ -129,6 +129,10 @@ class Config:
     ROUTER_LLM_MODEL: str = os.environ.get("ROUTER_LLM_MODEL", "")  # auto-detected from provider if empty
     ROUTER_LLM_API_KEY: str = os.environ.get("ROUTER_LLM_API_KEY", "")  # universal key (checked first)
     ROUTER_LLM_BASE_URL: str = os.environ.get("ROUTER_LLM_BASE_URL", "")  # custom endpoint for openai provider
+    # Human-message classification and completion handoffs; other LLM tasks keep ROUTER_LLM_*.
+    MESSAGE_ROUTER_MODEL: str = os.environ.get("MESSAGE_ROUTER_MODEL", "")
+    MESSAGE_ROUTER_BASE_URL: str = os.environ.get("MESSAGE_ROUTER_BASE_URL", "")
+    MESSAGE_ROUTER_API_KEY: str = os.environ.get("MESSAGE_ROUTER_API_KEY", "")
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")  # fallback for anthropic provider
 
     # Cloud agents
@@ -159,6 +163,11 @@ class Config:
     # Output cap per LLM turn. The prompt asks for short replies; this bounds
     # the answer turn (which dominates latency) for verbose models.
     YUMI_MAX_TOKENS: int = int(os.environ.get("YUMI_MAX_TOKENS", "800"))
+
+    # Acenta hosted agents ("Cloud" tab). Disabled unless both are set; the
+    # secret authenticates this server to Acenta's integration API.
+    ACENTA_API_URL: str = os.environ.get("ACENTA_API_URL", "")
+    ACENTA_INTEGRATION_SECRET: str = os.environ.get("ACENTA_INTEGRATION_SECRET", "")
 
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")

@@ -1,9 +1,10 @@
 'use client';
+import { useOnboardingSurface } from './onboarding-surface';
 
 import { Sidebar, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
-import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
+import { useListToggleLabel } from './list-collapse-button';
 import { NavRail } from './nav-rail';
 import { ListPanel } from './list-panel';
 
@@ -17,13 +18,13 @@ import { ListPanel } from './list-panel';
  */
 function SidebarRailToggle() {
   const { state, toggleSidebar } = useSidebar();
-  const t = useT();
+  const label = useListToggleLabel();
   const isExpanded = state === 'expanded';
 
   return (
     <button
       type="button"
-      aria-label={isExpanded ? t('nav.hideList') : t('nav.showList')}
+      aria-label={label}
       onClick={toggleSidebar}
       // The shell already shrinks to the rail when the list closes, so the
       // handle always rides its trailing edge.
@@ -48,7 +49,7 @@ function SidebarRailToggle() {
       </span>
 
       <span className="pointer-events-none absolute left-full -ml-2 -translate-x-0.5 rounded-md border border-border bg-foreground px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-background opacity-0 shadow-xs shadow-black/5 transition-all duration-200 ease-out group-hover/rail:translate-x-0 group-hover/rail:opacity-100">
-        {isExpanded ? t('nav.hideList') : t('nav.showList')}
+        {label}
       </span>
     </button>
   );
@@ -68,6 +69,7 @@ function SidebarRailToggle() {
  */
 export function AppSidebar() {
   const { hasListPanel, isMobile, isSidebarOpen, railDragWidth } = useLayout();
+  const onboarding = useOnboardingSurface();
 
   return (
     <>
@@ -92,7 +94,7 @@ export function AppSidebar() {
       {/* Only while the list is open. Collapsed, this handle would land on the
           exact seam the rail's own toggle owns — and the app header already
           grows a "Show list" button for that case. */}
-      {!isMobile && hasListPanel && isSidebarOpen && (
+      {!onboarding && !isMobile && hasListPanel && isSidebarOpen && (
         <SidebarRailToggle />
       )}
     </>

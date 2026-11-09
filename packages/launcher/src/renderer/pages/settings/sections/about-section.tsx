@@ -6,6 +6,7 @@ import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { BrandMark } from "@renderer/components/ui-kit"
+import { useThemeStore } from "@renderer/store/theme"
 import { SettingsCard,
   Row,
   InfoRow,
@@ -33,6 +34,7 @@ export function AboutSection({
   systemInfo,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const dark = useThemeStore((s) => s.resolved === "dark")
 
   return (
     <>
@@ -41,7 +43,11 @@ export function AboutSection({
           the name has to say "launcher" too, and the platform gets one line of
           context underneath rather than top billing. */}
       <Card className="mb-5 flex-row items-center gap-5 px-6 py-6">
-        <BrandMark className="size-14" />
+        {/* The sidebar's mark, larger: the mono cut-out on a tile of the
+            primary colour, as the neutral theme draws its brand everywhere. */}
+        <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary">
+          <BrandMark variant={dark ? "black" : "white"} className="size-9" />
+        </span>
         <div className="min-w-0">
           <div className="text-base font-semibold tracking-tight">
             {t("settings.about.productName")}

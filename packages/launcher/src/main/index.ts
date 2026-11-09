@@ -115,7 +115,6 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
-  setChromeSkin,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -607,14 +606,16 @@ function createWindow(): void {
     titleBarStyle: "hidden",
     ...(process.platform === "darwin"
       ? {
-          // Centred in the top bar: (48 - 12) / 2 = 18 from the top.
-          trafficLightPosition: { x: 16, y: 18 },
+          // Centred in the top bar: (40 - 12) / 2 = 14 from the top. x 12 keeps
+          // the three inside the collapsed sidebar rail (80px, `--rail-icon-width`
+          // in globals.css) with room to spare.
+          trafficLightPosition: { x: 12, y: 14 },
         }
       : { titleBarOverlay: titleBarOverlayColors() }),
     // Paints while the renderer boots, so the window does not flash white
     // before the first frame — the frame used to hide that behind its own
     // chrome. Matches `--background`, like the overlay above.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a20" : "#fcfdfe",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -1390,7 +1391,9 @@ function setupIPC(): void {
   ipcMain.handle("agents:save-instance-env", (_e, agentName, env) =>
     requireManager().saveAgentInstanceEnv(agentName, env),
   )
-  ipcMain.handle("agents:test-llm", (_e, env) => requireManager().testLLM(env))
+  ipcMain.handle("agents:test-llm", (_e, env, agentType) =>
+    requireManager().testLLM(env, typeof agentType === "string" ? agentType : undefined),
+  )
   ipcMain.handle("agents:list-models", (_e, agentType, env, path, opts) =>
     requireManager().listModels(agentType, env, path, {
       refresh: !!(opts && (opts as { refresh?: unknown }).refresh),
@@ -1605,6 +1608,18 @@ function setupIPC(): void {
     setChromeDimmed(mainWindow, dim === true)
   })
 
+  // Not a plain setting: switching it starts or stops the daemon, and its
+  // value before any choice depends on whether this device has agents.
+  // Null while the manager is still loading: unknown, not off.
+  ipcMain.handle("local-connector:get", () =>
+    agentManager ? agentManager.localConnectorEnabled() : null,
+  )
+  ipcMain.handle("local-connector:set", async (_e, enabled: unknown) => {
+    const result = await requireManager().setLocalConnectorEnabled(enabled === true)
+    updateTrayMenu()
+    return result
+  })
+
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
   ipcMain.handle("settings:set", (_e, key, value) => {
     store.set(key, value)
@@ -1616,7 +1631,6 @@ function setupIPC(): void {
     // switch in Settings has to reach it — otherwise the banner keeps behaving
     // as though nothing changed.
     if (key === "autoUpdate") refreshUpdatePreference()
-    if (key === "skin") setChromeSkin(mainWindow, value)
     // Keep main's notification/tray strings on the language the user picked in
     // Settings — main can't read the renderer's localStorage-backed i18next.
     if (key === "language") {
@@ -2002,12 +2016,23 @@ function setupIPC(): void {
   ipcMain.handle("notifications:set-prefs", (_e, prefs) => setNotifPrefs(prefs))
 
   // ── Settings paths (5.7) ──
+  // app.getPath throws when Windows cannot resolve a known folder (a
+  // redirected or missing Downloads, say), and one throw failed the whole call
+  // — which the agent form needs for its default folder, so no agent could be
+  // added. Each path is looked up on its own instead.
+  const knownPath = (name: Parameters<typeof app.getPath>[0]): string | undefined => {
+    try {
+      return app.getPath(name)
+    } catch {
+      return undefined
+    }
+  }
   ipcMain.handle("paths:list", () => ({
     userData: app.getPath("userData"),
-    logs: app.getPath("logs"),
-    downloads: app.getPath("downloads"),
-    home: app.getPath("home"),
-    cache: app.getPath("sessionData"),
+    logs: knownPath("logs"),
+    downloads: knownPath("downloads"),
+    home: knownPath("home") ?? os.homedir(),
+    cache: knownPath("sessionData"),
     portableNode: PORTABLE_NODE_DIR,
     openagentsHome: path.join(os.homedir(), ".openagents"),
   }))
@@ -2633,9 +2658,17 @@ function setupIPC(): void {
   accountManager = registerAccountIpc({
     endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
     getWindow: () => mainWindow,
-    connectNode: (code) => requireManager().connectNode(code),
+    // Both run only for "Connect this computer" in the workspace, which asks
+    // for this device to come online — so they turn the local connector on.
+    connectNode: (code) => {
+      requireManager()._wantLocalConnector()
+      return requireManager().connectNode(code)
+    },
     nodeStatus: () => requireManager().refreshNodeStatus(true),
-    ensureDaemon: () => requireManager()._ensureDaemon(),
+    ensureDaemon: () => {
+      requireManager()._wantLocalConnector()
+      return requireManager()._ensureDaemon()
+    },
     nudgeNode: () => agentManager?.nudgeNodeHeartbeat(),
     // The launcher's own look and feel, which the hosted workspace shares.
     // `nativeTheme.themeSource` is already the mode the renderer put there
@@ -2782,8 +2815,6 @@ app.whenReady().then(async () => {
   // itself once the renderer booted and called in — a visible flicker on every
   // launch for anyone not on the system default.
   applyThemeSource(store.get("themeMode"))
-  // The window buttons wear the stored skin's rail colour; see setChromeSkin.
-  setChromeSkin(null, store.get("skin"))
 
   // Fires both when the renderer changes the mode and when the OS flips while
   // the app is on `system`. The window-controls overlay is a plate the app
@@ -2942,10 +2973,7 @@ app.whenReady().then(async () => {
   if (isHeadless && process.platform === "darwin" && app.dock) app.dock.hide()
 
   if (!isHeadless) {
-    const c = splashPalette({
-      accent: store.get("accent"),
-      skin: store.get("skin"),
-    })
+    const c = splashPalette()
     splash = new BrowserWindow({
       width: 420,
       height: 260,
@@ -3170,13 +3198,22 @@ app.whenReady().then(async () => {
     ._ensureDaemon()
     // Settings → Agents "start agents on launch". Chained onto the daemon so
     // the core is actually loaded before we ask it to start anything; a failure
-    // here is non-fatal, the user can still start each agent by hand.
-    .then(() => {
-      if (store.get("agentAutoStart") !== true) return
+    // here is non-fatal, the user can still start each agent by hand. No
+    // daemon means the local connector is off, which auto-start must not undo.
+    .then((ready) => {
+      if (!ready || store.get("agentAutoStart") !== true) return
       slog("agentAutoStart is on — starting all configured agents")
       return agentManager?.startAll()
     })
     .catch(() => {})
+
+  // Adding an agent or connecting this computer can switch the connector on
+  // from outside Settings; every surface that shows it follows.
+  agentManager.on("local-connector", (enabled: boolean) => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send("local-connector:changed", enabled)
+    updateTrayMenu()
+  })
 
   agentManager.on("chat-event", (ev: ChatStreamEvent) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

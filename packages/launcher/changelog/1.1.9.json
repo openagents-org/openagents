@@ -1,38 +1,49 @@
 {
   "version": "1.1.9",
-  "date": "2026-10-28",
+  "date": "2026-11-01",
   "entries": [
     {
-      "type": "fix",
+      "type": "feature",
       "title": {
-        "en": "OpenClaw installs again",
-        "zh": "OpenClaw 恢复正常安装"
+        "en": "Qwen Code, MiMo Code and Qoder CLI are available",
+        "zh": "新增 Qwen Code、MiMo Code 与 Qoder CLI"
       },
       "description": {
-        "en": "The bundled Node.js is updated to 24.22.1, which the latest OpenClaw requires. When an agent's newest release needs a newer Node.js than this device has, the newest compatible release is installed instead, including when the agent is added from the web.",
-        "zh": "内置 Node.js 升级至 24.22.1，满足最新版 OpenClaw 的要求。若智能体的最新版本需要更高版本的 Node.js，将自动安装可兼容的最新版本；从网页端添加智能体时同样适用。"
+        "en": "Install them from the agent marketplace. Qoder CLI also comes in a China edition.",
+        "zh": "可在智能体市场中直接安装，Qoder CLI 同时提供国内版。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Local connector switch",
+        "zh": "本地连接器开关"
+      },
+      "description": {
+        "en": "Turn it off in Settings → General to stop the agents on this computer and use the app only as a workspace client. It is off on a new installation and turns on when you add your first local agent.",
+        "zh": "可在「设置 → 通用」中关闭，关闭后本机智能体停止运行，应用仅作为工作区客户端使用。新安装时默认关闭，添加首个本地智能体后自动开启。"
       }
     },
     {
       "type": "fix",
       "title": {
-        "en": "Claude Code works through third-party relays",
-        "zh": "Claude Code 可通过第三方中转正常使用"
+        "en": "Agent installation and startup fixes",
+        "zh": "智能体安装与启动问题修复"
       },
       "description": {
-        "en": "Requests are no longer rejected with \"422 unknown variant tool_definition\" by relays that do not support tool search.",
-        "zh": "不支持工具搜索的中转服务不再以「422 unknown variant tool_definition」拒绝请求。"
+        "en": "OpenClaw installs normally again. DeepSeek Harness installs its supported version automatically instead of failing to start. Claude Code works through relays that do not support tool search.",
+        "zh": "OpenClaw 恢复正常安装；DeepSeek Harness 版本不受支持时自动安装受支持的版本，不再无法启动；Claude Code 可通过不支持工具搜索的中转服务正常使用。"
       }
     },
     {
       "type": "improvement",
       "title": {
-        "en": "Clearer agent error messages",
-        "zh": "智能体报错信息更清晰"
+        "en": "Clearer agent errors",
+        "zh": "智能体报错更清晰"
       },
       "description": {
-        "en": "Codex errors state the actual cause, such as a usage limit, rather than internal log lines. An incomplete Claude Code installation is identified as such, with instructions to reinstall, instead of \"spawn EFTYPE\". Codex recovers automatically after being reinstalled or updated. A connection test that receives a reply no longer reports a timeout because the CLI was slow to exit.",
-        "zh": "Codex 报错直接说明实际原因（如额度已用完），不再显示内部日志。Claude Code 安装不完整时会明确提示并给出重装方法，不再只显示「spawn EFTYPE」。Codex 重装或更新后可自动恢复运行。连接测试已收到回复时，不再因 CLI 退出较慢而误报超时。"
+        "en": "Errors and failed installations state the actual cause, and connection tests no longer report false timeouts.",
+        "zh": "报错与安装失败时直接说明原因，连接测试不再误报超时。"
       }
     }
   ]

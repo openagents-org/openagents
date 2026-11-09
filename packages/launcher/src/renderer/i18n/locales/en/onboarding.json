@@ -11,7 +11,7 @@
         "body": "Start with a recommended agent, or browse and connect more. Every agent you add is listed below, where you configure, start, stop and add it to a workspace."
       },
       "workspaces": {
-        "title": "Joined Workspaces",
+        "title": "Connected Workspaces",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
       }
     }

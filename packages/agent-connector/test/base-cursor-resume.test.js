@@ -159,6 +159,49 @@ describe('BaseAdapter — poll cursor persistence & resume', () => {
     assert.equal(a._lastEventId, 'head-1');
   });
 
+  it('no head to start from: old messages read from the start of history are not run again', async () => {
+    const a = makeAdapter(tmp);
+    a.client.getHeadEventId = async () => null; // network not up yet, or a 5xx
+    const pages = [
+      { messages: [msg('old-1', STALE_MESSAGE_MAX_AGE_MS + 60_000), msg('old-2', 3 * STALE_MESSAGE_MAX_AGE_MS)], cursor: 'c-1' },
+      { messages: [msg('old-3', 2 * STALE_MESSAGE_MAX_AGE_MS), msg('recent', 60_000)], cursor: 'c-2' },
+      { messages: [], cursor: 'c-2' }, // the cursor stops moving: caught up
+      { messages: [msg('live', STALE_MESSAGE_MAX_AGE_MS + 60_000)], cursor: 'c-3' },
+    ];
+    let n = 0;
+    a.client.pollPending = async () => pages[n++] || { messages: [], cursor: null };
+    await a._skipExistingEvents();
+    assert.equal(a._lastEventId, null);
+    await pollOnce(a);
+    await pollOnce(a);
+    assert.deepEqual(a.handled.map((m) => m.content), ['m-recent']);
+    await pollOnce(a); // caught up
+    await pollOnce(a); // live traffic is never age-filtered
+    assert.deepEqual(a.handled.map((m) => m.content), ['m-recent', 'm-live']);
+  });
+
+  it('no head to start from: a page with nothing for this agent keeps the age filter on, an empty poll ends it', async () => {
+    const a = makeAdapter(tmp);
+    a.client.getHeadEventId = async () => null;
+    const pages = [
+      { messages: [], cursor: 'c-1' }, // a full page of other agents' events
+      { messages: [msg('old', STALE_MESSAGE_MAX_AGE_MS + 60_000)], cursor: 'c-2' },
+      { messages: [], cursor: null }, // nothing came back at all
+      { messages: [msg('live', STALE_MESSAGE_MAX_AGE_MS + 60_000)], cursor: 'c-3' },
+    ];
+    let n = 0;
+    a.client.pollPending = async () => pages[n++];
+    await a._skipExistingEvents();
+    await pollOnce(a);
+    assert.equal(a._unanchored, true);
+    await pollOnce(a);
+    assert.deepEqual(a.handled, []);
+    await pollOnce(a);
+    assert.equal(a._unanchored, false);
+    await pollOnce(a);
+    assert.deepEqual(a.handled.map((m) => m.content), ['m-live']);
+  });
+
   it('cursor file path is per workspace+agent and filesystem-safe', () => {
     const a = new StubAdapter({ workspaceId: 'ws/../x', agentName: 'my agent' });
     const f = a._cursorFilePath();

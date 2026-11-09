@@ -18,6 +18,7 @@ const {
   buildKimiArgs,
   buildKimiEnv,
   encodeKimiWorkDirKey,
+  KimiWireTracker,
   extractStderrError,
   classifyKimiError,
   redactArgs,
@@ -203,6 +204,11 @@ describe('kimi-stream helpers', () => {
   it('classifies Kimi Code (0.x) vs the legacy Python kimi-cli (1.x)', () => {
     assert.deepEqual(classifyKimiVersion('0.39.1'), { version: '0.39.1', product: 'kimi-code' });
     assert.deepEqual(classifyKimiVersion('1.44.0'), { version: '1.44.0', product: 'legacy' });
+    // Kimi Code CLI's current line is 2.x (npm @moonshot-ai/kimi-code 2.4.0); only 1.x is
+    // the legacy Python kimi-cli. A 2.x install must not be refused as the wrong product.
+    assert.deepEqual(classifyKimiVersion('2.4.0'), { version: '2.4.0', product: 'kimi-code' });
+    assert.deepEqual(classifyKimiVersion('kimi, version 2.1.1'), { version: '2.1.1', product: 'kimi-code' });
+    assert.deepEqual(classifyKimiVersion('3.0.0'), { version: '3.0.0', product: 'kimi-code' });
     assert.deepEqual(classifyKimiVersion('nonsense'), { version: null, product: null });
     assert.deepEqual(classifyKimiVersion(''), { version: null, product: null });
   });
@@ -406,6 +412,64 @@ describe('kimi-stream helpers', () => {
     assert.doesNotMatch(timeout.userMessage, /SIGINT/);
   });
 
+  it('says what a watchdog stop saw — a quiet model step, or a tool still running', () => {
+    // Reported as "Kimi showed no progress", which read as a hang, while the
+    // model was thinking and running commands the whole time.
+    const info = { code: null, signal: 'SIGTERM', stderrText: '', retryMessage: '' };
+    const quiet = classifyKimiError({ ...info, timedOutMs: 900_000 });
+    assert.equal(quiet.kind, 'timeout');
+    assert.match(quiet.userMessage, /^Kimi printed nothing for about 15 min and was stopped/);
+    assert.match(quiet.userMessage, /prints nothing while the model works on a step/);
+    assert.doesNotMatch(quiet.userMessage, /no progress/);
+
+    const tool = classifyKimiError({ ...info, timedOutMs: 1_800_000, timedOutInTool: true });
+    assert.equal(tool.kind, 'timeout');
+    assert.match(tool.userMessage, /^A command or task Kimi started was still running after about 30 min with no output/);
+  });
+
+  it('follows a session journal to the tool calls and background tasks still running', () => {
+    // Event lines as Kimi Code 2.5.2 writes them to agents/main/wire.jsonl.
+    const w = new KimiWireTracker();
+    w.push(`${WIRE.stepBegin}\n${WIRE.llmRequest}\n`);
+    assert.equal(w.busy, false, 'a model step is not a tool');
+    // Split mid-line, as a read can land.
+    const call = WIRE.toolCall('call_1');
+    w.push(call.slice(0, 40));
+    assert.equal(w.busy, false);
+    w.push(`${call.slice(40)}\n`);
+    assert.equal(w.busy, true);
+    w.push(`not json\n${JSON.stringify({ type: 'context.append_loop_event', event: { type: 'tool.call' } })}\n`);
+    w.push(`${WIRE.toolResult('call_1')}\n`);
+    assert.equal(w.busy, false);
+
+    // A background task outlives its tool call and its turn.
+    w.push(`${WIRE.toolCall('call_2')}\n${WIRE.taskStarted('bash-1')}\n${WIRE.toolResult('call_2')}\n${WIRE.turnEnded}\n`);
+    assert.equal(w.busy, true);
+    w.push(`${WIRE.taskTerminated('bash-1')}\n`);
+    assert.equal(w.busy, false);
+
+    // A turn that ended without a call's result does not hold the run open,
+    // and neither does a step that began without one (its tools are done).
+    w.push(`${WIRE.toolCall('call_3')}\n`);
+    assert.equal(w.busy, true);
+    w.push(`${WIRE.turnEnded}\n`);
+    assert.equal(w.busy, false);
+    w.push(`${WIRE.toolCall('call_4')}\n${WIRE.stepBegin}\n`);
+    assert.equal(w.busy, false);
+  });
+
+  it('opens nothing for records from before the run started', () => {
+    const since = Date.now();
+    const w = new KimiWireTracker({ since });
+    // Left by an earlier run that was stopped mid-tool.
+    w.push(`${WIRE.toolCall('call_old', since - 60_000)}\n${WIRE.taskStarted('bash-old', since - 60_000)}\n`);
+    assert.equal(w.busy, false);
+    w.push(`${WIRE.toolCall('call_new', since + 5)}\n`);
+    assert.equal(w.busy, true);
+    w.push(`${WIRE.toolResult('call_new')}\n${WIRE.taskStarted('bash-new', since + 9)}\n`);
+    assert.deepEqual([...w.tasks], ['bash-new']);
+  });
+
   it('keys a working directory exactly as Kimi Code files its sessions', () => {
     // Taken from a real Windows install: C:\Users\86177 → wd_86177_5d6fa4a9b53d.
     assert.equal(encodeKimiWorkDirKey('C:\\Users\\86177'), 'wd_86177_5d6fa4a9b53d');
@@ -415,14 +479,49 @@ describe('kimi-stream helpers', () => {
   });
 });
 
+// Session journal lines in the shape Kimi Code 2.5.2 writes them. Kimi
+// stamps each with `time`; left out here unless a test needs one from
+// before the run (records from before a run's start open nothing).
+const stamp = (record, time) => JSON.stringify(time === undefined ? record : { ...record, time });
+const loopEvent = (event, time) => stamp({ type: 'context.append_loop_event', agentId: 'main', event }, time);
+const taskEvent = (type, taskId, status, time) => stamp({
+  type, agentId: 'main', info: { taskId, description: 'bg', status, detached: true, kind: 'process', command: 'cd /tmp && make', parentToolCallId: 'call_1' },
+}, time);
+const WIRE = {
+  stepBegin: loopEvent({ type: 'step.begin', uuid: 'u1', turnId: '0', step: 1 }),
+  llmRequest: JSON.stringify({ type: 'llm.request', agentId: 'main', kind: 'loop', provider: 'openai', model: 'kimi-k2.6', maxTokens: 32768 }),
+  toolCall: (id, time) => loopEvent({ type: 'tool.call', uuid: `c-${id}`, turnId: '0', step: 1, toolCallId: id, name: 'Bash', args: { command: 'cd /tmp && python3 build.py' } }, time),
+  toolResult: (id) => loopEvent({ type: 'tool.result', parentUuid: `c-${id}`, toolCallId: id, result: { output: 'ok' } }),
+  taskStarted: (id, time) => taskEvent('task.started', id, 'running', time),
+  taskTerminated: (id) => taskEvent('task.terminated', id, 'completed'),
+  turnEnded: JSON.stringify({ type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed' }),
+};
+
 // A stand-in for `kimi -p`: prints tool noise on stderr, then stays mute on
 // stdout like a main agent waiting on a subagent, optionally appending to a
 // session journal meanwhile, and answers once it has been busy long enough.
 const FAKE_KIMI = `
 const fs = require('fs');
 const path = require('path');
-const { FAKE_JOURNAL, FAKE_BUSY_MS } = process.env;
+const { FAKE_JOURNAL, FAKE_BUSY_MS, FAKE_WIRE, FAKE_WIRE_REWRITE, FAKE_WIRE_START, FAKE_WIRE_END } = process.env;
 process.stderr.write('which: no gh\\n');
+// Like a tool run in print mode: the journal says a tool started, then
+// nothing at all until it ends.
+if (FAKE_WIRE) {
+  fs.mkdirSync(path.dirname(FAKE_WIRE), { recursive: true });
+  // Kimi's own repair of a journal whose last line was cut off: the valid
+  // prefix, written to a new file that replaces it.
+  if (FAKE_WIRE_REWRITE) {
+    fs.writeFileSync(FAKE_WIRE + '.tmp', FAKE_WIRE_REWRITE);
+    fs.renameSync(FAKE_WIRE + '.tmp', FAKE_WIRE);
+  }
+  fs.appendFileSync(FAKE_WIRE, FAKE_WIRE_START);
+  setTimeout(() => {
+    fs.appendFileSync(FAKE_WIRE, FAKE_WIRE_END);
+    process.stdout.write(JSON.stringify({ role: 'assistant', content: 'done' }) + '\\n');
+  }, Number(FAKE_BUSY_MS));
+  return;
+}
 if (FAKE_JOURNAL) fs.mkdirSync(path.dirname(FAKE_JOURNAL), { recursive: true });
 const started = Date.now();
 const tick = setInterval(() => {
@@ -435,13 +534,18 @@ const tick = setInterval(() => {
 `;
 
 describe('KimiAdapter idle watchdog', () => {
-  async function runFakeKimi({ busyMs, journal = null, args = [], existing = [] }) {
+  async function runFakeKimi({ busyMs = 0, journal = null, args = [], existing = [], wire = null, tweak = null }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-watchdog-'));
     const home = path.join(root, 'kimi-home');
     const workDir = path.join(root, 'work');
     fs.mkdirSync(workDir, { recursive: true });
     const bucket = path.join(home, 'sessions', encodeKimiWorkDirKey(workDir));
     for (const id of existing) fs.mkdirSync(path.join(bucket, id), { recursive: true });
+    // A journal left by an earlier run, before this one starts.
+    if (wire && wire.before) {
+      fs.mkdirSync(path.dirname(path.join(bucket, wire.file)), { recursive: true });
+      fs.writeFileSync(path.join(bucket, wire.file), wire.before.map((l) => `${l}\n`).join(''));
+    }
     const bin = path.join(root, 'fake-kimi.js');
     fs.writeFileSync(bin, FAKE_KIMI);
 
@@ -450,6 +554,10 @@ describe('KimiAdapter idle watchdog', () => {
       KIMI_CODE_HOME: home,
       FAKE_JOURNAL: journal ? path.join(bucket, journal) : '',
       FAKE_BUSY_MS: String(busyMs),
+      FAKE_WIRE: wire ? path.join(bucket, wire.file) : '',
+      FAKE_WIRE_REWRITE: wire && wire.rewrite ? wire.rewrite.map((l) => `${l}\n`).join('') : '',
+      FAKE_WIRE_START: wire ? (wire.start || []).map((l) => `${l}\n`).join('') : '',
+      FAKE_WIRE_END: wire ? (wire.end || []).map((l) => `${l}\n`).join('') : '',
     });
     // 20 quiet ticks of 100ms: stopped after ~2s without a sign of life. The
     // only silent stretch in a healthy run is the child's own boot (the fake
@@ -457,17 +565,22 @@ describe('KimiAdapter idle watchdog', () => {
     // Windows can exceed half a second — a 500ms budget killed healthy runs
     // in CI. Alive scenarios stay busy longer than the budget so a watchdog
     // that ignored the journal would still be caught.
+    // Runs use the agent's private Kimi home; here that IS the fixture home
+    // whose sessions the watchdog watches.
+    adapter._kimiHome = () => home;
     adapter._watchdogIntervalMs = 100;
     adapter._watchdogMax = 20;
     adapter.logs = [];
     adapter._log = (line) => { adapter.logs.push(line); };
+    adapter.statuses = [];
     adapter.sendThinking = async () => {};
-    adapter.sendStatus = async () => {};
+    adapter.sendStatus = async (_channel, text) => { adapter.statuses.push(text); };
+    if (tweak) tweak(adapter);
     try {
       const result = await adapter._runKimi(
         'thread', bin, [...args, '-p', 'hi', '--output-format', 'stream-json'], workDir,
       );
-      return { result, logs: adapter.logs };
+      return { result, logs: adapter.logs, statuses: adapter.statuses };
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -513,6 +626,97 @@ describe('KimiAdapter idle watchdog', () => {
     });
     assert.equal(kind, 'timeout');
     assert.doesNotMatch(userMessage, /signal/);
+    assert.equal(result.timedOutInTool, false);
+  });
+
+  // Print mode says nothing while a tool runs, not even the tool call (Kimi
+  // Code 2.5.2): a run building a PDF went quiet and was stopped. The
+  // journal is written once, when the tool starts, then nothing until it ends.
+  it('keeps a quiet run alive while its journal shows a tool still running', async () => {
+    const { result, logs, statuses } = await runFakeKimi({
+      busyMs: 3500,
+      wire: {
+        file: 'session_new/agents/main/wire.jsonl',
+        start: [WIRE.stepBegin, WIRE.llmRequest, WIRE.toolCall('call_1')],
+        end: [WIRE.toolResult('call_1')],
+      },
+    });
+    assert.equal(result.timedOutMs, 0, JSON.stringify(logs));
+    assert.equal(result.ok, true);
+    assert.equal(result.finalText, 'done');
+    assert.ok(logs.some((l) => /a tool it started is still running/.test(l)));
+    assert.deepEqual(statuses, ['Still working...'], 'the user still hears it is working');
+  });
+
+  it('keeps it alive while the run waits on a background task', async () => {
+    const { result } = await runFakeKimi({
+      busyMs: 3500,
+      wire: {
+        file: 'session_new/agents/main/wire.jsonl',
+        start: [WIRE.toolCall('call_1'), WIRE.taskStarted('bash-1'), WIRE.toolResult('call_1'), WIRE.turnEnded],
+        end: [WIRE.taskTerminated('bash-1')],
+      },
+    });
+    assert.equal(result.timedOutMs, 0);
+    assert.equal(result.ok, true);
+  });
+
+  it('stops a run whose tool stays quiet past the tool budget, and says so', async () => {
+    const { result, logs } = await runFakeKimi({
+      busyMs: 60_000,
+      wire: { file: 'session_new/agents/main/wire.jsonl', start: [WIRE.toolCall('call_1')] },
+      tweak: (adapter) => { adapter._watchdogToolMax = 30; },
+    });
+    assert.ok(result.timedOutMs >= 2_000, String(result.timedOutMs));
+    assert.equal(result.timedOutInTool, true);
+    assert.ok(logs.some((l) => /with a tool still running — killing/.test(l)));
+  });
+
+  it('does not count a tool call an earlier, stopped run left open in the resumed session', async () => {
+    const { result } = await runFakeKimi({
+      busyMs: 60_000,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      wire: { file: 'session_old/agents/main/wire.jsonl', before: [WIRE.toolCall('call_old', 1)] },
+    });
+    assert.ok(result.timedOutMs > 0);
+    assert.equal(result.timedOutInTool, false);
+  });
+
+  // A run stopped mid-write leaves a cut-off last line; resuming, Kimi
+  // rewrites the journal to its valid prefix as a new file. The offset taken
+  // at the start pointed past where this run's records then landed.
+  it('still sees a running tool after Kimi replaces the resumed session\'s journal', async () => {
+    const earlier = [WIRE.stepBegin, WIRE.toolCall('call_old', 1)];
+    const { result, logs } = await runFakeKimi({
+      busyMs: 3500,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      wire: {
+        file: 'session_old/agents/main/wire.jsonl',
+        // The cut-off line is a big tool result, longer than all this run
+        // writes before its tool call: that call lands before the old offset.
+        before: [...earlier, `{"type":"context.append_loop_event","agentId":"main","event":{"type":"tool.result","toolCallId":"call_old","result":{"output":"${'x'.repeat(5000)}`],
+        rewrite: earlier,
+        start: [WIRE.stepBegin, WIRE.llmRequest, WIRE.toolCall('call_new')],
+        end: [WIRE.toolResult('call_new')],
+      },
+    });
+    assert.equal(result.timedOutMs, 0, JSON.stringify(logs));
+    assert.equal(result.ok, true);
+    assert.ok(logs.some((l) => /a tool it started is still running/.test(l)));
+  });
+
+  it('does not count what the replaced journal kept from the earlier run', async () => {
+    const earlier = [WIRE.stepBegin, WIRE.toolCall('call_old', 1), WIRE.taskStarted('bash-old', 1)];
+    const { result } = await runFakeKimi({
+      busyMs: 60_000,
+      args: ['-S', 'session_old'],
+      existing: ['session_old'],
+      wire: { file: 'session_old/agents/main/wire.jsonl', before: [...earlier, '{"type":"tas'], rewrite: earlier },
+    });
+    assert.ok(result.timedOutMs > 0);
+    assert.equal(result.timedOutInTool, false);
   });
 });
 
@@ -570,3 +774,122 @@ function listen(server) {
 function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
+
+// Kimi Code reads MCP servers only from $KIMI_CODE_HOME/mcp.json, so each
+// agent runs with a private home that adds the workspace server and links the
+// user's `kimi login` back in — the user's ~/.kimi-code is never edited.
+describe('KimiAdapter workspace tools (private Kimi home)', () => {
+  const {
+    KIMI_MCP_SERVER_NAME, kimiHomeName, buildKimiMcpConfig, buildKimiWorkspaceEnv,
+  } = require('../src/adapters/kimi-stream');
+
+  function withHomes(fn) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-home-'));
+    const userHome = path.join(root, 'user-kimi');
+    const privateHome = path.join(root, 'private-kimi');
+    fs.mkdirSync(path.join(userHome, 'credentials'), { recursive: true });
+    fs.writeFileSync(path.join(userHome, 'credentials', 'kimi-code.json'), '{"refresh_token":"r"}');
+    fs.writeFileSync(path.join(userHome, 'config.toml'), 'default_model = "k"\n');
+    fs.writeFileSync(path.join(userHome, 'mcp.json'), JSON.stringify({ mcpServers: { mine: { command: 'my-server' } } }));
+    const adapter = makeAdapter({ KIMI_CODE_HOME: userHome });
+    adapter._kimiHome = () => privateHome;
+    adapter._log = () => {};
+    try { return fn({ adapter, userHome, privateHome }); } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+
+  it('names each agent its own home', () => {
+    assert.notEqual(kimiHomeName('ws', 'a'), kimiHomeName('ws', 'b'));
+    assert.match(kimiHomeName('WS 1', 'Kimi Bot'), /^ws-1_kimi-bot-[0-9a-f]{8}$/);
+  });
+
+  it('keeps the user\'s MCP servers and adds the workspace server', () => {
+    const cfg = buildKimiMcpConfig({ mcpServers: { mine: { command: 'x' }, [KIMI_MCP_SERVER_NAME]: { command: 'stale' } } }, { command: 'node' });
+    assert.deepEqual(Object.keys(cfg.mcpServers).sort(), ['mine', KIMI_MCP_SERVER_NAME].sort());
+    assert.equal(cfg.mcpServers[KIMI_MCP_SERVER_NAME].command, 'node');
+    assert.deepEqual(buildKimiMcpConfig('garbage', { command: 'node' }).mcpServers, { [KIMI_MCP_SERVER_NAME]: { command: 'node' } });
+  });
+
+  it('passes the run\'s workspace identity through the environment the MCP server reads', () => {
+    assert.deepEqual(
+      buildKimiWorkspaceEnv({ token: 't', workspaceId: 'w', channel: 'c', agentName: 'a', endpoint: 'https://e' }),
+      { OA_WORKSPACE_TOKEN: 't', OPENAGENTS_WORKSPACE_ID: 'w', OPENAGENTS_CHANNEL_NAME: 'c', OPENAGENTS_AGENT_NAME: 'a', OPENAGENTS_ENDPOINT: 'https://e' },
+    );
+  });
+
+  it('builds the private home: merged mcp.json with no secret in it, login linked back', () => withHomes(({ adapter, userHome, privateHome }) => {
+    assert.equal(adapter._prepareKimiHome(), privateHome);
+    const text = fs.readFileSync(path.join(privateHome, 'mcp.json'), 'utf-8');
+    assert.ok(!text.includes('token'), 'no token in mcp.json');
+    const cfg = JSON.parse(text);
+    assert.equal(cfg.mcpServers.mine.command, 'my-server');
+    const server = cfg.mcpServers[KIMI_MCP_SERVER_NAME];
+    assert.equal(server.command, process.execPath);
+    assert.deepEqual(server.args.slice(1), ['mcp-server']);
+    // The credentials directory is linked, so a token refresh lands in the user's home.
+    fs.writeFileSync(path.join(privateHome, 'credentials', 'kimi-code.json'), '{"refresh_token":"rotated"}');
+    assert.match(fs.readFileSync(path.join(userHome, 'credentials', 'kimi-code.json'), 'utf-8'), /rotated/);
+    assert.match(fs.readFileSync(path.join(privateHome, 'config.toml'), 'utf-8'), /default_model/);
+    // Idempotent: a second run reuses the links.
+    assert.equal(adapter._prepareKimiHome(), privateHome);
+  }));
+
+  it('passes disabled modules on to the MCP server', () => withHomes(({ adapter, privateHome }) => {
+    adapter.disabledModules = new Set(['browser', 'files']);
+    adapter._prepareKimiHome();
+    const args = JSON.parse(fs.readFileSync(path.join(privateHome, 'mcp.json'), 'utf-8')).mcpServers[KIMI_MCP_SERVER_NAME].args;
+    assert.ok(args.includes('--disable-browser') && args.includes('--disable-files'));
+  }));
+
+  it('spawns kimi with the private home and the workspace environment', () => withHomes(async ({ adapter, privateHome }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-envdump-'));
+    const dump = path.join(dir, 'env.json');
+    const bin = path.join(dir, 'fake-kimi.js');
+    fs.writeFileSync(bin, `require('fs').writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env));
+process.stdout.write(JSON.stringify({ role: 'assistant', content: 'ok' }) + '\\n');`);
+    adapter.sendThinking = async () => {};
+    adapter.sendStatus = async () => {};
+    try {
+      const result = await adapter._runKimi('thread-9', bin, ['-p', 'hi', '--output-format', 'stream-json'], dir);
+      assert.equal(result.ok, true);
+      const env = JSON.parse(fs.readFileSync(dump, 'utf-8'));
+      assert.equal(env.KIMI_CODE_HOME, privateHome);
+      assert.equal(env.OA_WORKSPACE_TOKEN, 'token');
+      assert.equal(env.OPENAGENTS_CHANNEL_NAME, 'thread-9');
+      assert.equal(env.OPENAGENTS_AGENT_NAME, 'kimi-bot');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }));
+
+  it('tells kimi about the workspace tools only when they are ready', () => {
+    const adapter = makeAdapter({});
+    adapter._workspaceToolsReady = true;
+    assert.match(adapter._contextHeader('c'), /workspace_\*/);
+    assert.match(adapter._contextHeader('c'), /never look for/);
+    adapter._workspaceToolsReady = false;
+    assert.doesNotMatch(adapter._contextHeader('c'), /workspace_\*/);
+  });
+});
+
+describe('KimiAdapter reply posting', () => {
+  it('posts intermediate text as thinking and the final text only once, as the reply', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-post-'));
+    const bin = path.join(dir, 'fake-kimi.js');
+    const line = (m) => `process.stdout.write(${JSON.stringify(JSON.stringify(m))} + '\\n');`;
+    fs.writeFileSync(bin, [
+      line({ role: 'assistant', content: 'Let me look.', tool_calls: [{ type: 'function', id: 't1', function: { name: 'Bash', arguments: '{"command":"ls"}' } }] }),
+      line({ role: 'tool', tool_call_id: 't1', content: 'a.txt' }),
+      line({ role: 'assistant', content: 'Thinking more.' }),
+      line({ role: 'assistant', content: 'Final answer.' }),
+    ].join('\n'));
+    const adapter = makeAdapter({});
+    adapter._kimiHome = () => path.join(dir, 'home');
+    adapter._log = () => {};
+    const thoughts = [];
+    adapter.sendThinking = async (_c, t) => { thoughts.push(t); };
+    adapter.sendStatus = async () => {};
+    try {
+      const result = await adapter._runKimi('thread', bin, ['-p', 'hi', '--output-format', 'stream-json'], dir);
+      assert.equal(result.finalText, 'Final answer.');
+      assert.deepEqual(thoughts, ['Let me look.', 'Thinking more.']);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});

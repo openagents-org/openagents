@@ -10,6 +10,7 @@ import { DetailHeader } from '@/components/layout/app-header';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -108,7 +109,7 @@ function RunWorkflowDialog({
 }: {
   workflow: Workflow | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => void;
+  onSubmit: (input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[] }) => void;
 }) {
   const t = useT();
   const [title, setTitle] = useState('');
@@ -125,11 +126,11 @@ function RunWorkflowDialog({
     }
   }, [workflow]);
 
-  const submit = (run: boolean) => {
+  const submit = () => {
     // Description is required; an empty title gets a derived preview
     // ("first few words…") from the backend.
     if (!description.trim()) return;
-    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, fileIds, run });
+    onSubmit({ title: title.trim(), description: description.trim(), knowledgeIds, fileIds });
     onOpenChange(false);
   };
 
@@ -149,7 +150,7 @@ function RunWorkflowDialog({
             placeholder={t('tasks.fieldDescriptionPlaceholder')}
             rows={4}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(true);
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
             }}
           />
           <Input
@@ -164,10 +165,7 @@ function RunWorkflowDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="outline" onClick={() => submit(false)} disabled={!description.trim()}>
-            {t('tasks.create')}
-          </Button>
-          <Button onClick={() => submit(true)} disabled={!description.trim()} className="gap-1.5">
+          <Button onClick={submit} disabled={!description.trim()} className="gap-1.5">
             <Play className="size-3.5" />
             {t('workflows.createAndRun')}
           </Button>
@@ -182,7 +180,7 @@ function RunWorkflowDialog({
 export function WorkflowsView() {
   const {
     workflows, refreshWorkflows, createWorkflow, updateWorkflow, deleteWorkflow,
-    tasks, createTask, runTask,
+    tasks, createTask, runTask, setCurrentSessionId,
   } = useWorkspace();
   const { openView } = useLayout();
   const t = useT();
@@ -224,7 +222,7 @@ export function WorkflowsView() {
     });
   };
 
-  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[]; run: boolean }) => {
+  const createTaskWith = async (wf: Workflow, input: { title: string; description: string; knowledgeIds: string[]; fileIds: string[] }) => {
     const task = await createTask({
       title: input.title,
       description: input.description,
@@ -233,9 +231,12 @@ export function WorkflowsView() {
       fileIds: input.fileIds,
       status: 'backlog',
     });
-    if (input.run) await runTask(task.id);
-    // Land the user on the board so they see the card (running or queued).
-    openView('tasks');
+    const started = await runTask(task.id);
+    // Follow the run in its working thread.
+    if (started.channelName) {
+      setCurrentSessionId(started.channelName);
+      openView('threads');
+    }
   };
 
   const templateMenuItems = (
@@ -254,34 +255,43 @@ export function WorkflowsView() {
 
   return (
     <div className="h-full flex flex-col">
+      {/* The primary action sits beside the title, where the eye lands —
+          not across the page in the header's right corner. */}
       <DetailHeader
-        title={<>
-          <Waypoints className="size-4 text-foreground" />
-          <h2 className="text-sm font-semibold">{t('views.workflows')}</h2>
-        </>}
+        titleInHeader
+        title={<div className="flex min-w-0 items-center gap-2">
+          <Waypoints className="size-4 shrink-0 text-foreground" />
+          <h2 className="truncate text-sm font-semibold">{t('views.workflows')}</h2>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold">
+                <Plus className="size-3.5" />
+                {t('workflows.newWorkflow')}
+                <ChevronDown className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuItem onClick={openCreate} className="text-xs font-medium">
+                {t('workflows.blank')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {templateMenuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>}
       >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" className="gap-1.5">
-              <Plus className="size-3.5" />
-              {t('workflows.newWorkflow')}
-              <ChevronDown className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuItem onClick={openCreate} className="text-xs font-medium">
-              {t('workflows.blank')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {templateMenuItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          onClick={refreshWorkflows}
-          className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={refreshWorkflows}
+              aria-label={t('common.refresh')}
+              className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            >
+              <RefreshCw className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('common.refresh')}</TooltipContent>
+        </Tooltip>
       </DetailHeader>
 
       <div role="note" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">

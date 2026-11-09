@@ -19,6 +19,7 @@ import {
 } from "@renderer/components/ui/select"
 import { Separator } from "@renderer/components/ui/separator"
 import { SearchInput } from "@renderer/components/ui-kit"
+import { LEVEL_DOT } from "@renderer/components/logs/LogLevelBadge"
 import { cn } from "@renderer/lib/utils"
 import type { LogEventType, LogLevel } from "@renderer/services/logs/log-parser"
 import type { Agent } from "@renderer/types"
@@ -36,16 +37,6 @@ export const EVENT_TYPES: LogEventType[] = [
   "auth",
   "log",
 ]
-
-/** Each level's dot, so the segment names its colour as well as its word. */
-const LEVEL_DOT: Record<LogLevel, string> = {
-  error: "bg-(--danger)",
-  warn: "bg-(--warning)",
-  info: "bg-(--info)",
-  debug: "bg-muted-foreground",
-  trace: "bg-muted-foreground",
-  unknown: "bg-muted-foreground",
-}
 
 const SEGMENT = "flex h-9 items-center gap-1.5 px-3.5 text-sm whitespace-nowrap transition-colors"
 

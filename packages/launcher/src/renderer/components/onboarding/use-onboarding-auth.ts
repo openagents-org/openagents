@@ -174,7 +174,7 @@ export function useOnboardingAuth({
     setTesting(true)
     setTestResult(null)
     try {
-      const r = await window.api.testLLM(values)
+      const r = await window.api.testLLM(values, entry.name)
       capture("llm_test_run", { success: r.success, model: r.model || null })
       setTestResult(
         r.success

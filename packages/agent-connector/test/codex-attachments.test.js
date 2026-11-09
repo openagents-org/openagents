@@ -379,6 +379,49 @@ describe('Codex Direct API mode — a stalled or broken connection', () => {
     );
   });
 
+  const sse = (delta) => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+
+  it('keeps waiting past the overall deadline while the model is still producing', async () => {
+    respond = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const tick = setInterval(() => res.write(sse({ reasoning_content: 'hmm ' })), 20);
+      setTimeout(() => {
+        clearInterval(tick);
+        res.write(sse({ content: 'the answer' }));
+        res.end('data: [DONE]\n\n');
+      }, 450);
+      res.on('close', () => clearInterval(tick));
+    };
+    const text = await direct({ _directIdleTimeoutMs: 5000, _directTotalTimeoutMs: 150 })._callCompletionApi('hi', 'general');
+    assert.equal(text, 'the answer');
+  });
+
+  it('posts the reply so far, marked cut off, when it is still writing at the hard ceiling', async () => {
+    respond = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const tick = setInterval(() => res.write(sse({ content: 'more ' })), 20);
+      res.on('close', () => clearInterval(tick));
+    };
+    const text = await direct({
+      _directIdleTimeoutMs: 5000, _directTotalTimeoutMs: 100, _directHardTimeoutMs: 300,
+    })._callCompletionApi('hi', 'general');
+    assert.match(text, /^more more /);
+    assert.match(text, /Cut off: the model was still writing/);
+  });
+
+  it('says the model was still thinking when the ceiling comes with reasoning only', async () => {
+    respond = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const tick = setInterval(() => res.write(sse({ reasoning_content: 'hmm ' })), 20);
+      res.on('close', () => clearInterval(tick));
+    };
+    await assert.rejects(
+      direct({ _directIdleTimeoutMs: 5000, _directTotalTimeoutMs: 100, _directHardTimeoutMs: 300 })
+        ._callCompletionApi('hi', 'general'),
+      /still thinking, no reply text yet \(HTTP 200, \d+ bytes, \d+ events, 0 reply chars, \d+ reasoning chars/,
+    );
+  });
+
   it('reports a connection dropped mid-response instead of an empty reply', async () => {
     respond = (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -476,5 +519,53 @@ describe('Codex CLI mode — resuming a thread', () => {
     assert.ok(!calls[1].includes('resume'));
     assert.deepStrictEqual(adapter.sent, [{ kind: 'response', channel: 'general', content: 'fresh answer' }]);
     assert.strictEqual(adapter._channelThreads.general, undefined, 'the dead thread id is dropped');
+  });
+
+  it('keeps the thread and does not rerun when the service refused the run', async () => {
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [{ responseText: '', exitCode: 1, errorMessage: 'exceeded retry limit, last status: 429 Too Many Requests' }],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(adapter._channelThreads.general, 'thread-1');
+    assert.strictEqual(adapter.sent.length, 1);
+    assert.match(adapter.sent[0].content, /429 Too Many Requests/);
+  });
+
+  it('still drops a stale thread when early stderr mentions a quota', async () => {
+    const stderr = [
+      'WARN codex_core::config: quota header missing from last response',
+      ...Array.from({ length: 8 }, (_, i) => `INFO codex_core::session: loading step ${i}`),
+      'ERROR codex_exec: no rollout found for thread id thread-1',
+    ].join('\n');
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [
+        { responseText: '', exitCode: 1, errorMessage: 'no rollout found for thread id thread-1', stderr },
+        { responseText: 'fresh answer', exitCode: 0 },
+      ],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 2);
+    assert.ok(!calls[1].includes('resume'));
+    assert.strictEqual(adapter._channelThreads.general, undefined);
+    assert.deepStrictEqual(adapter.sent, [{ kind: 'response', channel: 'general', content: 'fresh answer' }]);
+  });
+
+  it('keeps the thread and reports once when stderr ends in a 429', async () => {
+    const stderr = [
+      'INFO codex_core::session: resuming thread-1',
+      'ERROR codex_exec: exceeded retry limit, last status: 429 Too Many Requests',
+    ].join('\n');
+    const { adapter, calls } = runWith({
+      threadId: 'thread-1',
+      results: [{ responseText: '', exitCode: 1, stderr }],
+    });
+    await adapter._handleMessage({ sessionId: 'general', content: 'hi' });
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(adapter._channelThreads.general, 'thread-1');
+    assert.strictEqual(adapter.sent.length, 1);
+    assert.match(adapter.sent[0].content, /429/);
   });
 });

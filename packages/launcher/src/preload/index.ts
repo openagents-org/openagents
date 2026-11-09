@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteAgentEnv: (type: string) => ipcRenderer.invoke('agents:delete-env', type),
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
-  testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),
+  testLLM: (env: unknown, agentType?: string) => ipcRenderer.invoke('agents:test-llm', env, agentType),
   listModels: (agentType: string, env: Record<string, string>, path?: 'key' | 'login', opts?: { refresh?: boolean }) =>
     ipcRenderer.invoke('agents:list-models', agentType, env, path, opts),
   scanCredentialImports: (agentType: string) =>
@@ -95,6 +95,10 @@ contextBridge.exposeInMainWorld('api', {
   // scrims the page, so the buttons dim with it.
   setChromeDimmed: (dim: boolean) => ipcRenderer.invoke('window:chrome-dim', dim),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
+  getLocalConnector: () => ipcRenderer.invoke('local-connector:get'),
+  setLocalConnector: (enabled: boolean) => ipcRenderer.invoke('local-connector:set', enabled),
+  onLocalConnectorChanged: (cb: (enabled: boolean) => void) =>
+    ipcRenderer.on('local-connector:changed', (_e, enabled) => cb(enabled)),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
   exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),

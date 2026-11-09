@@ -3,6 +3,16 @@
 const fs = require('fs');
 const path = require('path');
 
+// Windows refuses to replace or open a file another process holds open (the
+// daemon and its `agn` children read daemon.yaml all the time). Such a refusal
+// passes in milliseconds, so both sides wait a little and try again.
+const BUSY_CODES = ['EPERM', 'EACCES', 'EBUSY'];
+const BUSY_WAITS_MS = [10, 25, 50, 100, 200];
+
+function pause(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
+}
+
 /**
  * Manages ~/.openagents/daemon.yaml — the agent/network configuration file.
  * Compatible with the Python SDK's daemon_config.py format.
@@ -19,14 +29,30 @@ class Config {
 
   // -- Read --
 
+  /**
+   * The config as it is on disk. A read that hits the file while it is held
+   * (Windows) or while a writer that could not replace it is rewriting it in
+   * place (empty for that moment) is tried again: read as "no agents", it made
+   * a probe started right after a save report "No agent named '<name>' on
+   * this device", and that result stood for an hour.
+   */
   load() {
-    try {
-      if (fs.existsSync(this.configFile)) {
+    for (let attempt = 0; ; attempt++) {
+      const last = attempt >= BUSY_WAITS_MS.length;
+      try {
+        if (!fs.existsSync(this.configFile)) break;
         const text = fs.readFileSync(this.configFile, 'utf-8');
-        return parseYaml(text);
+        // An empty file is tried again only briefly: a writer's in-place
+        // rewrite is over within that, and a file that really is empty must
+        // not slow down every read.
+        if (text.trim() || last || attempt >= 2) return parseYaml(text);
+      } catch (err) {
+        if (last || !BUSY_CODES.includes(err.code)) {
+          console.error('Failed to load config:', err.message);
+          break;
+        }
       }
-    } catch (err) {
-      console.error('Failed to load config:', err.message);
+      pause(BUSY_WAITS_MS[attempt]);
     }
     return { version: 2, agents: [], networks: [] };
   }
@@ -45,9 +71,34 @@ class Config {
 
   // -- Write --
 
+  /**
+   * Replace the file in one step. A plain writeFileSync truncates first, and
+   * the daemon and its `agn` children read this file all the time: a probe
+   * started right after a create read it empty and reported the new agent as
+   * "Unknown agent type '<name>'", and a read-modify-write in that window
+   * saves the empty list back. Windows can refuse the rename while a reader
+   * holds the file open, so that case retries for a moment (the hold is a
+   * read, gone in milliseconds) and only then writes in place.
+   */
   save(config) {
     fs.mkdirSync(this.configDir, { recursive: true });
-    fs.writeFileSync(this.configFile, serializeYaml(config), 'utf-8');
+    const text = serializeYaml(config);
+    const tmp = `${this.configFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, text, 'utf-8');
+    for (let attempt = 0; attempt <= BUSY_WAITS_MS.length; attempt++) {
+      if (attempt > 0) pause(BUSY_WAITS_MS[attempt - 1]);
+      try {
+        fs.renameSync(tmp, this.configFile);
+        return;
+      } catch (err) {
+        if (!BUSY_CODES.includes(err.code)) {
+          try { fs.unlinkSync(tmp); } catch {}
+          throw err;
+        }
+      }
+    }
+    try { fs.unlinkSync(tmp); } catch {}
+    fs.writeFileSync(this.configFile, text, 'utf-8');
   }
 
   addAgent({ name, type, role, path: agentPath, env }) {

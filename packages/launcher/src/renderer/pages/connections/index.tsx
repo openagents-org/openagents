@@ -98,7 +98,7 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
           <div className="flex items-center gap-2 text-2xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-success" />
-              <span className="font-semibold text-success">
+              <span className="font-semibold text-foreground">
                 {view.stats.connected}
               </span>
               {t("connections.stats.connected")}

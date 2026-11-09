@@ -88,6 +88,53 @@ describe("commandcode sign-in probe", () => {
   })
 })
 
+/**
+ * `qodercli status -o json`, verbatim (1.1.72). It exits 0 signed in or out,
+ * and 1 — with prose, not JSON — only when a token in the env is rejected.
+ */
+describe("qoder sign-in probe", () => {
+  const SIGNED_OUT = '{\n  "logged_in": false,\n  "version": "1.1.72",\n  "allow_byok": 0\n}\n'
+  const SIGNED_IN = '{\n  "logged_in": true,\n  "version": "1.1.72",\n  "allow_byok": 0,\n  "auth_source": "local",\n  "account_type": "user"\n}\n'
+  const REJECTED =
+    "Failed to get status: The QODER_PERSONAL_ACCESS_TOKEN environment variable contains a token that was rejected.\n"
+
+  for (const type of ["qoder", "qoder-cn"]) {
+    it(`${type}: reads logged_in, and stays unknown on a rejected token`, () => {
+      const spec = DUAL_LOGIN_AGENTS[type]
+      expect(loginVerdict(spec, SIGNED_IN, 0)).toBe(true)
+      expect(loginVerdict(spec, SIGNED_OUT, 0)).toBe(false)
+      expect(loginVerdict(spec, REJECTED, 1)).toBe(null)
+    })
+  }
+
+  it("runs each edition's own binary", () => {
+    expect(DUAL_LOGIN_AGENTS.qoder.loginCommand).toBe("qodercli login")
+    expect(DUAL_LOGIN_AGENTS["qoder-cn"].loginCommand).toBe("qoderclicn login")
+  })
+})
+
+/**
+ * `kiro-cli whoami`: the signed-in text is verbatim from 2.37.0 (account
+ * details replaced); the signed-out line is the CLI's own string for that state.
+ */
+describe("kiro sign-in probe", () => {
+  const SIGNED_IN =
+    "Logged in with IAM Identity Center (https://d-0000000000.awsapps.com/start)\nEmail: user@example.com\n\nProfile:\nKiroProfile-us-east-1\n"
+  const SIGNED_OUT = "Not logged in\n"
+
+  it("reads the whoami output", () => {
+    const spec = DUAL_LOGIN_AGENTS.kiro
+    expect(loginVerdict(spec, SIGNED_IN, 0)).toBe(true)
+    expect(loginVerdict(spec, SIGNED_OUT, 0)).toBe(false)
+    expect(spec.loginCommand).toBe("kiro-cli login")
+    expect(spec.apiKeyEnv).toBe("KIRO_API_KEY")
+  })
+
+  it("is installable from the launcher", () => {
+    expect(CORE_AGENTS).toContain("kiro")
+  })
+})
+
 describe("keyless auth paths", () => {
   it("counts OpenWorker's no-key providers as configured", () => {
     expect(
@@ -146,6 +193,14 @@ describe("credential env", () => {
     expect(CREDENTIAL_ENV.test("CODEARTS_CLI_AK")).toBe(true)
     // The secret half never stands alone as "configured".
     expect(CREDENTIAL_ENV.test("CODEARTS_CLI_SK")).toBe(false)
+  })
+
+  it("counts a Qoder personal access token, for either edition", () => {
+    // A PAT-configured Qoder agent with no browser sign-in would otherwise
+    // read "Login required" while every message to it worked.
+    expect(CREDENTIAL_ENV.test("QODER_PERSONAL_ACCESS_TOKEN")).toBe(true)
+    expect(CREDENTIAL_ENV.test("QODERCN_PERSONAL_ACCESS_TOKEN")).toBe(true)
+    expect(CREDENTIAL_ENV.test("GITHUB_PERSONAL_ACCESS_TOKEN")).toBe(false)
   })
 })
 

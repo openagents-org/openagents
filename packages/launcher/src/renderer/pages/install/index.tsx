@@ -8,7 +8,7 @@ import { Skeleton } from "@renderer/components/ui/skeleton"
 import { EmptyState } from "@renderer/components/ui-kit"
 import AgentDetail from "./detail"
 import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
-import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
+import { hasPendingUpdate, useInstallStore, useOnUninstalled } from "@renderer/store/install"
 import { useUiStore } from "@renderer/store/ui"
 import type { ToastType } from "@renderer/hooks/useToast"
 import {
@@ -37,6 +37,9 @@ interface InstallProps {
 export default function Install({ showToast }: InstallProps): React.JSX.Element {
   const { t } = useTranslation()
   const [selectedName, setSelectedName] = useState<string | null>(null)
+  // The tab an agent's page goes back to when it was opened from elsewhere
+  // (the setup form's "Versions & uninstall"); null goes back to the list.
+  const [returnTab, setReturnTab] = useState<string | null>(null)
 
   const market = useMarketplace()
   const { prefs, setView, setSort, setCategory } = market.prefs
@@ -48,6 +51,10 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     showToast,
     onSelect: setSelectedName,
   })
+
+  // Uninstalled from here while the setup form it came from waited: that form
+  // closes (see Agents), so Back goes to the list instead.
+  useOnUninstalled(returnTab ? selectedName : null, () => setReturnTab(null))
 
   const installFocusAgent = useUiStore((s) => s.installFocusAgent)
   const setInstallFocusAgent = useUiStore((s) => s.setInstallFocusAgent)
@@ -61,6 +68,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
   useEffect(() => {
     if (installFocusAgent) {
       setSelectedName(installFocusAgent)
+      setReturnTab(useUiStore.getState().installFocusReturn)
       setInstallFocusAgent(null)
     }
   }, [installFocusAgent, setInstallFocusAgent])
@@ -79,6 +87,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     if (installListSignal === lastListSignal.current) return
     lastListSignal.current = installListSignal
     setSelectedName(null)
+    setReturnTab(null)
     market.setStatusFilter(installListFilter)
   }, [installListSignal, installListFilter, market.setStatusFilter])
 
@@ -107,6 +116,13 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
     market.setStatusFilter(filter)
   }
 
+  // A card, row or banner opens the setup form on its type: adding an agent
+  // is why people come here, and the page in between left them looking for
+  // where to configure it. What that page told them now sits beside the form;
+  // the page itself stays behind Manage, for versions and uninstall.
+  const openSetup = (name: string): void =>
+    useUiStore.getState().requestCreate("agent", name)
+
   const startInstall = (row: MarketplaceRow): void =>
     actions.requestInstall(
       row.entry,
@@ -125,7 +141,14 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         <div className="min-h-0 flex-1">
           <AgentDetail
             entry={selected}
-            onBack={() => setSelectedName(null)}
+            // Opened from the setup form: back is back to that form, which
+            // stayed open — not to a list the user never came through.
+            backLabel={returnTab ? t("agents.detail.backToSetup") : undefined}
+            onBack={() => {
+              setSelectedName(null)
+              if (returnTab) setCurrentTab(returnTab)
+              setReturnTab(null)
+            }}
             onAfterInstall={(e) => {
               // Optimistically reflect the just-finished job in local state so
               // pressing Back immediately shows the right badge before
@@ -189,7 +212,7 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
           catalog={market.catalog}
           installed={installedList}
           updates={updates}
-          onOpen={setSelectedName}
+          onOpen={openSetup}
         />
 
         {/* Categories and search in one row that sticks while the catalog
@@ -260,14 +283,16 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         ) : prefs.view === "grid" ? (
           <MarketplaceGrid
             rows={market.rows}
-            onOpen={setSelectedName}
+            onOpen={openSetup}
             onInstall={startInstall}
+            onManage={setSelectedName}
           />
         ) : (
           <MarketplaceTable
             rows={market.rows}
-            onOpen={setSelectedName}
+            onOpen={openSetup}
             onInstall={startInstall}
+            onManage={setSelectedName}
           />
         )}
       </div>

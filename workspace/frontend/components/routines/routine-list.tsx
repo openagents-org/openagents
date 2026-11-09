@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Pause, Pencil, Play, RefreshCw, Trash2, Plus } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { ListToggleButton } from '@/components/layout/list-collapse-button';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -84,22 +85,21 @@ export function RoutineList() {
     <div className="h-full flex flex-col">
       {/* ── Header ── */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-relaxed font-semibold">{t('routines.title')}</span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm leading-relaxed font-semibold">{t('routines.title')}</span>
           {visibleRoutines.length > 0 && (
             <Badge variant="secondary" size="sm" className="rounded-full!">
               {visibleRoutines.length}
             </Badge>
           )}
-          {/* Primary action sits beside the title, where the eye lands —
-              not in the right corner, where it went unnoticed. */}
-          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={openCreateDialog}>
-            <Plus className="size-4" />
-            {t('routines.createShort')}
-          </Button>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
+          <Button size="sm" className="mr-1 shrink-0 gap-1.5 font-semibold" onClick={openCreateDialog}>
+            <Plus className="size-4" />
+            {t('routines.createShort')}
+          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

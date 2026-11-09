@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 # Same SQLite shims the dev server installs (JSONB/UUID compilation, UTC-aware
 # datetimes). The suite used to register its own partial copy, so tests ran
 # against a SQLite that behaved differently from the one developers run.
-from app.database import Base, get_db, install_sqlite_compat  # noqa: E402
+from app.database import Base, SessionLocal, get_db, install_sqlite_compat  # noqa: E402
 
 install_sqlite_compat()
 
@@ -68,6 +68,12 @@ def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
+
+# Background work (push fan-out, workflows, integrations, ...) opens sessions
+# from the module-level SessionLocal, bypassing get_db. Every module shares
+# that one sessionmaker, so rebinding it keeps them all on the test database
+# instead of trying to reach a real Postgres at localhost.
+SessionLocal.configure(bind=engine)
 
 
 @pytest.fixture(autouse=True)

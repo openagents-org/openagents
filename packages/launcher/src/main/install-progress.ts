@@ -245,10 +245,15 @@ export function userFacingInstallError(
     // one of them. Checked ahead of the permission bucket, which the bare
     // substring "executionpolicy" inside that command name would claim.
     text.includes("but the module could not be loaded") ||
-    (text.includes("could not be loaded") && text.includes("import-module"))
+    (text.includes("could not be loaded") && text.includes("import-module")) ||
+    // Localized PowerShell errors retain this invariant error ID. Qoder's
+    // checksum step reports a missing Get-FileHash when PSModulePath points
+    // at modules from a different PowerShell runtime.
+    (text.includes("commandnotfoundexception") &&
+      /\b(get-filehash|get-executionpolicy|expand-archive)\b/.test(text))
   ) {
     reason =
-      "A PowerShell step inside the installer could not load a built-in module, so it stopped before doing any work."
+      "A PowerShell step inside the installer could not load a built-in module."
     hint =
       "Compare `powershell -NoProfile -Command \"$env:PSModulePath\"` with the same command without -NoProfile — a PSModulePath missing the Windows PowerShell module directory is the usual cause."
   } else if (
@@ -264,6 +269,7 @@ export function userFacingInstallError(
   } else if (
     text.includes("not recognized as an internal or external command") ||
     text.includes("not recognized") ||
+    text.includes("commandnotfoundexception") ||
     text.includes("enoent") ||
     text.includes("command not found")
   ) {
@@ -285,7 +291,9 @@ export function userFacingInstallError(
     text.includes("permission") ||
     text.includes("access is denied") ||
     text.includes("access denied") ||
-    text.includes("executionpolicy")
+    text.includes("pssecurityexception") ||
+    text.includes("unauthorizedaccessexception") ||
+    text.includes("running scripts is disabled")
   ) {
     reason = "The installer did not have permission to complete."
     hint = "Check system permissions and retry."
@@ -346,6 +354,9 @@ export function classifyInstallChunk(
     if (line.includes("done!"))
       return { phase: "verifying", detail: "Cleaning shims" }
     return {}
+  }
+  if (line.includes("verifying checksum")) {
+    return { phase: "verifying", detail: "Verifying checksum" }
   }
   if (
     line.includes("downloading") ||

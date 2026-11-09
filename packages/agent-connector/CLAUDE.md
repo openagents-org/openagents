@@ -12,7 +12,9 @@ src/
   config.js          YAML config manager for ~/.openagents/daemon.yaml (agents, networks)
   registry.js        Agent catalog: fetches from remote API or bundled registry.json, 24h cache
   installer.js       Agent runtime installer: npm/curl/binary, tracks in installed_agents.json
+  agent-login.js     `agn login <agent>`: runs the agent CLI's own sign-in, found where OpenAgents installed it (not on the user's PATH), on device auth when headless (codex)
   postinstall-stub.js Recognizes the placeholder an npm package leaves as its CLI when its postinstall was skipped (ignore-scripts) — the installer repairs it, the opencode adapter reports it
+  native-build.js    The per-platform optional dependency that holds codex / claude-code / opencode-ai's native binary, and whether npm left it out — the installer installs it on its own before any placeholder repair
   env.js             Environment manager: ~/.openagents/env/<type>.env, resolve_env rules for generic→provider mapping
   workspace-client.js HTTP client for workspace REST API: register, join, poll messages, send events, files, browser, todos, timers
   mcp-server.js      JSON-RPC 2.0 over stdio: exposes workspace tools to agents via MCP protocol
@@ -45,6 +47,16 @@ src/
     openworker-runtime.js  Pure helpers for OpenWorkerAdapter (provider/model routing, server argv, secret-profile refs, session addressing, event interpretation, in-line prompt answers, failure classification) — unit-tested
     codebuddy.js      CodeBuddyAdapter — Tencent CodeBuddy Code CLI (`codebuddy -p --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config. Same engine the WorkBuddy desktop app runs
     codebuddy-stream.js  Pure helpers for CodeBuddyAdapter (argv builder, stream-json frame interpreter, result-frame classification — the CLI exits 0 on failure — region/auth env, version gate, redaction) — unit-tested
+    mimo-code.js      MiMoCodeAdapter — Xiaomi MiMo Code CLI (`mimo run --format json`, an OpenCode fork; extends OpenCodeAdapter). Provider, key, workspace MCP server and briefing go in per run through MIMOCODE_CONFIG_CONTENT, pinned to one provider; Stop kills the whole process tree
+    mimo-code-runtime.js  Pure helpers for MiMoCodeAdapter (key/base URL/model routing, the per-run config, run argv, process-tree walk, stderr error-line reading) — unit-tested
+    qoder.js          QoderAdapter — Qoder CLI (`qodercli -p -o stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config --strict-mcp-config, token or browser sign-in, Stop kills the whole process tree
+    qoder-cn.js       QoderCnAdapter — the China edition (`qoderclicn`), same adapter with the CN edition table
+    qoder-runtime.js  Pure helpers for the Qoder adapters (edition table, argv builder, child env, stream-json frame interpreter, run classification, process-tree walk, version gate, redaction) — unit-tested
+    qwen-code.js      QwenCodeAdapter — Alibaba Qwen Code CLI (`qwen --output-format stream-json`) bridge, prompt piped over stdin, workspace tools over --mcp-config, auto-memory turned off through a system-defaults settings layer
+    qwen-code-stream.js  Pure helpers for QwenCodeAdapter (argv builder, stream-json frame interpreter, run classification, key/base URL/model resolution as one set, settings layer, version gate, redaction) — unit-tested
+    kiro.js           KiroAdapter — Kiro CLI (`kiro-cli acp`) driven over the Agent Client Protocol: one ACP server per message, session/new|load per channel, workspace tools in session/new's mcpServers, approvals answered by the adapter (plan mode refuses writes), KIRO_AGENT selects the Kiro agent profile with the agent's own prompt and MCP servers
+    kiro-runtime.js   Pure helpers for KiroAdapter (version gate, argv, session/update interpretation, permission policy, stale-session/profile-not-found recognition) — unit-tested
+    acp-client.js     Generic ACP client: JSON-RPC 2.0 over a child's stdio (request/response matching, agent→client requests, notifications, timeouts) — reusable by any CLI that serves ACP
     llm-direct.js     LlmDirectAdapter — base for adapters that call LLM APIs directly (SSE streaming)
     index.js          Adapter registry mapping type names to classes
     utils.js          Shared adapter utilities, including the redaction every adapter uses for quoted CLI text (redactSecrets, secretValues)
@@ -80,6 +92,7 @@ npm run check:registry      # Verify they match registry/ without writing (what 
 # CLI (after npm install -g or via npx)
 agn search [query]          # Browse agent catalog
 agn install <type>          # Install agent runtime
+agn login <type|agent>      # Sign the agent's own CLI in to its account (codex login, claude auth login, ...)
 agn create <name> --type <type>  # Create agent instance
 agn env <type> --set K=V    # Set environment variables
 agn up / agn down           # Start/stop daemon
@@ -133,6 +146,7 @@ Tests are in `test/` using Node.js built-in test runner. Existing test files:
 
 An npm install that exits 0 without a runnable CLI: `postinstall-stub.test.js`.
 The installer repairs that by running the skipped script for that one package (`npm rebuild <pkg> --ignore-scripts=false`); `OPENAGENTS_NO_SCRIPT_REPAIR=1` turns the repair off, so the install fails with the "Allow install scripts" message instead.
+An npm install that exits 0 without the per-platform package holding the native build (npm drops a failed optional download silently; `omit=optional` skips them all): `native-build.test.js`. The installer installs that one package with `--include=optional --no-save` (from the same `installRegistry()` mirror as the main install), then re-runs the wrapper's script where it copies the binary (claude-code, opencode-ai). A wrapper whose bin is already the real binary is left alone without the package: opencode-ai's postinstall fetches the build into a temp dir itself and deletes it after copying.
 
 Failure reporting: `run-failure.test.js` (the shared rules),
 `adapter-failure-reporting.test.js` (what each adapter's channel is actually

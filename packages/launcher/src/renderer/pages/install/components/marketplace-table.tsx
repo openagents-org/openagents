@@ -21,8 +21,11 @@ const COLUMNS = ["agent", "status", "version", "runtime", "actions"] as const
 
 interface Props {
   rows: MarketplaceRow[]
+  /** The row itself: open the setup form on this type. */
   onOpen: (name: string) => void
   onInstall: (row: MarketplaceRow) => void
+  /** An installed type's Manage: its marketplace page (versions, uninstall). */
+  onManage: (name: string) => void
 }
 
 /**
@@ -34,6 +37,7 @@ export function MarketplaceTable({
   rows,
   onOpen,
   onInstall,
+  onManage,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -51,7 +55,7 @@ export function MarketplaceTable({
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <Row key={row.entry.name} row={row} onOpen={onOpen} onInstall={onInstall} />
+            <Row key={row.entry.name} row={row} onOpen={onOpen} onInstall={onInstall} onManage={onManage} />
           ))}
         </TableBody>
       </Table>
@@ -63,6 +67,7 @@ function Row({
   row,
   onOpen,
   onInstall,
+  onManage,
 }: { row: MarketplaceRow } & Omit<Props, "rows">): React.JSX.Element {
   const { t } = useTranslation()
   const { entry, status } = row
@@ -90,7 +95,7 @@ function Row({
           width; the short ones after it stay sized to their content. */}
       <TableCell className="w-full max-w-0">
         <div className="flex items-center gap-3">
-          <AgentIcon type={entry.name} size={30} />
+          <AgentIcon type={entry.name} size={28} />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">
               {entry.label || entry.name}
@@ -117,7 +122,7 @@ function Row({
         {row.runtime || t("install.hero.builtin")}
       </TableCell>
 
-      {/* The row itself opens the detail page, so a click on the button must
+      {/* The row itself opens the setup form, so a click on the button must
           not also count as a click on the row. */}
       <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
         <AgentActionButton
@@ -125,7 +130,7 @@ function Row({
           status={status}
           job={row.job}
           onInstall={() => onInstall(row)}
-          onManage={() => onOpen(entry.name)}
+          onManage={() => onManage(entry.name)}
         />
       </TableCell>
     </TableRow>

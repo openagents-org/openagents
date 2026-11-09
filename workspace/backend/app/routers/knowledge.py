@@ -74,6 +74,47 @@ def _visibility_for(viewer, requested: Optional[str]) -> str:
 def _meta(db, workspace_id, viewer, entry: KnowledgeEntry) -> dict:
     return resource_meta(db, str(workspace_id), viewer, resource_for_knowledge(entry))
 
+
+# ---------------------------------------------------------------------------
+# Decision logs are off for every connector version.
+#
+# Agents used to keep one knowledge entry per channel titled
+# "Decisions for channel <name>". Every thread and task counts as a channel,
+# so this filled workspaces with near-empty pages. Connector 0.2.209 dropped
+# the feature, but older connectors still tell their agents to create and
+# edit that entry, so the server refuses those writes from anyone who is not a
+# person. People can still open, edit and delete the pages that already exist,
+# and anyone can delete them.
+# ---------------------------------------------------------------------------
+
+_DECISION_LOG_TITLE_PREFIX = "decisions for channel "
+
+DECISION_LOG_DISABLED_MESSAGE = (
+    'Decision logs are turned off in this workspace: agents can no longer create or '
+    'edit "Decisions for channel ..." knowledge entries. This is expected, not an error. '
+    'Do not retry and do not save it under another title; carry on with the task. '
+    'The conversation history already keeps what the user confirmed.'
+)
+
+
+def _is_decision_log_title(title: Optional[str]) -> bool:
+    return bool(title) and title.strip().lower().startswith(_DECISION_LOG_TITLE_PREFIX)
+
+
+def _is_agent_write(viewer, source: Optional[str]) -> bool:
+    # The source field alone cannot be trusted: agents that call the API with
+    # curl often leave it out, and it then defaults to "human:user". So any
+    # caller that is not a person (signed in, or a browser visitor) counts as
+    # an agent, which covers token-only calls from every connector version.
+    # Cost: a visitor who opens a legacy open workspace by its token link also
+    # authenticates with the token alone, so they cannot write these pages either.
+    return viewer.kind != "human" or (source or "").strip().startswith("openagents:")
+
+
+def _refuse_decision_log_write(ws_id: str, source: Optional[str]):
+    logger.info("Refused decision-log write in workspace %s from %s", ws_id, source)
+    return json_response(ResponseCode.FORBIDDEN, DECISION_LOG_DISABLED_MESSAGE)
+
 MAX_CONTENT_SIZE = 1 * 1024 * 1024  # 1 MB
 
 
@@ -224,6 +265,10 @@ async def create_knowledge(
         return json_response(ResponseCode.BAD_REQUEST, f"Content too large (max {MAX_CONTENT_SIZE // 1024}KB)")
 
     ws_id = str(workspace.id)
+    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
+    if _is_decision_log_title(body.title) and _is_agent_write(_viewer, body.source):
+        return _refuse_decision_log_write(ws_id, body.source)
+
     folder_path = _require_folder(db, ws_id, body.folder_path)
     base_slug = _slugify(body.title)
     slug = _unique_slug(db, ws_id, base_slug)
@@ -235,7 +280,6 @@ async def create_knowledge(
     storage_filename = f"{slug}.md"
     storage_key = store.save(ws_id, entry_id, storage_filename, content_bytes)
 
-    _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
     entry = KnowledgeEntry(
         id=entry_id,
         workspace_id=ws_id,
@@ -437,6 +481,10 @@ async def update_knowledge(
     _viewer = _viewer_for(db, workspace, x_workspace_token, authorization, body.source)
     if not allowed(db, _viewer, resource_for_knowledge(entry), "act", ws_id):
         return json_response(ResponseCode.FORBIDDEN, "No access to this knowledge entry")
+    # Covers both editing an existing decision log and renaming another entry into one.
+    if (_is_decision_log_title(entry.title) or _is_decision_log_title(body.title)) \
+            and _is_agent_write(_viewer, body.source):
+        return _refuse_decision_log_write(ws_id, body.source)
     if body.visibility is not None:
         vis = normalize_visibility(body.visibility)
         if vis not in ("private", "public"):

@@ -22,6 +22,9 @@ const VENDOR_HOSTS = /(^|\.)(openai\.com|moonshot\.ai|deepseek\.com|anthropic\.c
 const MODEL_REJECTED =
   /model.{0,60}?(is not available|does not exist|not found|unknown model|invalid model|no such model|not supported)|model_not_found/is;
 
+const crypto = require('crypto');
+const { networkErrorText } = require('./adapters/utils');
+
 /** One HTTP request. Resolves { status, data } or { error }; never rejects. */
 function request(url, { method = 'POST', headers = {}, body = null, timeout = 15000 } = {}) {
   const https = require('https');
@@ -36,11 +39,27 @@ function request(url, { method = 'POST', headers = {}, body = null, timeout = 15
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => resolve({ status: res.statusCode, data }));
     });
-    req.on('error', (e) => resolve({ error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ error: 'Request timed out' }); });
+    req.on('error', (e) => resolve({ error: networkErrorText(e) }));
+    // Name the host and the deadline: a bare "Request timed out" on the
+    // device card did not say whether the provider or the network was slow.
+    req.on('timeout', () => { req.destroy(); resolve({ error: `Request to ${parsedUrl.host} timed out after ${Math.round(timeout / 1000)}s` }); });
     if (body) req.write(body);
     req.end();
   });
+}
+
+/**
+ * The test completion. 15s read as broken a slow relay that answers in 20, and
+ * a dropped connection failed the whole test: give it 30s and one more try on
+ * a timeout or reset. A host that does not resolve is not retried.
+ */
+const COMPLETION_TIMEOUT_MS = 30000;
+const RETRYABLE = /timed out|econnreset|socket hang up|eai_again/i;
+
+async function requestCompletion(url, opts) {
+  const res = await request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
+  if (!res.error || !RETRYABLE.test(res.error)) return res;
+  return request(url, { ...opts, timeout: COMPLETION_TIMEOUT_MS });
 }
 
 /**
@@ -66,10 +85,23 @@ async function servedModels(apiBase, headers) {
   }
 }
 
+/**
+ * The test asks for a few tokens to stay cheap. A reasoning model can spend
+ * them all thinking, and OpenAI then refuses with "Could not finish the message
+ * because max_tokens or model output limit was reached". The key and the model
+ * were both accepted, which is everything this test checks, and reporting it as
+ * a failure marked an agent that works as broken.
+ */
+const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
+
 /** Read one completion response into the result shape. */
 function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
-  const { status, data } = res;
+  const status = res.status;
+  const data = String(res.data == null ? '' : res.data);
+  if (status >= 400 && OUTPUT_LIMIT_REACHED.test(data || '')) {
+    return { success: true, model: model || '?', response: '' };
+  }
   try {
     const parsed = JSON.parse(data);
     let text, usedModel;
@@ -89,6 +121,100 @@ function completionResult(res, { isAnthropic, model }) {
 }
 
 /**
+ * The one field the Responses test adds that the Codex CLI does not send
+ * (codex-api's ResponsesApiRequest has no such field): it caps what the test
+ * costs. An endpoint refusing it says nothing about the agent, so the test
+ * asks again without it.
+ */
+const PROBE_ONLY_FIELD = 'max_output_tokens';
+
+/**
+ * The Responses API test, sent the way the Codex CLI sends every turn:
+ * streamed, `store: false`, `client_metadata`, the input as message items. A
+ * relay that refuses one of those ("Unsupported Responses request
+ * parameter", param client_metadata) passed a plain chat/completions test
+ * and then failed every message; one that only streams failed a non-streamed
+ * test and then chatted fine.
+ *
+ * @returns {Promise<{ res: object, result: object }>} the last raw response and its reading
+ */
+async function requestResponses(url, headers, model) {
+  const body = {
+    model,
+    stream: true,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say hi in 5 words.' }] }],
+    store: false,
+    client_metadata: { session_id: crypto.randomUUID() },
+    [PROBE_ONLY_FIELD]: 16,
+  };
+  const send = () => requestCompletion(url, {
+    headers: { ...headers, Accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+  });
+  const res = await send();
+  const { result, refusal } = readResponses(res, model);
+  // The field the refusal names, or — when it names none — its text.
+  const refused = refusal && (refusal.param ? refusal.param === PROBE_ONLY_FIELD : refusal.text.includes(PROBE_ONLY_FIELD));
+  if (!refused) return { res, result };
+  delete body[PROBE_ONLY_FIELD];
+  const again = await send();
+  return { res: again, result: readResponses(again, model).result };
+}
+
+/**
+ * Read a streamed Responses reply the way the Codex CLI reads it: good once
+ * `response.completed` arrives — or `response.incomplete`, the cap this test
+ * sets — bad on `response.failed` or an `error` event. A stream that ends
+ * before either fails the CLI's turn too ("stream closed before
+ * response.completed"), and so does a single JSON body in place of a stream.
+ *
+ * @returns {{ result: object, refusal: { param: string, text: string } | null }}
+ *   the reading, and — only for an HTTP error or a failed/error event — what
+ *   the endpoint refused, whole: the field it names (`param`, '' when it
+ *   names none) and its full text. Never read off anything else: a stream's
+ *   response.created event, and a JSON body, echo the request's own fields.
+ */
+function readResponses(res, model) {
+  if (res.error) return { result: { success: false, error: res.error }, refusal: null };
+  const data = String(res.data == null ? '' : res.data);
+  if (res.status >= 400) {
+    let param = '';
+    try {
+      const parsed = JSON.parse(data);
+      param = String((parsed.error && parsed.error.param) || parsed.param || '');
+    } catch {}
+    return { result: { success: false, error: `HTTP ${res.status}: ${data.slice(0, 200)}` }, refusal: { param, text: data } };
+  }
+  let text = '';
+  for (const line of data.split(/\r?\n/)) {
+    const m = /^data:\s?(.*)$/.exec(line);
+    if (!m) continue;
+    let evt;
+    try { evt = JSON.parse(m[1]); } catch { continue; }
+    const type = evt && evt.type;
+    if (type === 'response.output_text.delta' && typeof evt.delta === 'string') {
+      text += evt.delta;
+    } else if (type === 'response.completed' || type === 'response.incomplete') {
+      const result = { success: true, model: (evt.response && evt.response.model) || model || '?', response: text.slice(0, 80) };
+      return { result, refusal: null };
+    } else if (type === 'response.failed' || type === 'error') {
+      const err = (evt.response && evt.response.error) || evt.error || evt;
+      // param and code first, so a long message is what the cut drops: the
+      // probe reads the refused field off this text (probe.js refusedParam).
+      const shown = JSON.stringify({ param: err.param, code: err.code, ...err }).slice(0, 200);
+      return {
+        result: { success: false, error: `${type}: ${shown}` },
+        refusal: { param: String(err.param || ''), text: JSON.stringify(err) },
+      };
+    }
+  }
+  if (/^\s*[{[]/.test(data)) {
+    return { result: { success: false, error: `Answered with a JSON body, not the event stream the Codex CLI reads: ${data.slice(0, 200)}` }, refusal: null };
+  }
+  return { result: { success: false, error: `Stream ended before response.completed: ${data.slice(0, 200)}` }, refusal: null };
+}
+
+/**
  * Test an LLM connection by sending a minimal inference request.
  *
  * Supports OpenAI-compatible and Anthropic APIs.
@@ -100,8 +226,10 @@ function completionResult(res, { isAnthropic, model }) {
  *   ANTHROPIC_MODEL), which `env` alone does not say; see agent-model.js.
  * @param {string} [opts.baseUrl] - The endpoint, when the caller knows it from
  *   a variable of the agent's own (DEEPSEEK_BASE_URL); see probe.js.
- * @param {'anthropic'|'openai'} [opts.protocol] - The API to speak, when the
- *   agent's config names it (Pi's PI_API_FORMAT) rather than its env shape.
+ * @param {'anthropic'|'openai'|'responses'} [opts.protocol] - The API to speak,
+ *   when the agent's config names it (Pi's PI_API_FORMAT, Codex's
+ *   CODEX_WIRE_API) rather than its env shape. 'responses' is OpenAI's
+ *   Responses API, asked the way the Codex CLI asks it (see below).
  * @returns {Promise<{success: boolean, model?: string, response?: string, error?: string}>}
  */
 async function testLLMConnection(env, opts = {}) {
@@ -123,7 +251,12 @@ async function testLLMConnection(env, opts = {}) {
     ? opts.protocol === 'anthropic'
     : hasAnthropicConfig || baseUrl.includes('anthropic');
 
-  if (!isAnthropic && !baseUrl.endsWith('/v1')) {
+  const isResponses = opts.protocol === 'responses';
+  // The Codex CLI calls <base_url>/responses on the URL as configured
+  // (adapters/codex.js): an endpoint at /codex answered /codex/responses and
+  // 404'd the /codex/v1/responses this used to test.
+  if (isResponses) baseUrl = baseUrl.replace(/\/+$/, '');
+  else if (!isAnthropic && !baseUrl.endsWith('/v1')) {
     baseUrl += '/v1';
   }
 
@@ -150,11 +283,15 @@ async function testLLMConnection(env, opts = {}) {
       }
     } catch {}
     const body = JSON.stringify({
-      model: env.ANTHROPIC_MODEL || model || 'claude-sonnet-4-20250514',
+      // Only for an agent with no model set. claude-sonnet-4-20250514 was the
+      // default here and Anthropic retired it on 2026-06-15: the test then
+      // failed with a 404 "not_found_error" for a key that works. Any 200 is
+      // a pass, so a reply that is all thinking within 32 tokens still counts.
+      model: env.ANTHROPIC_MODEL || model || 'claude-sonnet-5-5',
       max_tokens: 32,
       messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
     });
-    const res = await request(url, { headers, body });
+    const res = await requestCompletion(url, { headers, body });
     return completionResult(res, { isAnthropic: true, model });
   }
 
@@ -177,14 +314,19 @@ async function testLLMConnection(env, opts = {}) {
 
   let last = null;
   for (const candidate of candidates) {
-    const requestBody = {
-      model: candidate,
-      messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
-    };
-    if (hasKimiConfig) requestBody.max_tokens = 32;
-    else requestBody.max_completion_tokens = 32;
-    const res = await request(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
-    last = completionResult(res, { isAnthropic: false, model: candidate });
+    let res;
+    if (isResponses) {
+      ({ res, result: last } = await requestResponses(`${baseUrl}/responses`, headers, candidate));
+    } else {
+      const requestBody = {
+        model: candidate,
+        messages: [{ role: 'user', content: 'Say hi in 5 words.' }],
+      };
+      if (hasKimiConfig) requestBody.max_tokens = 32;
+      else requestBody.max_completion_tokens = 32;
+      res = await requestCompletion(`${baseUrl}/chat/completions`, { headers, body: JSON.stringify(requestBody) });
+      last = completionResult(res, { isAnthropic: false, model: candidate });
+    }
     if (last.success) return last;
     // Only a model WE picked moves on to the next one. A configured model is
     // sent as configured and its rejection reported as-is.

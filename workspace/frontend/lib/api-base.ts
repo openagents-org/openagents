@@ -1,5 +1,3 @@
-import { desktopHost } from './desktop-host';
-
 const HOSTED_API = 'https://workspace-endpoint.openagents.org';
 
 /** Preview CSP permits assets on the backend origin and ticket path. The web
@@ -10,16 +8,7 @@ export function getProjectPreviewUrl(path: string, apiBase = getApiBaseUrl()): s
   return (apiBase === '/wsapi' ? HOSTED_API : apiBase) + path;
 }
 
-/** Use Next's same-origin proxy on the web; native and custom endpoints stay direct. */
+/** Keep API traffic direct so frequent browser polling bypasses the frontend CDN. */
 export function getApiBaseUrl(configured = process.env.NEXT_PUBLIC_API_URL): string {
-  const base = (configured || HOSTED_API).replace(/\/+$/, '');
-  if (
-    base === HOSTED_API &&
-    typeof window !== 'undefined' &&
-    /^https?:$/.test(window.location.protocol) &&
-    !desktopHost()
-  ) {
-    return '/wsapi';
-  }
-  return base;
+  return (configured || HOSTED_API).replace(/\/+$/, '');
 }

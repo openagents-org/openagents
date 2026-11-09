@@ -55,3 +55,47 @@ describe('OpenClawAdapter._parseCliOutput', () => {
     assert.equal(parse('plain answer\n[diagnostic] noise'), 'plain answer');
   });
 });
+
+// Braces in the reply text are not JSON structure. Counted as structure, a
+// lone "}" ended the envelope early, the cut-off JSON failed to parse, and a
+// reply OpenClaw had produced was posted as "No response generated"
+// (daily report 2026-11-06, OpenClaw on Linux, core 0.2.217).
+describe('OpenClawAdapter._parseCliOutput — braces inside the reply', () => {
+  // How `openclaw agent --json` leaves it: trace lines, the envelope, more trace.
+  function run(text, { pretty = true } = {}) {
+    const envelope = { payloads: [{ text, mediaUrl: null }], meta: { durationMs: 4200, agentMeta: { model: 'deepseek-flash' } } };
+    return '[diagnostic] lane task done\n'
+      + JSON.stringify(envelope, null, pretty ? 2 : 0)
+      + '\n[agent/embedded] run finished {status=ok}\n';
+  }
+
+  const replies = {
+    'a lone closing brace': 'The output ends with `}`, so the JSON was cut off.',
+    'a lone opening brace': 'The function body starts with `{`.',
+    'the end of a code block': '```js\n  return x;\n}\n```',
+    'escaped quotes and backslashes next to braces': 'Run "echo \\"}\\"" in C:\\tmp\\{dir}\\',
+  };
+
+  for (const [name, text] of Object.entries(replies)) {
+    it(`keeps a reply with ${name} (pretty-printed envelope)`, () => {
+      assert.equal(parse(run(text)), text);
+    });
+    it(`keeps a reply with ${name} (one-line envelope)`, () => {
+      assert.equal(parse(run(text, { pretty: false })), text);
+    });
+  }
+
+  it('skips a cut-off envelope quoted in a trace line and reads the real one', () => {
+    const out = '[trace] previous result {"payloads":[{"text":"half\n'
+      + JSON.stringify({ payloads: [{ text: 'the answer }' }], meta: {} }, null, 2) + '\n';
+    assert.equal(parse(out), 'the answer }');
+  });
+});
+
+describe('OpenClawAdapter._traceOnly', () => {
+  it('takes out the whole envelope even when the reply has a lone brace', () => {
+    const reply = JSON.stringify({ payloads: [{ text: 'settings.json ends with } and the key is invalid' }] }, null, 2);
+    const trace = OpenClawAdapter._traceOnly('[trace] start\n' + reply + '\n[trace] end\n');
+    assert.equal(trace, '[trace] start\n\n[trace] end\n');
+  });
+});

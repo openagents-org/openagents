@@ -25,7 +25,7 @@ READ_STATE_EVENT = 'workspace.read_state.updated'
 MAX_MARKERS = 200
 MAX_SESSION_ID = 512
 MAX_TIMESTAMP = 9007199254740991
-SIGNAL_KINDS = ('dm', 'mention')
+SIGNAL_KINDS = ('dm', 'mention', 'issue')
 
 
 def now_ms():

@@ -8,6 +8,9 @@ import {
   shouldShowNotificationPrompt,
   signalKind,
   withoutLocallyRead,
+  issueIdFromSignalChannel,
+  issueSignalChannel,
+  unreadIssueCounts,
 } from './signals';
 import type { NotificationItem } from './types';
 
@@ -35,6 +38,23 @@ function sig(overrides: Partial<NotificationItem> = {}): NotificationItem {
     ...overrides,
   };
 }
+
+describe('issue signals', () => {
+  it('counts mentions and activity per issue and ignores threads and DMs', () => {
+    const unread = groupSignals([
+      sig({ kind: 'mention', channelName: issueSignalChannel('iss-1') }),
+      sig({ kind: 'mention', channelName: issueSignalChannel('iss-1') }),
+      sig({ kind: 'issue', channelName: issueSignalChannel('iss-1') }),
+      sig({ kind: 'issue', channelName: issueSignalChannel('iss-2') }),
+      sig({ kind: 'mention', channelName: 'release-2.4' }),
+      sig(),
+    ]);
+    expect(unreadIssueCounts(unread)).toEqual({ 'iss-1': 3, 'iss-2': 1 });
+    expect(unread[issueSignalChannel('iss-2')].dms).toBe(0);
+    expect(unreadIssueCounts(undefined)).toEqual({});
+    expect(issueIdFromSignalChannel('release-2.4')).toBeNull();
+  });
+});
 
 describe('signalKind', () => {
   it('recognises dm and mention only', () => {

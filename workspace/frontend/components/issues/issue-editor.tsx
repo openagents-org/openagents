@@ -27,10 +27,13 @@ export function IssueEditor({
   onOpenChange,
   issue,
   onSaved,
+  boardId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   issue?: WorkspaceIssue;
+  /** Board a new issue is filed on (default: Team issues). */
+  boardId?: string;
   onSaved: (issue: WorkspaceIssue) => void;
 }) {
   const t = useT();
@@ -52,6 +55,7 @@ export function IssueEditor({
       setChannel('');
       setAssignee(issue?.assignee ?? '');
       setFileIds(issue?.file_ids ?? []);
+      setUploading(false);
       setError('');
     }
   }, [open, issue?.id]);
@@ -74,6 +78,7 @@ export function IssueEditor({
             ...input,
             assignee: assignee || null,
             ...(channel ? { channel_name: channel } : {}),
+            ...(boardId ? { board_id: boardId } : {}),
           });
       onSaved(result);
     } catch (e) {
@@ -86,7 +91,8 @@ export function IssueEditor({
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!busy && !uploading) onOpenChange(value);
+        // Closing while files upload is fine: the picker unmounts and aborts them.
+        if (!busy) onOpenChange(value);
       }}
     >
       <DialogContent className="max-w-[620px]">
@@ -180,7 +186,7 @@ export function IssueEditor({
                 size="sm"
                 type="button"
                 variant="ghost"
-                disabled={busy || uploading}
+                disabled={busy}
                 onClick={() => onOpenChange(false)}
               >
                 {t('common.cancel')}
@@ -192,7 +198,9 @@ export function IssueEditor({
                 disabled={busy || uploading || !title.trim()}
               >
                 {t(
-                  busy
+                  uploading
+                    ? 'tasks.attachUploading'
+                    : busy
                     ? 'common.saving'
                     : issue
                       ? 'common.save'

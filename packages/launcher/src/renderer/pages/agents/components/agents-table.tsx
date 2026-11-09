@@ -1,25 +1,8 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  LogIn,
-  MoreHorizontal,
-  Pencil,
-  Play,
-  SlidersHorizontal,
-  Square,
-  Terminal,
-  Trash2,
-  Unplug,
-} from "lucide-react"
+import { Layers, LogIn } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@renderer/components/ui/dropdown-menu"
 import {
   Table,
   TableBody,
@@ -34,19 +17,42 @@ import { cn } from "@renderer/lib/utils"
 import type { AgentRow } from "../use-agents-view"
 import { AgentErrorDialog } from "./agent-error-dialog"
 import { agentLabel, type AgentActionHandlers } from "./agent-actions"
+import { AgentRowMenu } from "./agent-row-menu"
 
-const COLUMNS = ["agent", "status", "actions"] as const
+const COLUMNS = ["agent", "workspace", "model", "status", "actions"] as const
+
+/**
+ * Each column's share of the width. Every column but the agent's used to
+ * shrink to its content, which handed all the slack to the first one: the
+ * names sat at the left, the rest crowded at the right, and a gap between.
+ * Shares spread the slack across all of them; the actions keep their content
+ * width. The text cells carry `max-w-0` so a long name or model truncates
+ * inside its share instead of widening the column.
+ */
+const WIDTH: Record<(typeof COLUMNS)[number], string> = {
+  agent: "w-1/3",
+  workspace: "w-1/6",
+  model: "w-1/4",
+  status: "w-1/6",
+  actions: "w-px",
+}
 
 interface Props extends AgentActionHandlers {
   rows: AgentRow[]
   pending: Set<string>
 }
 
+/** Clicks inside it do their own thing, not the row's. */
+const own = (e: React.MouseEvent): void => e.stopPropagation()
+
 /**
- * This computer's agents, three columns: who it is (name, then type and
- * workspace underneath), what it is doing, and what can be done with it. The
- * model, sign-in method and last activity live in the agent's settings and
- * its logs rather than as columns of their own.
+ * This computer's agents as a table whose columns each answer something a
+ * user checks: which agent, in which workspace, on which model, doing what.
+ * A bare list of names and states left most of the width empty.
+ *
+ * A row opens the agent's settings, as Configure in its menu does; the hover
+ * says so. The row itself keeps one action, the way into its workspace —
+ * everything else is in the menu.
  */
 export function AgentsTable({
   rows,
@@ -66,201 +72,115 @@ export function AgentsTable({
     // Clipped, not overflow-hidden: neither box may become a scroll container,
     // or the header would stick to it rather than under the page's toolbar.
     <div className="overflow-clip rounded-lg border bg-card">
-      <Table containerClassName="overflow-x-clip">
-        <TableHeader className="sticky top-12 z-5 bg-card">
-          <TableRow className="hover:bg-transparent">
-            {COLUMNS.map((c) => (
-              <TableHead
-                key={c}
-                className={cn(
-                  "px-6 text-xs font-normal text-muted-foreground",
-                  c === "status" && "w-56",
-                  c === "actions" && "w-px text-right whitespace-nowrap",
-                )}
-              >
-                {t(`agents.list.columns.${c}`)}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map(({ agent, providerLabel, workspace, status }) => {
-            // Read from the status the row is already showing, not a second
-            // opinion on the raw state: an agent with no workspace has
-            // `running` written for it while nothing drives it.
-            const running = status === "running" || status === "idle"
-            const connected = status !== "notConnected"
-            const busy = pending.has(agent.name)
-            return (
-              <TableRow
-                key={agent.name}
-                data-testid={`agent-row-${agent.name}`}
-                data-state={agent.state}
-                data-network={agent.network || ""}
-                className="h-16"
-              >
-                <TableCell className="px-6">
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-card">
-                      <AgentIcon type={agent.type} size={22} />
-                    </span>
-                    <div className="min-w-0">
-                      <button onClick={() => onConfigure(agent)} className="block max-w-full truncate text-left text-sm font-medium hover:text-primary hover:underline" title={agentLabel(agent)}>
-                        {agentLabel(agent)}
-                      </button>
-                      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className="truncate" title={providerLabel}>{providerLabel}</span>
-                        {/* No workspace, nothing after the type: the status
-                            column already says "not connected", and saying it
-                            twice in one row read as two different facts. */}
-                        {workspace && (
-                          <>
-                            <span aria-hidden>·</span>
-                            {/* The workspace name doubles as a way into it,
-                                beside the row's own Enter workspace button. */}
-                            <button
-                              type="button"
-                              className="truncate hover:text-primary hover:underline"
-                              aria-label={t("agents.list.openWorkspace")}
-                              title={workspace}
-                              onClick={() => onOpenWorkspace(agent)}
-                            >
-                              {workspace}
-                            </button>
-                          </>
-                        )}
+        <Table containerClassName="overflow-x-clip">
+          <TableHeader className="sticky top-12 z-5 bg-card">
+            <TableRow className="hover:bg-transparent">
+              {COLUMNS.map((c) => (
+                <TableHead
+                  key={c}
+                  className={cn(
+                    "px-4 text-xs font-normal whitespace-nowrap text-muted-foreground first:pl-6",
+                    WIDTH[c],
+                    c === "actions" && "pr-6 text-right",
+                  )}
+                >
+                  {t(`agents.list.columns.${c}`)}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(({ agent, providerLabel, workspace, model, auth, status }) => {
+              // Read from the status the row is already showing, not a second
+              // opinion on the raw state: an agent with no workspace has
+              // `running` written for it while nothing drives it.
+              const running = status === "running" || status === "idle"
+              const connected = status !== "notConnected"
+              return (
+                <TableRow
+                  key={agent.name}
+                  data-testid={`agent-row-${agent.name}`}
+                  data-state={agent.state}
+                  data-network={agent.network || ""}
+                  className="group h-16 cursor-pointer"
+                  onClick={() => onConfigure(agent)}
+                >
+                  <TableCell className="max-w-0 pr-4 pl-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <AgentIcon type={agent.type} size={32} />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium group-hover:underline" title={agentLabel(agent)}>
+                          {agentLabel(agent)}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground" title={providerLabel}>{providerLabel}</div>
                       </div>
                     </div>
-                  </div>
-                </TableCell>
+                  </TableCell>
 
-                {/* One line, always. The error text itself opens in a dialog —
-                    printing it here made rows grow past their fixed height. */}
-                <TableCell className="px-6 whitespace-nowrap">
-                  <div className="flex items-center gap-2">
-                    <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT_CLASS[status])} />
-                    <span className={cn("text-sm", STATE_TEXT_CLASS[status])}>
-                      {t(`agents.list.statuses.${status}`)}
-                    </span>
-                    {status === "error" && agent.lastError && (
-                      <AgentErrorDialog
-                        agentName={agent.name}
-                        message={agent.lastError}
-                      />
-                    )}
-                  </div>
-                </TableCell>
-
-                <TableCell className="px-6 whitespace-nowrap">
-                  {/* The menu only ever adds what the row does not already
-                      show: repeating Configure in both read as a duplicate.
-                      Right-aligned, so the menu sits in the same place on
-                      every row whatever buttons come before it. */}
-                  <div className="flex items-center justify-end gap-1.5">
-                    {agent.network ? (
-                      <>
-                        {/* Joining is done once; going there is what the row
-                            is for from then on, so it leads the actions. */}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          data-testid={`agent-enter-workspace-${agent.name}`}
-                          onClick={() => onOpenWorkspace(agent)}
-                        >
-                          <LogIn />
-                          {t("agents.list.enterWorkspace")}
-                        </Button>
-                        {agent.hasCli && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => onOpenTerminal(agent)}
-                          >
-                            <Terminal />
-                            {t("agents.list.chat")}
-                          </Button>
-                        )}
-                      </>
+                  <TableCell className="max-w-0 px-4">
+                    {workspace ? (
+                      // The name doubles as a way into it.
+                      <button type="button" onClick={(e) => { own(e); onOpenWorkspace(agent) }}
+                        className="flex max-w-full items-center gap-1.5 text-sm hover:underline"
+                        aria-label={t("agents.list.openWorkspace")} title={workspace}>
+                        <Layers className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{workspace}</span>
+                      </button>
                     ) : (
-                      <Button
-                        size="sm"
-                        data-testid={`agent-connect-${agent.name}`}
-                        onClick={() => onConnect(agent)}
-                      >
-                        {t("agents.list.connect")}
-                      </Button>
+                      <span className="text-sm text-muted-foreground">{t("agents.list.noWorkspace")}</span>
                     )}
+                  </TableCell>
 
-                    {/* The inline actions, then the menu. Configure used to sit
-                        here too, appearing above 1536px and moving into the
-                        menu below it — so the same action had no fixed home and
-                        the row width changed with the window. It now lives in
-                        the menu at every size. */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label={t("agents.list.more")}
-                        >
-                          <MoreHorizontal />
+                  <TableCell className="max-w-0 px-4">
+                    <div className="truncate font-mono text-xs" title={model || undefined}>
+                      {model || <span className="font-sans text-muted-foreground">{t("agents.list.defaultModel")}</span>}
+                    </div>
+                    {auth && (
+                      <div className="text-xs text-muted-foreground">
+                        {t(auth === "cli_login" ? "agents.list.health.cliLogin" : "agents.list.health.apiKey")}
+                      </div>
+                    )}
+                  </TableCell>
+
+                  {/* One line, always. The error text itself opens in a dialog. */}
+                  <TableCell className="px-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT_CLASS[status])} />
+                      <span className={cn("text-sm", STATE_TEXT_CLASS[status])}>{t(`agents.list.statuses.${status}`)}</span>
+                      {status === "error" && agent.lastError && (
+                        <span onClick={own}><AgentErrorDialog agentName={agent.name} message={agent.lastError} /></span>
+                      )}
+                    </div>
+                  </TableCell>
+
+                  <TableCell className="pr-6 pl-4 whitespace-nowrap" onClick={own}>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {agent.network ? (
+                        <>
+                          {/* Joining is done once; going there is what the row
+                              is for from then on, so it leads the actions. */}
+                          <Button size="sm" variant="outline" data-testid={`agent-enter-workspace-${agent.name}`}
+                            onClick={() => onOpenWorkspace(agent)}>
+                            <LogIn />
+                            {t("agents.list.enterWorkspace")}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" data-testid={`agent-connect-${agent.name}`} onClick={() => onConnect(agent)}>
+                          {t("agents.list.connect")}
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {/* Grouped by what the action does to the agent:
-                            edit it, run it, then destroy it — separated so the
-                            last group is never one slip away from the first. */}
-                        <DropdownMenuItem onClick={() => onRename(agent)}>
-                          <Pencil />
-                          {t("agents.list.rename")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onConfigure(agent)}>
-                          <SlidersHorizontal />
-                          {t("agents.list.configure")}
-                        </DropdownMenuItem>
-                        {(connected || agent.network) && <DropdownMenuSeparator />}
-                        {/* Nothing to start or stop without a workspace —
-                            there is no message source and no process, so both
-                            are offers the launcher cannot keep. Joining one is
-                            the only move, and the row already offers it. */}
-                        {connected && (
-                          <DropdownMenuItem
-                            // Stopping is a destructive entry point and is
-                            // coloured like every other one; starting is not.
-                            variant={running ? "destructive" : "default"}
-                            disabled={busy}
-                            data-testid={`agent-toggle-${agent.name}`}
-                            onClick={() => onToggle(agent)}
-                          >
-                            {running ? <Square /> : <Play />}
-                            {running
-                              ? t("agents.list.stop")
-                              : t("agents.list.start")}
-                          </DropdownMenuItem>
-                        )}
-                        {agent.network && (
-                          <DropdownMenuItem onClick={() => onDisconnect(agent)}>
-                            <Unplug />
-                            {t("agents.list.disconnect")}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => onRemove(agent)}
-                        >
-                          <Trash2 />
-                          {t("agents.list.remove")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+                      )}
+                      <AgentRowMenu agent={agent} running={running} connected={connected} busy={pending.has(agent.name)}
+                        onRename={onRename} onConfigure={onConfigure} onOpenTerminal={onOpenTerminal} onToggle={onToggle}
+                        onDisconnect={onDisconnect} onRemove={onRemove} />
+                    </div>
+                  </TableCell>
+
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
     </div>
   )
 }

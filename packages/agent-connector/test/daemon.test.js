@@ -359,11 +359,19 @@ describe('Daemon', () => {
     });
   });
 
-  it('create_agent still saves a Hermes key for the type: its endpoint is one device-wide config', async () => {
+  it('create_agent keeps a Hermes endpoint on its agent: a second one does not replace the first one\'s', async () => {
+    // Each keyed Hermes agent runs on a provider of its own, so one saved for
+    // the type would move every other Hermes agent onto it.
     const config = new Config(tmpDir);
-    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
-    const calls = await createFromWorkspace(config, daemon, { name: 'hermes', type: 'hermes', apiKey: 'sk-h-123456' });
-    assert.deepEqual(calls[1], ['env', 'hermes', '--set', 'LLM_API_KEY=sk-h-123456']);
+    const env = new EnvManager(tmpDir);
+    const daemon = new Daemon(config, env, new Registry(tmpDir));
+    await createFromWorkspace(config, daemon, { name: 'h1', type: 'hermes', config: { LLM_API_KEY: 'sk-one-123456', LLM_BASE_URL: 'https://one.example/v1' } });
+    await createFromWorkspace(config, daemon, { name: 'h2', type: 'hermes', config: { LLM_API_KEY: 'sk-two-123456', LLM_BASE_URL: 'https://two.example/v1' } });
+    assert.deepEqual(env.load('hermes'), {});
+    withProcessEnv(NO_CREDENTIALS, () => {
+      assert.equal(daemon._buildAgentEnv(config.getAgent('h1')).LLM_BASE_URL, 'https://one.example/v1');
+      assert.equal(daemon._buildAgentEnv(config.getAgent('h2')).LLM_BASE_URL, 'https://two.example/v1');
+    });
   });
 
   it('a sign-in sent by the workspace takes an agent off its key, endpoint and the key\'s model', () => {
@@ -532,6 +540,35 @@ describe('Daemon', () => {
     assert.equal(roster[0].baseUrlHost, 'gw.example.org');
   });
 
+  it('_heartbeatRuntimes tells the workspace to sign in with agn login', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._runtimes = [
+      { type: 'codex', installed: true, ready: false },
+      { type: 'openclaw', installed: true, ready: false },
+      null,
+      { type: 'opencode', installed: true, ready: false },
+    ];
+    const [codex, openclaw, gap, opencode] = daemon._heartbeatRuntimes();
+    assert.equal(codex.loginCommand, 'agn login codex');
+    // Signs in (ChatGPT, GitHub Copilot) though the registry gives it no login command.
+    assert.equal(opencode.loginCommand, 'agn login opencode');
+    // No sign-in of its own: only a key works, so there is no command to show.
+    assert.equal('loginCommand' in openclaw, false);
+    assert.equal(gap, null);
+  });
+
+  it('_heartbeatRuntimes looks each type up once, not on every heartbeat', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    const lookups = [];
+    const getEntry = daemon.registry.getEntry.bind(daemon.registry);
+    daemon.registry.getEntry = (type) => { lookups.push(type); return getEntry(type); };
+    daemon._runtimes = [{ type: 'codex', installed: true, ready: false }, { type: 'openclaw', installed: true, ready: false }];
+    for (let i = 0; i < 3; i++) daemon._heartbeatRuntimes();
+    assert.deepEqual(lookups.filter((t) => t === 'codex').length, 1);
+    assert.deepEqual(lookups.filter((t) => t === 'openclaw').length, 1);
+    assert.equal(daemon._heartbeatRuntimes()[0].loginCommand, 'agn login codex');
+  });
+
   const ACCOUNT_MODELS = [
     { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
     { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
@@ -578,6 +615,16 @@ describe('Daemon', () => {
     env.save('codex', { LLM_API_KEY: 'sk-type-level-123456' });
     const daemon = new Daemon(config, env, new Registry(tmpDir));
     seedCliModels(daemon, 'coder');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
+  it('_buildRoster lists for a Qoder agent on a token: the token is the account', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'qd', type: 'qoder', env: { LLM_API_KEY: 'pat-qoder-123456' } });
+    config.setAgentNetwork('qd', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'qd');
     const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
     assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
   });
@@ -801,11 +848,11 @@ describe('Daemon', () => {
     ];
     daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
     assert.deepEqual(daemon._heartbeatRuntimes(), [
-      { type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS },
+      { type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS },
       // Not answered yet: the form keeps the catalog list.
-      { type: 'claude', installed: true, ready: false, cliModels: null },
-      { type: 'gemini', installed: true, ready: true },
-      { type: 'cursor', installed: false, ready: false },
+      { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', cliModels: null },
+      { type: 'gemini', installed: true, ready: true, loginCommand: 'agn login gemini' },
+      { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor' },
     ]);
     // The detection snapshot itself is left as it was.
     assert.equal(daemon._runtimes[0].cliModels, undefined);
@@ -819,7 +866,7 @@ describe('Daemon', () => {
       let sent = null;
       daemon._nodeClients.set('n1', { nodeHeartbeat: async (id, token, body) => { sent = body; return {}; } });
       await daemon._nodeHeartbeat();
-      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, cliModels: ACCOUNT_MODELS }]);
+      assert.deepEqual(sent.runtimes, [{ type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS }]);
     });
   });
 
@@ -1265,8 +1312,7 @@ describe('Daemon', () => {
     assert.deepEqual(config.getAgent('codex-key').env, own);
   });
 
-  // CodeArts keeps its AK/SK on the agent; Hermes saves its key for the type,
-  // where a copy on the agent itself (one the launcher saved) would outrank it.
+  // CodeArts and Hermes keep their credentials on the agent.
   for (const [type, ownEnv, sent, keyVar, modelVar] of [
     ['codearts', { CODEARTS_CLI_AK: 'old-ak', CODEARTS_CLI_SK: 'old-sk', CODEARTS_MODEL: 'own-model' }, { CODEARTS_CLI_AK: 'new-ak', CODEARTS_CLI_SK: 'new-sk' }, 'CODEARTS_CLI_AK', 'CODEARTS_MODEL'],
     ['hermes', { LLM_API_KEY: 'sk-old-123456', LLM_MODEL: 'own-model' }, { LLM_API_KEY: 'sk-new-123456' }, 'LLM_API_KEY', 'LLM_MODEL'],
@@ -1294,13 +1340,11 @@ describe('Daemon', () => {
   it('configure_agent keeps the agent\'s own credentials when saving the new ones fails', async () => {
     const config = new Config(tmpDir);
     const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
-    // Hermes saves its fields for the type (one device-wide config file).
     const own = { LLM_API_KEY: 'sk-old-123456', LLM_BASE_URL: 'https://old.example/v1' };
     config.addAgent({ name: 'h', type: 'hermes', env: own });
     config.setAgentNetwork('h', 'ws1');
-    daemon._runAgn = async (a) => (a[0] === 'env'
-      ? { code: 1, stdout: '', stderr: 'disk full' }
-      : { code: 0, stdout: '', stderr: '' });
+    daemon._runAgn = async () => ({ code: 0, stdout: '', stderr: '' });
+    config.updateAgentEnv = () => { throw new Error('disk full'); };
     const restarted = [];
     daemon.restartAgent = async (name) => { restarted.push(name); };
     daemon._probeAgent = async () => null;
@@ -1833,5 +1877,155 @@ describe('Daemon pid resolution (dual-source)', () => {
     fs.writeFileSync(path.join(tmpDir, 'daemon.pid'), String(deadPid), 'utf-8');
     assert.equal(Daemon.readDaemonPid(tmpDir), null);
     assert.ok(!fs.existsSync(path.join(tmpDir, 'daemon.pid')), 'stale pid file should be cleaned');
+  });
+});
+
+describe('Daemon._probeAgent — the child reads daemon.yaml mid-save', () => {
+  it('asks once more when the child finds no agent this daemon has', async () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'luna', type: 'codex' });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._saveProbes = () => {};
+    const answers = [
+      { type: 'luna', ok: false, code: 'unknown_type', message: "No agent named 'luna' on this device" },
+      { type: 'codex', ok: true, code: 'ok', message: 'Responded' },
+    ];
+    let runs = 0;
+    daemon._runAgn = async () => ({ code: 0, stdout: JSON.stringify(answers[runs++]), stderr: '' });
+    const result = await daemon._probeAgent('luna');
+    assert.equal(runs, 2);
+    assert.equal(result.code, 'ok');
+    assert.equal(result.agent, 'luna');
+  });
+});
+
+describe('Daemon._repairRuntime', () => {
+  const { Installer } = require('../src/installer');
+  let realInstall;
+  beforeEach(() => { realInstall = Installer.prototype.installStreaming; });
+  afterEach(() => { Installer.prototype.installStreaming = realInstall; });
+
+  function makeDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._writeStatus = () => {};
+    daemon._log = () => {};
+    return daemon;
+  }
+
+  /** An adapter that refuses its runtime until the reinstall has run. */
+  function staleAdapter(state) {
+    return {
+      forgotten: 0,
+      forgetRuntime() { this.forgotten += 1; },
+      preflight() {
+        return state.installed
+          ? { ok: true }
+          : { ok: false, reason: 'version_incompatible', message: 'dsh 0.1.0-rc.6 is not supported', repairable: true };
+      },
+    };
+  }
+
+  it('installs the supported version once for agents starting together, then preflights again', async () => {
+    const state = { installed: false };
+    let installs = 0;
+    Installer.prototype.installStreaming = async function (type) {
+      installs += 1;
+      assert.equal(type, 'deepseek');
+      await new Promise((r) => setTimeout(r, 20));
+      state.installed = true;
+      return { success: true };
+    };
+    const daemon = makeDaemon();
+    const a = staleAdapter(state);
+    const b = staleAdapter(state);
+    const infoA = { state: 'error', lastError: 'old', errorReason: 'version_incompatible' };
+    const pf = { ok: false, repairable: true, message: 'stale' };
+    const [ra, rb] = await Promise.all([
+      daemon._repairRuntime('a', 'deepseek', a, infoA, pf),
+      daemon._repairRuntime('b', 'deepseek', b, { state: 'starting' }, pf),
+    ]);
+    assert.equal(installs, 1);
+    assert.deepEqual(ra, { ok: true });
+    assert.deepEqual(rb, { ok: true });
+    assert.equal(a.forgotten, 1);
+    assert.equal(infoA.lastError, null);
+    assert.equal(daemon._runtimeRepairs.size, 0);
+  });
+
+  it('tests again the agents whose connection test said the version was wrong', async () => {
+    const state = { installed: false };
+    Installer.prototype.installStreaming = async () => { state.installed = true; return { success: true }; };
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'ds1', type: 'deepseek' });
+    config.addAgent({ name: 'ds2', type: 'deepseek' });
+    config.addAgent({ name: 'cx', type: 'codex' });
+    const daemon = makeDaemon();
+    daemon.config = config;
+    daemon._probes = {
+      ds1: { code: 'version_incompatible' },
+      ds2: { code: 'ok' },
+      cx: { code: 'version_incompatible' },
+    };
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); };
+    let beats = 0;
+    daemon._nodeHeartbeat = () => { beats += 1; };
+    await daemon._repairRuntime('ds1', 'deepseek', staleAdapter(state), { state: 'starting' }, { ok: false });
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(probed, ['ds1']);
+    assert.equal(beats, 1);
+  });
+
+  it('keeps the original reason when the install fails', async () => {
+    Installer.prototype.installStreaming = async () => { throw new Error('Install failed with exit code 1'); };
+    const daemon = makeDaemon();
+    const adapter = staleAdapter({ installed: false });
+    const result = await daemon._repairRuntime('a', 'deepseek', adapter, { state: 'starting' }, { ok: false });
+    assert.equal(result, null);
+    assert.equal(adapter.forgotten, 0);
+    assert.equal(daemon._runtimeRepairs.size, 0);
+  });
+});
+
+describe('Daemon — probe sweep for agents whose setup is unfinished', () => {
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+
+  function setup(probes) {
+    const config = new Config(tmpDir);
+    for (const name of Object.keys(probes)) config.addAgent({ name, type: name.split('-')[0] });
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._probes = probes;
+    const probed = [];
+    daemon._probeAgent = async (name) => { probed.push(name); return null; };
+    daemon._nodeHeartbeat = () => {};
+    return { daemon, probed };
+  }
+
+  it('re-runs a finished setup hourly but an unfinished one only daily', async () => {
+    const { daemon, probed } = setup({
+      'claude-broken': { code: 'invalid_api_key', at: hoursAgo(2) },
+      'claude-nologin': { code: 'not_logged_in', at: hoursAgo(2) },
+      'openclaw-nokey': { code: 'not_ready', at: hoursAgo(25) },
+    });
+    await daemon._probeConfiguredAgents(3600 * 1000);
+    assert.deepEqual(probed, ['claude-broken', 'openclaw-nokey']);
+  });
+
+  it('re-runs an unfinished agent as soon as its type is detected signed in', async () => {
+    const { daemon, probed } = setup({
+      'claude-nologin': { code: 'not_logged_in', at: hoursAgo(1) },
+      'claude-fine': { code: 'ok', at: hoursAgo(1) },
+      'codex-nologin': { code: 'not_logged_in', at: hoursAgo(1) },
+    });
+    daemon._runtimes = [
+      { type: 'claude', installed: true, ready: true },
+      { type: 'codex', installed: true, ready: false },
+    ];
+    daemon._probeNewlyReady(new Map([
+      ['claude', { type: 'claude', installed: true, ready: false }],
+      ['codex', { type: 'codex', installed: true, ready: false }],
+    ]));
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(probed, ['claude-nologin']);
   });
 });

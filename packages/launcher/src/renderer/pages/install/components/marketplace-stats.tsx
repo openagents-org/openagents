@@ -10,11 +10,7 @@ export interface MarketplaceCounts {
   updatable: number
 }
 
-const TONE: Record<keyof MarketplaceCounts, string> = {
-  available: "text-foreground",
-  installed: "text-success",
-  updatable: "text-warning",
-}
+const KEYS: Array<keyof MarketplaceCounts> = ["available", "installed", "updatable"]
 
 /** Which filter each counter turns on. "available" is the reset. */
 const FILTER: Record<keyof MarketplaceCounts, StatusFilter> = {
@@ -47,11 +43,10 @@ export function MarketplaceStats({
   onSelect?: (filter: StatusFilter) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const keys = Object.keys(TONE) as Array<keyof MarketplaceCounts>
 
   return (
     <div className="flex items-center gap-2 text-2xs text-muted-foreground">
-      {keys.map((key, i) => {
+      {KEYS.map((key, i) => {
         const filter = FILTER[key]
         const isActive = active === filter && filter !== "all"
         // "available" is always actionable — it is how you get back to the full
@@ -78,7 +73,12 @@ export function MarketplaceStats({
                 isActive && "bg-muted text-foreground",
               )}
             >
-              <span className={cn("font-semibold", TONE[key])}>
+              {/* Numbers in the text colour; a pending update, the one count
+                  that asks for something, gets a dot in front. */}
+              {key === "updatable" && counts[key] > 0 && (
+                <span className="mr-1 inline-block size-1.5 rounded-full bg-warning align-middle" />
+              )}
+              <span className="font-semibold text-foreground">
                 {counts[key]}
               </span>{" "}
               {t(`install.stats.${key}`)}

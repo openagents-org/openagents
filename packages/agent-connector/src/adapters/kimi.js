@@ -19,7 +19,17 @@
  * OpenAI-compatible chat completions against KIMI_BASE_URL (inherited from
  * LlmDirectAdapter).
  *
- * Verified against Kimi Code CLI v0.39.1. NOTE: the legacy Python `kimi-cli`
+ *   - workspace tools: the CLI reads MCP servers only from
+ *     `$KIMI_CODE_HOME/mcp.json`, so each agent runs with a private Kimi home
+ *     (~/.openagents/kimi-homes/<agent>/) that adds the workspace MCP server to
+ *     the user's own servers and links their `kimi login` credentials and
+ *     config.toml back in. The token, workspace and channel reach the MCP
+ *     server through the environment, never through a file.
+ *   - no sandbox: print mode approves every tool call and the CLI has no
+ *     filesystem boundary, so the agent can write outside its working
+ *     directory. That is the CLI's own model, not something this adapter adds.
+ *
+ * Verified against Kimi Code CLI v0.39.1 and 2.4.1. NOTE: the legacy Python `kimi-cli`
  * (PyPI) also installs a `kimi` binary but reports 1.x versions and has a
  * different interface — it is detected and NOT driven.
  */
@@ -29,6 +39,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 const { execSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
@@ -49,6 +60,12 @@ const {
   classifyKimiVersion,
   classifyKimiError,
   encodeKimiWorkDirKey,
+  KimiWireTracker,
+  KIMI_MCP_SERVER_NAME,
+  KIMI_HOME_LINKS,
+  kimiHomeName,
+  buildKimiMcpConfig,
+  buildKimiWorkspaceEnv,
 } = require('./kimi-stream');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -61,11 +78,21 @@ const DEFAULT_MODEL = 'kimi-k2.6';
 // life is any stdout or stderr, or a write to the run's session journal. The
 // journal is the only trace a subagent leaves: print mode never forwards its
 // events, so a main agent waiting on an `Agent` tool call is otherwise mute.
-// Kimi's provider retry backoff can reach ~1 min between attempts, so the kill
-// threshold stays generous.
+//
+// Print mode is also mute while the model works on a step — it streams, but
+// nothing reaches stdout, stderr or the journal until the step is done — and
+// while a tool runs, a shell command or a background task the run waits on
+// (verified v2.5.2). Five minutes of that stopped working runs: a long
+// thinking step, or a model writing a long script and then running it. So a
+// quiet stretch while the journal shows a tool still running
+// (KimiWireTracker) does not count against MAX, only against TOOL_MAX; and
+// MAX allows a full step. Our output cap is 32768 tokens
+// (DEFAULT_MAX_COMPLETION_TOKENS), about 14 min at 40 tokens/s. Kimi's
+// provider retry backoff can reach ~1 min between attempts.
 const WATCHDOG_INTERVAL_MS = 15_000;
-const WATCHDOG_NUDGE_AT = 2;     // ~30s of silence → "still working"
-const WATCHDOG_MAX = 20;         // ~5 min of silence → kill
+const WATCHDOG_NUDGE_AT = 2;       // ~30s of silence → "still working"
+const WATCHDOG_MAX = 60;           // ~15 min of silence, no tool running → kill
+const WATCHDOG_TOOL_MAX = 120;     // ~30 min of silence while a tool runs → kill
 
 // Version check cache: keyed by resolved binary path so repeated messages
 // don't re-spawn `kimi --version`, yet an install/upgrade is re-detected.
@@ -139,6 +166,7 @@ class KimiAdapter extends LlmDirectAdapter {
     this._watchdogIntervalMs = WATCHDOG_INTERVAL_MS;
     this._watchdogNudgeAt = WATCHDOG_NUDGE_AT;
     this._watchdogMax = WATCHDOG_MAX;
+    this._watchdogToolMax = WATCHDOG_TOOL_MAX;
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_kimi.json`,
@@ -255,10 +283,14 @@ class KimiAdapter extends LlmDirectAdapter {
     if (!proc || proc.exitCode !== null) return;
     try {
       if (IS_WINDOWS) {
-        try { proc.kill('SIGINT'); } catch {}
-        const exited = await this._waitExit(proc, 1500);
-        if (!exited) {
-          try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000, windowsHide: true }); } catch {}
+        // Tree first. On Windows proc.kill() is TerminateProcess whatever the
+        // signal, so "SIGINT, then taskkill /T if it is still alive" never
+        // reached taskkill — and once kimi is dead its shell commands can no
+        // longer be found through it: a Stop left them running.
+        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000, windowsHide: true }); } catch {}
+        if (!(await this._waitExit(proc, 1500))) {
+          try { proc.kill(); } catch {}
+          await this._waitExit(proc, 1000);
         }
       } else {
         try { process.kill(-proc.pid, 'SIGINT'); } catch { try { proc.kill('SIGINT'); } catch {} }
@@ -456,6 +488,13 @@ class KimiAdapter extends LlmDirectAdapter {
     if (this._mode === 'plan') {
       lines.push('You are in PLAN mode: investigate and propose a plan; do not modify files.');
     }
+    if (this._workspaceToolsReady) {
+      lines.push(
+        `For anything in the OpenAgents workspace — chat history, files, uploads, knowledge, todos — use the ` +
+        `\`workspace_*\` tools (MCP server "${KIMI_MCP_SERVER_NAME}"). They are already signed in: never look for, ` +
+        'print or use a workspace token, and do not call the workspace HTTP API yourself.',
+      );
+    }
     lines.push('Work in the current working directory. Reply concisely. The user request follows:');
     return lines.join('\n');
   }
@@ -584,6 +623,9 @@ class KimiAdapter extends LlmDirectAdapter {
 
       // Resuming → Kimi already has history, send the bare turn. Fresh →
       // prepend a context header (+ recap when available).
+      // Decided before the prompt is built: the header only promises the
+      // workspace tools when this run will actually have them.
+      this._workspaceToolsReady = !!this._prepareKimiHome();
       let prompt;
       if (resumeId) {
         prompt = content;
@@ -624,6 +666,7 @@ class KimiAdapter extends LlmDirectAdapter {
           stderrText: result.stderrText,
           retryMessage: result.retryMessage,
           timedOutMs: result.timedOutMs,
+          timedOutInTool: result.timedOutInTool,
         });
         try { await this.sendError(channel, userMessage); } catch {}
       } else {
@@ -631,6 +674,92 @@ class KimiAdapter extends LlmDirectAdapter {
       }
       return;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Private Kimi home (workspace MCP tools)
+  // ------------------------------------------------------------------
+
+  /** This agent's own Kimi home. See KIMI_MCP_SERVER_NAME in kimi-stream.js. */
+  _kimiHome() {
+    return path.join(os.homedir(), '.openagents', 'kimi-homes', kimiHomeName(this.workspaceId, this.agentName));
+  }
+
+  /** The user's own Kimi home, which the private one links back to. */
+  _userKimiHome() {
+    const env = this.agentEnv || {};
+    return env.KIMI_CODE_HOME || process.env.KIMI_CODE_HOME || path.join(os.homedir(), '.kimi-code');
+  }
+
+  /**
+   * (Re)build the private home for one run and return its path, or null when
+   * it cannot be prepared — the run then goes ahead without workspace tools,
+   * exactly as before.
+   *
+   * Every run re-checks the links, so a `kimi login` done after the agent
+   * started is picked up, and rewrites mcp.json, so a change to the user's own
+   * MCP servers or to the agent's disabled modules applies at once.
+   */
+  _prepareKimiHome() {
+    const home = this._kimiHome();
+    try {
+      fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+      const userHome = this._userKimiHome();
+      for (const { name, dir } of KIMI_HOME_LINKS) this._linkIntoKimiHome(path.join(userHome, name), path.join(home, name), dir);
+
+      const command = this._mcpServerCommand();
+      if (!command) {
+        this._log('Could not locate the OpenAgents CLI — workspace tools are unavailable this run');
+        return null;
+      }
+      let userConfig = null;
+      try { userConfig = JSON.parse(fs.readFileSync(path.join(userHome, 'mcp.json'), 'utf-8')); } catch {}
+      const config = buildKimiMcpConfig(userConfig, command);
+      const file = path.join(home, 'mcp.json');
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+      return home;
+    } catch (e) {
+      this._log(`Could not prepare the private Kimi home (${redactSecrets(e && e.message)}) — workspace tools are unavailable this run`);
+      return null;
+    }
+  }
+
+  /**
+   * Point `dest` at `target` in the user's home. A directory is linked
+   * (a junction on Windows, which needs no privilege), so writes such as a
+   * credentials refresh land in the user's home. A file is symlinked on POSIX
+   * and copied on Windows, where file symlinks need Developer Mode. Anything
+   * already at `dest` that is not ours to replace is left alone.
+   */
+  _linkIntoKimiHome(target, dest, isDir) {
+    if (!fs.existsSync(target)) return;
+    let st = null;
+    try { st = fs.lstatSync(dest); } catch {}
+    if (st && st.isSymbolicLink()) {
+      let current = null;
+      try { current = fs.readlinkSync(dest); } catch {}
+      if (current && path.resolve(path.dirname(dest), current) === path.resolve(target)) return;
+      fs.rmSync(dest, { force: true });
+    } else if (st && !(IS_WINDOWS && !isDir && st.isFile())) {
+      return;
+    }
+    if (isDir) fs.symlinkSync(target, dest, IS_WINDOWS ? 'junction' : 'dir');
+    else if (IS_WINDOWS) fs.copyFileSync(target, dest);
+    else fs.symlinkSync(target, dest, 'file');
+  }
+
+  /** The stdio command that runs this package's workspace MCP server. */
+  _mcpServerCommand() {
+    const bin = path.resolve(__dirname, '..', '..', 'bin', 'agent-connector.js');
+    if (!fs.existsSync(bin)) return null;
+    const args = [bin, 'mcp-server'];
+    const disabled = this.disabledModules || new Set();
+    if (disabled.has('files')) args.push('--disable-files');
+    if (disabled.has('browser')) args.push('--disable-browser');
+    if (disabled.has('knowledge')) args.push('--disable-knowledge');
+    return { command: process.execPath, args };
   }
 
   _dirExists(p) {
@@ -649,40 +778,109 @@ class KimiAdapter extends LlmDirectAdapter {
     let known = [];
     try { known = fs.readdirSync(bucket); } catch {}
     const s = args.indexOf('-S');
-    return { bucket, known: new Set(known), resumeId: s >= 0 ? args[s + 1] : null };
+    const watch = {
+      bucket, known: new Set(known), resumeId: s >= 0 ? args[s + 1] : null, wires: new Map(), since: Date.now(),
+    };
+    // A resumed session's journal is read on from where it stands now. Not
+    // needed for correctness (records from before `since` open nothing), but
+    // a long session's journal is not read whole on every run.
+    for (const name of this._runSessionDirs(watch)) {
+      const file = this._mainWirePath(watch, name);
+      try {
+        const st = fs.statSync(file);
+        watch.wires.set(file, this._newWire(watch, st.size, st.ino));
+      } catch {}
+    }
+    return watch;
+  }
+
+  /** This run's session directories: the resumed one, plus any created since the run started. */
+  _runSessionDirs(watch) {
+    let names;
+    try { names = fs.readdirSync(watch.bucket); } catch { return []; }
+    return names.filter((name) => !watch.known.has(name) || (!!watch.resumeId &&
+      (name === watch.resumeId || name === `session_${watch.resumeId}`)));
+  }
+
+  _mainWirePath(watch, name) {
+    return path.join(watch.bucket, name, 'agents', 'main', 'wire.jsonl');
+  }
+
+  _newWire(watch, offset = 0, ino = null) {
+    return { offset, ino, decoder: new StringDecoder('utf8'), tracker: new KimiWireTracker({ since: watch.since }) };
   }
 
   /**
-   * Newest write (ms) inside this run's session journals: the resumed session,
-   * plus any session created since the run started. A second fresh run in the
-   * same directory can be counted too; that only ever keeps a run alive
-   * longer, never stops one early. 0 when there is nothing to look at.
+   * Newest write (ms) inside this run's session journals. A second fresh run
+   * in the same directory can be counted too; that only ever keeps a run
+   * alive longer, never stops one early. 0 when there is nothing to look at.
    */
   _latestKimiSessionWrite(watch) {
-    let names;
-    try { names = fs.readdirSync(watch.bucket); } catch { return 0; }
     let latest = 0;
-    for (const name of names) {
-      const resumed = !!watch.resumeId &&
-        (name === watch.resumeId || name === `session_${watch.resumeId}`);
-      if (watch.known.has(name) && !resumed) continue;
+    for (const name of this._runSessionDirs(watch)) {
       latest = Math.max(latest, newestMtimeMs(path.join(watch.bucket, name), 3));
     }
     return latest;
   }
 
   /**
+   * Whether this run's main agent has a tool call or a background task still
+   * running, by its session journal (see KimiWireTracker). Each journal is
+   * read on from where the last look stopped — unless Kimi replaced it: it
+   * rewrites a journal whose last line was cut off (a run stopped mid-write)
+   * to its valid prefix, and migrates old ones, both as a new file. The old
+   * offset then points past this run's records; such a file is read again
+   * from the start.
+   */
+  _kimiToolRunning(watch) {
+    let running = false;
+    for (const name of this._runSessionDirs(watch)) {
+      const file = this._mainWirePath(watch, name);
+      let wire = watch.wires.get(file);
+      try {
+        const st = fs.statSync(file);
+        if (!wire || st.ino !== wire.ino || st.size < wire.offset) {
+          wire = this._newWire(watch, 0, st.ino);
+          watch.wires.set(file, wire);
+        }
+        const size = st.size;
+        if (size > wire.offset) {
+          const buf = Buffer.alloc(size - wire.offset);
+          const fd = fs.openSync(file, 'r');
+          try { fs.readSync(fd, buf, 0, buf.length, wire.offset); } finally { fs.closeSync(fd); }
+          wire.offset = size;
+          wire.tracker.push(wire.decoder.write(buf));
+        }
+      } catch {}
+      if (wire && wire.tracker.busy) running = true;
+    }
+    return running;
+  }
+
+  /**
    * Spawn one `kimi -p … --output-format stream-json` run, stream-parse it,
    * and resolve a summary:
    *   { ok, finalText, sessionId, anyOutput, userStopped,
-   *     exitCode, exitSignal, stderrText, retryMessage, timedOutMs }
+   *     exitCode, exitSignal, stderrText, retryMessage, timedOutMs, timedOutInTool }
    * `ok` is exit code 0; `finalText` is the LAST assistant text of the turn;
-   * `timedOutMs` is non-zero when the idle watchdog stopped the run.
+   * `timedOutMs` is non-zero when the idle watchdog stopped the run, and
+   * `timedOutInTool` says a tool call or background task was running then.
    */
   _runKimi(channel, kimiBin, args, workingDir) {
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const { env: cleanEnv } = buildKimiEnv(this.agentEnv || process.env);
+    const kimiHome = this._prepareKimiHome();
+    if (kimiHome) {
+      cleanEnv.KIMI_CODE_HOME = kimiHome;
+      Object.assign(cleanEnv, buildKimiWorkspaceEnv({
+        token: this.token,
+        workspaceId: this.workspaceId,
+        channel,
+        agentName: this.agentName,
+        endpoint: this.endpoint,
+      }));
+    }
     const [cmd, ...spawnArgs] = this._spawnableCmd(kimiBin, args);
     // Before the spawn, so the session this run creates shows up as new.
     const sessionWatch = this._watchKimiSessions(cleanEnv, workingDir, args);
@@ -702,6 +900,7 @@ class KimiAdapter extends LlmDirectAdapter {
     const state = {
       ok: false,
       finalText: '',
+      pendingThought: '',
       sessionId: null,
       anyOutput: false,
       userStopped: false,
@@ -710,6 +909,7 @@ class KimiAdapter extends LlmDirectAdapter {
       stderrText: '',
       retryMessage: '',
       timedOutMs: 0,
+      timedOutInTool: false,
     };
 
     return new Promise((resolve) => {
@@ -719,7 +919,9 @@ class KimiAdapter extends LlmDirectAdapter {
       let lastDataMs = Date.now();
       let seenSessionWriteMs = lastDataMs;
       let loggedSessionAlive = false;
-      let silences = 0;
+      let silences = 0;      // quiet ticks with no tool running
+      let quietTicks = 0;    // every quiet tick since the last sign of life
+      let loggedToolRunning = false;
       let queue = Promise.resolve();
 
       const cleanup = () => {
@@ -743,12 +945,21 @@ class KimiAdapter extends LlmDirectAdapter {
         for (const e of interpretKimiMessage(m)) {
           switch (e.kind) {
             case 'text':
+              // Held back until the turn moves on: the LAST text is the reply,
+              // posted once as the response rather than also as a thought.
               state.anyOutput = true;
+              if (state.pendingThought) {
+                try { await this.sendThinking(channel, state.pendingThought); } catch {}
+              }
+              state.pendingThought = e.text;
               state.finalText = e.text;
-              try { await this.sendThinking(channel, e.text); } catch {}
               break;
             case 'tool_start':
               state.anyOutput = true;
+              if (state.pendingThought) {
+                try { await this.sendThinking(channel, state.pendingThought); } catch {}
+                state.pendingThought = '';
+              }
               try {
                 await this.sendStatus(channel, e.preview ? `${e.name}: ${e.preview}` : e.name);
               } catch {}
@@ -776,6 +987,7 @@ class KimiAdapter extends LlmDirectAdapter {
       proc.stdout.on('data', (chunk) => {
         lastDataMs = Date.now();
         silences = 0;
+        quietTicks = 0;
         const msgs = parser.push(chunk);
         for (const m of msgs) queue = queue.then(() => handleMessage(m)).catch(() => {});
       });
@@ -786,6 +998,7 @@ class KimiAdapter extends LlmDirectAdapter {
       proc.stderr.on('data', (chunk) => {
         lastDataMs = Date.now();
         silences = 0;
+        quietTicks = 0;
         state.stderrText += chunk.toString('utf-8');
         if (state.stderrText.length > 64 * 1024) {
           state.stderrText = state.stderrText.slice(-32 * 1024);
@@ -797,7 +1010,7 @@ class KimiAdapter extends LlmDirectAdapter {
       watchdogTimer = setInterval(async () => {
         if (settled) return;
         const elapsed = Date.now() - lastDataMs;
-        if (elapsed < intervalMs) { silences = 0; return; }
+        if (elapsed < intervalMs) { silences = 0; quietTicks = 0; return; }
         // Both pipes are quiet. A subagent still working only shows up in the
         // session journal, so a fresh write there resets the count too.
         const wrote = this._latestKimiSessionWrite(sessionWatch);
@@ -805,32 +1018,45 @@ class KimiAdapter extends LlmDirectAdapter {
           seenSessionWriteMs = wrote;
           lastDataMs = Date.now();
           silences = 0;
+          quietTicks = 0;
           if (!loggedSessionAlive) {
             loggedSessionAlive = true;
             this._log(`Watchdog: kimi quiet on ${channel} but its session is still being written — keeping it alive`);
           }
           return;
         }
-        silences++;
+        // A tool still running (see KimiWireTracker): the run is busy, and
+        // print mode says nothing until the tool ends. Such a stretch is
+        // bounded by _watchdogToolMax, not _watchdogMax.
+        const toolRunning = this._kimiToolRunning(sessionWatch);
+        if (toolRunning && !loggedToolRunning) {
+          loggedToolRunning = true;
+          this._log(`Watchdog: kimi quiet on ${channel} but a tool it started is still running — keeping it alive`);
+        }
+        quietTicks++;
+        if (toolRunning) silences = 0;
+        else silences++;
         // Deliberately NOT touching lastDataMs here: it marks the last real
         // sign of life, and the data handlers above already reset `silences`
         // themselves. Refreshing it on a silent tick parked the next tick's
         // `elapsed` right on the interval boundary, where an early-firing
         // timer (routine on Windows) read as "data just arrived" and reset
         // the count — so a genuinely hung run was never stopped.
-        if (silences === this._watchdogNudgeAt) {
+        if (quietTicks === this._watchdogNudgeAt) {
           try { await this.sendStatus(channel, 'Still working...'); } catch {}
         }
-        if (silences >= this._watchdogMax) {
+        if (toolRunning ? quietTicks >= this._watchdogToolMax : silences >= this._watchdogMax) {
           // Stop ticking before the (awaited) kill: _stopProcess can take
           // seconds to escalate, and a tick landing inside that wait would
           // re-log, re-kill and keep inflating timedOutMs past the budget.
           clearInterval(watchdogTimer);
-          const silentMs = silences * intervalMs;
-          this._log(`Watchdog: kimi silent ${Math.round(silentMs / 1000)}s on ${channel} — killing`);
+          const silentMs = Date.now() - lastDataMs;
+          this._log(`Watchdog: kimi silent ${Math.round(silentMs / 1000)}s on ${channel}`
+            + `${toolRunning ? ' with a tool still running' : ''} — killing`);
           // Its own field, not stderr: tool noise already there used to leave
           // the user with nothing but the signal name.
           state.timedOutMs = silentMs;
+          state.timedOutInTool = toolRunning;
           await this._stopProcess(proc);
         }
       }, intervalMs);

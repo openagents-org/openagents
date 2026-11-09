@@ -1,23 +1,18 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 
-import { Badge } from "@renderer/components/ui/badge"
-import { cn } from "@renderer/lib/utils"
+import { StatusBadge, type StatusBadgeTone } from "@renderer/components/ui-kit"
 
-import { STATUS_VARIANT, type EntryStatus } from "../entry-meta"
+import type { EntryStatus } from "../entry-meta"
 
-const DOT: Record<EntryStatus, string> = {
-  installed: "bg-success",
-  update: "bg-warning",
-  available: "bg-muted-foreground",
-  comingSoon: "bg-muted-foreground",
+const TONE: Record<EntryStatus, StatusBadgeTone> = {
+  installed: "success",
+  update: "warning",
+  available: "neutral",
+  comingSoon: "neutral",
 }
 
-/**
- * One chip, four states. The leading dot carries the state even where the tint
- * is faint (a `muted` chip on a card that is already muted), which is what
- * keeps "not installed" legible next to "installed".
- */
+/** One chip, four states — the shared status badge, its dot carrying the state. */
 export function AgentStatusBadge({
   status,
   className,
@@ -27,9 +22,8 @@ export function AgentStatusBadge({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <Badge variant={STATUS_VARIANT[status]} className={cn("gap-1.5", className)}>
-      <span className={cn("size-1.5 shrink-0 rounded-full", DOT[status])} />
+    <StatusBadge tone={TONE[status]} className={className}>
       {t(`install.status.${status}`)}
-    </Badge>
+    </StatusBadge>
   )
 }

@@ -987,3 +987,202 @@ def test_invalid_reply_does_not_save_comment_or_dispatch(client, workspace, db, 
     assert response.status_code in (404, 409, 422), response.text
     assert len(detail(client, workspace, issue)['comments']) == before
     cloud_dispatch.assert_not_called()
+
+
+def _signals(client, workspace, name):
+    response = client.get('/v1/notifications', params={'network': workspace['id'], 'kinds': 'dm,mention,issue', 'is_read': 'false'},
+                          headers=_bearer(name))
+    assert response.status_code == 200, response.text
+    return response.json()['data']
+
+
+def test_human_mention_in_issue_signals_the_mentioned_person_until_read(client, workspace, two_members):
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': '@ben@acme.test can you take a look? `@ann@acme.test`'})
+    assert response.status_code == 200, response.text
+
+    signals = _signals(client, workspace, 'ben')
+    assert signals['unread_count'] == 1
+    assert signals['notifications'][0]['channel_name'] == f"issue:{issue['id']}"
+    assert signals['notifications'][0]['kind'] == 'mention'
+    assert _signals(client, workspace, 'ann')['unread_count'] == 0
+    # Personal signals stay out of the shared inbox.
+    inbox = client.get('/v1/notifications', params={'network': workspace['id']}, headers=_bearer('ben'))
+    assert inbox.json()['data']['unread_count'] == 0
+
+    read = client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+    assert read.status_code == 200, read.text
+    assert _signals(client, workspace, 'ben')['unread_count'] == 0
+
+
+def test_human_mention_in_new_issue_description_signals_the_person(client, workspace, two_members):
+    response = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Ship it', 'description': 'Owner: @ben@acme.test'})
+    assert response.status_code == 200, response.text
+    assert _signals(client, workspace, 'ben')['unread_count'] == 1
+
+
+def test_added_participant_and_assignee_are_signalled_distinctly(client, workspace, two_members):
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/participants"), headers=_bearer('ann'),
+        json={'participants': [{'kind': 'human', 'id': 'ben@acme.test'}]})
+    assert response.status_code == 200, response.text
+    [added] = _signals(client, workspace, 'ben')['notifications']
+    assert added['kind'] == 'issue' and added['title'] == 'Ann added you to Improve onboarding'
+    assert added['channel_name'] == f"issue:{issue['id']}"
+    # Re-adding an existing participant is not news.
+    client.post(path(workspace, f"/{issue['id']}/participants"), headers=_bearer('ann'),
+        json={'participants': [{'kind': 'human', 'id': 'ben@acme.test'}]})
+    assert _signals(client, workspace, 'ben')['unread_count'] == 1
+
+    client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+    assigned = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Fix login', 'assignee': 'human:ben@acme.test'})
+    assert assigned.status_code == 200, assigned.text
+    [signal] = _signals(client, workspace, 'ben')['notifications']
+    assert signal['title'] == 'Ann assigned you Fix login'
+
+
+def test_followers_see_new_comments_and_status_changes_as_one_unread_row(client, workspace, two_members):
+    response = client.post(path(workspace), headers=_bearer('ann'),
+        json={'title': 'Fix login', 'assignee': 'human:ben@acme.test'})
+    issue = response.json()['data']
+    client.patch('/v1/notifications/read-channel',
+        params={'network': workspace['id'], 'channel': f"issue:{issue['id']}"}, headers=_bearer('ben'))
+
+    client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'), json={'content': 'First pass done'})
+    client.patch(path(workspace, f"/{issue['id']}"), headers=_bearer('ann'), json={'status': 'paused'})
+    signals = _signals(client, workspace, 'ben')['notifications']
+    assert len(signals) == 1
+    assert signals[0]['title'] == 'Ann updated Fix login'
+    # The creator follows the issue too, but never hears about their own actions.
+    assert _signals(client, workspace, 'ann')['unread_count'] == 0
+    client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ben'), json={'content': 'On it'})
+    assert _signals(client, workspace, 'ann')['notifications'][0]['title'] == 'Ben commented on Fix login'
+
+
+def test_comment_attachments_are_saved_and_shown(client, workspace, db, two_members):
+    from app.models import FileRecord
+    db.add(FileRecord(id='shot', workspace_id=workspace['id'], filename='shot.png', content_type='image/png',
+                      size=3, storage_key='k', uploaded_by='human:ann@acme.test', owner='ann@acme.test',
+                      visibility='public'))
+    db.commit()
+    issue = create(client, workspace)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': '', 'file_ids': ['shot']})
+    assert response.status_code == 200, response.text
+    [comment] = [c for c in detail(client, workspace, issue)['comments'] if c['kind'] == 'comment']
+    assert comment['file_ids'] == ['shot']
+    assert comment['attachments'] == [{'file_id': 'shot', 'filename': 'shot.png', 'content_type': 'image/png', 'size': 3}]
+    missing = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': 'see', 'file_ids': ['nope']})
+    assert missing.status_code == 404
+
+
+def test_comment_attachments_reject_foreign_and_unreadable_files(client, workspace, db, two_members):
+    from app.models import FileRecord
+    data = client.post("/v1/workspaces", json={"name": "Other", "agent_name": "other-agent"}).json()["data"]
+    db.add_all([
+        FileRecord(id='foreign', workspace_id=data['workspaceId'], filename='x.png', content_type='image/png',
+                   size=3, storage_key='k', uploaded_by='human:ann@acme.test', owner='ann@acme.test',
+                   visibility='public'),
+        FileRecord(id='bens', workspace_id=workspace['id'], filename='y.png', content_type='image/png',
+                   size=3, storage_key='k', uploaded_by='human:ben@acme.test', owner='ben@acme.test',
+                   visibility='private'),
+    ])
+    db.commit()
+    issue = create(client, workspace)
+    for file_id in ('foreign', 'bens'):
+        response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+            json={'content': 'see', 'file_ids': [file_id]})
+        assert response.status_code == 404, file_id
+    assert db.get(FileRecord, 'bens').visibility == 'private'
+    too_many = client.post(path(workspace, f"/{issue['id']}/comments"), headers=_bearer('ann'),
+        json={'content': 'see', 'file_ids': [f'f{i}' for i in range(21)]})
+    assert too_many.status_code == 422
+    assert not [c for c in detail(client, workspace, issue)['comments'] if c['kind'] == 'comment']
+
+
+def test_agent_request_carries_comment_attachments(client, workspace, db, cloud_dispatch):
+    from app.models import FileRecord
+    db.add(FileRecord(id='clip', workspace_id=workspace['id'], filename='bug.mp4', content_type='video/mp4',
+                      size=9, storage_key='k', uploaded_by='human:alice', owner='alice', visibility='public'))
+    db.commit()
+    issue = create(client, workspace)
+    add_agents(client, workspace, issue)
+    response = client.post(path(workspace, f"/{issue['id']}/comments"), headers=headers(workspace),
+        json={'content': '@agent-alpha see the clip', 'source': 'human:alice', 'file_ids': ['clip']})
+    assert response.status_code == 200, response.text
+    assert response.json()['data']['channel_name']
+    attachments = cloud_dispatch.call_args.args[1]['payload']['attachments']
+    assert [a['file_id'] for a in attachments] == ['clip']
+
+
+# ── Deleting an issue ────────────────────────────────────────────────────────
+
+def _delete(client, ws, issue, auth):
+    return client.delete(path(ws, f"/{issue['id']}"), headers=auth)
+
+
+def test_creator_deletes_issue_with_its_work_thread_only(client, workspace, db, two_members):
+    from app.models import ApprovalRequest, IssueComment, IssueThread, KanbanTask, NotificationRecord
+    issue = create(client, workspace, source='human:ann@acme.test')
+    work = request_work(client, workspace, issue).json()['data']['channel_name']
+    linked = workspace['channel']['name']
+    assert client.post(path(workspace, f"/{issue['id']}/links"), headers=headers(workspace),
+                       json={'channel_name': linked}).status_code == 200
+    db.add_all([
+        KanbanTask(id='card', workspace_id=workspace['id'], issue_id=issue['id'], title='Card', created_by='human:ann@acme.test'),
+        NotificationRecord(id='signal', workspace_id=workspace['id'], created_by='human:ann@acme.test', title='t', message='m',
+                           channel_name=f"issue:{issue['id']}", recipient_email='ben@acme.test', kind='issue'),
+        NotificationRecord(id='done', workspace_id=workspace['id'], created_by='openagents:agent-alpha', title='t', message='m',
+                           channel_name=work, recipient_email='ann@acme.test', kind='issue_completed',
+                           action_ref=f"evt:{issue['id']}"),
+        ApprovalRequest(id='ask', workspace_id=workspace['id'], channel_name=work, kind='issue_agent_request',
+                        action='Use agent-alpha', requested_by='human:ben@acme.test', status='pending'),
+    ])
+    db.commit()
+
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ann')).json()['data']['can_delete'] is True
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ben')).json()['data']['can_delete'] is False
+    # The list carries the same answer, so cards can offer Delete.
+    for auth, allowed in ((_bearer('ann'), True), (_bearer('ben'), False), (headers(workspace), False)):
+        assert [i['can_delete'] for i in client.get(path(workspace), headers=auth).json()['data']['issues']] == [allowed]
+    # Attribution and the workspace token are not proof of who opened the issue.
+    assert _delete(client, workspace, issue, _bearer('ben')).status_code == 403
+    assert _delete(client, workspace, issue, headers(workspace)).status_code == 403
+    assert detail(client, workspace, issue)['id'] == issue['id']
+
+    response = _delete(client, workspace, issue, _bearer('ann'))
+    assert response.status_code == 200, response.text
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=headers(workspace)).status_code == 404
+    assert _delete(client, workspace, issue, _bearer('ann')).status_code == 404
+    db.expire_all()
+    status = {c.name: c.status for c in db.scalars(select(Channel).where(Channel.name.in_([work, linked])))}
+    assert status == {work: 'deleted', linked: 'active'}
+    assert db.get(KanbanTask, 'card').issue_id is None
+    assert not db.scalars(select(IssueComment).where(IssueComment.issue_id == issue['id'])).all()
+    assert not db.scalars(select(IssueThread).where(IssueThread.issue_id == issue['id'])).all()
+    assert db.get(NotificationRecord, 'signal').status == 'dismissed'
+    assert db.get(NotificationRecord, 'done').status == 'dismissed'
+    assert db.get(ApprovalRequest, 'ask').status == 'expired'
+
+
+def test_admin_deletes_any_issue_and_shared_work_thread_survives(client, workspace, db, two_members):
+    from app.models import User, WorkspaceMembership
+    issue = create(client, workspace, source='human:ann@acme.test')
+    other = create(client, workspace, title='Follow-up', source='human:ann@acme.test')
+    work = request_work(client, workspace, issue).json()['data']['channel_name']
+    assert client.post(path(workspace, f"/{other['id']}/links"), headers=headers(workspace),
+                       json={'channel_name': work}).status_code == 200
+    ben = db.scalar(select(User).where(User.email == 'ben@acme.test'))
+    db.scalar(select(WorkspaceMembership).where(WorkspaceMembership.user_id == ben.id)).role = 'admin'
+    db.commit()
+    assert client.get(path(workspace, f"/{issue['id']}"), headers=_bearer('ben')).json()['data']['can_delete'] is True
+    assert _delete(client, workspace, issue, _bearer('ben')).status_code == 200
+    db.expire_all()
+    assert db.scalar(select(Channel).where(Channel.name == work)).status == 'active'
+    assert [t['channel_name'] for t in detail(client, workspace, other)['threads']] == [work]

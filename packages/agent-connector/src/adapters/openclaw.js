@@ -100,6 +100,9 @@ function needsDoctorMigration(message) {
   return /requires[^\n]*\bmigration\b/i.test(text) && /openclaw doctor --fix/i.test(text);
 }
 
+/** OpenClaw's refusal to run embedded while a Gateway owns the state. */
+const GATEWAY_RUNNING = /A Gateway is running for this state directory/i;
+
 /** Budget for one `openclaw doctor --fix` run. */
 const DOCTOR_REPAIR_TIMEOUT_MS = 120000;
 
@@ -383,7 +386,7 @@ class OpenClawAdapter extends BaseAdapter {
    */
   async _runCliAgentWithMigration(userMessage, channel) {
     try {
-      return await this._runCliAgent(userMessage, channel);
+      return await this._runCliTurn(userMessage, channel);
     } catch (e) {
       // At most one repair per turn; a repair that failed is not retried on
       // every later message.
@@ -396,7 +399,23 @@ class OpenClawAdapter extends BaseAdapter {
         this._doctorRepairFailed = true;
         throw e;
       }
-      return this._runCliAgent(userMessage, channel);
+      return this._runCliTurn(userMessage, channel);
+    }
+  }
+
+  /**
+   * One turn, embedded (`--local`) by default. OpenClaw refuses an embedded
+   * run while the user's own Gateway serves the same state directory — "A
+   * Gateway is running for this state directory … Run without --local to use
+   * it" — and every message failed that way. Hand the turn to that Gateway.
+   */
+  async _runCliTurn(userMessage, channel) {
+    try {
+      return await this._runCliAgent(userMessage, channel);
+    } catch (e) {
+      if (!GATEWAY_RUNNING.test((e && e.message) || '')) throw e;
+      this._log('A Gateway is running for this OpenClaw state — retrying the turn through it');
+      return this._runCliAgent(userMessage, channel, { local: false });
     }
   }
 
@@ -471,7 +490,7 @@ class OpenClawAdapter extends BaseAdapter {
     return { spawnBin: binary, spawnArgs: args };
   }
 
-  _runCliAgent(userMessage, channel) {
+  _runCliAgent(userMessage, channel, { local = true } = {}) {
     return new Promise((resolve, reject) => {
       // Stopped while this turn was being prepared: start nothing (no tokens).
       if (this._stoppedBeforeStart(channel)) {
@@ -496,7 +515,7 @@ class OpenClawAdapter extends BaseAdapter {
 
       const args = [
         '--log-level', 'trace',
-        'agent', '--local',
+        'agent', ...(local ? ['--local'] : []),
         '--agent', this.openclawAgentId,
         '--session-id', sessionKey,
         '--message', userMessage,
@@ -692,10 +711,19 @@ class OpenClawAdapter extends BaseAdapter {
     const text = String(stderr || '');
     const start = text.search(/\{\s*"payloads"/);
     if (start < 0) return text;
-    // Braces inside JSON strings (the reply text) are not structure: skip
-    // string contents, honoring backslash escapes.
+    const end = OpenClawAdapter._jsonObjectEnd(text, start);
+    return text.slice(0, start) + (end < 0 ? '' : text.slice(end));
+  }
+
+  /**
+   * Index just past the `}` that closes the JSON object opening at `start`,
+   * or -1 if it never closes. Braces inside JSON strings are not structure: a
+   * reply that quotes the end of a code block, or a lone "}", once cut the
+   * envelope short, and the whole reply was dropped as "No response
+   * generated". String contents are skipped, honoring backslash escapes.
+   */
+  static _jsonObjectEnd(text, start) {
     let depth = 0;
-    let end = text.length;
     let inString = false;
     for (let i = start; i < text.length; i++) {
       const ch = text[i];
@@ -704,9 +732,9 @@ class OpenClawAdapter extends BaseAdapter {
         else if (ch === '"') inString = false;
       } else if (ch === '"') inString = true;
       else if (ch === '{') depth++;
-      else if (ch === '}' && --depth === 0) { end = i + 1; break; }
+      else if (ch === '}' && --depth === 0) return i + 1;
     }
-    return text.slice(0, start) + text.slice(end);
+    return -1;
   }
 
   /**
@@ -735,20 +763,16 @@ class OpenClawAdapter extends BaseAdapter {
     // Find the JSON by looking for '{"payloads"' or the last complete JSON object.
     let jsonStr = null;
 
-    // Strategy 1: find {"payloads" or { "payloads" (with whitespace)
-    let payloadsIdx = text.indexOf('{"payloads"');
-    if (payloadsIdx < 0) {
-      // Try with whitespace after {
-      const match = text.match(/\{\s*"payloads"/);
-      if (match) payloadsIdx = match.index;
-    }
-    if (payloadsIdx >= 0) {
-      // Find the matching closing brace by counting braces
-      let depth = 0;
-      for (let i = payloadsIdx; i < text.length; i++) {
-        if (text[i] === '{') depth++;
-        else if (text[i] === '}') { depth--; if (depth === 0) { jsonStr = text.slice(payloadsIdx, i + 1); break; } }
-      }
+    // Strategy 1: each {"payloads" or { "payloads" (with whitespace), up to
+    // the brace that closes it. The first one that parses is the envelope; one
+    // that does not (a trace line quoting a cut-off envelope) is skipped.
+    for (const match of text.matchAll(/\{\s*"payloads"/g)) {
+      const end = OpenClawAdapter._jsonObjectEnd(text, match.index);
+      if (end < 0) continue;
+      const candidate = text.slice(match.index, end);
+      try { JSON.parse(candidate); } catch { continue; }
+      jsonStr = candidate;
+      break;
     }
 
     // Strategy 2: find last '{' that starts a valid JSON with "payloads"

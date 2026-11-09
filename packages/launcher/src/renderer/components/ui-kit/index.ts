@@ -28,3 +28,6 @@ export { PageToolbar } from "./page-toolbar"
 
 export { EmptyState } from "./empty-state"
 export type { EmptyStateAction, EmptyStateProps } from "./empty-state"
+
+export { StatusBadge } from "./status-badge"
+export type { StatusBadgeTone } from "./status-badge"

@@ -79,15 +79,6 @@
       "copied": "Copied",
       "close": "Close"
     },
-    "columns": {
-      "agent": "Agent",
-      "provider": "Type / model",
-      "auth": "Auth",
-      "workspace": "Workspace",
-      "status": "Status",
-      "lastActive": "Last active",
-      "actions": "Actions"
-    },
     "more": "More actions",
     "totalCount": "{{count}} total",
     "perPage": "Per page",
@@ -96,13 +87,22 @@
     "nextPage": "Next page",
     "addHint": "Add another agent instance",
     "readiness": "Setup",
+    "columns": {
+      "agent": "Agent",
+      "workspace": "Workspace",
+      "model": "Model",
+      "status": "Status",
+      "actions": "Actions"
+    },
     "emptyNoFilterMatch": "Every agent you have is in another state right now.",
     "workspaceLine": "Workspace · {{name}}",
     "emptyTitle": "No agents yet",
     "emptyNoMatchTitle": "Nothing matches that search",
     "emptyNoFilterMatchTitle": "Nothing matches this filter",
     "rename": "Rename",
-    "theWorkspace": "the workspace"
+    "theWorkspace": "the workspace",
+    "defaultModel": "Default model",
+    "noWorkspace": "Not joined"
   },
   "newDialog": {
     "title": "New Agent",
@@ -209,6 +209,7 @@
   },
   "detail": {
     "back": "Back to Agent Marketplace",
+    "backToSetup": "Back to setup",
     "uninstallTitle": "Uninstall {{name}}?",
     "uninstallBody": "This will remove <1>{{name}}</1> from your system. Configured agents of this type may stop working.",
     "alsoRemoveEnv": "Also remove saved environment variables",
@@ -379,6 +380,7 @@
     "installAndSignIn": "Install and sign in",
     "agentUnavailable": "This agent is no longer available. Return to the agent list.",
     "folderHint": "Defaults to your home folder. Choose a project folder for this agent’s work.",
+    "workdirOptional": "Working directory (optional)",
     "homeFolder": "Your home folder",
     "recommended": {
       "label": "Recommended agents",
@@ -391,10 +393,16 @@
     },
     "aside": {
       "title": "Details",
-      "type": "Type",
       "device": "Runs on",
       "workspace": "Workspace",
-      "pickLater": "Choose after adding"
+      "pickLater": "Choose after adding",
+      "about": "About this type",
+      "version": "Version",
+      "notInstalled": "Not installed — installs when added",
+      "installed": "Installed",
+      "links": "Links",
+      "homepage": "Homepage",
+      "manage": "Versions & uninstall"
     }
   },
   "renameDialog": {
@@ -415,7 +423,9 @@
       "claudeOauth": "A subscription token is verified by Claude itself on first use — there’s no endpoint to test it against here. Save it and send a message in the workspace to confirm.",
       "aider": "Aider injects your key into the provider chosen by AIDER_PROVIDER (or the model name) and verifies it on its first run — there’s no single endpoint to test here. Set AIDER_PROVIDER (and LLM_BASE_URL for a relay) to have it checked, or save and send a message in the workspace to confirm.",
       "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
-      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify."
+      "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify.",
+      "qoder": "Qoder checks a personal access token against its own service when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify, or sign in with `qodercli login` (`qoderclicn login` for the China edition) instead.",
+      "kiro": "Kiro checks its API key against its own service when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify, or sign in with `kiro-cli login` instead."
     },
     "unprobeableTitle": "This agent isn’t tested here",
     "endpointMismatch": {
@@ -426,7 +436,9 @@
       "cline": "Cline’s providers and their endpoints are set up by `cline auth`, so there is no endpoint field here. The provider above only picks among the ones already configured.",
       "cursor": "Cursor authenticates against its own service and takes no custom endpoint, so there is no such field here.",
       "copilot": "Copilot uses your GitHub account and GitHub decides the endpoint, so there is no endpoint field here.",
-      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use."
+      "codearts": "CodeArts Agent runs on Huawei Cloud’s own model service, so there is no endpoint field here. Name the model as provider/model above — `codearts models` lists the ones your account can use.",
+      "qoder": "Qoder runs on the models of your Qoder account and takes no custom endpoint, so there is no such field here. Other providers’ API keys don’t work with it; `qodercli --list-models` lists the models your account can use.",
+      "kiro": "Kiro runs on the models of your Kiro account and takes no custom endpoint, so there is no such field here. Other providers’ API keys don’t work with it; `kiro-cli chat --list-models` lists the models your account can use."
     }
   }
 }

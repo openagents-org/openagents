@@ -2,13 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Hash, PanelLeft } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Hash } from "lucide-react"
 import { useWorkspace } from "@/lib/workspace-context"
 import { addressName, dmCounterpart, dmPair, myAddress } from "@/lib/dm"
 import { useHumanNames } from "@/hooks/use-team-roster"
@@ -18,7 +12,9 @@ import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { DmAvatars } from "@/components/chat/dm-avatars"
 import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
+import { ForkTag } from "@/components/chat/fork-thread"
 import { useLayout, type ViewMode } from "./layout-context"
+import { ListToggleButton } from "./list-collapse-button"
 
 const ACTIONS_SLOT_ID = "app-header-actions"
 const TITLE_SLOT_ID = "app-header-title"
@@ -129,7 +125,6 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   knowledge: "views.knowledge",
   browser: "views.browser",
   issues: "views.issues",
-  tasks: "views.issues",
   workflows: "views.workflows",
   routines: "views.routines",
   inbox: "views.inbox",
@@ -218,6 +213,7 @@ function ThreadTitle() {
       >
         {session?.title || t("header.untitledThread")}
       </h3>
+      {session?.forkedFrom && <ForkTag forkedFrom={session.forkedFrom} />}
       {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
     </div>
   )
@@ -228,7 +224,7 @@ function ThreadTitle() {
  * title, and a toolbar that the active view fills via {@link AppHeaderActions}.
  */
 export function AppHeader() {
-  const { viewMode, isSidebarOpen, setSidebarOpen, hasListPanel } = useLayout()
+  const { viewMode, isSidebarOpen, hasListPanel } = useLayout()
   const t = useT()
   const {
     files,
@@ -292,23 +288,7 @@ export function AppHeader() {
       )}
     >
       {/* Bring the list back when it has been collapsed away */}
-      {hasListPanel && !isSidebarOpen && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              mode="icon"
-              size="sm"
-              aria-label={t("nav.showList")}
-              onClick={() => setSidebarOpen(true)}
-              className="shrink-0 text-muted-foreground"
-            >
-              <PanelLeft className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("nav.showList")}</TooltipContent>
-        </Tooltip>
-      )}
+      {hasListPanel && !isSidebarOpen && <ListToggleButton />}
 
       {/* Title slot. The derived title is a fallback: once a view portals its
           own title in, the fallback is no longer the only child and hides. */}

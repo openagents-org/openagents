@@ -25,6 +25,10 @@ def _generation_key(workspace_id):
     return 'v1events:head-generation:' + str(workspace_id)
 
 
+def _dm_generation_key(workspace_id):
+    return 'v1events:dm-generation:' + str(workspace_id)
+
+
 def poll_generation(workspace_id):
     """Current event-write generation of *workspace_id* (changes on every
     committed event write). Poll caches fold it into their keys so a page
@@ -32,11 +36,38 @@ def poll_generation(workspace_id):
     return (cache.get_bytes(_generation_key(workspace_id)) or b'0').hex()
 
 
+DM_GENERATION_TTL_SECONDS = 7 * 24 * 3600
+
+
+def dm_generation(workspace_id):
+    """Like poll_generation, but changes only on writes that can alter direct
+    message history, so DM summaries survive a busy workspace's channel traffic.
+
+    A missing key (never written, expired or evicted) gets a fresh random value
+    instead of a fixed default, so an entry cached under an older generation can
+    never become current again; callers may cache for longer than this TTL.
+    """
+    key = _dm_generation_key(workspace_id)
+    value = cache.get_bytes(key)
+    if value is None:
+        value = uuid.uuid4().hex.encode()
+        cache.set_bytes(key, value, DM_GENERATION_TTL_SECONDS)
+    return value.hex()
+
+
+def _may_change_dms(row, is_new):
+    # Edits and deletes are rare; treat any of them as a possible DM change
+    # rather than reasoning about which attributes moved.
+    return not is_new or (row.visibility == 'direct' and row.type == 'workspace.message.posted')
+
+
 @event.listens_for(Session, 'before_flush')
 def _remember_event_writes(session, flush_context, instances):
     for row in session.new.union(session.dirty).union(session.deleted):
         if isinstance(row, EventRecord):
             session.info.setdefault('poll_head_workspaces', set()).add(str(row.network_id))
+            if _may_change_dms(row, row in session.new):
+                session.info.setdefault('dm_workspaces', set()).add(str(row.network_id))
 
 
 @event.listens_for(Session, 'after_commit')
@@ -48,12 +79,15 @@ def _invalidate_committed_heads(session):
         # repopulating the current cache with an obsolete head. All ORM event
         # writers are covered, including those publishing before commit.
         cache.set_bytes(_generation_key(workspace_id), uuid.uuid4().hex.encode(), 60)
+    for workspace_id in session.info.pop('dm_workspaces', set()):
+        cache.set_bytes(_dm_generation_key(workspace_id), uuid.uuid4().hex.encode(), DM_GENERATION_TTL_SECONDS)
 
 
 @event.listens_for(Session, 'after_rollback')
 def _discard_rolled_back_heads(session):
     if not session.in_nested_transaction():
         session.info.pop('poll_head_workspaces', None)
+        session.info.pop('dm_workspaces', None)
 
 
 def stream_head(db, workspace_id, prefix, channel=None, target=None):

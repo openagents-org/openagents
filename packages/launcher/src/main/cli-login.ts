@@ -4,6 +4,8 @@ import {
   BROWSER_CLAIMED,
   CODE_PROMPT,
   findAuthUrl,
+  LAUNCHER_OPENS_LOGIN_URL,
+  LOGIN_EXIT_ZERO_UNPROVEN,
   LOGIN_FAILURE,
   LOGIN_SUCCESS,
   loginArgs,
@@ -99,6 +101,10 @@ class LoginSession {
   private buffer = ""
   private url: string | null = null
   private answeredPrompt = false
+  // The CLI printed its success line. Some exit 0 without one when they failed.
+  private successSeen = false
+  // Resolves once the CLI's stdout has been read to the end.
+  private outputDrained: Promise<void> = Promise.resolve()
   private settled = false
   // A terminal was already handed to this session. The fallback has several
   // independent triggers (spawn error, instant exit, no output, the user's own
@@ -195,12 +201,20 @@ class LoginSession {
         COLUMNS: "400",
         NO_COLOR: "1",
         FORCE_COLOR: "0",
+        ...LAUNCHER_OPENS_LOGIN_URL[this.type],
       }),
       windowsHide: true,
       shell,
     })
     this.child = child
     this.startedAt = Date.now()
+    const out = child.stdout
+    this.outputDrained = out
+      ? new Promise<void>((resolve) => {
+          out.once("end", () => resolve())
+          out.once("close", () => resolve())
+        })
+      : Promise.resolve()
     child.stdout?.on("data", (d: Buffer) => this.onOutput(String(d)))
     child.stderr?.on("data", (d: Buffer) => this.onOutput(String(d)))
     child.on("error", (e: Error) =>
@@ -233,7 +247,11 @@ class LoginSession {
         // Only open it ourselves when the CLI didn't already — claude and
         // cursor-agent both open one, and two tabs of the same PKCE flow is a
         // worse first impression than one.
-        if (!BROWSER_CLAIMED.test(this.buffer)) this.deps.openExternal(url)
+        if (
+          LAUNCHER_OPENS_LOGIN_URL[this.type] ||
+          !BROWSER_CLAIMED.test(this.buffer)
+        )
+          this.deps.openExternal(url)
         this.emit("browser")
       }
     }
@@ -245,6 +263,7 @@ class LoginSession {
       return
     }
     if (LOGIN_SUCCESS.test(text)) {
+      this.successSeen = true
       void this.finish()
       return
     }
@@ -265,6 +284,17 @@ class LoginSession {
       )
       return
     }
+    // A CLI that exits 0 when it failed is believed only on its success line —
+    // not on the probe, which an earlier sign-in still on disk satisfies just
+    // the same. `exit` can come before the last of stdout, so the verdict waits
+    // for it to drain.
+    if (LOGIN_EXIT_ZERO_UNPROVEN.has(this.type)) {
+      void Promise.race([this.outputDrained, delay(1_000)]).then(() => {
+        if (this.settled || this.successSeen) return
+        this.settle("failed", this.exitReason())
+      })
+      return
+    }
     if (code === 0) {
       void this.finish()
       return
@@ -277,6 +307,18 @@ class LoginSession {
           : this.settle("failed", firstLine(this.buffer)),
       )
       .catch(() => this.settle("failed", firstLine(this.buffer)))
+  }
+
+  /**
+   * What to quote when a CLI that exits 0 on failure ended without signing in:
+   * its last line, since the first is a banner and the verdict comes at the end.
+   */
+  private exitReason(): string {
+    const lines = this.buffer
+      .split("\n")
+      .map((l) => l.replace(/^[\s│┌└■●◆◇]+/, "").trim())
+      .filter((l) => l.length > 0 && !CODE_PROMPT.test(l))
+    return lines.at(-1) || ""
   }
 
   /** The user pasted the code the browser showed them. */

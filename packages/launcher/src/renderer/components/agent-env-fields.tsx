@@ -25,7 +25,7 @@ import {
 import { PasswordInput } from "@renderer/components/ui-kit"
 import { ImportCredentialsPrompt } from "@renderer/components/credential-import/import-credentials-prompt"
 import { ModelField } from "@renderer/components/model-field"
-import { envFieldHint } from "@renderer/lib/agent-meta"
+import { envFieldHint, envFieldPlaceholder } from "@renderer/lib/agent-meta"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { cn } from "@renderer/lib/utils"
 import type { EnvField, ModelListPath } from "@renderer/types"
@@ -63,6 +63,8 @@ interface Props {
   errors?: Record<string, string>
   /** Namespaces the input ids so two of these can coexist on one screen. */
   idPrefix?: string
+  /** Shares the model field's row, half each (the agent's working folder). */
+  besideModel?: React.ReactNode
   className?: string
 }
 
@@ -93,6 +95,7 @@ export function AgentEnvFields({
   focusField,
   errors,
   idPrefix = "agent-env",
+  besideModel,
   className,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -183,7 +186,7 @@ export function AgentEnvFields({
             <SelectTrigger id={id} className="w-full">
               <SelectValue
                 placeholder={
-                  f.placeholder ||
+                  envFieldPlaceholder(f, t) ||
                   t("agents.envFields.enterField", { name: f.name })
                 }
               />
@@ -202,7 +205,7 @@ export function AgentEnvFields({
             value={value}
             onChange={(e) => onChange(f.name, e.target.value)}
             placeholder={
-              f.placeholder ||
+              envFieldPlaceholder(f, t) ||
               t("agents.envFields.enterField", { name: f.name })
             }
           />
@@ -243,7 +246,11 @@ export function AgentEnvFields({
           onImport={onImport}
         />
       )}
-      {plain.map(renderField)}
+      {plain.map((f) => besideModel && agentType && hasModelPicker(agentType, f.name)
+        ? <div key={f.name} className="grid grid-cols-2 items-start gap-4">{renderField(f)}{besideModel}</div>
+        : renderField(f))}
+      {/* No model to sit beside: the folder takes its own row. */}
+      {besideModel && !plain.some((f) => agentType && hasModelPicker(agentType, f.name)) && besideModel}
 
       {/* Why this form has no endpoint field. An absence explains nothing:
           next to agents that do have one, a missing base URL reads as an

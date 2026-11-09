@@ -36,7 +36,7 @@ export function ResetSummary({
         items={affected.map((id) => t(`${prefix}.affected.${id}`))}
       />
       <Column
-        tone="text-(--success-text)"
+        tone="text-foreground"
         icon={<ShieldCheck className="size-3" />}
         title={t(`${prefix}.keptTitle`)}
         items={kept.map((id) => t(`${prefix}.kept.${id}`))}

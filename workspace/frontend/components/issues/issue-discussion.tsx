@@ -23,10 +23,12 @@ import {
   Send,
   Reply,
   ChevronDown,
+  Trash2,
 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
+import { issueSignalChannel } from '@/lib/signals';
 import { useT, useFormatters } from '@/lib/i18n';
 import type { IssueDetail, IssueReply, IssueStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -47,6 +49,9 @@ import { ApprovalCard } from '@/components/chat/approval-card';
 import { IssueEditor } from './issue-editor';
 import { IssueMentionInput } from './issue-mention-input';
 import { useIssueMentions } from './use-issue-mentions';
+import { mentionsAgent } from './issue-mentions';
+import { AttachmentPicker } from '@/components/tasks/attachment-picker';
+import { sidebarAgents } from '@/lib/sidebar-agents';
 import {
   ErrorNotice,
   StatusBadge,
@@ -58,26 +63,62 @@ import {
   statuses,
   statusKeys,
   selectClass,
+  useConfirmIssueDelete,
+  useIssueTime,
 } from './issue-ui';
+
+function EmbeddedHeader({ title, children }: { title: React.ReactNode; children?: React.ReactNode; titleInHeader?: boolean }) {
+  return <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-5">
+    <div className="min-w-0">{title}</div>
+    {children}
+  </div>;
+}
 
 export function IssueDiscussion({
   id,
   onBack,
   onChanged,
+  embedded = false,
 }: {
+  embedded?: boolean;
   id: string;
   onBack: () => void;
   onChanged: () => void;
 }) {
+  const Header = embedded ? EmbeddedHeader : DetailHeader;
   const t = useT();
+  const confirmDelete = useConfirmIssueDelete();
   const { timeAgo } = useFormatters();
-  const { currentUser, sessions, refreshAgents, workspace, agents } = useWorkspace();
+  const issueTime = useIssueTime();
+  const { currentUser, sessions, refreshAgents, workspace, agents, unreadSignals, markChannelSignalsRead } = useWorkspace();
+  const signalChannel = issueSignalChannel(id);
+  const hasUnreadMention = !!unreadSignals?.[signalChannel];
+  // Signals arriving while the tab is hidden or unfocused stay unread until the
+  // person comes back to the issue.
+  useEffect(() => {
+    if (!hasUnreadMention) return;
+    const attentive = () => document.visibilityState === 'visible' && document.hasFocus();
+    if (attentive()) {
+      markChannelSignalsRead(signalChannel);
+      return;
+    }
+    const onReturn = () => { if (attentive()) markChannelSignalsRead(signalChannel); };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [hasUnreadMention, signalChannel, markChannelSignalsRead]);
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [comment, setComment] = useState('');
   const [replyTo, setReplyTo] = useState<{ eventId: string; name: string } | null>(null);
-  useEffect(() => { setReplyTo(null); setComment(''); }, [id]);
+  const [commentFiles, setCommentFiles] = useState<string[]>([]);
+  const [commentUploading, setCommentUploading] = useState(false);
+  const [pickerKey, setPickerKey] = useState(0);
+  useEffect(() => { setReplyTo(null); setComment(''); setCommentFiles([]); setPickerKey(k => k + 1); }, [id]);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -141,6 +182,28 @@ export function IssueDiscussion({
     }
   }
 
+  async function removeIssue() {
+    if (busyRef.current || !issue) return;
+    const ok = await confirmDelete(issue.title);
+    if (!ok || busyRef.current) return;
+    busyRef.current = true;
+    // Drop any refresh in flight: it would report the issue as missing.
+    ++version.current;
+    setBusy(true);
+    setError('');
+    try {
+      await workspaceApi.deleteIssue(id);
+      busyRef.current = false;
+      if (mounted.current) onBack();
+    } catch (e) {
+      busyRef.current = false;
+      if (mounted.current) {
+        setError(errorMessage(e));
+        setBusy(false);
+      }
+    }
+  }
+
   async function submitAction(e: React.FormEvent) {
     e.preventDefault();
     await mutate(
@@ -162,7 +225,11 @@ export function IssueDiscussion({
   const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
   const activityIndicator = (names: typeof agents) => <span className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span aria-hidden="true" className="inline-flex shrink-0 items-center gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />)}</span><span className="truncate">{workingLabel(names)}</span></span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
+  // Agents the viewer may ask for work; mentioning one not yet on the issue
+  // adds it before the comment is posted.
+  const usableAgents = new Set(sidebarAgents(agents ?? [], currentUser.id).filter(a => !a.builtin).map(a => `openagents:${a.agentName}`));
   const mentions = useIssueMentions(issue);
+  const canPost = !commentUploading && (!!comment.trim() || commentFiles.length > 0);
   const agentNames = mentions
     .filter((m) => m.kind === 'agent')
     .map((m) => m.token);
@@ -212,7 +279,7 @@ export function IssueDiscussion({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <DetailHeader
+      <Header
         titleInHeader
         title={
           <div className="flex min-w-0 items-center gap-2 text-xs">
@@ -231,7 +298,7 @@ export function IssueDiscussion({
         }
       >
         <Button
-          className="lg:hidden"
+          className={cn(!embedded && 'lg:hidden')}
           variant="ghost"
           size="sm"
           aria-expanded={detailsOpen}
@@ -240,7 +307,7 @@ export function IssueDiscussion({
           <PanelRight />
           {t('issues.details')}
         </Button>
-      </DetailHeader>
+      </Header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {(error || loadError) && (
           <div className="mx-auto max-w-6xl px-5 pt-5 sm:px-8">
@@ -261,8 +328,8 @@ export function IssueDiscussion({
             </div>
           )
         ) : (
-          <div className="mx-auto grid min-h-full max-w-[1200px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_264px]">
-            <main className="min-w-0 px-5 pb-12 pt-7 sm:px-9 sm:pt-9 lg:px-10">
+          <div className={cn('mx-auto grid min-h-full max-w-[1200px] grid-cols-1', !embedded && 'lg:grid-cols-[minmax(0,1fr)_264px]')}>
+            <main className={cn('min-w-0 px-5 pb-12 pt-7', !embedded && 'sm:px-9 sm:pt-9 lg:px-10')}>
               <header className="mb-8">
                 <div className="mb-3 flex items-center gap-2">
                   <StatusBadge status={issue.status} />
@@ -286,8 +353,8 @@ export function IssueDiscussion({
                   <span aria-hidden className="text-muted-foreground/40">
                     ·
                   </span>
-                  <time dateTime={issue.created_at}>
-                    {timeAgo(issue.created_at)}
+                  <time dateTime={issue.created_at} title={issueTime.exact(issue.created_at)}>
+                    {issueTime.label(issue.created_at)}
                   </time>
                 </div>
                 {/* Under the title, where the eye already is — tucked in the
@@ -326,6 +393,18 @@ export function IssueDiscussion({
                     <Pencil className="size-4" />
                     {t('common.edit')}
                   </Button>
+                  {issue.can_delete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={removeIssue}
+                    >
+                      <Trash2 className="size-4" />
+                      {t('common.delete')}
+                    </Button>
+                  )}
                 </div>
               </header>
               {/* Issue text is typed in a plain textarea, where Enter means a new
@@ -441,13 +520,16 @@ export function IssueDiscussion({
                             </time>
                           </div>
                           <div className="text-[13px] leading-6 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line">
-                            <MarkdownContent
+                            {c.content && <MarkdownContent
                               content={c.content}
                               agentNames={agentNames}
                               agentLabels={agentLabels}
                               humanNames={humanNames}
-                            />
+                            />}
                           </div>
+                          {!!c.attachments?.length && <div className="mt-2">
+                            <IssueAttachments files={c.attachments} workspaceId={workspace?.slug || workspace?.workspaceId || ''} />
+                          </div>}
                           {c.kind === 'result' && c.source_event_id && c.reply_channel_name && (
                             <Button type="button" variant="ghost" size="sm" className="mt-2 h-7 gap-1.5 px-2 text-xs text-muted-foreground"
                               disabled={busy || issue.status === 'closed'}
@@ -476,20 +558,28 @@ export function IssueDiscussion({
                     if (e.target instanceof HTMLTextAreaElement && e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
                       e.preventDefault();
                       e.stopPropagation();
-                      if (!busyRef.current && comment.trim()) e.currentTarget.requestSubmit();
+                      if (!busyRef.current && canPost) e.currentTarget.requestSubmit();
                     }
                   }}
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (busyRef.current || !comment.trim()) return;
+                    if (busyRef.current || !canPost) return;
+                    const invite = [...usableAgents].filter(source => !people.has(source))
+                      .map(source => source.slice('openagents:'.length))
+                      .filter(name => mentionsAgent(comment, name));
                     void mutate(
-                      () =>
-                        workspaceApi.commentOnIssue(id, {
+                      async () => {
+                        // Adding participants is idempotent, so a failed post can be retried.
+                        if (invite.length) await workspaceApi.addIssueParticipants(id, invite.map(name => ({ kind: 'agent' as const, id: name })));
+                        const result = await workspaceApi.commentOnIssue(id, {
                           content: comment,
+                          ...(commentFiles.length ? { file_ids: commentFiles } : {}),
                           ...(replyTo ? { reply_to_event_id: replyTo.eventId } : {}),
                           ...identity,
-                        }).then((result) => { if (result.dispatch_error) setError(result.dispatch_error); }),
-                      () => { setComment(''); setReplyTo(null); },
+                        });
+                        if (result.dispatch_error) setError(result.dispatch_error);
+                      },
+                      () => { setComment(''); setReplyTo(null); setCommentFiles([]); setPickerKey(k => k + 1); },
                     );
                   }}
                 >
@@ -508,7 +598,7 @@ export function IssueDiscussion({
                       {t('issues.addComment')}
                     </label>
                     <IssueMentionInput
-                      mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source))}
+                      mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source) || usableAgents.has(m.source))}
                       readOnly={busy}
                       id={`issue-comment-${id}`}
                       className="min-h-24 resize-y rounded-none border-0 px-4 py-3 text-[13px] shadow-none focus-visible:ring-0"
@@ -517,6 +607,10 @@ export function IssueDiscussion({
                       onValueChange={setComment}
                       placeholder={t('issues.commentPlaceholder')}
                     />
+                    <div className="px-3 pb-2">
+                      <AttachmentPicker key={pickerKey} compact value={commentFiles} onChange={setCommentFiles}
+                        disabled={busy} onUploadingChange={setCommentUploading} />
+                    </div>
                     <div className="flex items-center justify-between gap-3 px-3 pb-3">
                       <p className="max-w-[52ch] flex-1 pl-1 text-[11px] leading-4 text-muted-foreground">
                         {t('issues.commentHint')}
@@ -528,9 +622,9 @@ export function IssueDiscussion({
                         className="shrink-0"
                         title={t('issues.commentShortcut')}
                         aria-keyshortcuts="Meta+Enter Control+Enter"
-                        disabled={busy || !comment.trim()}
+                        disabled={busy || !canPost}
                       >
-                        {t('issues.postComment')}
+                        {t(commentUploading ? 'tasks.attachUploading' : 'issues.postComment')}
                         <Send className="size-3" />
                       </Button>
                     </div>
@@ -540,7 +634,8 @@ export function IssueDiscussion({
             </main>
             <aside
               className={cn(
-                'order-first border-b border-border/60 bg-muted/10 px-5 py-7 sm:px-8 lg:order-last lg:block lg:border-b-0 lg:border-l lg:px-6 lg:py-9',
+                'order-first border-b border-border/60 bg-muted/10 px-5 py-7',
+                !embedded && 'sm:px-8 lg:order-last lg:block lg:border-b-0 lg:border-l lg:px-6 lg:py-9',
                 !detailsOpen && 'hidden',
               )}
               aria-label={t('issues.details')}

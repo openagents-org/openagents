@@ -11,7 +11,8 @@ const { spawn } = require('./wsl');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
 const { listEndpointModels } = require('./model-list');
-const { supportsCliModels } = require('./cli-models');
+const { supportsCliModels, cliModelsWithKey } = require('./cli-models');
+const { agnLoginCommand, loginCommandOf } = require('./agent-login');
 const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
@@ -21,9 +22,10 @@ const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 
-/** Types whose endpoint is one device-wide config file of their own. OpenClaw
- *  left it: each keyed agent gets a private store (adapters/openclaw.js). */
-const SHARED_NATIVE_CONFIG = new Set(['hermes']);
+/** Types whose endpoint is one device-wide config file of their own. None
+ *  left: OpenClaw gives each keyed agent a private store (adapters/openclaw.js)
+ *  and Hermes a provider of its own in its config.yaml (adapters/hermes.js). */
+const SHARED_NATIVE_CONFIG = new Set();
 
 // A signed-in agent's model list is asked for again after this long. What a
 // CLI is offered changes when the CLI is upgraded (a vendor holds new models
@@ -38,6 +40,14 @@ const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
 // stopped. A few rather than one per type: each child loads the whole core.
 const RUNTIME_DETECT_GROUPS = 4;
 const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
+// Probe results that mean the setup was never finished (no key, no sign-in,
+// not installed). Time alone does not change them, and re-running them every
+// hour re-reported the same failure all day; they are swept daily, and again
+// as soon as detection sees the type installed or signed in.
+const SETUP_INCOMPLETE = new Set(['not_ready', 'not_logged_in', 'missing_api_key', 'not_installed', 'install_failed', 'install_incomplete']);
+const SETUP_INCOMPLETE_MAX_AGE_MS = 24 * 3600 * 1000;
+// Probe results a runtime reinstall fixes: tested again as soon as one succeeds.
+const REPROBE_AFTER_REPAIR = new Set(['version_incompatible', 'install_incomplete']);
 
 /**
  * Mask an API key for display (same shape the workspace backend uses for
@@ -170,6 +180,7 @@ class Daemon {
     this._cliModelsStartupTimer = null;
     this._cliModelsInterval = null;
     this._reloadInFlight = null;  // serialize concurrent _reload() calls
+    this._runtimeRepairs = new Map(); // agent type → in-flight reinstall of its supported version
   }
 
   // ── Agent smoke tests (probes) ─────────────────────────────────────────
@@ -215,9 +226,19 @@ class Daemon {
     try {
       // By agent name, not type: the probe runs on this agent's own env, so a
       // signed-in agent is tested on its sign-in, not the type's saved key.
-      const r = await this._runAgn(['probe', name, '--json']);
       let parsed = null;
-      try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+      let r;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        r = await this._runAgn(['probe', name, '--json']);
+        parsed = null;
+        try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+        // The child found no agent of that name while this daemon has one: it
+        // read daemon.yaml mid-save (Windows). Ask once more instead of
+        // keeping "No agent named '<name>' on this device" for an hour.
+        const unseen = parsed && parsed.code === 'unknown_type' && this.config.getAgent(name);
+        if (!unseen || attempt > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       if (!parsed || typeof parsed !== 'object') {
         // The probe process itself died before it could answer — a fault on
         // this device's OpenAgents install, not in the agent.
@@ -243,6 +264,47 @@ class Daemon {
     } finally {
       this._probeInFlight.delete(name);
     }
+  }
+
+  /**
+   * A sign-in done in a terminal, or an install, changes no agent config, so
+   * nothing re-probes on its own and the daily sweep is far off. Re-probe the
+   * unfinished agents of a type as soon as detection sees it become installed
+   * or signed in.
+   */
+  _probeNewlyReady(previous) {
+    const became = new Set((this._runtimes || []).filter((rt) => {
+      const before = previous.get(rt.type);
+      return before && ((rt.installed && !before.installed) || (rt.ready && !before.ready));
+    }).map((rt) => rt.type));
+    if (!became.size) return;
+    const due = this.config.getAgents().filter((a) => became.has(a.type)
+      && this._probes[a.name] && SETUP_INCOMPLETE.has(this._probes[a.name].code));
+    if (!due.length) return;
+    (async () => {
+      for (const a of due) {
+        try { await this._probeAgent(a.name); } catch {}
+      }
+      this._nodeHeartbeat();
+    })();
+  }
+
+  /**
+   * The connection test of an agent whose runtime was the wrong version ran
+   * before the repair (or at creation, while it was under way) and said
+   * "<version> is not supported"; nothing tested it again until the hourly
+   * sweep, so the device card kept that error for an agent that now worked.
+   */
+  _reprobeAfterRepair(agentType) {
+    const due = this.config.getAgents().filter((a) => (a.type || 'openclaw') === agentType
+      && this._probes[a.name] && REPROBE_AFTER_REPAIR.has(this._probes[a.name].code));
+    if (!due.length) return;
+    (async () => {
+      for (const a of due) {
+        try { await this._probeAgent(a.name); } catch {}
+      }
+      this._nodeHeartbeat();
+    })();
   }
 
   /** Report a runtime install that failed while creating `name`, as its probe result. */
@@ -273,7 +335,8 @@ class Daemon {
     for (const a of this.config.getAgents()) {
       const last = this._probes[a.name];
       const age = last && last.at ? Date.now() - Date.parse(last.at) : Infinity;
-      if (age < maxAgeMs) continue;
+      const limit = last && SETUP_INCOMPLETE.has(last.code) ? Math.max(maxAgeMs, SETUP_INCOMPLETE_MAX_AGE_MS) : maxAgeMs;
+      if (age < limit) continue;
       try { await this._probeAgent(a.name); } catch {}
     }
     this._nodeHeartbeat();
@@ -293,6 +356,8 @@ class Daemon {
    */
   _onCliSignIn(a) {
     if (!supportsCliModels(a.type)) return false;
+    // A Qoder token IS the account: the CLI lists the same models either way.
+    if (cliModelsWithKey(a.type)) return true;
     const endpoint = this._agentEndpoint(a);
     return !endpoint.baseUrl && !endpoint.apiKey;
   }
@@ -446,12 +511,21 @@ class Daemon {
    * its sign-in's models carries that list, for the add form's model picker.
    * Null until the CLI has answered, and from devices too old to ask, where
    * the form keeps the catalog's list.
+   *
+   * A type with a sign-in of its own also carries `loginCommand`, the command
+   * to run on this device (`agn login codex`). Its presence is how the
+   * workspace knows this device has `agn login`; for an older device it shows
+   * the CLI's own login command instead.
    */
   _heartbeatRuntimes() {
     return (this._runtimes || []).map((rt) => {
-      if (!rt || !rt.installed || !supportsCliModels(rt.type)) return rt;
+      if (!rt) return rt;
+      // Whatever `agn login` can sign in, which is wider than _hasCliSignIn:
+      // OpenCode signs in without the registry marking it a sign-in agent.
+      const out = this._agnLoginFor(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
+      if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
-      return { ...rt, cliModels: (listed && listed.models) || null };
+      return { ...out, cliModels: (listed && listed.models) || null };
     });
   }
 
@@ -708,14 +782,30 @@ class Daemon {
    * set up in the launcher onto another one's key, endpoint and model: add a
    * second DeepSeek or CodeArts agent from the workspace, and the first one
    * ran on the new one's settings from its next restart.
-   * Hermes keeps sharing: its endpoint lives in one config file of its own
-   * for the whole device, which only a save to <type>.env updates (index.js
-   * _configureNativeAuth), so a key kept on the agent would never reach it.
-   * OpenClaw writes each keyed agent's private openclaw.json from the agent's
-   * own env when it starts, so it keeps its key on the agent like the rest.
+   * OpenClaw writes each keyed agent's private openclaw.json, and Hermes each
+   * keyed agent's own provider, from the agent's own env when it runs, so
+   * both keep their keys on the agent like the rest.
    */
   _keepsKeysPerAgent(type) {
     return !SHARED_NATIVE_CONFIG.has(type);
+  }
+
+  /**
+   * Whether `agn login <type>` has a sign-in to run for this type. Remembered
+   * per type: the heartbeat asks for every runtime every 10s, and each
+   * getEntry() re-reads and parses the bundled registry (~25ms for all types).
+   */
+  _agnLoginFor(type) {
+    if (!this._agnLoginTypes) this._agnLoginTypes = new Map();
+    if (this._agnLoginTypes.has(type)) return this._agnLoginTypes.get(type);
+    let has = false;
+    try {
+      has = !!loginCommandOf(this.registry.getEntry(type));
+    } catch {
+      return false; // not remembered: a registry that failed to load can recover
+    }
+    this._agnLoginTypes.set(type, has);
+    return has;
   }
 
   /** Whether this type's CLI has a sign-in of its own (`codex login`, …). */
@@ -963,6 +1053,7 @@ class Daemon {
     const order = types.length ? types : [...found.keys()];
     this._runtimes = order.map((type) => found.get(type) || previous.get(type)).filter(Boolean);
     this._cliModelsAfterDetection(previous);
+    this._probeNewlyReady(previous);
   }
 
   /**
@@ -1886,6 +1977,50 @@ async _runNodeCommand(n, cmd) {
     this._writeStatus();
   }
 
+  /**
+   * Put a runtime the adapter can run in place of one it refused, then ask the
+   * adapter again. Used for a pinned agent found on the wrong version (DeepSeek
+   * Harness, whose adapter accepts exactly one preview): the registry's install
+   * command already names the supported version and installs it into the
+   * managed prefix, which the adapter prefers. Doing it here instead of
+   * reporting the mismatch is what keeps a stale install — an old global copy,
+   * or one the launcher placed before the pin moved — from surfacing as an
+   * error the user has to fix by hand.
+   *
+   * One install per agent type at a time, shared by every agent of that type
+   * starting together. Returns the new preflight result, or null when the
+   * install failed and the original reason should stand.
+   */
+  async _repairRuntime(name, agentType, adapter, info, pf) {
+    this._log(`${name} preflight: ${pf.message} — installing the supported version`, 'warn');
+    info.state = 'starting';
+    info.lastError = null;
+    info.errorReason = null;
+    this._writeStatus();
+
+    let job = this._runtimeRepairs.get(agentType);
+    if (!job) {
+      const { Installer } = require('./installer');
+      const installer = new Installer(this.registry, this.config.configDir);
+      job = installer.installStreaming(agentType, () => {})
+        .then(() => true, (e) => {
+          this._log(`${agentType} reinstall failed: ${redactDiagnostic(String(e && e.message || e)).slice(0, 500)}`, 'error');
+          return false;
+        })
+        .finally(() => this._runtimeRepairs.delete(agentType));
+      this._runtimeRepairs.set(agentType, job);
+    }
+    if (!(await job)) return null;
+
+    if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
+    const next = adapter.preflight();
+    if (next && next.ok !== false) {
+      this._log(`${name}: supported ${agentType} runtime installed`);
+      this._reprobeAfterRepair(agentType);
+    }
+    return next;
+  }
+
   async _adapterLoop(name, agentCfg, info, network) {
     const { createAdapter } = require('./adapters');
     const { skillsToDisabledModules } = require('./skill-catalog');
@@ -1937,8 +2072,12 @@ async _runNodeCommand(n, cmd) {
     // no point spinning a join/poll loop that can never run the CLI. Adapters
     // that don't override preflight() always pass.
     try {
-      const pf =
+      let pf =
         typeof adapter.preflight === 'function' ? adapter.preflight() : null;
+      if (pf && pf.ok === false && pf.repairable) {
+        pf = (await this._repairRuntime(name, agentType, adapter, info, pf)) || pf;
+        if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+      }
       if (pf && pf.ok === false) {
         info.state = 'error';
         info.errorReason = pf.reason || 'runtime_missing';

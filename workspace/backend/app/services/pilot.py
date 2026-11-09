@@ -129,12 +129,8 @@ def has_conversation(db: Session, user_id: str) -> bool:
             continue
         key = (str(ws), source.split(":", 1)[1])
         if key not in type_cache:
-            type_cache[key] = db.execute(
-                select(WorkspaceMember.agent_type).where(
-                    WorkspaceMember.workspace_id == key[0], WorkspaceMember.agent_name == key[1],
-                )
-            ).scalar_one_or_none()
-        if campaign._qualifies(type_cache[key]):
+            type_cache[key] = campaign._qualifying_member_type(db, key[0], key[1])
+        if type_cache[key]:
             return True
     return False
 
@@ -165,6 +161,8 @@ def eligibility(db: Session, user: User) -> dict:
     reasons = []
     if not types:
         reasons.append("No launcher/CLI agent connected (cloud starter agents don't count).")
+    if not campaign.owned_has_device(db, user.id):
+        reasons.append("No registered device: Pilot needs the Launcher or CLI connected on a real machine (agents added only through the API don't count).")
     if not conversation:
         reasons.append("No valid reply from a launcher/CLI agent yet (needs a message from the user and a real chat reply — status lines and errors don't count).")
     n_active = len(act["activeDays"])
@@ -181,6 +179,8 @@ def eligibility(db: Session, user: User) -> dict:
         reasons.append("Email domain is blocked or disposable — no credits can be granted to this account.")
     elif campaign.ineligible_reason(user) == "uncommon_mailbox":
         reasons.append("Email is not at a common mailbox provider (CAMPAIGN_ALLOWED_EMAIL_DOMAINS) — no credits can be granted to this account.")
+    elif campaign.ineligible_reason(user) == "plus_address":
+        reasons.append("Email contains a +tag — addresses with + get no credits (ask the user to use their plain address).")
     if acct is None and campaign.mailbox_taken(db, user):
         reasons.append("Email is an alias (+tag or Gmail dots) of a mailbox that already has a credit account — one credit account per mailbox.")
 

@@ -3,9 +3,9 @@
 import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDragScroll } from './use-drag-scroll';
-import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, PencilLine, X } from 'lucide-react';
+import { ArrowUpRight, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe, Layers, ListOrdered, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AgentOwnershipBadge, AgentSharingAction, useThreadCollaboration } from './agent-message-access';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -20,15 +20,17 @@ import { projectDisplayName } from '@/lib/web-projects';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
 import type { WorkspaceMessage } from '@/lib/types';
+import { useQueuedMessages, type PendingQueueEntry } from './use-queued-messages';
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
-export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage[] }) {
+export function ThreadResources({ messages = [], queueMessages = [], pendingQueue = [] }: { messages?: WorkspaceMessage[]; queueMessages?: WorkspaceMessage[]; pendingQueue?: PendingQueueEntry[] }) {
   const t = useT();
   const collaboration = useThreadCollaboration();
   const [saving, setSaving] = useState(false);
   const [reviewAfter, setReviewAfter] = useState<string | null>(null);
   const artifactDrag = useDragScroll();
   const agentDrag = useDragScroll();
+  const queueDrag = useDragScroll();
   const { agents, files, browserTabs, currentSessionId, sessions } = useWorkspace();
   const { selectedArtifact, setSelectedAgentName } = useLayout();
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
@@ -38,15 +40,23 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
   const linkedBrowsers = threadBrowserLinks(messages, currentSessionId || '').filter(url => !resolveThreadBrowserLink(url, browserTabs, currentSessionId || '', messages));
   const artifactRow = useRef<HTMLUListElement>(null);
   const agentRow = useRef<HTMLUListElement>(null);
-  const scrollRow = (direction: number) => (active === 'agents' ? agentRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
+  const queueRow = useRef<HTMLUListElement>(null);
+  const scrollRow = (direction: number) => (active === 'agents' ? agentRow : active === 'queue' ? queueRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
   const [section, setSection] = useState('artifacts');
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
+  const { queued, cancel: cancelQueued } = useQueuedMessages(currentSessionId, queueMessages, pendingQueue);
+  // A newly queued message opens the Queue tab; it disappears once the queue drains.
+  const queuedCount = useRef(queued.length);
+  useEffect(() => {
+    if (queued.length > queuedCount.current) { setSection('queue'); setCollapsed(false); }
+    queuedCount.current = queued.length;
+  }, [queued.length]);
   const artifactCount = documents.length + browsers.length + linkedBrowsers.length;
-  if (!members.length && !artifactCount) return null;
-  const active = members.length ? section : 'artifacts';
-  const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : members.length) > 1;
+  if (!members.length && !artifactCount && !queued.length) return null;
+  const active = section === 'queue' ? (queued.length ? 'queue' : 'artifacts') : section === 'agents' && members.length ? 'agents' : 'artifacts';
+  const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : active === 'queue' ? queued.length : members.length) > 1;
   const selectedAgent = members.find(a => a.agentName === editing);
   const editable = !!selectedAgent && collaboration.canEdit(selectedAgent);
   // The backend only accepts another agent that is already in this thread as reviewer.
@@ -55,6 +65,7 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
     <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="min-w-0 gap-1.5">
       <div className="flex items-center gap-2">
         <TabsList className="h-7" aria-label={t('threadResources.title')}>
+          {queued.length > 0 && <TabsTrigger value="queue" className="gap-1.5 px-2 text-xs"><ListOrdered className="size-3.5" />{t('threadResources.queue')}<span className="tabular-nums text-muted-foreground">{queued.length}</span></TabsTrigger>}
           <TabsTrigger value="artifacts" className="gap-1.5 px-2 text-xs"><Layers className="size-3.5" />{t('artifactPanel.title')}<span className="tabular-nums text-muted-foreground">{artifactCount}</span></TabsTrigger>
           {members.length > 0 && <TabsTrigger value="agents" className="gap-1.5 px-2 text-xs"><Bot className="size-3.5" />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
         </TabsList>
@@ -65,6 +76,17 @@ export function ThreadResources({ messages = [] }: { messages?: WorkspaceMessage
         <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={`${showArrows ? '' : 'ml-auto'} rounded p-1 text-muted-foreground hover:bg-muted`}>{collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}</button>
       </div>
       {!collapsed && <>
+        <TabsContent value="queue" className="mt-0 min-w-0">
+          <ul {...queueDrag} ref={queueRow} aria-label={t('threadResources.queue')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {queued.map((q, i) => <li key={q.queueId} className="flex w-64 shrink-0 snap-start flex-col gap-1 rounded-lg border bg-background p-2">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">{q.pending ? t('threadResources.queuing') : t('threadResources.queuedPosition', { position: i + 1 })}</span>
+                {!q.pending && <button type="button" onClick={() => void cancelQueued(q.queueId)} aria-label={t('threadStatus.cancelQueuedMessage')} title={t('threadStatus.cancelQueuedMessage')} className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3" />{t('common.cancel')}</button>}
+              </div>
+              <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-4" title={q.content}>{q.content}</p>
+            </li>)}
+          </ul>
+        </TabsContent>
         <TabsContent value="agents" className="mt-0 min-w-0">
           <ul {...agentDrag} ref={agentRow} aria-label={t('threadResources.agents')} className="flex cursor-grab select-none flex-nowrap gap-2 data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {members.map(agent => <li key={agent.agentName} className="flex w-64 shrink-0 snap-start flex-col items-start gap-1 rounded-lg border bg-background p-2"><div className="flex w-full items-center gap-2">

@@ -83,7 +83,8 @@ export interface NodeAgent {
 /** Last smoke-test result the daemon reported for an agent type: one tiny
  * end-to-end "hi" prompt, with classified guidance when it failed. */
 export interface NodeProbe {
-  ok: boolean;
+  /** null: the sign-in could not be checked ahead of a real run (not a failure). */
+  ok: boolean | null;
   at: string;
   code?: string | null;
   method?: string | null;
@@ -107,6 +108,10 @@ export interface NodeRuntime {
    * can run. Null or absent: the CLI cannot be asked, has not answered yet,
    * or the launcher is too old to ask. */
   cliModels?: AgentCatalogModel[] | null;
+  /** The command that signs this type's CLI in on the device (`agn login
+   * codex`). Absent from launchers too old to have `agn login`, and for types
+   * with no sign-in of their own. */
+  loginCommand?: string | null;
   probe?: NodeProbe | null;
 }
 
@@ -225,6 +230,71 @@ export interface WorkspaceCustomSkill {
   contentType?: string;
   packageType: 'md' | 'zip';
   createdAt?: string;
+  workspaceSkillId?: string;
+  version?: string;
+  versionId?: string;
+  registrySkillId?: string;
+  forkedFromVersionId?: string;
+  unavailable?: boolean;
+  /** Public listing state of this skill's registry counterpart, if published. */
+  publicVisibility?: 'public' | 'unlisted';
+}
+
+/** A ranked row on a rolling leaderboard — a public skill plus its window score. */
+export interface RegistryLeaderboardEntry extends RegistrySkill {
+  rank: number;
+  windowInstalls: number;
+  windowForks: number;
+  score: number;
+}
+
+/** One immutable version of a workspace-private skill. */
+export interface WorkspaceSkillVersion {
+  versionId: string;
+  version: string;
+  versionSeq: number;
+  packageType: 'md' | 'zip';
+  changelog: string;
+  fileId: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export interface RegistrySkillVersion {
+  id: string;
+  version: string;
+  versionSeq: number;
+  status: 'published' | 'yanked';
+  sourceMode: 'mirrored' | 'upstream_pointer';
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+  contentSha256?: string | null;
+  packageType: 'md' | 'zip';
+  license: string;
+  attribution: Record<string, unknown>;
+  capabilities: Record<string, unknown>;
+  scanResult: Record<string, unknown>;
+  changelog?: string;
+  publishedAt?: string | null;
+}
+
+export interface RegistrySkill {
+  id: string;
+  slug: string;
+  namespace: string;
+  namespaceName: string;
+  name: string;
+  summary: string;
+  description: string;
+  category: string;
+  tags: string[];
+  visibility: 'public' | 'unlisted';
+  status: 'active';
+  forkedFromVersionId?: string | null;
+  installCount: number;
+  latestVersion?: RegistrySkillVersion | null;
+  versions?: RegistrySkillVersion[];
+  createdAt?: string | null;
 }
 
 export interface WorkspaceSession {
@@ -806,6 +876,55 @@ export interface CloudAgentModel {
   supportedProtocols?: string[];
 }
 
+/** A provider that hosts agent runtimes for the workspace (Acenta). */
+export interface HostedAgentProvider {
+  name: string;
+  label: string;
+  /** False until the server is configured to reach the provider. */
+  available: boolean;
+  harness: string;
+  url: string;
+}
+
+/** One of the signed-in user's Acenta agents, as seen from this workspace. */
+export interface AcentaAgent {
+  id: string;
+  name: string;
+  agentName: string;
+  state: string;
+  tier: string | null;
+  url: string;
+  /** Acenta's launch page while the agent waits for sign-in or payment. */
+  launchUrl: string | null;
+  inThisWorkspace: boolean;
+  workspaces: number;
+  workspaceLimit: number;
+}
+
+export interface AcentaAccount {
+  /** False until the user has an Acenta account (same OpenAgents sign-in or email). */
+  hasAccount: boolean;
+  agents: AcentaAgent[];
+  agentLimit: number;
+}
+
+/** An agent whose runtime a provider hosts; it joins like any other agent. */
+export interface HostedAgent {
+  agentName: string;
+  displayName: string;
+  provider: string;
+  status: 'launching' | 'setup' | 'active' | 'terminating' | 'linked';
+  /** Added here from the owner's Acenta account; removing only disconnects it. */
+  linked?: boolean;
+  externalId?: string | null;
+  /** Acenta launch page (sign-in and payment) while status is "setup". */
+  setupUrl: string | null;
+  /** From the agent's own heartbeats. */
+  presence: 'online' | 'offline';
+  ownerEmail: string;
+  createdAt: string | null;
+}
+
 export interface CloudAgentConfig {
   agentName: string;
   provider: string;
@@ -1030,6 +1149,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     unreadCount: ch.unread_count,
     readAt: ch.read_at,
     completionAt: ch.completion_at,
+    forkedFrom: ch.forked_from ?? null,
     ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
     ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
@@ -1432,6 +1552,8 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  /** The board this issue is on; "team" is the default Team issues board. */
+  board_id?: string;
   linked_channels?: string[];
   due_date?: string | null;
   knowledge_ids?: string[];
@@ -1448,6 +1570,8 @@ export interface WorkspaceIssue {
   created_at: string;
   updated_at: string;
   comment_count?: number;
+  /** The viewer opened this issue or is a workspace admin. */
+  can_delete?: boolean;
 }
 export interface IssueComment {
   reply_channel_name?: string | null;
@@ -1460,6 +1584,9 @@ export interface IssueComment {
   kind: 'comment' | 'status' | 'result' | 'activity' | 'approval' | 'due_date';
   approval?: ApprovalRequest;
   source_event_id: string | null;
+  file_ids?: string[];
+  /** Readable files posted with the comment. */
+  attachments?: { file_id: string; filename: string; content_type: string; size: number }[];
   created_at: string;
 }
 export interface IssueReply { id: string; author: string; content: string }
@@ -1487,3 +1614,24 @@ export interface AgentService {
 export type AgentServiceInput = Pick<AgentService, 'agent_name' | 'name' | 'description' | 'example_requests' | 'required_inputs' | 'request_approver_email'> & { instructions: string };
 
 export type MessageReaction = { emoji: string; count: number; mine: boolean };
+
+// ── Thread fork lineage ──
+export interface NetworkChannel {
+  /** Name of the thread this one was forked from. */
+  forked_from?: string | null;
+}
+
+export interface WorkspaceSession {
+  /** Name of the thread this one was forked from. */
+  forkedFrom?: string | null;
+}
+
+/** An issue board. "team" is the default Team issues board, which cannot be removed. */
+export interface IssueBoard {
+  id: string;
+  name: string;
+  default: boolean;
+  active_count: number;
+  created_by?: string;
+  can_manage: boolean;
+}

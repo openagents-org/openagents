@@ -1,0 +1,61 @@
+{
+  "version": "1.1.11",
+  "date": "2026-11-03",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Add agents from the marketplace in one step",
+        "zh": "从智能体市场一步添加"
+      },
+      "description": {
+        "en": "Selecting an agent in the marketplace opens its setup form directly. Its version, platforms and links are shown beside the form, and version history and uninstall remain under Manage.",
+        "zh": "在智能体市场中选择智能体后，将直接进入配置页面；版本、平台与相关链接显示在页面右侧，版本历史与卸载仍可通过「管理」进入。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer agent and workspace lists",
+        "zh": "智能体与工作区列表更清晰"
+      },
+      "description": {
+        "en": "Agents list their workspace and model, and each joined workspace is shown as a card. Filters, search and paging appear only when there is enough to narrow down.",
+        "zh": "智能体列表新增所在工作区与模型信息，已加入的工作区改为卡片展示；筛选、搜索与分页仅在内容较多时显示。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A calmer, consistent look",
+        "zh": "界面风格统一"
+      },
+      "description": {
+        "en": "Status colours are reduced to a small dot, and the add-agent pages, settings and release notes follow the app's light and dark themes.",
+        "zh": "状态颜色收敛为小圆点，添加智能体页面、设置与更新公告均与应用的浅色、深色主题保持一致。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Language switch in the top bar",
+        "zh": "顶栏新增语言切换"
+      },
+      "description": {
+        "en": "Switch the display language from the top bar; the collapsed sidebar now shows a short name under each icon.",
+        "zh": "可在顶栏直接切换界面语言；侧栏收起时，各图标下方会显示简短名称。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Smoother sidebar and workspace opening",
+        "zh": "侧栏与打开工作区更稳定"
+      },
+      "description": {
+        "en": "The sidebar no longer stretches gradually after a language change, and opening a workspace right after the page loads no longer falls back to the browser.",
+        "zh": "切换语言后侧栏不再逐步变宽；页面刚打开时进入工作区，不会再误用浏览器打开。"
+      }
+    }
+  ]
+}

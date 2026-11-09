@@ -654,3 +654,204 @@ def test_routing_budget_and_provider_specific_thinking(
         assert kwargs['extra_body'] == {'thinking': {'type': 'disabled'}}
     else:
         assert 'extra_body' not in kwargs
+
+
+class TestRoutingConversationEvidence:
+    def _capture(self, db, fixture, event, **kwargs):
+        client = MagicMock()
+        client.messages.create.return_value = _mock_anthropic_response('stop')
+        with patch('app.mods.workspace_mod._get_router_api_key', return_value='test'), \
+             patch('app.mods.workspace_mod._get_llm_client', return_value=(client, 'anthropic')):
+            _run(_route_with_llm(fixture['channel'], event, db, fixture['workspace'], **kwargs))
+        return client.messages.create.call_args.kwargs['messages'][0]['content']
+
+    def test_history_filters_noise_before_limit_and_excludes_current_future(self, db, multi_agent_workspace):
+        import json
+        ws = multi_agent_workspace['workspace']
+        def add(id, ts, source='human:alice', kind='chat', metadata=None, target='channel/session-test', network=None):
+            db.add(EventRecord(id=id, network_id=network or ws.id, type='workspace.message.posted',
+                source=source, target=target, timestamp=ts,
+                payload={'content':id,'message_type':kind}, metadata_=metadata or {}))
+        for n in range(8):
+            add(f'chat-{n}',100+n,source='openagents:agent-worker' if n%2 else 'human:alice')
+        for n in range(30):add(f'noise-{n}',200+n,source='openagents:agent-worker',kind='thinking')
+        add('recalled',240,metadata={'recalled':True})
+        add('assignment',241,metadata={'routing_assignment':{'agent':'agent-worker'}})
+        add('system',242,source='system:notice')
+        add('other-channel',243,target='channel/other')
+        add('other-workspace',244,network='00000000-0000-0000-0000-000000000001')
+        event=_make_event('human:alice','channel/session-test','Please continue');event.timestamp=300
+        add(event.id,300);add('future',301);db.flush()
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert [m['content'] for m in evidence['turns']]==[f'chat-{n}' for n in range(2,8)]
+        assert evidence['turns'][-1]['sender_type']=='agent'
+        assert evidence['follow_up_evidence']['agents_who_spoke_after_request']==['agent-worker']
+
+    def test_historical_question_and_latest_handoff_survive_long_messages(self, db, multi_agent_workspace):
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='prior',network_id=ws.id,type='workspace.message.posted',
+            source='openagents:agent-worker',target='channel/session-test',timestamp=1,
+            payload={'content':'Background. '*1000+' Please send the requested screenshot.'},metadata_={}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Details. '*1200+' @agent-worker review the result.')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True)
+        assert 'Please send the requested screenshot.' in prompt
+        assert '@agent-worker review the result.' in prompt
+        assert '[...middle omitted...]' in prompt
+
+    def test_agent_turn_has_agent_only_rules(self, db, multi_agent_workspace):
+        event=_make_event('openagents:agent-worker','channel/session-test','Done. Would you like me to commit?')
+        prompt=self._capture(db,multi_agent_workspace,event)
+        assert 'LATEST message, written by AGENT agent-worker' in prompt
+        assert 'Default to stop' in prompt
+        assert 'Humans expect a reply' not in prompt
+
+    def test_context_targets_cannot_expand_allowed_candidates(self, db, multi_agent_workspace):
+        import json
+        ws=multi_agent_workspace['workspace']
+        db.add(EventRecord(id='request',network_id=ws.id,type='workspace.message.posted',
+            source='human:alice',target='channel/session-test',timestamp=1,
+            payload={'content':'Investigate this'},metadata_={'target_agents':['agent-worker','agent-master','unknown']}))
+        db.flush()
+        event=_make_event('human:alice','channel/session-test','Any update?')
+        prompt=self._capture(db,multi_agent_workspace,event,allow_human_stop=True,allowed_agents=['agent-worker'])
+        evidence=json.JSONDecoder().raw_decode(prompt[prompt.index('{"turns":'):])[0]
+        assert evidence['follow_up_evidence']['dispatched_to']==['agent-worker']
+
+@pytest.mark.parametrize('human_request', [True, False])
+def test_dedicated_classifier_does_not_change_other_routing(db, multi_agent_workspace, monkeypatch, human_request):
+    from app.config import config
+    from app.mods import workspace_mod
+    from app.services import message_router
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'openagents-routing-qwen3.5-2b')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_BASE_URL', 'https://router.example/v1')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', 'classifier-test-key')
+    dedicated, general = MagicMock(), MagicMock()
+    for client in (dedicated, general):
+        client.chat.completions.create.return_value = _mock_openai_response('next:agent-worker')
+    factory = MagicMock(return_value=dedicated)
+    monkeypatch.setattr(message_router, 'get_client', factory)
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (general, 'openai'))
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'general-test-key')
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: 'general-model')
+    event = _make_event('human:user' if human_request else 'openagents:agent-master',
+                        'channel/session-test', 'Please open the page')
+    assert _run(_route_with_llm(multi_agent_workspace['channel'], event, db,
+                multi_agent_workspace['workspace'], allow_human_stop=human_request)) == ['agent-worker']
+    if human_request:
+        factory.assert_called_once_with('https://router.example/v1', 'classifier-test-key')
+        general.chat.completions.create.assert_not_called()
+        args = dedicated.chat.completions.create.call_args.kwargs
+        assert args['model'] == 'openagents-routing-qwen3.5-2b'
+        assert args['max_tokens'] == 500
+        assert args['temperature'] == 0
+        assert 'extra_body' not in args
+    else:
+        factory.assert_not_called()
+        assert general.chat.completions.create.call_args.kwargs['model'] == 'general-model'
+
+
+@pytest.fixture
+def classifier_clients(monkeypatch):
+    from app.config import config
+    from app.mods import workspace_mod
+    from app.services import message_router
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_MODEL', 'dedicated-model')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_BASE_URL', 'https://router.example/v1')
+    monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', 'dedicated-key')
+    primary, backup = MagicMock(), MagicMock()
+    backup.with_options.return_value = backup
+    backup.chat.completions.create.return_value = _mock_openai_response('next:agent-worker')
+    factory = MagicMock(return_value=primary)
+    monkeypatch.setattr(message_router, 'get_client', factory)
+    general_factory = MagicMock(return_value=(backup, 'openai'))
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', general_factory)
+    monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: 'backup-key')
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: 'DeepSeek-V4.1-flash')
+    return primary, backup, factory, general_factory
+
+
+def classify_human(db, workspace):
+    event = _make_event('human:user', 'channel/session-test', 'Please open the page')
+    result = _run(_route_with_llm(workspace['channel'], event, db,
+        workspace['workspace'], allow_human_stop=True, allowed_agents=['agent-worker']))
+    return result, event
+
+
+@pytest.mark.parametrize('failure', ['http530', 'timeout', 'empty', 'malformed', 'forbidden_agent', 'missing_key'])
+def test_classifier_falls_back_to_general_router(db, multi_agent_workspace, monkeypatch, classifier_clients, failure):
+    from app.config import config
+    import httpx
+    from openai import InternalServerError, APITimeoutError
+    primary, backup, factory, _ = classifier_clients
+    request = httpx.Request('POST', 'https://router.example/v1/chat/completions')
+    if failure == 'http530':
+        primary.chat.completions.create.side_effect = InternalServerError('Tunnel unavailable',
+            response=httpx.Response(530, request=request), body=None)
+    elif failure == 'timeout':
+        primary.chat.completions.create.side_effect = APITimeoutError(request=request)
+    elif failure == 'missing_key':
+        monkeypatch.setattr(config, 'MESSAGE_ROUTER_API_KEY', '')
+        factory.side_effect = ValueError('Missing dedicated credentials')
+    else:
+        primary.chat.completions.create.return_value = _mock_openai_response(
+            {'empty': None, 'malformed': 'I suggest agent-worker', 'forbidden_agent': 'next:agent-master'}[failure])
+    result, event = classify_human(db, multi_agent_workspace)
+    assert result == ['agent-worker']
+    assert event.metadata['routing_decision'] == 'assign'
+    assert not event.metadata.get('router_unavailable')
+    factory.assert_called_once_with('https://router.example/v1', '' if failure == 'missing_key' else 'dedicated-key')
+    backup.with_options.assert_called_once_with(timeout=15, max_retries=0)
+    backup.chat.completions.create.assert_called_once()
+    args = backup.chat.completions.create.call_args.kwargs
+    assert args['model'] == 'DeepSeek-V4.1-flash'
+    assert args['max_tokens'] == 256
+    assert args['temperature'] == 0
+    assert args['extra_body'] == {'thinking': {'type': 'disabled'}}
+    if failure != 'missing_key':
+        assert args['messages'] == primary.chat.completions.create.call_args.kwargs['messages']
+
+
+@pytest.mark.parametrize('decision,expected', [('stop', []), ('ask', []), ('next:agent-worker', ['agent-worker'])])
+def test_valid_classifier_decision_never_uses_backup(db, multi_agent_workspace, classifier_clients, decision, expected):
+    primary, backup, _, general_factory = classifier_clients
+    primary.chat.completions.create.return_value = _mock_openai_response(decision)
+    result, event = classify_human(db, multi_agent_workspace)
+    assert result == expected
+    assert event.metadata['routing_decision'] == ('assign' if expected else decision)
+    general_factory.assert_not_called()
+
+
+@pytest.mark.parametrize('backup_failure', ['exception', 'empty', 'forbidden_agent', 'missing_key'])
+def test_both_routers_fail_safely(db, multi_agent_workspace, monkeypatch, classifier_clients, backup_failure):
+    from app.mods import workspace_mod
+    primary, backup, _, general_factory = classifier_clients
+    primary.chat.completions.create.side_effect = RuntimeError('unavailable')
+    if backup_failure == 'exception':
+        backup.chat.completions.create.side_effect = RuntimeError('unavailable')
+    elif backup_failure == 'missing_key':
+        monkeypatch.setattr(workspace_mod, '_get_router_api_key', lambda: '')
+    else:
+        backup.chat.completions.create.return_value = _mock_openai_response(
+            '' if backup_failure == 'empty' else 'next:agent-master')
+    result, event = classify_human(db, multi_agent_workspace)
+    assert result == []
+    assert event.metadata['routing_decision'] == 'ask'
+    assert event.metadata['router_unavailable'] is True
+    assert primary.chat.completions.create.call_count == 1
+    assert backup.chat.completions.create.call_count == (0 if backup_failure == 'missing_key' else 1)
+
+
+def test_anthropic_backup(db, multi_agent_workspace, classifier_clients, monkeypatch):
+    from app.mods import workspace_mod
+    primary, backup, _, _ = classifier_clients
+    primary.chat.completions.create.side_effect = RuntimeError('unavailable')
+    monkeypatch.setattr(workspace_mod, '_get_llm_client', lambda: (backup, 'anthropic'))
+    monkeypatch.setattr(workspace_mod, '_get_router_model', lambda: 'claude-haiku')
+    backup.messages.create.return_value = _mock_anthropic_response('next:agent-worker')
+    result, _ = classify_human(db, multi_agent_workspace)
+    assert result == ['agent-worker']
+    assert backup.messages.create.call_args.kwargs['model'] == 'claude-haiku'
+    assert 'extra_body' not in backup.messages.create.call_args.kwargs
+    backup.chat.completions.create.assert_not_called()

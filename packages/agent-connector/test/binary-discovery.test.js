@@ -95,16 +95,19 @@ describe('Binary discovery for GUI-launched processes', () => {
     const hermesHome = mk('elsewhere', 'hermes');
     fs.mkdirSync(path.join(hermesHome, 'bin'), { recursive: true });
     const hermesInstall = mk('elsewhere', 'hermes-agent');
+    const mimoInstall = mk('elsewhere', 'mimocode-bin');
     const dirs = discover({
       AMP_HOME: ampHome,
       GOOSE_BIN_DIR: gooseBin,
       HERMES_HOME: hermesHome,
       HERMES_INSTALL_DIR: hermesInstall,
+      MIMOCODE_INSTALL_DIR: mimoInstall,
     });
     assert.ok(dirs.includes(path.join(ampHome, 'bin')), 'AMP_HOME');
     assert.ok(dirs.includes(gooseBin), 'GOOSE_BIN_DIR');
     assert.ok(dirs.includes(path.join(hermesHome, 'bin')), 'HERMES_HOME');
     assert.ok(dirs.includes(hermesInstall), 'HERMES_INSTALL_DIR');
+    assert.ok(dirs.includes(mimoInstall), 'MIMOCODE_INSTALL_DIR');
   });
 
   it('finds every uv tool venv, not a hardcoded list of them', () => {

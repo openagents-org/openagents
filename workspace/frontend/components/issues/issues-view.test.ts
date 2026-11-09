@@ -7,6 +7,8 @@ import { translate } from '@/lib/i18n/translate';
 import type { IssueDetail, KanbanTask } from '@/lib/types';
 
 const mocks = vi.hoisted(() => ({
+  confirm: vi.fn(),
+  toast: { error: vi.fn(), success: vi.fn() },
   layout: { openView: vi.fn(), pendingIssueId: null as string | null, setPendingIssueId: vi.fn() },
   ws: {
     workspace: { workspaceId: 'workspace-1' },
@@ -25,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
     listIssueLabels: vi.fn(),
+    listIssueBoards: vi.fn(() => Promise.resolve([{ id: 'team', name: 'Team issues', default: true, active_count: 0, can_manage: false }])),
+    createIssueBoard: vi.fn(),
+    renameIssueBoard: vi.fn(),
+    deleteIssueBoard: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -32,9 +38,12 @@ const mocks = vi.hoisted(() => ({
     removeIssueAgent: vi.fn(),
     linkIssueThread: vi.fn(),
     addIssueParticipants: vi.fn(),
+    deleteIssue: vi.fn(),
     discover: vi.fn(),
   },
 }));
+vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm, usePrompt: () => vi.fn() }));
+vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
@@ -42,11 +51,17 @@ vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => mocks.layout,
 }));
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
-vi.mock('@/lib/i18n', () => ({
-  useT: () => t,
-  useI18n: () => ({ locale: 'en-US' }),
-  useFormatters: () => ({ timeAgo: () => 'just now' }),
-}));
+vi.mock('@/lib/i18n', async () => {
+  const { formatDateTime } = await import('@/lib/i18n/format');
+  return {
+    useT: () => t,
+    useI18n: () => ({ locale: 'en-US' }),
+    useFormatters: () => ({
+      timeAgo: () => 'just now',
+      formatDateTime: (value: string, options?: Intl.DateTimeFormatOptions) => formatDateTime(value, 'en-US', options),
+    }),
+  };
+});
 vi.mock('@/components/layout/app-header', () => ({
   DetailHeader: ({
     title,
@@ -60,6 +75,7 @@ vi.mock('@/components/chat/markdown-content', () => ({
   MarkdownContent: ({ content }: { content: string }) =>
     createElement('div', {}, content),
 }));
+vi.mock('@/components/files/authenticated-image', () => ({ AuthenticatedImage: () => null }));
 vi.mock('@/components/tasks/task-chat-popup', () => ({
   TaskChatPopup: () => null,
 }));
@@ -156,6 +172,8 @@ beforeEach(() => {
   mocks.api.createIssue.mockResolvedValue(issue);
   mocks.api.commentOnIssue.mockResolvedValue({ id: 'comment-1' });
   mocks.api.removeIssueAgent.mockResolvedValue(undefined);
+  mocks.api.deleteIssue.mockResolvedValue(undefined);
+  mocks.confirm.mockResolvedValue(true);
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -167,12 +185,29 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
-  it('announces task retirement on the tasks board and links to Team issues', async () => {
-    await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-    expect(host.querySelector('[role="note"]')?.textContent).toContain('My agent tasks will be retired');
-    await click(button('Go to Team issues'));
-    expect(host.querySelector('[role="note"]')).toBeNull();
-    expect(button('Team issues').getAttribute('aria-pressed')).toBe('true');
+  it('shows issue boards, Team issues first, with no My agent tasks tab', async () => {
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(host.textContent).not.toContain('My agent tasks');
+    const tabs = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+    expect(tabs[0]).toContain('Team issues');
+    expect(host.textContent).toContain('New board');
+    expect(button('Active issues')).toBeTruthy();
+    expect(mocks.api.listIssues).toHaveBeenCalledWith(expect.objectContaining({ board: 'team' }));
+  });
+
+  it('loads the selected board when switching boards', async () => {
+    mocks.api.listIssueBoards.mockResolvedValueOnce([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: true },
+    ]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const dev = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.textContent?.includes('Development')) as HTMLButtonElement;
+    expect(dev).toBeTruthy();
+    await act(async () => { dev.click(); await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
+    expect(dev.getAttribute('aria-selected')).toBe('true');
   });
 
   it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(
@@ -203,6 +238,93 @@ describe('shared issues', () => {
       expect(mocks.api.listIssues).toHaveBeenCalledTimes(requestCount);
     },
   );
+
+  it('deletes an issue only after confirmation, then returns to the list', async () => {
+    mocks.api.getIssue.mockResolvedValue({ ...issue, can_delete: true });
+    await openIssue();
+    mocks.confirm.mockResolvedValueOnce(false);
+    await click(button('Delete'));
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Delete “Improve onboarding”?', destructive: true }));
+    expect(mocks.api.deleteIssue).not.toHaveBeenCalled();
+    mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+    await click(button('Delete'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.deleteIssue).toHaveBeenCalledWith('issue-1');
+    expect(host.querySelector('h1')?.textContent).toBe('Issues');
+    expect(host.textContent).not.toContain('Improve onboarding');
+  });
+
+  it('does not offer Delete to people who may not delete the issue', async () => {
+    await openIssue();
+    expect(host.querySelector('h1')?.textContent).toBe('Improve onboarding');
+    expect(button('Delete')).toBeUndefined();
+  });
+
+  it('stays on the issue and shows why when deletion fails', async () => {
+    mocks.api.getIssue.mockResolvedValue({ ...issue, can_delete: true });
+    mocks.api.deleteIssue.mockRejectedValueOnce(new Error('Only the person who opened this issue or a workspace admin can delete it'));
+    await openIssue();
+    await click(button('Delete'));
+    expect(host.textContent).toContain('Only the person who opened this issue or a workspace admin can delete it');
+    expect(host.querySelector('h1')?.textContent).toBe('Improve onboarding');
+    expect(button('Delete').disabled).toBe(false);
+  });
+
+  it('dates issues from the past week relatively and older ones to the minute', async () => {
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
+    mocks.api.listIssues.mockResolvedValue({ next_offset: null, issues: [
+      { ...issue, id: 'recent', updated_at: '2026-10-30T12:00:00Z' },
+      { ...issue, id: 'older', created_at: '2026-10-01T12:00:00Z', updated_at: '2026-10-07T12:00:00Z' },
+      { ...issue, id: 'last-year', updated_at: '2025-12-20T12:00:00Z' },
+    ] });
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const times = Array.from(host.querySelectorAll('time'));
+    expect(times.map(time => time.textContent)).toEqual([
+      'just now',
+      expect.stringMatching(/^Oct 7, \d{1,2}:\d{2}\s[AP]M$/),
+      expect.stringMatching(/^Dec 20, 2025, \d{1,2}:\d{2}\s[AP]M$/),
+    ]);
+    expect(times[1].title).toMatch(/^Opened Oct 1, 2026, .+ · Updated Oct 7, 2026, /);
+  });
+
+  it.each([false, true])('deletes an issue from the list after confirmation (board: %s)', async (board) => {
+    const other = { ...issue, id: 'issue-2', title: 'Someone else’s issue', can_delete: false };
+    mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }, other], next_offset: null });
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    if (board) await click(host.querySelector<HTMLButtonElement>(`button[aria-label="${t('issues.board')}"]`)!);
+    const remove = () => host.querySelector<HTMLButtonElement>('button[aria-label="Delete issue “Improve onboarding”"]');
+    expect(remove()).not.toBeNull();
+    expect(host.querySelector('button[aria-label^="Delete issue “Someone"]')).toBeNull();
+
+    mocks.confirm.mockResolvedValueOnce(false);
+    await click(remove()!);
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Delete “Improve onboarding”?', destructive: true }));
+    expect(mocks.api.deleteIssue).not.toHaveBeenCalled();
+
+    mocks.api.listIssues.mockResolvedValue({ issues: [other], next_offset: null });
+    await click(remove()!);
+    expect(mocks.api.deleteIssue).toHaveBeenCalledWith('issue-1');
+    // Gone at once, without opening the issue.
+    expect(host.querySelector('h1')?.textContent).toBe('Issues');
+    expect(host.textContent).not.toContain('Improve onboarding');
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(host.textContent).not.toContain('Improve onboarding');
+    expect(host.textContent).toContain('Someone else’s issue');
+  });
+
+  it('keeps the issue in the list and says why when deleting from the list fails', async () => {
+    mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }], next_offset: null });
+    mocks.api.deleteIssue.mockRejectedValueOnce(new Error('Only the person who opened this issue or a workspace admin can delete it'));
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="Delete issue “Improve onboarding”"]')!;
+    await click(remove);
+    expect(mocks.toast.error).toHaveBeenCalledWith('Only the person who opened this issue or a workspace admin can delete it');
+    expect(host.textContent).toContain('Improve onboarding');
+    expect(remove.disabled).toBe(false);
+  });
 
   it('creates an issue without agents or an execution request', async () => {
     mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
@@ -364,6 +486,70 @@ it('clears a saved comment and reports delivery failure without inviting a dupli
   expect(host.textContent).toContain('Comment saved; delivery failed');
 });
 
+it('can save again after closing the editor mid-upload', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(button('New issue'));
+  mocks.api.uploadFile.mockImplementationOnce(() => new Promise(() => {}));
+  const input = host.querySelector('input[type="file"]')!;
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['clip'], 'clip.mp4', { type: 'video/mp4' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(button('Cancel'));
+  await click(button('New issue'));
+  await fill(host.querySelector('input[required]')!, 'Retry later');
+  expect(button('Create issue').disabled).toBe(false);
+});
+
+it('keeps issue signals unread while the tab is in the background and reads them on return', async () => {
+  const markChannelSignalsRead = vi.fn();
+  const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+  Object.assign(mocks.ws, { unreadSignals: { 'issue:issue-1': { mentions: 1, dms: 0, latest: {} } }, markChannelSignalsRead });
+  try {
+    await openIssue();
+    expect(markChannelSignalsRead).not.toHaveBeenCalled();
+    hasFocus.mockReturnValue(true);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(markChannelSignalsRead).toHaveBeenCalledWith('issue:issue-1');
+  } finally {
+    hasFocus.mockRestore();
+    Object.assign(mocks.ws, { unreadSignals: undefined, markChannelSignalsRead: undefined });
+  }
+});
+
+it('adds a usable shared agent the comment mentions before posting, but not one the viewer cannot use', async () => {
+  mocks.ws.agents = [
+    { agentName: 'shared-agent', displayName: 'Shared agent', ownerEmail: 'bob@example.com', status: 'online', canStartThread: true },
+    { agentName: 'private-agent', displayName: 'Private agent', ownerEmail: 'bob@example.com', status: 'online', canStartThread: false },
+  ];
+  try {
+    await openIssue();
+    await fill(host.querySelector('textarea')!, '@shared-agent and @private-agent please look');
+    await click(button('Comment'));
+    expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith('issue-1', [{ kind: 'agent', id: 'shared-agent' }]);
+    expect(mocks.api.addIssueParticipants.mock.invocationCallOrder[0]).toBeLessThan(mocks.api.commentOnIssue.mock.invocationCallOrder[0]);
+  } finally { mocks.ws.agents = []; }
+});
+
+it('posts images with a comment and keeps them out of the next draft', async () => {
+  await openIssue();
+  mocks.api.uploadFile.mockResolvedValueOnce({ id: 'shot-1', filename: 'shot.png', contentType: 'image/png' });
+  const input = host.querySelector<HTMLInputElement>('input[type="file"][aria-label="Attach files"]')!;
+  // Comments take the same files as task and issue attachments, not only images and videos.
+  expect(input.accept.split(',')).toEqual(expect.arrayContaining(['image/*', 'video/*', '.pdf', '.csv', '.xlsx', '.docx', '.zip']));
+  await act(async () => {
+    Object.defineProperty(input, 'files', { value: [new File(['png'], 'shot.png', { type: 'image/png' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click(button('Comment'));
+  expect(mocks.api.commentOnIssue).toHaveBeenLastCalledWith('issue-1', expect.objectContaining({ content: '', file_ids: ['shot-1'] }));
+  await fill(host.querySelector('textarea')!, 'follow-up');
+  await click(button('Comment'));
+  expect(mocks.api.commentOnIssue.mock.lastCall![1]).not.toHaveProperty('file_ids');
+});
+
 it.each(['metaKey', 'ctrlKey'] as const)('sends an issue comment with %s + Enter, but not plain Enter or IME confirmation', async (modifier) => {
   await openIssue();
   const textarea = host.querySelector('textarea')!;
@@ -407,15 +593,6 @@ it('searches the assignee picker and saves a selected person', async () => {
 });
 
 
-it('keeps existing standalone work reachable inside Issues', async () => {
-  mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-  expect(host.textContent).toContain('Existing task');
-  expect(host.textContent).toContain('New issue');
-  expect(host.textContent).not.toContain('New task');
-});
-
-
 it('creates a human-assigned issue and waits for attachments to upload', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
     { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
@@ -436,7 +613,8 @@ it('creates a human-assigned issue and waits for attachments to upload', async (
     Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'evidence.txt', { type: 'text/plain' })] });
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  expect(button('Create issue').disabled).toBe(true);
+  expect(button('Uploading…').disabled).toBe(true);
+  expect(button('Cancel').disabled).toBe(false);
   expect(mocks.api.createIssue).not.toHaveBeenCalled();
   await act(async () => finish({ id: 'file-1', filename: 'evidence.txt', contentType: 'text/plain' }));
   mocks.api.createIssue.mockRejectedValueOnce(new Error('Try again'));
@@ -460,9 +638,9 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
-it('offers only human assignees even when creating from My agent tasks', async () => {
+it('offers only human assignees even when an agent is online', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'online' }];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  await act(async () => root.render(createElement(IssuesView)));
   await click(button('New issue'));
   await fill(host.querySelector('input[required]')!, 'Investigation');
   expect(button('Create issue').disabled).toBe(false);
@@ -707,4 +885,60 @@ it('keeps selected knowledge on failure and prevents empty searches from submitt
   expect(mocks.api.commentOnIssue).toHaveBeenLastCalledWith(issue.id, expect.objectContaining({ knowledge_ids: ['guide'] }));
   await click(button('Assign to an agent'));
   expect(host.querySelector('[aria-label="Remove Support guide"]')).toBeNull();
+});
+
+it('keeps the filtered list mounted while switching and closing issues in split view', async () => {
+  const second = { ...issue, id: 'issue-2', title: 'Review onboarding' };
+  mocks.api.listIssues.mockResolvedValue({ issues: [issue, second], next_offset: null });
+  mocks.api.getIssue.mockImplementation(async (id: string) => id === second.id ? second : issue);
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  expect(host.textContent).toContain('Select an issue to view alongside the list.');
+  const list = host.querySelector('div[aria-label="List view"]')!;
+  const search = host.querySelector('input[aria-label="Search issues"]') as HTMLInputElement;
+  await fill(search, 'onboarding');
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  list.scrollTop = 120;
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(issue.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-1');
+  await click(host.querySelector('button[aria-label="Review onboarding · Open"]')!);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(second.title);
+  expect(host.querySelector('[aria-current="true"]')?.textContent).toContain(second.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-2');
+  expect(search.value).toBe('onboarding');
+  expect(list.scrollTop).toBe(120);
+  await click(button('Issues'));
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('[aria-current="true"]')).toBeNull();
+});
+
+it('returns to list or board view without leaving an invisible selected issue', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"]')).toBeNull();
+  expect(host.querySelector('button[aria-label="Board view"]')?.getAttribute('aria-pressed')).toBe('true');
+  await click(host.querySelector('button[aria-label="List view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('input[aria-label="Search issues"]')).toBeNull();
+  expect(host.querySelector('h1')?.textContent).toBe(issue.title);
+});
+
+it('clears the split detail when its issue is deleted from the list', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Split view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Delete issue “Improve onboarding”"]')!);
+  expect(mocks.api.deleteIssue).toHaveBeenCalledWith(issue.id);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"] h1')).toBeNull();
 });

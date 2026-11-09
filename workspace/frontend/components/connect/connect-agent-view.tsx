@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle, Mail } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
-import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -16,13 +15,18 @@ import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
+import { OnboardingPairingPanel } from './onboarding-pairing-panel';
+import { SetupEmailButton } from './setup-email-button';
+import { ConnectionTabs } from './connection-tabs';
+import { OnboardingConnectionHero } from './onboarding-connection-hero';
+import { HostedAgentsSection } from './hosted-agents-section';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
 import { useLocalNodeId } from './use-local-node-id';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getAccountProfile, updateAccountProfile, sendSetupEmail } from '@/lib/account-api';
+import { getAccountProfile, updateAccountProfile } from '@/lib/account-api';
 import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignConnectHint, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ExpandableError } from './expandable-error';
+import { desktopDownloads } from '@/lib/desktop-downloads';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -48,47 +53,6 @@ const EMPTY_CATALOG: AgentCatalogEntry[] = [];
 const EMPTY_PROVIDERS: CloudAgentProvider[] = [];
 
 const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
-
-// ---------------------------------------------------------------------------
-// Brand colors for local agents and cloud providers
-// ---------------------------------------------------------------------------
-
-const AGENT_BRANDS: Record<string, { bg: string; text: string }> = {
-  claude:    { bg: 'bg-orange-500',  text: 'text-white' },
-  codex:     { bg: 'bg-green-600',   text: 'text-white' },
-  gemini:    { bg: 'bg-blue-500',    text: 'text-white' },
-  openclaw:  { bg: 'bg-violet-600',  text: 'text-white' },
-  amp:       { bg: 'bg-rose-500',    text: 'text-white' },
-  aider:     { bg: 'bg-emerald-500', text: 'text-white' },
-  goose:     { bg: 'bg-amber-600',   text: 'text-white' },
-  cline:     { bg: 'bg-cyan-500',    text: 'text-white' },
-  copilot:   { bg: 'bg-indigo-500',  text: 'text-white' },
-  opencode:  { bg: 'bg-teal-500',    text: 'text-white' },
-  nanoclaw:  { bg: 'bg-pink-500',    text: 'text-white' },
-  cursor:    { bg: 'bg-zinc-800',    text: 'text-white' },
-  hermes:    { bg: 'bg-yellow-500',  text: 'text-white' },
-  kimi:      { bg: 'bg-sky-500',     text: 'text-white' },
-  deepseek:  { bg: 'bg-blue-700',    text: 'text-white' },
-  commandcode: { bg: 'bg-zinc-900',  text: 'text-white' },
-  openworker: { bg: 'bg-blue-600',   text: 'text-white' },
-  codebuddy: { bg: 'bg-indigo-600',  text: 'text-white' },
-  codearts:  { bg: 'bg-red-600',     text: 'text-white' },
-};
-
-const PROVIDER_BRANDS: Record<string, { bg: string; text: string; accent: string }> = {
-  openai:    { bg: 'bg-zinc-900 dark:bg-zinc-100', text: 'text-white dark:text-zinc-900', accent: 'border-zinc-300 dark:border-zinc-600' },
-  google:    { bg: 'bg-blue-500',    text: 'text-white', accent: 'border-blue-300 dark:border-blue-700' },
-  xai:       { bg: 'bg-zinc-700 dark:bg-zinc-300', text: 'text-white dark:text-zinc-900', accent: 'border-zinc-300 dark:border-zinc-600' },
-  deepseek:  { bg: 'bg-blue-700',    text: 'text-white', accent: 'border-blue-300 dark:border-blue-700' },
-};
-
-function getAgentBrand(name: string) {
-  return AGENT_BRANDS[name] || { bg: 'bg-zinc-500', text: 'text-white' };
-}
-
-function getProviderBrand(name: string) {
-  return PROVIDER_BRANDS[name] || { bg: 'bg-zinc-500', text: 'text-white', accent: 'border-zinc-300' };
-}
 
 function CategoryIcon({ category, className }: { category: string; className?: string }) {
   if (category === 'image') return <ImageIcon className={cn('text-violet-500', className)} />;
@@ -105,14 +69,18 @@ export function ConnectAgentView({
   autoPair = false,
   autoAddAgent = false,
   preferredNodeId,
+  footer,
+  onDismiss,
 }: {
   initialTab?: 'local' | 'cloud' | 'node';
   autoPair?: boolean;
   autoAddAgent?: boolean;
   preferredNodeId?: string;
+  footer?: React.ReactNode;
+  onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView } = useLayout();
+  const { openView, connectSetupRequest } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
@@ -120,6 +88,13 @@ export function ConnectAgentView({
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
   const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
+  const appliedSetupRequest = useRef(connectSetupRequest);
+  useEffect(() => {
+    if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
+      appliedSetupRequest.current = connectSetupRequest;
+      setSelectedTab('node');
+    }
+  }, [connectSetupRequest]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -137,6 +112,7 @@ export function ConnectAgentView({
   const [nodesLoaded, setNodesLoaded] = useState(false);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState(false);
 
   // Local agents
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -223,39 +199,6 @@ export function ConnectAgentView({
   const maskedToken = token.length > 16
     ? `${token.slice(0, 8)}${'•'.repeat(8)}${token.slice(-4)}`
     : token;
-
-  // The built-in Yumi assistant uses the server-held key for the `openagents`
-  // provider, so it is present when a roster agent is flagged builtin/named yumi
-  // or a cloud agent named yumi exists. The dedicated card is hidden then.
-  const yumiPresent = useMemo(
-    () =>
-      agents.some((a) => a.builtin || a.agentName === 'yumi') ||
-      cloudAgents.some((a) => a.agentName === 'yumi'),
-    [agents, cloudAgents],
-  );
-
-  const handleAddBuiltinYumi = async () => {
-    setSaving(true);
-    try {
-      await workspaceApi.addCloudAgent({
-        agentName: 'yumi',
-        provider: 'openagents',
-        // Ignored by the backend: the built-in's model is fixed by server
-        // config, and POST /cloud-agents overrides whatever is sent for
-        // provider "openagents".
-        model: '',
-        apiKey: '',
-      });
-      toast.success(t('connect.yumiAdded'));
-      capture('cloud_agent_created', { provider: 'openagents', agent: 'yumi', builtin: true });
-      refreshWorkspace();
-      loadCloudAgents();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('connect.cloudAgentAddFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleAddCloudAgent = async () => {
     // The `openagents` provider injects the server-held key, so it is exempt
@@ -352,12 +295,14 @@ export function ConnectAgentView({
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
+    setPairingError(false);
     try {
       const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
       capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
+      setPairingError(true);
       const msg = err instanceof Error ? err.message : '';
       toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
     } finally {
@@ -365,64 +310,41 @@ export function ConnectAgentView({
     }
   };
 
-  // Guided onboarding: when asked to auto-pair, generate a code as soon as the
-  // node view is ready and there are no nodes yet — so the user lands straight
-  // on the pairing code instead of an empty state + a button. Fires once.
+  // First run and explicit reentry share the guided pairing surface. Generate
+  // a code only after a successful device read confirms an empty list. The
+  // pairing form replaces the empty-state detour on both entry points.
   const autoPairedRef = useRef(false);
   useEffect(() => {
-    if (!autoPair || autoPairedRef.current) return;
-    if (activeTab !== 'node' || loading || nodesLoading) return;
+    if (!(autoPair || workspace?.needsFirstDevice === true) || autoPairedRef.current) return;
+    if (activeTab !== 'node' || loading || nodesLoading || !nodesLoaded || nodesError) return;
     if (nodes.length > 0 || pairing || pairingLoading) return;
     autoPairedRef.current = true;
     handleGeneratePairingCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPair, activeTab, loading, nodesLoading, nodes.length, pairing, pairingLoading]);
+  }, [autoPair, workspace?.needsFirstDevice, activeTab, loading, nodesLoading, nodesLoaded, nodesError, nodes.length, pairing, pairingLoading]);
 
   const handleDismissPairing = () => {
     setPairing(null);
     loadNodes(true);
   };
 
+  const showFirstDeviceSetup = !isDesktop && nodesLoaded && !nodesError && nodes.length === 0 &&
+    (autoPair || workspace?.needsFirstDevice === true);
+  const close = onDismiss ?? (() => openView('threads'));
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header — title in the app header, actions in its toolbar */}
-      <DetailHeader title={<h2 className="text-base font-semibold">{t('connect.title')}</h2>}>
-        <button
-          onClick={() => openView('threads')}
-          className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-          title={t('common.close')}
-        >
-          <X className="size-4" />
-        </button>
-      </DetailHeader>
+      {showFirstDeviceSetup && (
+        <div className="shrink-0">
+          <OnboardingConnectionHero
+            workspaceName={workspace?.name || t('nav.workspaceFallback')}
+            onSetup={() => setSelectedTab('node')}
+          />
+        </div>
+      )}
 
       {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <div className="px-6 pt-4 pb-2 shrink-0">
-        <div className="flex gap-1.5 p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 max-w-2xl mx-auto w-full">
-          {([
-            { id: 'node', icon: Server, label: t('connect.tabNode') },
-            { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },
-          ] as const).map((tab) => {
-            const active = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setSelectedTab(tab.id)}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all',
-                  active
-                    ? 'bg-background text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className={cn('size-4', active && 'text-primary')} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>}
+      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
@@ -442,13 +364,34 @@ export function ConnectAgentView({
             <Loader2 className="size-4 animate-spin mr-2" />
             <span className="text-xs">{t('common.loading')}</span>
           </div>
+        ) : activeTab === 'node' && showFirstDeviceSetup ? (
+          <>
+            <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
+              {pairing ? (
+                <OnboardingPairingPanel pairing={pairing} onDismiss={close} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} methodRequest={connectSetupRequest} />
+              ) : pairingError ? (
+                <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
+                  <Button variant="outline" className="mt-4" onClick={handleGeneratePairingCode} disabled={pairingLoading}>
+                    {t('common.retry')}
+                  </Button>
+                </div>
+              ) : (
+                <div role="status" className="flex items-center justify-center py-14 text-muted-foreground">
+                  <Loader2 className="mr-2 size-5 animate-spin" />{t('connect.nodeGenerating')}
+                </div>
+              )}
+              <SetupEmailButton />
+              {footer}
+            </div>
+          </>
         ) : activeTab === 'node' ? (
           <NodesTab
             nodes={labeledNodes}
             catalog={catalog}
             catalogState={catalogState}
             cloudProviders={cloudProviders}
-            autoAddAgent={autoAddAgent}
+            autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
             loading={nodesLoading}
@@ -484,8 +427,7 @@ export function ConnectAgentView({
             saving={saving}
             onAdd={handleAddCloudAgent}
             onRemove={handleRemoveCloudAgent}
-            showBuiltinCard={!yumiPresent}
-            onAddBuiltin={handleAddBuiltinYumi}
+            onHostedChanged={refreshWorkspace}
           />
         )}
       </div>
@@ -506,16 +448,6 @@ function deviceIcon(deviceType: string, className?: string) {
     case 'laptop': return <Laptop className={className} />;
     case 'desktop': return <Monitor className={className} />;
     default: return <HardDrive className={className} />;
-  }
-}
-
-/** A colored gradient tile per device type — gives each node card visual identity. */
-function deviceTile(deviceType: string) {
-  switch (deviceType) {
-    case 'server': return 'bg-gradient-to-br from-blue-500 to-indigo-600';
-    case 'laptop': return 'bg-gradient-to-br from-violet-500 to-purple-600';
-    case 'desktop': return 'bg-gradient-to-br from-emerald-500 to-teal-600';
-    default: return 'bg-gradient-to-br from-zinc-500 to-zinc-700';
   }
 }
 
@@ -646,11 +578,7 @@ function PairingPanel({
           )}
           <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
           <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
-            {([
-              { os: t('connect.nodeMacSilicon'), href: 'https://openagents.org/api/download/launcher/mac' },
-              { os: t('connect.nodeMacIntel'), href: 'https://openagents.org/api/download/launcher/mac-intel' },
-              { os: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-            ]).map((d) => (
+            {desktopDownloads(t).map((d) => (
               <a
                 key={d.os}
                 href={d.href}
@@ -703,7 +631,7 @@ function PairingPanel({
               'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
               expired
                 ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent hover:from-primary/[0.08]',
+                : 'border-border bg-muted/30 hover:bg-muted/60',
             )}
             title={t('connect.nodeCopyCode')}
           >
@@ -1012,7 +940,7 @@ function NodeCard({
           aria-controls={`device-agents-${node.nodeId}`}
           className="flex-1 min-w-0 flex items-center gap-3.5 text-left"
         >
-          <div className={cn('size-12 shrink-0 flex items-center justify-center rounded-2xl text-white shadow-sm', deviceTile(node.deviceType))}>
+          <div className="size-12 shrink-0 flex items-center justify-center rounded-xl border bg-muted text-foreground">
             {deviceIcon(node.deviceType, 'size-6')}
           </div>
           <div className="flex-1 min-w-0">
@@ -1029,10 +957,8 @@ function NodeCard({
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="flex -space-x-1.5">
                   {previewAgents.map((a) => (
-                    <div key={a.name} className="relative" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
-                      <span className="size-5 rounded-md border bg-background ring-2 ring-background flex items-center justify-center overflow-hidden">
-                        <AgentIcon name={a.type} size={13} />
-                      </span>
+                    <div key={a.name} className="relative flex" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
+                      <AgentIcon name={a.type} size={20} chip className="outline-2 outline-background" />
                       <span className={cn(
                         'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-background',
                         online && a.status === 'running' ? 'bg-green-500' : 'bg-zinc-400',
@@ -1040,7 +966,7 @@ function NodeCard({
                     </div>
                   ))}
                   {extraAgents > 0 && (
-                    <div className="h-5 min-w-5 px-1 rounded-md border bg-muted ring-2 ring-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                    <div className="h-5 min-w-5 px-1 rounded-md border bg-muted outline-2 outline-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
                       +{extraAgents}
                     </div>
                   )}
@@ -1138,9 +1064,7 @@ function NodeCard({
                 return (
                 <div key={`pending-${p.name}`} className="rounded-lg border border-dashed bg-muted/30 p-3 flex flex-col gap-2 animate-in fade-in">
                   <div className="flex items-center gap-2.5">
-                    <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center relative">
-                      <AgentIcon name={p.type} size={22} />
-                    </div>
+                    <AgentIcon name={p.type} size={32} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">@{p.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{p.type}</div>
@@ -1202,9 +1126,7 @@ function NodeCard({
                 return (
                   <div key={a.name} className="rounded-lg border bg-background p-3 flex flex-col gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="size-9 shrink-0 rounded-lg border bg-background flex items-center justify-center">
-                        <AgentIcon name={a.type} size={22} />
-                      </div>
+                      <AgentIcon name={a.type} size={32} />
                       <div className="flex-1 min-w-0">
                         <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">{a.displayName || `@${a.name}`}</button>
                         <div className="text-xs text-muted-foreground truncate">{a.displayName ? `@${a.name} · ${a.type}` : a.type}</div>
@@ -1595,8 +1517,8 @@ function NodesTab({
         </div>
       ) : nodes.length === 0 ? (
         <div className="rounded-2xl border border-dashed py-14 px-6 text-center">
-          <div className="size-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-            <Server className="size-8 text-white" />
+          <div className="size-16 mx-auto rounded-xl border bg-muted flex items-center justify-center">
+            <Server className="size-8 text-muted-foreground" />
           </div>
           <div className="text-base font-semibold mt-5">{t('connect.nodeEmptyTitle')}</div>
           <p className="text-xs text-muted-foreground mt-2 max-w-sm mx-auto leading-relaxed">{t('connect.nodeEmptyBody')}</p>
@@ -1682,7 +1604,6 @@ function LocalAgentsTab({
       {/* Agent grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {catalog.map((entry) => {
-          const brand = getAgentBrand(entry.name);
           const isSelected = selectedAgent === entry.name;
           return (
             <button
@@ -1964,8 +1885,7 @@ function CloudAgentsTab({
   saving,
   onAdd,
   onRemove,
-  showBuiltinCard,
-  onAddBuiltin,
+  onHostedChanged,
 }: {
   providers: CloudAgentProvider[];
   cloudAgents: CloudAgentConfig[];
@@ -1989,8 +1909,7 @@ function CloudAgentsTab({
   saving: boolean;
   onAdd: () => void;
   onRemove: (name: string) => void;
-  showBuiltinCard: boolean;
-  onAddBuiltin: () => void;
+  onHostedChanged: () => void;
 }) {
   const t = useT();
   const isTokenPay = selectedProvider === 'tokenpay';
@@ -2003,13 +1922,8 @@ function CloudAgentsTab({
     if (first) setCfgName(first.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
   }, [isTokenPay, tokenPay.models, setCfgModel, setCfgName]);
 
-  const providerGroups = [
-    { label: t('connect.groupChat'), names: ['openai', 'anthropic', 'google', 'xai', 'deepseek', 'mistral', 'sensenova'] },
-    { label: t('connect.groupSearch'), names: ['perplexity', 'manus'] },
-    { label: t('connect.groupFast'), names: ['groq', 'together', 'fireworks', 'openrouter', 'tokenpay', 'sambanova', 'cerebras'] },
-    { label: t('connect.groupMedia'), names: ['stability', 'replicate', 'fal', 'elevenlabs'] },
-    { label: t('connect.groupCustom'), names: ['custom'] },
-  ];
+  const marketplaceProviders = providers.filter((p) => ['perplexity', 'manus', 'tokenpay', 'sensenova'].includes(p.name));
+  const connectedAgents = cloudAgents.filter((agent) => !agent.managed && agent.provider !== 'openagents');
 
   // When a provider is selected, show config view instead of grid
   if (selectedProviderInfo) {
@@ -2223,74 +2137,35 @@ function CloudAgentsTab({
   // Grid view — no provider selected
   return (
     <div className="p-4 space-y-3">
-      {/* Built-in Yumi — re-add the OpenAgents onboarding assistant (no API key) */}
-      {showBuiltinCard && (
-        <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5">
-          <img
-            src="/yumi-avatar.png"
-            alt="Yumi"
-            className="size-9 shrink-0 rounded-md object-cover"
-            draggable={false}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold leading-tight">{t('connect.yumiTitle')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{t('connect.yumiSubtitle')}</div>
-          </div>
-          <Button
-            onClick={onAddBuiltin}
-            disabled={saving}
-            size="sm"
-            className="shrink-0"
-          >
-            {saving && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-            {t('connect.yumiAdd')}
-          </Button>
-        </div>
-      )}
-
-      {providerGroups.map((group) => {
-        const groupProviders = group.names
-          .map((n) => providers.find((p) => p.name === n))
-          .filter(Boolean) as typeof providers;
-        if (groupProviders.length === 0) return null;
-        return (
-          <div key={group.label}>
-            <div className="flex items-center gap-2 mb-1.5 px-0.5">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{group.label}</span>
-              <div className="flex-1 border-t" />
+      <div className="mb-5">
+        <h2 className="text-lg font-semibold">{t('connect.cloudMarketplaceTitle')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('connect.cloudMarketplaceHint')}</p>
+      </div>
+      <HostedAgentsSection onChanged={onHostedChanged} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {marketplaceProviders.map((p) => (
+          <button key={p.name} onClick={() => onSelectProvider(p.name)}
+            className="group flex items-start gap-3 rounded-xl border bg-background p-4 text-left hover:bg-accent/50 hover:border-foreground/20 transition-colors">
+            <div className="size-10 shrink-0 flex items-center justify-center rounded-lg bg-muted/50">
+              <ProviderIcon name={p.name} size={28} />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {groupProviders.map((p) => {
-                const brand = getProviderBrand(p.name);
-                return (
-                  <button
-                    key={p.name}
-                    onClick={() => onSelectProvider(p.name)}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 text-left transition-all"
-                  >
-                    <div className="size-6 shrink-0 flex items-center justify-center">
-                      <ProviderIcon name={p.name} size={22} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium leading-tight truncate">{p.label}</div>
-                      <div className="text-xs text-muted-foreground">{p.name === 'tokenpay' ? t('connect.tokenpayModelsHint') : t('connect.providerModelCount', { count: p.models.length })}</div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{p.label}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(p.name === 'perplexity' ? 'connect.perplexityDescription' : p.name === 'manus' ? 'connect.manusDescription' : p.name === 'sensenova' ? 'connect.senseNovaDescription' : 'connect.tokenDanceDescription')}</p>
             </div>
-          </div>
-        );
-      })}
+            <ChevronRight className="size-4 shrink-0 mt-1 text-muted-foreground" />
+          </button>
+        ))}
+      </div>
 
       {/* Connected cloud agents */}
-      {cloudAgents.length > 0 && (
+      {connectedAgents.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('connect.connected')}</span>
             <div className="flex-1 border-t" />
           </div>
-          {cloudAgents.map((agent) => (
+          {connectedAgents.map((agent) => (
             <div
               key={agent.agentName}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background"
@@ -2339,7 +2214,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
   const t = useT();
   const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
-  const [alt, setAlt] = useState<'local' | 'cloud' | null>(null);
   const [welcomeDone, setWelcomeDone] = useState(
     () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
   );
@@ -2374,9 +2248,6 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     setWelcomeDone(true);
   }, [welcomeIdToken]);
 
-  // Escape hatches reuse the full connect view on the right tab.
-  if (alt && !isDesktop) return <ConnectAgentView initialTab={alt} />;
-
   // Value first: three pillar slides (hub → collaboration → humans+agents)
   // play full screen before any ask (download, pairing). Each slide animates
   // once and holds its closing frame; the user pages with prev/next, the last
@@ -2399,41 +2270,22 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     );
   }
 
-  return (
-    <NodeOnboardingStep
-      onDismiss={onDismiss}
-      footer={
-        <div className="pt-4 text-center space-y-2">
-          {/* Onboarding-only: replay the welcome slides (gone once agents exist,
-              since FirstRunOnboarding itself no longer renders then) */}
-          <div>
-            <button
-              onClick={() => {
-                capture('welcome_film_replayed', { source: 'guided_wizard' });
-                setWelcomeDone(false);
-              }}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
-            </button>
-          </div>
-          {!isDesktop && (
-            <>
-              <div>
-                <button
-                  onClick={() => setAlt('cloud')}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Cloud className="size-3.5" />{t('onboarding.chooseCloud')}
-                </button>
-              </div>
-
-            </>
-          )}
-        </div>
-      }
-    />
+  const footer = (
+    <div className="pt-4 text-center">
+      <button
+        onClick={() => {
+          capture('welcome_film_replayed', { source: 'guided_wizard' });
+          setWelcomeDone(false);
+        }}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
+      </button>
+    </div>
   );
+  return isDesktop
+    ? <NodeOnboardingStep onDismiss={onDismiss} footer={footer} />
+    : <ConnectAgentView autoPair onDismiss={onDismiss} footer={footer} />;
 }
 
 /** Bottom progress indicator for the onboarding flow. */
@@ -2484,7 +2336,15 @@ function OnboardingSteps({ current, thisComputer = false }: { current: number; t
 function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; onDismiss?: () => void }) {
   const host = desktopHost();
   const { workspace } = useWorkspace();
-  const [otherDevice, setOtherDevice] = useState(false);
+  const { connectSetupRequest } = useLayout();
+  const [otherDevice, setOtherDevice] = useState(connectSetupRequest?.method === 'terminal');
+  const appliedLocationRequest = useRef(connectSetupRequest);
+  useEffect(() => {
+    if (connectSetupRequest && connectSetupRequest !== appliedLocationRequest.current) {
+      appliedLocationRequest.current = connectSetupRequest;
+      setOtherDevice(connectSetupRequest.method === 'terminal');
+    }
+  }, [connectSetupRequest]);
   const [connectedNodeId, setConnectedNodeId] = useState<string | null>(null);
   // Older preload versions can briefly coexist with an updated bundle in dev.
   if (!host?.getComputerStatus || !workspace) return <RemoteNodeOnboardingStep footer={footer} onBack={onDismiss} />;
@@ -2511,34 +2371,25 @@ function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; o
 
 function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { onBack?: () => void; footer?: React.ReactNode; requireNewNode?: boolean }) {
   const t = useT();
-  const isMobile = useIsMobile();
-  const { idToken: setupIdToken } = useOpenAgentsAuth();
   const { workspace } = useWorkspace();
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectedNodeId, setConnectedNodeId] = useState<string>();
   const [errored, setErrored] = useState(false);
-  const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [regenerating, setRegenerating] = useState(false);
   const baselineRef = useRef<Set<string>>(new Set());
 
-  // Phone users can't finish here — the launcher needs a computer, and the
-  // pairing code will be long expired by the time they're at one. Email them
-  // a link so "later, on my laptop" survives closing this tab.
-  const handleEmailSetupLink = async () => {
-    if (!setupIdToken || !workspace || emailState !== 'idle') return;
-    setEmailState('sending');
+  const regenerate = async () => {
+    setRegenerating(true);
     try {
-      const r = await sendSetupEmail(setupIdToken, workspace.slug);
-      if (r.emailSent) {
-        setEmailState('sent');
-        capture('setup_email_sent', { source: 'guided_wizard', is_mobile: true });
-      } else {
-        toast.error(t('onboarding.setupEmailFailed'));
-        setEmailState('idle');
-      }
-    } catch {
-      toast.error(t('onboarding.setupEmailFailed'));
-      setEmailState('idle');
+      const code = await workspaceApi.createPairingCode();
+      setPairing(code);
+      capture('pairing_code_generated', { source: 'guided_wizard' });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -2602,26 +2453,12 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full px-6 py-10 space-y-6">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-            </button>
-          )}
+        <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-          <div className="text-center">
-            <div className="size-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
-              <Server className="size-7 text-white" />
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight mt-4">{t('onboarding.nodeStepTitle')}</h1>
-            <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">{t('onboarding.nodeStepBody')}</p>
-          </div>
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
 
           {pairing ? (
-            <PairingPanel pairing={pairing} onDismiss={onBack ?? (() => {})} />
+            <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} onRegenerate={regenerate} regenerating={regenerating} />
           ) : errored ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t('connect.nodePairingFailed')}
@@ -2632,27 +2469,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </div>
           )}
 
-          {/* Phone primary CTA: the real "next step" on mobile is asynchronous —
-              email the setup link so it's waiting when they're at a computer. */}
-          {isMobile && setupIdToken && (
-            emailState === 'sent' ? (
-              <div className="flex items-center justify-center gap-2 rounded-xl border border-green-500/30 bg-green-500/[0.06] px-4 py-3.5 text-sm font-medium text-green-600 dark:text-green-500">
-                <Check className="size-4 shrink-0" />
-                {t('onboarding.setupEmailSent')}
-              </div>
-            ) : (
-              <button
-                onClick={handleEmailSetupLink}
-                disabled={emailState !== 'idle'}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.99] transition disabled:opacity-60"
-              >
-                {emailState === 'sending'
-                  ? <Loader2 className="size-4 animate-spin" />
-                  : <Mail className="size-4" />}
-                {emailState === 'sending' ? t('onboarding.setupEmailSending') : t('onboarding.setupEmailCta')}
-              </button>
-            )
-          )}
+          <SetupEmailButton />
 
           {footer}
         </div>

@@ -20,8 +20,13 @@
     "deepseek": "DeepSeek's open-source agent harness (dsh), run headless — one fresh session per message, pinned to a preview release.",
     "commandcode": "Terminal coding agent that learns your coding taste — run headless, one session per channel.",
     "openworker": "Local-first agent coworker — $t(common.appName) runs its server headlessly, one session per channel.",
-    "codebuddy": "Tencent's CodeBuddy Code CLI — the same agent engine the WorkBuddy desktop app runs, driven headlessly.",
-    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key."
+    "codebuddy": "Tencent WorkBuddy's agent engine (the CodeBuddy Code CLI), driven headlessly — same account and credits as the WorkBuddy desktop app. WorkBuddy's built-in office plugins (slides, documents, spreadsheets) are not included.",
+    "codearts": "Huawei Cloud's CodeArts code agent CLI (码道), driven headlessly with a Huawei Cloud access key.",
+    "mimo-code": "Xiaomi's MiMo Code terminal coding agent, driven headlessly with a MiMo API key or any OpenAI-compatible endpoint — one session per channel.",
+    "qoder": "Qoder's terminal coding agent, driven headlessly on a Qoder account sign-in or a personal access token — one session per channel.",
+    "qoder-cn": "The China edition of Qoder's terminal coding agent (qoder.com.cn), driven headlessly on a Qoder CN account sign-in or a personal access token — one session per channel.",
+    "qwen-code": "Alibaba's Qwen Code terminal coding agent, driven headlessly with a Model Studio or Coding Plan key — one session per channel.",
+    "kiro": "Kiro's terminal coding agent (kiro-cli), driven over the Agent Client Protocol on a Kiro sign-in or API key, with its own agent profile, tools and MCP servers — one session per channel."
   },
   "genericLabels": {
     "apiKey": "API key",
@@ -36,6 +41,9 @@
     "model": "Model name. Change it when using a relay or proxy — their channels rarely match the default.",
     "provider": "Provider id. Leave blank to reuse the agent's existing configuration.",
     "token": "Access token."
+  },
+  "placeholders": {
+    "baseUrlOptional": "Optional — leave blank to use the default endpoint"
   },
   "env": {
     "AIDER_MODEL": {

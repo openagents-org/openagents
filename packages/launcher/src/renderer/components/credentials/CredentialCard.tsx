@@ -90,7 +90,7 @@ export function CredentialCard({
                 {" · "}
                 <span
                   className={
-                    cred.lastTestOk ? "text-(--success-text)" : "text-(--danger-text)"
+                    cred.lastTestOk ? "text-muted-foreground" : "text-(--danger-text)"
                   }
                 >
                   {t("credentials.card.tested", { date: lastTest })}{" "}

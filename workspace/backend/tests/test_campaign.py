@@ -12,6 +12,7 @@ from app.models import (
     CampaignAccount,
     CampaignGrant,
     EventRecord,
+    Node,
     User,
     Workspace,
     WorkspaceMember,
@@ -29,16 +30,22 @@ def _mk_user(db, email="u@example.com", verified=True):
     return user
 
 
-def _mk_workspace(db, user):
+def _mk_workspace(db, user, device=True):
+    """A workspace owned by `user`. By default it has a registered launcher
+    device, like a real user's (decision 2026-11-07: agents with nothing real
+    behind them don't count); pass device=False to model an API-only setup."""
     ws = Workspace(id=str(uuid.uuid4()), slug=uuid.uuid4().hex[:8], name="My Workspace")
     db.add(ws)
     db.add(WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner"))
+    if device:
+        db.add(Node(workspace_id=ws.id, node_key=uuid.uuid4().hex, hostname="dev-laptop", owner_email=user.email))
     db.commit()
     return ws
 
 
-def _mk_member(db, ws, name, agent_type):
-    db.add(WorkspaceMember(workspace_id=str(ws.id), agent_name=name, agent_type=agent_type))
+def _mk_member(db, ws, name, agent_type, server_host=None, working_dir=None):
+    db.add(WorkspaceMember(workspace_id=str(ws.id), agent_name=name, agent_type=agent_type,
+                           server_host=server_host, working_dir=working_dir))
     db.commit()
 
 
@@ -520,8 +527,10 @@ def test_gmail_dot_alias_of_a_credited_mailbox_gets_no_key(db, campaign_on, gate
     assert campaign.ensure_account(db, alias) is None
 
 
-def test_first_alias_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
-    alias = _mk_user(db, "someone+work@outlook.com")
+def test_first_dotted_gmail_still_earns_when_the_plain_address_never_signed_up(db, campaign_on, gateway):
+    # Dots alone are still fine for the first account on an inbox. A "+tag"
+    # address no longer earns at all (decision 2026-11-02, see below).
+    alias = _mk_user(db, "some.one@gmail.com")
     assert campaign.mailbox_taken(db, alias) is False
     assert campaign.ensure_account(db, alias) is not None
 
@@ -635,3 +644,162 @@ def test_message_hook_only_scans_for_unearned_reward(db, campaign_on, gateway, m
     campaign.on_agent_message(str(ws.id), "openagents:codexbot")
     responding.assert_not_called()
     assert campaign.total_granted(db, user.id) == total
+
+
+# --- No credits for +tag addresses (decision 2026-11-02) ---------------------
+
+@pytest.mark.parametrize("email,expected", [
+    ("judgmentwet+benavides@gmail.com", True),
+    ("lays.gremlin-03+c706@icloud.com", True),
+    ("plain@gmail.com", False),
+    ("first.last@outlook.com", False),
+    ("weird@plus+domain.com", False),   # + in the domain is not a tag
+    ("no-at-sign+x", False),
+])
+def test_has_plus_tag(email, expected):
+    assert campaign.has_plus_tag(email) is expected
+
+
+def test_plus_address_gets_no_key_no_grants_and_no_campaign(db, campaign_on, gateway):
+    user = _mk_user(db, "monaf7276+carlin@gmail.com")   # verified, allowlisted domain, first on its inbox
+    assert campaign.mailbox_taken(db, user) is False
+    assert campaign.ineligible_reason(user) == "plus_address"
+    assert campaign.ensure_account(db, user) is None
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert campaign.status_payload(db, user) == {"enabled": False}
+    assert gateway == []
+
+
+def test_existing_key_on_plus_address_stays_visible_but_stops_earning(db, campaign_on, gateway):
+    user = _mk_user(db, "real.person+work@gmail.com")
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=9, api_key="sk-plus"))
+    db.add(CampaignGrant(user_id=user.id, milestone="signup", amount_usd=5.0))
+    db.commit()
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["apiKey"] == "sk-plus"
+    assert gateway == []
+
+
+def test_plain_address_still_earns_when_plus_rule_is_on(db, campaign_on, gateway):
+    user = _mk_user(db, "monaf7276@gmail.com")
+    assert campaign.ineligible_reason(user) is None
+    assert campaign.ensure_account(db, user) is not None
+
+
+# --- Real backing for agents + openagents.org account (decision 2026-11-07) --
+
+def test_api_only_agent_earns_nothing(db, campaign_on, gateway):
+    """The 11-05 script: no device, fake agents on localhost:/tmp answering themselves."""
+    user = _mk_user(db, "p659179391090249761@gmail.com")
+    ws = _mk_workspace(db, user, device=False)
+    campaign.ensure_account(db, user)
+    with patch.object(campaign, "SessionLocal", lambda: _NoCloseSession(db)):
+        _mk_member(db, ws, "p1cli", "claude", server_host="localhost", working_dir="/tmp")
+        _mk_member(db, ws, "p1helper", "codex", server_host="localhost", working_dir="/tmp")
+        campaign.on_agent_joined(str(ws.id), "claude")
+        campaign.on_agent_joined(str(ws.id), "codex")
+        _mk_message(db, ws, "human:user")
+        _mk_message(db, ws, "openagents:p1cli")
+        campaign.on_agent_message(str(ws.id), "openagents:p1cli")
+        campaign.on_agent_message(str(ws.id), "openagents:p1helper")
+    campaign.reconcile(db, user.id)
+    assert campaign.total_granted(db, user.id) == 5.0      # signup only
+    assert campaign._connected_agent_types(db, user.id) == set()
+
+
+def test_agent_with_a_real_host_counts_without_a_registered_device(db, campaign_on, gateway):
+    """Older launchers/CLIs don't register a node but report the machine name."""
+    user = _mk_user(db, "legacy@gmail.com")
+    ws = _mk_workspace(db, user, device=False)
+    campaign.ensure_account(db, user)
+    _mk_member(db, ws, "claude-1", "claude", server_host="Stefs-Mac-Mini.local")
+    assert campaign._connected_agent_types(db, user.id) == {"claude"}
+
+
+def test_registered_device_makes_a_localhost_agent_count(db, campaign_on, gateway):
+    user = _mk_user(db, "node@gmail.com")
+    ws = _mk_workspace(db, user, device=True)
+    _mk_member(db, ws, "claude-1", "claude", server_host="localhost")
+    assert campaign._connected_agent_types(db, user.id) == {"claude"}
+
+
+def test_milestone_hooks_do_not_mint_a_key(db, campaign_on, gateway):
+    user = _mk_user(db, "nokey@gmail.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+    assert db.get(CampaignAccount, user.id) is None
+    # The status view mints the key and reconcile catches the milestone up.
+    payload = campaign.status_payload(db, user)
+    assert payload["enabled"] is True and payload["apiKey"]
+    assert campaign.total_granted(db, user.id) == 25.0
+
+
+def test_no_key_without_an_openagents_account(db, campaign_on, gateway):
+    user = _mk_user(db, "direct-firebase@gmail.com")
+    _mk_workspace(db, user)
+    assert campaign.status_payload(db, user, account_confirmed=False) == {"enabled": False}
+    assert db.get(CampaignAccount, user.id) is None
+    assert campaign.status_payload(db, user, account_confirmed=True)["apiKey"]
+
+
+def test_existing_key_is_kept_even_if_account_check_fails(db, campaign_on, gateway):
+    user = _mk_user(db, "had-key@gmail.com")
+    db.add(CampaignAccount(user_id=user.id, gateway_key_id=11, api_key="sk-old"))
+    db.commit()
+    assert campaign.status_payload(db, user, account_confirmed=False)["apiKey"] == "sk-old"
+
+
+@pytest.mark.parametrize("status,expected", [(200, True), (404, False), (500, None), (401, None)])
+def test_account_api_confirms(monkeypatch, status, expected):
+    monkeypatch.setattr(config, "ACCOUNT_API_URL", "https://endpoint.example")
+    resp = MagicMock(); resp.status_code = status
+    monkeypatch.setattr(campaign.httpx, "get", lambda *a, **k: resp)
+    assert campaign.account_api_confirms("firebase-id-token") is expected
+
+
+def test_account_api_confirms_without_bearer_or_on_error(monkeypatch):
+    monkeypatch.setattr(config, "ACCOUNT_API_URL", "https://endpoint.example")
+    assert campaign.account_api_confirms(None) is None
+    def boom(*a, **k): raise RuntimeError("down")
+    monkeypatch.setattr(campaign.httpx, "get", boom)
+    assert campaign.account_api_confirms("t") is None
+
+
+# ── Campaign ended: existing key holders keep a read-only view ────────────
+
+def test_ended_campaign_shows_holders_their_key_and_grants_nothing(db, campaign_on, gateway, monkeypatch):
+    holder = _mk_user(db, "holder@example.com")
+    campaign.ensure_account(db, holder)
+    campaign.grant(db, holder.id, "first_agent", 20.0)
+    newcomer = _mk_user(db, "new@example.com")
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    assert campaign.holders_visible()
+
+    view = campaign.ended_payload(db, holder)
+    assert view["enabled"] is False and view["ended"] is True
+    assert view["apiKey"] == "sk-demo-test" and view["totalGrantedUsd"] == 25.0
+    assert view["usage"]["costLimitUsd"] == 5.0
+
+    assert campaign.ended_payload(db, newcomer) == {"enabled": False}
+    assert db.query(CampaignAccount).filter_by(user_id=newcomer.id).count() == 0
+    grants_before = db.query(CampaignGrant).count()
+    assert campaign.grant(db, holder.id, "second_agent", 10.0) is False
+    assert db.query(CampaignGrant).count() == grants_before
+
+
+def test_no_holder_view_without_a_gateway(db, monkeypatch):
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    monkeypatch.setattr(config, "CAMPAIGN_GATEWAY_MASTER_KEY", "")
+    assert not campaign.holders_visible()
+
+
+def test_status_route_serves_holders_after_the_campaign_ends(client, db, campaign_on, gateway, monkeypatch):
+    holder = _mk_user(db, "holder@example.com")
+    campaign.ensure_account(db, holder)
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    monkeypatch.setattr("app.routers.campaign.resolve_current_user", lambda db_, auth: holder if auth else None)
+    signed_in = client.get("/v1/campaign/status", headers={"Authorization": "Bearer x"}).json()["data"]
+    assert signed_in["ended"] is True and signed_in["apiKey"] == "sk-demo-test" and signed_in["enabled"] is False
+    assert client.get("/v1/campaign/status").json()["data"] == {"enabled": False}

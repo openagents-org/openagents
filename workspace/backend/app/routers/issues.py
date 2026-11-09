@@ -13,20 +13,22 @@ from typing import Literal, Optional
 from fastapi import BackgroundTasks, APIRouter, Depends, Header, HTTPException, Query
 from pydantic_core import PydanticCustomError
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import resolve_current_user, verify_workspace_access
+from app.access import resolve_current_user, role_at_least, verify_workspace_access
 from app.database import get_db
 from app.models import (
     Channel,
     EventRecord,
     Issue,
+    IssueBoard,
     IssueComment,
     IssueThread,
     IssueAgentSharing,
     ApprovalRequest,
+    NotificationRecord,
     WorkspaceMember,
     WorkspaceMembership,
     User,
@@ -37,6 +39,8 @@ from openagents.core.onm_events import Event
 
 router = APIRouter(prefix="/v1/issues", tags=["Issues"])
 IssueStatus = Literal["open", "in_progress", "paused", "closed"]
+# The default board is implicit: issues with no board_id are on it.
+TEAM_BOARD = "team"
 
 
 class ActorRequest(BaseModel):
@@ -51,6 +55,7 @@ class CreateIssueRequest(ActorRequest):
     title: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=50000)
     channel_name: Optional[str] = None
+    board_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -75,6 +80,7 @@ class UpdateIssueRequest(ActorRequest):
     status: Optional[IssueStatus] = None
     assignee: Optional[str] = Field(default=None, max_length=330)
     labels: Optional[list[str]] = Field(default=None, max_length=20)
+    board_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("labels")
     @classmethod
@@ -98,6 +104,7 @@ class UpdateIssueRequest(ActorRequest):
 
 class CommentRequest(ActorRequest):
     knowledge_ids: list[str] = Field(default_factory=list, max_length=100)
+    file_ids: list[str] = Field(default_factory=list, max_length=20)
     content: str = Field(default="", max_length=50000)
     source_event_id: Optional[str] = None
     reply_to_event_id: Optional[str] = None
@@ -105,6 +112,15 @@ class CommentRequest(ActorRequest):
 
 class LinkThreadRequest(ActorRequest):
     channel_name: str
+
+
+class BoardRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_not_blank(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
 
 
 class ParticipantRequest(BaseModel):
@@ -139,6 +155,18 @@ def _issue(db, workspace, issue_id, lock=False):
     if not issue:
         raise HTTPException(404, "Issue not found")
     return issue
+
+
+def _board_id(db, workspace, board):
+    """API board reference → stored board_id (None for the Team issues board)."""
+    if not board or board == TEAM_BOARD:
+        return None
+    found = db.execute(select(IssueBoard.id).where(
+        IssueBoard.workspace_id == workspace.id, IssueBoard.id == board,
+    )).scalar_one_or_none()
+    if not found:
+        raise HTTPException(404, "Issue board not found")
+    return found
 
 
 def _actor(db, authorization, source, source_name=None):
@@ -224,6 +252,7 @@ def _serialize(issue):
             "participants",
         )
     } | {
+        "board_id": issue.board_id or TEAM_BOARD,
         "due_date": issue.due_date.isoformat() if issue.due_date else None,
         "created_at": _iso(issue.created_at),
         "updated_at": _iso(issue.updated_at),
@@ -235,8 +264,25 @@ def _comment(comment):
         key: getattr(comment, key)
         for key in ("id", "author", "author_name", "content", "kind", "source_event_id")
     } | {
+        "file_ids": comment.file_ids or [],
         "created_at": _iso(comment.created_at),
     }
+
+
+def _attach_comment_files(db, workspace, viewer, discussion):
+    from app.models import FileRecord
+    from app.services.access_model import can_read_file
+    ids = {i for item in discussion for i in item.get("file_ids") or []}
+    if not ids:
+        return
+    files = {f.id: f for f in db.execute(select(FileRecord).where(
+        FileRecord.workspace_id == workspace.id, FileRecord.id.in_(ids), FileRecord.status == "active",
+    )).scalars() if can_read_file(db, str(workspace.id), viewer, f)}
+    for item in discussion:
+        item["attachments"] = [
+            {"file_id": f.id, "filename": f.filename, "content_type": f.content_type, "size": f.size}
+            for f in (files.get(i) for i in item.get("file_ids") or []) if f
+        ]
 
 
 def _add_comment(
@@ -324,6 +370,79 @@ def _participants(db, issue, channels):
     return list(people.values())
 
 
+def issue_signal_channel(issue_id) -> str:
+    """Signal channel for an issue; the web app reads it as `issue:<id>`."""
+    return f"issue:{issue_id}"
+
+
+def _signal_people(db, workspace, issue, actor, emails, kind, title, message):
+    """File personal unread signals about an issue; never to the actor."""
+    from app.services.people_notify import _is_member
+    from app.services.notify import notify
+
+    me = actor.removeprefix("human:").lower()
+    sent = set()
+    for email in sorted({e.lower() for e in emails if e and "@" in e} - {me}):
+        if not _is_member(db, workspace, email):
+            continue
+        sent.add(email)
+        # Activity collapses into the person's one unread row for the issue;
+        # mentions stay individual so each can be found.
+        latest = db.execute(select(NotificationRecord).where(
+            NotificationRecord.workspace_id == str(workspace.id),
+            NotificationRecord.recipient_email == email,
+            NotificationRecord.channel_name == issue_signal_channel(issue.id),
+            NotificationRecord.kind == "issue",
+            NotificationRecord.is_read.is_(False),
+            NotificationRecord.status == "active",
+        ).limit(1)).scalar_one_or_none() if kind == "issue" else None
+        if latest is not None:
+            latest.title, latest.message, latest.created_by = title, message, actor
+            latest.created_at = datetime.now(timezone.utc)
+            continue
+        notify(
+            db, str(workspace.id),
+            source=actor,
+            kind=kind,
+            recipient_email=email,
+            channel_name=issue_signal_channel(issue.id),
+            title=title,
+            message=message,
+            reason="mention",
+            # Phones open `channel` as a thread; an issue id would not resolve.
+            push=False,
+        )
+    return sent
+
+
+def _snippet_of(content):
+    from app.services.people_notify import _snippet
+    return _snippet(content)
+
+
+def _issue_people(issue):
+    """People following an issue: its creator, assignee and joined participants."""
+    sources = [issue.created_by, issue.assignee] + [
+        p["source"] for p in issue.participants or [] if not p.get("removed")]
+    return {s.removeprefix("human:").lower() for s in sources
+            if s and s.startswith("human:") and "@" in s}
+
+
+def _notify_issue_activity(db, workspace, issue, actor, actor_name, content, activity=None):
+    """Signal people @mentioned in `content`; with `activity`, also the issue's followers."""
+    from app.services.people_notify import _readable_mentions, _snippet, mentioned_people
+
+    name = actor_name or actor.split(":", 1)[-1]
+    prose = re.sub(r"```[\s\S]*?```|`[^`\n]*`|(?m:^>.*$)", "", content or "")
+    message = _snippet(_readable_mentions(db, str(workspace.id), prose))
+    mentioned = _signal_people(
+        db, workspace, issue, actor, mentioned_people(db, str(workspace.id), {"content": prose}),
+        "mention", f"{name} mentioned you in {issue.title}", message)
+    if activity:
+        _signal_people(db, workspace, issue, actor, _issue_people(issue) - mentioned,
+                       "issue", f"{name} {activity} {issue.title}", message)
+
+
 def _mentioned_agents(content, agents):
     # Exact handles only: email addresses and longer handles must not trigger
     # a similarly named agent. Code snippets and quoted text are passive.
@@ -338,6 +457,7 @@ def list_issues(
     status: Optional[IssueStatus] = None,
     assigned_to_me: bool = False,
     active_only: bool = False,
+    board: Optional[str] = Query(None, max_length=64),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -346,6 +466,9 @@ def list_issues(
 ):
     workspace = _access(network, db, x_workspace_token, authorization)
     query = select(Issue).where(Issue.workspace_id == workspace.id)
+    if board is not None:
+        board_id = _board_id(db, workspace, board)
+        query = query.where(Issue.board_id.is_(None) if board_id is None else Issue.board_id == board_id)
     if assigned_to_me:
         user = resolve_current_user(db, authorization)
         if not user:
@@ -392,7 +515,8 @@ def list_issues(
     return success_response(
         {
             "issues": [
-                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, [])}
+                _serialize(i) | {"comment_count": counts.get(i.id, 0), "linked_channels": linked.get(i.id, []),
+                                 "can_delete": _can_delete(viewer, i)}
                 for i in rows[:limit]
             ],
             "next_offset": offset + limit if len(rows) > limit else None,
@@ -418,6 +542,7 @@ def create_issue(
     viewer = _viewer(db, workspace, x_workspace_token, authorization)
     knowledge_ids, file_ids = _validate_context(db, workspace, viewer, body.knowledge_ids, body.file_ids)
     issue = Issue(
+        board_id=_board_id(db, workspace, body.board_id),
         assignee=assignee, assignee_name=assignee_name,
         knowledge_ids=knowledge_ids, file_ids=file_ids,
         participants=[{"source": assignee, "name": assignee_name}] if assignee else [],
@@ -431,6 +556,11 @@ def create_issue(
     db.flush()
     if channel:
         _link_thread(db, issue, channel)
+    if actor.startswith("human:"):
+        _notify_issue_activity(db, workspace, issue, actor, actor_name, issue.description)
+    if assignee:
+        _signal_people(db, workspace, issue, actor, {assignee.removeprefix("human:")}, "issue",
+                       f"{actor_name} assigned you {issue.title}", _snippet_of(issue.description))
     db.commit()
     return success_response(_serialize(issue))
 
@@ -448,6 +578,118 @@ def list_issue_labels(
         for value in values or []:
             labels.setdefault(value.casefold(), value)
     return success_response({"labels": sorted(labels.values(), key=str.casefold)})
+
+
+def _can_manage_board(viewer, board):
+    """The person who created a board, or a workspace admin, may rename or delete it."""
+    if viewer.kind != "human" or not viewer.email:
+        return False
+    return f"human:{viewer.email}".lower() == board.created_by.lower() or role_at_least(viewer.role, "admin")
+
+
+def _board_name_taken(db, workspace, name, exclude=None):
+    if name.casefold() == "team issues":
+        return True
+    query = select(IssueBoard.id).where(IssueBoard.workspace_id == workspace.id,
+                                        func.lower(IssueBoard.name) == name.lower())
+    if exclude:
+        query = query.where(IssueBoard.id != exclude)
+    return db.scalar(query.limit(1)) is not None
+
+
+@router.get("/boards")
+def list_issue_boards(
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """The default Team issues board first, then extra boards oldest first."""
+    workspace = _access(network, db, x_workspace_token, authorization)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    counts = dict(db.execute(
+        select(Issue.board_id, func.count()).where(
+            Issue.workspace_id == workspace.id, Issue.status.in_(("open", "in_progress")),
+        ).group_by(Issue.board_id)
+    ).all())
+    boards = db.scalars(select(IssueBoard).where(IssueBoard.workspace_id == workspace.id)
+                        .order_by(IssueBoard.created_at, IssueBoard.id)).all()
+    return success_response({"boards": [
+        {"id": TEAM_BOARD, "name": "Team issues", "default": True, "active_count": counts.get(None, 0),
+         "can_manage": False},
+        *({"id": b.id, "name": b.name, "default": False, "active_count": counts.get(b.id, 0),
+           "created_by": b.created_by, "can_manage": _can_manage_board(viewer, b)} for b in boards),
+    ]})
+
+
+@router.post("/boards")
+def create_issue_board(
+    body: BoardRequest,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in to create an issue board")
+    if _board_name_taken(db, workspace, body.name):
+        raise HTTPException(409, "A board with this name already exists")
+    board = IssueBoard(workspace_id=workspace.id, name=body.name, created_by=f"human:{viewer.email.lower()}")
+    db.add(board)
+    db.commit()
+    return success_response({"id": board.id, "name": board.name, "default": False, "active_count": 0,
+                             "created_by": board.created_by, "can_manage": True})
+
+
+def _managed_board(db, workspace, viewer, board_id):
+    board = db.execute(select(IssueBoard).where(
+        IssueBoard.workspace_id == workspace.id, IssueBoard.id == board_id,
+    ).with_for_update()).scalar_one_or_none()
+    if not board:
+        raise HTTPException(404, "Issue board not found")
+    if not _can_manage_board(viewer, board):
+        raise HTTPException(403, "Only the person who created this board or a workspace admin can change it")
+    return board
+
+
+@router.patch("/boards/{board_id}")
+def rename_issue_board(
+    board_id: str,
+    body: BoardRequest,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    board = _managed_board(db, workspace, _viewer(db, workspace, x_workspace_token, authorization), board_id)
+    if _board_name_taken(db, workspace, body.name, exclude=board.id):
+        raise HTTPException(409, "A board with this name already exists")
+    board.name = body.name
+    db.commit()
+    return success_response({"id": board.id, "name": board.name})
+
+
+@router.delete("/boards/{board_id}")
+def delete_issue_board(
+    board_id: str,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Delete a board. Its issues are kept and move to Team issues."""
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    board = _managed_board(db, workspace, _viewer(db, workspace, x_workspace_token, authorization), board_id)
+    moved = 0
+    for issue in db.scalars(select(Issue).where(Issue.workspace_id == workspace.id, Issue.board_id == board.id)):
+        issue.board_id = None
+        moved += 1
+    db.delete(board)
+    db.commit()
+    return success_response({"id": board_id, "deleted": True, "moved_issues": moved})
 
 
 def _discussion_entries(db, issue, channels, limit=None):
@@ -540,6 +782,7 @@ def get_issue(
     # Project completed chat replies into the discussion without copying
     # private thread content into a workspace-visible IssueComment record.
     discussion = _discussion_entries(db, issue, channels)
+    _attach_comment_files(db, workspace, viewer, discussion)
     from app.services.approvals import serialize_with_owner
     for approval in db.execute(select(ApprovalRequest).where(ApprovalRequest.workspace_id == workspace.id,
             ApprovalRequest.channel_name.in_(names), ApprovalRequest.kind == "issue_agent_request")).scalars():
@@ -565,6 +808,7 @@ def get_issue(
             "participants": participants,
             "comments": discussion,
             "agent_sharing_mode": (db.get(IssueAgentSharing, (issue.id, viewer.email)).mode if viewer.email and db.get(IssueAgentSharing, (issue.id, viewer.email)) else "no"),
+            "can_delete": _can_delete(viewer, issue),
             "threads": [
                 {
                     "channel_name": c.name,
@@ -617,6 +861,9 @@ def update_issue(
             issue.participants = list(roster.values())
         issue.assignee, issue.assignee_name = assignee, name
         _add_comment(db, issue, actor, f"assigned this issue to {name}" if name else "removed the assignment", "activity", author_name=actor_name)
+        if assignee:
+            _signal_people(db, workspace, issue, actor, {assignee.removeprefix("human:")}, "issue",
+                           f"{actor_name} assigned you {issue.title}", _snippet_of(issue.description))
     if body.knowledge_ids is not None or body.file_ids is not None:
         viewer = _viewer(db, workspace, x_workspace_token, authorization)
         knowledge_ids, file_ids = _validate_context(db, workspace, viewer,
@@ -628,6 +875,12 @@ def update_issue(
     if body.labels is not None and body.labels != issue.labels:
         issue.labels = body.labels
         _add_comment(db, issue, actor, "updated labels: " + (", ".join(body.labels) or "none"), "activity", author_name=actor_name)
+    if "board_id" in body.model_fields_set:
+        board_id = _board_id(db, workspace, body.board_id)
+        if board_id != issue.board_id:
+            board_name = db.scalar(select(IssueBoard.name).where(IssueBoard.id == board_id)) if board_id else "Team issues"
+            issue.board_id = board_id
+            _add_comment(db, issue, actor, f"moved this issue to {board_name}", "activity", author_name=actor_name)
     if body.title is not None:
         issue.title = body.title
     if body.description is not None:
@@ -641,9 +894,75 @@ def update_issue(
             "status",
             author_name=actor_name,
         )
+        _signal_people(db, workspace, issue, actor, _issue_people(issue), "issue",
+                       f"{actor_name} updated {issue.title}", f"{issue.status} → {body.status}")
         issue.status = body.status
     db.commit()
     return success_response(_serialize(issue))
+
+
+def _can_delete(viewer, issue):
+    """Only the signed-in person who opened an issue, or a workspace admin, may delete it."""
+    if viewer.kind != "human" or not viewer.email:
+        return False
+    return f"human:{viewer.email}" == issue.created_by.lower() or role_at_least(viewer.role, "admin")
+
+
+@router.delete("/{issue_id}")
+def delete_issue(
+    issue_id: str,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Delete an issue together with the agent threads it started.
+
+    Ordinary threads that were only linked to the issue stay. Kanban tasks
+    keep their cards and just lose the link.
+    """
+    from app.services.approvals import STATUS_EXPIRED, STATUS_PENDING
+    from app.services.workflow import cancel_run
+
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    issue = _issue(db, workspace, issue_id, lock=True)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    if not _can_delete(viewer, issue):
+        raise HTTPException(403, "Only the person who opened this issue or a workspace admin can delete it")
+    now = datetime.now(timezone.utc)
+    # Work threads are hidden from the conversation list and only open from
+    # their issue, so they would be unreachable once it is gone. Keep one that
+    # another issue also links.
+    retired = []
+    for channel in _linked_channels(db, issue):
+        if not channel.name.startswith("issue-work-") or db.scalar(select(IssueThread.issue_id).where(
+                IssueThread.channel_id == channel.id, IssueThread.issue_id != issue.id).limit(1)):
+            continue
+        channel.status = "deleted"
+        cancel_run(db, str(workspace.id), channel.name)
+        retired.append(channel.name)
+    if retired:
+        for approval in db.scalars(select(ApprovalRequest).where(
+                ApprovalRequest.workspace_id == workspace.id,
+                ApprovalRequest.channel_name.in_(retired),
+                ApprovalRequest.status == STATUS_PENDING)):
+            approval.status, approval.resolved_by, approval.resolved_at = STATUS_EXPIRED, "system", now
+    # Unread signals would otherwise keep pointing at an issue that no longer exists.
+    for notification in db.scalars(select(NotificationRecord).where(
+            NotificationRecord.workspace_id == str(workspace.id),
+            NotificationRecord.status == "active",
+            or_(NotificationRecord.channel_name.in_([issue_signal_channel(issue.id), *retired]),
+                and_(NotificationRecord.kind == "issue_completed",
+                     NotificationRecord.action_ref.endswith(f":{issue.id}"))))):
+        notification.status = "dismissed"
+    # Comments, thread links and sharing settings cascade in the database;
+    # linked Kanban tasks are set to no issue.
+    logging.getLogger(__name__).info(
+        "issue deleted ws=%s id=%s title=%r by=%s retired=%s",
+        workspace.id, issue.id, issue.title, viewer.email, retired)
+    db.delete(issue)
+    db.commit()
+    return success_response({"id": issue_id, "deleted": True})
 
 
 @router.post("/{issue_id}/comments")
@@ -660,6 +979,7 @@ def add_comment(
     issue = _issue(db, workspace, issue_id, lock=True)
     actor, actor_name = _actor(db, authorization, body.source, body.source_name)
     content, kind = body.content.strip(), "comment"
+    sharer = actor
     if body.source_event_id:
         event = db.get(EventRecord, body.source_event_id)
         if event and (event.target or "").startswith("channel/") and not _can_see(
@@ -693,7 +1013,13 @@ def add_comment(
             "result",
         )
         actor_name = event.source.removeprefix("openagents:")
-    if not content:
+    file_ids = []
+    if body.file_ids:
+        if kind != "comment" or not actor.startswith("human:"):
+            raise HTTPException(422, "Only human comments can attach files")
+        _, file_ids = _validate_context(db, workspace,
+            _viewer(db, workspace, x_workspace_token, authorization), [], body.file_ids)
+    if not content and not file_ids:
         raise HTTPException(422, "Comment cannot be empty")
     targets = []
     if kind == "comment" and actor.startswith("human:"):
@@ -740,6 +1066,12 @@ def add_comment(
     comment = _add_comment(
         db, issue, actor, content, kind, body.source_event_id, author_name=actor_name
     )
+    comment.file_ids = file_ids
+    if kind == "comment" and actor.startswith("human:"):
+        _notify_issue_activity(db, workspace, issue, actor, actor_name, body.content, "commented on")
+    elif kind == "result":
+        _signal_people(db, workspace, issue, sharer, _issue_people(issue), "issue",
+                       f"{actor_name} shared a result in {issue.title}", _snippet_of(content))
     try:
         db.commit()
     except IntegrityError:
@@ -772,9 +1104,9 @@ def add_comment(
     if targets:
         try:
             if reply_channel:
-                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks)
+                result["channel_name"] = _continue_issue_work(db, workspace, issue, reply_channel, actor, actor_name, targets, content, background_tasks, file_ids)
             else:
-                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks)
+                result["channel_name"] = _start_issue_work(db, workspace, issue, actor, actor_name, targets, content, background_tasks, file_ids)
         except Exception:
             # The comment is saved. Do not encourage reposting it (which could
             # create duplicate work); expose delivery failure separately.
@@ -800,10 +1132,18 @@ def link_thread(
     return success_response({"linked": True})
 
 
-def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks):
+def _comment_attachments(db, workspace, file_ids):
+    from types import SimpleNamespace
+    from app.routers.tasks import _task_attachments
+    return _task_attachments(db, str(workspace.id), SimpleNamespace(issue_id=None, file_ids=file_ids)) if file_ids else []
+
+
+def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agents, content, background_tasks, file_ids=()):
+    attachments = _comment_attachments(db, workspace, list(file_ids))
     sent = _emit_event_blocking(Event(
         type="workspace.message.posted", source=actor, target=f"channel/{channel.name}",
         payload={"content": content, "message_type": "chat", "sender_name": actor_name,
+                 **({"attachments": attachments} if attachments else {}),
                  "sender_email": actor.removeprefix("human:") if "@" in actor else None},
         metadata={"target_agents": agents},
     ), workspace, db, token=workspace.password_hash)
@@ -821,7 +1161,7 @@ def _continue_issue_work(db, workspace, issue, channel, actor, actor_name, agent
     return channel.name
 
 
-def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks):
+def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instruction, background_tasks, file_ids=()):
     # New work threads are workspace-visible. Include the same projected
     # replies shown in the issue, but never copy private linked-thread content
     # into that wider audience. Explicitly shared result comments are public.
@@ -861,7 +1201,7 @@ def _start_issue_work(db, workspace, issue, actor, actor_name, agents, instructi
     db.commit()
     from types import SimpleNamespace
     from app.routers.tasks import _context_block, _task_attachments
-    context = SimpleNamespace(issue_id=issue.id, knowledge_ids=[], file_ids=[])
+    context = SimpleNamespace(issue_id=issue.id, knowledge_ids=[], file_ids=list(file_ids))
     attachments = _task_attachments(db, str(workspace.id), context)
     kickoff = Event(
         type="workspace.message.posted",
@@ -912,6 +1252,7 @@ def add_participants(
     workspace = _access(network, db, x_workspace_token, authorization, write=True)
     issue = _issue(db, workspace, issue_id, lock=True)
     participants = {p["source"]: p for p in (issue.participants or [])}
+    already = _issue_people(issue)
     # Validate the entire selection before changing the saved roster. Adding
     # an agent here is passive: only the explicit start-work endpoint routes it.
     for person in body.participants:
@@ -937,6 +1278,11 @@ def add_participants(
         participants[source] = {"source": source, "name": member.display_name or identity}
     issue.participants = list(participants.values())
     issue.updated_at = datetime.now(timezone.utc)
+    user = resolve_current_user(db, authorization)
+    actor = f"human:{user.email}" if user else "human:user"
+    actor_name = (user.display_name or user.email) if user else "Someone"
+    _signal_people(db, workspace, issue, actor, _issue_people(issue) - already, "issue",
+                   f"{actor_name} added you to {issue.title}", _snippet_of(issue.description))
     db.commit()
     return success_response({"participants": issue.participants})
 

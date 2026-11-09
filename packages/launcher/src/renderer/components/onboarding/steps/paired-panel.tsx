@@ -71,7 +71,7 @@ export function PairedPanel({
     <>
       <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
 
-      <div className="flex items-center gap-2.5 rounded-lg border border-(--success-border) bg-(--success-bg) px-4 py-3.5">
+      <div className="flex items-center gap-2.5 rounded-lg border bg-card px-4 py-3.5">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--success) text-white">
           <Check className="size-4" />
         </span>
