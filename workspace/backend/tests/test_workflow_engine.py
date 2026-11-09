@@ -335,7 +335,7 @@ class TestJudgeRequest:
 
         answer = " Done " if purpose == "completion" else " Yes "
         judge_client.chat.completions.create.return_value = self.response(answer)
-        judge_client.messages.create.return_value = Mock(content=[Mock(text=answer)])
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
         if purpose == "completion":
             assert _step_complete(_agent_step("Draft"), "finished") is True
         else:
@@ -358,7 +358,7 @@ class TestJudgeRequest:
     def test_empty_verdict_is_logged_failure(self, monkeypatch, judge_client, caplog, provider, answer):
         monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
         judge_client.chat.completions.create.return_value = self.response(answer)
-        judge_client.messages.create.return_value = Mock(content=[Mock(text=answer)])
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
         assert real_judge("judge this") is None
         assert "empty verdict" in caplog.text
 
@@ -423,7 +423,7 @@ class TestJudgeRequest:
         monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
         monkeypatch.setattr("app.mods.workspace_mod._get_router_model", lambda: model)
         judge_client.chat.completions.create.return_value = self.response(answer)
-        judge_client.messages.create.return_value = Mock(content=[Mock(text=answer)])
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
         if purpose == "completion":
             assert _step_complete(_agent_step("Draft"), "finished") is False
         else:

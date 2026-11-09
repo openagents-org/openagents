@@ -8,30 +8,10 @@
  * ~/.pi/agent/models.json and auth.json untouched.
  */
 
-const value = (name) => String(process.env[name] || '').trim()
+import launcherConfig from './pi-provider-config.js'
 
-const PROVIDER_DEFAULTS = {
-  anthropic: {
-    baseUrl: 'https://api.anthropic.com',
-    api: 'anthropic-messages',
-  },
-  openai: {
-    baseUrl: 'https://api.openai.com/v1',
-    api: 'openai-responses',
-  },
-  deepseek: {
-    baseUrl: 'https://api.deepseek.com/v1',
-    api: 'openai-completions',
-  },
-  google: {
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    api: 'google-generative-ai',
-  },
-  openrouter: {
-    baseUrl: 'https://openrouter.ai/api/v1',
-    api: 'openai-completions',
-  },
-}
+const { PROVIDER_DEFAULTS, launcherProviderId } = launcherConfig
+const value = (name) => String(process.env[name] || '').trim()
 
 function providerKey(provider) {
   return value('PI_API_KEY') || {
@@ -78,7 +58,13 @@ export default function configureLauncherProvider(pi) {
     compat.supportsDeveloperRole = false
   }
 
-  pi.registerProvider(provider, {
+  // Pi prefers auth.json credentials over an extension's configured key.
+  // Match the adapter's process-local provider id when Launcher supplied a
+  // key, while keyless relays can still reuse their existing Pi login.
+  const providerId = launcherProviderId({
+    provider, model, baseUrl: configuredBaseUrl, apiKey: value('PI_API_KEY'),
+  })
+  pi.registerProvider(providerId, {
     baseUrl,
     api,
     // Pass the resolved secret directly to the process-local provider. This is

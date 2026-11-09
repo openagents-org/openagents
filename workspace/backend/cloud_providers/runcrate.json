@@ -1,0 +1,41 @@
+{
+  "name": "runcrate",
+  "label": "Runcrate",
+  "description": "Open models on an AI cloud",
+  "description_zh": "AI 云上的开源模型",
+  "key_url": "https://www.runcrate.ai/dashboard/api-keys",
+  "base_url": "https://api.runcrate.ai/v1",
+  "order": 125,
+  "models": [
+    {
+      "id": "deepseek-ai/DeepSeek-V3.2",
+      "category": "chat",
+      "label": "DeepSeek V3.2"
+    },
+    {
+      "id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+      "category": "chat",
+      "label": "Qwen3 235B"
+    },
+    {
+      "id": "moonshotai/Kimi-K2.6",
+      "category": "chat",
+      "label": "Kimi K2.6"
+    },
+    {
+      "id": "zai-org/GLM-5.2",
+      "category": "chat",
+      "label": "GLM 5.2"
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "category": "chat",
+      "label": "gpt-oss 120B"
+    },
+    {
+      "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "category": "chat",
+      "label": "Llama 3.3 70B"
+    }
+  ]
+}

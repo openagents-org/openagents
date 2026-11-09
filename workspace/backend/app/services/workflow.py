@@ -236,7 +236,12 @@ _JUDGE_MAX_TOKENS = 64
 
 def _judge(prompt: str) -> Optional[str]:
     """Run a one-word judgment; None if unavailable, failed, or empty."""
-    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+    from app.mods.workspace_mod import (
+        _anthropic_text,
+        _get_llm_client,
+        _get_router_api_key,
+        _get_router_model,
+    )
 
     if not _get_router_api_key():
         return None
@@ -259,7 +264,7 @@ def _judge(prompt: str) -> Optional[str]:
                 max_tokens=_JUDGE_MAX_TOKENS,
                 messages=[{"role": "user", "content": prompt}],
             )
-            verdict = resp.content[0].text if resp.content else None
+            verdict = _anthropic_text(resp)
         verdict = (verdict or "").strip().lower()
         if not verdict:
             logger.warning("workflow judge returned an empty verdict (model %s)", model)

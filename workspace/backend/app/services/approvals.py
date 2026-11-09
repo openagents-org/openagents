@@ -163,7 +163,12 @@ def _match_custom_rules(rules: list, action: str, details: Optional[str]) -> dic
     Missing, malformed, unavailable or uncertain results retain the safeguard.
     The caller validates the full response and computes the verdict itself.
     """
-    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+    from app.mods.workspace_mod import (
+        _anthropic_text,
+        _get_llm_client,
+        _get_router_api_key,
+        _get_router_model,
+    )
     if not _get_router_api_key():
         return {}
     instruction = (
@@ -187,7 +192,7 @@ def _match_custom_rules(rules: list, action: str, details: Optional[str]) -> dic
         else:
             response = client.messages.create(model=_get_router_model(), max_tokens=1500,
                 system=instruction, messages=[{"role": "user", "content": data}])
-            raw = response.content[0].text
+            raw = _anthropic_text(response)
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
     except Exception:

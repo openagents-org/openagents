@@ -29,6 +29,7 @@ class LLMProviderType(str, Enum):
     OPENROUTER = "openrouter"
     ORCAROUTER = "orcarouter"
     REQUESTY = "requesty"
+    RUNCRATE = "runcrate"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -201,6 +202,18 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://router.requesty.ai/v1",
         "models": [],  # User specifies model name (e.g., "openai/gpt-4o-mini")
         "API_KEY_ENV_VAR": "REQUESTY_API_KEY",
+    },
+    # Runcrate (OpenAI-compatible inference API on an AI cloud, open-weight models)
+    "runcrate": {
+        "provider": "generic",
+        "api_base": "https://api.runcrate.ai/v1",
+        "models": [
+            "deepseek-ai/DeepSeek-V3.2",
+            "Qwen/Qwen3-235B-A22B-Instruct-2507",
+            "moonshotai/Kimi-K2.6",
+            "openai/gpt-oss-120b",
+        ],
+        "API_KEY_ENV_VAR": "RUNCRATE_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -421,6 +434,8 @@ def determine_provider(
             return "gemini"
         elif "groq.com" in api_base:
             return "groq"
+        elif "runcrate.ai" in api_base:
+            return "runcrate"
 
     # Return already detected provider if found from model name
     if detected_provider:
@@ -518,6 +533,7 @@ def create_model_provider(
         "openrouter",
         "orcarouter",
         "requesty",
+        "runcrate",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:

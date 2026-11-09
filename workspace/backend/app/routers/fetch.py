@@ -663,7 +663,11 @@ async def _run_fetch_chain(body: FetchRequest, workspace, db: Session, trace: di
     # intercept its navigation, so the render tier there is only as confined
     # as BF's own egress policy.
     trace["tier"] = "browser"
-    bf_key = await _resolve_bf_key(workspace, db)
+    # _resolve_bf_key returns (key, source). A tuple is truthy, so passing it
+    # through makes is_cloud_for() take the Browser Fabric path and send
+    # "Bearer (None, None)" — a 401 — even when no key is configured and the
+    # local browser should render the page.
+    bf_key, _bf_source = await _resolve_bf_key(workspace, db)
     try:
         rendered = await manager.render_page_text(body.url, api_key=bf_key)
     except UnsafeURLError as e:
