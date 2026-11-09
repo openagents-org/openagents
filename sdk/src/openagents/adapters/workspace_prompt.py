@@ -289,6 +289,11 @@ def build_api_skills_prompt(
                 f"`curl -s -X POST -H \"{h}\" -H \"Content-Type: application/json\""
                 f" {base_url}/v1/browser/tabs/{{tab_id}}/type"
                 f" -d '{{\"selector\":\"CSS_SELECTOR\",\"text\":\"TEXT\"}}'`\n\n"
+                "**Upload a file or image** (no file dialog; open the site's upload UI first so its "
+                "file input exists; workspace file by file_id, or name + data_base64; max 5 files / 10 MiB):\n"
+                f"`curl -s -X POST -H \"{h}\" -H \"Content-Type: application/json\""
+                f" {base_url}/v1/browser/tabs/{{tab_id}}/upload"
+                f" -d '{{\"selector\":\"input[type=file]\",\"files\":[{{\"file_id\":\"FILE_ID\"}}]}}'`\n\n"
                 "**Close tab (only on user request):**\n"
                 f"`curl -s -X DELETE -H \"{h}\" {base_url}/v1/browser/tabs/{{tab_id}}`\n"
             )
