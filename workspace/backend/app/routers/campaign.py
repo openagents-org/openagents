@@ -35,7 +35,9 @@ def campaign_status(
     db: Session = Depends(get_db),
 ):
     if not campaign.enabled():
-        return success_response({"enabled": False})
+        # Ended campaign: existing key holders still see their key and balance.
+        user = resolve_current_user(db, authorization) if campaign.holders_visible() else None
+        return success_response(campaign.ended_payload(db, user) if user else {"enabled": False})
     user = resolve_current_user(db, authorization)
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign-in required")
@@ -69,10 +71,13 @@ def campaign_models(
 ):
     """Model ids available on the campaign gateway (proxied — the gateway has
     no CORS, so the browser can't ask it directly)."""
-    if not campaign.enabled():
+    if not campaign.enabled() and not campaign.holders_visible():
         return success_response({"models": []})
-    if not resolve_current_user(db, authorization):
+    user = resolve_current_user(db, authorization)
+    if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign-in required")
+    if not campaign.enabled() and db.get(campaign.CampaignAccount, user.id) is None:
+        return success_response({"models": []})
     now = time.time()
     if now - _models_cache["at"] > _MODELS_TTL_S or not _models_cache["ids"]:
         try:

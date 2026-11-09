@@ -121,6 +121,8 @@ export async function joinWorkspaceSelf(
  */
 export interface CampaignStatus {
   enabled: boolean;
+  /** The campaign has ended; an existing key holder still gets their key and usage (read-only). */
+  ended?: boolean;
   /** Credits are gated on a verified address: no key and no grants until the
       user confirms the welcome-email link (Google/Apple sign-ins are verified). */
   requiresEmailVerification?: boolean;

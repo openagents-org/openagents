@@ -129,7 +129,9 @@ export default function ApiCreditsSettingsPage() {
     );
   }
 
-  if (!status?.enabled) {
+  // The campaign ended: people who already hold a key still see it and its usage.
+  const ended = !status?.enabled && !!status?.ended;
+  if (!status || (!status.enabled && !ended)) {
     return (
       <div>
         <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
@@ -151,15 +153,26 @@ export default function ApiCreditsSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
+      <SectionHeader title={t('campaign.pageTitle')} description={t(ended ? 'campaign.endedDescription' : 'campaign.pageDescription')} />
+
+      {ended && (
+        <div className="rounded-xl border bg-background p-5">
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <Gift className="size-4 text-emerald-600 dark:text-emerald-400" />
+            {t('campaign.endedTitle', { total: fmt(status.grandTotalUsd ?? total) })}
+          </span>
+          <p className="mt-1.5 text-sm text-muted-foreground">{t('campaign.endedBody')}</p>
+        </div>
+      )}
 
       {/* Unverified: the key and the first rewards are already here; the rest
           of the ladder waits for a confirmed address. */}
-      {status.requiresEmailVerification && (
+      {!ended && status.requiresEmailVerification && (
         <VerifyEmailGate email={status.email || ''} idToken={idToken} allowance={status.unverifiedAllowanceUsd} cap={cap} />
       )}
 
-      {/* Overall progress */}
+      {/* Overall progress, missions and daily bonus only while the campaign runs */}
+      {!ended && <>
       <div className="rounded-xl border bg-background p-5">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-semibold">
@@ -223,6 +236,7 @@ export default function ApiCreditsSettingsPage() {
           </p>
         )}
       </div>
+      </>}
 
       {/* API key + usage */}
       {key && (

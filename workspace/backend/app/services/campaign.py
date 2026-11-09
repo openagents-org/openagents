@@ -736,6 +736,55 @@ def reconcile(db: Session, user_id: str) -> None:
 # Status (for the frontend checklist)
 # ---------------------------------------------------------------------------
 
+def holders_visible() -> bool:
+    """The campaign is off but its gateway is still configured: people who
+    already hold a key can see it and its balance; nobody earns anything."""
+    return bool(not enabled() and config.CAMPAIGN_GATEWAY_MASTER_KEY)
+
+
+def _key_usage(user_id: str) -> Optional[dict]:
+    try:
+        r = httpx.get(
+            f"{config.CAMPAIGN_GATEWAY_URL}/admin/keys",
+            params={"external_id": user_id},
+            headers=_headers(),
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        k = r.json()[0]
+        return {
+            "costUsdUsed": k.get("cost_usd_used"),
+            "costLimitUsd": k.get("cost_limit_usd"),
+            "isActive": k.get("is_active"),
+            "inputTokens": k.get("input_tokens_used"),
+            "outputTokens": k.get("output_tokens_used"),
+        }
+    except Exception:  # noqa: BLE001 — usage is decorative
+        return None
+
+
+def ended_payload(db: Session, user: User) -> dict:
+    """Read-only view for an existing key holder after the campaign ended.
+
+    `enabled` stays False so no checklist, reward prompt or onboarding nudge
+    renders; the credits page shows the key, what was granted and usage.
+    Never provisions a key or grants anything.
+    """
+    acct = db.get(CampaignAccount, user.id)
+    if acct is None or not acct.api_key:
+        return {"enabled": False}
+    grants = db.execute(select(CampaignGrant).where(CampaignGrant.user_id == user.id)).scalars().all()
+    return {
+        "enabled": False,
+        "ended": True,
+        "apiKey": acct.api_key,
+        "gatewayUrl": config.CAMPAIGN_GATEWAY_URL,
+        "totalGrantedUsd": float(sum(g.amount_usd for g in grants if g.milestone not in EXTRA_MILESTONES)),
+        "grandTotalUsd": float(sum(g.amount_usd for g in grants)),
+        "usage": _key_usage(user.id),
+    }
+
+
 def status_payload(db: Session, user: User, *, account_confirmed: bool = True) -> dict:
     """Everything the checklist UI needs. Provisions the key lazily on first
     view (that IS the signup milestone — the user completed login to get here).
