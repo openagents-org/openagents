@@ -63,6 +63,12 @@ const CODEX_LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|
 // Things codex says beside a run rather than about it, such as a config key
 // it skipped. Quoted only when nothing else was said.
 const CODEX_SIDE_NOTE = /^warning:/i;
+// ERROR records codex logs beside a run, not about it: a skill file it could
+// not parse (it skips that skill and answers anyway, verified with codex-cli
+// 0.167), and its own ChatGPT connector (rmcp) losing a side connection. In
+// the field they came first in stderr and were quoted as the reason a run
+// failed. Quoted only when nothing else was logged.
+const CODEX_SIDE_ERROR = /\brmcp::|failed to load skill\b/;
 // Codex's wording when the model service could not be reached or the stream
 // dropped. Seen in the field from devices that cannot reach OpenAI, and
 // reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
@@ -71,6 +77,13 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 const CODEX_CONNECTION_FAILURE = /error sending request|Connection failed|failed to connect to websocket: IO error|tls handshake|dns error|failed to lookup address|stream disconnected before completion|workspace routing discovery (?:failed|timed out)|request timed out/i;
 // codex retrying a failed connection by itself: "Reconnecting... 2/5 (why)".
 const CODEX_RECONNECTING = /^Reconnecting\.\.\.\s*\d+\/\d+\s*(?:\((.*)\))?\s*$/i;
+// An endpoint refusing a field of the request. Codex sends the same fields
+// (client_metadata among them) on every turn and has no setting to drop one,
+// so on a custom Responses provider this fails every run.
+const PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
+// OpenAI's own "Unsupported parameter: 'reasoning.effort' is not supported with
+// this model" is about the model chosen, which the user can change.
+const MODEL_CAPABILITY_REFUSAL = /with this model|reasoning[._]/i;
 // The service answered and said no: a key, a plan, a quota, or a model it
 // will not serve. Network advice would send the user the wrong way. The
 // terms of _serviceRefused, less "error sending request" (that one is a
@@ -777,7 +790,7 @@ class CodexAdapter extends BaseAdapter {
    * reply, instead of a generic "No response generated".
    */
   async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
-    const detail = CodexAdapter._failureDetail(result);
+    const detail = CodexAdapter._failureDetail(result, { customProvider: this._customProvider });
     if (partial) {
       const body = detail
         ? `It stopped before finishing this task.\n\n> ${detail}`
@@ -825,13 +838,19 @@ class CodexAdapter extends BaseAdapter {
    * The cap applies to the quoted reason, before the advice is added, so a
    * long stderr cannot push the advice out of the message.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null } = {}) {
+    // A clean exit with no turn.failed and no error event is codex saying the
+    // turn finished; it just wrote no reply. Whatever stderr holds then is not
+    // why (a skill it skipped, its ChatGPT connector), and quoting it read as
+    // "failed to complete this run > failed to load skill …" for a run that
+    // had not failed.
+    const finished = exitCode === 0 && !signal;
     const raw = String(errorMessage || '').trim()
-      || CodexAdapter._stderrReason(stderr)
+      || (finished ? '' : CodexAdapter._stderrReason(stderr))
       || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
     const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
-    return reason ? CodexAdapter._explain(reason, stderr) : '';
+    return reason ? CodexAdapter._explain(reason, stderr, { customProvider }) : '';
   }
 
   /**
@@ -854,7 +873,8 @@ class CodexAdapter extends BaseAdapter {
    * (or "Reading additional input from stdin...") on every run. A plain tail
    * of the last lines was mostly that noise. So, in order: lines the CLI
    * printed for a person; failing those, its ERROR records with timestamp and
-   * module stripped; failing those, its warnings. The banner and known-harmless
+   * module stripped; failing those, its warnings and the ERROR records it logs
+   * beside a run (CODEX_SIDE_ERROR). The banner and known-harmless
    * lines are never a reason: a clean exit with only the banner reads as "no
    * reply", not as "> Reading prompt from stdin...".
    *
@@ -871,7 +891,8 @@ class CodexAdapter extends BaseAdapter {
       const record = CODEX_LOG_RECORD.exec(line);
       if (record) {
         const [, level, message] = record;
-        const bucket = level === 'ERROR' ? errors : level === 'WARN' ? notes : null;
+        const side = level === 'WARN' || (level === 'ERROR' && CODEX_SIDE_ERROR.test(line));
+        const bucket = side ? notes : level === 'ERROR' ? errors : null;
         if (bucket && message && !bucket.includes(message)) bucket.push(message);
       } else if (!BENIGN_CLI_OUTPUT.test(line)) {
         (CODEX_SIDE_NOTE.test(line) ? notes : said).push(line);
@@ -896,8 +917,14 @@ class CodexAdapter extends BaseAdapter {
       for (const key of ['detail', 'message', 'error']) {
         const v = parsed && parsed[key];
         if (typeof v === 'string' && v.trim()) return v.trim();
-        // OpenAI also nests as { error: { message } }.
-        if (v && typeof v.message === 'string' && v.message.trim()) return v.message.trim();
+        // OpenAI also nests as { error: { message } }. Its `param` names the
+        // field a 400 is about — "Unsupported Responses request parameter."
+        // alone did not say which.
+        if (v && typeof v.message === 'string' && v.message.trim()) {
+          const message = v.message.trim();
+          const param = typeof v.param === 'string' ? v.param.trim() : '';
+          return param && !message.includes(param) ? `${message} (parameter: ${param})` : message;
+        }
       }
     } catch {}
     return text;
@@ -912,7 +939,20 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail, stderr = '') {
+  static _explain(detail, stderr = '', { customProvider = null } = {}) {
+    // A custom Responses endpoint refusing a field Codex always sends. Nothing
+    // the user retries changes that; which endpoint to use, or the chat-only
+    // mode, does.
+    if (customProvider && PARAM_REFUSED.test(detail) && !MODEL_CAPABILITY_REFUSAL.test(detail)) {
+      let host = '';
+      try { host = new URL(customProvider.baseUrl).host; } catch {}
+      const m = /\(parameter: ([^)]+)\)/.exec(detail) || /parameter:?\s*'([\w.[\]]+)'/i.exec(detail);
+      return `${detail}\n\nThe endpoint this agent is set to${host ? ` (${host})` : ''} takes Responses API requests ` +
+        `but refuses ${m ? `the "${m[1]}" field` : 'a field'} that the Codex CLI sends with every one of them, ` +
+        'and Codex has no setting to leave it out — so every run here will fail the same way. Point the agent ' +
+        'at an endpoint that supports the full Responses API, or edit the agent and set Agent capabilities to ' +
+        '"Chat only · Chat Completions API" (it then answers without running tools on this device).';
+    }
     // Ahead of the network check: a model that needs a newer Codex can
     // arrive with connection warnings in stderr, and the upgrade is the fix.
     if (/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {

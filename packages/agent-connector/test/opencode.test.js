@@ -337,6 +337,78 @@ describe('OpenCode — failure classification (8.3)', () => {
 // 8.4 text & tool event handling
 // ---------------------------------------------------------------------------
 
+// What opencode-ai 1.17.11 prints for a config file it refuses, verbatim
+// (colour codes and all — it colours its errors into a pipe too). The hosted
+// agent behind the 2026-11-07 report failed every message on the first shape
+// and was told "OpenCode failed for an undetermined reason".
+const CONFIG_SCHEMA_STDERR = '\x1b[91m\x1b[1mError: \x1b[0mConfiguration is invalid at /workspace/.opencode/opencode.json\n'
+  + '↳ Expected { readonly "type": "local", ... } | { readonly "type": "remote", ... }, got {"url":"https://upsy.ai/connect"} mcp.upsy\n'
+  + '↳ Missing key mcp.upsy.enabled\n';
+const CONFIG_JSON_STDERR = '\x1b[91m\x1b[1mError: \x1b[0mConfig file at /workspace/.opencode/opencode.json is not valid JSON(C): \n'
+  + '--- JSONC Input ---\n{"provider": {,}\n\n--- Errors ---\nValueExpected at line 1, column 15\n'
+  + '   Line 1: {"provider": {,}\n                        ^\nCloseBraceExpected at line 2, column 1\n--- End ---\n';
+
+describe('OpenCode — an invalid config file', () => {
+  it('names the file and what is wrong with it, not "an undetermined reason"', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, signal: null, stdout: '', stderr: CONFIG_SCHEMA_STDERR });
+    assert.equal(cls.category, 'config_invalid');
+    assert.equal(cls.detail,
+      'Configuration is invalid at /workspace/.opencode/opencode.json: '
+      + 'Expected { readonly "type": "local", ... } | { readonly "type": "remote", ... }, got {"url":"https://upsy.ai/connect"} mcp.upsy; '
+      + 'Missing key mcp.upsy.enabled');
+  });
+
+  it('reads a file that is not JSON the same way, keeping only the parser\'s reasons', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, signal: null, stdout: '', stderr: CONFIG_JSON_STDERR });
+    assert.equal(cls.category, 'config_invalid');
+    assert.equal(cls.detail,
+      'Config file at /workspace/.opencode/opencode.json is not valid JSON(C): '
+      + 'ValueExpected at line 1, column 15; CloseBraceExpected at line 2, column 1');
+  });
+
+  it('needs OpenCode\'s own error line, not the phrase quoted in other output', () => {
+    const stderr = 'INFO tool output: the docs say "Configuration is invalid at <path>" means a typo\nError: 401 Unauthorized\n';
+    assert.notEqual(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr }).category, 'config_invalid');
+  });
+
+  it('is not mistaken for a model or key problem by what the reason says', () => {
+    const stderr = '\x1b[91m\x1b[1mError: \x1b[0mConfiguration is invalid at /p/opencode.json\n↳ Unrecognized key: model_not_found 401\n';
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr }).category, 'config_invalid');
+  });
+
+  it('keeps the reason that a long path pushed past the old 200-character cut', () => {
+    const deep = `/home/someone/${'very-long-directory-name/'.repeat(8)}.opencode/opencode.json`;
+    const stderr = `\x1b[91m\x1b[1mError: \x1b[0mConfiguration is invalid at ${deep}\n↳ Unrecognized key: modle\n`;
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr });
+    assert.ok(cls.detail.endsWith('Unrecognized key: modle'), cls.detail);
+  });
+
+  it('tells the channel to fix the file, and quotes it without terminal colour codes', async () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: CONFIG_SCHEMA_STDERR });
+    const adapter = makeAdapter();
+    let content = null;
+    adapter.client = { sendMessage: async (_w, _c, _t, c) => { content = c; } };
+    await adapter._sendClassifiedError('thread', cls.category, cls.detail);
+    assert.match(content, /OpenCode couldn't run\*\* — OpenCode would not start because one of its config files is invalid/);
+    assert.match(content, /correct or remove that entry, then retry/);
+    assert.match(content, /> Configuration is invalid at \/workspace\/\.opencode\/opencode\.json: Expected/);
+    assert.doesNotMatch(content, /\x1b|\[91m|\[0m/);
+  });
+
+  it('strips colour codes from any quoted stderr, not just config errors', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: '\x1b[91m\x1b[1mError: \x1b[0mSomething unexpected broke' });
+    assert.equal(cls.category, 'unknown_error');
+    assert.equal(cls.detail, 'Error: Something unexpected broke');
+    assert.doesNotMatch(cls.diagnostic, /\x1b/);
+  });
+
+  it('has nothing to say about stderr that is not a config refusal', () => {
+    assert.equal(OpenCodeAdapter._configError('Error: connect ECONNREFUSED 127.0.0.1:443'), null);
+    assert.equal(OpenCodeAdapter._configError(''), null);
+    assert.equal(OpenCodeAdapter._configError(undefined), null);
+  });
+});
+
 describe('OpenCode — text/tool events (8.4)', () => {
   async function runEvents(events) {
     const adapter = makeAdapter();

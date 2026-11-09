@@ -64,6 +64,8 @@ const CODE = {
   BAD_MODEL: 'bad_model',
   SERVICE_UNAVAILABLE: 'service_unavailable',
   CLI_ERROR: 'cli_error',
+  INSTALL_INCOMPLETE: 'install_incomplete',
+  ENDPOINT_INCOMPATIBLE: 'endpoint_incompatible',
 };
 
 const BENIGN_OUTPUT = BENIGN_CLI_OUTPUT;
@@ -133,6 +135,11 @@ function authFlavor(entry, agentEnv) {
  */
 /** Classify an error by its OUTPUT TEXT alone; null when nothing matches. */
 function classifyOutputText(text) {
+  // npm left out the per-platform package holding the native build (codex:
+  // "Missing optional dependency @openai/codex-win32-x64"), or the package's
+  // placeholder is what ran. Reinstalling fixes it; read as a CLI error it
+  // was a stack trace with no next step.
+  if (/missing optional dependency|native binary not installed|postinstall (script )?(was|did) not run/.test(text)) return CODE.INSTALL_INCOMPLETE;
   // Relays word this their own way and answer 403 rather than 402, so the
   // English-and-402 pattern alone read "out of credit" as "bad credentials"
   // — the one misreading that sends a user to re-authenticate a working key.
@@ -234,6 +241,19 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
     case CODE.SERVICE_UNAVAILABLE:
       lines.push(`The model provider for ${label} is temporarily unavailable. Wait a few minutes and test again.`);
       break;
+    case CODE.ENDPOINT_INCOMPATIBLE:
+      lines.push(`${label}'s endpoint takes Responses API requests but refuses ${extra.param ? `the "${extra.param}" field` : 'a field'} that ${label} sends with every one of them, so every run fails there. ${label} has no setting to leave it out.`);
+      lines.push(type === 'codex'
+        ? 'Point the agent at an endpoint that supports the full Responses API, or edit the agent and set Agent capabilities to "Chat only · Chat Completions API" (it then answers without running tools on the device).'
+        : 'Point the agent at an endpoint that supports the full Responses API.');
+      break;
+    case CODE.INSTALL_INCOMPLETE:
+      lines.push(`${label} is installed, but not completely: the part that holds its native program for this computer is missing (npm can leave it out without failing the install). Reinstall ${label} from the launcher's Install page.`);
+      {
+        const cmd = installCommandFor(entry);
+        if (cmd) lines.push(`Or reinstall manually: ${cmd}`);
+      }
+      break;
     case CODE.VERSION_INCOMPATIBLE:
       lines.push(`The installed ${label} version is not the one OpenAgents supports. Reinstall it from the launcher's Install page.`);
       {
@@ -263,14 +283,14 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
 async function directApiVerdict(agentEnv, entry, model, baseUrl, protocol) {
   const res = await callLLM(agentEnv, model, baseUrl, protocol);
   if (!res || res.success) return null;
-  const code = classifyFailure(res.error, {});
+  const code = directFailureCode(res.error, protocol);
   if (code === CODE.CLI_ERROR) return null;
   return {
     ok: false,
     method: 'llm_api',
     code,
     message: tail(res.error, OUTPUT_CAP),
-    guidance: buildGuidance(code, entry, agentEnv),
+    guidance: buildGuidance(code, entry, agentEnv, { param: refusedParam(res.error) }),
   };
 }
 
@@ -305,6 +325,10 @@ function directBaseUrl(entry, env) {
  * sent /chat/completions and reported broken.
  */
 function directProtocol(type, env) {
+  // A Codex agent on a third-party endpoint in Responses mode runs the CLI
+  // against <base>/responses (adapters/codex.js); a chat/completions test
+  // passed for endpoints that then refused every run.
+  if (type === 'codex') return codexResponsesMode(env) ? 'responses' : undefined;
   if (type === 'deepseek') {
     // dsh calls a gateway in the format its URL says (see classifyDshEndpoint);
     // DeepSeek's own host is left to the client, which knows it.
@@ -319,6 +343,42 @@ function directProtocol(type, env) {
   if (format === 'anthropic-messages') return 'anthropic';
   if (format === 'openai-completions') return 'openai';
   return null;
+}
+
+/** Whether a Codex agent runs the CLI on a custom Responses provider (as adapters/codex.js decides it). */
+function codexResponsesMode(env) {
+  if (String(env.CODEX_WIRE_API || '').toLowerCase() !== 'responses') return false;
+  const base = String(env.OPENAI_BASE_URL || env.LLM_BASE_URL || '').trim();
+  return !!base && !base.includes('api.openai.com');
+}
+
+// The Responses test sends what the Codex CLI sends (utils.js). An endpoint
+// that refuses one of those fields will refuse every Codex turn: that is not
+// a bad key or a bad model. Only read so for that test — the chat test's own
+// fields (max_completion_tokens) are not the agent's.
+const RESPONSES_PARAM_REFUSED = /unsupported .{0,40}parameter|unsupported_parameter|unknown parameter|unrecognized request argument|unrecognized (key|field)|additional properties|extra (inputs|fields) are not permitted/i;
+
+// The one field the Responses test adds that the CLI never sends (utils.js
+// asks again without it when it is refused). A refusal of it is about the
+// test, not about every Codex turn.
+const RESPONSES_PROBE_ONLY = 'max_output_tokens';
+
+/** The code for a failed direct test: the general reading, or the Responses-only one above. */
+function directFailureCode(error, protocol) {
+  const text = String(error || '');
+  if (protocol === 'responses' && RESPONSES_PARAM_REFUSED.test(text) && !/with this model|reasoning[._]/i.test(text)) {
+    // The field the refusal names, or — when it names none — its text.
+    const param = refusedParam(text);
+    const probeOnly = param ? param === RESPONSES_PROBE_ONLY : text.includes(RESPONSES_PROBE_ONLY);
+    if (!probeOnly) return CODE.ENDPOINT_INCOMPATIBLE;
+  }
+  return classifyFailure(error, {});
+}
+
+/** The field a refusing endpoint named (`"param":"client_metadata"`), or ''. */
+function refusedParam(error) {
+  const m = /"param"\s*:\s*"([^"]{1,64})"/.exec(String(error || ''));
+  return m ? m[1] : '';
 }
 
 /**
@@ -705,11 +765,11 @@ async function probeAgentType(connector, type, opts = {}) {
         reply: tail(res.response || '', REPLY_CAP),
       });
     }
-    const code = classifyFailure(res && res.error, {});
+    const code = directFailureCode(res && res.error, protocol);
     return done({
       ok: false, method: 'llm_api', code,
       message: tail(res && res.error, OUTPUT_CAP) || 'LLM API test failed',
-      guidance: buildGuidance(code, entry, agentEnv),
+      guidance: buildGuidance(code, entry, agentEnv, { param: refusedParam(res && res.error) }),
     });
   }
 

@@ -272,6 +272,16 @@ function networkErrorText(err) {
   return inner || err.code || String(err) || 'unknown network error';
 }
 
+// Terminal escape sequences (colour, cursor). A CLI that colours its errors
+// writes them to a pipe too, and quoted into a channel they show as
+// "\x1b[91m\x1b[1mError: \x1b[0m…".
+const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
+/** `text` with terminal escape sequences removed. */
+function stripAnsi(text) {
+  return String(text || '').replace(ANSI_RE, '');
+}
+
 /** CLI output with the known-harmless lines taken out. */
 function stripCliNoise(text) {
   return String(text || '').split(/\r?\n/).filter((l) => !BENIGN_CLI_OUTPUT.test(l)).join('\n');
@@ -282,6 +292,7 @@ module.exports = {
   networkErrorText,
   BENIGN_CLI_OUTPUT,
   stripCliNoise,
+  stripAnsi,
   decodeConsoleOutput,
   generateSessionTitle,
   formatAttachmentsForPrompt,
