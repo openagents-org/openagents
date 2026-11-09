@@ -366,6 +366,12 @@ class TestAgentNameCheck:
         assert r.status_code == 200
         assert r.json()["data"] == {"name": "fresh-bot", "available": True, "reason": None}
 
+    def test_blank_name_is_rejected(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = self._check(client, ws, node_id, "   ")
+        assert r.status_code == 400
+
     def test_name_on_this_device_is_taken(self, client):
         ws = _make_workspace(client)
         node_id = _connect_node(client, ws)

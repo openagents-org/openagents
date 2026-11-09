@@ -567,8 +567,10 @@ def check_agent_name(
 ):
     """Whether `name` is free for a new agent on this connection.
 
-    The same rule `create_agent` enforces, asked before submitting so a form
-    can flag a clash while the name is typed. Discovery cannot answer this:
+    Advisory only, asked before submitting so a form can flag a clash while
+    the name is typed; `create_agent` re-checks on submit. Slightly stricter
+    than `create_agent`: a name already on this same connection reports
+    `on_device` (unavailable), while `create_agent` accepts it. Discovery cannot answer this:
     it hides personal agents the viewer was not granted, yet their names are
     still taken workspace-wide. Says only *that* a name is taken, never by
     whom — no more than a refused create would reveal.
@@ -588,6 +590,8 @@ def check_agent_name(
         return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage its agents")
 
     wanted = name.strip()
+    if not wanted:
+        return json_response(ResponseCode.BAD_REQUEST, "Agent name is required")
     reason = None
     if any(isinstance(a, dict) and a.get("name") == wanted for a in (node.agents or [])):
         reason = "on_device"
