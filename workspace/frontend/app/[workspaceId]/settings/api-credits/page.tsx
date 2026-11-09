@@ -96,14 +96,19 @@ export default function ApiCreditsSettingsPage() {
   const [models, setModels] = useState<string[] | null>(null);
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
-  const toggleModels = () => {
-    setModelsOpen((open) => !open);
-    if (!models && idToken) {
-      getCampaignModels(idToken)
-        .then((r) => setModels(r.models))
-        .catch(() => setModels([]));
-    }
-  };
+  const toggleModels = () => setModelsOpen((open) => !open);
+
+  // Loaded up front: the hint under the Base URL names what the gateway serves
+  // right now. It used to be a fixed list, and when the gateway narrowed to one
+  // model people kept configuring the ones the page still recommended.
+  useEffect(() => {
+    if (!idToken) return;
+    let cancelled = false;
+    getCampaignModels(idToken)
+      .then((r) => { if (!cancelled) setModels(r.models); })
+      .catch(() => { if (!cancelled) setModels([]); });
+    return () => { cancelled = true; };
+  }, [idToken]);
 
   const copyModel = (id: string) => {
     navigator.clipboard.writeText(id);
@@ -309,7 +314,11 @@ export default function ApiCreditsSettingsPage() {
           </code>
           <CopyBtn value={`${status.gatewayUrl}/v1`} title={t('campaign.howtoBaseUrl')} />
         </div>
-        <p className="mt-2.5 text-xs text-muted-foreground">{t('campaign.howtoModels')}</p>
+        {models && models.length > 0 && (
+          <p className="mt-2.5 text-xs text-muted-foreground">
+            {t('campaign.howtoModels', { models: models.slice(0, 5).join(', ') })}
+          </p>
+        )}
 
         {/* Full model catalog, on demand */}
         <button

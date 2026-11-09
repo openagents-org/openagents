@@ -2544,7 +2544,7 @@ export const messages: Messages = {
     howtoTitle: '如何使用额度',
     howtoBody: '该密钥兼容任何 OpenAI 接口的客户端或智能体——OpenCode、Hermes、PI Agent 等。将客户端指向下方 Base URL 并选择模型即可。',
     howtoBaseUrl: 'Base URL',
-    howtoModels: '热门模型：deepseek-4-flash、deepseek-v4-pro、alibaba-qwen3-32b、kimi-k2.6、glm-5.2',
+    howtoModels: '当前可用模型：{models}',
     showAllModels: '查看全部支持的模型',
     hideModels: '收起模型列表',
     modelsCount: '共支持 {count} 个模型——点击即可复制模型 id',
