@@ -1552,6 +1552,8 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  /** The board this issue is on; "team" is the default Team issues board. */
+  board_id?: string;
   linked_channels?: string[];
   due_date?: string | null;
   knowledge_ids?: string[];
@@ -1622,4 +1624,14 @@ export interface NetworkChannel {
 export interface WorkspaceSession {
   /** Name of the thread this one was forked from. */
   forkedFrom?: string | null;
+}
+
+/** An issue board. "team" is the default Team issues board, which cannot be removed. */
+export interface IssueBoard {
+  id: string;
+  name: string;
+  default: boolean;
+  active_count: number;
+  created_by?: string;
+  can_manage: boolean;
 }

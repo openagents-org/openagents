@@ -23,6 +23,7 @@ from app.models import (
     Channel,
     EventRecord,
     Issue,
+    IssueBoard,
     IssueComment,
     IssueThread,
     IssueAgentSharing,
@@ -38,6 +39,8 @@ from openagents.core.onm_events import Event
 
 router = APIRouter(prefix="/v1/issues", tags=["Issues"])
 IssueStatus = Literal["open", "in_progress", "paused", "closed"]
+# The default board is implicit: issues with no board_id are on it.
+TEAM_BOARD = "team"
 
 
 class ActorRequest(BaseModel):
@@ -52,6 +55,7 @@ class CreateIssueRequest(ActorRequest):
     title: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=50000)
     channel_name: Optional[str] = None
+    board_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("title", mode="before")
     @classmethod
@@ -76,6 +80,7 @@ class UpdateIssueRequest(ActorRequest):
     status: Optional[IssueStatus] = None
     assignee: Optional[str] = Field(default=None, max_length=330)
     labels: Optional[list[str]] = Field(default=None, max_length=20)
+    board_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("labels")
     @classmethod
@@ -107,6 +112,15 @@ class CommentRequest(ActorRequest):
 
 class LinkThreadRequest(ActorRequest):
     channel_name: str
+
+
+class BoardRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_not_blank(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
 
 
 class ParticipantRequest(BaseModel):
@@ -141,6 +155,18 @@ def _issue(db, workspace, issue_id, lock=False):
     if not issue:
         raise HTTPException(404, "Issue not found")
     return issue
+
+
+def _board_id(db, workspace, board):
+    """API board reference → stored board_id (None for the Team issues board)."""
+    if not board or board == TEAM_BOARD:
+        return None
+    found = db.execute(select(IssueBoard.id).where(
+        IssueBoard.workspace_id == workspace.id, IssueBoard.id == board,
+    )).scalar_one_or_none()
+    if not found:
+        raise HTTPException(404, "Issue board not found")
+    return found
 
 
 def _actor(db, authorization, source, source_name=None):
@@ -226,6 +252,7 @@ def _serialize(issue):
             "participants",
         )
     } | {
+        "board_id": issue.board_id or TEAM_BOARD,
         "due_date": issue.due_date.isoformat() if issue.due_date else None,
         "created_at": _iso(issue.created_at),
         "updated_at": _iso(issue.updated_at),
@@ -430,6 +457,7 @@ def list_issues(
     status: Optional[IssueStatus] = None,
     assigned_to_me: bool = False,
     active_only: bool = False,
+    board: Optional[str] = Query(None, max_length=64),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -438,6 +466,9 @@ def list_issues(
 ):
     workspace = _access(network, db, x_workspace_token, authorization)
     query = select(Issue).where(Issue.workspace_id == workspace.id)
+    if board is not None:
+        board_id = _board_id(db, workspace, board)
+        query = query.where(Issue.board_id.is_(None) if board_id is None else Issue.board_id == board_id)
     if assigned_to_me:
         user = resolve_current_user(db, authorization)
         if not user:
@@ -511,6 +542,7 @@ def create_issue(
     viewer = _viewer(db, workspace, x_workspace_token, authorization)
     knowledge_ids, file_ids = _validate_context(db, workspace, viewer, body.knowledge_ids, body.file_ids)
     issue = Issue(
+        board_id=_board_id(db, workspace, body.board_id),
         assignee=assignee, assignee_name=assignee_name,
         knowledge_ids=knowledge_ids, file_ids=file_ids,
         participants=[{"source": assignee, "name": assignee_name}] if assignee else [],
@@ -546,6 +578,118 @@ def list_issue_labels(
         for value in values or []:
             labels.setdefault(value.casefold(), value)
     return success_response({"labels": sorted(labels.values(), key=str.casefold)})
+
+
+def _can_manage_board(viewer, board):
+    """The person who created a board, or a workspace admin, may rename or delete it."""
+    if viewer.kind != "human" or not viewer.email:
+        return False
+    return f"human:{viewer.email}".lower() == board.created_by.lower() or role_at_least(viewer.role, "admin")
+
+
+def _board_name_taken(db, workspace, name, exclude=None):
+    if name.casefold() == "team issues":
+        return True
+    query = select(IssueBoard.id).where(IssueBoard.workspace_id == workspace.id,
+                                        func.lower(IssueBoard.name) == name.lower())
+    if exclude:
+        query = query.where(IssueBoard.id != exclude)
+    return db.scalar(query.limit(1)) is not None
+
+
+@router.get("/boards")
+def list_issue_boards(
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """The default Team issues board first, then extra boards oldest first."""
+    workspace = _access(network, db, x_workspace_token, authorization)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    counts = dict(db.execute(
+        select(Issue.board_id, func.count()).where(
+            Issue.workspace_id == workspace.id, Issue.status.in_(("open", "in_progress")),
+        ).group_by(Issue.board_id)
+    ).all())
+    boards = db.scalars(select(IssueBoard).where(IssueBoard.workspace_id == workspace.id)
+                        .order_by(IssueBoard.created_at, IssueBoard.id)).all()
+    return success_response({"boards": [
+        {"id": TEAM_BOARD, "name": "Team issues", "default": True, "active_count": counts.get(None, 0),
+         "can_manage": False},
+        *({"id": b.id, "name": b.name, "default": False, "active_count": counts.get(b.id, 0),
+           "created_by": b.created_by, "can_manage": _can_manage_board(viewer, b)} for b in boards),
+    ]})
+
+
+@router.post("/boards")
+def create_issue_board(
+    body: BoardRequest,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    viewer = _viewer(db, workspace, x_workspace_token, authorization)
+    if viewer.kind != "human" or not viewer.email:
+        raise HTTPException(403, "Sign in to create an issue board")
+    if _board_name_taken(db, workspace, body.name):
+        raise HTTPException(409, "A board with this name already exists")
+    board = IssueBoard(workspace_id=workspace.id, name=body.name, created_by=f"human:{viewer.email.lower()}")
+    db.add(board)
+    db.commit()
+    return success_response({"id": board.id, "name": board.name, "default": False, "active_count": 0,
+                             "created_by": board.created_by, "can_manage": True})
+
+
+def _managed_board(db, workspace, viewer, board_id):
+    board = db.execute(select(IssueBoard).where(
+        IssueBoard.workspace_id == workspace.id, IssueBoard.id == board_id,
+    ).with_for_update()).scalar_one_or_none()
+    if not board:
+        raise HTTPException(404, "Issue board not found")
+    if not _can_manage_board(viewer, board):
+        raise HTTPException(403, "Only the person who created this board or a workspace admin can change it")
+    return board
+
+
+@router.patch("/boards/{board_id}")
+def rename_issue_board(
+    board_id: str,
+    body: BoardRequest,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    board = _managed_board(db, workspace, _viewer(db, workspace, x_workspace_token, authorization), board_id)
+    if _board_name_taken(db, workspace, body.name, exclude=board.id):
+        raise HTTPException(409, "A board with this name already exists")
+    board.name = body.name
+    db.commit()
+    return success_response({"id": board.id, "name": board.name})
+
+
+@router.delete("/boards/{board_id}")
+def delete_issue_board(
+    board_id: str,
+    network: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Delete a board. Its issues are kept and move to Team issues."""
+    workspace = _access(network, db, x_workspace_token, authorization, write=True)
+    board = _managed_board(db, workspace, _viewer(db, workspace, x_workspace_token, authorization), board_id)
+    moved = 0
+    for issue in db.scalars(select(Issue).where(Issue.workspace_id == workspace.id, Issue.board_id == board.id)):
+        issue.board_id = None
+        moved += 1
+    db.delete(board)
+    db.commit()
+    return success_response({"id": board_id, "deleted": True, "moved_issues": moved})
 
 
 def _discussion_entries(db, issue, channels, limit=None):
@@ -731,6 +875,12 @@ def update_issue(
     if body.labels is not None and body.labels != issue.labels:
         issue.labels = body.labels
         _add_comment(db, issue, actor, "updated labels: " + (", ".join(body.labels) or "none"), "activity", author_name=actor_name)
+    if "board_id" in body.model_fields_set:
+        board_id = _board_id(db, workspace, body.board_id)
+        if board_id != issue.board_id:
+            board_name = db.scalar(select(IssueBoard.name).where(IssueBoard.id == board_id)) if board_id else "Team issues"
+            issue.board_id = board_id
+            _add_comment(db, issue, actor, f"moved this issue to {board_name}", "activity", author_name=actor_name)
     if body.title is not None:
         issue.title = body.title
     if body.description is not None:
