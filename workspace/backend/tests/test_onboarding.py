@@ -101,6 +101,7 @@ def _mk_stalled_workspace(db, slug, hours_old, with_node=False, require_login=Tr
 class TestOnboardingReminders:
     def _stub_sends(self, monkeypatch, result=True):
         sends = []
+        monkeypatch.setattr(reminders_mod.config, "ONBOARDING_REMINDERS_ENABLED", True)
         monkeypatch.setattr(reminders_mod, "email_configured", lambda: True)
         monkeypatch.setattr(
             reminders_mod, "send_onboarding_reminder",
@@ -113,6 +114,13 @@ class TestOnboardingReminders:
             datetime.now(timezone.utc) - timedelta(days=10),
         )
         return sends
+
+    def test_off_by_default(self, db, monkeypatch):
+        _mk_stalled_workspace(db, "rd", hours_old=30)
+        sends = self._stub_sends(monkeypatch)
+        monkeypatch.setattr(reminders_mod.config, "ONBOARDING_REMINDERS_ENABLED", False)
+        assert run_onboarding_reminders(db) == 0
+        assert sends == []
 
     def test_skips_entirely_when_email_unconfigured(self, db, monkeypatch):
         _mk_stalled_workspace(db, "r0", hours_old=30)

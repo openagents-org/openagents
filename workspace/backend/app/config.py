@@ -262,6 +262,11 @@ class Config:
     # Blast-radius cap for the grant endpoint (per process, sliding hour).
     PILOT_MAX_GRANTS_PER_HOUR: int = int(os.environ.get("PILOT_MAX_GRANTS_PER_HOUR", "30"))
 
+    # "Connect a computer" reminder emails 24h/72h after a workspace is created
+    # without a device (app/services/onboarding_reminders.py). Off by default:
+    # owners found them noisy (2026-11-09). Set to true to send them again.
+    ONBOARDING_REMINDERS_ENABLED: bool = os.environ.get("ONBOARDING_REMINDERS_ENABLED", "false").lower() in ("true", "1", "yes")
+
     # In-app feedback forwarding. Feedback rows always land in the DB; when
     # this is set they are also emailed (via Resend) to the team.
     FEEDBACK_EMAIL_TO: str = os.environ.get("FEEDBACK_EMAIL_TO", "")
