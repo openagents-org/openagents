@@ -619,6 +619,9 @@ const FAILURE = {
   CONFIG: 'config',
   PERMISSION: 'permission',
   VERSION: 'version',
+  // The model closed a tool call with arguments that are not JSON. This is a
+  // provider stream failure, not a broken harness profile.
+  MALFORMED: 'malformed',
   UNKNOWN: 'unknown',
 };
 
@@ -633,6 +636,10 @@ const FAILURE_PATTERNS = [
   [FAILURE.NETWORK, /\b(econnrefused|enotfound|etimedout|econnreset|socket hang up|network|dns|proxy|certificate|tls|ssl|502|503|504)/i],
   [FAILURE.PERMISSION, /\b(eacces|eperm|erofs|permission denied|read[_\s-]?only file system|operation not permitted)/i],
   [FAILURE.VERSION, /\b(unsupported node|engine|requires node|syntaxerror.*unexpected token|err_require_esm|cannot use import statement)/i],
+  // Before CONFIG. dsh copies the model's reasoning onto stderr, and that
+  // prose often contains "row", "patch", or "profile". A later protocol
+  // error must win, and the line we return is what the channel shows.
+  [FAILURE.MALFORMED, /\bMALFORMED_RESPONSE\b|tool input is invalid JSON/i],
   [FAILURE.CONFIG, /\b(profile|cordis|patch|settings\.yaml|plugin|bundle|dsh_home|composition|row)\b/i],
 ];
 
@@ -646,6 +653,21 @@ const FAILURE_PATTERNS = [
  * Returns { category, message } with the message already tail-bounded. The
  * caller is responsible for the final redaction pass.
  */
+/**
+ * The last line of `detail` that `re` matches.
+ *
+ * dsh writes a long reasoning trace and then the terminal error. Callers cap
+ * the posted text from the front, so the message has to be that error line
+ * rather than the head of the trace.
+ */
+function lastMatchingLine(detail, re) {
+  const lines = String(detail).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (re.test(lines[i])) return lines[i].trim();
+  }
+  return '';
+}
+
 function classifyDshFailure({ code, signal, stderr } = {}) {
   const detail = tailStderr(stderr);
   if (signal) {
@@ -655,7 +677,8 @@ function classifyDshFailure({ code, signal, stderr } = {}) {
     };
   }
   for (const [category, re] of FAILURE_PATTERNS) {
-    if (re.test(detail)) return { category, message: detail };
+    if (!re.test(detail)) continue;
+    return { category, message: lastMatchingLine(detail, re) || detail };
   }
   return {
     category: FAILURE.UNKNOWN,
