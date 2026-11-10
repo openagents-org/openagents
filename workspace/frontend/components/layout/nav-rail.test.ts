@@ -7,7 +7,7 @@ import { OnboardingSurfaceContext } from './onboarding-surface';
 
 const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
-  viewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null, setThreadFilter: vi.fn(),
+  viewMode: 'threads', railViewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null, setThreadFilter: vi.fn(),
 }), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 180 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],

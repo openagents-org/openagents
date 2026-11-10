@@ -7,6 +7,7 @@ vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ id
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 import { MarkdownContent } from './markdown-content';
 import { workspaceApi } from '@/lib/api';
+import { resetFileObjectUrlCache } from '@/hooks/use-file-object-url';
 
 const id = 'fb44d8ef-692a-41a6-af91-f559a1b8ddd6';
 let root: Root, host: HTMLDivElement;
@@ -26,6 +27,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  resetFileObjectUrlCache();
   workspaceApi.configure('', '', ''); vi.unstubAllGlobals();
 });
 async function render(src: string) {
@@ -44,7 +46,11 @@ it.each([id, `/v1/files/${id}`, `${window.location.origin}/v1/files/${id}?downlo
   expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:authenticated-image');
   expect(host.querySelector('img')?.alt).toBe('OpenReview homepage');
   expect(host.querySelector('img')?.title).toBe('Screenshot');
+  // The URL outlives the image (the next view of this file reuses it) and
+  // is revoked when the cache lets it go.
   await act(async () => root.render(null));
+  expect(revoke).not.toHaveBeenCalled();
+  resetFileObjectUrlCache();
   expect(revoke).toHaveBeenCalledWith('blob:authenticated-image');
 });
 

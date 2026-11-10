@@ -664,6 +664,34 @@ class FileRecord(Base):
     )
 
 
+class FileShareLink(Base):
+    """An "anyone with the link" view link for one file.
+
+    Opening /share/file/<token> needs no sign-in and no workspace membership.
+    A file has at most one live link; revoking stamps revoked_at, and sharing
+    again mints a new token, so an old link never comes back to life.
+    """
+    __tablename__ = "file_share_links"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(Text, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, unique=True, nullable=False)
+    created_by = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_file_share_links_file", "file_id"),
+        # At most one live link per file, even when two creates race.
+        Index(
+            "uq_file_share_links_live", "file_id", unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared browser
 # ---------------------------------------------------------------------------

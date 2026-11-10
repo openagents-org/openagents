@@ -112,9 +112,13 @@ function IssueWorkspace() {
     }
   };
 
+  // <Activity> re-runs this when Issues is shown again with the same filters:
+  // refresh in the background instead of flipping back into a loading state.
+  const loadedFor = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    const loadKey = JSON.stringify([status, activeOnly, query, revision, pages, boardId]);
+    if (loadedFor.current !== loadKey) setLoading(true);
     const load = async () => {
       const version = ++requestVersion.current;
       try {
@@ -144,6 +148,7 @@ function IssueWorkspace() {
         setIssues(result.issues);
         setNextOffset(result.next_offset);
         setError('');
+        loadedFor.current = loadKey;
       } catch (e) {
         if (active && version === requestVersion.current)
           setError(errorMessage(e));

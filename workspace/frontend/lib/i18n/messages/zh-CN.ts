@@ -1641,6 +1641,15 @@ export const messages: Messages = {
     tryOpenAgents: '试用 OpenAgents',
   },
 
+  sharedFile: {
+    title: '分享的文件',
+    notFound: '此链接已失效，可能已被关闭或文件已删除。',
+    loadFailed: '加载分享的文件失败。',
+    download: '下载',
+    noPreview: '此类文件无法在线预览，请下载后查看。',
+    sharedOn: '分享于 {date}',
+  },
+
   workspaceGate: {
     workspace: '工作区',
     guest: '访客',
@@ -3253,6 +3262,17 @@ export const messages: Messages = {
     granteeKindGroup: '群组',
     moreActions: '{name} 的更多操作',
     newEntryVisibilityHint: '之后可以随时分享或更改。',
+    linkTitle: '链接分享',
+    linkHint: '开启后，拿到链接的人无需登录即可查看和下载此文件。',
+    linkCreate: '创建公开链接',
+    linkCopy: '复制公开链接',
+    linkRevoke: '关闭链接',
+    linkCreated: '公开链接已复制',
+    linkCreatedCopyFailed: '公开链接已创建，但未能复制到剪贴板，请点击「复制公开链接」。',
+    linkRevoked: '公开链接已关闭',
+    linkFailed: '无法更新公开链接',
+    linkActiveReadOnly: '此文件已开启公开链接，只有所有者或管理员可以复制或关闭。',
+    linkUnsupported: '网页项目暂不支持公开链接。',
   },
 
   // ── 权限模型 v1.1 ── “谁可以使用这个智能体”（取代 个人/团队）

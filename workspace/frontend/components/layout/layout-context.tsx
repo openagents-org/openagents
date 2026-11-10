@@ -7,7 +7,9 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState
+  useOptimistic,
+  useState,
+  useTransition
 } from 'react';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
 import { requestedResource } from '@/lib/resource-link';
@@ -128,6 +130,9 @@ interface LayoutState {
   setSidebarOpen: (open: boolean) => void;
   sidebarToggle: () => void;
   viewMode: ViewMode;
+  /** The view being switched to, ahead of `viewMode` while the switch renders —
+   *  what the rail highlights, so a click answers at once. */
+  railViewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
   /** Switch view and open/collapse the list panel to match it */
   openView: (mode: ViewMode) => void;
@@ -288,13 +293,22 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const sidebarToggle = () => setSidebarOpen(!isSidebarOpen);
 
   // Switching views keeps whatever the user last chose for the target view.
+  // The switch renders as a transition: revealing a kept-alive view re-runs
+  // all of its effects, and rendered as an urgent update that held the click
+  // (and on Windows the whole window) until it was done. The rail follows the
+  // optimistic value, so the click still answers immediately.
+  const [, startViewTransition] = useTransition();
+  const [railViewMode, setRailViewMode] = useOptimistic(viewMode);
   const openView = (mode: ViewMode) => {
-    setViewMode(mode);
-    // Files is the exception: its list pane is a folder tree, and what you want
-    // on opening it is usually the file you or an agent just added — which is
-    // the detail pane's recent listing. The tree stays one tap away, and any
-    // folder already selected is what the pane opens on.
-    setMobilePane(mode === 'files' ? 'detail' : 'list');
+    startViewTransition(() => {
+      setRailViewMode(mode);
+      setViewMode(mode);
+      // Files is the exception: its list pane is a folder tree, and what you want
+      // on opening it is usually the file you or an agent just added — which is
+      // the detail pane's recent listing. The tree stays one tap away, and any
+      // folder already selected is what the pane opens on.
+      setMobilePane(mode === 'files' ? 'detail' : 'list');
+    });
   };
 
   const [connectSetupRequest, setConnectSetupRequest] = useState<ConnectSetupRequest | null>(null);
@@ -343,6 +357,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setSidebarOpen,
       sidebarToggle,
       viewMode,
+      railViewMode,
       setViewMode,
       filesSection,
       setFilesSection,

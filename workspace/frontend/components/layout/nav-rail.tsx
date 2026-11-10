@@ -206,7 +206,7 @@ function RailResizeHandle() {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
+    viewMode, railViewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
     workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
@@ -355,7 +355,7 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={!onboarding && viewMode === item.mode}
+                    isActive={!onboarding && railViewMode === item.mode}
                     onClick={() => { if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); } openView(item.mode); }}
                   >
                     {item.icon}
