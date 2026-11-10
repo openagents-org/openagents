@@ -426,6 +426,16 @@ export function FilePreview() {
     };
   }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Release the PDF when the preview goes away. <Activity> runs this on hide
+  // as well, so a PDF (unlike text, which costs nothing to keep) is fetched
+  // again when Files is shown next.
+  useEffect(() => () => {
+    if (!blobRef.current) return;
+    URL.revokeObjectURL(blobRef.current);
+    blobRef.current = null;
+    loadedRef.current = null;
+  }, []);
+
   const dirty = draft !== null && draft !== content;
 
   // Closing the tab with unsaved edits asks first.

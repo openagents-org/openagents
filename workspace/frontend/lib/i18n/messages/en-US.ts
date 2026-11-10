@@ -3323,6 +3323,7 @@ export const messages = {
     linkCopy: 'Copy public link',
     linkRevoke: 'Turn off link',
     linkCreated: 'Public link copied',
+    linkCreatedCopyFailed: 'Public link created, but it couldn’t be copied. Use “Copy public link”.',
     linkRevoked: 'Public link turned off',
     linkFailed: 'Couldn’t update the public link',
     linkActiveReadOnly: 'This file has a public link. Only the owner or an admin can copy or turn it off.',

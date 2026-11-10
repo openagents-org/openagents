@@ -12,31 +12,43 @@ account and no membership.
   GET    /v1/public/files/{token}                   metadata, no auth
   GET    /v1/public/files/{token}/content           bytes, no auth
 
-Only someone who can manage the file (owner, admin, or a holder of the share
-right) may create or revoke a link, and only they get the token back. The
-content route always answers as an attachment with nosniff, so a shared HTML
-or SVG file never runs script in the API origin; the share page renders HTML
-in a sandboxed iframe instead.
+Only a signed-in person who can manage the file (owner, admin, or a holder of
+the share right) may create a link — never an agent or a bare workspace token:
+an agent steered by a prompt injection could otherwise publish any private
+file it can reach. Managers may revoke, and only they get the token back.
+
+A link stays good only while its creator could still create it: someone who
+left the workspace, or lost the right to manage the file, takes their links
+with them. Trashing, deleting or replacing the file revokes its links for good
+(app/services/file_share_links.py), so a restore does not revive them.
+
+The content route always answers as an attachment with nosniff, a sandbox CSP
+and no referrer, so a shared HTML or SVG file never runs script in the API
+origin and the token does not leak through a Referer header.
 """
 
+import logging
 import secrets
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import FileRecord, FileShareLink, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
-from app.services.access_model import can_manage, can_read_file, resource_for_file
+from app.services.access_model import Principal, can_manage, can_read_file, resource_for_file, workspace_human_roles
 from app.services.visibility import resolve_viewer
 from app.storage import get_file_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["File links"])
 
@@ -118,6 +130,8 @@ def create_public_link(
     record, workspace, viewer, error = _authorize(db, file_id, body.network, x_workspace_token, authorization)
     if error:
         return error
+    if viewer.kind != "human" or not viewer.email:
+        return json_response(ResponseCode.FORBIDDEN, "Only a signed-in person can create a public link")
     if not can_manage(db, viewer, resource_for_file(record), str(workspace.id)):
         return json_response(ResponseCode.FORBIDDEN, "Only the file's owner or an admin can create a public link")
     if (record.content_type or "").startswith(WEB_PROJECT_TYPE):
@@ -131,8 +145,17 @@ def create_public_link(
             created_by=_creator(viewer),
         )
         db.add(link)
-        db.commit()
-        db.refresh(link)
+        try:
+            db.commit()
+        except IntegrityError:
+            # A second create won the race (uq_file_share_links_live): hand
+            # back the link it made rather than a second one nobody can see.
+            db.rollback()
+            link = _live_link(db, record.id)
+            if link is None:
+                return json_response(ResponseCode.INTERNAL_ERROR, "Couldn't create the public link")
+        else:
+            db.refresh(link)
     return success_response(_serialize(link, True))
 
 
@@ -158,44 +181,68 @@ def revoke_public_link(
     return success_response(_serialize(None, True))
 
 
-def _shared_file(db: Session, token: str) -> Optional[FileRecord]:
-    """The file behind a live link, or None. Trashed files, deleted
-    workspaces and revoked links all read as "not found"."""
+def _creator_can_still_share(db: Session, workspace: Workspace, link: FileShareLink, record: FileRecord) -> bool:
+    """Whether whoever created the link could still create it now: still a
+    member of the workspace, still able to manage the file."""
+    created_by = link.created_by or ""
+    if not created_by.startswith("human:"):
+        return False
+    email = created_by[len("human:"):]
+    role = workspace_human_roles(db, workspace).get(email)
+    if not role:
+        return False
+    creator = Principal("human", email=email, role=role, workspace_id=str(workspace.id))
+    return can_manage(db, creator, resource_for_file(record), str(workspace.id))
+
+
+def _shared_file(db: Session, token: str):
+    """(record, link) behind a live link, or (None, None). Trashed files,
+    deleted workspaces, revoked links and creators who could no longer share
+    all read as "not found"."""
     link = db.execute(
         select(FileShareLink).where(FileShareLink.token == token, FileShareLink.revoked_at.is_(None))
     ).scalar_one_or_none()
     if link is None:
-        return None
+        return None, None
     record = db.get(FileRecord, link.file_id)
     if not record or record.status != "active" or str(record.workspace_id) != str(link.workspace_id):
-        return None
+        return None, None
     workspace = db.get(Workspace, record.workspace_id)
     if not workspace or workspace.status == "deleted":
-        return None
-    return record
+        return None, None
+    if not _creator_can_still_share(db, workspace, link, record):
+        return None, None
+    return record, link
+
+
+# Every public response: the token is in the page URL, so no Referer may carry
+# it to whatever the shared file links to.
+_NO_REFERRER = {"Referrer-Policy": "no-referrer"}
 
 
 @router.get("/public/files/{token}")
 def public_file_info(token: str, db: Session = Depends(get_db)):
-    record = _shared_file(db, token)
+    record, link = _shared_file(db, token)
     if record is None:
         return json_response(ResponseCode.NOT_FOUND, "This link is no longer available")
-    return success_response({
+    return JSONResponse(success_response({
         "filename": (record.filename or "file").rsplit("/", 1)[-1],
         "content_type": record.content_type,
         "size": record.size,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
-    })
+        # When it was shared, not when it was uploaded.
+        "shared_at": link.created_at.isoformat() if link.created_at else None,
+    }), headers=_NO_REFERRER)
 
 
 @router.get("/public/files/{token}/content")
 def public_file_content(token: str, db: Session = Depends(get_db)):
-    record = _shared_file(db, token)
+    record, _ = _shared_file(db, token)
     if record is None:
         return json_response(ResponseCode.NOT_FOUND, "This link is no longer available")
     try:
         data = get_file_store().read(record.storage_key)
-    except FileNotFoundError:
+    except Exception:  # noqa: BLE001 — S3 reports a missing object as its own error type
+        logger.warning("Public link: could not read %s", record.storage_key, exc_info=True)
         return json_response(ResponseCode.NOT_FOUND, "File data not found in storage")
     filename = (record.filename or "file").rsplit("/", 1)[-1]
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
@@ -209,5 +256,6 @@ def public_file_content(token: str, db: Session = Depends(get_db)):
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "sandbox",
             "Cache-Control": "private, no-store",
+            **_NO_REFERRER,
         },
     )

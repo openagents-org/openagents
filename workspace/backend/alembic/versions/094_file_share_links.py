@@ -23,8 +23,14 @@ def upgrade():
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("idx_file_share_links_file", "file_share_links", ["file_id"])
+    # At most one live link per file, even when two creates race.
+    op.create_index(
+        "uq_file_share_links_live", "file_share_links", ["file_id"], unique=True,
+        postgresql_where=sa.text("revoked_at IS NULL"),
+    )
 
 
 def downgrade():
+    op.drop_index("uq_file_share_links_live", table_name="file_share_links")
     op.drop_index("idx_file_share_links_file", table_name="file_share_links")
     op.drop_table("file_share_links")

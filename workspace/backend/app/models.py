@@ -683,6 +683,12 @@ class FileShareLink(Base):
 
     __table_args__ = (
         Index("idx_file_share_links_file", "file_id"),
+        # At most one live link per file, even when two creates race.
+        Index(
+            "uq_file_share_links_live", "file_id", unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
     )
 
 

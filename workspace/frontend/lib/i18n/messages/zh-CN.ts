@@ -3268,6 +3268,7 @@ export const messages: Messages = {
     linkCopy: '复制公开链接',
     linkRevoke: '关闭链接',
     linkCreated: '公开链接已复制',
+    linkCreatedCopyFailed: '公开链接已创建，但未能复制到剪贴板，请点击「复制公开链接」。',
     linkRevoked: '公开链接已关闭',
     linkFailed: '无法更新公开链接',
     linkActiveReadOnly: '此文件已开启公开链接，只有所有者或管理员可以复制或关闭。',

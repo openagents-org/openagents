@@ -58,6 +58,7 @@ from app.services.access_model import (
 )
 from app.services.visibility import resolve_viewer
 from app.services.personal_files import default_file_folder
+from app.services.file_share_links import revoke_file_links
 from app.storage import get_file_store
 from openagents.core.onm_events import Event
 
@@ -384,6 +385,7 @@ async def delete_folder(
 
     for record in records:
         record.status = "deleted"
+    revoke_file_links(db, [r.id for r in records])
 
     # Commit before emitting (see create_folder) so an EventRejected can't
     # silently discard the soft-delete while returning 200.
@@ -909,6 +911,7 @@ async def upload_files_to_folder(
                     .where(FileRecord.status == "active")
                 ).scalars().all():
                     old.status = "deleted"
+                    revoke_file_links(db, [old.id])
                 replaced = True
 
         content_type = upload.content_type or "application/octet-stream"
@@ -1108,6 +1111,7 @@ async def move_to_trash(
             record.deleted_at = now
             record.trash_id = trash_id
             record.trash_path = path
+        revoke_file_links(db, [r.id for r in records])
         counted = [r for r in records if _basename(r.filename) != KEEP_FILE]
         entries.append({
             "trash_id": trash_id,
@@ -1939,6 +1943,7 @@ async def delete_file(
         return json_response(ResponseCode.FORBIDDEN, "No access to this file")
 
     record.status = "deleted"
+    revoke_file_links(db, [record.id])
 
     event = Event(
         type="workspace.file.deleted",

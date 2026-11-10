@@ -2,8 +2,16 @@
 
 /**
  * /share/file/<token> — a file someone shared with "anyone with the link".
- * No sign-in and no workspace: the token is the whole credential. HTML is
- * rendered in a sandboxed iframe (no same-origin), never as a page of ours.
+ * No sign-in and no workspace: the token is the whole credential.
+ *
+ * Anyone can share anything here, under our domain, so nothing shared may
+ * act like a page of ours. HTML is shown as its source, never rendered: even
+ * sandboxed, a rendered page could pass for an OpenAgents sign-in form. SVG
+ * is drawn in an iframe with every sandbox restriction on (no script, no
+ * forms, no navigation), not from a blob URL that would run its script in
+ * our origin if opened in a tab. Audio and video stream from the API instead
+ * of being downloaded whole first. No request carries a referrer: the token
+ * is in this page's URL.
  */
 
 import { use, useEffect, useState } from 'react';
@@ -20,7 +28,7 @@ const API_URL = getApiBaseUrl();
 const PREVIEW_LIMIT = 20 * 1024 * 1024;
 
 type Body =
-  | { kind: 'html' | 'markdown' | 'text'; text: string }
+  | { kind: 'html' | 'svg' | 'markdown' | 'text'; text: string }
   | { kind: 'image' | 'pdf' | 'video' | 'audio'; url: string }
   | { kind: 'none' };
 
@@ -29,6 +37,7 @@ function previewKind(info: PublicFileInfo): Body['kind'] {
   const name = info.filename.toLowerCase();
   if (info.size > PREVIEW_LIMIT && !type.startsWith('video/') && !type.startsWith('audio/')) return 'none';
   if (type.includes('html') || /\.html?$/.test(name)) return 'html';
+  if (type.includes('svg') || /\.svg$/.test(name)) return 'svg';
   if (type.includes('markdown') || /\.mdx?$/.test(name)) return 'markdown';
   if (type.startsWith('text/') || /\.(json|csv|txt|log|ya?ml)$/.test(name)) return 'text';
   if (type.startsWith('image/')) return 'image';
@@ -61,16 +70,17 @@ export default function SharedFilePage({ params }: { params: Promise<{ token: st
     let objectUrl: string | undefined;
     const abort = new AbortController();
     (async () => {
-      const res = await fetch(`${API_URL}/v1/public/files/${encodeURIComponent(token)}`, { signal: abort.signal });
+      const res = await fetch(`${API_URL}/v1/public/files/${encodeURIComponent(token)}`, { signal: abort.signal, referrerPolicy: 'no-referrer' });
       const json = res.ok ? await res.json() : null;
       if (!json || json.code !== 0) { setError(t('sharedFile.notFound')); return; }
       const meta = json.data as PublicFileInfo;
       setInfo(meta);
       const kind = previewKind(meta);
       if (kind === 'none') { setBody({ kind }); return; }
-      const content = await fetch(contentUrl, { signal: abort.signal });
+      if (kind === 'video' || kind === 'audio') { setBody({ kind, url: contentUrl }); return; }
+      const content = await fetch(contentUrl, { signal: abort.signal, referrerPolicy: 'no-referrer' });
       if (!content.ok) { setError(t('sharedFile.notFound')); return; }
-      if (kind === 'html' || kind === 'markdown' || kind === 'text') {
+      if (kind === 'html' || kind === 'svg' || kind === 'markdown' || kind === 'text') {
         setBody({ kind, text: await content.text() });
       } else {
         objectUrl = URL.createObjectURL(await content.blob());
@@ -84,7 +94,7 @@ export default function SharedFilePage({ params }: { params: Promise<{ token: st
     if (!info || downloading) return;
     setDownloading(true);
     try {
-      const res = await fetch(contentUrl);
+      const res = await fetch(contentUrl, { referrerPolicy: 'no-referrer' });
       if (!res.ok) throw new Error(String(res.status));
       const url = URL.createObjectURL(await res.blob());
       const anchor = document.createElement('a');
@@ -114,7 +124,7 @@ export default function SharedFilePage({ params }: { params: Promise<{ token: st
     return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  const fills = body.kind === 'html' || body.kind === 'pdf';
+  const fills = body.kind === 'svg' || body.kind === 'pdf';
   return (
     <div className="flex h-screen flex-col bg-background">
       <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3 sm:px-6">
@@ -123,7 +133,7 @@ export default function SharedFilePage({ params }: { params: Promise<{ token: st
           <h1 className="truncate text-sm font-semibold" title={info.filename}>{info.filename}</h1>
           <p className="truncate text-xs text-muted-foreground">
             {formatFileSize(info.size)}
-            {info.created_at && ` · ${t('sharedFile.sharedOn', { date: formatDateTime(info.created_at) })}`}
+            {info.shared_at && ` · ${t('sharedFile.sharedOn', { date: formatDateTime(info.shared_at) })}`}
           </p>
         </div>
         <Button size="sm" onClick={() => void download()} disabled={downloading}>
@@ -132,13 +142,14 @@ export default function SharedFilePage({ params }: { params: Promise<{ token: st
         </Button>
       </header>
       <main className={fills ? 'min-h-0 flex-1' : 'min-h-0 flex-1 overflow-auto'}>
-        {body.kind === 'html' && <iframe title={info.filename} srcDoc={body.text} sandbox="allow-scripts" referrerPolicy="no-referrer" className="size-full border-0 bg-white" />}
+        {body.kind === 'html' && <pre className="mx-auto max-w-5xl whitespace-pre-wrap break-words px-4 py-6 text-sm sm:px-6">{body.text}</pre>}
+        {body.kind === 'svg' && <iframe title={info.filename} srcDoc={body.text} sandbox="" referrerPolicy="no-referrer" className="size-full border-0 bg-white" />}
         {body.kind === 'pdf' && <iframe title={info.filename} src={body.url} className="size-full border-0" />}
         {body.kind === 'markdown' && <article className="mx-auto max-w-3xl px-4 py-6 sm:px-6"><MarkdownContent content={body.text} agentNames={[]} /></article>}
         {body.kind === 'text' && <pre className="mx-auto max-w-5xl whitespace-pre-wrap break-words px-4 py-6 text-sm sm:px-6">{body.text}</pre>}
         {body.kind === 'image' && <div className="flex min-h-full items-center justify-center p-4"><img src={body.url} alt={info.filename} className="max-h-full max-w-full object-contain" /></div>}
-        {body.kind === 'video' && <div className="flex min-h-full items-center justify-center p-4"><video src={body.url} controls className="max-h-full max-w-full" /></div>}
-        {body.kind === 'audio' && <div className="flex min-h-full items-center justify-center p-4"><audio src={body.url} controls /></div>}
+        {body.kind === 'video' && <div className="flex min-h-full items-center justify-center p-4"><video src={body.url} controls preload="metadata" className="max-h-full max-w-full" /></div>}
+        {body.kind === 'audio' && <div className="flex min-h-full items-center justify-center p-4"><audio src={body.url} controls preload="metadata" /></div>}
         {body.kind === 'none' && <Shell><p className="max-w-md text-sm text-muted-foreground">{t('sharedFile.noPreview')}</p></Shell>}
       </main>
     </div>

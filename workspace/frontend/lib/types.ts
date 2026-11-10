@@ -1407,7 +1407,8 @@ export interface PublicFileInfo {
   filename: string;
   content_type: string;
   size: number;
-  created_at: string | null;
+  /** When the link was created. */
+  shared_at: string | null;
 }
 
 /** GET /v1/grants */

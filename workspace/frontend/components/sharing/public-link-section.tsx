@@ -49,8 +49,14 @@ export function PublicLinkSection({ fileId, unsupported = false }: { fileId: str
   };
 
   const create = () => run(() => workspaceApi.createFilePublicLink(fileId), async (next) => {
-    if (next.link?.token) await copy(publicFileUrl(next.link.token));
-    toast.success(t('artifactAccess.linkCreated'));
+    // The link exists by now; a clipboard the browser refused is not a
+    // failure to create it, and the copy button is right there.
+    try {
+      if (next.link?.token) await copy(publicFileUrl(next.link.token));
+      toast.success(t('artifactAccess.linkCreated'));
+    } catch {
+      toast.warning(t('artifactAccess.linkCreatedCopyFailed'));
+    }
   });
   const revoke = () => run(() => workspaceApi.revokeFilePublicLink(fileId), () => {
     toast.success(t('artifactAccess.linkRevoked'));
