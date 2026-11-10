@@ -14,11 +14,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
 const { spawn } = require('../wsl');
+const { opencodeTranscript } = require('../host-agent');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./utils');
@@ -102,10 +103,14 @@ class OpenCodeAdapter extends BaseAdapter {
    * @param {object} opts - BaseAdapter opts plus:
    * @param {Set} [opts.disabledModules]
    * @param {string} [opts.workingDir]
+   * @param {{session_id: string}} [opts.seedSession] - The OpenCode chat this
+   *   agent was created from (`agn join`). Each channel's first turn carries a
+   *   transcript of it, so the agent starts with what was said there.
    */
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    this._seedSession = opts.seedSession && opts.seedSession.session_id ? opts.seedSession : null;
     // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
@@ -183,7 +188,39 @@ class OpenCodeAdapter extends BaseAdapter {
     if (sessionId) return content;
     this._ensureWorkspaceSkill(msgChannel);
     const context = this._buildSystemContext(msgChannel);
-    return `${context}\n\n---\n\n${content}`;
+    const seed = this._seedTranscript(msgChannel);
+    return seed
+      ? `${context}\n\n---\n\n${seed}\n\n---\n\n${content}`
+      : `${context}\n\n---\n\n${content}`;
+  }
+
+  /**
+   * For a channel's first turn: the conversation this agent was created from,
+   * read with `opencode export` (never written to), or ''. Not a fork: OpenCode
+   * forks of a session that ran tools are refused by Anthropic models, whose
+   * thinking blocks are bound to the original conversation. A seed that can
+   * no longer be read turns seeding off.
+   */
+  _seedTranscript(msgChannel) {
+    const seed = this._seedSession;
+    if (!seed || Object.prototype.hasOwnProperty.call(this._channelSessions, msgChannel)) return '';
+    try {
+      const r = spawnSync(this._opencodeBinary, ['export', seed.session_id], {
+        env: this._spawnEnv(msgChannel), encoding: 'utf-8', timeout: 30000,
+        maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+        shell: IS_WINDOWS && /\.cmd$/i.test(this._opencodeBinary || ''),
+      });
+      if (r.status !== 0 || !r.stdout) throw new Error((r.stderr || r.error || `exit ${r.status}`).toString().slice(0, 200));
+      const text = opencodeTranscript(JSON.parse(r.stdout.slice(r.stdout.indexOf('{'))));
+      if (!text) return '';
+      return 'Before you joined this workspace, you were in this OpenCode conversation with the user. '
+        + 'It is your own memory, quoted for reference; continue from it.\n\n<previous_conversation>\n'
+        + `${text}\n</previous_conversation>`;
+    } catch (e) {
+      this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
+      this._seedSession = null;
+      return '';
+    }
   }
 
   /** Environment the CLI is spawned with. */

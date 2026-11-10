@@ -76,7 +76,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
           {([
             { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
             { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }] },
-            { id: 'agent', icon: Bot, label: 'connect.agentJoinTitle', hint: 'connect.agentJoinTarget', platforms: [{ icon: 'agents/claude', label: 'Claude Code' }, { icon: 'agents/codex', label: 'Codex' }] },
+            { id: 'agent', icon: Bot, label: 'connect.agentJoinTitle', hint: 'connect.agentJoinTarget', platforms: [{ icon: 'agents/claude', label: 'Claude Code' }, { icon: 'agents/codex', label: 'Codex' }, { icon: 'agents/opencode', label: 'OpenCode' }] },
           ] as const).map(({ id, icon: Icon, label, hint, platforms }) => {
             const active = method === id;
             return (

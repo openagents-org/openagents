@@ -22,8 +22,34 @@ const { AUTH_MODE_KEY, CLI_LOGIN } = require('./env');
 const { defaultAgentWorkdir } = require('./paths');
 const {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
-  claudeConfigDir, findClaudeTranscript,
+  claudeConfigDir, findClaudeTranscript, pickOpencodeSession, opencodeSessionModel,
 } = require('./host-agent');
+
+/**
+ * The OpenCode chat running this command: `{ session_id, directory, model }`,
+ * or null. OpenCode exports no session id, so its session list is asked for
+ * the newest session in this directory.
+ */
+function findOpencodeChat({ env, cwd, run }) {
+  const json = (args) => {
+    const r = run(args, { env, cwd });
+    if (!r || r.status !== 0 || !r.stdout) return null;
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  };
+  const session = pickOpencodeSession(json(['session', 'list', '--format', 'json']), cwd);
+  if (!session) return null;
+  const exported = json(['export', session.id]);
+  return { session_id: session.id, directory: session.directory, model: exported ? opencodeSessionModel(exported) : null };
+}
+
+function runOpencodeCli(args, { env, cwd }) {
+  const { whichBinary } = require('./paths');
+  const bin = whichBinary('opencode') || 'opencode';
+  return require('child_process').spawnSync(bin, args, {
+    env, cwd, encoding: 'utf-8', timeout: 30000, maxBuffer: 64 * 1024 * 1024,
+    shell: process.platform === 'win32' && /\.cmd$/i.test(bin), windowsHide: true,
+  });
+}
 
 /**
  * Browser URL of a workspace, matching the TUI's convention: a localhost/dev
@@ -181,16 +207,29 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   }
 
   // 4. The agent.
-  const workDir = typeof flags.path === 'string' ? path.resolve(flags.path) : defaultAgentWorkdir(name);
   const auth = hostAuthEnv(type, env);
   const agentEnv = { ...auth.env };
   if (auth.secrets.length === 0) agentEnv[AUTH_MODE_KEY] = CLI_LOGIN;
 
   let seed = null;
+  // Where the agent works. Claude Code writes a workspace skill (holding the
+  // workspace token) into its working directory, so it gets its own; an
+  // OpenCode agent keeps that in its agent home and can keep working in the
+  // chat's project.
+  let defaultDir = null;
   if (type === 'claude' && host.sessionId) {
     const transcript = findClaudeTranscript(host.sessionId, claudeConfigDir(env));
     if (transcript) seed = { session_id: host.sessionId, transcript };
+  } else if (type === 'opencode') {
+    const chat = findOpencodeChat({ env, cwd: deps.cwd || process.cwd(), run: deps.runOpencode || runOpencodeCli });
+    if (chat) {
+      seed = { session_id: chat.session_id, directory: chat.directory };
+      defaultDir = chat.directory;
+      // The OpenCode adapter needs a model on the command line; use the chat's.
+      if (chat.model && !agentEnv.OPENCODE_MODEL) agentEnv.OPENCODE_MODEL = chat.model;
+    }
   }
+  const workDir = typeof flags.path === 'string' ? path.resolve(flags.path) : (defaultDir || defaultAgentWorkdir(name));
 
   connector.addAgent({ name, type, role: 'worker', path: workDir, env: agentEnv });
   connector.connectWorkspace(name, res.workspaceSlug);
@@ -228,7 +267,9 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   print('');
   print(`Connected. This agent is now '${name}' in the workspace '${res.workspaceName}': ${url}`);
   print(`- Runs as: ${runtimeLabel} on ${info.hostname || os.hostname()}, working in ${workDir}`);
-  if (seed) {
+  if (seed && type === 'opencode') {
+    print('- Memory: each new workspace thread starts with a transcript of this conversation. This conversation itself is never changed.');
+  } else if (seed) {
     print('- Memory: each new workspace thread starts from a copy of this conversation. This conversation itself is never changed.');
   } else if (type === 'claude') {
     print('- Memory: starts fresh (this conversation\'s transcript was not found).');
@@ -238,6 +279,11 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   print(auth.secrets.length
     ? `- Sign-in: copied ${auth.secrets.join(', ')} from this session into the agent's settings (~/.openagents/daemon.yaml).`
     : `- Sign-in: uses this machine's ${runtimeLabel} login.`);
+  if (type === 'opencode') {
+    print(agentEnv.OPENCODE_MODEL
+      ? `- Model: ${agentEnv.OPENCODE_MODEL} (the one this conversation uses)`
+      : '- Model: none found. Set one before messaging it: agn env opencode --set OPENCODE_MODEL=<provider/model>');
+  }
   print(`- Start at login: ${autostartNote}`);
   print(`- Undo: agn remove ${name}   (and agn autostart --disable to stop starting at login)`);
   print('');

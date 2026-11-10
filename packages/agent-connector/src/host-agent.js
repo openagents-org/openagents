@@ -75,7 +75,14 @@ const AUTH_SETTINGS = {
   codex: ['CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL'],
   codebuddy: ['CODEBUDDY_CONFIG_DIR', 'CODEBUDDY_API_KEY'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_GENAI_USE_VERTEXAI'],
-  opencode: [],
+  opencode: [
+    'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME',
+    'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'GEMINI_API_KEY',
+    'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY',
+    'DEEPSEEK_API_KEY', 'XAI_API_KEY', 'AZURE_API_KEY', 'AZURE_OPENAI_API_KEY',
+    'GOOGLE_CLOUD_PROJECT', 'VERTEX_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS',
+    'AWS_REGION', 'AWS_PROFILE',
+  ],
   cursor: ['CURSOR_API_KEY'],
 };
 const SECRET_RE = /(KEY|TOKEN|SECRET)$/;
@@ -134,8 +141,67 @@ function snapshotTranscript(src, destDir) {
   return dest;
 }
 
+// ---------------------------------------------------------------------------
+// OpenCode sessions
+// ---------------------------------------------------------------------------
+//
+// OpenCode sets OPENCODE=1 for the commands it runs but no session id, so the
+// session is found by where it runs: the most recently updated one in the
+// directory the command was run from is the chat running it.
+
+/** Pick the chat's session from `opencode session list --format json` output. */
+function pickOpencodeSession(sessions, cwd) {
+  const want = realpath(cwd);
+  const here = (Array.isArray(sessions) ? sessions : [])
+    .filter((s) => s && s.id && s.directory && realpath(s.directory) === want)
+    .sort((a, b) => (Number(b.updated) || 0) - (Number(a.updated) || 0));
+  return here[0] || null;
+}
+
+function realpath(p) {
+  try { return fs.realpathSync(p); } catch { return path.resolve(String(p || '')); }
+}
+
+/** `provider/model` the session runs on, from `opencode export <id>` output. */
+function opencodeSessionModel(exported) {
+  const m = exported && exported.info && exported.info.model;
+  if (m && m.providerID && m.id) return `${m.providerID}/${m.id}`;
+  const msgs = (exported && exported.messages) || [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const info = msgs[i] && msgs[i].info;
+    if (info && info.role === 'assistant' && info.providerID && info.modelID) return `${info.providerID}/${info.modelID}`;
+  }
+  return null;
+}
+
+/**
+ * A plain-text transcript of an exported OpenCode session: what each side
+ * said and which tools ran, newest part kept when it is longer than
+ * `maxChars`. Reasoning is left out.
+ */
+function opencodeTranscript(exported, maxChars = 30000) {
+  const lines = [];
+  for (const msg of (exported && exported.messages) || []) {
+    const role = msg && msg.info && msg.info.role === 'assistant' ? 'You' : 'User';
+    for (const part of (msg && msg.parts) || []) {
+      if (part.type === 'text' && part.text && !part.synthetic) {
+        lines.push(`${role}: ${part.text.trim()}`);
+      } else if (part.type === 'tool' && part.tool) {
+        const state = part.state || {};
+        const input = state.input ? JSON.stringify(state.input) : '';
+        const output = typeof state.output === 'string' ? state.output.trim() : '';
+        lines.push(`[You ran ${part.tool}${input ? ` ${input.slice(0, 500)}` : ''}${output ? ` → ${output.slice(0, 500)}` : ''}]`);
+      }
+    }
+  }
+  const text = lines.join('\n\n');
+  if (text.length <= maxChars) return text;
+  return `[…earlier part omitted…]\n\n${text.slice(text.length - maxChars)}`;
+}
+
 module.exports = {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
   claudeConfigDir, claudeProjectDir, findClaudeTranscript, snapshotTranscript,
+  pickOpencodeSession, opencodeSessionModel, opencodeTranscript,
   HOST_SESSION_KEYS,
 };
