@@ -4,6 +4,8 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  agyPromptFitsArgv,
+  agyStdinMessage,
   buildAgyArgv,
   parseAgyEvent,
   toolPreview,
@@ -41,6 +43,32 @@ describe('buildAgyArgv', () => {
   it('drops the conversation when skipResume is set', () => {
     const args = buildAgyArgv({ prompt: 'hi', conversationId: 'c-1', skipResume: true });
     assert.ok(!args.includes('--conversation'));
+  });
+  it('leaves the prompt out of argv when it goes over stdin', () => {
+    const args = buildAgyArgv({ prompt: 'x'.repeat(50000), conversationId: 'c-1', viaStdin: true });
+    assert.deepEqual(args.slice(0, 2), ['--input-format', 'stream-json']);
+    assert.ok(!args.includes('-p'));
+    assert.ok(args.includes('--output-format') && args.includes('--conversation'));
+    assert.ok(args.every((a) => a.length < 100));
+  });
+});
+
+describe('long prompts', () => {
+  // A one-word message failed with "spawn ENAMETOOLONG" on Windows: the
+  // system prompt plus a large pinned glossary passed the 32,767-character
+  // command-line limit.
+  it('keeps a Windows command line under its limit', () => {
+    assert.equal(agyPromptFitsArgv('x'.repeat(5000), 'win32'), true);
+    assert.equal(agyPromptFitsArgv('x'.repeat(30000), 'win32'), false);
+    assert.equal(agyPromptFitsArgv('x'.repeat(30000), 'darwin'), true);
+    assert.equal(agyPromptFitsArgv('x'.repeat(200000), 'linux'), false);
+  });
+
+  it('writes the prompt as one stream-json user event line', () => {
+    const line = agyStdinMessage('第一行\n"quoted"');
+    assert.ok(line.endsWith('\n'));
+    assert.equal(line.trim().split('\n').length, 1);
+    assert.deepEqual(JSON.parse(line), { event: 'user', message: { content: '第一行\n"quoted"' } });
   });
 });
 

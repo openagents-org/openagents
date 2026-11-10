@@ -299,6 +299,17 @@ describe('Codex — what of stderr is quoted', () => {
     assert.doesNotMatch(detail, /lost its connection/);
   });
 
+  it('says to pick another model when the ChatGPT plan does not include it', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-6.1-sol\' model is not supported when using Codex with a ChatGPT account."}}',
+      stderr: [BANNER, REFRESH_WARN].join('\n'),
+      exitCode: 1,
+    });
+    assert.ok(detail.startsWith("The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."), detail);
+    assert.match(detail, /Pick another model for this agent/);
+    assert.doesNotMatch(detail, /lost its connection/);
+  });
+
   it('still names the network when stderr ends in a real connection error', () => {
     const detail = CodexAdapter._failureDetail({
       stderr: [

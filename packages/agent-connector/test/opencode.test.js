@@ -269,6 +269,19 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(cls.category, 'network_error');
   });
 
+  // Field reports (core 0.2.223) that all read "failed for an undetermined
+  // reason" while the provider had said exactly why.
+  it('names a spent account, a revoked key, an oversized request and a busy provider', () => {
+    const err = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Insufficient balance')).category, 'quota_exhausted');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid or revoked API key.')).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Bad Request: Failed to buffer the request body: length limit exceeded')).category, 'request_too_large');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Hệ thống đang bận, vui lòng thử lại sau ít phút.')).category, 'provider_server_error');
+    const messages = OpenCodeAdapter.prototype._failureMessages();
+    assert.match(messages.quota_exhausted, /balance or credit/);
+    assert.match(messages.request_too_large, /too large/);
+  });
+
   it('code=1 + 429 → rate_limited', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '{"type":"error","error":{"message":"rate limit exceeded","status":429}}', stderr: '' });
     assert.equal(cls.category, 'rate_limited');

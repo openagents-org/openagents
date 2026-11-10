@@ -953,6 +953,14 @@ class CodexAdapter extends BaseAdapter {
         'at an endpoint that supports the full Responses API, or edit the agent and set Agent capabilities to ' +
         '"Chat only · Chat Completions API" (it then answers without running tools on this device).';
     }
+    // A model the user's ChatGPT plan doesn't include for Codex. Seen in the
+    // field with several model names picked in the workspace; every run
+    // fails the same way until another model is chosen.
+    if (/not supported when using Codex with a ChatGPT account/i.test(detail)) {
+      return `${detail}\n\nThis model is not available to Codex on your ChatGPT plan. ` +
+        'Pick another model for this agent (the model menu in the thread, or the agent\'s settings), ' +
+        'or leave the model empty to use the account default.';
+    }
     // Ahead of the network check: a model that needs a newer Codex can
     // arrive with connection warnings in stderr, and the upgrade is the fix.
     if (/requires a newer version|upgrade to the latest (app|version)/i.test(detail)) {
