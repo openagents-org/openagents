@@ -6,18 +6,20 @@ import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useT } from '@/lib/i18n';
+import { useHumanNames } from '@/hooks/use-team-roster';
 import type { ChannelParticipants, WorkspaceAgent } from '@/lib/types';
 import { toast } from 'sonner';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 
 type Access = ChannelParticipants['agents'][number];
-const Context = createContext<{ data: ChannelParticipants | null; people: number; supported: boolean; agents: Access[]; request: (agent: Access) => Promise<void>; busy: string | null } | null>(null);
+const Context = createContext<{ data: ChannelParticipants | null; people: number; supported: boolean; agents: Access[]; humanNames: Record<string, string>; request: (agent: Access) => Promise<void>; busy: string | null } | null>(null);
 
 /** One participant/access refresh per conversation, shared by all message rows. */
 export function AgentMessageAccessProvider({ children }: { children: ReactNode }) {
   const { currentSessionId, currentUser, workspace, pendingApprovals } = useWorkspace();
   const confirm = useConfirm();
   const t = useT();
+  const humanNames = useHumanNames();
   const key = `${workspace?.workspaceId}:${currentUser.id}:${currentSessionId}`;
   const [state, setState] = useState<{ key: string; value: ChannelParticipants } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export function AgentMessageAccessProvider({ children }: { children: ReactNode }
     } catch (error) { toast.error(error instanceof Error ? error.message : t('messageAgentAccess.failed')); }
     finally { pending.current = false; setBusy(null); }
   };
-  return <Context.Provider value={{ data, supported: !!data?.thread_access_requests_supported, people: data?.humans.length || 0, agents: data?.agents || [], request, busy }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ data, supported: !!data?.thread_access_requests_supported, people: data?.humans.length || 0, agents: data?.agents || [], humanNames, request, busy }}>{children}</Context.Provider>;
 }
 
 export function AgentOwnershipBadge({ agent, compact = false }: { agent: WorkspaceAgent; compact?: boolean }) {
@@ -70,7 +72,9 @@ export function AgentOwnershipBadge({ agent, compact = false }: { agent: Workspa
   if (!owner) return null;
   const mine = owner.toLowerCase() === currentUser.id.toLowerCase();
   const status = mine ? t('messageAgentAccess.yours') : access?.request_access === 'yes' ? t('messageAgentAccess.shared') : access?.request_access === 'approval' ? t('messageAgentAccess.approval') : access?.request_access === 'no' ? t('messageAgentAccess.notShared') : '';
-  const label = `${access?.owner_display_name || owner}${mine ? ` (${t('threads.you')})` : ''}`;
+  const ownerName = access?.owner_display_name || context.humanNames[owner.toLowerCase()] ||
+    (mine && currentUser.name !== owner ? currentUser.name : null) || owner;
+  const label = `${ownerName}${mine ? ` (${t('threads.you')})` : ''}`;
   return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
     {!compact && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
     {status && <span className="rounded bg-muted px-1.5 py-0.5">{status}</span>}

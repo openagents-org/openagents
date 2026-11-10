@@ -266,6 +266,7 @@ export const messages: Messages = {
     you: '{name}(你)',
     workspaceFallback: '工作区',
     connectAgent: '连接智能体',
+    manageAgents: '管理智能体',
     connectFirstAgent: '连接你的第一个智能体',
     firstDeviceTitle: '从这里开始',
     firstDeviceHint: '连接你的第一台设备，让智能体上线。',

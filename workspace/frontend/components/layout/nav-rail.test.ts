@@ -66,14 +66,14 @@ it('shows the Threads unread total, caps large counts, and clears the badge at z
   } finally { state.unreadThreadsTotal = 0; await act(async () => root.unmount()); host.remove(); }
 });
 
-it('selects Connect Agent rather than the seeded thread while onboarding owns the page', async () => {
+it('selects Manage Agents rather than the seeded thread while onboarding owns the page', async () => {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   const dismiss = vi.fn();
   try {
     await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider, { value: { active: true, onDismiss: dismiss } }, React.createElement(NavRail))));
     const threads = [...host.querySelectorAll('button')].find(b => b.textContent === 'views.threads')!;
-    const connect = [...host.querySelectorAll('button')].find(b => b.textContent === 'nav.connectAgent')!;
+    const connect = [...host.querySelectorAll('button')].find(b => b.textContent === 'nav.manageAgents')!;
     expect(threads.getAttribute('data-active')).toBe('false');
     expect(connect.getAttribute('data-active')).toBe('true');
     expect(connect.getAttribute('aria-current')).toBe('page');

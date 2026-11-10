@@ -8,6 +8,7 @@ import type { WorkspaceNode } from '@/lib/types';
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
   getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
+  listMyAcentaAgents: vi.fn(() => Promise.resolve([])),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
 const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
@@ -48,6 +49,12 @@ function device(nodeId: string, status = 'online'): WorkspaceNode {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  const storage = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value); },
+    removeItem: (key: string) => { storage.delete(key); },
+  });
   fixture.needsFirstDevice = false;
   fixture.connectSetupRequest = null;
   fixture.mobile = false;
@@ -121,6 +128,17 @@ it('opens a device arriving after an empty list, and works when all devices are 
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   expect(summary('arriving').getAttribute('aria-expanded')).toBe('true');
   expect(button('connect.nodeAddAgent')).toBeDefined();
+});
+
+it('opens additional device pairing on its own screen and returns to the device list', async () => {
+  await render([device('existing')]);
+  expect(summary('existing')).toBeDefined();
+  await act(async () => button('connect.nodeConnectAnother').click());
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.textContent).toBe('TEST-CODE');
+  expect(summary('existing')).toBeUndefined();
+  await act(async () => button('connect.nodeBack').click());
+  expect(summary('existing')).toBeDefined();
+  expect(container.querySelector('[data-testid="guided-pairing"]')).toBeNull();
 });
 
 
