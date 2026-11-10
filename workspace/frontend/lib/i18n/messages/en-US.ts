@@ -1676,6 +1676,15 @@ export const messages = {
     tryOpenAgents: 'Try OpenAgents',
   },
 
+  sharedFile: {
+    title: 'Shared file',
+    notFound: 'This link is no longer available. It may have been turned off, or the file was deleted.',
+    loadFailed: 'Couldn’t load the shared file.',
+    download: 'Download',
+    noPreview: 'This file can’t be previewed here. Download it to open.',
+    sharedOn: 'Shared {date}',
+  },
+
   workspaceGate: {
     workspace: 'Workspace',
     guest: 'Guest',
@@ -3308,6 +3317,16 @@ export const messages = {
     granteeKindGroup: 'Group',
     moreActions: 'More actions for {name}',
     newEntryVisibilityHint: 'You can share it or change this later.',
+    linkTitle: 'Public link',
+    linkHint: 'Anyone with the link can view and download this file without signing in.',
+    linkCreate: 'Create public link',
+    linkCopy: 'Copy public link',
+    linkRevoke: 'Turn off link',
+    linkCreated: 'Public link copied',
+    linkRevoked: 'Public link turned off',
+    linkFailed: 'Couldn’t update the public link',
+    linkActiveReadOnly: 'This file has a public link. Only the owner or an admin can copy or turn it off.',
+    linkUnsupported: 'Web projects can’t be shared by public link yet.',
   },
 
   // ── Permission model v1.1 ── "Who can use this agent" (replaces personal/team)

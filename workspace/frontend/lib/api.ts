@@ -4,6 +4,7 @@ import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
   AgentCatalogDetail,
+  FilePublicLinkState,
   AgentCatalogEntry,
   ApiResponse,
   BrowserPersistentContext,
@@ -2880,6 +2881,25 @@ class WorkspaceApi {
       body: JSON.stringify({ network: this.requireWorkspace(), visibility }),
     });
     return mapFileResponse(raw);
+  }
+
+  /** The file's "anyone with the link" view link. `token` only comes back
+   *  to people who can manage the file. */
+  async getFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link?${params}`);
+  }
+
+  async createFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
+    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link`, {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace() }),
+    });
+  }
+
+  async revokeFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link?${params}`, { method: 'DELETE' });
   }
 
   /** Save an edited markdown file in place. `baseSha256` is the hash of the

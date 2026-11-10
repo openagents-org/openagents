@@ -17,7 +17,7 @@ beforeEach(() => {
 afterEach(async()=>{await act(async()=>root.unmount());});
 it('loads private media through authenticated fetch and revokes it when the viewer changes',async()=>{
   await act(async()=>root.render(createElement(Media)));
-  expect(mocks.fetchFile).toHaveBeenCalledWith('private-image',expect.any(AbortSignal));
+  expect(mocks.fetchFile).toHaveBeenCalledWith('private-image');
   expect(host.textContent).toBe('blob:authenticated');
   mocks.token='another-session';
   await act(async()=>root.render(createElement(Media)));
@@ -28,4 +28,26 @@ it('shows failure without falling back to an unauthenticated URL',async()=>{
   mocks.fetchFile.mockRejectedValue(new Error('403'));
   await act(async()=>root.render(createElement(Media)));
   expect(host.textContent).toBe('failed');expect(URL.createObjectURL).not.toHaveBeenCalled();
+});
+it('reuses one download across remounts and viewers of the same file',async()=>{
+  mocks.token='reuse-session';
+  function Two() { const a=useFileObjectUrl('shared-image'); const b=useFileObjectUrl('shared-image'); return createElement('span',{},`${a.url||'-'}|${b.url||'-'}`); }
+  await act(async()=>root.render(createElement(Two)));
+  expect(host.textContent).toBe('blob:authenticated|blob:authenticated');
+  await act(async()=>root.render(createElement('span',{},'hidden')));
+  await act(async()=>root.render(createElement(Two)));
+  expect(host.textContent).toBe('blob:authenticated|blob:authenticated');
+  expect(mocks.fetchFile).toHaveBeenCalledTimes(1);
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+});
+it('does not download until enabled, but shows what is already cached',async()=>{
+  mocks.token='lazy-session';
+  function Lazy({enabled}:{enabled:boolean}) { const s=useFileObjectUrl('lazy-image',{enabled}); return createElement('span',{},s.url||'waiting'); }
+  await act(async()=>root.render(createElement(Lazy,{enabled:false})));
+  expect(host.textContent).toBe('waiting');expect(mocks.fetchFile).not.toHaveBeenCalled();
+  await act(async()=>root.render(createElement(Lazy,{enabled:true})));
+  expect(host.textContent).toBe('blob:authenticated');
+  await act(async()=>root.render(createElement('span',{},'hidden')));
+  await act(async()=>root.render(createElement(Lazy,{enabled:false})));
+  expect(host.textContent).toBe('blob:authenticated');expect(mocks.fetchFile).toHaveBeenCalledTimes(1);
 });

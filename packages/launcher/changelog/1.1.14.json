@@ -1,0 +1,39 @@
+{
+  "version": "1.1.14",
+  "date": "2026-11-10",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Share files with a public link",
+        "zh": "文件支持公开链接分享"
+      },
+      "description": {
+        "en": "Create a link from a file's Share menu; anyone with it can view and download the file without signing in. The link can be turned off at any time.",
+        "zh": "在文件的「分享」菜单中可创建公开链接，对方无需登录即可查看和下载；链接可随时关闭。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Download and share from the artifact panel",
+        "zh": "产物面板支持下载与分享"
+      },
+      "description": {
+        "en": "Files opened beside a conversation can now be downloaded, linked and shared directly from the panel.",
+        "zh": "在会话旁打开的文件可直接在面板中下载、复制链接和分享。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Faster switching between sections",
+        "zh": "切换栏目更流畅"
+      },
+      "description": {
+        "en": "Switching between conversations, issues and files responds immediately, and large file libraries no longer freeze the window.",
+        "zh": "在会话、Issue 和文件之间切换会立即响应，文件较多的工作区也不会再导致窗口卡顿。"
+      }
+    }
+  ]
+}

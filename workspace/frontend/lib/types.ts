@@ -1395,6 +1395,21 @@ export interface GroupDeleteImpact {
 export type ResourceKind = 'service' | 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
 export type GrantRight = 'read' | 'act' | 'share';
 
+/** GET/POST/DELETE /v1/files/{id}/public-link — an "anyone with the link"
+ *  view link. `token` is only returned to people who can manage the file. */
+export interface FilePublicLinkState {
+  link: { active: true; created_at: string | null; token?: string; created_by?: string } | null;
+  can_manage: boolean;
+}
+
+/** GET /v1/public/files/{token} — no auth. */
+export interface PublicFileInfo {
+  filename: string;
+  content_type: string;
+  size: number;
+  created_at: string | null;
+}
+
 /** GET /v1/grants */
 export interface ResourceGrant {
   id: string;

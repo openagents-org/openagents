@@ -25,6 +25,8 @@ import type { ArtifactVisibility } from '@/lib/types';
 import { visibilityBadgeFor, type ArtifactKind } from '@/lib/artifact-access';
 import { cn } from '@/lib/utils';
 import { ArtifactVisibilityBadge } from './artifact-access-badge';
+import { PublicLinkSection } from './public-link-section';
+import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
 
 export interface ArtifactShareProps {
   kind: ArtifactKind;
@@ -37,6 +39,8 @@ export interface ArtifactShareProps {
   /** Files attached to a thread may also inherit (visibility null). */
   canInherit?: boolean;
   onVisibilityChange?: (visibility: ArtifactVisibility | null) => Promise<void> | void;
+  /** Files only: lets the public-link section say web projects aren't supported. */
+  contentType?: string;
 }
 
 function GranteeIcon({ kind }: { kind: GranteeKind }) {
@@ -45,7 +49,7 @@ function GranteeIcon({ kind }: { kind: GranteeKind }) {
 }
 
 export function ArtifactShareContent({
-  kind, id, name, visibility, effectiveVisibility, canManage, canInherit = false, onVisibilityChange,
+  kind, id, name, visibility, effectiveVisibility, canManage, canInherit = false, onVisibilityChange, contentType,
 }: ArtifactShareProps) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -158,6 +162,8 @@ export function ArtifactShareContent({
 
   return (
     <div className="space-y-4 text-sm">
+      {/* Anyone with the link — the one way to reach people outside the workspace */}
+      {kind === 'file' && <PublicLinkSection fileId={id} unsupported={contentType === WEB_PROJECT_TYPE} />}
       {/* Visibility */}
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -199,10 +205,13 @@ export function ArtifactShareContent({
             )}
           </div>
         )}
-        <Button size="sm" onClick={share} disabled={sharing || picked.length === 0} className="w-full">
-          {sharing ? <Loader2 className="size-3.5 animate-spin" /> : <Share2 className="size-3.5" />}
-          {sharing ? t('artifactAccess.sharing') : t('artifactAccess.shareAction')}
-        </Button>
+        {/* Only once someone is picked: a permanently greyed-out "Share" read as broken. */}
+        {picked.length > 0 && (
+          <Button size="sm" onClick={share} disabled={sharing} className="w-full">
+            {sharing ? <Loader2 className="size-3.5 animate-spin" /> : <Share2 className="size-3.5" />}
+            {sharing ? t('artifactAccess.sharing') : t('artifactAccess.shareAction')}
+          </Button>
+        )}
       </section>}
 
       {/* Who has access */}

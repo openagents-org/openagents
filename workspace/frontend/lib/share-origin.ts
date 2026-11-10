@@ -20,3 +20,8 @@ export function shareOrigin(): string {
   const desktop = (window as unknown as { __OA_WEB_URL__?: string }).__OA_WEB_URL__;
   return desktop ? desktop.replace(/\/$/, '') : HOSTED_ORIGIN;
 }
+
+/** The no-sign-in page for a file's "anyone with the link" token. */
+export function publicFileUrl(token: string): string {
+  return `${shareOrigin()}/share/file/${encodeURIComponent(token)}`;
+}

@@ -27,6 +27,21 @@ import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorks
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+
+/** Background polls refetch lists that rarely change. A new-but-equal array
+ *  re-renders every consumer of this (unmemoized) context, hidden views
+ *  included, so an unchanged result keeps the array already in state. */
+export function keepIfSame<T>(prev: T, next: T): T {
+  if (prev === next) return prev;
+  try {
+    return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+  } catch {
+    return next;
+  }
+}
+
+/** How often the discovery poll re-lists every file. */
+const FILES_POLL_INTERVAL_MS = 30_000;
 import type { ChannelVisibility } from './types'; // v1.1 M1
 import type { ArtifactVisibility } from './types'; // permission model v1.1
 
@@ -511,8 +526,10 @@ export function WorkspaceProvider({
   const filesEpochRef = useRef(0);
   const commitFiles = useCallback((next: WorkspaceFile[], epoch: number) => {
     if (epoch !== filesEpochRef.current) return;
-    setFiles(next);
+    setFiles(prev => keepIfSame(prev, next));
   }, []);
+  /** When the discovery poll last re-listed every file (see refreshDiscovery). */
+  const filesPolledAtRef = useRef(0);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(null);
   useEffect(() => {
@@ -900,7 +917,8 @@ export function WorkspaceProvider({
   const refreshDiscovery = useCallback(async () => {
     try {
       const discovery = await workspaceApi.discover(lastReadRef.current);
-      setAgents(discovery.agents.map(networkAgentToWorkspaceAgent));
+      const nextAgents = discovery.agents.map(networkAgentToWorkspaceAgent);
+      setAgents(prev => keepIfSame(prev, nextAgents));
 
       const updated = discovery.channels.map((ch) =>
         networkChannelToSession(ch, workspaceId)
@@ -947,7 +965,7 @@ export function WorkspaceProvider({
               forkedFrom: remote.forkedFrom,
             };
           });
-        return [...merged, ...newChannels];
+        return keepIfSame(prev, [...merged, ...newChannels]);
       });
 
       // Detect channels with new activity and fetch their latest message preview
@@ -1100,16 +1118,27 @@ export function WorkspaceProvider({
       }
 
       // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
-      const filesEpoch = filesEpochRef.current;
-      workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
-      workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); }).catch(() => {});
-      workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
+      //
+      // The file list is the expensive one: a page per 200 files, re-listed
+      // in full. Every 5 s while agents work, on a workspace with thousands of
+      // files, that kept the network busy and re-rendered the whole app each
+      // time. Explicit refreshFiles() calls (uploads, deletes, the refresh
+      // button) are not throttled; only this background poll is.
+      // Unchanged lists keep their old array (keepIfSame), so a poll that
+      // finds nothing new re-renders nothing.
+      if (Date.now() - filesPolledAtRef.current >= FILES_POLL_INTERVAL_MS) {
+        filesPolledAtRef.current = Date.now();
+        const filesEpoch = filesEpochRef.current;
+        workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
+      }
+      workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(prev => keepIfSame(prev, r.tabs)); if (r.limits) setBrowserTabLimits(prev => keepIfSame(prev, r.limits!)); }).catch(() => {});
+      workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(prev => keepIfSame(prev, r.contexts))).catch(() => {});
       workspaceApi.listConversations(undefined, lastReadRef.current).then(receiveDMConversations).catch(() => {});
-      workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {});
-      workspaceApi.listTasks().then((r) => setTasks(r.tasks)).catch(() => {});
-      workspaceApi.listWorkflows().then((r) => setWorkflows(r.workflows)).catch(() => {});
-      workspaceApi.listRoutines().then((r) => setRoutines(r.routines)).catch(() => {});
-      workspaceApi.listKnowledge().then((r) => setKnowledge(r.entries)).catch(() => {});
+      workspaceApi.listTodos().then((r) => setTodos(prev => keepIfSame(prev, r.todos))).catch(() => {});
+      workspaceApi.listTasks().then((r) => setTasks(prev => keepIfSame(prev, r.tasks))).catch(() => {});
+      workspaceApi.listWorkflows().then((r) => setWorkflows(prev => keepIfSame(prev, r.workflows))).catch(() => {});
+      workspaceApi.listRoutines().then((r) => setRoutines(prev => keepIfSame(prev, r.routines))).catch(() => {});
+      workspaceApi.listKnowledge().then((r) => setKnowledge(prev => keepIfSame(prev, r.entries))).catch(() => {});
       workspaceApi.listNotifications().then((r) => {
         setNotifications(r.notifications);
         setNotificationsLoaded(true);
@@ -1690,6 +1719,7 @@ export function WorkspaceProvider({
         // These panels and previews fill in after the workspace is usable.
         // A slow browser or file store must not hold the full-page spinner.
         const filesEpoch = filesEpochRef.current;
+        filesPolledAtRef.current = Date.now();
         loadOptional(workspaceApi.listFiles(), (r) => commitFiles(r.files, filesEpoch));
         loadOptional(workspaceApi.listTrash(), (r) => setTrashEntries(r.entries));
         loadOptional(workspaceApi.listBrowserTabs(), (r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); });
