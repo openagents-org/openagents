@@ -83,6 +83,8 @@ const FAILURE_MESSAGES = {
   provider_not_configured: "MiMo Code has no usable model provider. Check this agent's base URL and model, then retry.",
   model_not_found: 'The configured model was not found or this key cannot use it. Pick one from the model list in this agent\'s configuration, then retry.',
   rate_limited: 'The model service is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: 'The model service account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.',
+  request_too_large: 'The model service refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'MiMo Code could not reach the model service (network or service error). Retry shortly.',
   provider_server_error: 'The model service returned a server error. Retry shortly.',
   timeout: 'MiMo Code went quiet for too long and was stopped. If the model service keeps failing, MiMo retries without saying so — check the base URL and model, then retry.',

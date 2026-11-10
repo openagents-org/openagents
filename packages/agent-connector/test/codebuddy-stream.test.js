@@ -237,6 +237,23 @@ describe('classifyCodeBuddyRun', () => {
     assert.match(verdict.userMessage, /login/i);
   });
 
+  it('tells which model setting to change when the account has no such model', () => {
+    // Field report (launcher 0.2.223): every run failed on the bare alias.
+    const verdict = classifyCodeBuddyRun({
+      code: 0,
+      result: {
+        isError: true, text: '',
+        errors: ['400 model [default-model] service info not found (01a1c067c9007c4796ba1a407042d572/01a1c067-beff-78f5-b0a4-e4bfe1c0a527)\nCurrently supported models: glm-5.3, deepseek-v4.1'],
+        errorsInfo: [],
+      },
+    });
+    assert.equal(verdict.kind, 'model_unavailable');
+    assert.match(verdict.userMessage, /"default-model"/);
+    assert.match(verdict.userMessage, /CODEBUDDY_MODEL/);
+    assert.match(verdict.userMessage, /glm-5\.3, deepseek-v4\.1/);
+    assert.doesNotMatch(verdict.userMessage, /01a1c067/);
+  });
+
   it('reports quota and model-service failures distinctly', () => {
     const quota = classifyCodeBuddyRun({
       code: 0, result: { isError: true, text: '', errors: [], errorsInfo: [{ status: 429, category: 'quota' }] },
