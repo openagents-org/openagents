@@ -71,6 +71,8 @@ const FAILURE_MESSAGES = {
   provider_not_configured: 'CodeArts Agent has no usable model provider. Check CODEARTS_MODEL, then retry.',
   model_not_found: "This account can't use the configured model. Pick one from the model list in this agent's configuration (or run `codearts models`), set CODEARTS_MODEL, then retry.",
   rate_limited: 'The model service is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: 'The model service account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.',
+  request_too_large: 'The model service refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'CodeArts Agent could not reach Huawei Cloud (network or service error). Retry shortly.',
   provider_server_error: 'The model service returned a server error. Retry shortly.',
   timeout: 'CodeArts Agent timed out before producing a reply. Retry; if it persists, check the model configuration.',

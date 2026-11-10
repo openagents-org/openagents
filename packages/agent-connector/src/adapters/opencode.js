@@ -82,6 +82,8 @@ const FAILURE_MESSAGES = {
   provider_not_configured: 'OpenCode has no usable provider configured. Configure a provider and model, then retry.',
   model_not_found: 'The configured model was not found or is not accessible. Check the model name and your access, then retry.',
   rate_limited: 'The provider is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: "The provider account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.",
+  request_too_large: 'The provider refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'OpenCode could not reach the provider (network or service error). Retry shortly.',
   provider_server_error: 'The provider returned a server error. Retry shortly.',
   timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
@@ -1403,17 +1405,23 @@ class OpenCodeAdapter extends BaseAdapter {
       // as "produced output this version could not parse", which said nothing
       // about reinstalling.
       category = 'unsupported_version';
-    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
+    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
       category = 'auth_failed';
+    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)) {
+      // A spent account, not a busy one: waiting does not fix it. Seen in the
+      // field as "Insufficient balance" under "undetermined reason".
+      category = 'quota_exhausted';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';
+    } else if (has(/\b413\b|request entity too large|payload too large|failed to buffer the request body|length limit exceeded|context(?:_| )length(?:_| )exceeded|maximum context length/)) {
+      category = 'request_too_large';
     } else if (has(/model.*(not found|does not exist|unknown|invalid|unsupported)|no such model|unknown model|invalid model|model_not_found|\b404\b/)) {
       category = 'model_not_found';
     } else if (has(/no provider|provider not configured|not configured|no model configured|no providers|missing provider/)) {
       category = 'provider_not_configured';
     } else if (has(/econnrefused|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|getaddrinfo|\bdns\b/)) {
       category = 'network_error';
-    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout/)) {
+    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
       category = 'provider_server_error';
     } else if (has(/timeout|timed out/)) {
       category = 'timeout';
