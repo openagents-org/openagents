@@ -429,7 +429,7 @@ export function NavRail() {
                           setSelectedAgentName(null);
                           setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                           openView('threads');
-                          setThreadFilter('dms');
+                          setThreadFilter('all');
                           openMobileDetail();
                         }}
                       >

@@ -42,7 +42,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   const startDM = (email: string) => {
     setSelectedAgentName(null);
     setCurrentSessionId(dmSessionId(me, `human:${email.toLowerCase()}`));
-    openView('threads'); setThreadFilter('dms'); openMobileDetail(); setOpen(false); onNavigate?.();
+    openView('threads'); setThreadFilter('all'); openMobileDetail(); setOpen(false); onNavigate?.();
   };
   return <>
     <div className="px-3"><Separator /></div>

@@ -119,7 +119,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         openMobileDetail();
                         setSelectedAgentName(null);
                         openView('threads');
-                        setThreadFilter('dms');
+                        setThreadFilter('all');
                         openMobileDetail();
                         onNavigate?.();
                       }}

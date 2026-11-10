@@ -33,7 +33,7 @@ export function MoreAgents({ agents, moreOnline, owned, showLabels = true, onNav
         <div className="max-h-80 overflow-y-auto">{candidates.map(agent => <div key={agent.agentName} className="flex items-center gap-1 rounded-md hover:bg-muted">
           <button type="button" className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left" onClick={() => {
             setSelectedAgentName(null); setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
-            openView('threads'); setThreadFilter('dms'); openMobileDetail(); setOpen(false); onNavigate?.();
+            openView('threads'); setThreadFilter('all'); openMobileDetail(); setOpen(false); onNavigate?.();
           }}><AgentAvatar name={agent.agentName} size={24} status={agent.status} showStatus /><span className="truncate text-sm">{agentLabel(agent)}</span></button>
           <button type="button" className="m-1 rounded p-2 text-muted-foreground hover:bg-muted" title={t('nav.agentSettings', { name: agentLabel(agent) })} aria-label={t('nav.agentSettings', { name: agentLabel(agent) })} onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); setOpen(false); onNavigate?.(); }}><Settings className="size-4" /></button>
         </div>)}{!candidates.length && <p className="p-2 text-sm text-muted-foreground">{t('nav.noAgentsFound')}</p>}</div>
