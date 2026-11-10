@@ -151,6 +151,13 @@ def enabled() -> bool:
     return bool(config.CAMPAIGN_ENABLED and config.CAMPAIGN_GATEWAY_MASTER_KEY)
 
 
+def gateway_configured() -> bool:
+    """The credits gateway is reachable with admin rights. Admin-applied extras
+    (the Pilot Program grant) only need this; the onboarding campaign also
+    needs CAMPAIGN_ENABLED."""
+    return bool(config.CAMPAIGN_GATEWAY_MASTER_KEY)
+
+
 # Disposable / throwaway mail providers. Matched against the whole domain
 # (and its parent domains), case-insensitive. Kept deliberately short and
 # well-known: false positives here lock a real person out of credits.
@@ -343,13 +350,15 @@ def _headers() -> dict:
 # Account provisioning
 # ---------------------------------------------------------------------------
 
-def ensure_account(db: Session, user: User) -> Optional[CampaignAccount]:
+def ensure_account(db: Session, user: User, *, admin: bool = False) -> Optional[CampaignAccount]:
     """Return the user's campaign account, minting the gateway key on first
     call. The key starts at the signup grant ($5), recorded in the ledger so
     totals add up. Returns None when disabled or the gateway is unreachable —
     callers treat that as "campaign unavailable right now", never an error.
+    `admin` (an admin-applied extra such as the pilot grant) may mint while
+    the campaign itself is off, as long as the gateway is configured.
     """
-    if not enabled():
+    if not (enabled() or (admin and gateway_configured())):
         return None
     acct = db.get(CampaignAccount, user.id)
     if acct:
@@ -434,8 +443,11 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
     gateway idempotency key still apply, only the cap check is skipped. The
     cap itself only counts ladder rows (see EXTRA_MILESTONES), so an earlier
     pilot grant never blocks the ladder that follows it.
+
+    Extras are admin actions, so they work whenever the gateway is configured,
+    even after the onboarding campaign is switched off.
     """
-    if not enabled():
+    if not (enabled() or (milestone in EXTRA_MILESTONES and gateway_configured())):
         return False
     user = db.get(User, user_id)
     if grant_block(db, user, amount, ladder=milestone not in EXTRA_MILESTONES):
@@ -448,7 +460,7 @@ def grant(db: Session, user_id: str, milestone: str, amount: float, *, ignore_ca
         # (pilot) may still mint.
         if milestone not in EXTRA_MILESTONES:
             return False
-        acct = ensure_account(db, user)
+        acct = ensure_account(db, user, admin=True)
         if not acct:
             return False
     if not ignore_cap and ladder_total(db, user_id) + amount > config.CAMPAIGN_TOTAL_CAP_USD + 1e-6:

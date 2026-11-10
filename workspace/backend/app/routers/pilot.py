@@ -62,8 +62,8 @@ def pilot_eligibility(email: str = Query(..., min_length=3), db: Session = Depen
 
 @router.post("/grant", dependencies=[Depends(require_admin_secret)])
 def pilot_grant(body: GrantBody, db: Session = Depends(get_db)):
-    if not campaign.enabled():
-        return json_response(ResponseCode.BAD_REQUEST, "Campaign/gateway is not enabled on this deployment")
+    if not campaign.gateway_configured():
+        return json_response(ResponseCode.BAD_REQUEST, "The credits gateway is not configured on this deployment")
     user = pilot.find_user(db, body.email)
     if not user:
         return json_response(ResponseCode.NOT_FOUND, "No account with that email")

@@ -199,7 +199,7 @@ def eligibility(db: Session, user: User) -> dict:
             "gatewayKeyId": acct.gateway_key_id if acct else None,
             "totalGrantedUsd": float(sum(g.amount_usd for g in grants)),
             "dailyLedgerDays": sorted((g.milestone.split(":", 1)[1] for g in grants if g.milestone.startswith("daily:")), reverse=True),
-            "usage": _gateway_usage(user.id) if (acct and campaign.enabled()) else None,
+            "usage": _gateway_usage(user.id) if (acct and campaign.gateway_configured()) else None,
         },
         "agents": {"connected": bool(types), "qualifyingTypes": types},
         "conversation": {"hasConversation": conversation},

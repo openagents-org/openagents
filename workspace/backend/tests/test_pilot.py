@@ -248,3 +248,29 @@ def test_pilot_needs_a_registered_device(client, db, pilot_on, gateway):  # noqa
     assert any("registered device" in r for r in d["pilot"]["reasons"])
     r = client.post("/v1/admin/pilot/grant", json={"email": user.email}, headers=H)
     assert r.status_code == 400
+
+
+def test_grant_works_after_the_campaign_is_switched_off(client, db, pilot_on, gateway, monkeypatch):  # noqa: F811
+    """The console grants Pilot credits on its own; the onboarding ladder stays off."""
+    from app.services import campaign
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    user = _mk_user(db, "pilot-off@example.com")
+    ws = _mk_workspace(db, user)
+    _mk_member(db, ws, "claude-1", "claude")
+    _conversation_days(db, ws, "claude-1", [0])
+
+    r = client.post("/v1/admin/pilot/grant", json={"email": "pilot-off@example.com"}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["status"] == "granted"
+    milestones = sorted(g.milestone for g in db.query(CampaignGrant).filter_by(user_id=user.id))
+    assert milestones == ["pilot", "signup"]  # key minted for the grant; no ladder rewards
+    # Ladder milestones still refuse while the campaign is off.
+    assert campaign.grant(db, user.id, "first_agent", 20.0) is False
+
+
+def test_grant_refused_without_a_gateway(client, db, pilot_on, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(config, "CAMPAIGN_ENABLED", False)
+    monkeypatch.setattr(config, "CAMPAIGN_GATEWAY_MASTER_KEY", "")
+    _mk_user(db, "nogw@example.com")
+    r = client.post("/v1/admin/pilot/grant", json={"email": "nogw@example.com", "force": True}, headers=H)
+    assert r.status_code == 400 and "gateway" in r.json()["message"]
