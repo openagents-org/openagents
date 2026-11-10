@@ -24,7 +24,9 @@ const assert = require('node:assert/strict');
 const {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
   claudeProjectDir, findClaudeTranscript, snapshotTranscript,
+  pickOpencodeSession, opencodeSessionModel, opencodeTranscript,
 } = require('../src/host-agent');
+const OpenCodeAdapter = require('../src/adapters/opencode');
 const { join, defaultAgentName } = require('../src/join');
 const { Config } = require('../src/config');
 const { ensureDurableInstall, compareVersions } = require('../src/durable-install');
@@ -42,6 +44,9 @@ describe('detectHostAgent', () => {
   it('recognises Codex', () => {
     assert.equal(detectHostAgent({ CODEX_SESSION_ID: 't-1' }).type, 'codex');
     assert.equal(detectHostAgent({ CODEX_SESSION_ID: 't-1' }).sessionId, 't-1');
+  });
+  it('recognises OpenCode, which exports no session id', () => {
+    assert.deepEqual(detectHostAgent({ OPENCODE: '1', OPENCODE_PID: '7', AGENT: '1' }), { type: 'opencode', label: 'OpenCode', sessionId: null });
   });
   it('returns null outside any agent', () => {
     assert.equal(detectHostAgent({ PATH: '/usr/bin', HOME: '/h' }), null);
@@ -91,6 +96,84 @@ describe('Claude transcripts', () => {
     const dest = snapshotTranscript(src, path.join(cfg, 'projects', '-agent'));
     assert.equal(fs.readFileSync(dest, 'utf-8'), '{"a":1}\n{"b":2}\n');
     fs.rmSync(cfg, { recursive: true, force: true });
+  });
+});
+
+// What `opencode export <id>` prints (1.17), trimmed.
+const OC_EXPORT = {
+  info: { id: 'ses_1', directory: '/repo', model: { id: 'claude-haiku-5-5@default', providerID: 'google-vertex-anthropic' } },
+  messages: [
+    { info: { role: 'user' }, parts: [{ type: 'text', text: 'Remember OTTER-77, then list files.' }] },
+    { info: { role: 'assistant', providerID: 'google-vertex-anthropic', modelID: 'claude-haiku-5-5@default' }, parts: [
+      { type: 'reasoning', text: 'private' },
+      { type: 'tool', tool: 'bash', state: { input: { command: 'ls' }, output: 'a.txt' } },
+      { type: 'text', text: 'Remembered. There is a.txt.' },
+    ] },
+  ],
+};
+
+describe('OpenCode sessions', () => {
+  it("picks the newest session in the command's directory", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-dir-'));
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-other-'));
+    const s = pickOpencodeSession([
+      { id: 'old', directory: dir, updated: 1 }, { id: 'new', directory: dir, updated: 5 }, { id: 'elsewhere', directory: other, updated: 9 },
+    ], dir);
+    assert.equal(s.id, 'new');
+    assert.equal(pickOpencodeSession([{ id: 'x', directory: other, updated: 1 }], dir), null);
+    assert.equal(pickOpencodeSession(null, dir), null);
+  });
+  it("reads the session's model", () => {
+    assert.equal(opencodeSessionModel(OC_EXPORT), 'google-vertex-anthropic/claude-haiku-5-5@default');
+    assert.equal(opencodeSessionModel({ messages: OC_EXPORT.messages }), 'google-vertex-anthropic/claude-haiku-5-5@default');
+    assert.equal(opencodeSessionModel({}), null);
+  });
+  it('turns the session into a transcript without reasoning, newest part kept', () => {
+    const t = opencodeTranscript(OC_EXPORT);
+    assert.match(t, /User: Remember OTTER-77/);
+    assert.match(t, /\[You ran bash \{"command":"ls"\} → a\.txt\]/);
+    assert.match(t, /You: Remembered\. There is a\.txt\./);
+    assert.ok(!t.includes('private'));
+    const short = opencodeTranscript(OC_EXPORT, 40);
+    assert.match(short, /^\[…earlier part omitted…\]/);
+    assert.ok(short.endsWith('There is a.txt.'));
+  });
+});
+
+describe('OpenCodeAdapter seed conversation', () => {
+  const skip = process.platform === 'win32' ? 'uses a shell script as the opencode binary' : false;
+  function adapterWith(seed, exportJson, { exitCode = 0 } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-fake-'));
+    const bin = path.join(dir, 'opencode');
+    fs.writeFileSync(path.join(dir, 'export.json'), JSON.stringify(exportJson));
+    fs.writeFileSync(bin, `#!/bin/sh\n[ "$1" = export ] && [ "$2" = "${seed ? seed.session_id : ''}" ] && cat "${path.join(dir, 'export.json')}"\nexit ${exitCode}\n`, { mode: 0o755 });
+    const a = new OpenCodeAdapter({
+      workspaceId: 'ws', channelName: 'general', token: 'tok', agentName: `oc-${Math.random().toString(36).slice(2)}`,
+      agentEnv: { PATH: process.env.PATH }, seedSession: seed,
+    });
+    a._opencodeBinary = bin;
+    a._ensureWorkspaceSkill = () => {};
+    a._buildSystemContext = () => 'CONTEXT';
+    a._saveSessions = () => {};
+    a._channelSessions = {};
+    return a;
+  }
+
+  it("puts the chat's transcript in a channel's first prompt only", { skip }, () => {
+    const a = adapterWith({ session_id: 'ses_1', directory: '/repo' }, OC_EXPORT);
+    const first = a._composePrompt('hello', 'ch-1', undefined);
+    assert.match(first, /^CONTEXT\n\n---\n\nBefore you joined this workspace/);
+    assert.match(first, /<previous_conversation>[\s\S]*OTTER-77[\s\S]*<\/previous_conversation>\n\n---\n\nhello$/);
+    assert.equal(a._composePrompt('again', 'ch-1', 'ses_own'), 'again');
+    a._channelSessions['ch-2'] = null;
+    assert.equal(a._composePrompt('fresh', 'ch-2', undefined), 'CONTEXT\n\n---\n\nfresh');
+  });
+
+  it('starts fresh, and stops seeding, when the chat can no longer be exported', { skip }, () => {
+    const a = adapterWith({ session_id: 'ses_1' }, OC_EXPORT, { exitCode: 1 });
+    a._opencodeBinary = path.join(os.tmpdir(), 'no-such-opencode');
+    assert.equal(a._composePrompt('hi', 'ch-1', undefined), 'CONTEXT\n\n---\n\nhi');
+    assert.equal(a._seedSession, null);
   });
 });
 
@@ -163,7 +246,7 @@ describe('agn join', () => {
   let cfgDir, config, redeemed, daemon, lines, enabled;
 
   function fakeConnector() {
-    const registry = { getEntry: (t) => (['claude', 'codex'].includes(t) ? { name: t, label: t } : null) };
+    const registry = { getEntry: (t) => (['claude', 'codex', 'opencode'].includes(t) ? { name: t, label: t } : null) };
     return {
       _configDir: cfgDir,
       config,
@@ -229,6 +312,43 @@ describe('agn join', () => {
     assert.equal(agent.seed_session, undefined);
     assert.match(lines.join('\n'), /copied OPENAI_API_KEY/);
     assert.ok(!lines.join('\n').includes('sk-x'));
+  });
+
+  it("creates an OpenCode agent in the chat's project, on the chat's model, seeded with the chat", async () => {
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-proj-'));
+    const calls = [];
+    const runOpencode = (args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'session') return { status: 0, stdout: JSON.stringify([{ id: 'ses_old', directory: proj, updated: 1 }, { id: 'ses_1', directory: proj, updated: 2 }]) };
+      if (args[0] === 'export') return { status: 0, stdout: JSON.stringify(OC_EXPORT) };
+      return { status: 1 };
+    };
+    const code = await join({
+      code: 'ABCD-EFGH', flags: {}, connector: fakeConnector(), env: { OPENCODE: '1', GOOGLE_CLOUD_PROJECT: 'p', VERTEX_LOCATION: 'global' },
+      print: (l) => lines.push(l), deps: { ...deps(), runOpencode, cwd: proj },
+    });
+    assert.equal(code, 0, lines.join('\n'));
+    const agent = config.getAgent('opencode-devbox');
+    assert.equal(agent.type, 'opencode');
+    assert.equal(agent.path, proj);
+    assert.deepEqual(agent.seed_session, { session_id: 'ses_1', directory: proj });
+    assert.deepEqual(agent.env, {
+      GOOGLE_CLOUD_PROJECT: 'p', VERTEX_LOCATION: 'global', OPENAGENTS_AUTH_MODE: 'cli_login',
+      OPENCODE_MODEL: 'google-vertex-anthropic/claude-haiku-5-5@default',
+    });
+    assert.deepEqual(calls, ['session list --format json', 'export ses_1']);
+    assert.match(lines.join('\n'), /transcript of this conversation/);
+    assert.match(lines.join('\n'), /Model: google-vertex-anthropic\/claude-haiku-5-5@default/);
+  });
+
+  it('creates an OpenCode agent that says how to set a model when no chat is found', async () => {
+    const code = await join({
+      code: 'ABCD-EFGH', flags: {}, connector: fakeConnector(), env: { OPENCODE: '1' },
+      print: (l) => lines.push(l), deps: { ...deps(), runOpencode: () => ({ status: 1 }), cwd: tmpHome },
+    });
+    assert.equal(code, 0);
+    assert.equal(config.getAgent('opencode-devbox').seed_session, undefined);
+    assert.match(lines.join('\n'), /Model: none found/);
   });
 
   it('refuses outside an agent without using the code', async () => {
