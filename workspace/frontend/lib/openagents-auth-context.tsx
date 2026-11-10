@@ -114,13 +114,16 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       // every send.
       unsubscribe = onIdTokenChange(async (firebaseUser) => {
         if (firebaseUser) {
-          const token = await firebaseUser.getIdToken();
+          const tokenResult = await firebaseUser.getIdTokenResult();
+          const token = tokenResult.token;
           // Email/password users arrive via a custom token whose email lives in
           // a custom claim, not firebaseUser.email — resolve both.
           const email = firebaseUser.email || (await getResolvedEmail());
+          const claimName = typeof tokenResult.claims.name === 'string' ? tokenResult.claims.name.trim() : '';
+          const displayName = firebaseUser.displayName || claimName || email;
           setUser({
             email,
-            displayName: firebaseUser.displayName || email,
+            displayName,
             photoURL: firebaseUser.photoURL,
           });
           setIdToken(token);
@@ -130,7 +133,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
           // is idempotent; the sign_in checkpoint is deduped per browser
           // session so restores don't inflate the funnel.
           if (email) {
-            identify(email, { email, display_name: firebaseUser.displayName || email });
+            identify(email, { email, display_name: displayName });
             if (!sessionStorage.getItem('oa_sign_in_tracked')) {
               sessionStorage.setItem('oa_sign_in_tracked', '1');
               const method =

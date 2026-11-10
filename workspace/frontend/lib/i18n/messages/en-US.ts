@@ -273,6 +273,7 @@ export const messages = {
     you: '{name} (you)',
     workspaceFallback: 'Workspace',
     connectAgent: 'Connect Agent',
+    manageAgents: 'Manage Agents',
     connectFirstAgent: 'Connect Your First Agent',
     firstDeviceTitle: 'Start here',
     firstDeviceHint: 'Connect your first device to bring your agents online.',
