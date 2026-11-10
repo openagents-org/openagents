@@ -44,7 +44,7 @@ from app.database import get_db
 from app.models import FileRecord, FileShareLink, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
-from app.services.access_model import Principal, can_manage, can_read_file, resource_for_file, workspace_human_roles
+from app.services.access_model import Principal, can_manage, can_read_file, resource_for_file, workspace_human_role
 from app.services.visibility import resolve_viewer
 from app.storage import get_file_store
 
@@ -188,7 +188,7 @@ def _creator_can_still_share(db: Session, workspace: Workspace, link: FileShareL
     if not created_by.startswith("human:"):
         return False
     email = created_by[len("human:"):]
-    role = workspace_human_roles(db, workspace).get(email)
+    role = workspace_human_role(db, workspace, email)
     if not role:
         return False
     creator = Principal("human", email=email, role=role, workspace_id=str(workspace.id))
@@ -220,11 +220,17 @@ def _shared_file(db: Session, token: str):
 _NO_REFERRER = {"Referrer-Policy": "no-referrer"}
 
 
+def _public_error(code: ResponseCode, message: str):
+    response = json_response(code, message)
+    response.headers.update(_NO_REFERRER)
+    return response
+
+
 @router.get("/public/files/{token}")
 def public_file_info(token: str, db: Session = Depends(get_db)):
     record, link = _shared_file(db, token)
     if record is None:
-        return json_response(ResponseCode.NOT_FOUND, "This link is no longer available")
+        return _public_error(ResponseCode.NOT_FOUND, "This link is no longer available")
     return JSONResponse(success_response({
         "filename": (record.filename or "file").rsplit("/", 1)[-1],
         "content_type": record.content_type,
@@ -238,12 +244,12 @@ def public_file_info(token: str, db: Session = Depends(get_db)):
 def public_file_content(token: str, db: Session = Depends(get_db)):
     record, _ = _shared_file(db, token)
     if record is None:
-        return json_response(ResponseCode.NOT_FOUND, "This link is no longer available")
+        return _public_error(ResponseCode.NOT_FOUND, "This link is no longer available")
     try:
         data = get_file_store().read(record.storage_key)
     except Exception:  # noqa: BLE001 — S3 reports a missing object as its own error type
         logger.warning("Public link: could not read %s", record.storage_key, exc_info=True)
-        return json_response(ResponseCode.NOT_FOUND, "File data not found in storage")
+        return _public_error(ResponseCode.NOT_FOUND, "File data not found in storage")
     filename = (record.filename or "file").rsplit("/", 1)[-1]
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
     ascii_fallback = ascii_fallback.replace("\\", "_").replace('"', "_")

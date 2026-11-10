@@ -89,8 +89,23 @@ def test_trashed_file_link_stops_working(client, workspace, people):
 
 
 def test_unknown_token_is_404(client):
-    assert client.get("/v1/public/files/nope").status_code == 404
-    assert client.get("/v1/public/files/nope/content").status_code == 404
+    for url in ("/v1/public/files/nope", "/v1/public/files/nope/content"):
+        r = client.get(url)
+        assert r.status_code == 404
+        assert r.headers["referrer-policy"] == "no-referrer"
+
+
+def test_creator_role_lookup_matches_the_full_member_list(db, workspace, people):
+    from app.models import Workspace
+    from app.services.access_model import workspace_human_role, workspace_human_roles
+    ws = db.get(Workspace, workspace["id"])
+    roles = workspace_human_roles(db, ws)
+    assert roles
+    for email, role in roles.items():
+        assert workspace_human_role(db, ws, email) == role
+        assert workspace_human_role(db, ws, email.upper()) == role
+    assert workspace_human_role(db, ws, "nobody@example.com") is None
+    assert workspace_human_role(db, ws, None) is None
 
 
 def test_agents_and_workspace_tokens_cannot_create_links(client, workspace, people):
