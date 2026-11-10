@@ -18,6 +18,7 @@ import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileHeader } from './mobile-header';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { isRecentAgent } from '@/lib/helpers';
+import { shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
 import { ChatView } from '@/components/chat/chat-view';
 import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
@@ -95,7 +96,7 @@ export function Wrapper() {
     const q = hash.indexOf('?');
     if (q >= 0 && new URLSearchParams(hash.slice(q + 1)).has('agent')) openView('agents');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
+  const { workspace, workspaceLoadError, retryWorkspace, monitorMode, agents, loading, sessions, currentSessionId, currentUser, selectedFileId, selectedKnowledgeId } = useWorkspace();
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   // Resolve a stable identity before writing the URL; never expose DM participants.
   useEffect(() => {
@@ -152,6 +153,29 @@ export function Wrapper() {
   const userSessions = sessions.filter(
     (s) => !(s.master && agents.some((a) => a.builtin && a.agentName === s.master)),
   );
+  const firstRunEntryChecked = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || workspaceLoadError || !workspace || !currentUser.id) return;
+    const key = `oa:firstRunEntry:${workspace.workspaceId}:${currentUser.id}`;
+    if (firstRunEntryChecked.current === key) return;
+    firstRunEntryChecked.current = key;
+    const path = window.location.pathname.split('/').filter(Boolean);
+    const inviteHash = window.location.hash.split('?')[1];
+    if (!shouldOpenFirstRunOnboarding({
+      needsFirstDevice: workspace.needsFirstDevice === true,
+      hasAgents,
+      hasUserSessions: userSessions.length > 0,
+      isDirectMessage: currentSessionId?.startsWith('dm:') === true,
+      isWorkspaceLanding: (path.length === 1 || (path.length === 3 && path[1] === 'threads')) &&
+        !(inviteHash && new URLSearchParams(inviteHash).has('agent')),
+      viewMode,
+    })) return;
+    try {
+      if (localStorage.getItem(key) === '1') return;
+      localStorage.setItem(key, '1');
+    } catch { /* Private browsing still gets setup once per mounted workspace. */ }
+    openView('connect');
+  }, [loading, workspaceLoadError, workspace, currentUser.id, hasAgents, userSessions.length, currentSessionId, viewMode, openView]);
   const showOnboarding =
     !onboardingDismissed && !hasAgents && userSessions.length === 0 && viewMode === 'connect' &&
     !currentSessionId?.startsWith('dm:');
