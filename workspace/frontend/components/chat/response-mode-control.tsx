@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { AtSign, Check, ChevronDown, Loader2, Sparkles, Waypoints } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useThreadAccess } from '@/hooks/use-thread-access';
@@ -46,13 +46,6 @@ export function ResponseModeControl({ session, onChange }: { session: WorkspaceS
               <div className="flex items-center gap-2">{t(`responseMode.${option}`)}{!workflow && mode === option && <Check className="size-3.5" />}</div>
               <p className="mt-0.5 text-xs text-muted-foreground">{t(`responseMode.${option}Hint`)}</p>
             </div>
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="flex items-center gap-1.5"><Waypoints className="size-3.5" />{t('orchestration.pickWorkflow')}</DropdownMenuLabel>
-        {workflows.length === 0 ? <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('orchestration.noWorkflows')}</p> : workflows.map(w => (
-          <DropdownMenuItem key={w.id} disabled={saving} onSelect={() => void change({ mode: 'workflow', responseMode: 'proactive', workflowId: w.id })}>
-            <span className="flex-1 truncate">{w.name}</span>{workflow && session.workflowId === w.id && <Check className="size-3.5" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
